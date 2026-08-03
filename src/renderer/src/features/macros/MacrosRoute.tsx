@@ -1,4 +1,4 @@
-import { Keyboard, Pause, Play, Plus, Search, ToggleLeft, ToggleRight } from "lucide-react";
+import { Keyboard, Pause, Play, Plus, Pointer, Repeat1, Search, Timer, ToggleLeft, ToggleRight } from "lucide-react";
 
 import { type JSX, type MutableRefObject, useEffect, useMemo, useRef } from "react";
 
@@ -28,11 +28,56 @@ import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared
 
 import { getMacroListItems, type MacroListSortKey, type MacroListSortState } from "./macroListUtils";
 
-import { formatMacroActivationMode, formatMacroRepeat, formatMacroShortcut, formatMacroShortcutSourceScope, summarizeMacroSteps } from "./macroUtils";
+import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, formatMacroShortcutSourceScope, summarizeMacroSteps } from "./macroUtils";
 
 import { MacroActionMenu, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
 const ALL_ROLES_SELECT_VALUE = "__all_roles__";
+
+function MacroActivationIndicator({ macro, t }: { macro: Macro; t: Translator }): JSX.Element {
+  const isWhileHeld = macro.activationMode === "while_held";
+  const label = formatMacroActivationMode(macro.activationMode, t);
+
+  return (
+    <span
+      aria-label={label}
+      className="inline-flex h-7 w-4 shrink-0 items-center justify-center text-muted-foreground"
+      data-macro-activation-indicator
+      role="img"
+      title={label}
+    >
+      {isWhileHeld ? <Pointer aria-hidden="true" size={14} /> : <ToggleRight aria-hidden="true" size={14} />}
+    </span>
+  );
+}
+
+function MacroRepeatIndicator({ macro, t }: { macro: Macro; t: Translator }): JSX.Element {
+  const label = formatMacroRepeat(macro.repeat, t);
+  const delayLabel = macro.repeat.type === "loop"
+    ? macro.repeat.intervalMs === 0
+      ? t("macroForm.intervalMilliseconds").replace("{value}", "0")
+      : formatMacroIntervalPreset(macro.repeat.intervalMs, t)
+    : undefined;
+
+  return (
+    <span
+      aria-label={label}
+      className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap text-muted-foreground"
+      data-macro-repeat-indicator
+      role="img"
+      title={label}
+    >
+      {macro.repeat.type === "loop" ? (
+        <>
+          <Timer aria-hidden="true" size={14} />
+          <span aria-hidden="true" className="text-body leading-5 tabular-nums">{delayLabel}</span>
+        </>
+      ) : (
+        <Repeat1 aria-hidden="true" size={14} />
+      )}
+    </span>
+  );
+}
 
 interface MacrosRouteProps {
   busyMacroIds: ReadonlySet<string>;
@@ -372,13 +417,6 @@ function MacrosRoute({
                     onSort={handleSortChange}
                   />
                   <MacroSortHeader
-                    label={t("macros.column.activation")}
-                    sort={sort}
-                    sortKey="activation"
-                    t={t}
-                    onSort={handleSortChange}
-                  />
-                  <MacroSortHeader
                     label={t("macros.column.repeat")}
                     sort={sort}
                     sortKey="repeat"
@@ -446,24 +484,22 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    <td className="relative max-w-[240px] px-4 py-2 align-middle">
-                      <div className="min-w-0 pl-9" data-macro-name-control>
-                        <div
-                          className="absolute inset-y-0 left-4 flex items-center"
-                          data-macro-run-control
-                        >
-                          <MacroRunButton
-                            macro={macro}
-                            runState={runState}
-                            t={t}
-                            onStartMacro={onStartMacro}
-                            onStopMacro={onStopMacro}
-                          />
-                        </div>
-                        <div className="min-w-0">
+                    <td className="max-w-[240px] px-4 py-2 align-middle">
+                      <div className="min-w-0" data-macro-name-control>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <div className="shrink-0" data-macro-run-control>
+                            <MacroRunButton
+                              macro={macro}
+                              runState={runState}
+                              t={t}
+                              onStartMacro={onStartMacro}
+                              onStopMacro={onStopMacro}
+                            />
+                          </div>
+                          <MacroActivationIndicator macro={macro} t={t} />
                           <button
                             className={cn(
-                              "-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
+                              "-mx-1 block min-w-0 max-w-full flex-1 rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
                               macro.enabled ? "text-foreground" : "text-muted-foreground"
                             )}
                             type="button"
@@ -473,13 +509,13 @@ function MacrosRoute({
                           >
                             <span className="block truncate">{macro.name}</span>
                           </button>
-                          <MacroFailureMessage
-                            macro={macro}
-                            macroStatusByRun={macroStatusByRun}
-                            roleById={roleById}
-                            t={t}
-                          />
                         </div>
+                        <MacroFailureMessage
+                          macro={macro}
+                          macroStatusByRun={macroStatusByRun}
+                          roleById={roleById}
+                          t={t}
+                        />
                       </div>
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">
@@ -506,10 +542,7 @@ function MacrosRoute({
                       )}
                     </td>
                     <td className="px-4 py-2 align-middle text-muted-foreground">
-                      {formatMacroActivationMode(macro.activationMode, t)}
-                    </td>
-                    <td className="px-4 py-2 align-middle text-muted-foreground">
-                      {formatMacroRepeat(macro.repeat, t)}
+                      <MacroRepeatIndicator macro={macro} t={t} />
                     </td>
                     <td className="max-w-[320px] px-4 py-2 align-middle text-muted-foreground">
                       {summarizeMacroSteps(macro.steps, t, macroNameById)}

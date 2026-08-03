@@ -13,8 +13,11 @@ mod runtime_tab_menu;
 mod runtime_tabs_macos;
 mod system_runtime;
 mod update_manager;
+mod update_transaction;
 
 include!("lib/section_01_activation.rs");
+include!("lib/section_01_runtime_operation_receipt.rs");
+include!("lib/section_01_update_install.rs");
 include!("lib/section_02_drop.rs");
 include!("lib/section_03_rion_overlay_request.rs");
 include!("lib/section_04_rion_shell_invoke.rs");

@@ -60,6 +60,7 @@ impl SystemRuntimeExecutor {
             "layoutRuntimeTab",
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope("nativeSubmission")
         .with_revision(revision)
         .with_tab(tab_id)
         .with_window(&window_id);
@@ -144,6 +145,11 @@ impl SystemRuntimeExecutor {
             trigger,
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope(if scope == GeometryMutationScope::PositionOnly {
+            "nativeAcknowledgement"
+        } else {
+            "nativeSubmission"
+        })
         .with_revision(revision)
         .with_window(&target.window_id);
         let _guard = lane.lock().map_err(|_| {

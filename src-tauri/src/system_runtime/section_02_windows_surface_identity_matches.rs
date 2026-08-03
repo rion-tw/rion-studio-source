@@ -655,6 +655,8 @@ struct NativePresentationRequest {
     native_window_mutations: Arc<NativeWindowMutationRegistry>,
     observed_previous_tab_id: Option<String>,
     observed_previous_surfaces: Vec<Webview>,
+    operation: NativeOperationContext,
+    operations: Arc<NativeOperationRegistry>,
     requested_at: Instant,
     revision: u64,
     surface_owner_revisions: HashMap<String, u64>,
@@ -672,21 +674,7 @@ impl NativePresentationRequest {
     fn plan(&self) -> NativePresentationPlan {
         NativePresentationPlan {
             focus: self.focus,
-            operation: {
-                let mut context = NativeOperationContext::new_at_for_platform(
-                    NativeOperationSubsystem::Presentation,
-                    self.trigger,
-                    PLATFORM_CALLBACK_TIMEOUT,
-                    current_runtime_platform(),
-                    self.requested_at,
-                )
-                .with_revision(self.revision)
-                .with_window(self.window_id.clone());
-                if let Some(tab_id) = self.tab_id.as_ref() {
-                    context = context.with_tab(tab_id.clone());
-                }
-                context
-            },
+            operation: self.operation.clone(),
             revision: self.revision,
             surface_identities: self.next_surface_identities.clone(),
             tab_id: self.tab_id.clone(),
@@ -742,21 +730,11 @@ struct NativeWindowActorState {
     applied_tab_id: Option<String>,
     applied_window_visibility: Option<bool>,
     last_receipt: Option<NativePresentationReceipt>,
-    recent_operation_receipts: VecDeque<NativeOperationReceipt>,
     burst_first_requested_at: Option<Instant>,
     burst_first_revision: u64,
     burst_request_count: u32,
     requests: NativePresentationQueue<NativePresentationRequest>,
     stopped: bool,
-}
-
-impl NativeWindowActorState {
-    fn push_operation_receipt(&mut self, receipt: NativeOperationReceipt) {
-        while self.recent_operation_receipts.len() >= RECENT_NATIVE_OPERATION_CAPACITY {
-            self.recent_operation_receipts.pop_front();
-        }
-        self.recent_operation_receipts.push_back(receipt);
-    }
 }
 
 struct NativeWindowActor {

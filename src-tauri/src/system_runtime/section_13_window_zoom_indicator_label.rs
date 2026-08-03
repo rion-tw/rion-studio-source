@@ -244,7 +244,7 @@ impl SystemRuntimeExecutor {
         &self,
         tab_id: &str,
         native_style_applied: bool,
-    ) -> Result<(String, bool, String), String> {
+    ) -> Result<(String, bool, String, String), String> {
         let trigger = if native_style_applied {
             "native-pointer"
         } else {
@@ -261,7 +261,7 @@ impl SystemRuntimeExecutor {
     pub(crate) fn preview_launcher_tab_activation(
         &self,
         tab_id: &str,
-    ) -> Result<(String, bool, String), String> {
+    ) -> Result<(String, bool, String, String), String> {
         self.preview_tab_activation_with_focus(
             tab_id,
             NativePresentationFocus::WindowAndContent,
@@ -276,12 +276,12 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         trigger: &'static str,
         window_visibility: Option<bool>,
-    ) -> Result<(String, bool, String), String> {
+    ) -> Result<(String, bool, String, String), String> {
         let resolved_tab_id = self
             .presentation
             .resolve_tab_alias(tab_id)
             .unwrap_or_else(|| tab_id.to_owned());
-        if let Some(window_id) =
+        if let Some((window_id, operation_id)) =
             self.request_provisional_tab_presentation(
                 &resolved_tab_id,
                 focus,
@@ -289,7 +289,7 @@ impl SystemRuntimeExecutor {
                 window_visibility,
             )?
         {
-            return Ok((window_id, true, resolved_tab_id));
+            return Ok((window_id, true, resolved_tab_id, operation_id));
         }
         self.request_tab_presentation_with_window_visibility(
             &resolved_tab_id,
@@ -297,7 +297,9 @@ impl SystemRuntimeExecutor {
             trigger,
             window_visibility,
         )
-        .map(|(window_id, _)| (window_id, false, resolved_tab_id))
+        .map(|(window_id, _, operation_id)| {
+            (window_id, false, resolved_tab_id, operation_id)
+        })
     }
 
     fn reconcile_presentation_tab_owner(
@@ -334,7 +336,7 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         trigger: &'static str,
         window_visibility: Option<bool>,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<(String, String)>, String> {
         let requested_at = Instant::now();
         let (window_id, window) = {
             let state = self.state().map_err(|error| error.message)?;
@@ -374,7 +376,7 @@ impl SystemRuntimeExecutor {
         } else if trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
-        self.dispatch_native_presentation(
+        let operation_id = self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),
             revision,
@@ -389,7 +391,7 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
-        Ok(Some(window_id))
+        Ok(Some((window_id, operation_id)))
     }
 
     fn request_tab_presentation(
@@ -397,7 +399,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         focus: NativePresentationFocus,
         trigger: &'static str,
-    ) -> Result<(String, u64), String> {
+    ) -> Result<(String, u64, String), String> {
         self.request_tab_presentation_with_window_visibility(tab_id, focus, trigger, None)
     }
 
@@ -409,7 +411,7 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
         trigger: &'static str,
-    ) -> RuntimeResult<u64> {
+    ) -> RuntimeResult<(u64, String)> {
         self.mark_critical_activity();
         let window = {
             let state = self.state()?;
@@ -460,7 +462,7 @@ impl SystemRuntimeExecutor {
             )
         };
         self.apply_native_active_style(window_id, tab_id, revision, trigger);
-        self.dispatch_native_presentation(
+        let operation_id = self.dispatch_native_presentation(
             window_id.to_owned(),
             tab_id.map(str::to_owned),
             revision,
@@ -475,7 +477,7 @@ impl SystemRuntimeExecutor {
             focus,
             window_mode,
         );
-        Ok(revision)
+        Ok((revision, operation_id))
     }
 
     fn request_tab_presentation_with_window_visibility(
@@ -484,7 +486,7 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         trigger: &'static str,
         window_visibility: Option<bool>,
-    ) -> Result<(String, u64), String> {
+    ) -> Result<(String, u64, String), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
         let (window_id, window) = {
@@ -533,7 +535,7 @@ impl SystemRuntimeExecutor {
         } else if trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
-        self.dispatch_native_presentation(
+        let operation_id = self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),
             revision,
@@ -548,7 +550,7 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
-        Ok((window_id, revision))
+        Ok((window_id, revision, operation_id))
     }
 
     fn reconcile_window_presentation(

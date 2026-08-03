@@ -59,6 +59,26 @@ describe("UpdateReadyBanner", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("offers retry only when a failed install still has a verified pending payload", () => {
+    const { rerender } = render(
+      <UpdateReadyBanner
+        status={{ ...downloadedStatus("2.0.0"), state: "install_failed", canRetryInstall: false }}
+        t={t}
+        onInstall={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+
+    rerender(
+      <UpdateReadyBanner
+        status={{ ...downloadedStatus("2.0.0"), state: "install_failed", canRetryInstall: true }}
+        t={t}
+        onInstall={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Restart and update" })).toBeTruthy();
+  });
+
   it("provides the update policy and ready prompt in every supported language", () => {
     for (const dictionary of [en, zhTW, zhCN, ja]) {
       expect(dictionary["app.updateReadyTitle"]).toBeTruthy();
@@ -67,6 +87,16 @@ describe("UpdateReadyBanner", () => {
       expect(dictionary["app.updateLater"]).toBeTruthy();
       expect(dictionary["settings.autoUpdateEnabled"]).toBeTruthy();
       expect(dictionary["settings.autoUpdateDisabled"]).toBeTruthy();
+      expect(dictionary["settings.updateInstallFailed"]).toContain("{error}");
+      for (const state of [
+        "preparing",
+        "installing",
+        "draining",
+        "restart_pending",
+        "install_failed"
+      ] as const) {
+        expect(dictionary[`settings.updateState.${state}`]).toBeTruthy();
+      }
     }
   });
 });

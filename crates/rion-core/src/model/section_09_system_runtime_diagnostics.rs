@@ -76,6 +76,64 @@ pub struct SystemRuntimeOperationSummaryRecord {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct AppUpdateInstallAttemptRecord {
+    pub attempt_id: String,
+    pub target_version: String,
+    #[ts(type = "\"accepted\" | \"preparing\" | \"installing\" | \"draining\" | \"installerHandoff\" | \"restartPending\" | \"applied\" | \"failedBeforeDrain\" | \"failedAfterDrain\"")]
+    pub phase: String,
+    pub started_at: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct AppUpdateStatusRecord {
+    pub current_version: String,
+    #[ts(type = "\"automatic\" | \"manual\"")]
+    pub install_mode: String,
+    pub is_packaged: bool,
+    pub auto_update_enabled: bool,
+    #[ts(type = "\"unsupported\" | \"idle\" | \"checking\" | \"available\" | \"not_available\" | \"downloading\" | \"downloaded\" | \"preparing\" | \"installing\" | \"draining\" | \"restart_pending\" | \"install_failed\" | \"error\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub available_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub download_progress: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub download_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub release_page_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub installer_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub checked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub install_attempt: Option<AppUpdateInstallAttemptRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub can_retry_install: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EngineCapabilityEvidenceRecord {
     pub capability: String,
     pub status: EngineCapabilityStatus,

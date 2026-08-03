@@ -104,7 +104,14 @@ export function useAppUpdates({ enabled, onError }: UseAppUpdatesOptions): UseAp
     }
   }, [enabled, onError]);
 
-  const isBusy = useMemo(() => status?.state === "checking" || status?.state === "downloading", [status?.state]);
+  const isBusy = useMemo(() => [
+    "checking",
+    "downloading",
+    "preparing",
+    "installing",
+    "draining",
+    "restart_pending"
+  ].includes(status?.state ?? ""), [status?.state]);
 
   return {
     appVersion,

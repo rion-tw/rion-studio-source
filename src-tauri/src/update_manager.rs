@@ -1,21 +1,27 @@
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use rion_core::{AppUpdateInstallAttemptRecord, AppUpdateStatusRecord};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Notify;
 
-use crate::native_shell;
+use crate::{
+    native_shell,
+    update_transaction::{
+        InstallAttemptGate, InstallBoundary, InstallJournalRecovery, InstallPlatform,
+        install_boundary_contract, install_journal_path, reconcile_install_journal,
+        write_install_journal,
+    },
+};
 
 const DEFAULT_RELEASE_REPOSITORY: &str = "rion-tw/rion-studio";
 const UPDATE_STATUS_EVENT: &str = "rion://update-status";
@@ -27,35 +33,16 @@ const AUTOMATIC_UPDATE_RETRY_DELAYS: [Duration; 3] = [
     Duration::from_secs(60 * 60),
     Duration::from_secs(6 * 60 * 60),
 ];
-const UPDATE_PREFERENCES_FILE: &str = "app-update-preferences.json";
-static UPDATE_PREFERENCES_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdatePreferences {
-    #[serde(default = "default_auto_update_enabled")]
-    auto_update_enabled: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    last_attempt_at: Option<String>,
-    #[serde(default, skip_serializing_if = "is_zero")]
-    consecutive_failures: u8,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pending_version: Option<String>,
-}
-
-impl Default for UpdatePreferences {
-    fn default() -> Self {
-        Self {
-            auto_update_enabled: true,
-            last_attempt_at: None,
-            consecutive_failures: 0,
-            pending_version: None,
-        }
-    }
-}
+#[path = "update_manager/preferences.rs"]
+mod preferences;
+use preferences::{
+    UPDATE_PREFERENCES_FILE, UpdatePreferences, automatic_check_delay, load_update_preferences,
+    write_update_preferences,
+};
 
 struct PendingUpdate {
-    bytes: Vec<u8>,
+    bytes: Arc<Vec<u8>>,
     update: Update,
 }
 
@@ -71,6 +58,9 @@ pub struct UpdateManager {
     check_gate: tokio::sync::Mutex<()>,
     configured: bool,
     current_version: String,
+    install_submission: Mutex<()>,
+    install_gate: InstallAttemptGate,
+    install_journal_path: PathBuf,
     legal_accepted: AtomicBool,
     packaged: bool,
     pending: Mutex<Option<PendingUpdate>>,
@@ -96,18 +86,69 @@ impl UpdateManager {
         let configured = embedded_updater_public_key().is_some();
         let preferences_path = user_data_dir.join(UPDATE_PREFERENCES_FILE);
         let mut preferences = load_update_preferences(&preferences_path);
-        if preferences.pending_version.as_deref() == Some(&current_version) {
+        let install_journal_path = install_journal_path(user_data_dir);
+        let journal_recovery = reconcile_install_journal(&install_journal_path, &current_version);
+        if preferences.pending_version.as_deref() == Some(&current_version)
+            || matches!(journal_recovery, InstallJournalRecovery::Applied(_))
+        {
             preferences.pending_version = None;
             preferences.consecutive_failures = 0;
             let _ = write_update_preferences(&preferences_path, &preferences);
         }
         let auto_update_enabled = preferences.auto_update_enabled;
+        let startup_status = match &journal_recovery {
+            InstallJournalRecovery::Applied(attempt) => json!({
+                "currentVersion": current_version,
+                "installMode": "automatic",
+                "isPackaged": packaged,
+                "autoUpdateEnabled": auto_update_enabled,
+                "state": if packaged && configured { "idle" } else { "unsupported" },
+                "installAttempt": attempt
+            }),
+            InstallJournalRecovery::Failed(attempt, code) => json!({
+                "currentVersion": current_version,
+                "installMode": "automatic",
+                "isPackaged": packaged,
+                "autoUpdateEnabled": auto_update_enabled,
+                "state": "install_failed",
+                "availableVersion": attempt.target_version,
+                "installAttempt": attempt,
+                "canRetryInstall": false,
+                "errorCode": code,
+                "error": "The update did not advance the installed application version."
+            }),
+            InstallJournalRecovery::Corrupt(code) => json!({
+                "currentVersion": current_version,
+                "installMode": "automatic",
+                "isPackaged": packaged,
+                "autoUpdateEnabled": auto_update_enabled,
+                "state": "install_failed",
+                "canRetryInstall": false,
+                "errorCode": code,
+                "error": "The previous update transaction journal could not be recovered."
+            }),
+            InstallJournalRecovery::None => json!({
+                "currentVersion": current_version,
+                "installMode": "automatic",
+                "isPackaged": packaged,
+                "autoUpdateEnabled": auto_update_enabled,
+                "state": if packaged && configured { "idle" } else { "unsupported" },
+                "error": if packaged && !configured {
+                    Some("This build does not contain a Tauri updater verification key.")
+                } else {
+                    None::<&str>
+                }
+            }),
+        };
         Self {
             app,
             automatic_force_check: AtomicBool::new(false),
             check_gate: tokio::sync::Mutex::new(()),
             configured,
             current_version: current_version.clone(),
+            install_submission: Mutex::new(()),
+            install_gate: InstallAttemptGate::default(),
+            install_journal_path,
             legal_accepted: AtomicBool::new(legal_accepted),
             packaged,
             pending: Mutex::new(None),
@@ -119,18 +160,7 @@ impl UpdateManager {
             scheduler_started: AtomicBool::new(false),
             startup_delay_scheduled: AtomicBool::new(false),
             startup_ready: AtomicBool::new(false),
-            status: Mutex::new(json!({
-                "currentVersion": current_version,
-                "installMode": "automatic",
-                "isPackaged": packaged,
-                "autoUpdateEnabled": auto_update_enabled,
-                "state": if packaged && configured { "idle" } else { "unsupported" },
-                "error": if packaged && !configured {
-                    Some("This build does not contain a Tauri updater verification key.")
-                } else {
-                    None::<&str>
-                }
-            })),
+            status: Mutex::new(startup_status),
         }
     }
 
@@ -141,7 +171,32 @@ impl UpdateManager {
             .unwrap_or_else(|_| self.error_status("Update status is unavailable."))
     }
 
-    pub fn set_auto_update_enabled(&self, enabled: bool) -> Result<Value, String> {
+    pub fn status_record(&self) -> AppUpdateStatusRecord {
+        serde_json::from_value(self.status()).unwrap_or_else(|_| AppUpdateStatusRecord {
+            current_version: self.current_version.clone(),
+            install_mode: "automatic".to_owned(),
+            is_packaged: self.packaged,
+            auto_update_enabled: self.auto_update_enabled(),
+            state: if self.packaged {
+                "error"
+            } else {
+                "unsupported"
+            }
+            .to_owned(),
+            available_version: None,
+            download_progress: None,
+            download_url: None,
+            release_page_url: None,
+            installer_name: None,
+            error: Some("Update status is unavailable.".to_owned()),
+            error_code: Some("UPDATE_STATUS_UNAVAILABLE".to_owned()),
+            checked_at: Some(chrono::Utc::now().to_rfc3339()),
+            install_attempt: None,
+            can_retry_install: None,
+        })
+    }
+
+    pub fn set_auto_update_enabled(&self, enabled: bool) -> Result<AppUpdateStatusRecord, String> {
         self.update_preferences(|preferences| preferences.auto_update_enabled = enabled)?;
         let mut status = self.status();
         if let Some(status) = status.as_object_mut() {
@@ -152,7 +207,7 @@ impl UpdateManager {
             self.automatic_force_check.store(true, Ordering::Release);
         }
         self.scheduler_notify.notify_one();
-        Ok(status)
+        serde_json::from_value(status).map_err(|error| error.to_string())
     }
 
     pub fn start_automatic_checks(self: &Arc<Self>) {
@@ -177,8 +232,9 @@ impl UpdateManager {
         self.scheduler_notify.notify_one();
     }
 
-    pub async fn check_manual(&self) -> Value {
-        self.check(UpdateCheckReason::Manual).await
+    pub async fn check_manual(&self) -> AppUpdateStatusRecord {
+        self.check(UpdateCheckReason::Manual).await;
+        self.status_record()
     }
 
     async fn check(&self, reason: UpdateCheckReason) -> Value {
@@ -227,7 +283,60 @@ impl UpdateManager {
             .updater_builder()
             .pubkey(public_key)
             .timeout(UPDATE_TIMEOUT)
-            .on_before_exit(move || crate::prepare_application_update_exit(&before_exit_app))
+            .on_before_exit(move || {
+                let (post_drain_phase, post_drain_state) = match install_boundary_contract(
+                    InstallPlatform::Windows,
+                    InstallBoundary::BeforeExit,
+                ) {
+                    Ok(contract) => contract,
+                    Err(_) => {
+                        let _ = crate::prepare_application_update_exit(&before_exit_app);
+                        before_exit_app.cleanup_before_exit();
+                        before_exit_app.restart();
+                    }
+                };
+                let draining_transition = before_exit_app
+                    .try_state::<crate::CoreState>()
+                    .map(|state| {
+                        state
+                            .updates
+                            .transition_install("draining", "draining", None, None, false)
+                    })
+                    .transpose();
+                if draining_transition.is_err() {
+                    let _ = crate::prepare_application_update_exit(&before_exit_app);
+                    before_exit_app.cleanup_before_exit();
+                    before_exit_app.restart();
+                }
+                let drain_result = crate::prepare_application_update_exit(&before_exit_app);
+                let terminal_transition = before_exit_app
+                    .try_state::<crate::CoreState>()
+                    .map(|state| {
+                        if let Err(error) = drain_result.as_ref() {
+                            state.updates.transition_install(
+                                "failedAfterDrain",
+                                "install_failed",
+                                Some("UPDATE_INSTALL_DRAIN_FAILED"),
+                                Some(error),
+                                false,
+                            )
+                        } else {
+                            state.updates.transition_install(
+                                post_drain_phase,
+                                post_drain_state,
+                                None,
+                                None,
+                                false,
+                            )
+                        }
+                    })
+                    .transpose();
+                if drain_result.is_err() || terminal_transition.is_err() {
+                    before_exit_app.cleanup_before_exit();
+                    before_exit_app.restart();
+                }
+                before_exit_app.cleanup_before_exit();
+            })
             .endpoints(vec![endpoint])
             .and_then(|builder| builder.build())
         {
@@ -295,7 +404,10 @@ impl UpdateManager {
         };
         match self.pending.lock() {
             Ok(mut pending) => {
-                *pending = Some(PendingUpdate { bytes, update });
+                *pending = Some(PendingUpdate {
+                    bytes: Arc::new(bytes),
+                    update,
+                });
             }
             Err(_) => {
                 return self.finish_check_error(reason, "Pending update state is unavailable.");
@@ -313,22 +425,119 @@ impl UpdateManager {
         }))
     }
 
-    pub fn install_downloaded(&self) -> Result<(), String> {
-        let mut pending = self
+    pub fn accept_install(&self) -> Result<(AppUpdateInstallAttemptRecord, bool), String> {
+        let _submission = self
+            .install_submission
+            .lock()
+            .map_err(|_| "Update install submission gate is unavailable.".to_owned())?;
+        if let Some(attempt) = self.install_gate.active_attempt()? {
+            return Ok((attempt, false));
+        }
+        let target_version = self
             .pending
             .lock()
-            .map_err(|_| "Pending update state is unavailable.".to_owned())?;
-        let update = pending
+            .map_err(|_| "Pending update state is unavailable.".to_owned())?
             .as_ref()
+            .map(|pending| pending.update.version.clone())
             .ok_or_else(|| "No verified update is ready to install.".to_owned())?;
-        if let Err(error) = update.update.install(&update.bytes) {
-            let message = error.to_string();
-            drop(pending);
-            self.set_status(self.error_status(&message));
-            return Err(message);
+        let (attempt, leader) = self.install_gate.accept(&target_version)?;
+        if leader {
+            if let Err(error) = write_install_journal(&self.install_journal_path, &attempt) {
+                let _ = self.install_gate.transition(
+                    "failedBeforeDrain",
+                    Some("UPDATE_INSTALL_JOURNAL_WRITE_FAILED"),
+                );
+                return Err(error);
+            }
+            self.set_install_status("preparing", &attempt, None, None, false);
         }
-        *pending = None;
+        Ok((attempt, leader))
+    }
+
+    pub fn transition_install(
+        &self,
+        phase: &str,
+        state: &str,
+        failure_code: Option<&str>,
+        error: Option<&str>,
+        can_retry: bool,
+    ) -> Result<AppUpdateInstallAttemptRecord, String> {
+        let attempt = self.install_gate.transition(phase, failure_code)?;
+        if let Err(journal_error) = write_install_journal(&self.install_journal_path, &attempt) {
+            let failed_after_drain = self.install_gate.has_started_draining();
+            let failure = self
+                .install_gate
+                .transition(
+                    if failed_after_drain {
+                        "failedAfterDrain"
+                    } else {
+                        "failedBeforeDrain"
+                    },
+                    Some("UPDATE_INSTALL_JOURNAL_WRITE_FAILED"),
+                )
+                .unwrap_or(attempt);
+            let _ = write_install_journal(&self.install_journal_path, &failure);
+            self.set_install_status(
+                "install_failed",
+                &failure,
+                Some("UPDATE_INSTALL_JOURNAL_WRITE_FAILED"),
+                Some(&journal_error),
+                !failed_after_drain,
+            );
+            return Err(journal_error);
+        }
+        self.set_install_status(state, &attempt, failure_code, error, can_retry);
+        Ok(attempt)
+    }
+
+    pub fn install_downloaded(&self) -> Result<(), String> {
+        let (update, bytes) = {
+            let pending = self
+                .pending
+                .lock()
+                .map_err(|_| "Pending update state is unavailable.".to_owned())?;
+            let pending = pending
+                .as_ref()
+                .ok_or_else(|| "No verified update is ready to install.".to_owned())?;
+            (pending.update.clone(), Arc::clone(&pending.bytes))
+        };
+        if let Err(error) = update.install(bytes.as_slice()) {
+            return Err(error.to_string());
+        }
+        if let Ok(mut pending) = self.pending.lock()
+            && pending
+                .as_ref()
+                .is_some_and(|pending| pending.update.version == update.version)
+        {
+            *pending = None;
+        }
         Ok(())
+    }
+
+    pub fn install_has_started_draining(&self) -> bool {
+        self.install_gate.has_started_draining()
+    }
+
+    fn set_install_status(
+        &self,
+        state: &str,
+        attempt: &AppUpdateInstallAttemptRecord,
+        error_code: Option<&str>,
+        error: Option<&str>,
+        can_retry: bool,
+    ) -> Value {
+        self.set_status(json!({
+            "currentVersion": self.current_version,
+            "installMode": "automatic",
+            "isPackaged": self.packaged,
+            "state": state,
+            "availableVersion": attempt.target_version,
+            "installAttempt": attempt,
+            "canRetryInstall": can_retry,
+            "errorCode": error_code,
+            "error": error,
+            "checkedAt": chrono::Utc::now().to_rfc3339()
+        }))
     }
 
     pub fn open_release_page(&self) -> Result<(), String> {
@@ -488,65 +697,6 @@ impl UpdateManager {
     }
 }
 
-fn load_update_preferences(path: &Path) -> UpdatePreferences {
-    fs::read(path)
-        .ok()
-        .and_then(|content| serde_json::from_slice::<UpdatePreferences>(&content).ok())
-        .unwrap_or_default()
-}
-
-fn write_update_preferences(path: &Path, preferences: &UpdatePreferences) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "Update preferences path has no parent directory.".to_owned())?;
-    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let temporary = parent.join(format!(
-        ".{UPDATE_PREFERENCES_FILE}.{}.{}.tmp",
-        std::process::id(),
-        UPDATE_PREFERENCES_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| {
-        let content = serde_json::to_vec(preferences).map_err(|error| error.to_string())?;
-        fs::write(&temporary, content).map_err(|error| error.to_string())?;
-        rion_platform::atomic_replace_file(&temporary, path).map_err(|error| error.to_string())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
-}
-
-fn automatic_check_delay(preferences: &UpdatePreferences, now: DateTime<Utc>) -> Duration {
-    let interval = match preferences.consecutive_failures {
-        0 if preferences.pending_version.is_some() => return Duration::ZERO,
-        0 => AUTOMATIC_UPDATE_INTERVAL,
-        failures => {
-            AUTOMATIC_UPDATE_RETRY_DELAYS[usize::from(failures.saturating_sub(1))
-                .min(AUTOMATIC_UPDATE_RETRY_DELAYS.len() - 1)]
-        }
-    };
-    let Some(last_attempt) = preferences
-        .last_attempt_at
-        .as_deref()
-        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.with_timezone(&Utc))
-    else {
-        return Duration::ZERO;
-    };
-    let Ok(elapsed) = (now - last_attempt).to_std() else {
-        return interval;
-    };
-    interval.saturating_sub(elapsed)
-}
-
-const fn default_auto_update_enabled() -> bool {
-    true
-}
-
-const fn is_zero(value: &u8) -> bool {
-    *value == 0
-}
-
 pub(crate) fn embedded_updater_public_key() -> Option<&'static str> {
     option_env!("RION_STUDIO_UPDATER_PUBLIC_KEY")
         .map(str::trim)
@@ -590,124 +740,5 @@ fn normalized_repository(value: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repository_and_signed_endpoint_are_allowlisted() {
-        assert_eq!(
-            normalized_repository("rion-tw/rion-studio").as_deref(),
-            Some("rion-tw/rion-studio")
-        );
-        assert!(normalized_repository("rion-tw/rion-studio/extra").is_none());
-        let endpoint = updater_endpoint("rion-tw/rion-studio").unwrap();
-        assert_eq!(endpoint.scheme(), "https");
-        assert_eq!(endpoint.host_str(), Some("github.com"));
-        assert!(
-            endpoint
-                .path()
-                .ends_with("/releases/latest/download/latest.json")
-        );
-    }
-
-    #[test]
-    fn update_preferences_default_to_enabled_and_round_trip() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(UPDATE_PREFERENCES_FILE);
-        assert!(load_update_preferences(&path).auto_update_enabled);
-
-        let preferences = UpdatePreferences {
-            auto_update_enabled: false,
-            consecutive_failures: 2,
-            last_attempt_at: Some("2026-08-02T00:00:00Z".to_owned()),
-            pending_version: Some("2.0.0".to_owned()),
-        };
-        write_update_preferences(&path, &preferences).unwrap();
-        let loaded = load_update_preferences(&path);
-        assert!(!loaded.auto_update_enabled);
-        assert_eq!(loaded.consecutive_failures, 2);
-        assert_eq!(loaded.pending_version.as_deref(), Some("2.0.0"));
-        assert!(fs::read_dir(directory.path()).unwrap().all(|entry| {
-            !entry
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .ends_with(".tmp")
-        }));
-
-        fs::write(&path, b"not-json").unwrap();
-        assert!(load_update_preferences(&path).auto_update_enabled);
-
-        fs::write(&path, br#"{"autoUpdateEnabled":false}"#).unwrap();
-        let migrated = load_update_preferences(&path);
-        assert!(!migrated.auto_update_enabled);
-        assert_eq!(migrated.consecutive_failures, 0);
-        assert!(migrated.last_attempt_at.is_none());
-        assert!(migrated.pending_version.is_none());
-    }
-
-    #[test]
-    fn automatic_check_cadence_uses_regular_and_bounded_retry_delays() {
-        let now = DateTime::parse_from_rfc3339("2026-08-02T06:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let mut preferences = UpdatePreferences {
-            last_attempt_at: Some("2026-08-02T05:50:00Z".to_owned()),
-            ..UpdatePreferences::default()
-        };
-        assert_eq!(
-            automatic_check_delay(&preferences, now),
-            Duration::from_secs(21_000)
-        );
-
-        for (failures, expected) in [(1, 300), (2, 3_000), (3, 21_000), (8, 21_000)] {
-            preferences.consecutive_failures = failures;
-            assert_eq!(
-                automatic_check_delay(&preferences, now),
-                Duration::from_secs(expected)
-            );
-        }
-
-        preferences.last_attempt_at = Some("2026-08-01T00:00:00Z".to_owned());
-        assert_eq!(automatic_check_delay(&preferences, now), Duration::ZERO);
-    }
-
-    #[test]
-    fn pending_version_is_immediately_due_until_a_failed_redownload_backs_off() {
-        let now = DateTime::parse_from_rfc3339("2026-08-02T06:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let mut preferences = UpdatePreferences {
-            last_attempt_at: Some("2026-08-02T05:59:00Z".to_owned()),
-            pending_version: Some("2.0.0".to_owned()),
-            ..UpdatePreferences::default()
-        };
-        assert_eq!(automatic_check_delay(&preferences, now), Duration::ZERO);
-        preferences.consecutive_failures = 1;
-        assert_eq!(
-            automatic_check_delay(&preferences, now),
-            Duration::from_secs(14 * 60)
-        );
-    }
-
-    #[tokio::test]
-    async fn update_check_gate_releases_after_success_and_error_returns() {
-        async fn run(gate: &tokio::sync::Mutex<()>, fail: bool) -> Result<(), ()> {
-            let _guard = gate.try_lock().map_err(|_| ())?;
-            if fail {
-                return Err(());
-            }
-            Ok(())
-        }
-
-        let gate = tokio::sync::Mutex::new(());
-        let held = gate.try_lock().unwrap();
-        assert!(run(&gate, false).await.is_err());
-        drop(held);
-
-        assert!(run(&gate, false).await.is_ok());
-        assert!(gate.try_lock().is_ok());
-        assert!(run(&gate, true).await.is_err());
-        assert!(gate.try_lock().is_ok());
-    }
-}
+#[path = "update_manager/tests.rs"]
+mod tests;

@@ -355,6 +355,7 @@ impl SystemRuntimeExecutor {
             "registerManagedSurface",
             PLATFORM_CALLBACK_TIMEOUT,
         )
+        .with_completion_scope("stateCommit")
         .with_window(window_id)
         .with_surface_generation(generation);
         if let Some(role_id) = role_id {

@@ -15,7 +15,12 @@ interface UpdateReadyBannerProps {
 export function UpdateReadyBanner({ status, t, onInstall }: UpdateReadyBannerProps): JSX.Element | null {
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
-  const version = status?.state === "downloaded" ? status.availableVersion : undefined;
+  const version = status?.state === "downloaded" ||
+    (status?.state === "install_failed" && status.canRetryInstall)
+    ? status.availableVersion
+    : undefined;
+  const transactionBusy = ["preparing", "installing", "draining", "restart_pending"]
+    .includes(status?.state ?? "");
 
   if (!version || dismissedVersion === version) return null;
 
@@ -47,13 +52,13 @@ export function UpdateReadyBanner({ status, t, onInstall }: UpdateReadyBannerPro
             <Button
               type="button"
               variant="ghost"
-              disabled={isInstalling}
+              disabled={isInstalling || transactionBusy}
               onClick={() => setDismissedVersion(version)}
             >
               {t("app.updateLater")}
             </Button>
-            <Button type="button" disabled={isInstalling} onClick={() => void install()}>
-              <RotateCcw className={isInstalling ? "animate-spin" : undefined} size={14} />
+            <Button type="button" disabled={isInstalling || transactionBusy} onClick={() => void install()}>
+              <RotateCcw className={isInstalling || transactionBusy ? "animate-spin" : undefined} size={14} />
               {t("app.updateRestartNow")}
             </Button>
           </div>

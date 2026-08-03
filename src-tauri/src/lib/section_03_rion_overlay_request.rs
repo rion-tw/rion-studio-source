@@ -102,7 +102,7 @@ async fn rion_runtime_tab_action(
     webview: Webview,
     state: State<'_, CoreState>,
     action: Value,
-) -> Result<(), CoreErrorPayload> {
+) -> Result<Value, CoreErrorPayload> {
     let window_id = state
         .runtime
         .tab_strip_window_for_webview(webview.label())
@@ -127,10 +127,43 @@ async fn rion_runtime_tab_action(
             .runtime
             .acknowledge_tab_chrome_presentation(webview.label(), revision)
             .map_err(|message| shell_error("TAURI_RUNTIME_CHROME_ACK_INVALID", message))?;
-        return Ok(());
+        return Ok(Value::Null);
+    }
+    if action.get("type").and_then(Value::as_str) == Some("windowControl") {
+        let control = action
+            .get("control")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime window control is required",
+                )
+            })?;
+        let receipt = match control {
+            "minimize" => state.runtime.minimize_runtime_window(&window_id),
+            "toggleFullscreen" => state.runtime.toggle_runtime_window_fullscreen(&window_id),
+            "zoom" => state.runtime.toggle_runtime_window_maximized(&window_id),
+            _ => {
+                return runtime_tab_menu::handle_scoped_action(
+                    &app,
+                    &state,
+                    window_id,
+                    action,
+                )
+                .await
+                .map(|_| Value::Null)
+                .map_err(|message| {
+                    shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message)
+                });
+            }
+        }
+        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
     }
     match runtime_tab_menu::handle_scoped_action(&app, &state, window_id, action).await {
-        Ok(()) => Ok(()),
+        Ok(()) => Ok(Value::Null),
         Err(message) => {
             let error = shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message);
             reveal_shell_error(

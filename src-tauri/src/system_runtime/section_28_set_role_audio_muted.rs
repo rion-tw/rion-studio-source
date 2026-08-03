@@ -183,7 +183,7 @@ impl SystemRuntimeExecutor {
 }
 impl Drop for SystemRuntimeExecutor {
     fn drop(&mut self) {
-        self.close_all();
+        let _ = self.close_all();
     }
 }
 

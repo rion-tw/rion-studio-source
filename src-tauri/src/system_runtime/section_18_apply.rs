@@ -243,6 +243,11 @@ impl SystemRuntimeExecutor {
             Duration::from_millis(deadline_ms.saturating_sub(now_ms))
                 .min(PLATFORM_CALLBACK_TIMEOUT),
         )
+        .with_completion_scope(if native_stage == "inputFocus" {
+            "inputReady"
+        } else {
+            "nativeSubmission"
+        })
         .with_role(&role_id);
         let result = (|| {
             let context = self.input_dispatch_context(&request)?;

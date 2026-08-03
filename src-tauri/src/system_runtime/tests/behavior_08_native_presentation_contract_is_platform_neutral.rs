@@ -63,6 +63,9 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
 
         let mut window_mode_plan = plan.clone();
         window_mode_plan.window_mode = Some(NativeWindowMode::Fullscreen);
+        window_mode_plan.operation = window_mode_plan
+            .operation
+            .with_completion_scope("nativeSubmission");
         let window_mode = NativePresentationReceipt::from_outcome(
             &window_mode_plan,
             &presentation_outcome(true, Some(true), Some(true), Vec::new()),

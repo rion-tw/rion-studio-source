@@ -21,6 +21,7 @@ import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
 import { useWindowsApplicationShortcuts } from "./hooks/useWindowsApplicationShortcuts";
+import { useSystemRuntimeWarnings } from "./hooks/useSystemRuntimeWarnings";
 import { localizeErrorMessage } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
@@ -49,6 +50,7 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
+  useSystemRuntimeWarnings(setNotice);
   const [isSavingGameWindow, setIsSavingGameWindow] = useState(false);
   const isSavingGameWindowRef = useRef(false);
   const notifiedEngineIssues = useRef(new Map<string, string>());

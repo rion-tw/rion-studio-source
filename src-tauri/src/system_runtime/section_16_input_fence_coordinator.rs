@@ -45,6 +45,7 @@ impl SystemRuntimeExecutor {
             "navigationInputFence",
             NAVIGATION_TIMEOUT,
         )
+        .with_completion_scope("inputReady")
         .with_role(role_id)
         .with_surface_generation(generation);
         if let Ok(state) = self.state()

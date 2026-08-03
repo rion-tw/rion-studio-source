@@ -71,6 +71,22 @@ impl NativeWindowActor {
                     let Some(batch) = batch else {
                         continue;
                     };
+                    if !batch
+                        .request
+                        .operations
+                        .mark_in_flight(&batch.request.operation.operation_id)
+                    {
+                        let (lock, changed) = &*worker_queue;
+                        if let Ok(mut state) = lock.lock() {
+                            state.requests.finish();
+                            if let Ok(mut coordinator) = batch.request.coordinator.lock() {
+                                coordinator.in_flight = false;
+                                coordinator.scheduled = !state.requests.is_empty();
+                            }
+                            changed.notify_one();
+                        }
+                        continue;
+                    }
                     let previous = worker_queue
                         .0
                         .lock()
@@ -112,7 +128,10 @@ impl NativeWindowActor {
                         state.applied_surfaces = batch.request.next_surfaces.clone();
                     }
                     state.last_receipt = Some(receipt.clone());
-                    state.push_operation_receipt(receipt.operation.clone());
+                    batch
+                        .request
+                        .operations
+                        .complete(receipt.operation.clone());
                     state.requests.finish();
                     let has_pending = !state.requests.is_empty();
                     if let Ok(mut coordinator) = batch.request.coordinator.lock() {
@@ -134,11 +153,26 @@ impl NativeWindowActor {
 
     fn dispatch(&self, request: NativePresentationRequest) -> Result<(), String> {
         let (lock, changed) = &*self.queue;
-        let mut state = lock
-            .lock()
-            .map_err(|_| "The native window actor is unavailable.".to_owned())?;
+        let mut state = match lock.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                request.operations.complete(NativeOperationReceipt::with_status(
+                    request.operation,
+                    "nativePresentationActorUnavailable",
+                    NativeOperationStatus::Failed,
+                    Some("NATIVE_PRESENTATION_ACTOR_UNAVAILABLE"),
+                ));
+                return Ok(());
+            }
+        };
         if state.stopped {
-            return Err("The native window actor has stopped.".to_owned());
+            request.operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "nativePresentationStopped",
+                NativeOperationStatus::Failed,
+                Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
+            ));
+            return Ok(());
         }
         if state.applied_revision == 0
             && !state.requests.in_flight
@@ -159,26 +193,26 @@ impl NativeWindowActor {
         let ordered = request.window_mode.is_some() || request.window_visibility.is_some();
         let superseded = if ordered {
             if let Err(rejected) = state.requests.enqueue_ordered(request) {
-                state.push_operation_receipt(NativeOperationReceipt::with_status(
-                    rejected.plan().operation,
+                rejected.operations.complete(NativeOperationReceipt::with_status(
+                    rejected.operation,
                     "nativePresentationQueueFull",
                     NativeOperationStatus::Failed,
                     Some("NATIVE_PRESENTATION_QUEUE_FULL"),
                 ));
-                return Err("The bounded native window control queue is full.".to_owned());
+                return Ok(());
             }
             None
         } else {
             match state.requests.enqueue_latest(request) {
                 Ok(superseded) => superseded,
                 Err(rejected) => {
-                    state.push_operation_receipt(NativeOperationReceipt::with_status(
-                        rejected.plan().operation,
+                    rejected.operations.complete(NativeOperationReceipt::with_status(
+                        rejected.operation,
                         "nativePresentationQueueFull",
                         NativeOperationStatus::Failed,
                         Some("NATIVE_PRESENTATION_QUEUE_FULL"),
                     ));
-                    return Err("The bounded native presentation queue is full.".to_owned());
+                    return Ok(());
                 }
             }
         };
@@ -193,8 +227,8 @@ impl NativeWindowActor {
             coordinator.scheduled = true;
         }
         if let Some(superseded) = superseded {
-            state.push_operation_receipt(NativeOperationReceipt::with_status(
-                superseded.plan().operation,
+            superseded.operations.complete(NativeOperationReceipt::with_status(
+                superseded.operation,
                 "nativePresentationQueued",
                 NativeOperationStatus::Superseded,
                 None,
@@ -232,11 +266,11 @@ impl NativeWindowActor {
             state.stopped = true;
             let superseded = state.requests.drain().collect::<Vec<_>>();
             for superseded in superseded {
-                state.push_operation_receipt(NativeOperationReceipt::with_status(
-                    superseded.plan().operation,
+                superseded.operations.complete(NativeOperationReceipt::with_status(
+                    superseded.operation,
                     "nativePresentationStopped",
-                    NativeOperationStatus::Superseded,
-                    None,
+                    NativeOperationStatus::Failed,
+                    Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
                 ));
             }
             changed.notify_all();

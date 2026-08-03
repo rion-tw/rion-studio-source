@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 2 defines the shared semantics for WKWebView on macOS and
+Contract version 3 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the reference
@@ -8,9 +8,12 @@ for user-visible ordering, focus, visibility, and navigation behavior.
 
 ## Operation envelope and receipt
 
-Every contract operation has a monotonic operation ID, platform, subsystem,
-trigger, start time, deadline, and any available revision, window, tab, role,
-or surface-generation fence. A terminal receipt uses one of these statuses:
+Every contract operation has one monotonic operation ID created before it is
+submitted, plus a platform, subsystem, trigger, start time, deadline, explicit
+completion scope, and any available revision, window, tab, role, or
+surface-generation fence. Planning, coalescing, failure handling, diagnostics,
+and public API responses retain that same ID and completion scope. A terminal
+receipt uses one of these statuses:
 
 - `applied`: the declared completion scope was reached.
 - `superseded`: a newer revision, epoch, or surface generation replaced it.
@@ -22,6 +25,22 @@ or surface-generation fence. A terminal receipt uses one of these statuses:
 The receipt's `completionScope` is part of the guarantee. In particular,
 `nativeSubmission` does not claim that page JavaScript handled an input event,
 and `stateCommit` does not claim that a later queued native paint has completed.
+Failure stages cannot weaken or replace the scope declared when the operation
+was accepted.
+
+Input, authorization, and not-found failures discovered before acceptance reject
+the API call. Once accepted, every outcome—including `failed` and
+`indeterminate`—resolves as a terminal receipt. Renderer handling is uniform:
+`applied` succeeds, `superseded` is silent, `degraded` raises a non-blocking
+warning, `failed` exposes its stable code, and `indeterminate` asks the user to
+restart before retrying.
+
+The registry holds at most 256 active operations and 80 recent terminal
+receipts. Active entries are never evicted to make room. A queued operation that
+passes its deadline is cancelled as `failed`; an operation whose native call
+started but did not confirm before its deadline is `indeterminate`. The first
+terminal receipt wins, so a late native callback cannot replace a timeout,
+supersede, actor-stop, queue-full, or shutdown result.
 
 ## Shared subsystem semantics
 
@@ -30,7 +49,7 @@ and `stateCommit` does not claim that a later queued native paint has completed.
 | Surface lifecycle | Generation-fenced register, isolate, release, retire, or quarantine | WKWebView lifecycle callbacks / WebView2 controller callbacks |
 | Navigation | Latest operation reaches HTTP(S) page finish or is superseded; automatic input resumes only after drain plus new-document proof | WKNavigation callbacks / WebView2 navigation callbacks |
 | Input | Epoch- and generation-fenced native submission with bounded cleanup | AppKit event delivery / WebView2 native input |
-| Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls, whose animated mode changes declare native submission | AppKit window and view APIs / Win32 and WebView2 controller APIs |
+| Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls and returns native acknowledgement for the submitted native transaction | AppKit window and view APIs / Win32 and WebView2 controller APIs |
 | Geometry and layout | Per-window serialized revision applies logical bounds, DPI conversion, child-surface layout, readback, and reverse-order compensation; asynchronous window modes declare native submission | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
@@ -60,8 +79,15 @@ one reversible batch, and commits runtime placement only after native success.
 Window controls remain ordered while ordinary presentation requests coalesce, so
 rapid fullscreen/maximized toggles cannot collapse into the wrong final state.
 Normal-mode bounds allow one logical pixel of DPI rounding. Fullscreen and
-maximized restoration intentionally claim `nativeSubmission`, since neither
-platform provides a synchronous animation-complete guarantee.
+maximized geometry restoration still claims `nativeSubmission`; the explicit
+tab-strip control APIs instead acknowledge completion of their native call and
+do not claim that a later operating-system animation has visually settled.
+
+`hideGameWindow`, `showGameWindowTab`, `setGameWindowTabMuted`, and tab-strip
+minimize/fullscreen/maximize controls return terminal receipts directly.
+`showGameWindowTab` guarantees that native presentation has completed; it does
+not wait for or claim page readiness. Persistent active-tab metadata is committed
+separately and cannot turn an acknowledged presentation into a false failure.
 
 ## Lifecycle and readiness rules
 
@@ -80,6 +106,9 @@ platform provides a synchronous animation-complete guarantee.
   navigations are reference-counted per WebView, so a superseded reload cannot
   release the newer reload's policy fence. A tab-level receipt is `degraded` when
   role outcomes differ.
+- Native reload menu actions wait in the background for the aggregate `inputReady`
+  receipt. Menu submission never reports success before the new document and
+  matching input epoch are ready.
 
 ## Shutdown rules
 
@@ -92,6 +121,8 @@ Creation gates and per-window mutation lanes must drain inside that same deadlin
 before the final surface snapshot is committed.
 Confirmed isolation with an unconfirmed controller release is `degraded`;
 unconfirmed content isolation is `indeterminate` and marks the runtime unhealthy.
+Every `close_all()` caller waits for and receives the same shutdown receipt,
+including update installation and repeated exit requests.
 
 ## Popup, security, and capability policy
 
@@ -109,10 +140,11 @@ operating system name.
 
 `SystemRuntimeDiagnosticsRecord` publishes the contract version, shutdown state,
 capability evidence, active lifecycle/navigation counts, and at most 80 recent
-operation summaries. Summaries may include stable IDs and error codes, but never
+operation summaries from the same registry used by API waiters. Summaries may
+include stable IDs and error codes, but never
 URLs, origins, session values, tokens, or native error messages.
 
-Additive fields remain compatible within version 2. Changing a terminal status,
+Additive fields remain compatible within version 3. Changing a terminal status,
 completion scope, identity fence, popup/security policy, or ordering guarantee
 requires a contract-version bump and matching macOS and Windows behavior tests.
 macOS checks run locally where available; Windows native reachability and SDK

@@ -1,4 +1,6 @@
 import type {
+  AppUpdateInstallAttemptRecord,
+  AppUpdateStatusRecord,
   BrowserHostKind as RustBrowserHostKind,
   BrowserFontSettingsRecord,
   BrowserFontSelectionRecord,
@@ -433,32 +435,10 @@ export interface ChromeProfileImportInput {
   resolutions: ChromeProfileImportResolution[];
 }
 
-export type AppUpdateState =
-  | "unsupported"
-  | "idle"
-  | "checking"
-  | "available"
-  | "not_available"
-  | "downloading"
-  | "downloaded"
-  | "error";
-
-export type AppUpdateInstallMode = "automatic" | "manual";
-
-export interface AppUpdateStatus {
-  currentVersion: string;
-  installMode: AppUpdateInstallMode;
-  isPackaged: boolean;
-  autoUpdateEnabled: boolean;
-  state: AppUpdateState;
-  availableVersion?: string;
-  downloadProgress?: number;
-  downloadUrl?: string;
-  releasePageUrl?: string;
-  installerName?: string;
-  error?: string;
-  checkedAt?: string;
-}
+export type AppUpdateState = AppUpdateStatusRecord["state"];
+export type AppUpdateInstallMode = AppUpdateStatusRecord["installMode"];
+export type AppUpdateInstallAttempt = AppUpdateInstallAttemptRecord;
+export type AppUpdateStatus = AppUpdateStatusRecord;
 export type LogLevel = RustLogLevel;
 export type LogSource = RustLogSource;
 

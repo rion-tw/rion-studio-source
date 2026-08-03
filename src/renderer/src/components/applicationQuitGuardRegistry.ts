@@ -14,7 +14,7 @@ export type UpdateApplicationQuitBlocker = (
 ) => void;
 
 export type RequestGuardedApplicationAction = (
-  action: () => Promise<void>
+  action: () => Promise<unknown>
 ) => Promise<boolean>;
 
 interface ApplicationQuitGuardApi {
@@ -28,7 +28,7 @@ export const ApplicationQuitGuardContext =
 export function useGuardedApplicationAction(): RequestGuardedApplicationAction {
   const guard = useContext(ApplicationQuitGuardContext);
   return useCallback(
-    (action: () => Promise<void>) => guard?.requestAction(action) ?? action().then(() => true),
+    (action: () => Promise<unknown>) => guard?.requestAction(action) ?? action().then(() => true),
     [guard]
   );
 }

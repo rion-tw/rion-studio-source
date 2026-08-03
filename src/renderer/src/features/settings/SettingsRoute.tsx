@@ -145,9 +145,13 @@ function SettingsViewBase({
     useState(false);
   const isMacOS = document.documentElement.dataset.platform === "mac";
   const canCheckForUpdates =
-    Boolean(updateStatus?.isPackaged) && !isUpdateBusy && updateStatus?.state !== "downloaded";
+    Boolean(updateStatus?.isPackaged) &&
+    !isUpdateBusy &&
+    updateStatus?.state !== "downloaded" &&
+    !(updateStatus?.state === "install_failed" && updateStatus.canRetryInstall === true);
   const isManualUpdate = updateStatus?.installMode === "manual";
-  const canInstallUpdate = updateStatus?.state === "downloaded";
+  const canInstallUpdate = updateStatus?.state === "downloaded" ||
+    (updateStatus?.state === "install_failed" && updateStatus.canRetryInstall === true);
   const canOpenUpdateDownload =
     isManualUpdate &&
     updateStatus?.state === "available" &&

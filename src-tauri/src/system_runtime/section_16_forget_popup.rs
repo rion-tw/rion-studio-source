@@ -10,7 +10,8 @@ impl SystemRuntimeExecutor {
             NativeOperationSubsystem::Popup,
             "newWindow",
             PLATFORM_CALLBACK_TIMEOUT,
-        );
+        )
+        .with_completion_scope("policyDecision");
         if let Some(role_id) = role_id {
             operation = operation.with_role(role_id);
             operation.surface_generation = self.surface_generation_for_role(role_id);

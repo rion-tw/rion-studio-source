@@ -206,9 +206,27 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             },
         );
     } else if let Some(tab_id) = id.strip_prefix(RELOAD_PREFIX) {
-        if let Err(message) = state.runtime.reload_tab(tab_id) {
-            reveal_menu_error(app, message);
-        }
+        let app = app.clone();
+        let runtime = Arc::clone(&state.runtime);
+        let tab_id = tab_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let result = tauri::async_runtime::spawn_blocking(move || runtime.reload_tab(&tab_id))
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result);
+            match result {
+                Ok(receipt)
+                    if matches!(receipt.status.as_str(), "applied" | "superseded") => {}
+                Ok(receipt) => reveal_menu_error(
+                    &app,
+                    receipt
+                        .failure_code
+                        .as_deref()
+                        .unwrap_or("SYSTEM_RELOAD_PARTIAL_FAILURE"),
+                ),
+                Err(message) => reveal_menu_error(&app, message),
+            }
+        });
     } else if let Some(tab_id) = id.strip_prefix(STOP_PREFIX) {
         match state.runtime.preview_tab_close(tab_id) {
             Ok(intent) => {
@@ -238,7 +256,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
                     })
                     .await
                     .map_err(|error| error.to_string())
-                    .and_then(|result| result);
+                    .and_then(|result| result.and_then(crate::runtime_operation_receipt_result));
                     if let Err(message) = result {
                         reveal_menu_error(&app, message);
                     }
@@ -536,9 +554,15 @@ pub async fn handle_scoped_action(
                 .ok_or_else(|| "runtime window was not found".to_owned())?
                 .close()
                 .map_err(|error| error.to_string()),
-            "minimize" => state.runtime.minimize_runtime_window(&window_id),
-            "toggleFullscreen" => state.runtime.toggle_runtime_window_fullscreen(&window_id),
-            "zoom" => state.runtime.toggle_runtime_window_maximized(&window_id),
+            "minimize" => state.runtime.minimize_runtime_window(&window_id).map(|_| ()),
+            "toggleFullscreen" => state
+                .runtime
+                .toggle_runtime_window_fullscreen(&window_id)
+                .map(|_| ()),
+            "zoom" => state
+                .runtime
+                .toggle_runtime_window_maximized(&window_id)
+                .map(|_| ()),
             _ => Err("runtime window control is invalid".to_owned()),
         };
     }

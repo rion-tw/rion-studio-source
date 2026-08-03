@@ -3,6 +3,7 @@ import type {
   ApplicationShortcutCommand,
   AppLanguage,
   AppSnapshot,
+  AppUpdateInstallAttempt,
   AppUpdateStatus,
   AppWindowState,
   BulkDeleteInput,
@@ -64,7 +65,7 @@ import type {
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
-import type { CoreErrorPayload } from "./generated";
+import type { CoreErrorPayload, SystemRuntimeOperationSummaryRecord } from "./generated";
 
 export interface RionStudioApi {
   notifyRendererReady: () => Promise<void>;
@@ -84,13 +85,16 @@ export interface RionStudioApi {
   updateGameWindow: (id: string, input: UpdateGameWindowInput) => Promise<GameWindow>;
   reorderGameWindows: (input: ReorderItemsInput) => Promise<GameWindow[]>;
   showGameWindow: (windowId: string) => Promise<void>;
-  hideGameWindow: (windowId: string) => Promise<void>;
+  hideGameWindow: (windowId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   stopGameWindow: (windowId: string) => Promise<void>;
   deleteGameWindow: (windowId: string) => Promise<void>;
-  showGameWindowTab: (tabId: string) => Promise<void>;
+  showGameWindowTab: (tabId: string) => Promise<SystemRuntimeOperationSummaryRecord>;
   moveGameWindowTab: (tabId: string, windowId: string) => Promise<void>;
   moveGameWindowTabToNewWindow: (tabId: string) => Promise<{ windowId: string }>;
-  setGameWindowTabMuted: (tabId: string, muted: boolean) => Promise<void>;
+  setGameWindowTabMuted: (
+    tabId: string,
+    muted: boolean
+  ) => Promise<SystemRuntimeOperationSummaryRecord>;
   setGameWindowTabHidden: (tabId: string, hidden: boolean) => Promise<void>;
   stopGameWindowTab: (tabId: string) => Promise<void>;
   restoreSavedGameWindows: (input: RestoreSavedGameWindowsInput) => Promise<void>;
@@ -168,7 +172,7 @@ export interface RionStudioApi {
   checkForUpdates: () => Promise<AppUpdateStatus>;
   setAutoUpdateEnabled: (enabled: boolean) => Promise<AppUpdateStatus>;
   openUpdateDownload: () => Promise<void>;
-  installDownloadedUpdate: () => Promise<void>;
+  installDownloadedUpdate: () => Promise<AppUpdateInstallAttempt>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
   onApplicationQuitRequested: (callback: () => void) => () => void;
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;

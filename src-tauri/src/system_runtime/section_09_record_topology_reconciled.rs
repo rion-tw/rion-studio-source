@@ -536,7 +536,30 @@ impl SystemRuntimeExecutor {
         window_visibility: Option<bool>,
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
-    ) {
+    ) -> String {
+        let mut operation = NativeOperationContext::new_at_for_platform(
+            NativeOperationSubsystem::Presentation,
+            trigger,
+            PLATFORM_CALLBACK_TIMEOUT,
+            current_runtime_platform(),
+            requested_at,
+        )
+        .with_completion_scope("nativeAcknowledgement")
+        .with_revision(revision)
+        .with_window(window_id.clone());
+        if let Some(tab_id) = tab_id.as_ref() {
+            operation = operation.with_tab(tab_id.clone());
+        }
+        let operation_id = operation.operation_id.clone();
+        if let Err(code) = self.operations.register(operation.clone()) {
+            self.operations.record_untracked(NativeOperationReceipt::with_status(
+                operation,
+                "nativeOperationRegistration",
+                NativeOperationStatus::Failed,
+                Some(code),
+            ));
+            return operation_id;
+        }
         let Ok(presentation) = self.presentation.coordinator(&window_id) else {
             self.record_presentation_event(
                 LogLevel::Warn,
@@ -548,7 +571,13 @@ impl SystemRuntimeExecutor {
                 trigger,
                 0,
             );
-            return;
+            self.operations.complete(NativeOperationReceipt::with_status(
+                operation,
+                "nativePresentationCoordinator",
+                NativeOperationStatus::Failed,
+                Some("NATIVE_PRESENTATION_COORDINATOR_UNAVAILABLE"),
+            ));
+            return operation_id;
         };
         let next_surface_identities = presentation
             .lock()
@@ -575,7 +604,13 @@ impl SystemRuntimeExecutor {
                     requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
                 );
                 eprintln!("Native window actor unavailable: {message}");
-                return;
+                self.operations.complete(NativeOperationReceipt::with_status(
+                    operation,
+                    "nativePresentationActorStart",
+                    NativeOperationStatus::Failed,
+                    Some("NATIVE_PRESENTATION_ACTOR_UNAVAILABLE"),
+                ));
+                return operation_id;
             }
         };
         let dispatch_result = actor.dispatch(NativePresentationRequest {
@@ -588,6 +623,8 @@ impl SystemRuntimeExecutor {
             native_window_mutations: Arc::clone(&self.native_window_mutations),
             observed_previous_tab_id: previous_tab_id,
             observed_previous_surfaces: previous_surfaces,
+            operation,
+            operations: Arc::clone(&self.operations),
             requested_at,
             revision,
             surface_owner_revisions,
@@ -603,6 +640,7 @@ impl SystemRuntimeExecutor {
         if let Err(message) = dispatch_result {
             eprintln!("Native window actor enqueue failed: {message}");
         }
+        operation_id
     }
 
     fn wait_for_presentation_paint_barrier(&self, window_id: &str, revision: u64) {

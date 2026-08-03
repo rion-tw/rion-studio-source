@@ -86,14 +86,20 @@ describe("Tauri Stable shell", () => {
   });
 
   it("keeps failed updater installation attempts in an error state", async () => {
-    const manager = await readFile("src-tauri/src/update_manager.rs", "utf8");
+    const [manager, transaction] = await Promise.all([
+      readFile("src-tauri/src/update_manager.rs", "utf8"),
+      readFile("src-tauri/src/lib/section_01_update_install.rs", "utf8")
+    ]);
     const install = manager.slice(
       manager.indexOf("pub fn install_downloaded"),
       manager.indexOf("pub fn open_release_page")
     );
     expect(install).toContain("if let Err(error) = update");
-    expect(install).toContain("self.set_status(self.error_status(&message))");
-    expect(install.indexOf("self.set_status(self.error_status(&message))"))
+    expect(install.indexOf("return Err(error.to_string())"))
       .toBeLessThan(install.indexOf("*pending = None;"));
+    expect(transaction).toContain('"failedBeforeDrain"');
+    expect(transaction).toContain('"install_failed"');
+    expect(transaction).toContain("updates.install_has_started_draining()");
+    expect(transaction).toContain('Some("UPDATE_INSTALL_HANDOFF_FAILED")');
   });
 });

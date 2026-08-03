@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 
 import { Columns2, Gamepad2, Grid2x2, Square, Volume2, VolumeX, X, type LucideIcon } from "lucide-react";
 
@@ -7,8 +8,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
+import type { SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
 
 import type { WorkspaceLayoutTemplate } from "../../shared/types";
+
+import { handleSystemRuntimeReceipt } from "../src/app/systemRuntimeReceipt";
 
 import { dispatchNextDragAction, flushPendingRuntimeTabOrder, optimisticallyActivateAdjacentTab, optimisticallyActivateTab, optimisticallyCloseTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./runtimeTabStrip/drag";
 
@@ -238,11 +242,30 @@ export const dispatch = (action: RuntimeTabAction): void => {
     dispatchNextDragAction();
     return;
   }
-  void invoke("rion_runtime_tab_action", { action }).catch(() => {
+  void invoke<SystemRuntimeOperationSummaryRecord | null>("rion_runtime_tab_action", { action })
+    .then(async (receipt) => {
+      if (action.type !== "windowControl" || action.control === "close" || !receipt) return;
+      try {
+        handleSystemRuntimeReceipt(receipt);
+        if (receipt.status === "degraded") {
+          await emit("rion://shell-error", {
+            code: receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_DEGRADED",
+            message: "The native window operation completed with reduced guarantees."
+          });
+        }
+      } catch (error) {
+        const issue = error as { code?: string; message?: string };
+        await emit("rion://shell-error", {
+          code: issue.code ?? receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_FAILED",
+          message: issue.message ?? "The native window operation failed."
+        });
+      }
+    })
+    .catch(() => {
     // Selection and close intent remain visually committed. The shell reports the
     // persistent error, while a later revision/snapshot may reconcile metadata without
     // making an old tab or viewport reappear.
-  });
+    });
 };
 
 function rememberTerminalDragSession(sessionId: string): void {

@@ -278,13 +278,12 @@ async fn rion_shell_invoke(
         }
         "hideGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            if state.runtime.window_for_id(&window_id).is_some() {
-                state
-                    .runtime
-                    .hide_runtime_window(&window_id)
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error))?;
-            }
-            Ok(Value::Null)
+            let receipt = state
+                .runtime
+                .hide_runtime_window(&window_id)
+                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error))?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))
         }
         "stopGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
@@ -302,9 +301,11 @@ async fn rion_shell_invoke(
         }
         "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            preview_and_commit_tab_selection(&app, &state, &tab_id)
+            let receipt = preview_and_commit_tab_selection(&app, &state, &tab_id)
                 .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-            Ok(Value::Null)
+            serde_json::to_value(receipt).map_err(|error| {
+                shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", error.to_string())
+            })
         }
         "moveGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
@@ -326,11 +327,12 @@ async fn rion_shell_invoke(
             let muted = args.get(1).and_then(Value::as_bool).ok_or_else(|| {
                 shell_error("TAURI_SHELL_INPUT_INVALID", "Muted state is required.")
             })?;
-            state
+            let receipt = state
                 .runtime
                 .set_tab_audio_muted(&tab_id, muted)
                 .map_err(|error| shell_error("TAURI_RUNTIME_AUDIO_FAILED", error))?;
-            Ok(Value::Null)
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("TAURI_RUNTIME_AUDIO_FAILED", error.to_string()))
         }
         "setGameWindowTabHidden" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
@@ -340,7 +342,7 @@ async fn rion_shell_invoke(
             let command = if hidden {
                 CoreCommand::EmbeddedTabHide { tab_id }
             } else {
-                preview_and_commit_tab_selection(&app, &state, &tab_id)
+                let _ = preview_and_commit_tab_selection(&app, &state, &tab_id)
                     .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
                 return Ok(Value::Null);
             };
@@ -447,10 +449,12 @@ async fn rion_shell_invoke(
         }
         "exportDiagnostics" => export_diagnostics(&app, &window, &state).await,
         "appVersion" => Ok(Value::String(app.package_info().version.to_string())),
-        "updateStatus" => Ok(state.updates.status()),
+        "updateStatus" => serde_json::to_value(state.updates.status_record())
+            .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error.to_string())),
         "checkForUpdates" => {
             let updates = Arc::clone(&state.updates);
-            Ok(updates.check_manual().await)
+            serde_json::to_value(updates.check_manual().await)
+                .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error.to_string()))
         }
         "setAutoUpdateEnabled" => {
             let enabled = args.first().and_then(Value::as_bool).ok_or_else(|| {
@@ -462,6 +466,7 @@ async fn rion_shell_invoke(
             state
                 .updates
                 .set_auto_update_enabled(enabled)
+                .and_then(|status| serde_json::to_value(status).map_err(|error| error.to_string()))
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))
         }
         "openUpdateDownload" => state
@@ -470,19 +475,20 @@ async fn rion_shell_invoke(
             .map(|()| Value::Null)
             .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error)),
         "installDownloadedUpdate" => {
-            prepare_application_update_install(&state)
-                .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
-            let runtime = Arc::clone(&state.runtime);
-            tauri::async_runtime::spawn_blocking(move || runtime.close_all())
-                .await
-                .map_err(|error| shell_error("SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE", error.to_string()))?;
-            state.core.shutdown();
-            state
+            let (attempt, leader) = state
                 .updates
-                .install_downloaded()
+                .accept_install()
                 .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error))?;
-            prepare_application_update_exit(&app);
-            app.restart();
+            if leader {
+                let app = app.clone();
+                let runtime = Arc::clone(&state.runtime);
+                let updates = Arc::clone(&state.updates);
+                tauri::async_runtime::spawn_blocking(move || {
+                    run_downloaded_update_install(app, runtime, updates)
+                });
+            }
+            serde_json::to_value(attempt)
+                .map_err(|error| shell_error("TAURI_UPDATE_FAILED", error.to_string()))
         }
         "consumePendingMacroPageRequest" => Ok(state
             .runtime

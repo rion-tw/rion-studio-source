@@ -620,12 +620,23 @@ impl SystemRuntimeExecutor {
         None
     }
 
-    pub fn reload_tab(self: &Arc<Self>, tab_id: &str) -> Result<(), String> {
-        self.reload_tab_contract(tab_id)
-            .map_err(|error| error.message)
+    pub fn reload_tab(
+        self: &Arc<Self>,
+        tab_id: &str,
+    ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+        let operation_id = self
+            .reload_tab_contract(tab_id)
+            .map_err(|error| error.message)?;
+        self.wait_native_operation_summary(&operation_id)
     }
 
-    pub fn set_tab_audio_muted(&self, tab_id: &str, muted: bool) -> Result<(), String> {
+    pub fn set_tab_audio_muted(
+        &self,
+        tab_id: &str,
+        muted: bool,
+    ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+        self.require_runtime_accepting()
+            .map_err(|error| error.message)?;
         let role_id = self
             .core
             .invoke(CoreCommand::BrowserRuntimeSnapshot)
@@ -639,15 +650,48 @@ impl SystemRuntimeExecutor {
             .find(|tab| tab.id == tab_id)
             .and_then(|tab| tab.role_ids.first().cloned())
             .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
-        let previous_muted = self
-            .state()
-            .map_err(|error| error.message)?
-            .tabs
-            .get(tab_id)
-            .map(|tab| tab.audio_muted)
-            .ok_or_else(|| "runtime tab was not found".to_owned())?;
-        self.set_role_audio_muted(&role_id, muted)
-            .map_err(|error| error.message)?;
+        let (previous_muted, window_id, surface_generation) = {
+            let state = self.state().map_err(|error| error.message)?;
+            let tab = state
+                .tabs
+                .get(tab_id)
+                .ok_or_else(|| "runtime tab was not found".to_owned())?;
+            let surface_generation = tab.roles.get(&role_id).map(|role| role.generation);
+            (tab.audio_muted, tab.window_id.clone(), surface_generation)
+        };
+        let mut operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Audio,
+            "setGameWindowTabMuted",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_completion_scope("nativeAcknowledgement")
+        .with_role(&role_id)
+        .with_tab(tab_id)
+        .with_window(window_id);
+        operation.surface_generation = surface_generation;
+        self.operations
+            .register(operation.clone())
+            .map_err(str::to_owned)?;
+        if !self.operations.mark_in_flight(&operation.operation_id) {
+            return self.wait_native_operation_summary(&operation.operation_id);
+        }
+        if let Err(error) = self.apply_role_audio_muted(&role_id, muted) {
+            let status = if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" {
+                NativeOperationStatus::Indeterminate
+            } else {
+                NativeOperationStatus::Failed
+            };
+            let mut receipt = NativeOperationReceipt::with_status(
+                operation,
+                "audioMuteFailed",
+                status,
+                Some(error.code),
+            );
+            if let Some(count) = error.rollback_error_count {
+                receipt = receipt.with_rollback_error_count(count as usize);
+            }
+            return Ok(self.operations.complete(receipt).summary());
+        }
         let persist_result = (|| -> Result<(), String> {
             let mut game_windows = self
                 .core
@@ -678,19 +722,38 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if let Err(error) = persist_result {
-            return match self.set_role_audio_muted(&role_id, previous_muted) {
-                Ok(()) => Err(error),
+            let receipt = match self.apply_role_audio_muted(&role_id, previous_muted) {
+                Ok(()) => NativeOperationReceipt::with_status(
+                    operation,
+                    "audioMutePersistenceFailed",
+                    NativeOperationStatus::Failed,
+                    Some("SYSTEM_AUDIO_PERSIST_FAILED"),
+                ),
                 Err(rollback_error) => {
                     self.health.mark_unhealthy();
-                    Err(format!(
-                        "{error} Native audio compensation also failed: {}. Restart Rion Studio to recover safely.",
-                        rollback_error.message
-                    ))
+                    let mut receipt = NativeOperationReceipt::with_status(
+                        operation,
+                        "audioMutePersistenceRollbackFailed",
+                        NativeOperationStatus::Indeterminate,
+                        Some("SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED"),
+                    );
+                    if let Some(count) = rollback_error.rollback_error_count {
+                        receipt = receipt.with_rollback_error_count(count as usize);
+                    }
+                    receipt
                 }
             };
+            eprintln!("Runtime tab audio persistence failed: {error}");
+            return Ok(self.operations.complete(receipt).summary());
         }
         self.publish_projection();
-        Ok(())
+        Ok(self
+            .operations
+            .complete(NativeOperationReceipt::applied(
+                operation,
+                "audioMuteApplied",
+            ))
+            .summary())
     }
 
     #[cfg(windows)]

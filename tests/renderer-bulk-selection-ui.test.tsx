@@ -240,24 +240,21 @@ describe("bulk selection UI", () => {
     expect(macroRow?.className).toContain("align-middle");
     expect(macroRow.querySelector("td:first-child")?.className).toContain("py-2");
     expect(macroRow.querySelector("td:first-child")?.className).toContain("align-middle");
-    expect(screen.getByText("None")).toBeTruthy();
 
     const startButton = screen.getByRole("button", { name: "Start" });
     const nameButton = screen.getByText("Auto heal").closest("button")!;
     const nameLayout = nameButton.closest("[data-macro-name-control]");
     const runLayout = startButton.closest("[data-macro-run-control]");
-    const activationIndicator = screen.getByRole("img", { name: "Tap to toggle" });
     const repeatIndicator = screen.getByRole("img", { name: "Once" });
+    const shortcutIndicator = macroRow.querySelector<HTMLElement>("[data-macro-shortcut-indicator]");
     expect(nameLayout).not.toBeNull();
     expect(nameLayout?.className).not.toContain("pl-9");
     expect(runLayout?.className).toContain("shrink-0");
     expect(runLayout?.parentElement?.className).toContain("gap-1.5");
-    expect(activationIndicator.className).toContain("h-7");
-    expect(activationIndicator.className).toContain("w-7");
     expect(runLayout?.querySelector("svg")?.getAttribute("width")).toBe("14");
-    expect(activationIndicator.querySelector("svg")?.getAttribute("width")).toBe("14");
-    expect(startButton.compareDocumentPosition(activationIndicator) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(activationIndicator.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(startButton.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(shortcutIndicator).toBeNull();
+    expect(macroRow.textContent).not.toContain("All execution roles");
     const once = screen.getByText("Once");
     expect(repeatIndicator.querySelector("svg")?.getAttribute("width")).toBe("14");
     expect(once.className).toContain("text-body");
@@ -267,7 +264,7 @@ describe("bulk selection UI", () => {
     expect(actionLayout?.className).toContain("inset-0");
     expect(actionLayout?.className).toContain("items-center");
     expect(actionLayout?.contains(startButton)).toBe(false);
-    await user.click(screen.getByText("None"));
+    await user.click(macroRow);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();
   });
@@ -307,6 +304,48 @@ describe("bulk selection UI", () => {
     expect(repeatIndicator.querySelector("svg")?.getAttribute("width")).toBe("14");
     expect(delay.className).toContain("text-body");
     expect(delay.className).toContain("leading-5");
+  });
+
+  it("shows shortcut source roles as role badges only when they are specified", () => {
+    const executionRole = role("role-execution", "Execution role");
+    const sourceRole = role("role-source", "Shortcut source");
+    const item = {
+      ...macro("macro-scoped", "Scoped shortcut"),
+      roleIds: [executionRole.id],
+      shortcutSourceScope: { type: "selected_roles" as const, roleIds: [sourceRole.id] },
+      trigger: { code: "F8", ctrl: false, alt: false, shift: false, meta: false }
+    };
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[item]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[executionRole, sourceRole]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map()}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const shortcut = screen.getByText("F8");
+    const sourceRoleBadge = screen.getByText("Shortcut source");
+    expect(shortcut.compareDocumentPosition(sourceRoleBadge) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(getSelectionItem(item.id).textContent).not.toContain("All execution roles");
   });
 
   it("runs each bulk macro action only for applicable selected rows", async () => {

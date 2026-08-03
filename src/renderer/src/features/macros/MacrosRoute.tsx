@@ -28,25 +28,28 @@ import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared
 
 import { getMacroListItems, type MacroListSortKey, type MacroListSortState } from "./macroListUtils";
 
-import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, formatMacroShortcutSourceScope, summarizeMacroSteps } from "./macroUtils";
+import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, summarizeMacroSteps } from "./macroUtils";
 
 import { MacroActionMenu, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
 const ALL_ROLES_SELECT_VALUE = "__all_roles__";
+const MACRO_LIST_INDICATOR_CLASS = "inline-flex h-7 items-center gap-1.5 whitespace-nowrap text-muted-foreground";
 
-function MacroActivationIndicator({ macro, t }: { macro: Macro; t: Translator }): JSX.Element {
+function MacroShortcutIndicator({ macro, t }: { macro: Macro; t: Translator }): JSX.Element | null {
+  if (!macro.trigger) {
+    return null;
+  }
+
   const isWhileHeld = macro.activationMode === "while_held";
-  const label = formatMacroActivationMode(macro.activationMode, t);
+  const activationLabel = formatMacroActivationMode(macro.activationMode, t);
+  const shortcutLabel = formatMacroShortcut(macro.trigger, t);
 
   return (
-    <span
-      aria-label={label}
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground"
-      data-macro-activation-indicator
-      role="img"
-      title={label}
-    >
-      {isWhileHeld ? <Pointer aria-hidden="true" size={14} /> : <ToggleRight aria-hidden="true" size={14} />}
+    <span className={MACRO_LIST_INDICATOR_CLASS} data-macro-shortcut-indicator>
+      <span aria-label={activationLabel} className="inline-flex shrink-0" role="img" title={activationLabel}>
+        {isWhileHeld ? <Pointer aria-hidden="true" size={14} /> : <ToggleRight aria-hidden="true" size={14} />}
+      </span>
+      <span className="text-body leading-5">{shortcutLabel}</span>
     </span>
   );
 }
@@ -62,7 +65,7 @@ function MacroRepeatIndicator({ macro, t }: { macro: Macro; t: Translator }): JS
   return (
     <span
       aria-label={label}
-      className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap text-muted-foreground"
+      className={MACRO_LIST_INDICATOR_CLASS}
       data-macro-repeat-indicator
       role="img"
       title={label}
@@ -487,7 +490,6 @@ function MacrosRoute({
                               onStopMacro={onStopMacro}
                             />
                           </div>
-                          <MacroActivationIndicator macro={macro} t={t} />
                           <button
                             className={cn(
                               "-mx-1 block min-w-0 max-w-full flex-1 rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
@@ -517,20 +519,21 @@ function MacrosRoute({
                         t={t}
                       />
                     </td>
-                    <td className="max-w-[220px] px-4 py-2 align-middle text-muted-foreground">
+                    <td className="max-w-[220px] px-4 py-2 align-middle">
                       {macro.trigger ? (
-                        <div className="grid min-w-0 gap-0.5">
-                          <span className="block">{formatMacroShortcut(macro.trigger, t)}</span>
-                          <span
-                            className="block truncate text-caption"
-                            title={formatMacroShortcutSourceScope(macro, roleById, t)}
-                          >
-                            {formatMacroShortcutSourceScope(macro, roleById, t)}
-                          </span>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <MacroShortcutIndicator macro={macro} t={t} />
+                          {macro.shortcutSourceScope.type === "selected_roles" ? (
+                            <MacroRoleBadge
+                              macro={macro}
+                              roleIds={macro.shortcutSourceScope.roleIds}
+                              roleById={roleById}
+                              statusByRole={statusByRole}
+                              t={t}
+                            />
+                          ) : null}
                         </div>
-                      ) : (
-                        <span className="block">{t("macros.noShortcutShort")}</span>
-                      )}
+                      ) : null}
                     </td>
                     <td className="px-4 py-2 align-middle text-muted-foreground">
                       <MacroRepeatIndicator macro={macro} t={t} />

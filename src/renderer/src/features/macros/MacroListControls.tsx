@@ -90,6 +90,7 @@ export function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHe
 
 interface MacroRoleBadgeProps {
   macro: Macro;
+  roleIds?: readonly string[];
   roleById: Map<string, Role>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -97,13 +98,13 @@ interface MacroRoleBadgeProps {
 
 const MAX_VISIBLE_MACRO_ROLES = 4;
 
-export function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
-  if (macro.roleIds.length === 0) {
+export function MacroRoleBadge({ macro, roleIds = macro.roleIds, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
+  if (roleIds.length === 0) {
     return <span className="leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
 
-  const visibleRoleIds = macro.roleIds.slice(0, MAX_VISIBLE_MACRO_ROLES);
-  const remainingRoleCount = macro.roleIds.length - visibleRoleIds.length;
+  const visibleRoleIds = roleIds.slice(0, MAX_VISIBLE_MACRO_ROLES);
+  const remainingRoleCount = roleIds.length - visibleRoleIds.length;
 
   return (
     <div className="flex max-w-[260px] flex-wrap gap-1.5">

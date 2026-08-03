@@ -10,7 +10,7 @@ const { emit, eventListeners, invoke, listen } = vi.hoisted(() => {
   return {
     emit: vi.fn(() => Promise.resolve()),
     eventListeners,
-    invoke: vi.fn(() => Promise.resolve()),
+    invoke: vi.fn((_command?: string, _payload?: unknown): Promise<unknown> => Promise.resolve()),
     listen: vi.fn((event: string, listener: (event: { payload: unknown }) => void) => {
       eventListeners.set(event, listener);
       return Promise.resolve(vi.fn());
@@ -322,6 +322,37 @@ describe("Tauri-owned Windows runtime tab strip", () => {
           targetTabId: "tab-3"
         }
       }
+    });
+  });
+
+  it("surfaces a degraded terminal activation receipt without reverting content", async () => {
+    window.__rionEnsureRuntimeTab?.({ id: "tab-2", name: "Second", type: "role" });
+    invoke.mockResolvedValueOnce({
+      acceptedAt: "2026-08-03T00:00:00Z",
+      capturedAt: "2026-08-03T00:00:01Z",
+      completionScope: "tabActivationConverged",
+      deadlineAt: "2026-08-03T00:00:10Z",
+      elapsedMs: 20,
+      failureCode: "TAB_ACTIVATION_CHROME_NOT_CONFIRMED",
+      operationId: "activation-300",
+      platform: "windows",
+      revision: 300,
+      stage: "tabActivationChromeDegraded",
+      status: "degraded",
+      subsystem: "tabActivation",
+      tabId: "tab-2",
+      timeoutMs: 10_000,
+      trigger: "pointer",
+      windowId: "window-1"
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-tab-id="tab-2"]')?.click();
+    await flushMicrotasks();
+
+    expect(document.querySelector('[data-tab-id="tab-2"]')?.classList.contains("active")).toBe(true);
+    expect(emit).toHaveBeenCalledWith("rion://shell-error", {
+      code: "TAB_ACTIVATION_CHROME_NOT_CONFIRMED",
+      message: expect.stringContaining("tab content changed")
     });
   });
 

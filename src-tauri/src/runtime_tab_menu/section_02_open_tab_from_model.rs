@@ -529,7 +529,7 @@ pub async fn handle_scoped_action(
             .as_str()
             .filter(|value| matches!(*value, "next" | "previous"))
             .ok_or_else(|| "runtime tab direction is invalid".to_owned())?;
-        let (target_tab_id, provisional) = state
+        let (target_tab_id, provisional, operation_id) = state
             .runtime
             .preview_adjacent_tab_activation(&window_id, direction)?;
         if provisional {
@@ -540,7 +540,7 @@ pub async fn handle_scoped_action(
             state,
             &window_id,
             &target_tab_id,
-            None,
+            Some(&operation_id),
         );
     }
     if action_type == "windowControl" {

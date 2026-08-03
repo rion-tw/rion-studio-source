@@ -139,7 +139,7 @@ fn dispatch_runtime_tab_shortcut(
         .runtime
         .preview_adjacent_tab_activation(&window_id, direction)
         .ok();
-    let Some((tab_id, provisional)) = target else {
+    let Some((tab_id, provisional, operation_id)) = target else {
         return;
     };
     let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
@@ -150,13 +150,20 @@ fn dispatch_runtime_tab_shortcut(
         return;
     };
     if !provisional {
-        let _ = crate::commit_previewed_tab_selection(
+        if crate::commit_previewed_tab_selection(
             app,
             &state,
             &window_id,
             &tab_id,
-            None,
-        );
+            Some(&operation_id),
+        )
+        .is_err()
+        {
+            state.runtime.finish_tab_activation_core(
+                &operation_id,
+                TabActivationComponentStatus::Failed,
+            );
+        }
     }
     let runtime = Arc::clone(&state.runtime);
     let scheduled_runtime = Arc::clone(&runtime);

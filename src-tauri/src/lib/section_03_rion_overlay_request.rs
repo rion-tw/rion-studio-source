@@ -171,6 +171,45 @@ async fn rion_runtime_tab_action(
             return Err(error);
         }
     }
+    if action.get("type").and_then(Value::as_str) == Some("activate") {
+        let tab_id = action
+            .get("tabId")
+            .and_then(Value::as_str)
+            .filter(|tab_id| !tab_id.is_empty())
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime tab ID is required",
+                )
+            })?;
+        let receipt = preview_and_commit_tab_selection(&app, &state, tab_id)
+            .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
+    }
+    if action.get("type").and_then(Value::as_str) == Some("activateAdjacent") {
+        let direction = action
+            .get("direction")
+            .and_then(Value::as_str)
+            .filter(|direction| matches!(*direction, "next" | "previous"))
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime tab direction is invalid",
+                )
+            })?;
+        let receipt = preview_and_commit_adjacent_tab_selection(
+            &app,
+            &state,
+            &window_id,
+            direction,
+        )
+        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
+    }
     if action.get("type").and_then(Value::as_str) == Some("windowControl") {
         let control = action
             .get("control")

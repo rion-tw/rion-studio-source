@@ -478,10 +478,29 @@ impl SystemRuntimeExecutor {
         .map_err(|error| error.message)
     }
 
-    pub fn focus_window(self: &Arc<Self>, label: &str) {
-        let Some(window_id) = self.window_id_for_label(label) else {
+    pub fn observe_window_focus(self: &Arc<Self>, label: &str) {
+        let Some((window_id, generation)) = self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| (window_id.clone(), host.generation))
+            })
+        }) else {
             return;
         };
+        let selected_tab_id = self
+            .presentation
+            .existing(&window_id)
+            .and_then(|presentation| {
+                presentation
+                    .lock()
+                    .ok()
+                    .and_then(|state| state.selected_tab_id.clone())
+            });
+        self.focus_broker.observe_native_focus(
+            &window_id,
+            generation,
+            0,
+            selected_tab_id,
+        );
         if !self.is_saved_game_window(&window_id).unwrap_or(false) {
             return;
         }
@@ -500,6 +519,17 @@ impl SystemRuntimeExecutor {
                 .invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
         }
         self.schedule_window_placement_persistence(label.to_owned());
+    }
+
+    pub fn observe_window_blur(&self, label: &str) {
+        if let Some((window_id, generation)) = self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| (window_id.clone(), host.generation))
+            })
+        }) {
+            self.focus_broker
+                .observe_native_blur(&window_id, generation);
+        }
     }
 
     pub fn persist_all_game_window_placements(&self) -> Result<(), String> {

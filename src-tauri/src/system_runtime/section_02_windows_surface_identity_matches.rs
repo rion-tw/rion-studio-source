@@ -580,7 +580,7 @@ impl NativePresentationReceipt {
         let deadline_exceeded = plan.operation.remaining().is_zero();
         let status = if !outcome.visibility_errors.is_empty() {
             NativePresentationStatus::Failed
-        } else if !outcome.applied {
+        } else if !outcome.applied || outcome.focus_superseded {
             NativePresentationStatus::Superseded
         } else if native_truth_mismatch || deadline_exceeded {
             NativePresentationStatus::Degraded
@@ -660,6 +660,8 @@ struct NativePresentationRequest {
     coordinator: Arc<Mutex<WindowPresentationState>>,
     core: Arc<AppCore>,
     focus: NativePresentationFocus,
+    focus_broker: Arc<NativeFocusBroker>,
+    focus_lease: Option<NativeFocusLease>,
     next_surface_identities: HashSet<(String, u64)>,
     next_surfaces: Vec<Webview>,
     native_window_mutations: Arc<NativeWindowMutationRegistry>,
@@ -706,6 +708,7 @@ struct NativePresentationOutcome {
     applied: bool,
     presentation_applied: bool,
     focus_applied: bool,
+    focus_superseded: bool,
     hidden_surface_count: usize,
     hide_ms: u64,
     main_queue_wait_ms: u64,

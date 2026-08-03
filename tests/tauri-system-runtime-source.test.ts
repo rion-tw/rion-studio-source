@@ -263,6 +263,12 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain('"windowVisibilityMs": outcome.window_visibility_ms');
     expect(runtime).toContain('"windowFocusMs": outcome.window_focus_ms');
     expect(runtime).toContain('"webViewFocusMs": outcome.webview_focus_ms');
+    expect(runtime).toContain("struct NativeFocusBroker {");
+    expect(runtime).toContain("focus_broker.accept(");
+    expect(runtime).toContain("focus_broker.begin_mutation(lease)");
+    expect(runtime).toContain("observe_native_focus(");
+    expect(runtime).toContain("revoke_window(window_id, host.generation)");
+    expect(runtime).toContain('"focusSuperseded": outcome.focus_superseded');
     expect(runtime).toContain('"presentationApplied": outcome.presentation_applied');
     expect(runtime).toContain("if (!still_desired && !ordered_window_control)");
     expect(runtime).toContain("tab.selection-superseded");

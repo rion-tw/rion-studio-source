@@ -660,7 +660,13 @@ impl SystemRuntimeExecutor {
         window
             .set_ignore_cursor_events(false)
             .map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())
+        self.focus_runtime_window_direct(
+            window_id,
+            &window,
+            "activateProvisionalWindow",
+        )
+        .map(|_| ())
+        .map_err(|error| error.message)
     }
 
     fn position_provisional_game_window_inner(

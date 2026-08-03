@@ -233,9 +233,21 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn complete_window_destroyed(&self, label: &str) {
-        let transaction = self.state.lock().ok().and_then(|mut state| {
-            state.window_closes.take_destroyed(label)
-        });
+        let (transaction, focus_identity) = self
+            .state
+            .lock()
+            .ok()
+            .map(|mut state| {
+                let focus_identity = state.display_hosts.iter().find_map(|(window_id, host)| {
+                    (host.window.label() == label)
+                        .then(|| (window_id.clone(), host.generation))
+                });
+                (state.window_closes.take_destroyed(label), focus_identity)
+            })
+            .unwrap_or_default();
+        if let Some((window_id, generation)) = focus_identity {
+            self.focus_broker.revoke_window(&window_id, generation);
+        }
         if let Some(transaction) = transaction {
             self.operations.complete(NativeOperationReceipt::with_status(
                 transaction.context,

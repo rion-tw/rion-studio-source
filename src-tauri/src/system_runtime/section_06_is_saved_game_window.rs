@@ -118,6 +118,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             diagnostics: Mutex::new(RuntimeDiagnosticsState::default()),
             health: RuntimeHealth::new(),
+            focus_broker: Arc::new(NativeFocusBroker::default()),
             language: Mutex::new("en".to_owned()),
             resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),

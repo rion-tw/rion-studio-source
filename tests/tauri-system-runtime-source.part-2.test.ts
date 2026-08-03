@@ -371,12 +371,12 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       shell.indexOf("async fn rion_runtime_audio_state(")
     );
     expect(overlayRequest).toContain("overlay_request_activates_webview(&payload)");
-    expect(overlayRequest).toContain("webview.set_focus()");
-    expect(overlayRequest).toContain('"OVERLAY_WEBVIEW_FOCUS_FAILED"');
+    expect(overlayRequest).toContain("focus_selected_overlay_webview(&webview, &role_id)");
+    expect(overlayRequest).not.toContain("webview.set_focus()");
     expect(overlayRequest).toContain("authorize_overlay_request(webview.label(), &capability)");
     expect(overlayRequest).toContain('"OVERLAY_REQUEST_UNAUTHORIZED"');
     expect(overlayRequest.indexOf("authorize_overlay_request(webview.label(), &capability)"))
-      .toBeLessThan(overlayRequest.indexOf("webview.set_focus()"));
+      .toBeLessThan(overlayRequest.indexOf("focus_selected_overlay_webview"));
 
     const openMacroPage = runtime.slice(
       runtime.indexOf("CoreEffectAction::OverlayOpenMacroPage { role_id } => {"),

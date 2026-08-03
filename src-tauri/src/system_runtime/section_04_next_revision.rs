@@ -660,6 +660,7 @@ pub struct SystemRuntimeExecutor {
     effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
     diagnostics: Mutex<RuntimeDiagnosticsState>,
     health: RuntimeHealth,
+    focus_broker: Arc<NativeFocusBroker>,
     language: Mutex<String>,
     resolved_theme: Mutex<String>,
     last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,

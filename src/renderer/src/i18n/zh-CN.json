@@ -323,7 +323,6 @@
   "macroForm.title.new": "新增宏",
   "macroForm.description.edit": "调整分配角色、快捷键、轮询与步骤。",
   "macroForm.description.new": "创建可同步用于一个或多个角色浏览器的动作序列。",
-  "macroForm.fairUseNotice": "仅限本人在场并持续监督时使用宏。禁止无人机器人、规避反作弊、利用漏洞及目标服务禁止的活动。",
   "macroForm.help.activationTitle": "启动与轮询",
   "macroForm.help.activationRoles": "启动宏时，会在所有已启动且可控制的指派角色上执行；至少需要一个可用角色，其他不可用角色会略过。",
   "macroForm.help.activationModes": "“点按切换”会在启动与停止间切换；“点按或按住”的短按至少完成一轮，持续按住则让重复宏执行到松开。",

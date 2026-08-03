@@ -323,7 +323,6 @@
   "macroForm.title.new": "新規マクロ",
   "macroForm.description.edit": "Adjust assigned roles, shortcut, repeat, and steps.",
   "macroForm.description.new": "Create a reusable action sequence for one or more role browsers.",
-  "macroForm.fairUseNotice": "マクロは利用者がその場で継続監督する場合に限って使用してください。無人 bot、アンチチート回避、バグ悪用、対象サービスが禁止する行為は認められません。",
   "macroForm.help.activationTitle": "起動と繰り返し",
   "macroForm.help.activationRoles": "マクロを起動すると、起動済みで操作可能な割り当てロールすべてで実行されます。少なくとも 1 つのロールが利用可能である必要があり、利用できないロールはスキップされます。",
   "macroForm.help.activationModes": "「タップで切り替え」は起動と停止を切り替えます。「タップまたは長押し」では、タップで少なくとも 1 回実行し、長押しすると離すまで繰り返しマクロを実行します。",

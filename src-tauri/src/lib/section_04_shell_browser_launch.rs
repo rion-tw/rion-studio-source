@@ -6,7 +6,13 @@ fn preview_and_commit_launcher_tab_selection(
     let (window_id, provisional, resolved_tab_id, operation_id) =
         state.runtime.preview_launcher_tab_activation(tab_id)?;
     if !provisional {
-        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)?;
+        commit_previewed_tab_selection(
+            app,
+            state,
+            &window_id,
+            &resolved_tab_id,
+            Some(&operation_id),
+        )?;
     }
     crate::runtime_operation_receipt_result(
         state.runtime.wait_native_operation_summary(&operation_id)?,

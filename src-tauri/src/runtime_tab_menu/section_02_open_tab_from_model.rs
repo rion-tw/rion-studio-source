@@ -535,7 +535,13 @@ pub async fn handle_scoped_action(
         if provisional {
             return Ok(());
         }
-        return crate::commit_previewed_tab_selection(app, state, &window_id, &target_tab_id);
+        return crate::commit_previewed_tab_selection(
+            app,
+            state,
+            &window_id,
+            &target_tab_id,
+            None,
+        );
     }
     if action_type == "windowControl" {
         let control = action["control"]

@@ -150,7 +150,13 @@ fn dispatch_runtime_tab_shortcut(
         return;
     };
     if !provisional {
-        let _ = crate::commit_previewed_tab_selection(app, &state, &window_id, &tab_id);
+        let _ = crate::commit_previewed_tab_selection(
+            app,
+            &state,
+            &window_id,
+            &tab_id,
+            None,
+        );
     }
     let runtime = Arc::clone(&state.runtime);
     let scheduled_runtime = Arc::clone(&runtime);

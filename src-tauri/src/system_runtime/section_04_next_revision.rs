@@ -681,6 +681,7 @@ pub struct SystemRuntimeExecutor {
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
+    tab_activations: Arc<TabActivationCoordinator>,
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,

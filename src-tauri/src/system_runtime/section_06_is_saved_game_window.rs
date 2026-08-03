@@ -157,6 +157,7 @@ impl SystemRuntimeExecutor {
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
+            tab_activations: Arc::new(TabActivationCoordinator::default()),
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),

@@ -269,6 +269,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
         || action.type === "hide"
         || action.type === "move"
         || action.type === "reorder"
+        || action.type === "stop"
         || (action.type === "windowControl" && action.control !== "close");
       if (!handlesReceipt || !receipt) return;
       try {

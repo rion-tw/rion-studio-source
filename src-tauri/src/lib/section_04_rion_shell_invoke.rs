@@ -377,21 +377,9 @@ async fn rion_shell_invoke(
         }
         "stopGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            if state.runtime.cancel_provisional_tab_launch(&tab_id) {
-                return Ok(Value::Null);
-            }
-            let close_intent = state
-                .runtime
-                .preview_tab_close(&tab_id)
-                .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-            let result = Arc::clone(&state.core)
-                .invoke_async(close_intent.into_core_command())
-                .await
-                .map_err(error_payload);
-            state
-                .runtime
-                .resolve_tab_close_preview(&tab_id, result.is_ok());
-            result
+            let receipt = execute_tab_stop(&state, &tab_id).await?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }
         "restoreSavedGameWindows" => restore_saved_game_windows(&state, &window, &args).await,
         "autoRestoreSavedGameWindows" => {

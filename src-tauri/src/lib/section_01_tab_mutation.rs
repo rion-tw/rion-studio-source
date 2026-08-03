@@ -6,7 +6,7 @@ async fn execute_tab_mutation(
     before_tab_id: Option<String>,
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
     let target_window_id = target.as_ref().map(|target| target.window_id.as_str());
-    let operation = state
+    let acceptance = state
         .runtime
         .accept_tab_mutation(
             mutation_kind,
@@ -16,6 +16,17 @@ async fn execute_tab_mutation(
             state.display_topology.current_revision(),
         )
         .map_err(|error| shell_error(error.code, error.message))?;
+    let operation = match acceptance {
+        RuntimeTabMutationAcceptance::Accepted(operation) => *operation,
+        RuntimeTabMutationAcceptance::ExistingStop(operation_id) => {
+            let runtime = Arc::clone(&state.runtime);
+            return tauri::async_runtime::spawn_blocking(move || {
+                runtime.wait_tab_mutation_receipt(&operation_id)
+            })
+            .await
+            .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()));
+        }
+    };
     let lease = match state.runtime.await_tab_mutation_turn(operation).await {
         Ok(lease) => lease,
         Err(receipt) => return Ok(receipt),
@@ -71,6 +82,177 @@ async fn execute_tab_mutation(
         failure_code,
         rollback_error_count,
     ))
+}
+
+fn tab_stop_terminal_outcome(
+    chrome_converged: bool,
+    native_release_confirmed: bool,
+) -> (
+    &'static str,
+    RuntimeTabMutationTerminalStatus,
+    Option<&'static str>,
+) {
+    if !chrome_converged {
+        return (
+            "tabStopChromeUnconfirmed",
+            RuntimeTabMutationTerminalStatus::Degraded,
+            Some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
+        );
+    }
+    if !native_release_confirmed {
+        return (
+            "tabStopReleasePending",
+            RuntimeTabMutationTerminalStatus::Degraded,
+            None,
+        );
+    }
+    (
+        "tabStopConverged",
+        RuntimeTabMutationTerminalStatus::Applied,
+        None,
+    )
+}
+
+async fn execute_tab_stop(
+    state: &CoreState,
+    tab_id: &str,
+) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
+    let acceptance = state
+        .runtime
+        .accept_tab_mutation(
+            "stop",
+            tab_id,
+            None,
+            None,
+            state.display_topology.current_revision(),
+        )
+        .map_err(|error| shell_error(error.code, error.message))?;
+    let operation = match acceptance {
+        RuntimeTabMutationAcceptance::Accepted(operation) => *operation,
+        RuntimeTabMutationAcceptance::ExistingStop(operation_id) => {
+            let runtime = Arc::clone(&state.runtime);
+            return tauri::async_runtime::spawn_blocking(move || {
+                runtime.wait_tab_mutation_receipt(&operation_id)
+            })
+            .await
+            .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()));
+        }
+    };
+    let lease = match state.runtime.await_tab_mutation_turn(operation).await {
+        Ok(lease) => lease,
+        Err(receipt) => return Ok(receipt),
+    };
+    let operation_id = lease.request.operation_id.clone();
+
+    if state.runtime.cancel_provisional_tab_launch(tab_id) {
+        let converged = tab_stop_projection_converged(state, lease.request).await?;
+        return Ok(state.runtime.complete_tab_mutation(
+            &operation_id,
+            if converged {
+                "provisionalTabStopConverged"
+            } else {
+                "provisionalTabStopChromeUnconfirmed"
+            },
+            if converged {
+                RuntimeTabMutationTerminalStatus::Applied
+            } else {
+                RuntimeTabMutationTerminalStatus::Degraded
+            },
+            (!converged).then_some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
+            0,
+        ));
+    }
+
+    let intent = match state.runtime.preview_tab_close(tab_id) {
+        Ok(intent) => intent,
+        Err(_) => {
+            return Ok(state.runtime.complete_tab_mutation(
+                &operation_id,
+                "tabStopPreviewFailed",
+                RuntimeTabMutationTerminalStatus::Failed,
+                Some("TAB_MUTATION_CORE_COMMIT_FAILED"),
+                0,
+            ));
+        }
+    };
+    let result = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::EmbeddedTabStop {
+            request: lease.request.clone(),
+            source_id: intent.source_id,
+            tab_type: intent.tab_type,
+        })
+        .await;
+    let snapshot = match result {
+        Ok(value) => match serde_json::from_value::<BrowserRuntimeSnapshot>(value) {
+            Ok(snapshot) if snapshot.tabs.iter().all(|tab| tab.id != tab_id) => snapshot,
+            Ok(_) | Err(_) => {
+                state.runtime.resolve_tab_close_preview(tab_id, false);
+                return Ok(state.runtime.complete_tab_mutation(
+                    &operation_id,
+                    "tabStopReadbackUnknown",
+                    RuntimeTabMutationTerminalStatus::Indeterminate,
+                    Some("TAB_MUTATION_RESULT_UNKNOWN"),
+                    0,
+                ));
+            }
+        },
+        Err(error) => {
+            let payload = error.payload();
+            state.runtime.resolve_tab_close_preview(tab_id, false);
+            let failure_code = if payload.code == "SYSTEM_SURFACE_RELEASE_UNVERIFIED" {
+                "SYSTEM_SURFACE_RELEASE_UNVERIFIED"
+            } else {
+                "TAB_MUTATION_RESULT_UNKNOWN"
+            };
+            return Ok(state.runtime.complete_tab_mutation(
+                &operation_id,
+                "tabStopQuarantined",
+                RuntimeTabMutationTerminalStatus::Indeterminate,
+                Some(failure_code),
+                0,
+            ));
+        }
+    };
+    state.runtime.resolve_tab_close_preview(tab_id, true);
+    state.runtime.publish_projection();
+    let runtime = Arc::clone(&state.runtime);
+    let request = lease.request;
+    let converged = tauri::async_runtime::spawn_blocking(move || {
+        runtime.tab_mutation_projection_converged(&request, &snapshot)
+    })
+    .await
+    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
+    let native_release_confirmed = state.runtime.tab_surface_release_confirmed(tab_id);
+    let (stage, status, failure_code) =
+        tab_stop_terminal_outcome(converged, native_release_confirmed);
+    Ok(state.runtime.complete_tab_mutation(
+        &operation_id,
+        stage,
+        status,
+        failure_code,
+        0,
+    ))
+}
+
+async fn tab_stop_projection_converged(
+    state: &CoreState,
+    request: RuntimeTabMutationRequestRecord,
+) -> Result<bool, CoreErrorPayload> {
+    state.runtime.publish_projection();
+    let snapshot = state
+        .core
+        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+                .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
+        })?;
+    let runtime = Arc::clone(&state.runtime);
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.tab_mutation_projection_converged(&request, &snapshot)
+    })
+    .await
+    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
 }
 
 async fn execute_tab_mutation_commit(

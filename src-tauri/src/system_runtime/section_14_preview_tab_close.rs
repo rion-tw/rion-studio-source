@@ -193,11 +193,6 @@ impl SystemRuntimeExecutor {
         self.publish_projection();
     }
 
-    #[cfg(target_os = "macos")]
-    pub(crate) fn cancel_tab_close_preview(&self, tab_id: &str) {
-        self.resolve_tab_close_preview(tab_id, false);
-    }
-
     pub(crate) fn reconcile_tab_activation(&self, window_id: &str) {
         let (tab_id, revision) = self
             .presentation

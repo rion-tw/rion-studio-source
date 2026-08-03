@@ -158,6 +158,62 @@
     }
 
     #[test]
+    fn typed_tab_stop_correlates_native_effects_and_commits_saved_state() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let role_id = create_role(&core, &first_game_id(&core), 1);
+            drive_command(
+                Arc::clone(&core),
+                command(json!({
+                    "type": "embeddedRoleLaunch",
+                    "roleId": role_id,
+                    "target": {
+                        "displayId": 1,
+                        "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+                    }
+                })),
+                None,
+            )
+            .0
+            .unwrap();
+            let snapshot = core
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+                .unwrap()
+                .snapshot;
+            let tab = snapshot.tabs.first().unwrap();
+            let parent_operation_id = format!("native-tabStop-{platform}");
+            let (stopped, actions, _) = drive_async_command_with(
+                Arc::clone(&core),
+                embedded_tab_stop_mutation_command(
+                    &parent_operation_id,
+                    &tab.id,
+                    &tab.window_id,
+                    &role_id,
+                ),
+                |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
+            );
+            let stopped: BrowserRuntimeSnapshot =
+                serde_json::from_value(stopped.unwrap()).unwrap();
+            assert!(stopped.tabs.is_empty(), "{platform}");
+            assert!(stopped.roles.is_empty(), "{platform}");
+            assert!(
+                actions
+                    .iter()
+                    .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. })),
+                "{platform}"
+            );
+            let saved = core.invoke(CoreCommand::GameWindowsList).unwrap();
+            assert!(
+                saved.as_array().unwrap().iter().all(|window| window["tabs"]
+                    .as_array()
+                    .is_none_or(Vec::is_empty)),
+                "{platform}"
+            );
+            core.shutdown();
+        }
+    }
+
+    #[test]
     fn public_role_launch_accepts_two_roles_without_waiting_for_native_readiness() {
         let (_directory, core) = core();
         let game_id = first_game_id(&core);

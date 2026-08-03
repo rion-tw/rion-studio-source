@@ -246,28 +246,6 @@ use super::*;
     }
 
     #[test]
-    fn close_intent_builds_core_command_without_a_runtime_snapshot() {
-        let role = RuntimeTabCloseIntent {
-            source_id: "role-a".to_owned(),
-            tab_type: "role".to_owned(),
-        };
-        assert!(matches!(
-            role.into_core_command(),
-            CoreCommand::BrowserRoleStop { role_id } if role_id == "role-a"
-        ));
-
-        let workspace = RuntimeTabCloseIntent {
-            source_id: "workspace-a".to_owned(),
-            tab_type: "workspace".to_owned(),
-        };
-        assert!(matches!(
-            workspace.into_core_command(),
-            CoreCommand::BrowserWorkspaceStop { workspace_id }
-                if workspace_id == "workspace-a"
-        ));
-    }
-
-    #[test]
     fn presentation_barrier_waits_for_the_applied_revision_and_is_bounded() {
         let actor = Arc::new(NativeWindowActor {
             queue: Arc::new((

@@ -152,7 +152,9 @@ it("routes close around slow effects and keeps failed close intent committed", a
       core.indexOf("fn stop_embedded_workspace(")
     );
     expect(stopRole).toContain("request_stop_role(role_id)");
-    expect(stopRole).toContain("Duration::from_secs(12)");
+    expect(stopRole).toContain("parent_operation_id: Option<&str>");
+    expect(stopRole).toContain("run_embedded_runtime_effect(");
+    expect(stopRole).toContain("parent_operation_id,");
     expect(stopRole).toContain("commit_embedded_runtime_snapshot_without_native_effect");
     expect(stopRole).not.toContain("previous_runtime");
     expect(stopRole).not.toContain("publish_embedded_runtime_snapshot_best_effort");
@@ -417,7 +419,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     );
     expect(quickMenuNativeBuild).not.toContain("core.invoke(");
     expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
-    expect(menu).toContain("resolve_tab_close_preview(tab_id, result.is_ok())");
+    expect(menu).toContain("crate::execute_tab_stop(state, tab_id)");
     expect(menu).not.toContain("fn stop_command(");
     expect(macBridge).not.toContain("fn stop_command_for_tab(");
     expect(macBridge).toContain("metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>");
@@ -488,7 +490,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(windowsStrip).not.toContain("existing.replaceChildren(");
   });
 
-it("never blocks the native UI thread on a tab launch lane and cancels provisional tabs locally", async () => {
+it("never blocks the native UI thread and cancels provisional tabs through the stop transaction", async () => {
     const [runtime, shell, menu, quickMenu, macBridge] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
@@ -515,7 +517,7 @@ it("never blocks the native UI thread on a tab launch lane and cancels provision
     }
     const menuLaunch = menu.slice(
       menu.indexOf("fn launch_from_menu("),
-      menu.indexOf("fn spawn_command(")
+      menu.indexOf("fn capture_launcher_action_event(")
     );
     expect(menuLaunch).toContain("preview_tab_launch(&target, source_id, tab_type)");
     expect(menuLaunch.indexOf("preview_tab_launch(&target, source_id, tab_type)")).toBeLessThan(
@@ -539,10 +541,19 @@ it("never blocks the native UI thread on a tab launch lane and cancels provision
     expect(runtime).toContain(".find(|launch| launch.id == tab_id)");
     expect(runtime).toContain("launch.cancelled = true");
     expect(runtime).toContain(".is_some_and(|launch| launch.cancelled)");
-    expect(shell).toContain("state.runtime.cancel_provisional_tab_launch(&tab_id)");
+    const stopTransaction = shell.slice(
+      shell.indexOf("async fn execute_tab_stop("),
+      shell.indexOf("async fn execute_tab_mutation_commit(")
+    );
+    expect(stopTransaction).toContain("cancel_provisional_tab_launch(tab_id)");
+    expect(stopTransaction).toContain("preview_tab_close(tab_id)");
+    expect(stopTransaction).toContain("CoreCommand::EmbeddedTabStop");
+    expect(stopTransaction).toContain("RuntimeTabMutationTerminalStatus::Indeterminate");
+    expect(stopTransaction).toContain("tab_surface_release_confirmed(tab_id)");
+    expect(stopTransaction).toContain("tab_stop_terminal_outcome(");
     expect(shell).toContain("preview_tab_activation(tab_id, native_style_applied)?");
     expect(shell).toContain("preview_and_commit_native_tab_selection");
-    expect(menu).toContain("state.runtime.cancel_provisional_tab_launch(tab_id)");
+    expect(menu).toContain("crate::execute_tab_stop(state, tab_id)");
     const scopedTabAction = menu.slice(
       menu.indexOf("pub async fn handle_scoped_action("),
       menu.indexOf("fn launch_from_menu(")
@@ -550,18 +561,18 @@ it("never blocks the native UI thread on a tab launch lane and cancels provision
     expect(scopedTabAction.indexOf('if action_type == "activate"')).toBeLessThan(
       scopedTabAction.indexOf("let snapshot = snapshot(&state.core)?")
     );
-    expect(macBridge).toContain("state.runtime.cancel_provisional_tab_launch(tab_id)");
+    expect(macBridge).toContain("crate::execute_tab_stop(&state, tab_id).await");
   });
 
-it("keeps the native macOS close rollback entry point platform gated", async () => {
+it("keeps failed destructive close quarantined instead of rolling presentation back", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
     );
     expect(runtime).toContain("struct CloseTransaction;");
-    expect(runtime).toContain(
-      '#[cfg(target_os = "macos")]\n    pub(crate) fn cancel_tab_close_preview('
-    );
+    expect(runtime).not.toContain("cancel_tab_close_preview");
+    expect(runtime).toContain("pub(crate) fn resolve_tab_close_preview(");
+    expect(runtime).toContain("surface.phase = ManagedSurfacePhase::Quarantined");
   });
 
 it("tracks exact native surface ownership across roles, popups, dividers, and moves", async () => {

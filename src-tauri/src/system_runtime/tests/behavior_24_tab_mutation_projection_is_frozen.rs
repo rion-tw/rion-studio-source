@@ -48,6 +48,44 @@ fn hide_projection_removes_the_tab_and_uses_a_stable_fallback() {
 }
 
 #[test]
+fn stop_projection_removes_the_tab_and_uses_the_macos_successor_fallback() {
+    for platform in ["macos", "windows"] {
+        let mut source = mutation_window("source", 7, &["tab-a", "tab-b", "tab-c"]);
+        source.active_tab_id = Some("tab-b".to_owned());
+        let (order, active, index) =
+            expected_tab_mutation_projection("stop", "tab-b", &source, None, None);
+        assert_eq!(order, vec!["tab-a", "tab-c"], "{platform}");
+        assert_eq!(active.as_deref(), Some("tab-c"), "{platform}");
+        assert_eq!(index, None, "{platform}");
+    }
+}
+
+#[test]
+fn active_stop_is_joined_and_blocks_later_topology_mutations() {
+    for platform in ["macos", "windows"] {
+        let joined = classify_active_tab_stop(Some("native-stop-1"), "stop")
+            .expect("duplicate stop should be accepted");
+        assert!(
+            matches!(
+                joined,
+                Some(RuntimeTabMutationAcceptance::ExistingStop(operation_id))
+                    if operation_id == "native-stop-1"
+            ),
+            "{platform}"
+        );
+        let blocked = match classify_active_tab_stop(Some("native-stop-1"), "move") {
+            Err(error) => error,
+            Ok(_) => panic!("move must be rejected after stop acceptance"),
+        };
+        assert_eq!(blocked.code, "TAB_MUTATION_CLOSING", "{platform}");
+        assert!(
+            classify_active_tab_stop(None, "hide").unwrap().is_none(),
+            "{platform}"
+        );
+    }
+}
+
+#[test]
 fn per_tab_mutation_lane_rejects_capacity_without_evicting_accepted_work() {
     let platform = "windows";
     let lane = TabMutationLane::default();

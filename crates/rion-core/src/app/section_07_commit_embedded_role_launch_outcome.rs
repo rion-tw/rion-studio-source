@@ -444,17 +444,18 @@ impl AppCore {
     }
 
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, true)
+        self.stop_embedded_role_with_operation_lease(role_id, true, None)
     }
 
     fn stop_embedded_role_under_active_lease(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, false)
+        self.stop_embedded_role_with_operation_lease(role_id, false, None)
     }
 
     fn stop_embedded_role_with_operation_lease(
         &self,
         role_id: &str,
         acquire_operation_lease: bool,
+        parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         self.cancel_embedded_operations(&[role_id.to_owned()])?;
         let lease = acquire_operation_lease
@@ -538,12 +539,12 @@ impl AppCore {
             // never leave a visually closed role running.
             self.emit_browser_statuses();
             let (role, tab_id, tab_role_count, action) = prepared;
-            self.run_effect_plan(vec![effect_step(
+            self.run_embedded_runtime_effect(
                 role_id,
                 action,
-                Duration::from_secs(12),
                 None,
-            )])?;
+                parent_operation_id,
+            )?;
 
             {
                 let _sequence = self.embedded_runtime_sequence.acquire()?;
@@ -607,11 +608,11 @@ impl AppCore {
     }
 
     fn stop_embedded_workspace(&self, workspace_id: &str) -> CoreResult<()> {
-        self.stop_embedded_workspace_with_operation_lease(workspace_id, true)
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, true, None)
     }
 
     fn stop_embedded_workspace_under_active_lease(&self, workspace_id: &str) -> CoreResult<()> {
-        self.stop_embedded_workspace_with_operation_lease(workspace_id, false)
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, false, None)
     }
 
 }

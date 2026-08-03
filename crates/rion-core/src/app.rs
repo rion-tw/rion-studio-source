@@ -12,6 +12,7 @@ include!("app/section_05_delete_workspaces_runtime_aware.rs");
 include!("app/section_06_acquire_browser_operation_async.rs");
 include!("app/section_07_commit_embedded_role_launch_outcome.rs");
 include!("app/section_08_stop_embedded_workspace_with_operation_lease.rs");
+include!("app/section_08_tab_mutation.rs");
 include!("app/section_09_apply_embedded_runtime_command_inner.rs");
 include!("app/section_10_shutdown.rs");
 include!("app/section_11_embedded_launch_effects.rs");

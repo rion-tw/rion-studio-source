@@ -189,6 +189,22 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "stopped": true }))
             }
+            CoreCommand::EmbeddedTabStop {
+                request,
+                source_id,
+                tab_type,
+            } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.stop_embedded_tab_mutation(request, &source_id, &tab_type)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))?
+                .and_then(|snapshot| {
+                    serde_json::to_value(snapshot)
+                        .map_err(|error| CoreError::Internal(error.to_string()))
+                })
+            }
             CoreCommand::BrowserWindowStop { window_id } => {
                 let core = Arc::clone(self);
                 tokio::task::spawn_blocking(move || core.stop_embedded_window(&window_id, false))

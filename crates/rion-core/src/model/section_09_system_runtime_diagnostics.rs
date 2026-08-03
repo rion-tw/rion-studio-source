@@ -39,12 +39,12 @@ pub struct SystemRuntimeOperationSummaryRecord {
     pub deadline_at: String,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
-    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\" | \"displayTopology\" | \"windowLifecycle\" | \"focus\" | \"recovery\" | \"power\" | \"drag\" | \"projection\"")]
+    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"tabActivation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\" | \"displayTopology\" | \"windowLifecycle\" | \"focus\" | \"recovery\" | \"power\" | \"drag\" | \"projection\"")]
     pub subsystem: String,
     #[ts(type = "\"applied\" | \"superseded\" | \"cancelled\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
     pub status: String,
     pub stage: String,
-    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"nativeDestroyed\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\" | \"topologyCommitted\" | \"focusObserved\" | \"dragCommitted\" | \"lifecycleTransition\"")]
+    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"nativeDestroyed\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\" | \"topologyCommitted\" | \"focusObserved\" | \"dragCommitted\" | \"lifecycleTransition\" | \"tabActivationConverged\"")]
     pub completion_scope: String,
     pub operation_id: String,
     pub trigger: String,
@@ -88,6 +88,39 @@ pub struct SystemRuntimeOperationSummaryRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub rollback_error_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabActivationRequestRecord {
+    pub operation_id: String,
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    pub target_tab_id: String,
+    pub ordered_tab_ids: Vec<String>,
+    #[ts(type = "\"optimistic\" | \"reconcile\"")]
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabActivationAcknowledgementRecord {
+    pub operation_id: String,
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub target_tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub observed_active_tab_id: Option<String>,
+    #[ts(type = "\"applied\" | \"superseded\" | \"failed\"")]
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

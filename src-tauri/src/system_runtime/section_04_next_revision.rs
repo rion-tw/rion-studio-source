@@ -414,6 +414,8 @@ struct RuntimeState {
     automatic_launch_retries: HashMap<String, u8>,
     retryable_failed_launches: HashSet<String>,
     recovery_required: bool,
+    recovery_interrupted_window_ids: Vec<String>,
+    recovery_session_generation: u32,
     recovery_budgets: HashMap<String, RecoveryBudget>,
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,
@@ -676,6 +678,7 @@ pub struct SystemRuntimeExecutor {
     native_window_mutations: Arc<NativeWindowMutationRegistry>,
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
+    surface_recoveries: SurfaceRecoveryRegistry,
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
@@ -724,7 +727,7 @@ enum SystemRuntimeWork {
     RecoverSurface {
         allowed: bool,
         reason: String,
-        role_id: String,
+        transaction: Box<SurfaceRecoveryTransaction>,
     },
     FinalizeSurfaceRelease {
         instance_id: String,

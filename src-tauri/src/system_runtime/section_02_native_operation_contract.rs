@@ -23,6 +23,7 @@ enum NativeOperationSubsystem {
     WindowLifecycle,
     Focus,
     Drag,
+    Recovery,
 }
 
 impl NativeOperationSubsystem {
@@ -46,6 +47,7 @@ impl NativeOperationSubsystem {
             Self::WindowLifecycle => "windowLifecycle",
             Self::Focus => "focus",
             Self::Drag => "drag",
+            Self::Recovery => "recovery",
         }
     }
 
@@ -62,6 +64,7 @@ impl NativeOperationSubsystem {
             | Self::WindowLifecycle
             | Self::Focus => "nativeAcknowledgement",
             Self::Drag => "dragCommitted",
+            Self::Recovery => "inputReady",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",
@@ -177,6 +180,11 @@ impl NativeOperationContext {
 
     fn with_completion_scope(mut self, completion_scope: &'static str) -> Self {
         self.completion_scope = completion_scope;
+        self
+    }
+
+    fn with_parent_operation_id(mut self, operation_id: impl Into<String>) -> Self {
+        self.parent_operation_id = Some(operation_id.into());
         self
     }
 

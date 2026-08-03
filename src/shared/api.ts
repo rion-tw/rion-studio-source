@@ -65,7 +65,11 @@ import type {
   WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
-import type { CoreErrorPayload, SystemRuntimeOperationSummaryRecord } from "./generated";
+import type {
+  CoreErrorPayload,
+  SurfaceRecoveryAttemptRecord,
+  SystemRuntimeOperationSummaryRecord
+} from "./generated";
 
 export interface RionStudioApi {
   notifyRendererReady: () => Promise<void>;
@@ -179,6 +183,9 @@ export interface RionStudioApi {
   onEmbeddedRuntimeStateChanged: (callback: (state: EmbeddedRuntimeState) => void) => () => void;
   onWindowLifecycleChanged: (
     callback: (receipt: SystemRuntimeOperationSummaryRecord) => void
+  ) => () => void;
+  onSurfaceRecoveryAttemptChanged: (
+    callback: (attempt: SurfaceRecoveryAttemptRecord) => void
   ) => () => void;
   onGamesChanged: (callback: (games: Game[]) => void) => () => void;
   onRolesChanged: (callback: (roles: Role[]) => void) => () => void;

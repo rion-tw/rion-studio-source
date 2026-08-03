@@ -154,7 +154,9 @@ impl SystemRuntimeExecutor {
                 json!({
                     "reason": "unclean-exit",
                     "windowCount": saved_windows.len(),
-                    "tabCount": state.dormant_windows.iter().map(|window| window.tabs.len()).sum::<usize>()
+                    "tabCount": state.dormant_windows.iter().map(|window| window.tabs.len()).sum::<usize>(),
+                    "interruptedWindowIds": state.recovery_interrupted_window_ids,
+                    "sessionGeneration": state.recovery_session_generation
                 })
             });
             (tabs, window_inputs, saved_windows, recovery)
@@ -218,6 +220,9 @@ impl SystemRuntimeExecutor {
         if let Ok(mut state) = self.state.lock() {
             state.dormant_windows = windows;
             state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
+            if !state.recovery_required {
+                state.recovery_interrupted_window_ids.clear();
+            }
         }
         self.publish_projection();
     }

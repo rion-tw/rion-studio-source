@@ -314,6 +314,10 @@ impl SystemRuntimeExecutor {
     }
 }
 
+pub(crate) fn shutdown_receipt_allows_clean_exit(status: &str) -> bool {
+    matches!(status, "applied" | "degraded")
+}
+
 struct ShutdownHostSnapshot {
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     pending_window_closes: Vec<WindowCloseTransaction>,

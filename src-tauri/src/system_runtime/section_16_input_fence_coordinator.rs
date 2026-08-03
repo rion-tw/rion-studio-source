@@ -534,6 +534,9 @@ impl SystemRuntimeExecutor {
         let Some((generation, operation)) = recovery else {
             return;
         };
+        let parent_operation_id = operation
+            .as_ref()
+            .map(|operation| operation.operation_id.clone());
         if let Some(operation) = operation {
             self.record_native_operation_receipt(NativeOperationReceipt::with_status(
                 operation,
@@ -553,10 +556,11 @@ impl SystemRuntimeExecutor {
             .app
             .try_state::<crate::CoreState>()
             .is_some_and(|state| {
-                state.runtime.schedule_surface_recovery(
+                state.runtime.schedule_surface_recovery_with_parent(
                     role_id.to_owned(),
                     "input-fence-timeout".to_owned(),
                     generation,
+                    parent_operation_id,
                 )
             });
         if !scheduled {

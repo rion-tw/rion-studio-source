@@ -36,6 +36,7 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
 interface OverlayController {
   dispose: () => void;
   refresh: () => Promise<void>;
+  releaseForwardedMacroKey: (code: string) => boolean;
   suppressNextShortcut: (
     code: string,
     phase?: "keydown" | "keyup",
@@ -210,6 +211,216 @@ describe("macro overlay native key guard", () => {
     expect(gameListener).toHaveBeenCalledOnce();
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-1" });
   });
+
+  it("forwards an editable macro key only to the remembered canvas target", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    const input = document.createElement("input");
+    input.value = "seed";
+    document.body.append(canvas, input);
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+    input.focus();
+    input.setSelectionRange(2, 2);
+    const canvasEvents: KeyboardEvent[] = [];
+    const documentListener = vi.fn();
+    canvas.addEventListener("keydown", (event) => canvasEvents.push(event));
+    document.addEventListener("keydown", documentListener);
+    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    const original = keyEvent("keydown", "KeyW", "w", {
+      ctrlKey: true,
+      location: 1,
+      repeat: true
+    });
+    Object.defineProperties(original, {
+      charCode: { configurable: true, value: 119 },
+      keyCode: { configurable: true, value: 87 },
+      which: { configurable: true, value: 87 }
+    });
+
+    expect(input.dispatchEvent(original)).toBe(false);
+
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("seed");
+    expect([input.selectionStart, input.selectionEnd]).toEqual([2, 2]);
+    expect(original.defaultPrevented).toBe(true);
+    expect(documentListener).toHaveBeenCalledOnce();
+    expect(documentListener).toHaveBeenCalledWith(original);
+    expect(canvasEvents).toHaveLength(1);
+    const [forwarded] = canvasEvents;
+    expect(forwarded).not.toBe(original);
+    expect(forwarded.target).toBe(canvas);
+    expect(forwarded.bubbles).toBe(false);
+    expect(forwarded.composed).toBe(false);
+    expect(forwarded.defaultPrevented).toBe(false);
+    expect(forwarded.code).toBe("KeyW");
+    expect(forwarded.key).toBe("w");
+    expect(forwarded.ctrlKey).toBe(true);
+    expect(forwarded.location).toBe(1);
+    expect(forwarded.repeat).toBe(true);
+    expect(forwarded.keyCode).toBe(87);
+    expect(forwarded.which).toBe(87);
+    expect(forwarded.charCode).toBe(119);
+  });
+
+  it("uses the only canvas in an open shadow root without prior interaction", () => {
+    const controller = installOverlay();
+    const host = document.createElement("div");
+    const canvas = document.createElement("canvas");
+    host.attachShadow({ mode: "open" }).append(canvas);
+    const input = document.createElement("textarea");
+    document.body.append(host, input);
+    input.focus();
+    const canvasKeyDown = vi.fn();
+    canvas.addEventListener("keydown", canvasKeyDown);
+    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+
+    input.dispatchEvent(keyEvent("keydown", "KeyA", "a"));
+
+    expect(canvasKeyDown).toHaveBeenCalledOnce();
+  });
+
+  it("does not guess a canvas when multiple targets have no interaction history", () => {
+    const controller = installOverlay();
+    const firstCanvas = document.createElement("canvas");
+    const secondCanvas = document.createElement("canvas");
+    const input = document.createElement("input");
+    document.body.append(firstCanvas, secondCanvas, input);
+    input.focus();
+    const firstKeyDown = vi.fn();
+    const secondKeyDown = vi.fn();
+    firstCanvas.addEventListener("keydown", firstKeyDown);
+    secondCanvas.addEventListener("keydown", secondKeyDown);
+    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+
+    const original = keyEvent("keydown", "KeyA", "a");
+    input.dispatchEvent(original);
+
+    expect(original.defaultPrevented).toBe(true);
+    expect(firstKeyDown).not.toHaveBeenCalled();
+    expect(secondKeyDown).not.toHaveBeenCalled();
+  });
+
+  it("replaces a detached remembered canvas with the only connected target", () => {
+    const controller = installOverlay();
+    const detachedCanvas = document.createElement("canvas");
+    const connectedCanvas = document.createElement("canvas");
+    const input = document.createElement("input");
+    document.body.append(detachedCanvas);
+    detachedCanvas.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, composed: true }));
+    detachedCanvas.remove();
+    document.body.append(connectedCanvas, input);
+    input.focus();
+    const connectedKeyDown = vi.fn();
+    connectedCanvas.addEventListener("keydown", connectedKeyDown);
+    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+
+    input.dispatchEvent(keyEvent("keydown", "KeyA", "a"));
+
+    expect(connectedKeyDown).toHaveBeenCalledOnce();
+  });
+
+  it("reasserts a held macro key after editable focus and routes its release", async () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    canvas.tabIndex = 0;
+    const input = document.createElement("input");
+    const secondInput = document.createElement("input");
+    document.body.append(canvas, input, secondInput);
+    const canvasKeyDown = vi.fn();
+    const canvasKeyUp = vi.fn();
+    canvas.addEventListener("keydown", canvasKeyDown);
+    canvas.addEventListener("keyup", canvasKeyUp);
+    canvas.focus();
+    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w"));
+    expect(canvasKeyDown).toHaveBeenCalledOnce();
+
+    input.focus();
+    await Promise.resolve();
+
+    expect(document.activeElement).toBe(input);
+    expect(canvasKeyDown).toHaveBeenCalledTimes(2);
+
+    secondInput.focus();
+    await Promise.resolve();
+    expect(canvasKeyDown).toHaveBeenCalledTimes(2);
+    expect(controller.suppressNextShortcut("KeyW", "keyup")).toBe(true);
+    const release = keyEvent("keyup", "KeyW", "w");
+    secondInput.dispatchEvent(release);
+    expect(release.defaultPrevented).toBe(false);
+    expect(canvasKeyUp).toHaveBeenCalledOnce();
+
+    canvas.focus();
+    input.focus();
+    await Promise.resolve();
+    expect(canvasKeyDown).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases a forwarded held key when its armed keyup expires", () => {
+    vi.useFakeTimers();
+    try {
+      const controller = installOverlay();
+      const canvas = document.createElement("canvas");
+      canvas.tabIndex = 0;
+      document.body.append(canvas);
+      const canvasKeyUp = vi.fn();
+      canvas.addEventListener("keyup", canvasKeyUp);
+      canvas.focus();
+      expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+      canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w"));
+      expect(controller.suppressNextShortcut("KeyW", "keyup", Date.now() + 20)).toBe(true);
+
+      vi.advanceTimersByTime(21);
+
+      expect(canvasKeyUp).toHaveBeenCalledOnce();
+      expect(controller.releaseForwardedMacroKey("KeyW")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reasserts held modifiers before the main key and releases them in native order", async () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    canvas.tabIndex = 0;
+    const input = document.createElement("input");
+    document.body.append(canvas, input);
+    const keyDownCodes: string[] = [];
+    const keyUpCodes: string[] = [];
+    canvas.addEventListener("keydown", (event) => keyDownCodes.push(event.code));
+    canvas.addEventListener("keyup", (event) => keyUpCodes.push(event.code));
+    canvas.focus();
+    expect(controller.suppressNextShortcut("ControlLeft", "keydown")).toBe(true);
+    canvas.dispatchEvent(keyEvent("keydown", "ControlLeft", "Control", { ctrlKey: true }));
+    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w", { ctrlKey: true }));
+
+    input.focus();
+    await Promise.resolve();
+
+    expect(keyDownCodes).toEqual(["ControlLeft", "KeyW", "ControlLeft", "KeyW"]);
+    expect(controller.suppressNextShortcut("KeyW", "keyup")).toBe(true);
+    input.dispatchEvent(keyEvent("keyup", "KeyW", "w", { ctrlKey: true }));
+    expect(controller.suppressNextShortcut("ControlLeft", "keyup")).toBe(true);
+    input.dispatchEvent(keyEvent("keyup", "ControlLeft", "Control"));
+    expect(keyUpCodes).toEqual(["KeyW", "ControlLeft"]);
+  });
+
+  it("does not forward an unarmed physical key to a unique canvas", () => {
+    installOverlay();
+    const canvas = document.createElement("canvas");
+    const input = document.createElement("input");
+    document.body.append(canvas, input);
+    input.focus();
+    const canvasKeyDown = vi.fn();
+    canvas.addEventListener("keydown", canvasKeyDown);
+
+    const physical = keyEvent("keydown", "KeyA", "a");
+    input.dispatchEvent(physical);
+
+    expect(physical.defaultPrevented).toBe(false);
+    expect(canvasKeyDown).not.toHaveBeenCalled();
+  });
 });
 
 function installOverlay(
@@ -252,12 +463,18 @@ function createEditableControls(): Array<[string, HTMLElement]> {
   ];
 }
 
-function keyEvent(type: "keydown" | "keyup", code: string, key: string): KeyboardEvent {
+function keyEvent(
+  type: "keydown" | "keyup",
+  code: string,
+  key: string,
+  init: KeyboardEventInit = {}
+): KeyboardEvent {
   return new KeyboardEvent(type, {
     bubbles: true,
     cancelable: true,
     code,
     composed: true,
-    key
+    key,
+    ...init
   });
 }

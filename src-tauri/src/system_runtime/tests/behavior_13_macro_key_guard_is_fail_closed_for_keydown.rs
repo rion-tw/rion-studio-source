@@ -23,6 +23,7 @@ fn macro_main_keydown_arms_the_page_guard_before_native_dispatch() {
             order.lock().unwrap().push("dispatch");
             Ok(())
         },
+        || order.lock().unwrap().push("release"),
     );
 
     assert!(result.is_ok());
@@ -45,6 +46,7 @@ fn macro_main_keydown_is_not_dispatched_when_the_page_guard_fails() {
             dispatched.store(true, Ordering::Release);
             Ok(())
         },
+        || {},
     );
 
     assert_eq!(
@@ -58,6 +60,7 @@ fn macro_main_keydown_is_not_dispatched_when_the_page_guard_fails() {
 fn macro_keyup_is_always_dispatched_even_when_guard_arming_fails() {
     let effect = guarded_key_effect("keyUp", "KeyA", true);
     let dispatched = AtomicBool::new(false);
+    let released = AtomicBool::new(false);
     let result = dispatch_guarded_macro_key_effect_with(
         &effect,
         || {
@@ -70,14 +73,16 @@ fn macro_keyup_is_always_dispatched_even_when_guard_arming_fails() {
             dispatched.store(true, Ordering::Release);
             Ok(())
         },
+        || released.store(true, Ordering::Release),
     );
 
     assert!(result.is_ok());
     assert!(dispatched.load(Ordering::Acquire));
+    assert!(released.load(Ordering::Acquire));
 }
 
 #[test]
-fn modifier_effects_do_not_require_a_text_entry_guard() {
+fn modifier_keydown_is_armed_before_native_dispatch() {
     let effect = guarded_key_effect("rawKeyDown", "ControlLeft", false);
     let armed = AtomicBool::new(false);
     let dispatched = AtomicBool::new(false);
@@ -91,11 +96,27 @@ fn modifier_effects_do_not_require_a_text_entry_guard() {
             dispatched.store(true, Ordering::Release);
             Ok(())
         },
+        || {},
     );
 
     assert!(result.is_ok());
-    assert!(!armed.load(Ordering::Acquire));
+    assert!(armed.load(Ordering::Acquire));
     assert!(dispatched.load(Ordering::Acquire));
+}
+
+#[test]
+fn successful_keyup_guard_does_not_run_forwarded_release_fallback() {
+    let effect = guarded_key_effect("keyUp", "KeyA", true);
+    let released = AtomicBool::new(false);
+    let result = dispatch_guarded_macro_key_effect_with(
+        &effect,
+        || Ok(()),
+        || Ok(()),
+        || released.store(true, Ordering::Release),
+    );
+
+    assert!(result.is_ok());
+    assert!(!released.load(Ordering::Acquire));
 }
 
 #[test]
@@ -107,6 +128,15 @@ fn macro_key_guard_script_serializes_code_phase_and_deadline() {
     assert!(source.contains(r#""KeyA\"\\""#));
     assert!(source.contains(r#""keydown""#));
     assert!(source.ends_with(",123456) === true"));
+}
+
+#[test]
+fn macro_key_release_script_serializes_the_code() {
+    let source = macro_key_guard_release_script("KeyA\"\\").unwrap();
+
+    assert!(source.contains("releaseForwardedMacroKey"));
+    assert!(source.contains(r#""KeyA\"\\""#));
+    assert!(source.ends_with(") === true"));
 }
 
 #[test]

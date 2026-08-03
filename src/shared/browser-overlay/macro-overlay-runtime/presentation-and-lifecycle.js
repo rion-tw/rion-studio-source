@@ -572,6 +572,7 @@
     resetCoordinateMeasurementModuleLoader();
     reportGameInputContext(false);
     releaseActiveHeldShortcuts();
+    releaseAllForwardedMacroKeys();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keypress", handleCoordinateKeyPress, true);
     window.removeEventListener("keyup", handleKeyUp, true);
@@ -602,7 +603,7 @@
     latestCoreStatuses = [];
     state.macros = [];
     state.statuses = [];
-    suppressedShortcutEvents = [];
+    clearAllSuppressedShortcuts();
 
     removeHost(hostId);
     if (window[controllerKey]?.version === scriptVersion) {
@@ -635,6 +636,7 @@
       clearSuppressedShortcut,
       dispose,
       refresh,
+      releaseForwardedMacroKey,
       suppressNextShortcut,
       version: scriptVersion
     };

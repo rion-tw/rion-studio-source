@@ -255,16 +255,20 @@ describe("bulk selection UI", () => {
     expect(screen.getByText("None")).toBeTruthy();
 
     const startButton = screen.getByRole("button", { name: "Start" });
-    const nameLayout = startButton.closest("[data-macro-name-control]");
-    const runLayout = startButton.closest("[data-macro-run-control]");
     const nameButton = screen.getByText("Auto heal").closest("button")!;
+    const nameLayout = nameButton.closest("[data-macro-name-control]");
+    const runLayout = startButton.closest("[data-macro-run-control]");
+    const activationIndicator = screen.getByRole("img", { name: "Tap to toggle" });
+    const repeatIndicator = screen.getByRole("img", { name: "Once" });
     expect(nameLayout).not.toBeNull();
-    expect(nameLayout?.className).toContain("pl-9");
-    expect(runLayout?.className).toContain("absolute");
-    expect(runLayout?.className).toContain("inset-y-0");
-    expect(runLayout?.className).toContain("items-center");
-    expect(runLayout?.closest("td")?.className).toContain("relative");
-    expect(startButton.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(nameLayout?.className).not.toContain("pl-9");
+    expect(runLayout?.className).toContain("shrink-0");
+    expect(runLayout?.parentElement?.className).toContain("gap-1.5");
+    expect(activationIndicator.className).toContain("h-7");
+    expect(activationIndicator.querySelector("svg")?.getAttribute("width")).toBe("14");
+    expect(startButton.compareDocumentPosition(activationIndicator) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(activationIndicator.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(repeatIndicator).toBeTruthy();
     const actionLayout = screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]");
     expect(actionLayout?.className).toContain("absolute");
     expect(actionLayout?.className).toContain("inset-0");
@@ -273,6 +277,43 @@ describe("bulk selection UI", () => {
     await user.click(checkbox);
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();
+  });
+
+  it("shows the loop wait duration beside its timer icon", () => {
+    const item = { ...macro("macro-loop", "Auto loop"), repeat: { type: "loop" as const, intervalMs: 1000 } };
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[item]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map()}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    const repeatIndicator = screen.getByRole("img", { name: "Wait 1000 ms after completion" });
+    const delay = screen.getByText("1 sec");
+    expect(repeatIndicator.className).toContain("gap-1.5");
+    expect(repeatIndicator.querySelector("svg")?.getAttribute("width")).toBe("14");
+    expect(delay.className).toContain("text-body");
+    expect(delay.className).toContain("leading-5");
   });
 
   it("runs each bulk macro action only for applicable selected rows", async () => {

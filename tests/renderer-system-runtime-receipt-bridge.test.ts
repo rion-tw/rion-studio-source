@@ -15,7 +15,9 @@ vi.mock("@tauri-apps/api/event", () => ({ listen }));
 import { installTauriBridgeIfNeeded } from "../src/renderer/src/tauri/installTauriBridge";
 
 const appliedReceipt: SystemRuntimeOperationSummaryRecord = {
+  acceptedAt: "2026-08-03T00:00:00Z",
   capturedAt: "2026-08-03T00:00:00Z",
+  deadlineAt: "2026-08-03T00:00:10Z",
   platform: "macos",
   subsystem: "presentation",
   status: "applied",

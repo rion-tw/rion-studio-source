@@ -28,6 +28,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use activation::ActivationServer;
 use system_runtime::{
     RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
+    TabActivationComponentStatus,
 };
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
@@ -78,205 +79,6 @@ struct CoreState {
     updates: Arc<update_manager::UpdateManager>,
 }
 
-const TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150);
-const TAB_SELECTION_COMMIT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-const TAB_SELECTION_COMMIT_RETRY_DELAY: Duration = Duration::from_millis(300);
-
-#[derive(Clone, Default)]
-struct TabSelectionCommitCoordinator {
-    next_generation: Arc<AtomicU64>,
-    workers: Arc<Mutex<HashMap<String, TabSelectionCommitWorker>>>,
-}
-
-struct TabSelectionCommitWorker {
-    generation: u64,
-    sender: tokio::sync::watch::Sender<TabSelectionCommitRequest>,
-}
-
-#[derive(Clone)]
-struct TabSelectionCommitRequest {
-    app: AppHandle,
-    core: Arc<AppCore>,
-    runtime: Arc<SystemRuntimeExecutor>,
-    tab_id: String,
-    window_id: String,
-    selection_revision: u64,
-}
-
-impl TabSelectionCommitCoordinator {
-    fn request(
-        &self,
-        app: AppHandle,
-        core: Arc<AppCore>,
-        runtime: Arc<SystemRuntimeExecutor>,
-        window_id: String,
-        tab_id: String,
-        selection_revision: u64,
-    ) -> Result<(), String> {
-        let request = TabSelectionCommitRequest {
-            app,
-            core,
-            runtime,
-            tab_id,
-            window_id: window_id.clone(),
-            selection_revision,
-        };
-        let mut workers = self
-            .workers
-            .lock()
-            .map_err(|_| "tab selection commit coordinator lock poisoned".to_owned())?;
-        if let Some(worker) = workers.get(&window_id)
-            && worker.sender.send(request.clone()).is_ok()
-        {
-            return Ok(());
-        }
-        let (sender, receiver) = tokio::sync::watch::channel(request);
-        let generation = self
-            .next_generation
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
-        workers.insert(
-            window_id.clone(),
-            TabSelectionCommitWorker { generation, sender },
-        );
-        tauri::async_runtime::spawn(run_tab_selection_commit_worker(
-            receiver,
-            Arc::downgrade(&self.workers),
-            window_id,
-            generation,
-        ));
-        Ok(())
-    }
-}
-
-async fn run_tab_selection_commit_worker(
-    mut receiver: tokio::sync::watch::Receiver<TabSelectionCommitRequest>,
-    workers: std::sync::Weak<Mutex<HashMap<String, TabSelectionCommitWorker>>>,
-    window_id: String,
-    generation: u64,
-) {
-    loop {
-        let request = receiver.borrow_and_update().clone();
-        tokio::time::sleep(TAB_SELECTION_COMMIT_DEBOUNCE).await;
-        match receiver.has_changed() {
-            Ok(true) => continue,
-            Ok(false) => {}
-            Err(_) => {
-                if retire_tab_selection_commit_worker(
-                    &workers,
-                    &window_id,
-                    generation,
-                    &receiver,
-                ) {
-                    return;
-                }
-                continue;
-            }
-        }
-        if !request
-            .runtime
-            .tab_selection_is_desired(
-                &request.window_id,
-                &request.tab_id,
-                request.selection_revision,
-            )
-        {
-            if !wait_for_tab_selection_commit_request(&mut receiver).await {
-                if retire_tab_selection_commit_worker(
-                    &workers,
-                    &window_id,
-                    generation,
-                    &receiver,
-                ) {
-                    return;
-                }
-                continue;
-            }
-            continue;
-        }
-        let command = || CoreCommand::EmbeddedTabActivateConditional {
-            tab_id: request.tab_id.clone(),
-            window_id: request.window_id.clone(),
-            selection_revision: request.selection_revision,
-        };
-        let mut result = Arc::clone(&request.core).invoke_async(command()).await;
-        if result.is_err() && !receiver.has_changed().unwrap_or(false) {
-            tokio::time::sleep(TAB_SELECTION_COMMIT_RETRY_DELAY).await;
-            if !receiver.has_changed().unwrap_or(false)
-                && request
-                    .runtime
-                    .tab_selection_is_desired(
-                        &request.window_id,
-                        &request.tab_id,
-                        request.selection_revision,
-                    )
-            {
-                result = Arc::clone(&request.core).invoke_async(command()).await;
-            }
-        }
-        if let Err(error) = result
-            && !receiver.has_changed().unwrap_or(false)
-            && request
-                .runtime
-                .tab_selection_is_desired(
-                    &request.window_id,
-                    &request.tab_id,
-                    request.selection_revision,
-                )
-        {
-            request.runtime.reconcile_tab_activation(&request.window_id);
-            reveal_shell_error(&request.app, error.payload());
-        }
-        if !wait_for_tab_selection_commit_request(&mut receiver).await
-            && retire_tab_selection_commit_worker(
-                &workers,
-                &window_id,
-                generation,
-                &receiver,
-            )
-        {
-            return;
-        }
-    }
-}
-
-async fn wait_for_tab_selection_commit_request(
-    receiver: &mut tokio::sync::watch::Receiver<TabSelectionCommitRequest>,
-) -> bool {
-    matches!(
-        tokio::time::timeout(TAB_SELECTION_COMMIT_IDLE_TIMEOUT, receiver.changed()).await,
-        Ok(Ok(()))
-    )
-}
-
-fn retire_tab_selection_commit_worker(
-    workers: &std::sync::Weak<Mutex<HashMap<String, TabSelectionCommitWorker>>>,
-    window_id: &str,
-    generation: u64,
-    receiver: &tokio::sync::watch::Receiver<TabSelectionCommitRequest>,
-) -> bool {
-    let Some(workers) = workers.upgrade() else {
-        return true;
-    };
-    let Ok(mut workers) = workers.lock() else {
-        return true;
-    };
-    if !workers
-        .get(window_id)
-        .is_some_and(|worker| worker.generation == generation)
-    {
-        return true;
-    }
-    // request() holds this same map lock while publishing. Recheck the receiver only after
-    // acquiring it so an activation arriving on the idle-timeout boundary is either consumed by
-    // this worker or observes the removed entry and creates a replacement worker.
-    if receiver.has_changed().unwrap_or(false) {
-        return false;
-    }
-    workers.remove(window_id);
-    true
-}
-
 pub(crate) fn preview_and_commit_tab_selection(
     app: &AppHandle,
     state: &CoreState,
@@ -296,7 +98,13 @@ fn preview_and_commit_tab_selection_inner(
         .preview_tab_activation(tab_id, native_style_applied)?;
     if !provisional
         && let Err(message) =
-            commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)
+            commit_previewed_tab_selection(
+                app,
+                state,
+                &window_id,
+                &resolved_tab_id,
+                Some(&operation_id),
+            )
     {
         eprintln!("Runtime tab selection commit could not be scheduled: {message}");
         return state.runtime.fail_native_operation_summary(
@@ -333,6 +141,7 @@ pub(crate) fn commit_previewed_tab_selection(
     state: &CoreState,
     window_id: &str,
     tab_id: &str,
+    activation_operation_id: Option<&str>,
 ) -> Result<(), String> {
     let selection_revision = state
         .runtime
@@ -345,6 +154,7 @@ pub(crate) fn commit_previewed_tab_selection(
         window_id.to_owned(),
         tab_id.to_owned(),
         selection_revision,
+        activation_operation_id.map(str::to_owned),
     )
 }
 

@@ -292,7 +292,7 @@ impl SystemRuntimeExecutor {
             .resolve_tab_alias(tab_id)
             .unwrap_or_else(|| tab_id.to_owned());
         if let Some((window_id, operation_id)) =
-            self.request_provisional_tab_presentation(
+            self.request_provisional_tab_activation(
                 &resolved_tab_id,
                 focus,
                 trigger,
@@ -301,7 +301,7 @@ impl SystemRuntimeExecutor {
         {
             return Ok((window_id, true, resolved_tab_id, operation_id));
         }
-        self.request_tab_presentation_with_window_visibility(
+        self.request_tab_activation_with_window_visibility(
             &resolved_tab_id,
             focus,
             trigger,
@@ -347,6 +347,39 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         window_visibility: Option<bool>,
     ) -> Result<Option<(String, String)>, String> {
+        self.request_provisional_tab_presentation_with_transaction(
+            tab_id,
+            focus,
+            trigger,
+            window_visibility,
+            false,
+        )
+    }
+
+    fn request_provisional_tab_activation(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+    ) -> Result<Option<(String, String)>, String> {
+        self.request_provisional_tab_presentation_with_transaction(
+            tab_id,
+            focus,
+            trigger,
+            window_visibility,
+            true,
+        )
+    }
+
+    fn request_provisional_tab_presentation_with_transaction(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+        transactional: bool,
+    ) -> Result<Option<(String, String)>, String> {
         let requested_at = Instant::now();
         let (window_id, window) = {
             let state = self.state().map_err(|error| error.message)?;
@@ -381,12 +414,18 @@ impl SystemRuntimeExecutor {
             window_state.select(Some(tab_id.to_owned()), revision);
             (previous_tab_id, previous_surfaces, revision)
         };
+        let activation = transactional
+            .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, false))
+            .transpose()?;
+        if let Some(activation) = activation.as_ref() {
+            self.operations.mark_in_flight(&activation.operation_id);
+        }
         if matches!(trigger, "native-pointer" | "shortcut") {
             self.remember_native_active_style(&window_id, Some(tab_id));
         } else if trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
-        let operation_id = self.dispatch_native_presentation(
+        let presentation_operation_id = self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),
             revision,
@@ -401,6 +440,19 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
+        let operation_id = if let Some(activation) = activation {
+            self.finish_tab_activation_chrome(
+                &activation.operation_id,
+                TabActivationComponentStatus::Applied,
+            );
+            self.track_tab_activation_presentation(
+                activation.operation_id.clone(),
+                presentation_operation_id,
+            );
+            activation.operation_id
+        } else {
+            presentation_operation_id
+        };
         Ok(Some((window_id, operation_id)))
     }
 
@@ -411,6 +463,22 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> Result<(String, u64, String), String> {
         self.request_tab_presentation_with_window_visibility(tab_id, focus, trigger, None)
+    }
+
+    fn request_tab_activation_with_window_visibility(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+    ) -> Result<(String, u64, String), String> {
+        self.request_tab_presentation_with_window_visibility_and_transaction(
+            tab_id,
+            focus,
+            trigger,
+            window_visibility,
+            true,
+        )
     }
 
     fn request_window_contract_presentation(
@@ -497,6 +565,23 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         window_visibility: Option<bool>,
     ) -> Result<(String, u64, String), String> {
+        self.request_tab_presentation_with_window_visibility_and_transaction(
+            tab_id,
+            focus,
+            trigger,
+            window_visibility,
+            false,
+        )
+    }
+
+    fn request_tab_presentation_with_window_visibility_and_transaction(
+        &self,
+        tab_id: &str,
+        focus: NativePresentationFocus,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+        transactional: bool,
+    ) -> Result<(String, u64, String), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
         let (window_id, window) = {
@@ -540,12 +625,18 @@ impl SystemRuntimeExecutor {
                 revision,
             )
         };
+        let activation = transactional
+            .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, true))
+            .transpose()?;
+        if let Some(activation) = activation.as_ref() {
+            self.operations.mark_in_flight(&activation.operation_id);
+        }
         if matches!(trigger, "native-pointer" | "shortcut") {
             self.remember_native_active_style(&window_id, Some(tab_id));
         } else if trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
-        let operation_id = self.dispatch_native_presentation(
+        let presentation_operation_id = self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),
             revision,
@@ -560,6 +651,19 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
+        let operation_id = if let Some(activation) = activation {
+            self.finish_tab_activation_chrome(
+                &activation.operation_id,
+                TabActivationComponentStatus::Applied,
+            );
+            self.track_tab_activation_presentation(
+                activation.operation_id.clone(),
+                presentation_operation_id,
+            );
+            activation.operation_id
+        } else {
+            presentation_operation_id
+        };
         Ok((window_id, revision, operation_id))
     }
 

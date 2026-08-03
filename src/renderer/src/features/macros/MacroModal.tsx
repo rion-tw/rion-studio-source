@@ -6,8 +6,6 @@ import { useLocation, useNavigate, useParams } from "react-router";
 
 import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 
-import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-
 import { moveItemById } from "../../app/reorderItems";
 
 import { Button } from "../../components/ui/button";
@@ -41,6 +39,8 @@ import { createClientId, getMacroTargetOptions, isCallableMacroTarget, isValidMa
 import { MacroStepEditor, createStep, duplicateStepState } from "./MacroStepEditor";
 
 import { MacroCommandImportDialog, MacroHelpSection, MacroIntervalControl, ShortcutRecorder } from "./MacroEditorControls";
+
+import { MacroRoleCombobox } from "./MacroRoleCombobox";
 
 interface MacroEditorRouteProps {
   games: Game[];
@@ -219,12 +219,6 @@ function MacroForm({
   shortcutConflict,
   t
 }: MacroFormProps): JSX.Element {
-  const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
-  const roleIds = useMemo(() => new Set(form.roleIds), [form.roleIds]);
-  const missingRoleIds = useMemo(
-    () => form.roleIds.filter((roleId) => !roles.some((role) => role.id === roleId)),
-    [form.roleIds, roles]
-  );
   const macroTargetOptions = useMemo(
     () => getMacroTargetOptions(macros, form.id),
     [form.id, macros]
@@ -258,19 +252,6 @@ function MacroForm({
 
   function update(updater: (current: MacroFormState) => MacroFormState): void {
     onChange(updater);
-  }
-
-  function toggleRoleId(roleId: string): void {
-    update((current) => {
-      const currentRoleIds = new Set(current.roleIds);
-      if (currentRoleIds.has(roleId)) {
-        currentRoleIds.delete(roleId);
-      } else {
-        currentRoleIds.add(roleId);
-      }
-
-      return { ...current, roleIds: [...currentRoleIds] };
-    });
   }
 
   function updateRepeat(repeat: MacroRepeat): void {
@@ -430,58 +411,19 @@ function MacroForm({
           <div className="grid content-start gap-4">
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
+                htmlFor="macro-role"
                 label={t("macroForm.roles")}
                 description={t("macroForm.rolesDescription")}
               >
                 {roles.length > 0 ? (
-                  <div
-                    id="macro-role"
-                    className="flex max-h-52 flex-wrap gap-2 overflow-auto p-0.5"
-                  >
-                    {missingRoleIds.map((roleId) => (
-                      <div
-                        key={roleId}
-                        className="glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-lg p-2 text-xs font-medium text-muted-foreground"
-                      >
-                        <Check size={13} />
-                        <span className="min-w-0 truncate">{t("macros.unknownRole")}</span>
-                      </div>
-                    ))}
-                    {roles.map((role) => {
-                      const isSelected = roleIds.has(role.id);
-                      const gameName = gameNameById.get(role.gameId) ?? role.launchUrl;
-
-                      return (
-                        <button
-                          key={role.id}
-                          aria-pressed={isSelected}
-                          className={cn(
-                            "glass-control inline-flex min-h-12 w-auto max-w-full flex-none items-center gap-2 rounded-md p-2 text-left transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-activity/25 disabled:cursor-not-allowed disabled:opacity-60",
-                            isSelected
-                              ? "macro-role-card-selected text-foreground"
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                          disabled={isSaving}
-                          type="button"
-                          onClick={() => toggleRoleId(role.id)}
-                        >
-                          <span
-                            className="size-8 shrink-0 rounded-sm bg-cover bg-center ring-1 ring-inset ring-border/60"
-                            style={{
-                              backgroundColor: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
-                              backgroundImage: `url("${role.coverImageDataUrl ?? roleCoverPlaceholderUrl}")`
-                            }}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-semibold">{role.name}</span>
-                            <span className="mt-0.5 block truncate text-micro font-medium text-muted-foreground">
-                              {gameName}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <MacroRoleCombobox
+                    disabled={isSaving}
+                    games={games}
+                    roles={roles}
+                    t={t}
+                    value={form.roleIds}
+                    onValueChange={(roleIds) => update((current) => ({ ...current, roleIds }))}
+                  />
                 ) : (
                   <div className="glass-control flex h-[var(--control-height)] items-center rounded-md px-2.5 text-control text-muted-foreground">
                     {t("macroForm.noRoles")}

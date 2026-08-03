@@ -450,7 +450,7 @@ describe("bulk selection UI", () => {
     }
   });
 
-  it("draws one activity outline around adjacent selected macro rows", async () => {
+  it("draws one temporary outline around adjacent selected macro rows in the scroll container", async () => {
     render(
       <MacrosRoute
         busyMacroIds={new Set()}
@@ -482,23 +482,31 @@ describe("bulk selection UI", () => {
       />
     );
 
+    const scrollContainer = document.querySelector<HTMLElement>(".mac-list-surface > .relative");
+    expect(scrollContainer).not.toBeNull();
+    setBounds(scrollContainer!, 100, 50, 400, 100);
+    setBounds(getSelectionItem("macro-alpha"), 110, 70, 300, 30);
+    setBounds(getSelectionItem("macro-beta"), 110, 100, 300, 30);
+    setBounds(getSelectionItem("macro-gamma"), 110, 130, 300, 30);
+
     fireEvent.click(getSelectionItem("macro-alpha"));
     fireEvent.click(getSelectionItem("macro-beta"), { ctrlKey: true });
 
     const alpha = getSelectionItem("macro-alpha");
     const beta = getSelectionItem("macro-beta");
     const gamma = getSelectionItem("macro-gamma");
-    expect(alpha.getAttribute("data-selection-group-start")).toBe("true");
-    expect(alpha.hasAttribute("data-selection-group-end")).toBe(false);
-    expect(beta.hasAttribute("data-selection-group-start")).toBe(false);
-    expect(beta.getAttribute("data-selection-group-end")).toBe("true");
-    expect(alpha.className).toContain("[&>td]:border-t-activity/80");
-    expect(alpha.className).not.toContain("[&>td]:border-b-activity/80");
-    expect(beta.className).not.toContain("[&>td]:border-t-activity/80");
-    expect(beta.className).toContain("[&>td]:border-b-activity/80");
-    expect(alpha.className).toContain("[&>td:first-child]:border-l-activity/80");
-    expect(beta.className).toContain("[&>td:last-child]:border-r-activity/80");
-    expect(gamma.className).not.toContain("border-activity/80");
+    const outline = document.querySelector<HTMLElement>("[data-selection-group-outline]");
+    expect(outline).not.toBeNull();
+    expect(outline?.parentElement).toBe(scrollContainer);
+    expect(outline?.className).toContain("border-activity/90");
+    expect(outline?.style.left).toBe("10px");
+    expect(outline?.style.top).toBe("20px");
+    expect(outline?.style.width).toBe("300px");
+    expect(outline?.style.height).toBe("60px");
+    expect(document.querySelectorAll("[data-selection-group-outline]")).toHaveLength(1);
+    expect(alpha.className).not.toContain("border-activity");
+    expect(beta.className).not.toContain("border-activity");
+    expect(gamma.className).not.toContain("border-activity");
     expect(alpha.closest("tbody")?.className).toContain("divide-y");
   });
 });

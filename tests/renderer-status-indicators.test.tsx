@@ -287,8 +287,7 @@ describe("renderer status indicators", () => {
     expect(row.className).toContain("bg-warning/35");
     fireEvent.click(screen.getByText("No execution roles"));
     expect(row.className).toContain("bg-warning/35");
-    expect(row.className).toContain("[&>td]:border-t-activity/80");
-    expect(row.className).toContain("[&>td]:border-b-activity/80");
+    expect(document.querySelector("[data-selection-group-outline]")).not.toBeNull();
   });
 
   it.each(["running", "stopping"] as const)(

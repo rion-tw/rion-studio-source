@@ -1,10 +1,10 @@
 import { Keyboard, Pause, Play, Plus, Pointer, Repeat1, Search, Timer, ToggleLeft, ToggleRight } from "lucide-react";
 
-import { type JSX, type MutableRefObject, useEffect, useMemo, useRef } from "react";
+import { type JSX, type MutableRefObject, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "../../components/EmptyState";
 
-import { SelectionActionBar, SelectionMarquee } from "../../components/ListSelection";
+import { SelectionActionBar, SelectionGroupOutlines, SelectionMarquee } from "../../components/ListSelection";
 
 import { SearchField } from "../../components/SearchField";
 
@@ -143,6 +143,7 @@ function MacrosRoute({
   t
 }: MacrosRouteProps): JSX.Element {
   const pageRef = useRef<HTMLElement | null>(null);
+  const [macroListScrollContainer, setMacroListScrollContainer] = useState<HTMLDivElement | null>(null);
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const macroNameById = useMemo(
     () => new Map(macros.map((macro) => [macro.id, macro.name])),
@@ -177,8 +178,9 @@ function MacrosRoute({
     () => getMacroListItems({ macros, query, roleFilterId, roles, sort, t }),
     [macros, query, roleFilterId, roles, sort, t]
   );
+  const filteredMacroIds = useMemo(() => filteredMacros.map((macro) => macro.id), [filteredMacros]);
   const selection = useListSelection({
-    orderedIds: filteredMacros.map((macro) => macro.id),
+    orderedIds: filteredMacroIds,
     scrollContainerRef: pageRef
   });
   const selectedMacros = filteredMacros.filter((macro) => selection.selectedIds.has(macro.id));
@@ -396,7 +398,7 @@ function MacrosRoute({
       ) : (
         <div className="grid justify-items-start gap-2">
           <Surface className="mac-list-surface w-full overflow-hidden" variant="panel">
-            <div className="overflow-auto">
+            <div ref={setMacroListScrollContainer} className="relative overflow-auto">
               <table className="mac-list-table w-full min-w-[900px] border-collapse text-left">
               <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
                 <tr>
@@ -439,14 +441,10 @@ function MacrosRoute({
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/45 text-body">
-                {filteredMacros.map((macro, index) => {
+                {filteredMacros.map((macro) => {
                   const runState = runStateByMacroId.get(macro.id)!;
                   const isActive = runState.isRunning || runState.isStopping;
                   const isSelected = selection.isSelected(macro.id);
-                  const isPreviousSelected = index > 0 && selection.isSelected(filteredMacros[index - 1].id);
-                  const isNextSelected = index < filteredMacros.length - 1 && selection.isSelected(filteredMacros[index + 1].id);
-                  const isSelectionGroupStart = isSelected && !isPreviousSelected;
-                  const isSelectionGroupEnd = isSelected && !isNextSelected;
                   const rowTone = isActive
                     ? "bg-activity/[0.08]"
                     : macro.roleIds.length === 0
@@ -462,19 +460,11 @@ function MacrosRoute({
                       className={cn(
                         "group align-middle transition-[background-color,box-shadow,opacity]",
                         rowTone,
-                        isSelected && [
-                          "[&>td:first-child]:border-l [&>td:first-child]:border-l-activity/80",
-                          "[&>td:last-child]:border-r [&>td:last-child]:border-r-activity/80"
-                        ],
-                        isSelectionGroupStart && "[&>td]:border-t [&>td]:border-t-activity/80",
-                        isSelectionGroupEnd && "[&>td]:border-b [&>td]:border-b-activity/80",
                         !macro.enabled && "opacity-[0.55]"
                       )}
                       data-macro-active={isActive ? "true" : undefined}
                       data-macro-disabled={!macro.enabled ? "true" : undefined}
                       data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
-                      data-selection-group-start={isSelectionGroupStart ? "true" : undefined}
-                      data-selection-group-end={isSelectionGroupEnd ? "true" : undefined}
                       data-selection-id={macro.id}
                       onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                     >
@@ -521,7 +511,7 @@ function MacrosRoute({
                     </td>
                     <td className="max-w-[220px] px-4 py-2 align-middle">
                       {macro.trigger ? (
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <MacroShortcutIndicator macro={macro} t={t} />
                           {macro.shortcutSourceScope.type === "selected_roles" ? (
                             <MacroRoleBadge
@@ -575,6 +565,11 @@ function MacrosRoute({
           </Button>
         </div>
       )}
+      <SelectionGroupOutlines
+        container={macroListScrollContainer}
+        orderedIds={filteredMacroIds}
+        selectedIds={selection.selectedIds}
+      />
       <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
     </PageFrame>
   );

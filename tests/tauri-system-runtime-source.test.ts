@@ -338,7 +338,9 @@ it("keeps tab interaction responsive while native launch verification is pending
       runtime.indexOf("fn install_overlays(")
     );
     expect(loadRoles).toContain("current_url.as_ref() != Some(&url)");
-    expect(runtime).toContain(".wait_operation_async(operation)");
+    expect(runtime).toContain("wait_role_navigation_for_lifecycle");
+    expect(runtime).toContain(".wait_operation_async(operation.clone())");
+    expect(runtime).toContain("application_lifecycle_epoch_matches");
     const overlays = runtime.slice(
       runtime.indexOf("fn install_overlays("),
       runtime.indexOf("fn focus_role(")

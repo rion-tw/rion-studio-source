@@ -178,98 +178,8 @@ impl AppCore {
                 windows: game_windows,
             })?;
         }
+        self.clear_pending_game_window_configurations(removed_window_ids)?;
         Ok(())
-    }
-
-    fn project_game_windows_from_runtime(
-        &self,
-        mut game_windows: Vec<StateGameWindowRecord>,
-        previous_snapshot: Option<&crate::model::BrowserRuntimeSnapshot>,
-        snapshot: &crate::model::BrowserRuntimeSnapshot,
-        _removed_window_ids: &std::collections::HashSet<String>,
-    ) -> Vec<StateGameWindowRecord> {
-        let closing_tabs = self
-            .embedded_closing_tabs
-            .lock()
-            .map(|tabs| tabs.clone())
-            .unwrap_or_default();
-        let previous_tabs = game_windows
-            .iter()
-            .flat_map(|window| window.tabs.iter().cloned())
-            .map(|tab| (tab.id.clone(), tab))
-            .collect::<std::collections::HashMap<_, _>>();
-        let previous_live_tab_ids = previous_snapshot.map(|snapshot| {
-            snapshot
-                .tabs
-                .iter()
-                .map(|tab| tab.id.clone())
-                .collect::<std::collections::HashSet<_>>()
-        });
-        let live_tab_ids = snapshot
-            .tabs
-            .iter()
-            .map(|tab| tab.id.clone())
-            .collect::<std::collections::HashSet<_>>();
-        let no_previous_live_tabs = std::collections::HashSet::new();
-        let mut updates = Vec::new();
-        for runtime_window in &snapshot.windows {
-            let Some(game_window) = game_windows
-                .iter_mut()
-                .find(|window| window.id == runtime_window.window_id)
-            else {
-                continue;
-            };
-            let runtime_tabs = runtime_window
-                .tab_ids
-                .iter()
-                .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
-                .filter_map(|tab_id| snapshot.tabs.iter().find(|tab| &tab.id == tab_id))
-                .map(|tab| {
-                    let previous = previous_tabs.get(&tab.id);
-                    GameWindowTabRecord {
-                        id: tab.id.clone(),
-                        tab_type: tab.tab_type.clone(),
-                        source_id: tab.source_id.clone(),
-                        name: tab.name.clone(),
-                        role_ids: tab.role_ids.clone(),
-                        hidden: tab.hidden,
-                        audio_muted: previous.is_some_and(|tab| tab.audio_muted),
-                        role_views: previous
-                            .map(|tab| tab.role_views.clone())
-                            .unwrap_or_default(),
-                    }
-                })
-                .filter(runtime_game_window_tab_is_valid)
-                .collect::<Vec<_>>();
-            let tabs = merge_runtime_tabs_with_saved(
-                &game_window.tabs,
-                runtime_tabs,
-                previous_live_tab_ids
-                    .as_ref()
-                    .unwrap_or(&no_previous_live_tabs),
-                &live_tab_ids,
-            );
-            let active_tab_id = runtime_window
-                .active_tab_id
-                .as_ref()
-                .filter(|tab_id| !closing_tabs.contains(tab_id.as_str()))
-                .filter(|tab_id| tabs.iter().any(|tab| &tab.id == *tab_id))
-                .cloned()
-                .or_else(|| {
-                    game_window
-                        .active_tab_id
-                        .clone()
-                        .filter(|active| tabs.iter().any(|tab| &tab.id == active))
-                });
-            if game_window.tabs == tabs && game_window.active_tab_id == active_tab_id {
-                continue;
-            }
-            game_window.tabs = tabs;
-            game_window.active_tab_id = active_tab_id;
-            game_window.updated_at = chrono::Utc::now().to_rfc3339();
-            updates.push(game_window.clone());
-        }
-        updates
     }
 
     fn publish_embedded_runtime_snapshot(
@@ -748,7 +658,7 @@ fn game_window_tabs_conflict(
     saved: &GameWindowTabRecord,
     runtime: &GameWindowTabRecord,
 ) -> bool {
-    saved.id == runtime.id
+        saved.id == runtime.id
         || (saved.tab_type == runtime.tab_type && saved.source_id == runtime.source_id)
         || saved
             .role_ids

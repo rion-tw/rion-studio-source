@@ -171,6 +171,9 @@ impl AppCore {
                 .find(|window| window.id == window_id)
         };
         let stop_result = self.stop_embedded_window_runtime(window_id, delete);
+        if stop_result.is_ok() {
+            self.clear_pending_game_window_configuration(window_id)?;
+        }
         let preserve_result = preserved_window.map_or(Ok(()), |window| {
             self.mutate_state(StateMutation::GameWindowUpdate {
                 id: window_id.to_owned(),

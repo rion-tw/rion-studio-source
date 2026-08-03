@@ -12,3 +12,4 @@ include!(
 );
 include!("behavior_07_conditional_tab_activation_noops_after_cross_window_move.rs");
 include!("behavior_08_display_remap_transaction_is_atomic.rs");
+include!("behavior_09_pending_game_window_configuration.rs");

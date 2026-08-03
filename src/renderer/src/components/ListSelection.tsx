@@ -223,7 +223,7 @@ export function SelectionGroupOutlines({
       <div
         key={`selection-group-outline-${index}`}
         aria-hidden="true"
-        className="pointer-events-none absolute z-[var(--layer-selection)] rounded-xs border border-activity/90 bg-transparent shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
+        className="selection-group-outline pointer-events-none absolute z-[var(--layer-selection)] border border-activity/90 bg-transparent shadow-[0_0_0_1px_hsl(var(--background)/0.35)]"
         data-selection-group-outline
         style={{ height: rect.height, left: rect.left, top: rect.top, width: rect.width }}
       />

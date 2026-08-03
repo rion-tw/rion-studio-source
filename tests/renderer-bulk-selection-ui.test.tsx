@@ -494,6 +494,7 @@ describe("bulk selection UI", () => {
     const outline = document.querySelector<HTMLElement>("[data-selection-group-outline]");
     expect(outline).not.toBeNull();
     expect(outline?.parentElement).toBe(scrollContainer);
+    expect(outline?.className).toContain("selection-group-outline");
     expect(outline?.className).toContain("border-activity/90");
     expect(outline?.style.left).toBe("10px");
     expect(outline?.style.top).toBe("20px");

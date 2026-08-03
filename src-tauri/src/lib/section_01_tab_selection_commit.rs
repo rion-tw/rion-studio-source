@@ -25,25 +25,8 @@ struct TabSelectionCommitRequest {
 }
 
 impl TabSelectionCommitCoordinator {
-    fn request(
-        &self,
-        app: AppHandle,
-        core: Arc<AppCore>,
-        runtime: Arc<SystemRuntimeExecutor>,
-        window_id: String,
-        tab_id: String,
-        selection_revision: u64,
-        activation_operation_id: Option<String>,
-    ) -> Result<(), String> {
-        let request = TabSelectionCommitRequest {
-            activation_operation_id,
-            app,
-            core,
-            runtime,
-            tab_id,
-            window_id: window_id.clone(),
-            selection_revision,
-        };
+    fn request(&self, request: TabSelectionCommitRequest) -> Result<(), String> {
+        let window_id = request.window_id.clone();
         let mut workers = self
             .workers
             .lock()

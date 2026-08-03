@@ -175,15 +175,17 @@ pub(crate) fn commit_previewed_tab_selection(
         .runtime
         .tab_selection_revision(window_id, tab_id)
         .ok_or_else(|| "The previewed tab selection is no longer current.".to_owned())?;
-    state.tab_selection_commit.request(
-        app.clone(),
-        Arc::clone(&state.core),
-        Arc::clone(&state.runtime),
-        window_id.to_owned(),
-        tab_id.to_owned(),
-        selection_revision,
-        activation_operation_id.map(str::to_owned),
-    )
+    state
+        .tab_selection_commit
+        .request(TabSelectionCommitRequest {
+            activation_operation_id: activation_operation_id.map(str::to_owned),
+            app: app.clone(),
+            core: Arc::clone(&state.core),
+            runtime: Arc::clone(&state.runtime),
+            tab_id: tab_id.to_owned(),
+            window_id: window_id.to_owned(),
+            selection_revision,
+        })
 }
 
 #[derive(Default)]

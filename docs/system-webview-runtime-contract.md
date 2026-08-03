@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 4 defines the shared semantics for WKWebView on macOS and
+Contract version 5 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -56,6 +56,7 @@ shutdown result.
 | Navigation | Only a permitted main-frame HTTP(S) navigation or controlled reload can create an input-fence operation; the latest operation reaches page finish or is superseded, and automatic input resumes only after drain plus new-document proof | WKNavigation callbacks / WebView2 main-frame navigation callbacks |
 | Input | Epoch- and generation-fenced native submission with bounded cleanup | AppKit event delivery / WebView2 native input |
 | Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls and returns native acknowledgement for the submitted native transaction | AppKit window and view APIs / Win32 and WebView2 controller APIs |
+| Tab activation | One latest-only revision converges the visible surfaces, native tab chrome, authoritative runtime selection, and Core selection | AppKit tab controller and presentation / WebView2 controller presentation plus the local tab-strip WebView |
 | Geometry and layout | Per-window serialized revision applies logical bounds, DPI conversion, child-surface layout, readback, and reverse-order compensation; asynchronous window modes declare native submission | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
@@ -127,9 +128,35 @@ do not claim that a later operating-system animation has visually settled.
 
 `hideGameWindow`, `showGameWindowTab`, `setGameWindowTabMuted`, and tab-strip
 minimize/fullscreen/maximize controls return terminal receipts directly.
-`showGameWindowTab` guarantees that native presentation has completed; it does
-not wait for or claim page readiness. Persistent active-tab metadata is committed
-separately and cannot turn an acknowledged presentation into a false failure.
+`showGameWindowTab` uses the tab-activation transaction described below and does
+not wait for or claim page readiness.
+
+## Tab activation convergence
+
+Tab pointer selection, tab-strip Ctrl+Tab, WebView2 accelerator Ctrl+Tab, AppKit
+native selection, launcher selection, and `showGameWindowTab` all create one
+`tabActivation` parent operation before native mutation. Its completion scope is
+`tabActivationConverged`; the same operation ID, presentation revision, window
+generation, lifecycle epoch, target tab, and ordered tab IDs remain frozen until
+the terminal receipt. A newer activation in the same window supersedes the old
+one, and late native, renderer, or Core acknowledgements cannot restore it.
+
+macOS applies and verifies the AppKit active-tab selection idempotently even when
+the native control already changed it. Windows submits a revision-fenced request
+to the local tab-strip WebView before presenting the target content. The renderer
+updates all active and ARIA states, reads the resulting active tab, and
+acknowledges the exact operation ID, revision, and target. It ignores older
+revisions instead of repainting stale selection.
+
+Content presentation is authoritative after it has been acknowledged. A missing
+Windows chrome acknowledgement triggers one bounded reconciliation containing
+the complete ordered tab IDs and target. If that also fails while content is
+known, the parent receipt is `degraded` with
+`TAB_ACTIVATION_CHROME_NOT_CONFIRMED`; content is not rolled back. A Core commit
+failure is retried once and then becomes `degraded` with
+`TAB_ACTIVATION_STATE_COMMIT_FAILED`. Failure before native submission is
+`failed`; an unknown content-presentation result is `indeterminate`. Same-tab
+activation still performs convergence and can repair a prior chrome mismatch.
 
 ## Display topology and tab dragging
 

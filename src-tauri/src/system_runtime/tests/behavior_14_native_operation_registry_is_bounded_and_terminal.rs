@@ -54,12 +54,12 @@ fn first_terminal_receipt_wins_over_late_callbacks() {
 }
 
 #[test]
-fn v4_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
+fn v5_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
     for platform in ["macos", "windows"] {
         let registry = NativeOperationRegistry::default();
         let operation = NativeOperationContext::new_for_platform(
             NativeOperationSubsystem::WindowLifecycle,
-            "v4-metadata-test",
+            "v5-metadata-test",
             Duration::from_secs(1),
             platform,
         )

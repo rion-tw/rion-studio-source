@@ -142,13 +142,6 @@ fn dispatch_runtime_tab_shortcut(
     let Some((tab_id, provisional, operation_id)) = target else {
         return;
     };
-    let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
-        webview_label,
-        modifier_codes,
-        &tab_id,
-    ) else {
-        return;
-    };
     if !provisional {
         if crate::commit_previewed_tab_selection(
             app,
@@ -165,6 +158,13 @@ fn dispatch_runtime_tab_shortcut(
             );
         }
     }
+    let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
+        webview_label,
+        modifier_codes,
+        &tab_id,
+    ) else {
+        return;
+    };
     let runtime = Arc::clone(&state.runtime);
     let scheduled_runtime = Arc::clone(&runtime);
     let scheduled_window_id = handoff_window_id.clone();

@@ -5,19 +5,20 @@ pub(crate) fn prepare_application_update_exit(app: &AppHandle) -> Result<(), Str
             .application_shutdown_started
             .store(true, Ordering::Release);
         let receipt = state.runtime.close_all();
-        state.core.shutdown();
-        if matches!(receipt.status.as_str(), "failed" | "indeterminate") {
+        if !system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status) {
             return Err(receipt
                 .failure_code
                 .unwrap_or_else(|| "SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE".to_owned()));
         }
+        state.runtime.persist_restore_session(true)?;
+        state.core.shutdown();
     }
     Ok(())
 }
 
 fn prepare_application_update_install(runtime: &SystemRuntimeExecutor) -> Result<(), String> {
     runtime.persist_all_game_window_placements()?;
-    runtime.persist_restore_session(true)?;
+    runtime.persist_restore_session(false)?;
     Ok(())
 }
 

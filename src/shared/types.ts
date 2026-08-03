@@ -205,6 +205,8 @@ export interface RuntimeSessionRecoverySummary {
   reason: "unclean-exit";
   windowCount: number;
   tabCount: number;
+  interruptedWindowIds?: string[];
+  sessionGeneration?: number;
 }
 
 export interface EmbeddedRuntimeState {

@@ -393,7 +393,7 @@ pub fn run() {
                     }
                     api.prevent_exit();
                     let _ = state.runtime.persist_all_game_window_placements();
-                    if let Err(error) = state.runtime.persist_restore_session(true) {
+                    if let Err(error) = state.runtime.persist_restore_session(false) {
                         let _ = app_handle.emit(
                             "rion://shell-error",
                             json!({
@@ -406,7 +406,18 @@ pub fn run() {
                     let core = Arc::clone(&state.core);
                     let app = app_handle.clone();
                     tauri::async_runtime::spawn_blocking(move || {
-                        runtime.close_all();
+                        let receipt = runtime.close_all();
+                        if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status)
+                            && let Err(error) = runtime.persist_restore_session(true)
+                        {
+                            let _ = app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": "TAURI_RESTORE_PERSIST_FAILED",
+                                    "message": error
+                                }),
+                            );
+                        }
                         core.shutdown();
                         app.exit(0);
                     });

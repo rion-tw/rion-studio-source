@@ -33,7 +33,7 @@ use rion_core::{
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
-    SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord,
+    SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord, SurfaceRecoveryAttemptRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -67,6 +67,7 @@ const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
 const TAB_DRAG_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
+const SURFACE_RECOVERY_OPERATION_TIMEOUT: Duration = Duration::from_secs(70);
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
 const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(windows)]

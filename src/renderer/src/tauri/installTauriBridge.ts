@@ -12,6 +12,7 @@ import type {
   CoreCommand,
   CoreCommandResult,
   CoreEvent,
+  SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../../shared/generated";
 import type {
@@ -425,6 +426,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://window-lifecycle",
       ({ payload }) => emit("windowLifecycle", payload)
     ),
+    () => listen<SurfaceRecoveryAttemptRecord>(
+      "rion://surface-recovery-attempt",
+      ({ payload }) => emit("surfaceRecoveryAttempt", payload)
+    ),
     () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
       "rion://macro-page-request",
       ({ payload }) => emit("macroPageRequest", payload)
@@ -657,6 +662,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),
     onEmbeddedRuntimeStateChanged: (callback) => on("runtimeState", callback as Listener),
     onWindowLifecycleChanged: (callback) => on("windowLifecycle", callback as Listener),
+    onSurfaceRecoveryAttemptChanged: (callback) =>
+      on("surfaceRecoveryAttempt", callback as Listener),
     onGamesChanged: (callback) => on("games", callback as Listener),
     onRolesChanged: (callback) => on("roles", callback as Listener),
     onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),

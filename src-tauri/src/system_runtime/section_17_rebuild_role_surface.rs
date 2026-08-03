@@ -1,5 +1,10 @@
 impl SystemRuntimeExecutor {
-    fn rebuild_role_surface(&self, role_id: &str) -> RuntimeResult<()> {
+    fn rebuild_role_surface(
+        &self,
+        transaction: &SurfaceRecoveryTransaction,
+        destructive_started: &mut bool,
+    ) -> RuntimeResult<()> {
+        let role_id = transaction.role_id.as_str();
         {
             let state = self.state()?;
             if state.close_coordinator.closing_roles.contains(role_id)
@@ -53,6 +58,17 @@ impl SystemRuntimeExecutor {
                         "Runtime role surface was not found during recovery.",
                     )
                 })?;
+                if !surface_recovery_target_is_current(
+                    &tab.window_id,
+                    &transaction.window_id,
+                    role.generation,
+                    transaction.surface_generation,
+                ) {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RECOVERY_STALE",
+                        "A newer System WebView surface superseded this recovery attempt.",
+                    ));
+                }
                 let current_url = role.current_url.clone().ok_or_else(|| {
                     RuntimeError::new(
                         "SYSTEM_SURFACE_RECOVERY_URL_MISSING",
@@ -102,6 +118,7 @@ impl SystemRuntimeExecutor {
                 generation,
             )
         };
+        self.update_surface_recovery_phase(transaction, "rebuilding");
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let navigation_app = self.app.clone();
@@ -227,6 +244,7 @@ impl SystemRuntimeExecutor {
             }
         };
 
+        self.update_surface_recovery_phase(transaction, "isolating");
         for label in popup_labels {
             if let Err(error) = self.close_popup_and_wait(&label, role_id) {
                 let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
@@ -235,6 +253,7 @@ impl SystemRuntimeExecutor {
             self.forget_popup(&label);
         }
 
+        *destructive_started = true;
         if let Err(error) =
             self.set_managed_surface_phase(&old_surface_instance_id, ManagedSurfacePhase::Retired)
         {
@@ -247,6 +266,7 @@ impl SystemRuntimeExecutor {
             return Err(error);
         }
 
+        self.update_surface_recovery_phase(transaction, "navigating");
         let controlled_label = replacement_label.clone();
         let replacement_surface = self.managed_surface(&replacement_instance_id)?;
         let navigation_start = (|| -> RuntimeResult<()> {
@@ -325,6 +345,7 @@ impl SystemRuntimeExecutor {
             return Err(error);
         }
 
+        self.update_surface_recovery_phase(transaction, "swapping");
         let mut state = self.state()?;
         let active_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
             RuntimeError::new(

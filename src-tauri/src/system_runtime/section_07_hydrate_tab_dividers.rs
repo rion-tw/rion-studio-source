@@ -183,18 +183,26 @@ impl SystemRuntimeExecutor {
             SystemRuntimeWork::RecoverSurface {
                 allowed,
                 reason,
-                role_id,
+                transaction,
             } => {
                 if self.health.is_healthy()
                     && RuntimeShutdownState::from_raw(
                         self.shutdown_state.load(Ordering::Acquire),
                     ) == RuntimeShutdownState::Accepting
                 {
-                    self.recover_system_surface(role_id, reason, allowed);
+                    self.recover_system_surface(*transaction, reason, allowed);
                 } else {
+                    let role_id = transaction.role_id.clone();
                     if let Ok(mut state) = self.state.lock() {
                         state.recovering_roles.remove(&role_id);
                     }
+                    self.complete_surface_recovery(
+                        *transaction,
+                        "surfaceRecoveryRuntimeUnavailable",
+                        NativeOperationStatus::Failed,
+                        Some("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY"),
+                        true,
+                    );
                     let _ = self.app.emit(
                         "rion://shell-error",
                         json!({

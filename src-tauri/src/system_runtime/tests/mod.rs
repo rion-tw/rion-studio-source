@@ -19,3 +19,4 @@ include!("behavior_16_focus_broker_is_global_and_generation_fenced.rs");
 include!("behavior_17_main_window_actor_is_ordered_and_revisioned.rs");
 include!("behavior_18_display_topology_transaction_is_atomic.rs");
 include!("behavior_19_tab_drag_transaction_is_terminal.rs");
+include!("behavior_20_surface_recovery_is_generation_fenced.rs");

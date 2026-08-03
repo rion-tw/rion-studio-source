@@ -16,6 +16,7 @@ include!("system_runtime/section_04_main_window_actor.rs");
 include!("system_runtime/section_04_window_close_ledger.rs");
 include!("system_runtime/section_04_tab_chrome_ack.rs");
 include!("system_runtime/section_04_input_fence_state.rs");
+include!("system_runtime/section_04_surface_recovery_registry.rs");
 include!("system_runtime/section_05_is_surface_close_effect.rs");
 include!("system_runtime/section_05_native_presentation_diagnostics.rs");
 include!("system_runtime/section_06_is_saved_game_window.rs");

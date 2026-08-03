@@ -89,6 +89,12 @@ impl SystemRuntimeExecutor {
             })
             .collect::<Vec<_>>();
         let recovery_required = !stored_restore_session.clean_exit && !dormant_windows.is_empty();
+        let recovery_interrupted_window_ids = if recovery_required {
+            stored_restore_session.restore_in_progress_window_ids.clone()
+        } else {
+            Vec::new()
+        };
+        let recovery_session_generation = stored_restore_session.session_generation;
         let mut unclean_session = stored_restore_session;
         unclean_session.schema_version = 2;
         unclean_session.session_generation = unclean_session.session_generation.saturating_add(1);
@@ -146,6 +152,7 @@ impl SystemRuntimeExecutor {
             native_window_mutations: Arc::new(NativeWindowMutationRegistry::default()),
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
+            surface_recoveries: SurfaceRecoveryRegistry::default(),
             prewarm_state: AtomicU8::new(0),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
@@ -155,7 +162,9 @@ impl SystemRuntimeExecutor {
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
+                recovery_interrupted_window_ids,
                 recovery_required,
+                recovery_session_generation,
                 saved_window_names,
                 ..RuntimeState::default()
             }),

@@ -74,6 +74,76 @@ describe("parseMacroCommand", () => {
     ]);
   });
 
+  it("imports the full Ctrl-number and Alt-number sequence as key combinations", () => {
+    const result = parseMacroCommand(
+      "ctrl+1>wait:600>ctrl+2>wait:600>ctrl+3>wait:600>ctrl+4>wait:600>ctrl+5>wait:600>ctrl+6>wait:600>ctrl+7>wait:600>ctrl+8>wait:600>ctrl+9>wait:600>ctrl+0>wait:600>alt+1",
+      { idFactory: createIdFactory() }
+    );
+    const keySteps = result.steps.filter((step) => step.type === "key");
+
+    expect(result.issues).toEqual([]);
+    expect(result.steps).toHaveLength(21);
+    expect(result.steps.filter((step) => step.type === "delay")).toHaveLength(10);
+    expect(keySteps.map((step) => ({ code: step.code, modifiers: step.modifiers }))).toEqual([
+      ...Array.from({ length: 9 }, (_, index) => ({
+        code: `Digit${index + 1}`,
+        modifiers: ["ctrl"]
+      })),
+      { code: "Digit0", modifiers: ["ctrl"] },
+      { code: "Digit1", modifiers: ["alt"] }
+    ]);
+  });
+
+  it("accepts modifier aliases, flexible prefix order, case, and whitespace", () => {
+    const result = parseMacroCommand(
+      " Shift + CTRL + Alt + 1 > primary+tab > cmd+enter > Command+F1 > META+digit2 > win+a > Windows+KeyB > control+delete ",
+      { idFactory: createIdFactory() }
+    );
+    const keySteps = result.steps.filter((step) => step.type === "key");
+
+    expect(result.issues).toEqual([]);
+    expect(keySteps.map((step) => ({ code: step.code, modifiers: step.modifiers }))).toEqual([
+      { code: "Digit1", modifiers: ["ctrl", "alt", "shift"] },
+      { code: "Tab", modifiers: ["primary"] },
+      { code: "Enter", modifiers: ["meta"] },
+      { code: "F1", modifiers: ["meta"] },
+      { code: "Digit2", modifiers: ["meta"] },
+      { code: "KeyA", modifiers: ["meta"] },
+      { code: "KeyB", modifiers: ["meta"] },
+      { code: "Delete", modifiers: ["ctrl"] }
+    ]);
+  });
+
+  it("rejects malformed combinations while preserving adjacent valid steps", () => {
+    const invalidCombinations = [
+      "crtl+1",
+      "ctrl+",
+      "1+ctrl",
+      "ctrl+a+b",
+      "ctrl+alt",
+      "ctrl+ctrl+1",
+      "ctrl+control+1",
+      "primary+ctrl+a",
+      "primary+meta+a",
+      "+",
+      "ctrl++1"
+    ];
+    const result = parseMacroCommand(
+      `${invalidCombinations.join(">")}>wait:25>A>ctrl>alt`,
+      { idFactory: createIdFactory() }
+    );
+
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      invalidCombinations.map(() => "invalidKeyCombination")
+    );
+    expect(result.steps).toMatchObject([
+      { type: "delay", ms: 25 },
+      { type: "key", code: "KeyA", action: "tap" },
+      { type: "key", code: "ControlLeft", action: "tap" },
+      { type: "key", code: "AltLeft", action: "tap" }
+    ]);
+  });
+
   it("maps call and start for held targets to existing macro steps", () => {
     const macros = [createMacro("once", "Once", { type: "once" }, true), createMacro("loop", "Loop", {
       type: "loop",

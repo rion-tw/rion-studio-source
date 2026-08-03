@@ -1,5 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { type ComponentPropsWithRef, type JSX } from "react";
 
 import { cn } from "../../lib/utils";
@@ -12,74 +12,6 @@ export function Combobox<Value, Multiple extends boolean | undefined = false>(
 
 export function ComboboxValue(props: ComboboxPrimitive.Value.Props): JSX.Element {
   return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />;
-}
-
-export function ComboboxTrigger({
-  children,
-  className,
-  ...props
-}: ComboboxPrimitive.Trigger.Props): JSX.Element {
-  return (
-    <ComboboxPrimitive.Trigger
-      data-slot="combobox-trigger"
-      className={cn(
-        "inline-flex size-[var(--control-min-size)] shrink-0 items-center justify-center rounded-xs text-muted-foreground transition-colors hover:bg-accent/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45",
-        className
-      )}
-      {...props}
-    >
-      {children}
-      <ChevronDown className="size-3.5" aria-hidden="true" />
-    </ComboboxPrimitive.Trigger>
-  );
-}
-
-export function ComboboxClear({
-  className,
-  ...props
-}: ComboboxPrimitive.Clear.Props): JSX.Element {
-  return (
-    <ComboboxPrimitive.Clear
-      data-slot="combobox-clear"
-      className={cn(
-        "inline-flex size-[var(--control-min-size)] shrink-0 items-center justify-center rounded-xs text-muted-foreground transition-colors hover:bg-accent/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:pointer-events-none disabled:opacity-45",
-        className
-      )}
-      {...props}
-    >
-      <X className="size-3.5" aria-hidden="true" />
-    </ComboboxPrimitive.Clear>
-  );
-}
-
-interface ComboboxInputProps extends ComboboxPrimitive.Input.Props {
-  showClear?: boolean;
-  showTrigger?: boolean;
-}
-
-export function ComboboxInput({
-  className,
-  disabled = false,
-  showClear = false,
-  showTrigger = true,
-  ...props
-}: ComboboxInputProps): JSX.Element {
-  return (
-    <div
-      className={cn(
-        "glass-control flex h-[var(--control-height)] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] w-full items-center rounded-sm px-1.5 focus-within:border-ring/30 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring/25",
-        className
-      )}
-    >
-      <ComboboxPrimitive.Input
-        className="min-w-0 flex-1 bg-transparent px-1 text-control leading-none text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-        disabled={disabled}
-        {...props}
-      />
-      {showClear ? <ComboboxClear disabled={disabled} /> : null}
-      {showTrigger ? <ComboboxTrigger disabled={disabled} /> : null}
-    </div>
-  );
 }
 
 export function ComboboxContent({
@@ -195,19 +127,6 @@ export function ComboboxEmpty({
         "px-3 py-6 text-center text-control text-muted-foreground empty:p-0",
         className
       )}
-      {...props}
-    />
-  );
-}
-
-export function ComboboxSeparator({
-  className,
-  ...props
-}: ComboboxPrimitive.Separator.Props): JSX.Element {
-  return (
-    <ComboboxPrimitive.Separator
-      data-slot="combobox-separator"
-      className={cn("glass-divider -mx-1 my-1 h-px bg-border/50", className)}
       {...props}
     />
   );

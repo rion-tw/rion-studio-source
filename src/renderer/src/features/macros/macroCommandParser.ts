@@ -1,5 +1,9 @@
-import type { Macro, MacroStep } from "../../../../shared/types";
+import type { Macro, MacroKeyModifier, MacroStep } from "../../../../shared/types";
 import { MACRO_DELAY_MAX_MS } from "../../../../shared/macroSettings";
+import {
+  canonicalizeMacroKeyModifiers,
+  isMacroModifierCode
+} from "../../../../shared/macroKeys";
 
 import {
   commonMacroKeyCodes,
@@ -11,6 +15,7 @@ export const MACRO_COMMAND_MAX_STEPS = 100;
 export type MacroCommandIssueCode =
   | "callToggle"
   | "invalidClick"
+  | "invalidKeyCombination"
   | "invalidWait"
   | "missingMacro"
   | "stepLimit"
@@ -84,6 +89,19 @@ const keyTokenToCode = new Map<string, string>([
   ["CMD", "MetaLeft"],
   ["WIN", "MetaLeft"],
   ["WINDOWS", "MetaLeft"]
+]);
+
+const keyModifierTokenToModifier = new Map<string, MacroKeyModifier>([
+  ["PRIMARY", "primary"],
+  ["CONTROL", "ctrl"],
+  ["CTRL", "ctrl"],
+  ["ALT", "alt"],
+  ["SHIFT", "shift"],
+  ["META", "meta"],
+  ["COMMAND", "meta"],
+  ["CMD", "meta"],
+  ["WIN", "meta"],
+  ["WINDOWS", "meta"]
 ]);
 
 for (const code of commonMacroKeyCodes) {
@@ -182,13 +200,13 @@ export function parseMacroCommand(
       return;
     }
 
-    const code = keyTokenToCode.get(normalizeKeyToken(token));
-    if (!code) {
-      issues.push({ code: "unknownKey", token });
+    const keyStep = parseKeyStep(token, idFactory);
+    if (!keyStep) {
+      issues.push({ code: token.includes("+") ? "invalidKeyCombination" : "unknownKey", token });
       return;
     }
 
-    steps.push({ id: idFactory(), type: "key", code, action: "tap" });
+    steps.push(keyStep);
   });
 
   if (options.maxSteps !== undefined && steps.length > options.maxSteps) {
@@ -203,6 +221,51 @@ export function parseMacroCommand(
     issues,
     steps,
     tokens: splitResult.tokens
+  };
+}
+
+function parseKeyStep(token: string, idFactory: () => string): MacroStep | undefined {
+  const parts = token.split("+").map((part) => part.trim());
+  if (parts.some((part) => part.length === 0)) {
+    return undefined;
+  }
+
+  if (parts.length === 1) {
+    const code = keyTokenToCode.get(normalizeKeyToken(parts[0]));
+    return code ? { id: idFactory(), type: "key", code, action: "tap" } : undefined;
+  }
+
+  const mainKeyToken = parts.at(-1);
+  const code = mainKeyToken
+    ? keyTokenToCode.get(normalizeKeyToken(mainKeyToken))
+    : undefined;
+  if (!code || isMacroModifierCode(code)) {
+    return undefined;
+  }
+
+  const modifiers: MacroKeyModifier[] = [];
+  for (const modifierToken of parts.slice(0, -1)) {
+    const modifier = keyModifierTokenToModifier.get(normalizeKeyToken(modifierToken));
+    if (!modifier || modifiers.includes(modifier)) {
+      return undefined;
+    }
+    modifiers.push(modifier);
+  }
+
+  const normalizedModifiers = canonicalizeMacroKeyModifiers(modifiers);
+  if (
+    normalizedModifiers.includes("primary") &&
+    normalizedModifiers.some((modifier) => modifier === "ctrl" || modifier === "meta")
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: idFactory(),
+    type: "key",
+    code,
+    modifiers: normalizedModifiers,
+    action: "tap"
   };
 }
 

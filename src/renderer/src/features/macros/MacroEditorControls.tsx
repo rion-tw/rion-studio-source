@@ -203,6 +203,8 @@ function formatMacroCommandIssue(issue: MacroCommandIssue, t: Translator): strin
       return t("macroForm.commandImport.warning.callToggle").replace("{name}", issue.detail ?? issue.token);
     case "invalidClick":
       return t("macroForm.commandImport.warning.invalidClick").replace("{token}", issue.token);
+    case "invalidKeyCombination":
+      return t("macroForm.commandImport.warning.invalidKeyCombination").replace("{token}", issue.token);
     case "invalidWait":
       return t("macroForm.commandImport.warning.invalidWait").replace("{token}", issue.token);
     case "missingMacro":

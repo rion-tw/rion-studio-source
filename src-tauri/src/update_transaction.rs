@@ -17,6 +17,7 @@ static INSTALL_JOURNAL_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InstallPlatform {
+    #[cfg(any(target_os = "macos", test))]
     Macos,
     Windows,
 }
@@ -32,6 +33,7 @@ pub(crate) fn install_boundary_contract(
     boundary: InstallBoundary,
 ) -> Result<(&'static str, &'static str), &'static str> {
     match (platform, boundary) {
+        #[cfg(any(target_os = "macos", test))]
         (InstallPlatform::Macos, InstallBoundary::InstallReturned) => {
             Ok(("restartPending", "restart_pending"))
         }
@@ -41,6 +43,7 @@ pub(crate) fn install_boundary_contract(
         (InstallPlatform::Windows, InstallBoundary::InstallReturned) => {
             Err("UPDATE_INSTALLER_HANDOFF_RETURNED")
         }
+        #[cfg(any(target_os = "macos", test))]
         (InstallPlatform::Macos, InstallBoundary::BeforeExit) => {
             Err("UPDATE_INSTALL_MACOS_BEFORE_EXIT_UNEXPECTED")
         }

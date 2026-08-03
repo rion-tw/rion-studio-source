@@ -87,6 +87,34 @@ pub(crate) fn preview_and_commit_tab_selection(
     preview_and_commit_tab_selection_inner(app, state, tab_id, false)
 }
 
+pub(crate) fn preview_and_commit_adjacent_tab_selection(
+    app: &AppHandle,
+    state: &CoreState,
+    window_id: &str,
+    direction: &str,
+) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+    let (target_tab_id, provisional, operation_id) = state
+        .runtime
+        .preview_adjacent_tab_activation(window_id, direction)?;
+    if !provisional
+        && let Err(message) = commit_previewed_tab_selection(
+            app,
+            state,
+            window_id,
+            &target_tab_id,
+            Some(&operation_id),
+        )
+    {
+        eprintln!("Adjacent tab selection commit could not be scheduled: {message}");
+        return state.runtime.fail_native_operation_summary(
+            &operation_id,
+            "tabSelectionCommitFailed",
+            "TAB_ACTIVATION_STATE_COMMIT_FAILED",
+        );
+    }
+    state.runtime.wait_native_operation_summary(&operation_id)
+}
+
 fn preview_and_commit_tab_selection_inner(
     app: &AppHandle,
     state: &CoreState,

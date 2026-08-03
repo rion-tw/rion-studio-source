@@ -247,13 +247,18 @@ export const dispatch = (action: RuntimeTabAction): void => {
   }
   void invoke<SystemRuntimeOperationSummaryRecord | null>("rion_runtime_tab_action", { action })
     .then(async (receipt) => {
-      if (action.type !== "windowControl" || action.control === "close" || !receipt) return;
+      const handlesReceipt = action.type === "activate"
+        || action.type === "activateAdjacent"
+        || (action.type === "windowControl" && action.control !== "close");
+      if (!handlesReceipt || !receipt) return;
       try {
         handleSystemRuntimeReceipt(receipt);
         if (receipt.status === "degraded") {
           await emit("rion://shell-error", {
             code: receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_DEGRADED",
-            message: "The native window operation completed with reduced guarantees."
+            message: action.type === "activate" || action.type === "activateAdjacent"
+              ? "The tab content changed, but its native tab state could not be fully confirmed."
+              : "The native window operation completed with reduced guarantees."
           });
         }
       } catch (error) {

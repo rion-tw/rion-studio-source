@@ -340,22 +340,6 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn request_provisional_tab_presentation(
-        &self,
-        tab_id: &str,
-        focus: NativePresentationFocus,
-        trigger: &'static str,
-        window_visibility: Option<bool>,
-    ) -> Result<Option<(String, String)>, String> {
-        self.request_provisional_tab_presentation_with_transaction(
-            tab_id,
-            focus,
-            trigger,
-            window_visibility,
-            false,
-        )
-    }
-
     fn request_provisional_tab_activation(
         &self,
         tab_id: &str,
@@ -745,7 +729,7 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
         direction: &str,
-    ) -> Result<(String, bool), String> {
+    ) -> Result<(String, bool, String), String> {
         let (candidates, current_tab_id) = {
             let presentation = self.presentation.coordinator(window_id)?;
             let window = presentation.lock().map_err(|_| {
@@ -767,21 +751,24 @@ impl SystemRuntimeExecutor {
         };
         let target_id = candidates[target_index].clone();
         let provisional = self
-            .request_provisional_tab_presentation(
+            .request_provisional_tab_activation(
                 &target_id,
                 NativePresentationFocus::ContentOnly,
                 "shortcut",
                 None,
-            )?
-            .is_some();
-        if !provisional {
-            self.request_tab_presentation(
+            )?;
+        let (provisional, operation_id) = if let Some((_, operation_id)) = provisional {
+            (true, operation_id)
+        } else {
+            let (_, _, operation_id) = self.request_tab_activation_with_window_visibility(
                 &target_id,
                 NativePresentationFocus::ContentOnly,
                 "shortcut",
+                None,
             )?;
-        }
-        Ok((target_id, provisional))
+            (false, operation_id)
+        };
+        Ok((target_id, provisional, operation_id))
     }
 
 }

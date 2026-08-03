@@ -88,6 +88,41 @@ describe("MacroCommandImportDialog", () => {
     expect(onImport).not.toHaveBeenCalled();
   });
 
+  it("previews and imports key combinations while warning about malformed ones", () => {
+    const onImport = vi.fn();
+
+    render(
+      <MacroCommandImportDialog
+        existingStepCount={0}
+        isOpen
+        macros={[]}
+        onClose={vi.fn()}
+        onImport={onImport}
+        t={t}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Macro command sequence"), {
+      target: { value: "ctrl+shift+1>wait:10>crtl+2" }
+    });
+
+    expect(screen.getByText("Key:Ctrl + Shift + 1")).toBeTruthy();
+    expect(screen.getByText("Delay:10ms")).toBeTruthy();
+    expect(screen.getByText('Invalid key combination "crtl+2" was skipped.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import 2 steps" }));
+
+    expect(onImport).toHaveBeenCalledWith([
+      expect.objectContaining({
+        type: "key",
+        code: "Digit1",
+        modifiers: ["ctrl", "shift"],
+        action: "tap"
+      }),
+      expect.objectContaining({ type: "delay", ms: 10 })
+    ]);
+  });
+
   it("disables confirmation when the combined list exceeds 100 steps", () => {
     render(
       <MacroCommandImportDialog

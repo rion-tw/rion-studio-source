@@ -23,12 +23,12 @@ export function areMacroTriggersEqual(
   );
 }
 
-export function macroRoleAssignmentsOverlap(left: string[], right: string[]): boolean {
+function macroRoleAssignmentsOverlap(left: string[], right: string[]): boolean {
   const rightRoleIds = new Set(right);
   return left.some((roleId) => rightRoleIds.has(roleId));
 }
 
-export function getMacroShortcutSourceRoleIds(
+function getMacroShortcutSourceRoleIds(
   macro: { roleIds: string[]; shortcutSourceScope: MacroShortcutSourceScope }
 ): string[] {
   return macro.shortcutSourceScope.type === "selected_roles"

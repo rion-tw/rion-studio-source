@@ -250,6 +250,7 @@ describe("bulk selection UI", () => {
     expect(nameLayout).not.toBeNull();
     expect(nameLayout?.className).not.toContain("pl-9");
     expect(runLayout?.className).toContain("shrink-0");
+    expect(runLayout?.className).toContain("-ml-1.5");
     expect(runLayout?.parentElement?.className).toContain("gap-1.5");
     expect(runLayout?.querySelector("svg")?.getAttribute("width")).toBe("14");
     expect(startButton.compareDocumentPosition(nameButton) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);

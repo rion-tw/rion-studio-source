@@ -185,7 +185,11 @@ impl SystemRuntimeExecutor {
                 reason,
                 role_id,
             } => {
-                if self.health.is_healthy() {
+                if self.health.is_healthy()
+                    && RuntimeShutdownState::from_raw(
+                        self.shutdown_state.load(Ordering::Acquire),
+                    ) == RuntimeShutdownState::Accepting
+                {
                     self.recover_system_surface(role_id, reason, allowed);
                 } else {
                     if let Ok(mut state) = self.state.lock() {
@@ -217,6 +221,23 @@ impl SystemRuntimeExecutor {
         presentation_revision: u64,
         persist_runtime: bool,
     ) {
+        if RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire))
+            != RuntimeShutdownState::Accepting
+            && !is_surface_close_effect(&effect.action)
+        {
+            let _ = self.core.dispatch_core_effect_results(vec![CoreEffectResult {
+                effect_id: effect.effect_id,
+                operation_id: effect.operation_id,
+                ok: false,
+                value_json: None,
+                error: Some(rion_core::CoreErrorPayload {
+                    code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
+                    message: "The System WebView runtime is shutting down and cancelled queued native work."
+                        .to_owned(),
+                }),
+            }]);
+            return;
+        }
         if matches!(effect.action, CoreEffectAction::EmbeddedLoadRoles { .. }) {
             self.execute_role_load_effect_async(
                 action_name,

@@ -8,6 +8,7 @@ enum NativeOperationSubsystem {
     Navigation,
     Input,
     Presentation,
+    Geometry,
     Popup,
     Security,
     Session,
@@ -16,6 +17,7 @@ enum NativeOperationSubsystem {
     Metadata,
     Performance,
     Capability,
+    Shutdown,
 }
 
 impl NativeOperationSubsystem {
@@ -25,6 +27,7 @@ impl NativeOperationSubsystem {
             Self::Navigation => "navigation",
             Self::Input => "input",
             Self::Presentation => "presentation",
+            Self::Geometry => "geometry",
             Self::Popup => "popup",
             Self::Security => "security",
             Self::Session => "session",
@@ -33,6 +36,7 @@ impl NativeOperationSubsystem {
             Self::Metadata => "metadata",
             Self::Performance => "performance",
             Self::Capability => "capability",
+            Self::Shutdown => "shutdown",
         }
     }
 }
@@ -182,8 +186,14 @@ impl NativeOperationReceipt {
             {
                 "nativeSubmission"
             }
+            NativeOperationSubsystem::Geometry
+                if matches!(self.stage, "geometryLayoutSubmitted" | "geometryModeSubmitted") =>
+            {
+                "nativeSubmission"
+            }
             NativeOperationSubsystem::SurfaceLifecycle
             | NativeOperationSubsystem::Presentation
+            | NativeOperationSubsystem::Geometry
             | NativeOperationSubsystem::Security
             | NativeOperationSubsystem::Audio
             | NativeOperationSubsystem::Zoom => "nativeAcknowledgement",
@@ -201,6 +211,7 @@ impl NativeOperationReceipt {
             NativeOperationSubsystem::Popup | NativeOperationSubsystem::Session => "stateCommit",
             NativeOperationSubsystem::Performance => "runtimeProbe",
             NativeOperationSubsystem::Capability => "runtimeProbe",
+            NativeOperationSubsystem::Shutdown => "nativeAcknowledgement",
         }
     }
 
@@ -310,9 +321,11 @@ impl NativePresentationFocus {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NativeWindowMode {
-    ExitFullscreen,
     Fullscreen,
     Maximized,
+    Minimized,
+    ToggleFullscreen,
+    ToggleMaximized,
 }
 
 impl NativeWindowMode {

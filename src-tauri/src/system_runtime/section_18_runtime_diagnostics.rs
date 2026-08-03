@@ -288,6 +288,11 @@ impl SystemRuntimeExecutor {
         let mut record = SystemRuntimeDiagnosticsRecord {
             contract_version: SYSTEM_RUNTIME_CONTRACT_VERSION,
             platform: current_runtime_platform().to_owned(),
+            shutdown_state: RuntimeShutdownState::from_raw(
+                self.shutdown_state.load(Ordering::Acquire),
+            )
+            .as_str()
+            .to_owned(),
             healthy: self.health.is_healthy(),
             snapshot_complete: true,
             collection_error_codes: Vec::new(),

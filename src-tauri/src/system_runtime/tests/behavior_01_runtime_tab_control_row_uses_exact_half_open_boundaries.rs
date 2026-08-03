@@ -658,23 +658,42 @@ use super::*;
 
     #[test]
     fn native_window_actor_bounds_and_coalesces_pending_presentation_work() {
-        let mut queue = LatestOnlyPresentationQueue::default();
+        let mut queue = NativePresentationQueue::default();
         for revision in 1..=20 {
-            let replaced = queue.replace(revision);
+            let replaced = queue.enqueue_latest(revision).unwrap();
             assert_eq!(replaced, (revision > 1).then_some(revision - 1));
         }
-        assert_eq!(queue.begin_latest(), Some(20));
+        assert_eq!(queue.begin_next(), Some(20));
         assert!(queue.in_flight);
-        assert!(queue.pending.is_none());
+        assert!(queue.pending.is_empty());
 
         for revision in 21..=40 {
-            let _ = queue.replace(revision);
+            let _ = queue.enqueue_latest(revision).unwrap();
         }
-        assert_eq!(queue.begin_latest(), None);
-        assert_eq!(queue.pending, Some(40));
+        assert_eq!(queue.begin_next(), None);
+        assert_eq!(queue.back(), Some(&40));
         queue.finish();
-        assert_eq!(queue.begin_latest(), Some(40));
+        assert_eq!(queue.begin_next(), Some(40));
         queue.finish();
         assert!(!queue.in_flight);
-        assert!(queue.pending.is_none());
+        assert!(queue.pending.is_empty());
+    }
+
+    #[test]
+    fn native_window_actor_preserves_ordered_window_controls() {
+        let mut queue = NativePresentationQueue::default();
+        queue.enqueue_ordered(1).unwrap();
+        queue.enqueue_ordered(2).unwrap();
+        assert_eq!(queue.begin_next(), Some(1));
+        assert_eq!(queue.begin_next(), None);
+        queue.finish();
+        assert_eq!(queue.begin_next(), Some(2));
+        queue.finish();
+        assert!(queue.is_empty());
+
+        let mut bounded = NativePresentationQueue::default();
+        for revision in 0..NATIVE_WINDOW_PRESENTATION_QUEUE_CAPACITY {
+            bounded.enqueue_ordered(revision).unwrap();
+        }
+        assert!(bounded.enqueue_ordered(usize::MAX).is_err());
     }

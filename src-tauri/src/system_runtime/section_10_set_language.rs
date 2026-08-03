@@ -667,26 +667,15 @@ impl SystemRuntimeExecutor {
         &self,
         target: &EmbeddedLaunchTargetRecord,
     ) -> Result<(), String> {
-        let window = self
-            .window_for_id(&target.window_id)
-            .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
-        if let Ok(mut state) = self.state.lock()
-            && let Some(host) = state.display_hosts.get_mut(&target.window_id)
-        {
-            host.target = target.clone();
+        match self.apply_window_geometry_target(
+            target,
+            GeometryMutationScope::PositionOnly,
+            "positionProvisionalWindow",
+        ) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err("Provisional Game Window was not found.".to_owned()),
+            Err(error) => Err(error.message),
         }
-        #[cfg(windows)]
-        let position = {
-            let (x, y) =
-                physical_window_position(target.bounds.x, target.bounds.y, target.scale_factor);
-            window.set_position(PhysicalPosition::new(x, y))
-        };
-        #[cfg(not(windows))]
-        let position = window.set_position(LogicalPosition::new(
-            target.bounds.x as f64,
-            target.bounds.y as f64,
-        ));
-        position.map_err(|error| error.to_string())
     }
 
     pub fn provisionally_move_tab(

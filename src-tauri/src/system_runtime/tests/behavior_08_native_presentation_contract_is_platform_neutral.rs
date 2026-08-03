@@ -6,6 +6,7 @@ fn presentation_outcome(
 ) -> NativePresentationOutcome {
     NativePresentationOutcome {
         applied,
+        presentation_applied: applied,
         focus_applied: focused == Some(true),
         hidden_surface_count: 0,
         hide_ms: 0,
@@ -68,6 +69,16 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         );
         assert_eq!(window_mode.status, NativePresentationStatus::Applied, "{platform}");
         assert_eq!(window_mode.operation.completion_scope(), "nativeSubmission");
+
+        let mut control_only_outcome =
+            presentation_outcome(true, Some(true), Some(false), Vec::new());
+        control_only_outcome.presentation_applied = false;
+        let control_only = NativePresentationReceipt::from_outcome(
+            &window_mode_plan,
+            &control_only_outcome,
+        );
+        assert_eq!(control_only.status, NativePresentationStatus::Applied, "{platform}");
+        assert!(control_only.surface_identities.is_empty(), "{platform}");
 
         let superseded = NativePresentationReceipt::from_outcome(
             &plan,

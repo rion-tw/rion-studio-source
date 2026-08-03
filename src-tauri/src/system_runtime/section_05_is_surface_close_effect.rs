@@ -295,8 +295,47 @@ fn apply_native_presentation_batch(
     previous_surfaces: Vec<Webview>,
     previous_window_visibility: Option<bool>,
 ) -> NativePresentationOutcome {
+    let mutation_lane = match request.native_window_mutations.lane(&request.window_id) {
+        Ok(lane) => lane,
+        Err(error) => return failed_native_presentation_outcome(error.message),
+    };
+    let _mutation_guard = match mutation_lane.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            return failed_native_presentation_outcome(
+                "The native window mutation lane is unavailable.".to_owned(),
+            );
+        }
+    };
+    if RuntimeShutdownState::from_raw(request.shutdown_state.load(Ordering::Acquire))
+        != RuntimeShutdownState::Accepting
+    {
+        return NativePresentationOutcome {
+            applied: false,
+            presentation_applied: false,
+            focus_applied: false,
+            hidden_surface_count: 0,
+            hide_ms: 0,
+            main_queue_wait_ms: 0,
+            main_thread_ms: 0,
+            no_op: false,
+            shown_surface_count: 0,
+            show_ms: 0,
+            visibility_errors: Vec::new(),
+            webview_focus_ms: 0,
+            window_focused_after: None,
+            window_focus_applied: false,
+            window_focus_ms: 0,
+            window_restore_applied: false,
+            window_visible_after: None,
+            window_visibility_ms: 0,
+            window_was_minimized: None,
+        };
+    }
     let previous_labels = presentation_surface_labels(&previous_surfaces);
     let next_labels = presentation_surface_labels(&request.next_surfaces);
+    let ordered_window_control =
+        request.window_mode.is_some() || request.window_visibility.is_some();
     let next_surface_mutation_identities =
         presentation_owner_identities(&request.next_surfaces, &request.surface_owner_revisions);
     let mutation_plan = native_presentation_mutation_plan(
@@ -317,9 +356,11 @@ fn apply_native_presentation_batch(
             && selection.surface_identities(request.tab_id.as_deref())
                 == request.next_surface_identities
     });
-    if !still_desired || !mutation_plan.requires_ui_thread {
+    if (!still_desired && !ordered_window_control) || !mutation_plan.requires_ui_thread {
+        let applied = still_desired || ordered_window_control;
         return NativePresentationOutcome {
-            applied: still_desired,
+            applied,
+            presentation_applied: still_desired,
             focus_applied: false,
             hidden_surface_count: 0,
             hide_ms: 0,
@@ -329,7 +370,7 @@ fn apply_native_presentation_batch(
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
-            no_op: still_desired,
+            no_op: applied,
             shown_surface_count: 0,
             show_ms: 0,
             visibility_errors: Vec::new(),
@@ -360,12 +401,13 @@ fn apply_native_presentation_batch(
     let scheduling = request.window.run_on_main_thread(move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let still_desired = coordinator.lock().ok().is_some_and(|selection| {
+        let presentation_current = coordinator.lock().ok().is_some_and(|selection| {
             selection.revision == revision && selection.selected_tab_id == tab_id
         });
-        if !still_desired {
+        if !presentation_current && !ordered_window_control {
             let _ = sender.send(NativePresentationOutcome {
                 applied: false,
+                presentation_applied: false,
                 focus_applied: false,
                 hidden_surface_count: 0,
                 hide_ms: 0,
@@ -390,11 +432,12 @@ fn apply_native_presentation_batch(
         let mut hidden_surface_count = 0;
         let mut shown_surface_count = 0;
         let surface_owners = surface_owners.lock().ok().map(|owners| owners.clone());
-        if surface_owners.is_none() {
+        if presentation_current && mutation_plan.presentation_changed && surface_owners.is_none() {
             visibility_errors.push("The native surface ownership fence is unavailable.".to_owned());
         }
         let hide_started_at = Instant::now();
-        if mutation_plan.presentation_changed
+        if presentation_current
+            && mutation_plan.presentation_changed
             && let Some(surface_owners) = surface_owners.as_ref()
         {
             for surface in previous_surfaces {
@@ -417,7 +460,8 @@ fn apply_native_presentation_batch(
         }
         let hide_ms = hide_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let show_started_at = Instant::now();
-        if mutation_plan.presentation_changed
+        if presentation_current
+            && mutation_plan.presentation_changed
             && let Some(surface_owners) = surface_owners.as_ref()
         {
             for surface in &next_surfaces {
@@ -440,15 +484,12 @@ fn apply_native_presentation_batch(
         }
         let show_ms = show_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
 
-        let window_was_minimized = mutation_plan
-            .apply_window_focus
+        let apply_window_focus = presentation_current && mutation_plan.apply_window_focus;
+        let window_was_minimized = apply_window_focus
             .then(|| window.is_minimized().ok())
             .flatten();
         let mut window_restore_applied = false;
-        if native_window_restore_required(
-            mutation_plan.apply_window_focus,
-            window_was_minimized,
-        ) {
+        if native_window_restore_required(apply_window_focus, window_was_minimized) {
             match window.unminimize() {
                 Ok(()) => window_restore_applied = true,
                 Err(error) => visibility_errors.push(error.to_string()),
@@ -476,13 +517,6 @@ fn apply_native_presentation_batch(
 
         if let Some(window_mode) = window_mode {
             let mode_result = match window_mode {
-                NativeWindowMode::ExitFullscreen => {
-                    if window.is_fullscreen().unwrap_or(false) {
-                        window.set_fullscreen(false)
-                    } else {
-                        Ok(())
-                    }
-                }
                 NativeWindowMode::Fullscreen => {
                     if window.is_fullscreen().unwrap_or(false) {
                         Ok(())
@@ -497,6 +531,23 @@ fn apply_native_presentation_batch(
                         window.maximize()
                     }
                 }
+                NativeWindowMode::Minimized => {
+                    if window.is_minimized().unwrap_or(false) {
+                        Ok(())
+                    } else {
+                        window.minimize()
+                    }
+                }
+                NativeWindowMode::ToggleFullscreen => window
+                    .is_fullscreen()
+                    .and_then(|fullscreen| window.set_fullscreen(!fullscreen)),
+                NativeWindowMode::ToggleMaximized => window.is_maximized().and_then(|maximized| {
+                    if maximized {
+                        window.unmaximize()
+                    } else {
+                        window.maximize()
+                    }
+                }),
             };
             if let Err(error) = mode_result {
                 visibility_errors.push(error.to_string());
@@ -506,7 +557,7 @@ fn apply_native_presentation_batch(
         let mut focus_applied = false;
         let mut window_focus_applied = false;
         let window_focus_started_at = Instant::now();
-        if mutation_plan.apply_window_focus && matches!(window.is_focused(), Ok(false)) {
+        if apply_window_focus && matches!(window.is_focused(), Ok(false)) {
             match window.set_focus() {
                 Ok(()) => window_focus_applied = true,
                 Err(error) => visibility_errors.push(error.to_string()),
@@ -517,7 +568,8 @@ fn apply_native_presentation_batch(
             .as_millis()
             .min(u64::MAX as u128) as u64;
         let webview_focus_started_at = Instant::now();
-        if mutation_plan.apply_content_focus
+        if presentation_current
+            && mutation_plan.apply_content_focus
             && let Some(webview) = active_webview
         {
             match webview.set_focus() {
@@ -533,6 +585,7 @@ fn apply_native_presentation_batch(
         let window_visible_after = window.is_visible().ok();
         let _ = sender.send(NativePresentationOutcome {
             applied: true,
+            presentation_applied: presentation_current,
             focus_applied,
             hidden_surface_count,
             hide_ms,
@@ -555,6 +608,7 @@ fn apply_native_presentation_batch(
     if let Err(error) = scheduling {
         return NativePresentationOutcome {
             applied: false,
+            presentation_applied: false,
             focus_applied: false,
             hidden_surface_count: 0,
             hide_ms: 0,
@@ -582,6 +636,7 @@ fn apply_native_presentation_batch(
         .recv()
         .unwrap_or_else(|_| NativePresentationOutcome {
             applied: false,
+            presentation_applied: false,
             focus_applied: false,
             hidden_surface_count: 0,
             hide_ms: 0,
@@ -606,6 +661,30 @@ fn apply_native_presentation_batch(
             window_visibility_ms: 0,
             window_was_minimized: None,
         })
+}
+
+fn failed_native_presentation_outcome(message: String) -> NativePresentationOutcome {
+    NativePresentationOutcome {
+        applied: true,
+        presentation_applied: false,
+        focus_applied: false,
+        hidden_surface_count: 0,
+        hide_ms: 0,
+        main_queue_wait_ms: 0,
+        main_thread_ms: 0,
+        no_op: false,
+        shown_surface_count: 0,
+        show_ms: 0,
+        visibility_errors: vec![message],
+        webview_focus_ms: 0,
+        window_focused_after: None,
+        window_focus_applied: false,
+        window_focus_ms: 0,
+        window_restore_applied: false,
+        window_visible_after: None,
+        window_visibility_ms: 0,
+        window_was_minimized: None,
+    }
 }
 
 fn capture_presentation_batch_events(
@@ -637,6 +716,7 @@ fn capture_presentation_batch_events(
         "mainThreadMs": outcome.main_thread_ms,
         "noOp": outcome.no_op,
         "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+        "presentationApplied": outcome.presentation_applied,
         "preCloseTransition": request.trigger.contains("close"),
         "requestCount": batch.request_count,
         "revision": request.revision,

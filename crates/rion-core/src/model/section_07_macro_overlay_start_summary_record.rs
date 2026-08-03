@@ -94,6 +94,7 @@ mod command_tests {
             CoreCommand::DiagnosticsExport { snapshot, .. }
                 if snapshot.native_runtime.healthy
                     && snapshot.native_runtime.snapshot_complete
+                    && snapshot.native_runtime.shutdown_state == "accepting"
         ));
     }
 

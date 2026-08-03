@@ -108,21 +108,6 @@ fn refresh_macro_overlay_handles<T, E>(
     }
 }
 
-fn reload_runtime_tab_handles<T, E>(
-    handles: impl IntoIterator<Item = T>,
-    mut reload: impl FnMut(T) -> Result<(), E>,
-) -> Result<(), E> {
-    let mut first_error = None;
-    for handle in handles {
-        if let Err(error) = reload(handle)
-            && first_error.is_none()
-        {
-            first_error = Some(error);
-        }
-    }
-    first_error.map_or(Ok(()), Err)
-}
-
 fn should_release_macros_for_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
 }

@@ -620,26 +620,9 @@ impl SystemRuntimeExecutor {
         None
     }
 
-    pub fn reload_tab(&self, tab_id: &str) -> Result<(), String> {
-        let webviews = {
-            let state = self.state().map_err(|error| error.message)?;
-            let tab = state
-                .tabs
-                .get(tab_id)
-                .ok_or_else(|| "runtime tab was not found".to_owned())?;
-            let webviews = tab
-                .roles
-                .values()
-                .map(|role| role.webview.clone())
-                .collect::<Vec<_>>();
-            if webviews.is_empty() {
-                return Err("runtime tab has no role surface".to_owned());
-            }
-            webviews
-        };
-        reload_runtime_tab_handles(webviews, |webview| {
-            webview.reload().map_err(|error| error.to_string())
-        })
+    pub fn reload_tab(self: &Arc<Self>, tab_id: &str) -> Result<(), String> {
+        self.reload_tab_contract(tab_id)
+            .map_err(|error| error.message)
     }
 
     pub fn set_tab_audio_muted(&self, tab_id: &str, muted: bool) -> Result<(), String> {

@@ -248,7 +248,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain('"preflightMode": preflight_mode');
     expect(runtime).toContain('"waitedTabId": waited_tab_id');
     expect(runtime).toContain("struct WindowPresentationState {");
-    expect(runtime).toContain("struct LatestOnlyPresentationQueue<T>");
+    expect(runtime).toContain("struct NativePresentationQueue<T>");
+    expect(runtime).toContain("NATIVE_WINDOW_PRESENTATION_QUEUE_CAPACITY");
+    expect(runtime).toContain("enqueue_ordered(request)");
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
     expect(runtime).toContain("tab.selection-coalesced");
     expect(runtime).toContain("apply_native_presentation_batch(");
@@ -261,7 +263,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain('"windowVisibilityMs": outcome.window_visibility_ms');
     expect(runtime).toContain('"windowFocusMs": outcome.window_focus_ms');
     expect(runtime).toContain('"webViewFocusMs": outcome.webview_focus_ms');
-    expect(runtime).toContain("if !still_desired || !mutation_plan.requires_ui_thread");
+    expect(runtime).toContain('"presentationApplied": outcome.presentation_applied');
+    expect(runtime).toContain("if (!still_desired && !ordered_window_control)");
     expect(runtime).toContain("tab.selection-superseded");
     expect(runtime).toContain("completed_failed_launch_cleanups");
     expect(runtime).toContain('"tab.launch-cleanup-compensation-noop"');

@@ -57,6 +57,7 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>(),
                 tab.window_id.clone(),
                 previous,
+                tab.active_divider_resize.clone(),
             );
             let host = state.display_hosts.get(&tab_context.5).ok_or_else(|| {
                 "runtime display host was not found for divider WebView".to_owned()
@@ -73,11 +74,21 @@ impl SystemRuntimeExecutor {
                 tab_context.4,
                 host.window.clone(),
                 tab_context.6,
+                tab_context.7,
                 toolbar_revealed,
             )
         };
-        let (tab_id, divider_index, divider, dividers, roles, window, previous, _toolbar_revealed) =
-            context;
+        let (
+            tab_id,
+            divider_index,
+            divider,
+            dividers,
+            roles,
+            window,
+            previous,
+            previous_active_resize,
+            _toolbar_revealed,
+        ) = context;
         let requested_position = if payload.phase == "reset" {
             divider.default_position
         } else {
@@ -120,7 +131,7 @@ impl SystemRuntimeExecutor {
             .core
             .invoke(CoreCommand::LayoutResizeDivider {
                 input: WorkspaceDividerResizeInput {
-                    roles,
+                    roles: roles.clone(),
                     dividers,
                     divider_index,
                     requested_position,
@@ -163,9 +174,36 @@ impl SystemRuntimeExecutor {
                 tab.active_divider_resize = None;
             }
         }
-        if result.changed {
-            self.layout_runtime_tab(&tab_id)
-                .map_err(|error| error.message)?;
+        if result.changed
+            && let Err(error) = self.layout_runtime_tab(&tab_id)
+        {
+                let state_rolled_back = self.state.lock().is_ok_and(|mut state| {
+                    let Some(tab) = state.tabs.get_mut(&tab_id) else {
+                        return false;
+                    };
+                    let mut restored_roles = 0;
+                    for role in &roles {
+                        if let Some(surface) = tab.roles.get_mut(&role.role_id) {
+                            surface.rect = StateNormalizedRectRecord {
+                                x: role.rect.x,
+                                y: role.rect.y,
+                                width: role.rect.width,
+                                height: role.rect.height,
+                            };
+                            restored_roles += 1;
+                        }
+                    }
+                    tab.active_divider_resize = previous_active_resize;
+                    restored_roles == roles.len()
+                });
+                if !state_rolled_back {
+                    self.health.mark_unhealthy();
+                    return Err(format!(
+                        "{} Runtime layout state compensation failed; restart Rion Studio to recover safely.",
+                        error.message
+                    ));
+                }
+                return Err(error.message);
         }
         let indicator_type = if payload.phase == "start" {
             "show"
@@ -232,37 +270,6 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.to_string())
     }
 
-    pub fn restore_tab_role_views(
-        &self,
-        tab_id: &str,
-        role_views: &[GameWindowRoleViewRecord],
-    ) -> Result<(), String> {
-        if role_views.is_empty() {
-            return Ok(());
-        }
-        let restored = {
-            let mut state = self.state().map_err(|error| error.message)?;
-            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
-                "Runtime tab was not found while restoring its layout.".to_owned()
-            })?;
-            let mut restored = 0;
-            for view in role_views {
-                if let Some(surface) = tab.roles.get_mut(&view.role_id) {
-                    surface.rect = view.rect.clone();
-                    surface.zoom_factor = (view.browser_zoom_percent / 100.0).clamp(0.25, 5.0);
-                    surface.zoom_mode = "fixed".to_owned();
-                    restored += 1;
-                }
-            }
-            restored
-        };
-        if restored == 0 {
-            return Err("No saved role view matched the restored runtime tab.".to_owned());
-        }
-        self.layout_runtime_tab(tab_id)
-            .map_err(|error| error.message)
-    }
-
     fn send_divider_indicators(&self, role_ids: &[String], indicator_type: &str) {
         let surfaces = self.state.lock().ok().map(|state| {
             role_ids
@@ -306,12 +313,16 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn toggle_runtime_window_fullscreen(&self, window_id: &str) -> Result<(), String> {
-        let window = self
-            .window_for_id(window_id)
-            .ok_or_else(|| "Runtime window was not found.".to_owned())?;
-        let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+        self.require_runtime_accepting()
+            .map_err(|error| error.message)?;
         #[cfg(target_os = "macos")]
-        self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
+        {
+            let window = self
+                .window_for_id(window_id)
+                .ok_or_else(|| "Runtime window was not found.".to_owned())?;
+            let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+            self.prepare_runtime_window_fullscreen(window.label(), !fullscreen);
+        }
         let selected_tab_id = self
             .presentation
             .existing(window_id)
@@ -322,11 +333,7 @@ impl SystemRuntimeExecutor {
                 selected_tab_id.as_deref(),
                 None,
                 NativePresentationFocus::None,
-                Some(if fullscreen {
-                    NativeWindowMode::ExitFullscreen
-                } else {
-                    NativeWindowMode::Fullscreen
-                }),
+                Some(NativeWindowMode::ToggleFullscreen),
                 "toggle-fullscreen",
             )
             .map_err(|error| error.message)?;

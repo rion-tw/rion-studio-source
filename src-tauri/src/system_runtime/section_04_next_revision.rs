@@ -383,19 +383,21 @@ impl PresentationRegistry {
 
 #[derive(Default)]
 struct RuntimeState {
+    active_geometry_windows: HashSet<String>,
     active_window_placement_workers: HashSet<String>,
     active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
     auto_restore_attempted: bool,
     close_coordinator: CloseCoordinator,
-    controlled_navigation_webviews: HashSet<String>,
+    controlled_navigation_webviews: HashMap<String, u32>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     launch_phases: HashMap<String, LaunchPhase>,
     launch_attempt_generations: HashMap<String, String>,
     navigation_input_fences: HashMap<String, NavigationInputFence>,
     role_input_fences: HashMap<String, RoleInputFence>,
     last_completed_document_ids: HashMap<String, String>,
+    last_input_ready_epochs: HashMap<String, u64>,
     pending_macro_page_request: Option<Value>,
     close_previews: HashMap<String, CloseTransaction>,
     completed_failed_launch_cleanups: HashSet<(String, String)>,
@@ -477,54 +479,6 @@ struct RuntimeWebViewConfiguration {
     document_start_script: String,
     macos_high_refresh_rate: bool,
     overlay_document_start_script_template: String,
-}
-
-struct NativeCreationGate {
-    active: Mutex<usize>,
-    changed: Condvar,
-    limit: usize,
-}
-
-impl NativeCreationGate {
-    fn new(limit: usize) -> Self {
-        Self {
-            active: Mutex::new(0),
-            changed: Condvar::new(),
-            limit,
-        }
-    }
-
-    fn acquire(&self) -> RuntimeResult<NativeCreationPermit<'_>> {
-        let mut active = self.active.lock().map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
-                "The native surface creation gate is unavailable.",
-            )
-        })?;
-        while *active >= self.limit {
-            active = self.changed.wait(active).map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
-                    "The native surface creation gate is unavailable.",
-                )
-            })?;
-        }
-        *active += 1;
-        Ok(NativeCreationPermit { gate: self })
-    }
-}
-
-struct NativeCreationPermit<'a> {
-    gate: &'a NativeCreationGate,
-}
-
-impl Drop for NativeCreationPermit<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut active) = self.gate.active.lock() {
-            *active = active.saturating_sub(1);
-            self.gate.changed.notify_one();
-        }
-    }
 }
 
 #[derive(Deserialize)]
@@ -716,12 +670,14 @@ pub struct SystemRuntimeExecutor {
     input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
     native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     native_creation_slots: NativeCreationGate,
+    native_window_mutations: Arc<NativeWindowMutationRegistry>,
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
     prewarm_state: AtomicU8,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
     shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
+    shutdown_state: Arc<AtomicU8>,
     state: Mutex<RuntimeState>,
     user_data_dir: PathBuf,
 }

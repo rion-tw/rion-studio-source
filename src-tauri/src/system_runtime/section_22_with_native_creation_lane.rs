@@ -4,6 +4,7 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         operation: impl FnOnce() -> RuntimeResult<T>,
     ) -> RuntimeResult<T> {
+        self.require_runtime_accepting()?;
         let _global_permit = self.native_creation_slots.acquire()?;
         let lane = {
             let mut lanes = self.native_creation_lanes.lock().map_err(|_| {
@@ -24,6 +25,7 @@ impl SystemRuntimeExecutor {
                 "The native surface creation lane is unavailable.",
             )
         })?;
+        self.require_runtime_accepting()?;
         operation()
     }
 

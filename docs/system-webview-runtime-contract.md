@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 5 defines the shared semantics for WKWebView on macOS and
+Contract version 6 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -57,6 +57,8 @@ shutdown result.
 | Input | Epoch- and generation-fenced native submission with bounded cleanup | AppKit event delivery / WebView2 native input |
 | Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls and returns native acknowledgement for the submitted native transaction | AppKit window and view APIs / Win32 and WebView2 controller APIs |
 | Tab activation | One latest-only revision converges the visible surfaces, native tab chrome, authoritative runtime selection, and Core selection | AppKit tab controller and presentation / WebView2 controller presentation plus the local tab-strip WebView |
+| Tab mutation | One per-tab FIFO transaction freezes identity, expected topology, Core persistence, presentation ownership, native effects, and terminal readback | AppKit tab controller and lifecycle / Win32, WebView2 controllers, and the local tab-strip WebView |
+| Tab chrome projection | One complete, revisioned projection replaces native tab metadata, order, active state, ARIA state, toolbar, display, language, and theme | Idempotent AppKit projection and readback / instance-fenced Windows tab-strip hydration and acknowledgement |
 | Geometry and layout | Per-window serialized revision applies logical bounds, DPI conversion, child-surface layout, readback, and reverse-order compensation; asynchronous window modes declare native submission | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
@@ -126,8 +128,12 @@ maximized geometry restoration still claims `nativeSubmission`; the explicit
 tab-strip control APIs instead acknowledge completion of their native call and
 do not claim that a later operating-system animation has visually settled.
 
-`hideGameWindow`, `showGameWindowTab`, `setGameWindowTabMuted`, and tab-strip
-minimize/fullscreen/maximize controls return terminal receipts directly.
+`hideGameWindow`, `showGameWindowTab`, `setGameWindowTabMuted`,
+`moveGameWindowTab`, `setGameWindowTabHidden`, `stopGameWindowTab`, and
+tab-strip minimize/fullscreen/maximize controls return terminal receipts
+directly. `moveGameWindowTabToNewWindow` returns the target window ID together
+with its terminal receipt. Unhiding a tab is activation convergence and returns
+the existing `tabActivation` receipt rather than creating a second mutation.
 `showGameWindowTab` uses the tab-activation transaction described below and does
 not wait for or claim page readiness.
 
@@ -157,6 +163,92 @@ failure is retried once and then becomes `degraded` with
 `TAB_ACTIVATION_STATE_COMMIT_FAILED`. Failure before native submission is
 `failed`; an unknown content-presentation result is `indeterminate`. Same-tab
 activation still performs convergence and can repair a prior chrome mismatch.
+
+## Tab topology mutation transactions
+
+Move, move-to-new-window, hide, reorder, and stop use one `tabMutation` parent
+operation with completion scope `tabTopologyConverged`. Acceptance freezes the
+operation ID, mutation kind, tab ID, source and target window identities and
+generations, lifecycle epoch, topology and presentation revisions, reorder
+target, exact expected order, and active fallback before optimistic presentation
+or native mutation begins. Validation, authorization, and not-found failures
+reject before acceptance; every accepted outcome resolves as a receipt.
+
+Each tab owns a bounded FIFO of 32 accepted mutations. Every operation has a
+20-second deadline. A queued timeout is `failed`; a timeout after Core or native
+work begins is `indeterminate`; and the first terminal receipt wins. A queued
+mutation whose frozen identity is no longer current is `superseded`. Repeated
+stop requests join the same active stop operation, while move, hide, and reorder
+are rejected with `TAB_MUTATION_CLOSING` after stop has been accepted.
+
+Core receives the generated `RuntimeTabMutationRequestRecord`. Its native effect
+retains a distinct child operation ID and the tab-mutation parent ID, so Core
+compensation, native receipts, logs, and diagnostics remain correlated. Success
+is based on readback of Core runtime state, saved Game Window persistence,
+presentation ownership, and native chrome—not merely a successful asynchronous
+invocation. Drag completion keeps its existing drag parent but calls the same
+typed mutation executor, so pointer and menu/API paths cannot implement
+different topology rules.
+
+For move, hide, and reorder, a Core or native failure with successful
+compensation is `failed`; failed compensation is `indeterminate`. Correct Core,
+persistence, and presentation state with unconfirmed chrome is `degraded` and
+is not rolled back. Stable failure codes include
+`TAB_MUTATION_CORE_COMMIT_FAILED`, `TAB_MUTATION_CHROME_NOT_CONFIRMED`,
+`TAB_MUTATION_COMPENSATION_FAILED`, `TAB_MUTATION_RESULT_UNKNOWN`,
+`TAB_MUTATION_CLOSING`, and `TAB_CHROME_PROJECTION_TIMEOUT`.
+
+## Native tab chrome projection
+
+`RuntimeTabChromeProjectionRecord` is the complete native tab-chrome authority.
+Presentation state supplies visible order and active tab; the Core snapshot
+supplies metadata and hidden state; saved state is used only to verify
+persistence. The projection also carries the exact window generation, lifecycle
+epoch, semantic projection revision, tab metadata, display state, fullscreen and
+toolbar state, language, and theme. Identical semantic content reuses its
+revision; a topology or active-tab change advances it.
+
+On Windows, every tab-strip document load creates a new renderer instance ID and
+announces `RuntimeTabChromeReadyRecord`. Native code then sends a complete
+replace projection for that exact instance. Until hydration completes, the
+renderer queues deltas. Atomic hydration removes extra tabs, creates missing
+tabs, replaces metadata, order, active and ARIA state, and then replays only
+newer deltas. An acknowledgement is accepted only when instance, revision,
+observed order, and observed active tab all match. Old instances, stale
+revisions, wrong order, wrong active state, and late acknowledgements cannot
+complete current work.
+
+Windows waits at most two seconds for projection acknowledgement and resends the
+complete projection once. A second failure terminalizes that projection with
+`TAB_CHROME_PROJECTION_TIMEOUT`; related content/Core mutations remain committed
+and return `degraded`. A newly ready renderer supersedes pending projections for
+the old instance, which makes WebView reload recovery deterministic instead of
+depending on retained DOM.
+
+macOS consumes the same projection builder without a renderer instance ID. The
+AppKit controller applies every item idempotently and reads back exact order and
+active tab before acknowledgement. WKWebView/AppKit remains the product reference
+for observable order and selection, while Windows is required to converge to
+that behavior through its renderer protocol.
+
+## Destructive tab stop boundary
+
+Stop first creates the tab-mutation parent. Cancelling a provisional launch is a
+normal stop outcome and still waits for projection convergence. For a live tab,
+presentation close and early surface isolation precede the typed Core stop.
+Success requires proven surface isolation, removal from Core runtime and
+presentation, saved-state commit, native chrome removal, and readback of the
+expected active fallback.
+
+Failure before isolation starts is `failed` and may be retried. Once isolation
+starts, an unknown native or persistence result is `indeterminate`; the tab stays
+optimistically closed, affected surfaces and roles remain quarantined, and no
+path guesses a rollback that could reveal a page still closing. If isolation is
+proven but controller release is still being reclaimed in the background, the
+receipt is `degraded`. If Core, persistence, and content ownership are correct
+but chrome is unconfirmed, the receipt is also `degraded`. A failure to prove
+content isolation remains `SYSTEM_SURFACE_RELEASE_UNVERIFIED` and requires a
+restart before reopening the role.
 
 ## Display topology and tab dragging
 
@@ -309,7 +401,12 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 4. Changing a terminal status,
+Additive fields remain compatible within version 6. The subsystem, status, and
+completion-scope values are generated Rust/TypeScript enums shared by Core,
+Tauri, renderer, and tests. `projection` and `tabMutation` are contract
+subsystems, `tabTopologyConverged` is the tab-mutation completion scope, and the
+unreachable `focusObserved` scope is not part of version 6; focus continues to
+use `nativeAcknowledgement`. Changing a terminal status,
 completion scope, identity fence, popup/security policy, or ordering guarantee
 requires a contract-version bump and matching macOS and Windows behavior tests.
 macOS checks run locally where available; Windows native reachability and SDK

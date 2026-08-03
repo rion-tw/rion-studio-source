@@ -514,3 +514,34 @@ use std::sync::mpsc;
         assert_eq!(metrics.launch_operation_count, 1);
         assert_eq!(metrics.launch_effect_count, 2);
     }
+
+    #[test]
+    fn child_effect_keeps_its_operation_id_and_carries_the_tab_mutation_parent() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start_with_parent(
+                OperationPlan {
+                    steps: vec![OperationStep {
+                        effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                            role_id: "role-1".to_owned(),
+                            zoom_factor: None,
+                        }),
+                        compensation: None,
+                    }],
+                },
+                "native-tabMutation-7".to_owned(),
+            )
+            .unwrap();
+        let request = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            request.parent_operation_id.as_deref(),
+            Some("native-tabMutation-7")
+        );
+        assert_eq!(request.operation_id, handle.operation_id);
+        assert_ne!(request.operation_id, "native-tabMutation-7");
+        actor.dispatch_results(vec![success(&request)]).unwrap();
+        assert!(handle.outcome.blocking_recv().unwrap().error.is_none());
+    }

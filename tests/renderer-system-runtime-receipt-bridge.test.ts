@@ -80,4 +80,25 @@ describe("System Runtime receipt bridge", () => {
       code: "NATIVE_PRESENTATION_QUEUE_FULL"
     });
   });
+
+  it("normalizes topology mutation receipts including move-to-new-window", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {}
+    });
+    invoke.mockImplementation(async (_command: string, payload: { operation: string }) => {
+      if (payload.operation === "moveGameWindowTabToNewWindow") {
+        return { targetWindowId: "window-2", receipt: appliedReceipt };
+      }
+      return appliedReceipt;
+    });
+    await installTauriBridgeIfNeeded();
+
+    await expect(window.rionStudio.moveGameWindowTab("tab-1", "window-2"))
+      .resolves.toEqual(appliedReceipt);
+    await expect(window.rionStudio.setGameWindowTabHidden("tab-1", true))
+      .resolves.toEqual(appliedReceipt);
+    await expect(window.rionStudio.moveGameWindowTabToNewWindow("tab-1"))
+      .resolves.toEqual({ targetWindowId: "window-2", receipt: appliedReceipt });
+  });
 });

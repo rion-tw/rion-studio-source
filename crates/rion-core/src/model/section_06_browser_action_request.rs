@@ -222,6 +222,9 @@ pub enum CoreEffectAction {
 pub struct CoreEffectRequest {
     pub effect_id: String,
     pub operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub parent_operation_id: Option<String>,
     pub target: CoreEffectTarget,
     #[ts(type = "number")]
     pub deadline_ms: u64,

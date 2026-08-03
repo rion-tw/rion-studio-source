@@ -92,6 +92,11 @@ unsafe extern "C" {
         active_tab_id: *const c_char,
     );
     fn rion_runtime_tabs_reorder(controller: *mut c_void, tab_ids_json: *const c_char);
+    fn rion_runtime_tabs_matches_projection(
+        controller: *mut c_void,
+        tab_ids_json: *const c_char,
+        active_tab_id: *const c_char,
+    ) -> bool;
     fn rion_runtime_tabs_update_metadata(
         controller: *mut c_void,
         tab: *const NativeTabInput,
@@ -519,6 +524,40 @@ impl MacRuntimeTabsController {
             rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
         })
         .map_err(|error| error.to_string())
+    }
+
+    pub fn matches_projection(
+        &self,
+        tab_ids: &[String],
+        active_tab_id: Option<&str>,
+    ) -> Result<bool, String> {
+        let raw = self.inner.raw as usize;
+        let tab_ids = serde_json::to_string(tab_ids)
+            .map(|value| c_string(&value))
+            .map_err(|error| error.to_string())?;
+        let active_tab_id = active_tab_id.map(c_string);
+        let query = move || unsafe {
+            rion_runtime_tabs_matches_projection(
+                raw as *mut c_void,
+                tab_ids.as_ptr(),
+                active_tab_id
+                    .as_ref()
+                    .map_or(std::ptr::null(), |value| value.as_ptr()),
+            )
+        };
+        if unsafe { rion_runtime_tabs_is_main_thread() } {
+            return Ok(query());
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        self.inner
+            .app
+            .run_on_main_thread(move || {
+                let _ = sender.send(query());
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv_timeout(Duration::from_millis(500))
+            .map_err(|_| "AppKit tab projection readback timed out.".to_owned())
     }
 
     pub fn replace_reservation(

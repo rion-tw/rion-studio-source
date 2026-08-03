@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -28,7 +28,7 @@ use rion_core::{
     GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroInputDiagnosticsRecord, MacroInputEpochRecord,
+    MacroInputDiagnosticsRecord, MacroInputEpochRecord, RuntimeTabMutationRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
@@ -80,6 +80,7 @@ const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
 const TAB_DRAG_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
+const TAB_MUTATION_OPERATION_TIMEOUT: Duration = Duration::from_secs(20);
 const SURFACE_RECOVERY_OPERATION_TIMEOUT: Duration = Duration::from_secs(70);
 const POWER_LIFECYCLE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);

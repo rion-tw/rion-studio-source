@@ -198,13 +198,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             reveal_menu_error(app, message);
         }
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
-        spawn_command(
-            app,
-            &state.core,
-            CoreCommand::EmbeddedTabHide {
-                tab_id: tab_id.to_owned(),
-            },
-        );
+        spawn_tab_mutation(app, tab_id, "hide", None, None);
     } else if let Some(tab_id) = id.strip_prefix(RELOAD_PREFIX) {
         let app = app.clone();
         let runtime = Arc::clone(&state.runtime);
@@ -284,14 +278,9 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
             return true;
         };
         match state.runtime.launcher_context_for_window_id(window_id) {
-            Ok((_, target)) => spawn_command(
-                app,
-                &state.core,
-                CoreCommand::EmbeddedTabMove {
-                    tab_id: tab_id.to_owned(),
-                    target,
-                },
-            ),
+            Ok((_, target)) => {
+                spawn_tab_mutation(app, tab_id, "move", Some(target), None);
+            }
             Err(message) => reveal_menu_error(app, message),
         }
     } else if let Some(value) = id.strip_prefix(LAUNCH_ROLE_PREFIX) {
@@ -596,10 +585,8 @@ pub async fn handle_scoped_action(
     if action_type == "openTabMenu" {
         return open_tab(app, tab_id);
     }
-    let command = match action_type {
-        "hide" => CoreCommand::EmbeddedTabHide {
-            tab_id: tab_id.to_owned(),
-        },
+    let (target, before_tab_id) = match action_type {
+        "hide" => (None, None),
         "move" => {
             let target_window_id = action["windowId"]
                 .as_str()
@@ -611,10 +598,7 @@ pub async fn handle_scoped_action(
                 .runtime
                 .launcher_context_for_window_id(target_window_id)?
                 .1;
-            CoreCommand::EmbeddedTabMove {
-                tab_id: tab_id.to_owned(),
-                target,
-            }
+            (Some(target), None)
         }
         "reorder" => {
             let before_tab_id = action
@@ -629,13 +613,44 @@ pub async fn handle_scoped_action(
             {
                 return Err("reorder target is outside this tab-strip WebView's display".to_owned());
             }
-            CoreCommand::EmbeddedTabReorder {
-                tab_id: tab.id.clone(),
-                before_tab_id,
-            }
+            (None, before_tab_id)
         }
         _ => return Err("runtime tab action is invalid".to_owned()),
     };
-    let result = state.core.invoke_async(command).await;
-    result.map(|_| ()).map_err(|error| error.to_string())
+    crate::execute_tab_mutation(state, action_type, tab_id, target, before_tab_id)
+        .await
+        .map_err(|error| format!("{}: {}", error.code, error.message))
+        .and_then(crate::runtime_operation_receipt_result)
+}
+
+fn spawn_tab_mutation(
+    app: &AppHandle,
+    tab_id: &str,
+    mutation_kind: &'static str,
+    target: Option<EmbeddedLaunchTargetRecord>,
+    before_tab_id: Option<String>,
+) {
+    let app = app.clone();
+    let tab_id = tab_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let Some(state) = app.try_state::<crate::CoreState>() else {
+            reveal_menu_error(&app, "runtime state is unavailable");
+            return;
+        };
+        let result = crate::execute_tab_mutation(
+            &state,
+            mutation_kind,
+            &tab_id,
+            target,
+            before_tab_id,
+        )
+        .await
+        .and_then(|receipt| {
+            crate::runtime_operation_receipt_result(receipt)
+                .map_err(|message| crate::shell_error(&message, message.clone()))
+        });
+        if let Err(error) = result {
+            crate::reveal_shell_error(&app, error);
+        }
+    });
 }

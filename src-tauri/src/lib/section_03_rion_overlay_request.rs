@@ -261,6 +261,91 @@ async fn rion_runtime_tab_action(
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });
     }
+    if matches!(
+        action.get("type").and_then(Value::as_str),
+        Some("hide" | "move" | "reorder")
+    ) {
+        let action_type = action["type"].as_str().unwrap_or_default();
+        let tab_id = action["tabId"]
+            .as_str()
+            .filter(|tab_id| !tab_id.is_empty())
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime tab ID is required",
+                )
+            })?;
+        let snapshot = state
+            .core
+            .invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .map_err(error_payload)
+            .and_then(|value| {
+                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
+                    shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+                })
+            })?;
+        let tab = snapshot
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "runtime tab was not found",
+                )
+            })?;
+        if action_type != "move" && tab.window_id != window_id {
+            return Err(shell_error(
+                "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                "runtime tab is outside this tab-strip WebView's window",
+            ));
+        }
+        let before_tab_id = action
+            .get("beforeTabId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if let Some(before) = before_tab_id.as_deref()
+            && !snapshot
+                .tabs
+                .iter()
+                .any(|candidate| candidate.id == before && candidate.window_id == window_id)
+        {
+            return Err(shell_error(
+                "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                "reorder target is outside this tab-strip WebView's window",
+            ));
+        }
+        let target = if action_type == "move" {
+            let target_window_id = action["windowId"].as_str().ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                    "target window ID is required",
+                )
+            })?;
+            Some(
+                state
+                    .runtime
+                    .launcher_context_for_window_id(target_window_id)
+                    .map_err(|message| {
+                        shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message)
+                    })?
+                    .1,
+            )
+        } else {
+            None
+        };
+        let receipt = execute_tab_mutation(
+            &state,
+            action_type,
+            tab_id,
+            target,
+            before_tab_id,
+        )
+        .await?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
+    }
     if action.get("type").and_then(Value::as_str) == Some("windowControl") {
         let control = action
             .get("control")

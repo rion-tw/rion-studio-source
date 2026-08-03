@@ -339,10 +339,9 @@ async fn rion_shell_invoke(
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
             let window_id = string_argument(&args, 1, "Game window ID")?;
             let target = launch_target_for_game_window(&app, &window_id)?;
-            Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedTabMove { tab_id, target })
-                .await
-                .map_err(error_payload)
+            let receipt = execute_tab_mutation(&state, "move", &tab_id, Some(target), None).await?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }
         "moveGameWindowTabToNewWindow" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
@@ -367,17 +366,14 @@ async fn rion_shell_invoke(
             let hidden = args.get(1).and_then(Value::as_bool).ok_or_else(|| {
                 shell_error("TAURI_SHELL_INPUT_INVALID", "Hidden state is required.")
             })?;
-            let command = if hidden {
-                CoreCommand::EmbeddedTabHide { tab_id }
+            let receipt = if hidden {
+                execute_tab_mutation(&state, "hide", &tab_id, None, None).await?
             } else {
-                let _ = preview_and_commit_tab_selection(&app, &state, &tab_id)
-                    .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
-                return Ok(Value::Null);
+                preview_and_commit_tab_selection(&app, &state, &tab_id)
+                    .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?
             };
-            Arc::clone(&state.core)
-                .invoke_async(command)
-                .await
-                .map_err(error_payload)
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }
         "stopGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;

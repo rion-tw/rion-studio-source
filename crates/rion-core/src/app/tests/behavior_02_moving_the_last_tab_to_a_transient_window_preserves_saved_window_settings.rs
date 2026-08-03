@@ -99,13 +99,16 @@
             )
             .unwrap();
 
-            drive_async_command(
+            let parent_operation_id = format!("native-tabMutation-{platform}");
+            drive_async_command_with(
                 Arc::clone(&core),
-                CoreCommand::EmbeddedTabMove {
-                    tab_id: tab_id.clone(),
-                    target: launch_target(&target_id),
-                },
-                None,
+                embedded_tab_move_mutation_command(
+                    &parent_operation_id,
+                    &tab_id,
+                    &source_id,
+                    launch_target(&target_id),
+                ),
+                |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
             )
             .0
             .unwrap();

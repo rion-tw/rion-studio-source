@@ -4,6 +4,7 @@ impl SystemRuntimeExecutor {
         effect: CoreEffectRequest,
         presentation_revision: u64,
     ) -> RuntimeResult<Option<String>> {
+        let parent_operation_id = effect.parent_operation_id.clone();
         match effect.action {
             CoreEffectAction::EmbeddedCreateTab { tab } => self.create_tab(*tab).map(|()| None),
             CoreEffectAction::EmbeddedConfigureRoleSessions { role_ids } => {
@@ -92,7 +93,10 @@ impl SystemRuntimeExecutor {
                     &reveal_window_ids,
                     &focus_window_ids,
                     focus_tab_id.as_deref(),
-                    presentation_revision,
+                    RuntimeEffectCorrelation {
+                        parent_operation_id,
+                        presentation_revision,
+                    },
                 )?;
                 Ok(None)
             }

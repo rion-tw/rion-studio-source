@@ -1,13 +1,17 @@
 impl AppCore {
     fn apply_embedded_runtime_command_inner(
         &self,
-        commands: Vec<BrowserRuntimeCommand>,
-        target: Option<EmbeddedLaunchTargetRecord>,
-        reveal_window_ids: Vec<String>,
-        focus_window_ids: Vec<String>,
-        focus_tab_id: Option<String>,
-        focus_active_window_id: Option<String>,
+        transition: EmbeddedRuntimeTransition,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let EmbeddedRuntimeTransition {
+            commands,
+            target,
+            reveal_window_ids,
+            focus_window_ids,
+            focus_tab_id,
+            focus_active_window_id,
+            parent_operation_id,
+        } = transition;
         let (previous, mut next_runtime, mut next) = {
             let runtime = self
                 .browser_runtime
@@ -47,12 +51,12 @@ impl AppCore {
             focus_window_ids: Vec::new(),
             focus_tab_id: None,
         };
-        self.run_effect_plan(vec![effect_step(
+        self.run_embedded_runtime_effect(
             "embedded-runtime",
             effect,
-            Duration::from_secs(15),
             Some(compensation.clone()),
-        )])?;
+            parent_operation_id.as_deref(),
+        )?;
         let removed_window_ids = previous_snapshot
             .windows
             .iter()
@@ -71,12 +75,12 @@ impl AppCore {
             &next,
             &removed_window_ids,
         ) {
-            let _ = self.run_effect_plan(vec![effect_step(
+            let _ = self.run_embedded_runtime_effect(
                 "embedded-runtime-persistence-rollback",
                 compensation,
-                Duration::from_secs(15),
                 None,
-            )]);
+                parent_operation_id.as_deref(),
+            );
             return Err(error);
         }
         if !removed_window_ids.is_empty() {
@@ -89,7 +93,7 @@ impl AppCore {
             let cleaned = cleaned_runtime
                 .invoke(BrowserRuntimeCommand::Snapshot)?
                 .snapshot;
-            let _ = self.run_effect_plan(vec![effect_step(
+            let _ = self.run_embedded_runtime_effect(
                 "embedded-runtime-empty-window-cleanup",
                 CoreEffectAction::EmbeddedApplyRuntime {
                     snapshot: cleaned.clone(),
@@ -98,9 +102,9 @@ impl AppCore {
                     focus_window_ids: Vec::new(),
                     focus_tab_id: None,
                 },
-                Duration::from_secs(15),
                 None,
-            )]);
+                parent_operation_id.as_deref(),
+            );
             next_runtime = cleaned_runtime;
             next = cleaned;
         }

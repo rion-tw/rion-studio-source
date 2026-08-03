@@ -13,6 +13,7 @@ import type {
   CoreCommandResult,
   CoreEvent,
   ApplicationLifecycleStatusRecord,
+  RuntimeTabMoveResultRecord,
   SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../../shared/generated";
@@ -525,15 +526,23 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     showGameWindowTab: async (tabId) => handleSystemRuntimeReceipt(
       await invokeShell("showGameWindowTab", [tabId])
     ),
-    moveGameWindowTab: (tabId, windowId) =>
-      invokeShell("moveGameWindowTab", [tabId, windowId]),
-    moveGameWindowTabToNewWindow: (tabId) =>
-      invokeShell("moveGameWindowTabToNewWindow", [tabId]),
+    moveGameWindowTab: async (tabId, windowId) => handleSystemRuntimeReceipt(
+      await invokeShell("moveGameWindowTab", [tabId, windowId])
+    ),
+    moveGameWindowTabToNewWindow: async (tabId) => {
+      const result = await invokeShell<RuntimeTabMoveResultRecord>(
+        "moveGameWindowTabToNewWindow",
+        [tabId]
+      );
+      handleSystemRuntimeReceipt(result.receipt);
+      return result;
+    },
     setGameWindowTabMuted: async (tabId, muted) => handleSystemRuntimeReceipt(
       await invokeShell("setGameWindowTabMuted", [tabId, muted])
     ),
-    setGameWindowTabHidden: (tabId, hidden) =>
-      invokeShell("setGameWindowTabHidden", [tabId, hidden]),
+    setGameWindowTabHidden: async (tabId, hidden) => handleSystemRuntimeReceipt(
+      await invokeShell("setGameWindowTabHidden", [tabId, hidden])
+    ),
     stopGameWindowTab: (tabId) => invokeShell("stopGameWindowTab", [tabId]),
     restoreSavedGameWindows: async (input) => {
       const result = await invokeShell<void>("restoreSavedGameWindows", [input]);

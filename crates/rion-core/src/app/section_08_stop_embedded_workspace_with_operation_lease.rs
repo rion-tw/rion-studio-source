@@ -1,3 +1,13 @@
+struct EmbeddedRuntimeTransition {
+    commands: Vec<BrowserRuntimeCommand>,
+    target: Option<EmbeddedLaunchTargetRecord>,
+    reveal_window_ids: Vec<String>,
+    focus_window_ids: Vec<String>,
+    focus_tab_id: Option<String>,
+    focus_active_window_id: Option<String>,
+    parent_operation_id: Option<String>,
+}
+
 impl AppCore {
     fn stop_embedded_workspace_with_operation_lease(
         &self,
@@ -236,16 +246,17 @@ impl AppCore {
             .any(|window| window.window_id == window_id);
         if runtime_window_exists {
             let _sequence = self.embedded_runtime_sequence.acquire()?;
-            self.apply_embedded_runtime_command_inner(
-                vec![BrowserRuntimeCommand::RemoveWindow {
+            self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
+                commands: vec![BrowserRuntimeCommand::RemoveWindow {
                     window_id: window_id.to_owned(),
                 }],
-                None,
-                Vec::new(),
-                Vec::new(),
-                None,
-                None,
-            )?;
+                target: None,
+                reveal_window_ids: Vec::new(),
+                focus_window_ids: Vec::new(),
+                focus_tab_id: None,
+                focus_active_window_id: None,
+                parent_operation_id: None,
+            })?;
         }
 
         if !delete {
@@ -269,6 +280,49 @@ impl AppCore {
         steps: Vec<crate::operation_actor::OperationStep>,
     ) -> CoreResult<crate::operation_actor::OperationOutcome> {
         self.run_effect_plan_for_roles(steps, &[])
+    }
+
+    fn run_effect_plan_with_parent(
+        &self,
+        steps: Vec<crate::operation_actor::OperationStep>,
+        parent_operation_id: &str,
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        let handle = self.operation_actor.start_with_parent(
+            crate::operation_actor::OperationPlan { steps },
+            parent_operation_id.to_owned(),
+        )?;
+        self.finish_effect_plan_for_roles(handle, &[])
+    }
+
+    fn run_embedded_runtime_effect_plan(
+        &self,
+        steps: Vec<crate::operation_actor::OperationStep>,
+        parent_operation_id: Option<&str>,
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        match parent_operation_id {
+            Some(parent_operation_id) => {
+                self.run_effect_plan_with_parent(steps, parent_operation_id)
+            }
+            None => self.run_effect_plan(steps),
+        }
+    }
+
+    fn run_embedded_runtime_effect(
+        &self,
+        handle_id: &str,
+        action: CoreEffectAction,
+        compensation: Option<CoreEffectAction>,
+        parent_operation_id: Option<&str>,
+    ) -> CoreResult<crate::operation_actor::OperationOutcome> {
+        self.run_embedded_runtime_effect_plan(
+            vec![effect_step(
+                handle_id,
+                action,
+                Duration::from_secs(15),
+                compensation,
+            )],
+            parent_operation_id,
+        )
     }
 
     fn start_system_launch(
@@ -641,14 +695,102 @@ impl AppCore {
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
-        self.apply_embedded_runtime_command_inner(
+        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
             commands,
             target,
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
             focus_active_window_id,
-        )
+            parent_operation_id: None,
+        })
+    }
+
+    fn apply_embedded_tab_mutation(
+        &self,
+        request: crate::model::RuntimeTabMutationRequestRecord,
+        target: Option<EmbeddedLaunchTargetRecord>,
+        before_tab_id: Option<String>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
+        let _sequence = self.embedded_runtime_sequence.acquire()?;
+        let (commands, reveal_window_ids, focus_window_ids, focus_tab_id) =
+            match request.mutation_kind.as_str() {
+                "hide" => (
+                    vec![BrowserRuntimeCommand::HideTab {
+                        tab_id: request.tab_id.clone(),
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                ),
+                "reorder" => (
+                    vec![BrowserRuntimeCommand::ReorderTab {
+                        tab_id: request.tab_id.clone(),
+                        before_tab_id,
+                    }],
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                ),
+                "move" | "moveToNewWindow" => {
+                    let target = target.as_ref().ok_or_else(|| CoreError::Domain {
+                        code: "TAB_MUTATION_TARGET_REQUIRED",
+                        message: "A move mutation requires a target Game Window.".to_owned(),
+                    })?;
+                    let mut commands = vec![BrowserRuntimeCommand::MoveTab {
+                        tab_id: request.tab_id.clone(),
+                        window_id: target.window_id.clone(),
+                    }];
+                    if before_tab_id.is_some() {
+                        commands.push(BrowserRuntimeCommand::ReorderTab {
+                            tab_id: request.tab_id.clone(),
+                            before_tab_id,
+                        });
+                    }
+                    (
+                        commands,
+                        vec![target.window_id.clone()],
+                        vec![target.window_id.clone()],
+                        Some(request.tab_id.clone()),
+                    )
+                }
+                _ => {
+                    return Err(CoreError::Domain {
+                        code: "TAB_MUTATION_KIND_INVALID",
+                        message: "The tab mutation kind is unsupported by this transaction."
+                            .to_owned(),
+                    });
+                }
+            };
+        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
+            commands,
+            target,
+            reveal_window_ids,
+            focus_window_ids,
+            focus_tab_id,
+            focus_active_window_id: None,
+            parent_operation_id: Some(request.operation_id),
+        })
+    }
+
+    fn serialized_embedded_tab_mutation(
+        &self,
+        request: crate::model::RuntimeTabMutationRequestRecord,
+        target: Option<EmbeddedLaunchTargetRecord>,
+        before_tab_id: Option<String>,
+    ) -> CoreResult<Value> {
+        serde_json::to_value(self.apply_embedded_tab_mutation(request, target, before_tab_id)?)
+            .map_err(|error| CoreError::Internal(error.to_string()))
+    }
+
+    fn serialized_browser_runtime_snapshot(&self) -> CoreResult<Value> {
+        let snapshot = self
+            .browser_runtime
+            .lock()
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
+            .snapshot();
+        serde_json::to_value(snapshot).map_err(|error| CoreError::Internal(error.to_string()))
     }
 
 }

@@ -142,8 +142,8 @@ fn dispatch_runtime_tab_shortcut(
     let Some((tab_id, provisional, operation_id)) = target else {
         return;
     };
-    if !provisional {
-        if crate::commit_previewed_tab_selection(
+    if !provisional
+        && crate::commit_previewed_tab_selection(
             app,
             &state,
             &window_id,
@@ -151,12 +151,11 @@ fn dispatch_runtime_tab_shortcut(
             Some(&operation_id),
         )
         .is_err()
-        {
-            state.runtime.finish_tab_activation_core(
-                &operation_id,
-                TabActivationComponentStatus::Failed,
-            );
-        }
+    {
+        state.runtime.finish_tab_activation_core(
+            &operation_id,
+            TabActivationComponentStatus::Failed,
+        );
     }
     let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
         webview_label,

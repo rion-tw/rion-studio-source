@@ -7,6 +7,8 @@ import { applicationShortcutForKeyEvent } from "../../../shared/applicationShort
 
 import type { RuntimeTabStripState } from "../../../shared/runtimeTabs";
 
+import type { RuntimeTabActivationAcknowledgementRecord } from "../../../shared/generated";
+
 import { runtimeTabStripLabels } from "../../src/i18n";
 
 import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
@@ -385,6 +387,38 @@ function cancelActiveTabDrag(): void {
 }
 
 export function installRuntimeTabStrip(): void {
+  window.__rionApplyRuntimeTabActivation = (request) => {
+    if (!window.__rionRuntimeTabChromeReady) {
+      window.__rionPendingRuntimeTabActivations ??= [];
+      window.__rionPendingRuntimeTabActivations.push(request);
+      return;
+    }
+    const stale = request.revision < runtimeState.activationRevision;
+    if (!stale) {
+      runtimeState.activationRevision = request.revision;
+      if (request.mode === "reconcile") applyRuntimeTabOrder(request.orderedTabIds, false);
+      optimisticallyActivateTab(request.targetTabId);
+    }
+    const activeTabs = tabElements().filter((tab) =>
+      tab.classList.contains("active") && tab.getAttribute("aria-selected") === "true"
+    );
+    const observedActiveTabId = activeTabs.length === 1
+      ? activeTabs[0]?.dataset.tabId
+      : undefined;
+    const acknowledgement: RuntimeTabActivationAcknowledgementRecord = {
+      operationId: request.operationId,
+      revision: request.revision,
+      targetTabId: request.targetTabId,
+      ...(observedActiveTabId ? { observedActiveTabId } : {}),
+      status: stale
+        ? "superseded"
+        : observedActiveTabId === request.targetTabId ? "applied" : "failed"
+    };
+    void invoke("rion_runtime_tab_action", {
+      action: { type: "tabActivationApplied", acknowledgement }
+    }).catch(() => undefined);
+  };
+
   window.__rionApplyRuntimeTabChromeMutation = (revision, mutation) => {
     if (!window.__rionRuntimeTabChromeReady) {
       window.__rionPendingRuntimeTabChromeMutations ??= [];
@@ -517,6 +551,12 @@ export function installRuntimeTabStrip(): void {
   };
 
   window.__rionRuntimeTabChromeReady = true;
+
+  for (const request of window.__rionPendingRuntimeTabActivations ?? []) {
+    window.__rionApplyRuntimeTabActivation(request);
+  }
+
+  window.__rionPendingRuntimeTabActivations = [];
 
   for (const pending of window.__rionPendingRuntimeTabChromeMutations ?? []) {
     window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);

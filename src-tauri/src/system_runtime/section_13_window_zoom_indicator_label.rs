@@ -400,7 +400,7 @@ impl SystemRuntimeExecutor {
                 .clone();
             (window_id, window)
         };
-        let (previous_tab_id, previous_surfaces, revision) = {
+        let (previous_tab_id, previous_surfaces, ordered_tab_ids, revision) = {
             let presentation = self.presentation.coordinator(&window_id)?;
             let revision = self.presentation.next_revision();
             let mut window_state = presentation.lock().map_err(|_| {
@@ -412,17 +412,23 @@ impl SystemRuntimeExecutor {
             let previous_tab_id = window_state.selected_tab_id.clone();
             let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
             window_state.select(Some(tab_id.to_owned()), revision);
-            (previous_tab_id, previous_surfaces, revision)
+            (
+                previous_tab_id,
+                previous_surfaces,
+                window_state.tab_ids(),
+                revision,
+            )
         };
         let activation = transactional
             .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, false))
             .transpose()?;
         if let Some(activation) = activation.as_ref() {
             self.operations.mark_in_flight(&activation.operation_id);
+            self.apply_tab_activation_chrome(activation, ordered_tab_ids);
         }
-        if matches!(trigger, "native-pointer" | "shortcut") {
+        if !transactional && matches!(trigger, "native-pointer" | "shortcut") {
             self.remember_native_active_style(&window_id, Some(tab_id));
-        } else if trigger != "surface-attached" {
+        } else if !transactional && trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
         let presentation_operation_id = self.dispatch_native_presentation(
@@ -441,10 +447,6 @@ impl SystemRuntimeExecutor {
             None,
         );
         let operation_id = if let Some(activation) = activation {
-            self.finish_tab_activation_chrome(
-                &activation.operation_id,
-                TabActivationComponentStatus::Applied,
-            );
             self.track_tab_activation_presentation(
                 activation.operation_id.clone(),
                 presentation_operation_id,
@@ -603,7 +605,14 @@ impl SystemRuntimeExecutor {
             (window_id, window)
         };
         self.reconcile_presentation_tab_owner(tab_id, &window_id)?;
-        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview, revision) = {
+        let (
+            previous_tab_id,
+            previous_surfaces,
+            next_surfaces,
+            active_webview,
+            ordered_tab_ids,
+            revision,
+        ) = {
             let presentation = self.presentation.coordinator(&window_id)?;
             let revision = self.presentation.next_revision();
             let mut window_state = presentation.lock().map_err(|_| {
@@ -622,6 +631,7 @@ impl SystemRuntimeExecutor {
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
+                window_state.tab_ids(),
                 revision,
             )
         };
@@ -630,10 +640,11 @@ impl SystemRuntimeExecutor {
             .transpose()?;
         if let Some(activation) = activation.as_ref() {
             self.operations.mark_in_flight(&activation.operation_id);
+            self.apply_tab_activation_chrome(activation, ordered_tab_ids);
         }
-        if matches!(trigger, "native-pointer" | "shortcut") {
+        if !transactional && matches!(trigger, "native-pointer" | "shortcut") {
             self.remember_native_active_style(&window_id, Some(tab_id));
-        } else if trigger != "surface-attached" {
+        } else if !transactional && trigger != "surface-attached" {
             self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
         }
         let presentation_operation_id = self.dispatch_native_presentation(
@@ -652,10 +663,6 @@ impl SystemRuntimeExecutor {
             None,
         );
         let operation_id = if let Some(activation) = activation {
-            self.finish_tab_activation_chrome(
-                &activation.operation_id,
-                TabActivationComponentStatus::Applied,
-            );
             self.track_tab_activation_presentation(
                 activation.operation_id.clone(),
                 presentation_operation_id,

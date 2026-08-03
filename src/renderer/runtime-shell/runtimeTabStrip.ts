@@ -8,7 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
-import type { RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
+import type { RuntimeTabActivationRequestRecord, RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
 
 import type { WorkspaceLayoutTemplate } from "../../shared/types";
 
@@ -27,6 +27,7 @@ declare global {
       revision: number,
       mutation: () => void
     ) => void;
+    __rionApplyRuntimeTabActivation?: (request: RuntimeTabActivationRequestRecord) => void;
     __rionEnsureRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionPendingRuntimeTabOrder?: string[];
     __rionPendingRuntimeTabEnsures?: ProvisionalRuntimeTab[];
@@ -34,6 +35,7 @@ declare global {
       mutation: () => void;
       revision: number;
     }>;
+    __rionPendingRuntimeTabActivations?: RuntimeTabActivationRequestRecord[];
     __rionPendingRuntimeTabs?: ProvisionalRuntimeTab[];
     __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
     __rionReorderRuntimeTabs?: (tabIds: string[]) => void;
@@ -95,6 +97,7 @@ export const runtimeState = {
   renderRevision: 0,
   activeTabId: undefined as string | undefined,
   optimisticActiveTabId: undefined as string | undefined,
+  activationRevision: 0,
   dragActionPending: false,
   scrollControlsFrame: undefined as number | undefined,
 };

@@ -61,6 +61,8 @@ export type { SystemRuntimeFailureRecord } from "./SystemRuntimeFailureRecord";
 export type { SystemRuntimeInputFenceEventRecord } from "./SystemRuntimeInputFenceEventRecord";
 export type { SystemRuntimeInputFenceRecord } from "./SystemRuntimeInputFenceRecord";
 export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperationSummaryRecord";
+export type { RuntimeTabActivationRequestRecord } from "./RuntimeTabActivationRequestRecord";
+export type { RuntimeTabActivationAcknowledgementRecord } from "./RuntimeTabActivationAcknowledgementRecord";
 export type { DisplayTopologySnapshotRecord } from "./DisplayTopologySnapshotRecord";
 export type { NativeWindowStateRecord } from "./NativeWindowStateRecord";
 export type { ApplicationLifecycleStatusRecord } from "./ApplicationLifecycleStatusRecord";

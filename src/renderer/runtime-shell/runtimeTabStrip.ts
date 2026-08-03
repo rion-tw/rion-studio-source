@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 
 import { Columns2, Gamepad2, Grid2x2, Square, Volume2, VolumeX, X, type LucideIcon } from "lucide-react";
 
@@ -8,13 +8,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
-import type { SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
+import type { RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../shared/generated";
 
 import type { WorkspaceLayoutTemplate } from "../../shared/types";
 
 import { handleSystemRuntimeReceipt } from "../src/app/systemRuntimeReceipt";
 
-import { dispatchNextDragAction, flushPendingRuntimeTabOrder, optimisticallyActivateAdjacentTab, optimisticallyActivateTab, optimisticallyCloseTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./runtimeTabStrip/drag";
+import { dispatchNextDragAction, flushPendingRuntimeTabOrder, handleRuntimeTabDragSession, optimisticallyActivateAdjacentTab, optimisticallyActivateTab, optimisticallyCloseTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./runtimeTabStrip/drag";
 
 import { applyRuntimeTabOrder, clampRatio, installRuntimeTabStrip, runtimeTabDragPayload, scheduleScrollControlsUpdate, scrollForDragPoint, stopEdgeScroll, tabElements } from "./runtimeTabStrip/entry";
 
@@ -99,7 +99,7 @@ export const runtimeState = {
   scrollControlsFrame: undefined as number | undefined,
 };
 
-export const dragActionQueue: RuntimeTabAction[] = [];
+export const dragActionQueue: Array<Extract<RuntimeTabAction, { sessionId: string }>> = [];
 
 export const terminalDragSessions = new Set<string>();
 
@@ -237,7 +237,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
           if (pending.sessionId === action.sessionId) dragActionQueue.splice(index, 1);
         }
       }
-      dragActionQueue.push(action);
+      dragActionQueue.push(action as Extract<RuntimeTabAction, { sessionId: string }>);
     }
     dispatchNextDragAction();
     return;
@@ -630,3 +630,7 @@ function nextTabElement(tab: HTMLButtonElement): HTMLButtonElement | undefined {
 }
 
 installRuntimeTabStrip();
+void listen<RuntimeTabDragSessionRecord>(
+  "rion://runtime-tab-drag-session",
+  ({ payload }) => handleRuntimeTabDragSession(payload)
+).catch(() => undefined);

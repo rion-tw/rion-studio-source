@@ -17,6 +17,7 @@ use rion_core::{
     GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
     StateCollection, StateGameWindowRecord,
     StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
+    RuntimeTabDragSessionRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -25,7 +26,9 @@ use tauri::{
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use activation::ActivationServer;
-use system_runtime::{RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor};
+use system_runtime::{
+    RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, SystemRuntimeExecutor,
+};
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
 const OVERLAY_REQUEST_MAX_BYTES: usize = 64 * 1024;
@@ -69,7 +72,7 @@ struct CoreState {
     runtime: Arc<SystemRuntimeExecutor>,
     tab_selection_commit: TabSelectionCommitCoordinator,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
-    tab_drag_finished: Mutex<VecDeque<String>>,
+    tab_drag_finished: Mutex<VecDeque<CompletedGameWindowTabDrag>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
     updates: Arc<update_manager::UpdateManager>,
 }
@@ -371,6 +374,7 @@ enum GameWindowTabDragPhase {
 
 #[derive(Clone)]
 struct GameWindowTabDragSession {
+    accepted_at: String,
     current_window_id: String,
     drop_before_tab_id: Option<String>,
     drop_window_id: Option<String>,
@@ -381,6 +385,7 @@ struct GameWindowTabDragSession {
     latest_screen_x: f64,
     latest_screen_y: f64,
     native_changes_applied: bool,
+    operation_id: String,
     original_target: EmbeddedLaunchTargetRecord,
     phase: GameWindowTabDragPhase,
     processed_move_revision: u64,
@@ -388,6 +393,7 @@ struct GameWindowTabDragSession {
     single_tab: bool,
     snapshots: HashMap<String, RuntimeTabDragWindowSnapshot>,
     source_window_id: String,
+    source_window_generation: u64,
     source_cancelled: bool,
     source_drop_accepted: bool,
     source_end_received: bool,
@@ -396,6 +402,8 @@ struct GameWindowTabDragSession {
     tab_width: f64,
     target: EmbeddedLaunchTargetRecord,
     title: String,
+    topology_revision: u64,
+    lifecycle_epoch: u64,
     window_anchor: Option<(f64, f64)>,
     window_was_moved: bool,
 }

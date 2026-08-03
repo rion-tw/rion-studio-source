@@ -501,12 +501,6 @@ pub async fn handle_scoped_action(
     }) {
         return Err("runtime tab action contains unexpected fields".to_owned());
     }
-    if crate::handle_game_window_tab_drag(app, state, &window_id, &action)
-        .await
-        .map_err(|error| error.message)?
-    {
-        return Ok(());
-    }
     if action_type == "openLauncher" {
         return open_launcher(app, &window_id);
     }

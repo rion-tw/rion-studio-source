@@ -22,6 +22,7 @@ enum NativeOperationSubsystem {
     DisplayTopology,
     WindowLifecycle,
     Focus,
+    Drag,
 }
 
 impl NativeOperationSubsystem {
@@ -44,6 +45,7 @@ impl NativeOperationSubsystem {
             Self::DisplayTopology => "displayTopology",
             Self::WindowLifecycle => "windowLifecycle",
             Self::Focus => "focus",
+            Self::Drag => "drag",
         }
     }
 
@@ -59,6 +61,7 @@ impl NativeOperationSubsystem {
             | Self::DisplayTopology
             | Self::WindowLifecycle
             | Self::Focus => "nativeAcknowledgement",
+            Self::Drag => "dragCommitted",
             Self::Navigation => "pageFinished",
             Self::Input | Self::Metadata => "nativeSubmission",
             Self::Popup | Self::Session => "stateCommit",
@@ -209,6 +212,11 @@ impl NativeOperationContext {
 
     fn with_tab(mut self, tab_id: impl Into<String>) -> Self {
         self.tab_id = Some(tab_id.into());
+        self
+    }
+
+    fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
         self
     }
 

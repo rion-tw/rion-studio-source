@@ -328,6 +328,13 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
     ) -> Result<RuntimeTabDragWindowSnapshot, String> {
+        let generation = self
+            .state()
+            .map_err(|error| error.message)?
+            .display_hosts
+            .get(window_id)
+            .map(|host| host.generation)
+            .ok_or_else(|| "Runtime tab drag window host was not found.".to_owned())?;
         let state = self
             .presentation
             .existing(window_id)
@@ -337,8 +344,22 @@ impl SystemRuntimeExecutor {
             .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
         Ok(RuntimeTabDragWindowSnapshot {
             active_tab_id: state.selected_tab_id.clone(),
+            generation,
             tab_ids: state.tab_ids(),
             window_id: window_id.to_owned(),
+        })
+    }
+
+    pub(crate) fn tab_drag_window_generation_matches(
+        &self,
+        window_id: &str,
+        generation: u64,
+    ) -> bool {
+        self.state.lock().ok().is_some_and(|state| {
+            state
+                .display_hosts
+                .get(window_id)
+                .is_some_and(|host| host.generation == generation)
         })
     }
 

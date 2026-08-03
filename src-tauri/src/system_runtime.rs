@@ -56,6 +56,7 @@ include!("system_runtime/section_25_apply_runtime.rs");
 include!("system_runtime/section_26_window_tab_geometry.rs");
 include!("system_runtime/section_26_geometry_contract.rs");
 include!("system_runtime/section_26_display_topology_contract.rs");
+include!("system_runtime/section_26_tab_drag_contract.rs");
 include!("system_runtime/section_26_sync_native_tab_metadata.rs");
 include!("system_runtime/section_27_add_child_bounded.rs");
 include!("system_runtime/section_27_prepare_destroy_tab_presentation.rs");

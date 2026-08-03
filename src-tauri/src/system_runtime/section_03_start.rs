@@ -327,6 +327,7 @@ struct ProvisionalNativeTabMove {
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeTabDragWindowSnapshot {
     pub(crate) active_tab_id: Option<String>,
+    pub(crate) generation: u64,
     pub(crate) tab_ids: Vec<String>,
     pub(crate) window_id: String,
 }

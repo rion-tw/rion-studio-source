@@ -28,6 +28,11 @@ fn record_windows_tab_drag_drop_intent(
     session.drop_before_tab_id = before_tab_id
         .filter(|before_tab_id| *before_tab_id != session.tab_id)
         .map(str::to_owned);
+    session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
+    session
+        .snapshots
+        .entry(target_window_id.to_owned())
+        .or_insert(target);
     Ok(session.source_end_received && session.source_drop_accepted)
 }
 
@@ -71,10 +76,12 @@ async fn finish_windows_tab_drag_session(
     app: &AppHandle,
     state: &CoreState,
     session_id: &str,
-) -> Result<(), CoreErrorPayload> {
-    mark_tab_drag_session_finished(state, session_id)?;
+) -> Result<Value, CoreErrorPayload> {
+    if let Some(terminal) = tab_drag_terminal(state, session_id)? {
+        return serialize_tab_drag_response(&terminal.receipt);
+    }
     let Some(mut session) = take_tab_drag_session(state, session_id)? else {
-        return Ok(());
+        return active_tab_drag_response(app, state, session_id);
     };
     if session.source_cancelled {
         record_tab_drag_lifecycle(
@@ -83,17 +90,37 @@ async fn finish_windows_tab_drag_session(
             "tab.drag-cancelled",
             "The WebView2 tab drag ended without applying native topology changes.",
         );
-        session.phase = GameWindowTabDragPhase::Cancelled;
-        return cancel_tab_drag_session_recoverable(state, &session);
+        return finish_cancelled_tab_drag(app, state, session);
     }
     if session.source_drop_accepted && session.drop_window_id.is_none() {
-        reopen_tab_drag_session(state, &session);
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_STALE",
-            "The accepted drop target did not report its destination.",
-        ));
+        return finish_failed_tab_drag_session(
+            app,
+            state,
+            &mut session,
+            shell_error(
+                "TAURI_TAB_DRAG_STALE",
+                "The accepted drop target did not report its destination.",
+            ),
+        );
     }
     session.phase = GameWindowTabDragPhase::Finishing;
+    if let Some(error) = tab_drag_fence_error(state, &session) {
+        return finish_failed_tab_drag_session(app, state, &mut session, error);
+    }
+    if !state
+        .runtime
+        .mark_tab_drag_native_submitted(&session.operation_id)
+    {
+        return finish_failed_tab_drag_session(
+            app,
+            state,
+            &mut session,
+            shell_error(
+                "SYSTEM_TAB_DRAG_OPERATION_EXPIRED",
+                "The tab drag expired before its native commit started.",
+            ),
+        );
+    }
     record_tab_drag_lifecycle(
         state,
         &session,
@@ -107,24 +134,27 @@ async fn finish_windows_tab_drag_session(
             "tab.drag-native-commit-failed",
             "The native tab topology commit failed and rollback was requested.",
         );
-        return Err(cancel_tab_drag_preserving_error(state, &session, error));
+        return finish_failed_tab_drag_session(app, state, &mut session, error);
     }
-    if let Err(error) = commit_tab_drag_session(state, &session).await {
-        record_tab_drag_lifecycle(
-            state,
-            &session,
-            "tab.drag-core-commit-failed",
-            "The durable tab move failed and native rollback was requested.",
-        );
-        return Err(cancel_tab_drag_preserving_error(state, &session, error));
-    }
+    let exact_cleanup = match commit_tab_drag_session(state, &session).await {
+        Ok(exact_cleanup) => exact_cleanup,
+        Err(error) => {
+            record_tab_drag_lifecycle(
+                state,
+                &session,
+                "tab.drag-core-commit-failed",
+                "The durable tab move failed and native rollback was requested.",
+            );
+            return finish_failed_tab_drag_session(app, state, &mut session, error);
+        }
+    };
     record_tab_drag_lifecycle(
         state,
         &session,
         "tab.drag-committed",
         "The deferred WebView2 tab drag committed successfully.",
     );
-    Ok(())
+    finish_applied_tab_drag(app, state, &session, exact_cleanup)
 }
 
 fn record_tab_drag_lifecycle(
@@ -233,18 +263,22 @@ fn schedule_windows_tab_drag_intent_timeout(app: &AppHandle, session_id: &str) {
         eprintln!(
             "Runtime tab drag {session_id} cancelled because its accepted WebView2 drop intent was not delivered."
         );
-        let _ = mark_tab_drag_session_finished(&state, &session_id);
-        if let Ok(Some(mut session)) = take_tab_drag_session(&state, &session_id) {
-            session.phase = GameWindowTabDragPhase::Cancelled;
-            let _ = cancel_tab_drag_session_recoverable(&state, &session);
-        }
+        let _ = finish_failed_tab_drag(
+            &app,
+            &state,
+            &session_id,
+            shell_error(
+                "TAURI_TAB_DRAG_STALE",
+                "The accepted WebView2 drop intent was not delivered before its deadline.",
+            ),
+        );
     });
 }
 
 fn cancel_tab_drag_session(
     state: &CoreState,
     session: &GameWindowTabDragSession,
-) -> Result<(), CoreErrorPayload> {
+) -> Result<(), TabDragRollbackFailure> {
     if cfg!(windows) && !session.native_changes_applied {
         return Ok(());
     }
@@ -293,17 +327,19 @@ fn cancel_tab_drag_session(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(shell_error(
-            "TAURI_TAB_DRAG_ROLLBACK_FAILED",
-            errors.join("; "),
-        ))
+        let error_count = errors.len();
+        Err(TabDragRollbackFailure {
+            error: shell_error("TAURI_TAB_DRAG_ROLLBACK_FAILED", errors.join("; ")),
+            error_count,
+        })
     }
 }
 
 async fn commit_tab_drag_session(
     state: &CoreState,
     session: &GameWindowTabDragSession,
-) -> Result<(), CoreErrorPayload> {
+) -> Result<bool, CoreErrorPayload> {
+    let mut exact_cleanup = true;
     let final_window_id = state
         .runtime
         .tab_window_id(&session.tab_id)
@@ -351,14 +387,14 @@ async fn commit_tab_drag_session(
             .await
             .map_err(error_payload)?;
     }
-    if session.single_tab {
-        state
-            .runtime
-            .finish_tab_drag_window_motion(
+    if session.single_tab
+        && let Err(message) = state.runtime.finish_tab_drag_window_motion(
                 &session.source_window_id,
                 final_window_id == session.source_window_id && session.window_was_moved,
             )
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    {
+        exact_cleanup = false;
+        eprintln!("Runtime tab drag committed but motion cleanup failed: {message}");
     }
     if !session.single_tab && final_window_id != session.provisional_window_id {
         state
@@ -375,7 +411,7 @@ async fn commit_tab_drag_session(
     {
         eprintln!("Runtime tab drag committed but focus restoration failed: {message}");
     }
-    Ok(())
+    Ok(exact_cleanup)
 }
 
 fn tab_drag_before_tab_id(tab_ids: &[String], tab_id: &str) -> Option<String> {

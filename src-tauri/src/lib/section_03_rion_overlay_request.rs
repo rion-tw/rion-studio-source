@@ -127,6 +127,20 @@ async fn rion_runtime_tab_action(
             .map_err(|message| shell_error("TAURI_RUNTIME_CHROME_ACK_INVALID", message))?;
         return Ok(Value::Null);
     }
+    match handle_game_window_tab_drag(&app, &state, &window_id, &action).await {
+        Ok(Some(response)) => return Ok(response),
+        Ok(None) => {}
+        Err(error) => {
+            reveal_shell_error(
+                &app,
+                CoreErrorPayload {
+                    code: error.code.clone(),
+                    message: error.message.clone(),
+                },
+            );
+            return Err(error);
+        }
+    }
     if action.get("type").and_then(Value::as_str) == Some("windowControl") {
         let control = action
             .get("control")

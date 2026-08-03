@@ -95,14 +95,19 @@ interface MacroRoleBadgeProps {
   t: Translator;
 }
 
+const MAX_VISIBLE_MACRO_ROLES = 4;
+
 export function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBadgeProps): JSX.Element {
   if (macro.roleIds.length === 0) {
     return <span className="leading-5 text-muted-foreground">{t("macros.noRoles")}</span>;
   }
 
+  const visibleRoleIds = macro.roleIds.slice(0, MAX_VISIBLE_MACRO_ROLES);
+  const remainingRoleCount = macro.roleIds.length - visibleRoleIds.length;
+
   return (
     <div className="flex max-w-[260px] flex-wrap gap-1.5">
-      {macro.roleIds.map((roleId) => {
+      {visibleRoleIds.map((roleId) => {
         const role = roleById.get(roleId);
         const browserStatus = statusByRole.get(roleId);
         const isBrowserRunning = browserStatus?.state === "running";
@@ -118,6 +123,11 @@ export function MacroRoleBadge({ macro, roleById, statusByRole, t }: MacroRoleBa
           </Badge>
         );
       })}
+      {remainingRoleCount > 0 ? (
+        <span className="self-center leading-5 text-muted-foreground">
+          {t("macros.roles.more").replace("{count}", String(remainingRoleCount))}
+        </span>
+      ) : null}
     </div>
   );
 }

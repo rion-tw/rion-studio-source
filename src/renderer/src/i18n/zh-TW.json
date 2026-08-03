@@ -316,6 +316,7 @@
   "macros.bulk.enableCount": "啟用 {count} 個",
   "macros.bulk.disableCount": "停用 {count} 個",
   "macros.bulk.partialFailure": "批次操作完成：成功 {succeeded} 個，失敗 {failed} 個。",
+  "macros.roles.more": "另有 {count} 個",
   "macros.steps.empty": "無步驟",
   "macros.steps.more": "另有 {count} 個",
   "macros.unknownMacro": "未知巨集",

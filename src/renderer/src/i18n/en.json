@@ -316,6 +316,7 @@
   "macros.bulk.enableCount": "Enable {count}",
   "macros.bulk.disableCount": "Disable {count}",
   "macros.bulk.partialFailure": "Batch operation completed: {succeeded} succeeded and {failed} failed.",
+  "macros.roles.more": "+{count} more",
   "macros.steps.empty": "No steps",
   "macros.steps.more": "+{count} more",
   "macros.unknownMacro": "Unknown macro",

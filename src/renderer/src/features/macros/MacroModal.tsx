@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Keyboard, ListChecks, Plus, Repeat, Save } from "lucide-react";
+import { Check, Keyboard, ListChecks, Plus, Repeat, Save } from "lucide-react";
 
 import { type FormEvent, type JSX, useMemo, useRef, useState } from "react";
 
@@ -12,7 +12,7 @@ import { Button } from "../../components/ui/button";
 
 import { Switch } from "../../components/ui/switch";
 
-import { FormField, HelpPanel, SegmentedControl, StatusCallout, Surface } from "../../components/ui/patterns";
+import { FormField, HelpPanel, SegmentedControl, Surface } from "../../components/ui/patterns";
 
 import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from "../../app/editorFormState";
 
@@ -301,6 +301,22 @@ function MacroForm({
           <aside className="grid content-start gap-4">
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
+                className="flex-row items-center gap-4"
+                label={t("macroForm.enabled")}
+                description={t("macroForm.enabledDescription")}
+              >
+                <Switch
+                  aria-label={t("macroForm.enabled")}
+                  checked={form.enabled}
+                  disabled={isSaving}
+                  title={t(form.enabled ? "macros.disable" : "macros.enable")}
+                  onCheckedChange={(enabled) => update((current) => ({ ...current, enabled }))}
+                />
+              </FormField>
+            </Surface>
+
+            <Surface className="p-4" padding="none" variant="inset">
+              <FormField
                 label={t("macroForm.activation")}
                 description={t("macroForm.activationDescription")}
               >
@@ -382,35 +398,6 @@ function MacroForm({
 
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
-                className="flex-row items-center gap-4"
-                label={t("macroForm.enabled")}
-                description={t("macroForm.enabledDescription")}
-              >
-                <Switch
-                  aria-label={t("macroForm.enabled")}
-                  checked={form.enabled}
-                  disabled={isSaving}
-                  title={t(form.enabled ? "macros.disable" : "macros.enable")}
-                  onCheckedChange={(enabled) => update((current) => ({ ...current, enabled }))}
-                />
-              </FormField>
-            </Surface>
-
-            {form.repeat.type === "loop" || form.steps.some(
-              (step) => step.type === "key" && step.action === "hold_until_stop"
-            ) ? (
-              <StatusCallout className="p-4" tone="warning">
-                <AlertTriangle className="mt-0.5 shrink-0 text-warning-foreground" size={15} />
-                <p className="text-caption font-medium text-foreground">
-                  {t("macroForm.fairUseNotice")}
-                </p>
-              </StatusCallout>
-            ) : null}
-          </aside>
-
-          <div className="grid content-start gap-4">
-            <Surface className="p-4" padding="none" variant="inset">
-              <FormField
                 htmlFor="macro-role"
                 label={t("macroForm.roles")}
                 description={t("macroForm.rolesDescription")}
@@ -431,6 +418,9 @@ function MacroForm({
                 )}
               </FormField>
             </Surface>
+          </aside>
+
+          <div className="grid content-start gap-4">
 
             <Surface className="grid min-h-[360px] content-start gap-3 p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.steps")} description={t("macroForm.stepsDescription")}>

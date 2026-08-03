@@ -329,7 +329,6 @@
   "macroForm.title.new": "新增巨集",
   "macroForm.description.edit": "調整指派角色、快捷鍵、輪詢與步驟。",
   "macroForm.description.new": "建立可同步用於一個或多個角色瀏覽器的動作序列。",
-  "macroForm.fairUseNotice": "僅限本人在場並持續監督時使用巨集。禁止無人 bot、規避反作弊、利用漏洞及目標服務禁止的活動。",
   "macroForm.help.activationTitle": "啟動與輪詢",
   "macroForm.help.activationRoles": "啟動巨集時，會在所有已啟動且可控制的指派角色上執行；至少需要一個可用角色，其他不可用角色會略過。",
   "macroForm.help.activationModes": "「點按切換」會在啟動與停止間切換；「點按或按住」的短按至少完成一輪，持續按住則讓重複巨集執行到放開。",

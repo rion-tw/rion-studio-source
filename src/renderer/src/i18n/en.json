@@ -329,7 +329,6 @@
   "macroForm.title.new": "New Macro",
   "macroForm.description.edit": "Adjust assigned roles, shortcut, repeat, and steps.",
   "macroForm.description.new": "Create a reusable action sequence for one or more role browsers.",
-  "macroForm.fairUseNotice": "Use macros only while you are present and supervising. Unattended botting, anti-cheat evasion, exploits, and activity prohibited by the target service are not allowed.",
   "macroForm.help.activationTitle": "Starting and repeating",
   "macroForm.help.activationRoles": "When a macro starts, it runs for every assigned role that is launched and controllable. At least one role must be available; unavailable roles are skipped.",
   "macroForm.help.activationModes": "Tap to toggle switches between starting and stopping. With Tap or hold, a tap completes at least one run, while holding keeps a looping macro active until release.",

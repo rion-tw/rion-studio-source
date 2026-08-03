@@ -103,6 +103,16 @@ impl SystemRuntimeExecutor {
 
         let operations = Arc::new(NativeOperationRegistry::default());
         NativeOperationRegistry::start_deadline_worker(&operations)?;
+        let focus_broker = Arc::new(NativeFocusBroker::default());
+        let main_window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "The main Tauri window is unavailable.".to_owned())?;
+        let main_window_actor = MainWindowActor::start(
+            app.clone(),
+            main_window,
+            Arc::clone(&operations),
+            Arc::clone(&focus_broker),
+        )?;
         Ok(Self {
             app,
             close_effect_senders: OnceLock::new(),
@@ -118,7 +128,7 @@ impl SystemRuntimeExecutor {
             effect_sender: OnceLock::new(),
             diagnostics: Mutex::new(RuntimeDiagnosticsState::default()),
             health: RuntimeHealth::new(),
-            focus_broker: Arc::new(NativeFocusBroker::default()),
+            focus_broker,
             language: Mutex::new("en".to_owned()),
             resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),
@@ -126,6 +136,7 @@ impl SystemRuntimeExecutor {
             input_effect_sender: OnceLock::new(),
             input_effect_lanes: Mutex::new(HashMap::new()),
             last_critical_activity: Mutex::new(Instant::now()),
+            main_window_actor,
             input_dispatch_lanes: Mutex::new(HashMap::new()),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(

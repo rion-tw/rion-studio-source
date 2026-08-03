@@ -44,6 +44,7 @@ import type {
   MacroStepDefinition,
   MacroTrigger as RustMacroTrigger,
   MacroUpdateRequest,
+  NativeWindowStateRecord,
   PortableDataSelectionRecord,
   PortableExportResultRecord,
   PortableImportOperationsRecord,
@@ -91,9 +92,7 @@ export type AppLanguage = "en" | "zh-TW" | "zh-CN" | "ja";
 export type AppThemeMode = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
-export interface AppWindowState {
-  fullscreen: boolean;
-}
+export type AppWindowState = NativeWindowStateRecord;
 
 export type ApplicationShortcutCommand =
   | "newGameWindow"

@@ -156,15 +156,7 @@ fn stop_workspace(core: &Arc<AppCore>, workspace_id: &str) {
 }
 
 fn show_main_window(app: &AppHandle) {
-    #[cfg(target_os = "macos")]
-    let _ = app.show();
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        #[cfg(target_os = "macos")]
-        let _ = crate::quick_menu_macos::activate_application();
-        let _ = window.set_focus();
-    }
+    crate::request_main_window_show(app, true, "quick-menu");
 }
 
 #[derive(Clone, Copy)]

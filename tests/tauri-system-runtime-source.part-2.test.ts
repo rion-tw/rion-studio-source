@@ -384,10 +384,9 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     );
     expect(openMacroPage.indexOf("pending_macro_page_request = Some(request.clone())"))
       .toBeLessThan(openMacroPage.indexOf("run_on_main_thread"));
-    expect(openMacroPage).toContain("window.unminimize()");
-    expect(openMacroPage).toContain("window.show()");
-    expect(openMacroPage).toContain("window.set_focus()");
-    expect(openMacroPage.indexOf("window.set_focus()"))
+    expect(openMacroPage).toContain('show_main_window(true, "overlay-open-macro-page")');
+    expect(openMacroPage).not.toContain("window.set_focus()");
+    expect(openMacroPage.indexOf("show_main_window(true"))
       .toBeLessThan(openMacroPage.indexOf('emit("rion://macro-page-request", request)'));
 
     const mainNavigation = runtime.slice(

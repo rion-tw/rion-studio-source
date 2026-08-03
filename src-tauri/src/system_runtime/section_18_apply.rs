@@ -179,15 +179,17 @@ impl SystemRuntimeExecutor {
                 {
                     self.state()?.pending_macro_page_request = Some(request.clone());
                 }
+                let receipt = self.show_main_window(true, "overlay-open-macro-page")?;
+                crate::runtime_operation_receipt_result(receipt).map_err(|code| {
+                    RuntimeError::new(
+                        "MAIN_WINDOW_PRESENTATION_FAILED",
+                        format!("The macro page could not reveal the main window: {code}"),
+                    )
+                })?;
                 let dispatch_app = self.app.clone();
                 let window_app = dispatch_app.clone();
                 dispatch_app
                     .run_on_main_thread(move || {
-                        if let Some(window) = window_app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
                         let _ = window_app.emit("rion://macro-page-request", request);
                     })
                     .map_err(RuntimeError::tauri)?;

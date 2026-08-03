@@ -113,9 +113,8 @@ fn show_startup_failure_message(app: &AppHandle, message: String) {
         let encoded = serde_json::to_string(&message)
             .unwrap_or_else(|_| "\"Rion Studio could not finish starting.\"".to_owned());
         let _ = window.eval(format!("window.__rionShowStartupFailure?.({encoded});"));
-        let _ = window.show();
-        let _ = window.set_focus();
     }
+    request_main_window_show(app, true, "startup-failure");
 }
 
 fn startup_failure_message(error: &dyn std::fmt::Display) -> String {
@@ -161,12 +160,24 @@ fn shell_error(code: &str, message: impl Into<String>) -> CoreErrorPayload {
 }
 
 pub(crate) fn reveal_shell_error(app: &AppHandle, error: CoreErrorPayload) {
+    request_main_window_show(app, true, "shell-error");
+    let _ = app.emit("rion://shell-error", error);
+}
+
+fn request_main_window_show(app: &AppHandle, focus: bool, trigger: &'static str) {
+    if let Some(state) = app.try_state::<CoreState>() {
+        let _ = state.runtime.request_main_window_show(focus, trigger);
+        return;
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_focus();
+        if focus {
+            #[cfg(target_os = "macos")]
+            let _ = crate::quick_menu_macos::activate_application();
+            let _ = window.set_focus();
+        }
     }
-    let _ = app.emit("rion://shell-error", error);
 }
 
 fn game_window_update_input_from_record(

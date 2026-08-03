@@ -48,6 +48,7 @@ impl SystemRuntimeExecutor {
             return self.shutdown_receipt_or_indeterminate(&operation);
         }
         self.operations.mark_in_flight(&operation.operation_id);
+        self.main_window_actor.stop();
         self.focus_broker.revoke_all();
         let deadline = operation.deadline;
         let initial_role_ids = match self.shutdown_role_ids() {

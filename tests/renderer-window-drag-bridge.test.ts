@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { invoke, listen } = vi.hoisted(() => ({
-  invoke: vi.fn(() => Promise.resolve()),
+  invoke: vi.fn((): Promise<unknown> => Promise.resolve()),
   listen: vi.fn(() => Promise.resolve(vi.fn()))
 }));
 
@@ -25,10 +25,12 @@ describe("main window drag bridge", () => {
       configurable: true,
       value: {}
     });
+    invoke.mockResolvedValue({ status: "applied" });
 
     await installTauriBridgeIfNeeded();
     await window.rionStudio.startCurrentWindowDrag();
     await window.rionStudio.toggleCurrentWindowMaximize();
+    await window.rionStudio.requestCurrentWindowClose();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "rion_shell_invoke", {
       operation: "startCurrentWindowDrag",
@@ -36,6 +38,10 @@ describe("main window drag bridge", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_shell_invoke", {
       operation: "toggleCurrentWindowMaximize",
+      args: []
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "rion_shell_invoke", {
+      operation: "requestCurrentWindowClose",
       args: []
     });
   });

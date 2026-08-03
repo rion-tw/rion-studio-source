@@ -284,7 +284,7 @@ fn toggle_toolbar_preference(app: &AppHandle, state: &crate::CoreState) -> Resul
 }
 
 fn toggle_fullscreen(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &crate::CoreState,
     target: ApplicationShortcutTarget<'_>,
 ) -> Result<(), String> {
@@ -293,12 +293,17 @@ fn toggle_fullscreen(
             if let Some(receipt) = state.runtime.toggle_focused_runtime_fullscreen()? {
                 return crate::runtime_operation_receipt_result(receipt);
             }
-            let window = app
-                .get_webview_window("main")
-                .ok_or_else(|| "main window is unavailable".to_owned())?;
-            toggle_webview_window_fullscreen(&window)
+            state
+                .runtime
+                .request_main_window_toggle_fullscreen("native-menu")
+                .map(|_| ())
+                .map_err(|error| error.message)
         }
-        ApplicationShortcutTarget::MainWindow(window) => toggle_webview_window_fullscreen(window),
+        ApplicationShortcutTarget::MainWindow(_) => state
+            .runtime
+            .request_main_window_toggle_fullscreen("renderer-shortcut")
+            .map(|_| ())
+            .map_err(|error| error.message),
         #[cfg(windows)]
         ApplicationShortcutTarget::RoleWebview(webview_label) => {
             let window_id = state
@@ -315,13 +320,6 @@ fn toggle_fullscreen(
             .toggle_runtime_window_fullscreen(window_id)
             .and_then(crate::runtime_operation_receipt_result),
     }
-}
-
-fn toggle_webview_window_fullscreen(window: &WebviewWindow) -> Result<(), String> {
-    let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
-    window
-        .set_fullscreen(!fullscreen)
-        .map_err(|error| error.to_string())
 }
 
 fn zoom(

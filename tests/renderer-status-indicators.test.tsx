@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
 import { Checkbox } from "../src/renderer/src/components/ui/checkbox";
 import { Switch } from "../src/renderer/src/components/ui/switch";
+import { MacroRoleBadge } from "../src/renderer/src/features/macros/MacroListControls";
 import MacrosRoute from "../src/renderer/src/features/macros/MacrosRoute";
 import { DEFAULT_MACRO_LIST_SORT } from "../src/renderer/src/features/macros/macroListUtils";
 import type { Translator } from "../src/renderer/src/i18n";
@@ -98,6 +99,50 @@ describe("renderer status indicators", () => {
     const roleDot = screen.getByRole("img", { name: "Role active" });
     expect(roleDot.className).toContain("bg-activity");
     expect(roleDot.className).not.toContain("opacity-45");
+  });
+
+  it("shows the first four execution roles and summarizes the remainder", () => {
+    const roles = Array.from({ length: 6 }, (_, index) => role({
+      id: `role-${index + 1}`,
+      name: `Role ${index + 1}`
+    }));
+
+    render(
+      <MacroRoleBadge
+        macro={macro({ roleIds: roles.map((item) => item.id) })}
+        roleById={new Map(roles.map((item) => [item.id, item]))}
+        statusByRole={new Map([
+          ["role-1", { roleId: "role-1", state: "running" }],
+          ["role-5", { roleId: "role-5", state: "running" }]
+        ])}
+        t={t}
+      />
+    );
+
+    roles.slice(0, 4).forEach((item) => expect(screen.getByText(item.name)).toBeTruthy());
+    roles.slice(4).forEach((item) => expect(screen.queryByText(item.name)).toBeNull());
+    expect(screen.getByText("+2 more").className).toContain("text-muted-foreground");
+    expect(screen.getAllByRole("img", { name: "Role active" })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: "Role inactive" })).toHaveLength(3);
+  });
+
+  it("does not show a remainder summary for exactly four execution roles", () => {
+    const roles = Array.from({ length: 4 }, (_, index) => role({
+      id: `role-${index + 1}`,
+      name: `Role ${index + 1}`
+    }));
+
+    render(
+      <MacroRoleBadge
+        macro={macro({ roleIds: roles.map((item) => item.id) })}
+        roleById={new Map(roles.map((item) => [item.id, item]))}
+        statusByRole={new Map()}
+        t={t}
+      />
+    );
+
+    roles.forEach((item) => expect(screen.getByText(item.name)).toBeTruthy());
+    expect(screen.queryByText(/\+\d+ more/)).toBeNull();
   });
 
   it("uses system blue for the settings update indicator", () => {
@@ -296,7 +341,7 @@ describe("renderer status indicators", () => {
 
 const t: Translator = (key) => en[key];
 
-function role(): Role {
+function role(overrides: Partial<Role> = {}): Role {
   return {
     id: "role-1",
     gameId: "game-1",
@@ -304,11 +349,12 @@ function role(): Role {
     launchUrl: "https://example.test/play",
     notes: "",
     createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
+    updatedAt: "2026-07-15T00:00:00.000Z",
+    ...overrides
   };
 }
 
-function macro(): Macro {
+function macro(overrides: Partial<Macro> = {}): Macro {
   return {
     id: "macro-1",
     enabled: true,
@@ -318,6 +364,7 @@ function macro(): Macro {
     repeat: { type: "once" },
     steps: [{ id: "step-1", type: "key", code: "F2" }],
     createdAt: "2026-07-15T00:00:00.000Z",
-    updatedAt: "2026-07-15T00:00:00.000Z"
+    updatedAt: "2026-07-15T00:00:00.000Z",
+    ...overrides
   };
 }

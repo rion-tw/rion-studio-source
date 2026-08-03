@@ -310,6 +310,7 @@
   "macros.bulk.enableCount": "{count} 件を有効化",
   "macros.bulk.disableCount": "{count} 件を無効化",
   "macros.bulk.partialFailure": "一括操作が完了しました。成功: {succeeded} 件、失敗: {failed} 件。",
+  "macros.roles.more": "ほか {count} 件",
   "macros.steps.empty": "No steps",
   "macros.steps.more": "+{count} more",
   "macros.unknownMacro": "不明なマクロ",

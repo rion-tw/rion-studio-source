@@ -98,6 +98,14 @@ impl SystemRuntimeExecutor {
                 );
             }
         };
+        for transaction in &hosts.pending_window_closes {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                transaction.context.clone(),
+                "windowCloseInterruptedByShutdown",
+                NativeOperationStatus::Failed,
+                Some("SYSTEM_RUNTIME_SHUTTING_DOWN"),
+            ));
+        }
         drop(hosts.tabs);
         let close_error_count =
             self.close_shutdown_hosts(hosts.display_hosts, hosts.popup_labels);
@@ -247,7 +255,7 @@ impl SystemRuntimeExecutor {
         state.surface_registry.clear();
         state.retired_surface_registry.clear();
         state.recovering_roles.clear();
-        state.pending_window_close_labels.clear();
+        let pending_window_closes = state.window_closes.drain();
         state.allow_window_close_labels.extend(
             display_hosts
                 .values()
@@ -255,6 +263,7 @@ impl SystemRuntimeExecutor {
         );
         Ok(ShutdownHostSnapshot {
             display_hosts,
+            pending_window_closes,
             popup_labels,
             tabs,
         })
@@ -305,6 +314,7 @@ impl SystemRuntimeExecutor {
 
 struct ShutdownHostSnapshot {
     display_hosts: HashMap<String, RuntimeDisplayHost>,
+    pending_window_closes: Vec<WindowCloseTransaction>,
     popup_labels: Vec<String>,
     tabs: HashMap<String, RuntimeTab>,
 }

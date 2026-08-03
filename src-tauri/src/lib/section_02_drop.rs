@@ -417,6 +417,7 @@ async fn confirm_game_window_close(
 async fn process_game_window_close_requested(
     app: AppHandle,
     label: String,
+    operation_id: String,
     window_id: String,
     window: Window,
 ) {
@@ -447,7 +448,12 @@ async fn process_game_window_close_requested(
     let preview = match preview {
         Ok(preview) => preview,
         Err(error) => {
-            runtime.finish_window_close_requested(&label);
+            let receipt = runtime.fail_window_close_operation(
+                &operation_id,
+                "windowClosePolicyFailed",
+                "SYSTEM_WINDOW_CLOSE_POLICY_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
             reveal_shell_error(&app, error);
             return;
         }
@@ -458,11 +464,17 @@ async fn process_game_window_close_requested(
         match confirm_game_window_close(&app, &window, copy).await {
             Ok(true) => {}
             Ok(false) => {
-                runtime.finish_window_close_requested(&label);
+                let receipt = runtime.cancel_window_close_operation(&operation_id);
+                let _ = app.emit("rion://window-lifecycle", receipt);
                 return;
             }
             Err(error) => {
-                runtime.finish_window_close_requested(&label);
+                let receipt = runtime.fail_window_close_operation(
+                    &operation_id,
+                    "windowCloseConfirmationFailed",
+                    "SYSTEM_WINDOW_CLOSE_CONFIRMATION_FAILED",
+                );
+                let _ = app.emit("rion://window-lifecycle", receipt);
                 reveal_shell_error(&app, error);
                 return;
             }
@@ -470,8 +482,24 @@ async fn process_game_window_close_requested(
     }
 
     if let Err(error) = runtime.persist_game_window_placement(&label) {
-        runtime.finish_window_close_requested(&label);
+        let receipt = runtime.fail_window_close_operation(
+            &operation_id,
+            "windowClosePlacementPersistFailed",
+            "SYSTEM_WINDOW_CLOSE_PERSIST_FAILED",
+        );
+        let _ = app.emit("rion://window-lifecycle", receipt);
         reveal_shell_error(&app, shell_error("TAURI_GAME_WINDOW_FLUSH_FAILED", error));
+        return;
+    }
+
+    if let Err(error) = runtime.mark_window_close_native_submitted(&operation_id) {
+        let receipt = runtime.fail_window_close_operation(
+            &operation_id,
+            "windowCloseSubmissionFailed",
+            error.code,
+        );
+        let _ = app.emit("rion://window-lifecycle", receipt);
+        reveal_shell_error(&app, shell_error(error.code, error.message));
         return;
     }
 
@@ -480,12 +508,100 @@ async fn process_game_window_close_requested(
             window_id: window_id.clone(),
         })
         .await;
-    runtime.finish_window_close_requested(&label);
     if let Err(error) = result {
-        let _ = window.show();
-        let _ = window.set_focus();
+        let receipt = runtime.fail_window_close_operation(
+            &operation_id,
+            "windowCloseCoreStopFailed",
+            "SYSTEM_WINDOW_CLOSE_CORE_FAILED",
+        );
+        let _ = app.emit("rion://window-lifecycle", receipt);
         reveal_shell_error(&app, error_payload(error));
+        return;
     }
+    let wait_runtime = Arc::clone(&runtime);
+    let wait_operation_id = operation_id.clone();
+    let receipt = tauri::async_runtime::spawn_blocking(move || {
+        wait_runtime.wait_window_close_operation(&wait_operation_id)
+    })
+    .await
+    .unwrap_or_else(|_| {
+        runtime.fail_window_close_operation(
+            &operation_id,
+            "windowCloseWaitFailed",
+            "SYSTEM_WINDOW_CLOSE_WAIT_FAILED",
+        )
+    });
+    let _ = app.emit("rion://window-lifecycle", receipt);
+}
+
+async fn execute_game_window_close_transaction(
+    app: &AppHandle,
+    state: &CoreState,
+    window_id: String,
+    command: CoreCommand,
+    trigger: &'static str,
+) -> Result<Value, CoreErrorPayload> {
+    let operation = state
+        .runtime
+        .begin_window_close_operation(&window_id, trigger)
+        .map_err(|error| shell_error(error.code, error.message))?;
+    if operation.should_execute {
+        if let Some(label) = operation.label.as_deref()
+            && let Err(_error) = state.runtime.persist_game_window_placement(label)
+        {
+            let receipt = state.runtime.fail_window_close_operation(
+                &operation.operation_id,
+                "windowClosePlacementPersistFailed",
+                "SYSTEM_WINDOW_CLOSE_PERSIST_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", &receipt);
+            return serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()));
+        }
+        if operation.native_expected
+            && let Err(error) = state
+                .runtime
+                .mark_window_close_native_submitted(&operation.operation_id)
+        {
+            let receipt = state.runtime.fail_window_close_operation(
+                &operation.operation_id,
+                "windowCloseSubmissionFailed",
+                error.code,
+            );
+            let _ = app.emit("rion://window-lifecycle", &receipt);
+            return serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()));
+        }
+        if let Err(error) = Arc::clone(&state.core).invoke_async(command).await {
+            let receipt = state.runtime.fail_window_close_operation(
+                &operation.operation_id,
+                "windowCloseCoreMutationFailed",
+                "SYSTEM_WINDOW_CLOSE_CORE_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", &receipt);
+            return serde_json::to_value(receipt).map_err(|serialize_error| {
+                shell_error(
+                    "SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED",
+                    format!("{}; {serialize_error}", error.payload().message),
+                )
+            });
+        }
+        if !operation.native_expected {
+            state
+                .runtime
+                .complete_window_close_state_commit(&operation.operation_id);
+        }
+    }
+    let runtime = Arc::clone(&state.runtime);
+    let operation_id = operation.operation_id.clone();
+    let receipt = tauri::async_runtime::spawn_blocking(move || {
+        runtime.wait_window_close_operation(&operation_id)
+    })
+    .await
+    .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_WAIT_FAILED", error.to_string()))?;
+    let _ = app.emit("rion://window-lifecycle", &receipt);
+    serde_json::to_value(receipt)
+        .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()))
 }
 
 fn same_game_window_record(left: &StateGameWindowRecord, right: &StateGameWindowRecord) -> bool {

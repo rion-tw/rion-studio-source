@@ -445,6 +445,7 @@ pub fn run() {
                                     api.prevent_close();
                                 }
                                 Ok(system_runtime::RuntimeWindowCloseRequest::Start {
+                                    operation_id,
                                     window_id,
                                     window,
                                 }) => {
@@ -454,6 +455,7 @@ pub fn run() {
                                         process_game_window_close_requested(
                                             app,
                                             label.clone(),
+                                            operation_id,
                                             window_id,
                                             *window,
                                         ),
@@ -528,7 +530,7 @@ pub fn run() {
                                 });
                         }
                         tauri::WindowEvent::Destroyed => {
-                            state.runtime.forget_popup(&label);
+                            state.runtime.complete_window_destroyed(&label);
                         }
                         _ => {}
                     }

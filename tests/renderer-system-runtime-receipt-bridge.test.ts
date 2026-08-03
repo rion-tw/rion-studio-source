@@ -52,6 +52,16 @@ describe("System Runtime receipt bridge", () => {
       operation: "showGameWindowTab",
       args: ["tab-1"]
     });
+    await expect(window.rionStudio.stopGameWindow("window-1")).resolves.toEqual(appliedReceipt);
+    await expect(window.rionStudio.deleteGameWindow("window-1")).resolves.toEqual(appliedReceipt);
+    expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
+      operation: "stopGameWindow",
+      args: ["window-1"]
+    });
+    expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
+      operation: "deleteGameWindow",
+      args: ["window-1"]
+    });
   });
 
   it("converts failed receipts into stable renderer errors", async () => {

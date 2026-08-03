@@ -135,15 +135,21 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(reparentRollback).toContain("moved.surface.show()");
     expect(reparentRollback).toContain("self.health.mark_unhealthy()");
 
+    const closeRuntimeWindowStart = runtime.indexOf(
+      "pub(crate) fn begin_window_close_requested("
+    );
     const closeRuntimeWindow = runtime.slice(
-      runtime.indexOf("pub(crate) fn begin_window_close_requested("),
-      runtime.indexOf("pub fn resize_window(")
+      closeRuntimeWindowStart,
+      closeRuntimeWindowStart + 14_000
     );
     expect(closeRuntimeWindow).toContain("allow_window_close_labels.remove(label)");
-    expect(closeRuntimeWindow).toContain("pending_window_close_labels.insert(label.to_owned())");
+    expect(closeRuntimeWindow).toContain("window_closes.pending_operation_id(label)");
+    expect(closeRuntimeWindow).toContain("accept_window_close_operation");
+    expect(closeRuntimeWindow).toContain('with_completion_scope(if native_expected');
     expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Pending");
     expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Start");
-    expect(closeRuntimeWindow).toContain("finish_window_close_requested");
+    expect(closeRuntimeWindow).toContain("complete_window_destroyed");
+    expect(closeRuntimeWindow).toContain("window_close_failure_status");
     expect(closeRuntimeWindow).not.toContain(".hide()");
     expect(shell).toContain("match state.runtime.begin_window_close_requested(&label)");
     expect(shell).toContain("process_game_window_close_requested(");

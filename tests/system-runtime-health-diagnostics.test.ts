@@ -52,7 +52,9 @@ describe("System WebView runtime health diagnostics", () => {
       expect(fenceEvent).not.toContain(`${sensitive}:`);
       expect(operation).not.toContain(`${sensitive}:`);
     }
-    expect(operation).toContain('status: "applied" | "superseded" | "degraded" | "failed" | "indeterminate"');
+    expect(operation).toContain(
+      'status: "applied" | "superseded" | "cancelled" | "degraded" | "failed" | "indeterminate"'
+    );
     expect(operation).toContain("completionScope:");
     expect(capabilityEvidence).toContain("contractVersion: number");
     expect(generatedIndex).toContain(

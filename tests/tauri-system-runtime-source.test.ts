@@ -690,7 +690,8 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
       shell.indexOf("tauri::WindowEvent::Destroyed =>"),
       shell.indexOf("_ => {}", shell.indexOf("tauri::WindowEvent::Destroyed =>"))
     );
-    expect(destroyed).toContain("state.runtime.forget_popup(&label)");
+    expect(destroyed).toContain("state.runtime.complete_window_destroyed(&label)");
+    expect(runtime).toContain("self.forget_popup(label)");
   });
 
   it("keeps macro focus as a fenced readiness check without changing game focus", async () => {

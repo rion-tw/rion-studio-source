@@ -56,9 +56,18 @@ pub(crate) enum RuntimeWindowCloseRequest {
     PassThrough,
     Pending,
     Start {
+        operation_id: String,
         window_id: String,
         window: Box<Window>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeWindowCloseOperation {
+    pub(crate) label: Option<String>,
+    pub(crate) native_expected: bool,
+    pub(crate) operation_id: String,
+    pub(crate) should_execute: bool,
 }
 
 impl ManagedSurfacePhase {
@@ -326,6 +335,7 @@ impl LaunchPhase {
 }
 
 struct RuntimeDisplayHost {
+    generation: u64,
     target: EmbeddedLaunchTargetRecord,
     window: Window,
     zoom_factor: f64,

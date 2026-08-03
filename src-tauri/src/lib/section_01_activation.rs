@@ -57,6 +57,7 @@ struct CoreState {
     _activation: ActivationServer,
     _quick_menu: quick_menu::QuickMenu,
     core: Arc<AppCore>,
+    display_topology: native_projection::RevisionedJsonProjection,
     application_exit_guard: ApplicationExitGuard,
     application_shutdown_started: AtomicBool,
     main_window_zoom: Mutex<f64>,

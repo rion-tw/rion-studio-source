@@ -271,7 +271,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(shell).toContain("rion-tauri-display-watcher");
     expect(shell).not.toContain("CoreCommand::EmbeddedDisplayRemove");
     expect(shell).not.toContain("CoreCommand::WorkspaceReconcileDisplays");
-    expect(shell).toContain('"rion://displays"');
+    expect(shell).toContain('"rion://display-topology"');
     expect(shell).toContain('"restoreSavedGameWindows"');
     expect(shell).toContain('"autoRestoreSavedGameWindows"');
 

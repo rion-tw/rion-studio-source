@@ -37,13 +37,23 @@ describe("Tauri bridge collection refresh recovery", () => {
       value: {}
     });
     const snapshot = {
-      embeddedRuntimeState: { windows: [], tabs: [] },
+      embeddedRuntimeState: {
+        revision: 1,
+        capturedAt: "2026-08-03T00:00:00Z",
+        windows: [],
+        tabs: []
+      },
       games: [{ id: "snapshot-game" }],
       gameWindows: [{ id: "snapshot-window" }],
       roles: [{ id: "snapshot-role" }],
       roleStatuses: [{ roleId: "snapshot-role", state: "running" }],
       launchWorkspaces: [{ id: "snapshot-workspace" }],
-      displays: [{ id: 1 }],
+      displayTopology: {
+        revision: 1,
+        capturedAt: "2026-08-03T00:00:00Z",
+        cause: "snapshot",
+        displays: [{ id: 1 }]
+      },
       macros: [{ id: "snapshot-macro" }],
       macroStatuses: [{ macroId: "snapshot-macro" }]
     };

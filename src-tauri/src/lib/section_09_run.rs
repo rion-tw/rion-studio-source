@@ -280,6 +280,7 @@ pub fn run() {
                 _activation: activation,
                 _quick_menu: quick_menu,
                 core,
+                display_topology: native_projection::RevisionedJsonProjection::default(),
                 application_exit_guard: ApplicationExitGuard::default(),
                 application_shutdown_started: AtomicBool::new(false),
                 main_window_zoom: Mutex::new(1.0),
@@ -488,9 +489,12 @@ pub fn run() {
                             if label == "main"
                                 && let Some(window) = app_handle.get_webview_window("main")
                             {
-                                if let Ok(displays) = display_inventory(&window) {
-                                    let _ = app_handle.emit("rion://displays", displays);
-                                }
+                                let _ = publish_display_topology(
+                                    app_handle,
+                                    &state,
+                                    &window,
+                                    "window-resized",
+                                );
                                 if let Ok(fullscreen) = window.is_fullscreen() {
                                     let _ = app_handle.emit(
                                         "rion://window-state",
@@ -505,9 +509,13 @@ pub fn run() {
                         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
                             if label == "main" => {
                             if let Some(window) = app_handle.get_webview_window("main")
-                                && let Ok(displays) = display_inventory(&window)
+                                && let Ok(topology) = display_topology(
+                                    &state,
+                                    &window,
+                                    "window-moved-or-scale-changed",
+                                )
                             {
-                                let _ = app_handle.emit("rion://displays", displays);
+                                let _ = app_handle.emit("rion://display-topology", topology);
                             }
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {

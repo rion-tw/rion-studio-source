@@ -11,6 +11,8 @@ let resizeObserverCallback: ResizeObserverCallback | undefined;
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const state: RuntimeTabStripState = {
+  revision: 1,
+  capturedAt: "2026-08-03T00:00:00Z",
   alwaysHideTabCloseButton: false,
   alwaysShowToolbarInFullScreen: false,
   displayId: 11,

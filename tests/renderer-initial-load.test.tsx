@@ -17,8 +17,18 @@ afterEach(() => {
 
 function snapshot(gameId: string): AppSnapshot {
   return {
-    displays: [],
-    embeddedRuntimeState: { tabs: [], windows: [] },
+    displayTopology: {
+      revision: 1,
+      capturedAt: "2026-08-03T00:00:00Z",
+      cause: "snapshot",
+      displays: []
+    },
+    embeddedRuntimeState: {
+      revision: 1,
+      capturedAt: "2026-08-03T00:00:00Z",
+      tabs: [],
+      windows: []
+    },
     games: [{ id: gameId } as AppSnapshot["games"][number]],
     gameWindows: [],
     launchWorkspaces: [],
@@ -40,7 +50,7 @@ function installAppDataBridge(getAppSnapshot: RionStudioApi["getAppSnapshot"]): 
   const unsubscribe = (): void => undefined;
   window.rionStudio = {
     getAppSnapshot,
-    onDisplaysChanged: () => unsubscribe,
+    onDisplayTopologyChanged: () => unsubscribe,
     onEmbeddedRuntimeStateChanged: () => unsubscribe,
     onGamesChanged: () => unsubscribe,
     onGameWindowsChanged: () => unsubscribe,
@@ -93,6 +103,67 @@ describe("initial renderer data loading", () => {
       await Promise.resolve();
     });
     expect(result.current.games[0]?.id).toBe("new");
+  });
+
+  it("keeps newer runtime and display events when the initial snapshot resolves later", async () => {
+    let resolveSnapshot: ((value: AppSnapshot) => void) | undefined;
+    let emitRuntime: ((value: AppSnapshot["embeddedRuntimeState"]) => void) | undefined;
+    let emitTopology: ((value: AppSnapshot["displayTopology"]) => void) | undefined;
+    const oldSnapshot = snapshot("old");
+    window.rionStudio = {
+      getAppSnapshot: () => new Promise<AppSnapshot>((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+      onEmbeddedRuntimeStateChanged: (
+        callback: (value: AppSnapshot["embeddedRuntimeState"]) => void
+      ) => {
+        emitRuntime = callback;
+        return () => undefined;
+      },
+      onDisplayTopologyChanged: (
+        callback: (value: AppSnapshot["displayTopology"]) => void
+      ) => {
+        emitTopology = callback;
+        return () => undefined;
+      },
+      onGamesChanged: () => () => undefined,
+      onGameWindowsChanged: () => () => undefined,
+      onMacrosChanged: () => () => undefined,
+      onMacroStatusChanged: () => () => undefined,
+      onRolesChanged: () => () => undefined,
+      onRoleStatusChanged: () => () => undefined,
+      onWorkspacesChanged: () => () => undefined
+    } as unknown as RionStudioApi;
+    const { result } = renderHook(() => useAppData());
+
+    await act(async () => {
+      emitRuntime?.({
+        revision: 2,
+        capturedAt: "2026-08-03T00:00:02Z",
+        windows: [],
+        tabs: []
+      });
+      emitTopology?.({
+        revision: 2,
+        capturedAt: "2026-08-03T00:00:02Z",
+        cause: "native-notification",
+        displays: [{
+          id: 2,
+          label: "New display",
+          bounds: { x: 0, y: 0, width: 1280, height: 720 },
+          workArea: { x: 0, y: 0, width: 1280, height: 680 },
+          resolution: { width: 1280, height: 720 },
+          scaleFactor: 1,
+          isPrimary: true,
+          isInternal: false
+        }]
+      });
+      resolveSnapshot?.(oldSnapshot);
+      await Promise.resolve();
+    });
+
+    expect(result.current.embeddedRuntime.revision).toBe(2);
+    expect(result.current.displays[0]?.id).toBe(2);
   });
 });
 

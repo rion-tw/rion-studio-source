@@ -42,7 +42,7 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn projection(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
+    fn projection_payload(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
         let role_names = self
             .core
             .invoke(CoreCommand::RolesList)
@@ -182,6 +182,11 @@ impl SystemRuntimeExecutor {
             "savedWindows": saved_windows,
             "recovery": recovery
         })
+    }
+
+    pub fn projection(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
+        self.runtime_projection
+            .resolve_object(self.projection_payload(snapshot))
     }
 
     pub fn begin_auto_restore(&self) -> bool {

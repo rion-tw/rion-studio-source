@@ -15,6 +15,7 @@ import type {
   ChromeProfileImportResultRecord,
   DiagnosticExportResultRecord,
   DisplayInfoRecord,
+  DisplayTopologySnapshotRecord,
   DisplayTargetRecord,
   EngineCapabilitySnapshotRecord as RustEngineCapabilitySnapshotRecord,
   SystemWebViewIssueReason as RustSystemWebViewIssueReason,
@@ -208,6 +209,8 @@ export interface RuntimeSessionRecoverySummary {
 }
 
 export interface EmbeddedRuntimeState {
+  revision: number;
+  capturedAt: string;
   windows: EmbeddedRuntimeWindowSummary[];
   tabs: EmbeddedRuntimeTabSummary[];
   savedWindows?: SavedEmbeddedRuntimeWindowSummary[];
@@ -311,6 +314,7 @@ export type CreateLaunchWorkspaceInput = WorkspaceCreateRequest;
 export type UpdateLaunchWorkspaceInput = WorkspaceUpdateRequest;
 
 export type DisplayInfo = DisplayInfoRecord;
+export type DisplayTopology = DisplayTopologySnapshotRecord;
 export interface AppSnapshot {
   embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
@@ -318,7 +322,7 @@ export interface AppSnapshot {
   roles: Role[];
   roleStatuses: RoleStatus[];
   launchWorkspaces: LaunchWorkspace[];
-  displays: DisplayInfo[];
+  displayTopology: DisplayTopology;
   macros: Macro[];
   macroStatuses: MacroRunStatus[];
 }

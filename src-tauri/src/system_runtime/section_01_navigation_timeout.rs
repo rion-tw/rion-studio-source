@@ -12,6 +12,8 @@ use std::{
 };
 use tokio::sync::watch;
 
+use crate::native_projection::RevisionedJsonProjection;
+
 use rion_core::{
     AppCore, BrowserAction, BrowserActionRequest, BrowserLaunchCompletionRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,

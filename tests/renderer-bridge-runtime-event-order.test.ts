@@ -49,10 +49,16 @@ describe("Tauri bridge runtime event ordering", () => {
       configurable: true,
       value: {}
     });
-    const older = deferred<{ tabs: unknown[]; windows: unknown[] }>();
-    const newer = deferred<{ tabs: unknown[]; windows: unknown[] }>();
-    const superseded = deferred<{ tabs: unknown[]; windows: unknown[] }>();
-    const rejected = deferred<{ tabs: unknown[]; windows: unknown[] }>();
+    type RuntimeProjection = {
+      revision: number;
+      capturedAt: string;
+      tabs: unknown[];
+      windows: unknown[];
+    };
+    const older = deferred<RuntimeProjection>();
+    const newer = deferred<RuntimeProjection>();
+    const superseded = deferred<RuntimeProjection>();
+    const rejected = deferred<RuntimeProjection>();
     invoke
       .mockImplementationOnce(() => older.promise)
       .mockImplementationOnce(() => newer.promise)
@@ -68,21 +74,51 @@ describe("Tauri bridge runtime event ordering", () => {
 
     onCoreEvents?.({ payload: [{ type: "browserStatuses", statuses: [] }] });
     onCoreEvents?.({ payload: [{ type: "browserStatuses", statuses: [] }] });
-    newer.resolve({ tabs: [{ id: "newer" }], windows: [] });
+    newer.resolve({
+      revision: 2,
+      capturedAt: "2026-08-03T00:00:02Z",
+      tabs: [{ id: "newer" }],
+      windows: []
+    });
     await vi.waitFor(() => expect(onRuntimeState).toHaveBeenCalledOnce());
-    older.resolve({ tabs: [{ id: "older" }], windows: [] });
+    older.resolve({
+      revision: 1,
+      capturedAt: "2026-08-03T00:00:01Z",
+      tabs: [{ id: "older" }],
+      windows: []
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onRuntimeState).toHaveBeenCalledOnce();
 
     onCoreEvents?.({ payload: [{ type: "browserStatuses", statuses: [] }] });
-    onNativeRuntimeState?.({ payload: { tabs: [{ id: "native" }], windows: [] } });
-    superseded.resolve({ tabs: [{ id: "superseded" }], windows: [] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onRuntimeState).toHaveBeenCalledTimes(2);
-    expect(onRuntimeState).toHaveBeenLastCalledWith({
+    const native = {
+      revision: 4,
+      capturedAt: "2026-08-03T00:00:04Z",
       tabs: [{ id: "native" }],
       windows: []
+    };
+    onNativeRuntimeState?.({ payload: native });
+    superseded.resolve({
+      revision: 3,
+      capturedAt: "2026-08-03T00:00:03Z",
+      tabs: [{ id: "superseded" }],
+      windows: []
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onRuntimeState).toHaveBeenCalledTimes(2);
+    expect(onRuntimeState).toHaveBeenLastCalledWith(native);
+
+    onNativeRuntimeState?.({ payload: {
+      revision: 2,
+      capturedAt: "2026-08-03T00:00:02Z",
+      tabs: [{ id: "stale-native" }],
+      windows: []
+    } });
+    expect(onRuntimeState).toHaveBeenCalledTimes(2);
+    const lateSubscriber = vi.fn();
+    window.rionStudio.onEmbeddedRuntimeStateChanged(lateSubscriber);
+    expect(lateSubscriber).toHaveBeenCalledOnce();
+    expect(lateSubscriber).toHaveBeenCalledWith(native);
 
     onCoreEvents?.({ payload: [{ type: "browserStatuses", statuses: [] }] });
     rejected.reject(new Error("runtime state unavailable"));

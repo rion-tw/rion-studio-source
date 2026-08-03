@@ -24,6 +24,8 @@ describe("Game Window recovery dashboard", () => {
     render(
       <DashboardRoute
         embeddedRuntime={{
+          revision: 1,
+          capturedAt: "2026-08-03T00:00:00Z",
           recovery: { reason: "unclean-exit", windowCount: 1, tabCount: 2 },
           savedWindows: [{
             id: "saved-window",

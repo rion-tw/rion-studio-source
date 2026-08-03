@@ -196,13 +196,28 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   if (window.rionStudio || !isTauriRuntime()) return;
 
   const listeners = new Map<string, Set<Listener>>();
+  const replayableEvents = new Set(["runtimeState", "displayTopology"]);
+  const latestReplayPayload = new Map<string, unknown[]>();
+  const latestProjectionRevision = new Map<string, number>();
   const emit = (event: string, ...payload: unknown[]): void => {
+    if (replayableEvents.has(event)) latestReplayPayload.set(event, payload);
     listeners.get(event)?.forEach((listener) => listener(...payload as never[]));
+  };
+  const emitRevisioned = (
+    event: string,
+    payload: { revision: number }
+  ): void => {
+    const latest = latestProjectionRevision.get(event) ?? 0;
+    if (payload.revision <= latest) return;
+    latestProjectionRevision.set(event, payload.revision);
+    emit(event, payload);
   };
   const on = (event: string, callback: Listener): (() => void) => {
     const selected = listeners.get(event) ?? new Set<Listener>();
     selected.add(callback);
     listeners.set(event, selected);
+    const replay = latestReplayPayload.get(event);
+    if (replay) callback(...replay as never[]);
     return () => {
       selected.delete(callback);
       if (selected.size === 0) listeners.delete(event);
@@ -234,7 +249,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     )
       .then((runtimeState) => {
         if (sequence === runtimeStateRefreshSequence) {
-          emit("runtimeState", runtimeState);
+          emitRevisioned("runtimeState", runtimeState);
         }
       })
       .catch((error) => {
@@ -359,9 +374,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       if (macroStatusesSequence === macroStatusesRefreshSequence) {
         emit("macroStatuses", snapshot.macroStatuses);
       }
-      if (displaySequence === displaysRefreshSequence) emit("displays", snapshot.displays);
+      if (displaySequence === displaysRefreshSequence) {
+        emitRevisioned("displayTopology", snapshot.displayTopology);
+      }
       if (runtimeSequence === runtimeStateRefreshSequence) {
-        emit("runtimeState", snapshot.embeddedRuntimeState);
+        emitRevisioned("runtimeState", snapshot.embeddedRuntimeState);
       }
     } catch (error) {
       console.error("Renderer state snapshot recovery failed.", error);
@@ -400,7 +417,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://runtime-state",
       ({ payload }) => {
         runtimeStateRefreshSequence += 1;
-        emit("runtimeState", payload);
+        emitRevisioned("runtimeState", payload);
       }
     ),
     () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
@@ -411,11 +428,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://window-state",
       ({ payload }) => emit("windowState", payload)
     ),
-    () => listen<Awaited<ReturnType<RionStudioApi["listDisplays"]>>>(
-      "rion://displays",
+    () => listen<Awaited<ReturnType<RionStudioApi["getDisplayTopology"]>>>(
+      "rion://display-topology",
       ({ payload }) => {
         displaysRefreshSequence += 1;
-        emit("displays", payload);
+        emitRevisioned("displayTopology", payload);
       }
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>>(
@@ -539,7 +556,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       invokeCore({ type: "workspaceDelete", id }).then(() => undefined),
     deleteLaunchWorkspaces: (input) =>
       invokeCore({ type: "workspacesDelete", ids: input.ids }),
-    listDisplays: () => invokeShell("displays"),
+    getDisplayTopology: () => invokeShell("displayTopology"),
     launchWorkspace: (id, input) => invokeShell("launchWorkspace", [id, input]),
     stopLaunchWorkspace: (id) =>
       invokeCore({ type: "browserWorkspaceStop", workspaceId: id }).then(() => undefined),
@@ -628,7 +645,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onRolesChanged: (callback) => on("roles", callback as Listener),
     onGameWindowsChanged: (callback) => on("gameWindows", callback as Listener),
     onWorkspacesChanged: (callback) => on("workspaces", callback as Listener),
-    onDisplaysChanged: (callback) => on("displays", callback as Listener),
+    onDisplayTopologyChanged: (callback) => on("displayTopology", callback as Listener),
     onMacroStatusChanged: (callback) => on("macroStatuses", callback as Listener),
     onMacrosChanged: (callback) => on("macros", callback as Listener),
     onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),

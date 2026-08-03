@@ -42,6 +42,21 @@ describe("generated Rust core contracts", () => {
     expect(contract).toContain("actions: Array<BrowserActionRequest>");
   });
 
+  it("keeps launch preview correlation separate from native cleanup generations", async () => {
+    const [command, tabEffect] = await Promise.all([
+      readFile("src/shared/generated/CoreCommand.ts", "utf8"),
+      readFile("src/shared/generated/EmbeddedTabEffectRecord.ts", "utf8")
+    ]);
+
+    expect(command).toContain(
+      '"type": "browserRoleLaunch", roleId: string, target: EmbeddedLaunchTargetRecord, launchPreviewId?: string'
+    );
+    expect(command).toContain(
+      '"type": "browserWorkspaceLaunch", workspaceId: string, target: EmbeddedLaunchTargetRecord, launchPreviewId?: string'
+    );
+    expect(tabEffect).toContain("attemptGeneration?: string, launchPreviewId?: string");
+  });
+
   it("generates the generic operation effect and command-result protocol", async () => {
     const [event, request, action, result, resultMap] = await Promise.all([
       readFile("src/shared/generated/CoreEvent.ts", "utf8"),

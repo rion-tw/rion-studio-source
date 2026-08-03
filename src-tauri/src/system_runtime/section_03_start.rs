@@ -521,15 +521,23 @@ impl WindowPresentationState {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ProvisionalLaunch {
     cancelled: bool,
     failed: bool,
     host_created: bool,
     id: String,
+    launch_preview_id: String,
     source_id: String,
     tab_type: String,
     window_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LaunchPreviewHandle {
+    pub(crate) launch_preview_id: String,
+    pub(crate) provisional_tab_id: String,
+    pub(crate) source_key: String,
 }
 
 #[derive(Clone, Debug)]

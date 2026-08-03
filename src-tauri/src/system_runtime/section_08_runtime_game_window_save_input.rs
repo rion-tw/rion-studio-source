@@ -660,6 +660,7 @@ impl SystemRuntimeExecutor {
             elapsed_ms,
             None,
             None,
+            None,
         );
     }
 
@@ -686,6 +687,7 @@ impl SystemRuntimeExecutor {
             revision,
             trigger,
             elapsed_ms,
+            None,
             error.map(|error| log_error_details(&error.code, &error.message)),
             None,
         );
@@ -715,6 +717,38 @@ impl SystemRuntimeExecutor {
             revision,
             trigger,
             elapsed_ms,
+            None,
+            error.map(|error| log_error_details(&error.code, &error.message)),
+            diagnostic,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_launch_presentation_event_with_error_diagnostic(
+        &self,
+        level: LogLevel,
+        event: &'static str,
+        message: &'static str,
+        window_id: &str,
+        tab_id: Option<&str>,
+        revision: u64,
+        trigger: &'static str,
+        elapsed_ms: u64,
+        launch_preview_id: Option<&str>,
+        error: Option<&rion_core::CoreErrorPayload>,
+        diagnostic: Option<RuntimeErrorDiagnostic>,
+    ) {
+        capture_presentation_event(
+            Arc::clone(&self.core),
+            level,
+            event,
+            message,
+            window_id.to_owned(),
+            tab_id.map(str::to_owned),
+            revision,
+            trigger,
+            elapsed_ms,
+            launch_preview_id.map(str::to_owned),
             error.map(|error| log_error_details(&error.code, &error.message)),
             diagnostic,
         );

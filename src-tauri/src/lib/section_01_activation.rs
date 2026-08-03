@@ -311,11 +311,13 @@ async fn rollback_workspace_conflicts(
             CoreCommand::BrowserWorkspaceLaunch {
                 workspace_id: plan.source_id.clone(),
                 target: plan.target.clone(),
+                launch_preview_id: None,
             }
         } else {
             CoreCommand::BrowserRoleLaunch {
                 role_id: plan.source_id.clone(),
                 target: plan.target.clone(),
+                launch_preview_id: None,
                 zoom_factor: plan.role_zoom_factor,
             }
         };

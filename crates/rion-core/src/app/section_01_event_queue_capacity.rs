@@ -166,6 +166,7 @@ struct Runtime {
 pub struct BrowserLaunchCompletionRecord {
     pub accepted_at: Instant,
     pub error: Option<crate::error::CoreErrorPayload>,
+    pub launch_preview_id: Option<String>,
     pub source_id: String,
     pub tab_id: String,
     pub tab_type: String,

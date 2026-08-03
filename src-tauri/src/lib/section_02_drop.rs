@@ -657,7 +657,7 @@ async fn rion_core_invoke(
     state: State<'_, CoreState>,
     command: Value,
 ) -> Result<Value, CoreErrorPayload> {
-    let command =
+    let mut command =
         serde_json::from_value::<CoreCommand>(command).map_err(|error| CoreErrorPayload {
             code: "CORE_INPUT_INVALID".to_owned(),
             message: error.to_string(),
@@ -673,36 +673,7 @@ async fn rion_core_invoke(
     let legal_acceptance_changed = matches!(&command, CoreCommand::LegalAcceptanceAccept { .. });
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
-    let launch_preview = match &command {
-        CoreCommand::BrowserRoleLaunch {
-            role_id, target, ..
-        } => {
-            let runtime = Arc::clone(&state.runtime);
-            let role_id = role_id.clone();
-            let target = target.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                runtime.preview_tab_launch(&target, &role_id, "role")
-            })
-            .await
-            .ok()
-            .and_then(Result::ok)
-        }
-        CoreCommand::BrowserWorkspaceLaunch {
-            workspace_id,
-            target,
-        } => {
-            let runtime = Arc::clone(&state.runtime);
-            let workspace_id = workspace_id.clone();
-            let target = target.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                runtime.preview_tab_launch(&target, &workspace_id, "workspace")
-            })
-            .await
-            .ok()
-            .and_then(Result::ok)
-        }
-        _ => None,
-    };
+    let launch_preview = prepare_core_launch_preview(&state, &mut command).await?;
     let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
@@ -718,10 +689,12 @@ async fn rion_core_invoke(
             })?
             .map_err(error_payload)
     };
-    if let Some(key) = launch_preview
+    if let Some(preview) = launch_preview
         && result.is_err()
     {
-        state.runtime.fail_tab_launch_preview(&key);
+        state
+            .runtime
+            .cancel_tab_launch_preview(&preview.launch_preview_id);
     }
     if result.is_ok()
         && let Some(language) = menu_language

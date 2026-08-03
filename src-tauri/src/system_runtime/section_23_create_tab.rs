@@ -55,8 +55,12 @@ impl SystemRuntimeExecutor {
         // Read the cancellation fence before waiting for any native window work. Closing a
         // provisional tab must abort the pending Core launch instead of creating a replacement
         // tab that the user already dismissed.
-        let launch_preview =
-            self.take_tab_launch_preview(&target.window_id, &tab.source_id, tab_type)?;
+        let launch_preview = self.take_tab_launch_preview(
+            tab.launch_preview_id.as_deref(),
+            &target.window_id,
+            &tab.source_id,
+            tab_type,
+        )?;
         let (window, native_host_created) = self
             .with_native_creation_lane(&target.window_id, || {
                 self.ensure_display_host(&target, &tab.name)
@@ -619,13 +623,14 @@ impl SystemRuntimeExecutor {
                 if attempt_is_current
                     && let Some(preview) = launch_preview.as_ref()
                 {
-                    state.provisional_launches.insert(
-                        format!("{tab_type}:{}", tab.source_id),
+                    insert_provisional_launch(
+                        &mut state,
                         ProvisionalLaunch {
                             cancelled: false,
                             failed: true,
                             host_created: preview.host_created,
                             id: created_tab_id.clone(),
+                            launch_preview_id: preview.launch_preview_id.clone(),
                             source_id: tab.source_id.clone(),
                             tab_type: tab_type.to_owned(),
                             window_id: target.window_id.clone(),

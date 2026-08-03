@@ -3,4 +3,4 @@ import type { EmbeddedLaunchTargetRecord } from "./EmbeddedLaunchTargetRecord";
 import type { EmbeddedRoleViewEffectRecord } from "./EmbeddedRoleViewEffectRecord";
 import type { WorkspaceAppearanceSettingsRecord } from "./WorkspaceAppearanceSettingsRecord";
 
-export type EmbeddedTabEffectRecord = { tabId: string, attemptGeneration?: string, sourceId: string, name: string, workspaceId?: string, workspaceTemplate?: string, workspaceAppearance: WorkspaceAppearanceSettingsRecord, target: EmbeddedLaunchTargetRecord, roles: Array<EmbeddedRoleViewEffectRecord>, };
+export type EmbeddedTabEffectRecord = { tabId: string, attemptGeneration?: string, launchPreviewId?: string, sourceId: string, name: string, workspaceId?: string, workspaceTemplate?: string, workspaceAppearance: WorkspaceAppearanceSettingsRecord, target: EmbeddedLaunchTargetRecord, roles: Array<EmbeddedRoleViewEffectRecord>, };

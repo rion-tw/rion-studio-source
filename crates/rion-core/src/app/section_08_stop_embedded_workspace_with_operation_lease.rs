@@ -351,7 +351,7 @@ impl AppCore {
             Ok(outcome) => return Ok(outcome),
             Err(error) => error,
         };
-        if error.code() == "LAUNCH_CANCELLED" {
+        if matches!(error.code(), "LAUNCH_CANCELLED" | "LAUNCH_PREVIEW_STALE") {
             return Err(error);
         }
         let failure_reason = crate::model::SystemWebViewIssueReason::RuntimeCreationFailed;

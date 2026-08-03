@@ -410,6 +410,7 @@ struct RuntimeState {
     overlay_capabilities: HashMap<String, String>,
     overlay_ready_webviews: HashSet<String>,
     popup_roles: HashMap<String, String>,
+    active_provisional_launches: HashMap<String, String>,
     provisional_launches: HashMap<String, ProvisionalLaunch>,
     automatic_launch_retries: HashMap<String, u8>,
     retryable_failed_launches: HashSet<String>,

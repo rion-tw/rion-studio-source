@@ -251,6 +251,7 @@
                 .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target.clone(),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 }))
                 .unwrap();
@@ -309,10 +310,12 @@
             .enable_all()
             .build()
             .unwrap();
+        let launch_preview_id = "preview-role-launch".to_owned();
         let accepted = runtime
             .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
                 role_id: role_id.clone(),
                 target,
+                launch_preview_id: Some(launch_preview_id.clone()),
                 zoom_factor: None,
             }))
             .unwrap();
@@ -329,6 +332,12 @@
                 break effect;
             }
         };
+        assert!(matches!(
+            &create_effect.action,
+            CoreEffectAction::EmbeddedCreateTab { tab }
+                if tab.launch_preview_id.as_deref() == Some(launch_preview_id.as_str())
+                    && tab.attempt_generation.as_deref() != Some(launch_preview_id.as_str())
+        ));
         core.dispatch_core_effect_results(vec![CoreEffectResult {
             effect_id: create_effect.effect_id,
             operation_id: create_effect.operation_id,
@@ -373,6 +382,10 @@
             }
         };
         assert_eq!(completion.source_id, role_id);
+        assert_eq!(
+            completion.launch_preview_id.as_deref(),
+            Some(launch_preview_id.as_str())
+        );
         assert!(completion.error.is_some());
         let snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)

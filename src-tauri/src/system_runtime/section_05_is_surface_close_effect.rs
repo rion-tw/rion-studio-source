@@ -118,6 +118,7 @@ fn capture_presentation_event(
     revision: u64,
     trigger: &'static str,
     elapsed_ms: u64,
+    launch_preview_id: Option<String>,
     error: Option<LogErrorDetails>,
     diagnostic: Option<RuntimeErrorDiagnostic>,
 ) {
@@ -129,6 +130,14 @@ fn capture_presentation_event(
         "trigger": trigger,
         "windowId": window_id,
     });
+    if let Some(launch_preview_id) = launch_preview_id
+        && let Some(context) = context.as_object_mut()
+    {
+        context.insert(
+            "launchPreviewId".to_owned(),
+            Value::String(launch_preview_id),
+        );
+    }
     if event.starts_with("tab.launch-auto-retry")
         && let Some(context) = context.as_object_mut()
     {
@@ -205,14 +214,6 @@ fn automatic_role_setup_retry_allowed(
         && completed_retries == 0
         && error_code == "SYSTEM_ROLE_SETUP_FAILED"
         && release_verified
-}
-
-fn automatic_launch_retry_is_current(state: &RuntimeState, key: &str) -> bool {
-    state.automatic_launch_retries.get(key).copied() == Some(1)
-        && state
-            .provisional_launches
-            .get(key)
-            .is_some_and(|launch| !launch.cancelled)
 }
 
 fn native_surface_mutation_is_current(

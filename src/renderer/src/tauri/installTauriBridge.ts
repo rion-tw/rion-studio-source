@@ -197,7 +197,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   if (window.rionStudio || !isTauriRuntime()) return;
 
   const listeners = new Map<string, Set<Listener>>();
-  const replayableEvents = new Set(["runtimeState", "displayTopology"]);
+  const replayableEvents = new Set(["runtimeState", "displayTopology", "windowState"]);
   const latestReplayPayload = new Map<string, unknown[]>();
   const latestProjectionRevision = new Map<string, number>();
   const emit = (event: string, ...payload: unknown[]): void => {
@@ -431,7 +431,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>>(
       "rion://window-state",
-      ({ payload }) => emit("windowState", payload)
+      ({ payload }) => emitRevisioned("windowState", payload)
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["getDisplayTopology"]>>>(
       "rion://display-topology",
@@ -484,9 +484,15 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     },
     quitApplication: () => invokeShell("quitApplication"),
     confirmApplicationQuit: () => invokeShell("confirmApplicationQuit"),
-    requestCurrentWindowClose: () => void invokeShell("requestCurrentWindowClose"),
-    startCurrentWindowDrag: () => invokeShell("startCurrentWindowDrag"),
-    toggleCurrentWindowMaximize: () => invokeShell("toggleCurrentWindowMaximize"),
+    requestCurrentWindowClose: async () => handleSystemRuntimeReceipt(
+      await invokeShell("requestCurrentWindowClose")
+    ),
+    startCurrentWindowDrag: async () => handleSystemRuntimeReceipt(
+      await invokeShell("startCurrentWindowDrag")
+    ),
+    toggleCurrentWindowMaximize: async () => handleSystemRuntimeReceipt(
+      await invokeShell("toggleCurrentWindowMaximize")
+    ),
     executeApplicationShortcut: (command) =>
       invokeShell("executeApplicationShortcut", [command]),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),

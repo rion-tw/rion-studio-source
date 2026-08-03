@@ -12,6 +12,7 @@ include!("system_runtime/section_03_start.rs");
 include!("system_runtime/section_04_native_creation_gate.rs");
 include!("system_runtime/section_04_next_revision.rs");
 include!("system_runtime/section_04_focus_broker.rs");
+include!("system_runtime/section_04_main_window_actor.rs");
 include!("system_runtime/section_04_window_close_ledger.rs");
 include!("system_runtime/section_04_tab_chrome_ack.rs");
 include!("system_runtime/section_04_input_fence_state.rs");

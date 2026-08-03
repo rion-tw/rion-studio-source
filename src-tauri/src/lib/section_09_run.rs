@@ -9,10 +9,8 @@ pub fn run() {
             let app = webview.app_handle();
             let startup = app.try_state::<StartupWindowState>();
             if startup.as_ref().is_some_and(|state| state.reveal_once())
-                && let Some(window) = app.get_webview_window("main")
             {
-                let _ = window.show();
-                let _ = window.set_focus();
+                request_main_window_show(app, true, "startup-page-load");
             }
             if payload.event() == PageLoadEvent::Finished
                 && let Some(message) = startup.and_then(|state| state.failure())
@@ -78,11 +76,7 @@ pub fn run() {
                 let dispatch_handle = activation_app_handle.clone();
                 let window_handle = dispatch_handle.clone();
                 let _ = dispatch_handle.run_on_main_thread(move || {
-                    if let Some(window) = window_handle.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    request_main_window_show(&window_handle, true, "secondary-activation");
                 });
             })?;
             let runtime = Arc::new(SystemRuntimeExecutor::new(
@@ -382,11 +376,9 @@ pub fn run() {
                     };
                     if state.application_exit_guard.should_prevent() {
                         api.prevent_exit();
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = state
+                            .runtime
+                            .request_main_window_show(true, "exit-guard");
                         let _ = app_handle.emit("rion://application-quit-requested", ());
                         return;
                     }
@@ -434,9 +426,9 @@ pub fn run() {
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {
                             api.prevent_close();
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                let _ = window.hide();
-                            }
+                            let _ = state
+                                .runtime
+                                .request_main_window_hide("os-close-requested");
                         }
                         tauri::WindowEvent::CloseRequested { api, .. } if label != "main" => {
                             match state.runtime.begin_window_close_requested(&label) {
@@ -497,12 +489,7 @@ pub fn run() {
                                     &window,
                                     "window-resized",
                                 );
-                                if let Ok(fullscreen) = window.is_fullscreen() {
-                                    let _ = app_handle.emit(
-                                        "rion://window-state",
-                                        json!({ "fullscreen": fullscreen }),
-                                    );
-                                }
+                                state.runtime.publish_main_window_state();
                             }
                         }
                         tauri::WindowEvent::Moved(position) if label != "main" => {
@@ -519,6 +506,10 @@ pub fn run() {
                             {
                                 let _ = app_handle.emit("rion://display-topology", topology);
                             }
+                            state.runtime.publish_main_window_state();
+                        }
+                        tauri::WindowEvent::Focused(focused) if label == "main" => {
+                            state.runtime.observe_main_window_focus(focused);
                         }
                         tauri::WindowEvent::Focused(true) if label != "main" => {
                             state.runtime.observe_window_focus(&label);
@@ -560,10 +551,8 @@ pub fn run() {
                                 })
                                 .await;
                         });
-                    } else if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                    } else {
+                        request_main_window_show(app_handle, true, "application-reopen");
                     }
                 }
                 tauri::RunEvent::Exit => {

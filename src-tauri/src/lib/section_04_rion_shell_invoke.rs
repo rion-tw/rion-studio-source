@@ -20,9 +20,14 @@ async fn rion_shell_invoke(
         "rendererReady" => {
             startup.mark_renderer_ready();
             state.updates.mark_renderer_ready();
-            window
-                .show()
-                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
+            state
+                .runtime
+                .show_main_window(false, "renderer-ready")
+                .map_err(|error| shell_error(error.code, error.message))
+                .and_then(|receipt| {
+                    runtime_operation_receipt_result(receipt)
+                        .map_err(|code| shell_error(&code, "The main window could not be shown."))
+                })?;
             Ok(Value::Null)
         }
         "appSnapshot" => app_snapshot(&state, &window),
@@ -43,8 +48,12 @@ async fn rion_shell_invoke(
                 })?;
             create_game_window_transaction(&app, &state, input).await
         }
-        "currentWindowState" => Ok(json!({ "fullscreen": window.is_fullscreen()
-            .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))? })),
+        "currentWindowState" => state
+            .runtime
+            .main_window_state()
+            .map_err(|error| shell_error(error.code, error.message))
+            .and_then(|record| serde_json::to_value(record)
+                .map_err(|error| shell_error("SHELL_WINDOW_STATE_INVALID", error.to_string()))),
         "refreshQuickMenu" => state
             .quick_menu_refresh
             .request(
@@ -69,31 +78,28 @@ async fn rion_shell_invoke(
             Ok(Value::Null)
         }
         "requestCurrentWindowClose" => {
-            window
-                .close()
-                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            Ok(Value::Null)
+            let receipt = state
+                .runtime
+                .hide_main_window("renderer-close-requested")
+                .map_err(|error| shell_error(error.code, error.message))?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
         }
         "startCurrentWindowDrag" => {
-            window
-                .start_dragging()
-                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            Ok(Value::Null)
+            let receipt = state
+                .runtime
+                .start_main_window_drag()
+                .map_err(|error| shell_error(error.code, error.message))?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
         }
         "toggleCurrentWindowMaximize" => {
-            let maximized = window
-                .is_maximized()
-                .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            if maximized {
-                window
-                    .unmaximize()
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            } else {
-                window
-                    .maximize()
-                    .map_err(|error| shell_error("SHELL_WINDOW_FAILED", error.to_string()))?;
-            }
-            Ok(Value::Null)
+            let receipt = state
+                .runtime
+                .toggle_main_window_maximized()
+                .map_err(|error| shell_error(error.code, error.message))?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
         }
         "executeApplicationShortcut" => {
             if window.label() != "main" {
@@ -110,6 +116,16 @@ async fn rion_shell_invoke(
                         "Application shortcut command is not supported.",
                     )
                 })?;
+            if command == application_menu::ApplicationShortcutCommand::ToggleFullscreen {
+                let receipt = state
+                    .runtime
+                    .toggle_main_window_fullscreen("renderer-shortcut")
+                    .map_err(|error| shell_error(error.code, error.message))?;
+                runtime_operation_receipt_result(receipt).map_err(|code| {
+                    shell_error(&code, "The main window fullscreen state could not be changed.")
+                })?;
+                return Ok(Value::Null);
+            }
             application_menu::execute_shortcut(
                 &app,
                 &state,

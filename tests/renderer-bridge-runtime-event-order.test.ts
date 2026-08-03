@@ -37,6 +37,8 @@ function deferred<T>(): {
 }
 
 afterEach(() => {
+  Reflect.deleteProperty(window, "rionStudio");
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   bridgeListeners.clear();
   invoke.mockReset();
   listen.mockClear();
@@ -124,5 +126,31 @@ describe("Tauri bridge runtime event ordering", () => {
     rejected.reject(new Error("runtime state unavailable"));
     await vi.waitFor(() => expect(consoleError).toHaveBeenCalledOnce());
     expect(onRuntimeState).toHaveBeenCalledTimes(2);
+
+    const onWindowState = vi.fn();
+    window.rionStudio.onCurrentWindowStateChanged(onWindowState);
+    const nativeWindowState = bridgeListeners.get("rion://window-state");
+    const state = (revision: number, fullscreen: boolean) => ({
+      revision,
+      capturedAt: `2026-08-03T00:00:0${revision}Z`,
+      windowId: "main",
+      windowGeneration: 4,
+      lifecycleEpoch: 0,
+      visible: true,
+      minimized: false,
+      maximized: false,
+      fullscreen,
+      focused: true
+    });
+
+    nativeWindowState?.({ payload: state(2, true) });
+    nativeWindowState?.({ payload: state(1, false) });
+    expect(onWindowState).toHaveBeenCalledOnce();
+    expect(onWindowState).toHaveBeenLastCalledWith(state(2, true));
+
+    const lateWindowSubscriber = vi.fn();
+    window.rionStudio.onCurrentWindowStateChanged(lateWindowSubscriber);
+    expect(lateWindowSubscriber).toHaveBeenCalledOnce();
+    expect(lateWindowSubscriber).toHaveBeenCalledWith(state(2, true));
   });
 });

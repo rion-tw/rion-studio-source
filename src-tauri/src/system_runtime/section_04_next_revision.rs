@@ -668,6 +668,7 @@ pub struct SystemRuntimeExecutor {
     input_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
     input_effect_lanes: Mutex<HashMap<String, mpsc::SyncSender<ConcurrentRuntimeWork>>>,
     last_critical_activity: Mutex<Instant>,
+    main_window_actor: Arc<MainWindowActor>,
     input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
     native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     native_creation_slots: NativeCreationGate,

@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("useAppWindowStateSync", () => {
   it("applies the initial state and unsubscribes on unmount", async () => {
-    const bridge = installBridge({ fullscreen: true });
+    const bridge = installBridge(windowState(1, true));
     const view = render(<WindowStateSync />);
 
     await waitFor(() => {
@@ -31,16 +31,16 @@ describe("useAppWindowStateSync", () => {
   });
 
   it("updates the dataset when native fullscreen changes", async () => {
-    const bridge = installBridge({ fullscreen: false });
+    const bridge = installBridge(windowState(1, false));
     render(<WindowStateSync />);
 
     await waitFor(() => {
       expect(document.documentElement.dataset.windowFullscreen).toBe("false");
     });
 
-    bridge.emit({ fullscreen: true });
+    bridge.emit(windowState(2, true));
     expect(document.documentElement.dataset.windowFullscreen).toBe("true");
-    bridge.emit({ fullscreen: false });
+    bridge.emit(windowState(3, false));
     expect(document.documentElement.dataset.windowFullscreen).toBe("false");
   });
 
@@ -52,8 +52,8 @@ describe("useAppWindowStateSync", () => {
     const bridge = installBridge(initialState);
     render(<WindowStateSync />);
 
-    bridge.emit({ fullscreen: true });
-    resolveInitial({ fullscreen: false });
+    bridge.emit(windowState(2, true));
+    resolveInitial(windowState(1, false));
     await initialState;
 
     expect(document.documentElement.dataset.windowFullscreen).toBe("true");
@@ -63,6 +63,21 @@ describe("useAppWindowStateSync", () => {
 function WindowStateSync(): JSX.Element {
   useAppWindowStateSync();
   return <div />;
+}
+
+function windowState(revision: number, fullscreen: boolean): AppWindowState {
+  return {
+    revision,
+    capturedAt: `2026-08-03T00:00:0${revision}Z`,
+    windowId: "main",
+    windowGeneration: 1,
+    lifecycleEpoch: 0,
+    visible: true,
+    minimized: false,
+    maximized: false,
+    fullscreen,
+    focused: true
+  };
 }
 
 function installBridge(initialState: AppWindowState | Promise<AppWindowState>) {

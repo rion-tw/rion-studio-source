@@ -33,7 +33,7 @@ use rion_core::{
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
-    SystemRuntimeOperationSummaryRecord,
+    SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -45,7 +45,7 @@ use sha2::{Digest, Sha256};
 use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalPosition, Url, Webview,
-    WebviewUrl, WebviewWindowBuilder, Window,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
     webview::{
         Cookie, DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder,
         cookie::{SameSite, time::OffsetDateTime},
@@ -64,6 +64,8 @@ const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
+const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
 const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(windows)]

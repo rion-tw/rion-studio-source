@@ -10,21 +10,25 @@ function applyAppWindowState(state: AppWindowState): void {
 
 export function useAppWindowStateSync(): void {
   useEffect(() => {
-    applyAppWindowState({ fullscreen: false });
+    document.documentElement.dataset[WINDOW_FULLSCREEN_DATA_ATTRIBUTE] = "false";
 
     const api = window.rionStudio;
     if (!api) return;
 
     let disposed = false;
-    let receivedEvent = false;
-    const unsubscribe = api.onCurrentWindowStateChanged((state) => {
-      receivedEvent = true;
+    let latestRevision = 0;
+    const applyRevisionedState = (state: AppWindowState): void => {
+      if (state.revision <= latestRevision) return;
+      latestRevision = state.revision;
       applyAppWindowState(state);
+    };
+    const unsubscribe = api.onCurrentWindowStateChanged((state) => {
+      applyRevisionedState(state);
     });
 
     void api.getCurrentWindowState()
       .then((state) => {
-        if (!disposed && !receivedEvent) applyAppWindowState(state);
+        if (!disposed) applyRevisionedState(state);
       })
       .catch(() => undefined);
 

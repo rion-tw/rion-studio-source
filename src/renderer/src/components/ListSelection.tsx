@@ -1,21 +1,12 @@
 import { Loader2, Trash2, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useLayoutEffect, useState, type JSX, type MouseEvent, type ReactNode } from "react";
+import { useLayoutEffect, useState, type JSX, type ReactNode } from "react";
 
 import type { Translator } from "../i18n";
 import type { SelectionRect } from "../hooks/useListSelection";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import { Surface } from "./ui/patterns";
-
-interface SelectionToggleProps {
-  alwaysVisible?: boolean;
-  className?: string;
-  isSelected: boolean;
-  label: string;
-  onToggle: () => void;
-}
 
 export function SelectionCardOverlay({ isSelected }: { isSelected: boolean }): JSX.Element | null {
   if (!isSelected) {
@@ -27,39 +18,6 @@ export function SelectionCardOverlay({ isSelected }: { isSelected: boolean }): J
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] rounded-[inherit] bg-activity/10 outline outline-1 outline-offset-[-1px] outline-activity/90"
       data-selection-overlay
-    />
-  );
-}
-
-export function SelectionToggle({
-  alwaysVisible = false,
-  className,
-  isSelected,
-  label,
-  onToggle
-}: SelectionToggleProps): JSX.Element {
-  function handleClick(event: MouseEvent<HTMLButtonElement>): void {
-    event.preventDefault();
-    event.stopPropagation();
-    onToggle();
-  }
-
-  return (
-    <Checkbox
-      aria-label={label}
-      checked={isSelected}
-      className={cn(
-        "selection-toggle transition-opacity",
-        isSelected
-          ? "opacity-100"
-          : alwaysVisible
-            ? "opacity-100"
-            : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-        className
-      )}
-      data-selection-control
-      onClick={handleClick}
-      onPointerDown={(event) => event.stopPropagation()}
     />
   );
 }

@@ -41,7 +41,7 @@ function MacroActivationIndicator({ macro, t }: { macro: Macro; t: Translator })
   return (
     <span
       aria-label={label}
-      className="inline-flex h-7 w-4 shrink-0 items-center justify-center text-muted-foreground"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-muted-foreground"
       data-macro-activation-indicator
       role="img"
       title={label}

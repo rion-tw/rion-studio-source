@@ -55,3 +55,19 @@ Placement or restore-session persistence runs before either platform begins
 installation. Failure there is `install_failed`, retains the verified pending
 payload, leaves runtime/core open, and permits retry. Only failures observed
 after the runtime/core drain begins force an automatic restart.
+
+## Runtime clean-exit handoff
+
+Updater preparation writes the runtime restore session with `cleanExit: false`.
+Starting a drain is not evidence of a clean exit. The flag becomes `true` only
+after the shared `close_all()` shutdown receipt reaches terminal `applied` or
+`degraded`; `failed` and `indeterminate` retain the unclean marker. This rule is
+identical for ordinary exit, macOS post-install restart, and the Windows
+`on_before_exit` handoff.
+
+If the process stops between drain start and a verified terminal receipt, the
+next launch exposes the interrupted window IDs and prior session generation in
+the runtime recovery projection. The updater journal and runtime restore session
+remain separate authorities: the journal decides installation outcome and
+download retry eligibility, while the restore session decides whether native
+windows and tabs require recovery.

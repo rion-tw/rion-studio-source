@@ -207,7 +207,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(compatibilityWait.indexOf("finish_controlled_navigations")).toBeGreaterThan(
       compatibilityWait.indexOf("wait_operation(operation)")
     );
-    expect(runtime).toContain(".wait_operation_async(operation)");
+    expect(runtime).toContain("wait_role_navigation_for_lifecycle");
+    expect(runtime).toContain(".wait_operation_async(operation.clone())");
+    expect(runtime).toContain("application_lifecycle_epoch_matches");
 
     const reloadTab = runtime.slice(
       runtime.indexOf("pub fn reload_tab("),

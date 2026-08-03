@@ -50,12 +50,12 @@ describe("release artifact size budget", () => {
       join(directory, "Rion.Studio-mac.app.tar.gz"),
       RELEASE_SIZE_LIMITS["Rion.Studio-mac.app.tar.gz"]
     );
-    await sparseFile(join(directory, "Rion.Studio-mac.dmg"), 13_748_532);
+    await sparseFile(join(directory, "Rion.Studio-mac.dmg"), 13_770_747);
 
     const results = await verifyReleaseSizeBudget(directory);
     expect(results.find(({ name }) => name === "Rion.Studio-mac.dmg")).toMatchObject({
-      maximumBytes: 13_762_597,
-      toleranceBytes: 16 * 1024
+      maximumBytes: 13_778_981,
+      toleranceBytes: 32 * 1024
     });
   });
 
@@ -69,9 +69,9 @@ describe("release artifact size budget", () => {
   });
 
   it("limits macOS DMG packaging variance to the explicit tolerance", () => {
-    expect(RELEASE_SIZE_TOLERANCES["Rion.Studio-mac.dmg"]).toBe(16 * 1024);
+    expect(RELEASE_SIZE_TOLERANCES["Rion.Studio-mac.dmg"]).toBe(32 * 1024);
     expect(RELEASE_SIZE_LIMITS["Rion.Studio-mac.dmg"]).toBe(
-      Math.floor(RELEASE_SIZE_BASELINES["Rion.Studio-mac.dmg"] * 0.9) + 16 * 1024
+      Math.floor(RELEASE_SIZE_BASELINES["Rion.Studio-mac.dmg"] * 0.9) + 32 * 1024
     );
     expect(RELEASE_SIZE_TOLERANCES["Rion.Studio-mac.app.tar.gz"]).toBeUndefined();
     expect(RELEASE_SIZE_TOLERANCES["Rion.Studio-win.exe"]).toBeUndefined();

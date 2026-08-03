@@ -1,5 +1,6 @@
 const TAB_DRAG_INTENT_HISTORY_LIMIT: usize = 256;
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NativeTabDragActionStamp {
     pub(crate) event_sequence: u64,
@@ -10,6 +11,7 @@ pub(crate) struct NativeTabDragActionStamp {
 struct NativeTabDragIntent {
     completed: bool,
     generation: u64,
+    #[cfg(any(target_os = "macos", test))]
     last_event_sequence: u64,
     operation_id: Option<String>,
     source_window_id: String,
@@ -28,12 +30,15 @@ struct TabDragIntentState {
 
 #[derive(Default)]
 pub(crate) struct TabDragIntentCoordinator {
+    #[cfg(any(target_os = "macos", test))]
     event_sequence: AtomicU64,
+    #[cfg(any(target_os = "macos", test))]
     intent_generation: AtomicU64,
     state: Mutex<TabDragIntentState>,
 }
 
 impl TabDragIntentCoordinator {
+    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn stamp_action(
         &self,
         action_type: &str,
@@ -84,6 +89,7 @@ impl TabDragIntentCoordinator {
                 NativeTabDragIntent {
                     completed: false,
                     generation,
+                    #[cfg(any(target_os = "macos", test))]
                     last_event_sequence: event_sequence,
                     operation_id: None,
                     source_window_id: source_window_id.unwrap_or_default().to_owned(),
@@ -222,6 +228,7 @@ impl TabDragIntentCoordinator {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn record_latest_window_generation(
     latest_by_window: &mut HashMap<String, u64>,
     window_id: &str,

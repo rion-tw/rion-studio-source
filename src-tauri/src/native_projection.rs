@@ -47,13 +47,24 @@ impl RevisionedJsonProjection {
         projection_envelope(next.revision, next.captured_at, next.payload)
     }
 
-    #[cfg(test)]
     pub(crate) fn current_revision(&self) -> u64 {
         self.state
             .lock()
             .ok()
             .and_then(|state| state.as_ref().map(|state| state.revision))
             .unwrap_or_default()
+    }
+
+    pub(crate) fn current(&self) -> Option<Value> {
+        self.state.lock().ok().and_then(|state| {
+            state.as_ref().map(|current| {
+                projection_envelope(
+                    current.revision,
+                    current.captured_at.clone(),
+                    current.payload.clone(),
+                )
+            })
+        })
     }
 }
 

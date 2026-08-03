@@ -403,10 +403,24 @@ fn resolve_game_window_launch_target(
     let primary_monitor = app
         .primary_monitor()
         .map_err(|error| shell_error("SHELL_DISPLAY_FAILED", error.to_string()))?;
-    let primary_id = primary_monitor.as_ref().map(monitor_id);
     let current_monitor = app
         .get_webview_window("main")
         .and_then(|window| window.current_monitor().ok().flatten());
+    resolve_game_window_launch_target_from_inventory(
+        record,
+        &monitors,
+        primary_monitor.as_ref(),
+        current_monitor.as_ref(),
+    )
+}
+
+fn resolve_game_window_launch_target_from_inventory(
+    record: &StateGameWindowRecord,
+    monitors: &[tauri::Monitor],
+    primary_monitor: Option<&tauri::Monitor>,
+    current_monitor: Option<&tauri::Monitor>,
+) -> Result<GameWindowLaunchResolution, CoreErrorPayload> {
+    let primary_id = primary_monitor.map(monitor_id);
     let exact = monitors.iter().find(|monitor| {
         monitor_id(monitor) == record.target_display.id
             && record
@@ -449,8 +463,8 @@ fn resolve_game_window_launch_target(
                 .find(|monitor| primary_id == Some(monitor_id(monitor)))
                 .cloned()
         })
-        .or(primary_monitor)
-        .or(current_monitor)
+        .or_else(|| primary_monitor.cloned())
+        .or_else(|| current_monitor.cloned())
         .or_else(|| monitors.first().cloned())
         .ok_or_else(|| shell_error("SHELL_DISPLAY_NOT_FOUND", "Display was not found."))?;
     let remapped = exact.is_none();
@@ -503,14 +517,6 @@ fn persist_game_window_display_remap(
         json!({ "windowId": window_id, "displayId": display_id }),
     );
     Ok(())
-}
-
-fn relocate_before_display_remap(
-    relocate: impl FnOnce() -> Result<(), CoreErrorPayload>,
-    persist: impl FnOnce() -> Result<(), CoreErrorPayload>,
-) -> Result<(), CoreErrorPayload> {
-    relocate()?;
-    persist()
 }
 
 fn display_fingerprint_matches(

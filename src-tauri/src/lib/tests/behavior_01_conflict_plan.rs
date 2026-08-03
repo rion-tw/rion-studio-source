@@ -176,41 +176,6 @@ use super::*;
     }
 
     #[test]
-    fn display_remap_persists_only_after_native_relocation_succeeds() {
-        for platform in ["darwin", "win32"] {
-            let steps = Mutex::new(Vec::new());
-            relocate_before_display_remap(
-                || {
-                    steps.lock().unwrap().push("relocate");
-                    Ok(())
-                },
-                || {
-                    steps.lock().unwrap().push("persist");
-                    Ok(())
-                },
-            )
-            .unwrap();
-            assert_eq!(
-                *steps.lock().unwrap(),
-                ["relocate", "persist"],
-                "{platform}"
-            );
-
-            let persisted = AtomicBool::new(false);
-            let error = relocate_before_display_remap(
-                || Err(shell_error("MOVE_FAILED", "move failed")),
-                || {
-                    persisted.store(true, Ordering::Release);
-                    Ok(())
-                },
-            )
-            .unwrap_err();
-            assert_eq!(error.code, "MOVE_FAILED", "{platform}");
-            assert!(!persisted.load(Ordering::Acquire), "{platform}");
-        }
-    }
-
-    #[test]
     fn replacing_runtime_window_preferences_refreshes_open_runtime_windows() {
         assert!(core_command_refreshes_runtime_projection(
             &CoreCommand::RuntimeWindowPreferencesReplace {

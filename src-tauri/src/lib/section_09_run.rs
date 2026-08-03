@@ -274,7 +274,7 @@ pub fn run() {
                 _activation: activation,
                 _quick_menu: quick_menu,
                 core,
-                display_topology: native_projection::RevisionedJsonProjection::default(),
+                display_topology: DisplayTopologyCoordinator::default(),
                 application_exit_guard: ApplicationExitGuard::default(),
                 application_shutdown_started: AtomicBool::new(false),
                 main_window_zoom: Mutex::new(1.0),
@@ -480,13 +480,10 @@ pub fn run() {
                                 size.width,
                                 size.height,
                             );
-                            if label == "main"
-                                && let Some(window) = app_handle.get_webview_window("main")
-                            {
-                                let _ = publish_display_topology(
+                            if label == "main" {
+                                let _ = request_display_topology(
                                     app_handle,
                                     &state,
-                                    &window,
                                     "window-resized",
                                 );
                                 state.runtime.publish_main_window_state();
@@ -497,15 +494,11 @@ pub fn run() {
                         }
                         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
                             if label == "main" => {
-                            if let Some(window) = app_handle.get_webview_window("main")
-                                && let Ok(topology) = display_topology(
-                                    &state,
-                                    &window,
-                                    "window-moved-or-scale-changed",
-                                )
-                            {
-                                let _ = app_handle.emit("rion://display-topology", topology);
-                            }
+                            let _ = request_display_topology(
+                                app_handle,
+                                &state,
+                                "window-moved-or-scale-changed",
+                            );
                             state.runtime.publish_main_window_state();
                         }
                         tauri::WindowEvent::Focused(focused) if label == "main" => {

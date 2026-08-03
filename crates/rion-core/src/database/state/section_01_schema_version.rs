@@ -27,7 +27,8 @@ use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-    GameWindowCreateInputRecord, GameWindowSaveRuntimeInputRecord, GameWindowUpdateInputRecord,
+    GameWindowCreateInputRecord, GameWindowDisplayRemapRecord, GameWindowSaveRuntimeInputRecord,
+    GameWindowUpdateInputRecord,
     LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
     MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
     RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
@@ -138,6 +139,9 @@ pub(crate) enum StateMutation {
         id: String,
         input: GameWindowUpdateInputRecord,
     },
+    GameWindowsDisplayRemap {
+        updates: Vec<GameWindowDisplayRemapRecord>,
+    },
     GameWindowReorder {
         ordered_ids: Vec<String>,
     },
@@ -195,6 +199,7 @@ impl StateMutation {
             Self::GameWindowCreate(_)
             | Self::GameWindowSaveRuntime(_)
             | Self::GameWindowUpdate { .. }
+            | Self::GameWindowsDisplayRemap { .. }
             | Self::GameWindowReorder { .. }
             | Self::GameWindowDelete { .. }
             | Self::GameWindowDeleteIfUnchanged { .. }

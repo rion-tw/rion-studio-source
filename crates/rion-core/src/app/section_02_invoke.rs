@@ -212,6 +212,9 @@ impl AppCore {
             CoreCommand::GameWindowUpdate { id, input } => {
                 self.mutate_state(StateMutation::GameWindowUpdate { id, input })
             }
+            CoreCommand::GameWindowsDisplayRemap { updates } => {
+                self.mutate_state(StateMutation::GameWindowsDisplayRemap { updates })
+            }
             CoreCommand::GameWindowReorder { ordered_ids } => {
                 self.mutate_state(StateMutation::GameWindowReorder { ordered_ids })
             }

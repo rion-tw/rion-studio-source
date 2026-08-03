@@ -54,6 +54,10 @@ async fn rion_shell_invoke(
             .map_err(|error| shell_error(error.code, error.message))
             .and_then(|record| serde_json::to_value(record)
                 .map_err(|error| shell_error("SHELL_WINDOW_STATE_INVALID", error.to_string()))),
+        "applicationLifecycleStatus" =>
+            serde_json::to_value(state.runtime.application_lifecycle_status()).map_err(|error| {
+                shell_error("SHELL_LIFECYCLE_STATE_INVALID", error.to_string())
+            }),
         "refreshQuickMenu" => state
             .quick_menu_refresh
             .request(

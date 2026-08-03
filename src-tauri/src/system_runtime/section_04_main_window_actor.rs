@@ -301,6 +301,12 @@ impl MainWindowActor {
         Ok(record)
     }
 
+    fn advance_lifecycle_epoch(&self, epoch: u64) {
+        self.projection
+            .lifecycle_epoch
+            .store(epoch, Ordering::Release);
+    }
+
     fn observe_focus(&self, focused: bool) {
         if focused {
             self.focus_broker.observe_native_focus(
@@ -525,7 +531,7 @@ impl SystemRuntimeExecutor {
         .with_completion_scope(command.completion_scope())
         .with_window("main")
         .with_window_generation(self.main_window_actor.generation())
-        .with_lifecycle_epoch(0);
+        .with_lifecycle_epoch(self.lifecycle_epoch());
         self.operations.register(operation.clone()).map_err(|code| {
             RuntimeError::new(code, "The main-window operation could not be accepted.")
         })?;
@@ -533,7 +539,7 @@ impl SystemRuntimeExecutor {
             self.focus_broker.accept(
                 "main",
                 self.main_window_actor.generation(),
-                0,
+                self.lifecycle_epoch(),
                 None,
                 NativePresentationFocus::WindowAndContent,
             )

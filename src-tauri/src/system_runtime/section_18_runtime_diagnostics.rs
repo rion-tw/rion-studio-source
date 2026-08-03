@@ -269,6 +269,7 @@ impl SystemRuntimeExecutor {
             )
             .as_str()
             .to_owned(),
+            application_lifecycle: Some(self.application_lifecycle_status()),
             healthy: self.health.is_healthy(),
             snapshot_complete: true,
             collection_error_codes: Vec::new(),

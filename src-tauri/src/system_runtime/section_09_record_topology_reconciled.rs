@@ -554,7 +554,7 @@ impl SystemRuntimeExecutor {
         .with_revision(revision)
         .with_window(window_id.clone())
         .with_window_generation(window_generation)
-        .with_lifecycle_epoch(0);
+        .with_lifecycle_epoch(self.lifecycle_epoch());
         if let Some(tab_id) = tab_id.as_ref() {
             operation = operation.with_tab(tab_id.clone());
         }
@@ -649,6 +649,7 @@ impl SystemRuntimeExecutor {
             surface_owner_revisions,
             surface_owners: Arc::clone(&self.presentation.surface_owners),
             shutdown_state: Arc::clone(&self.shutdown_state),
+            application_lifecycle: Arc::clone(&self.application_lifecycle),
             tab_id,
             trigger,
             window,

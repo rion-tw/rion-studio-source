@@ -108,6 +108,39 @@ fn schedule_tab_drag_session_timeout(app: &AppHandle, session_id: &str) {
     });
 }
 
+fn cancel_stale_tab_drag_after_lifecycle(app: &AppHandle, state: &CoreState) {
+    let session_id = state
+        .tab_drag
+        .lock()
+        .ok()
+        .and_then(|session| session.as_ref().map(|session| session.id.clone()));
+    let Some(session_id) = session_id else {
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<CoreState>();
+        let _lane = state.tab_drag_lane.lock().await;
+        let current = state
+            .tab_drag
+            .lock()
+            .ok()
+            .and_then(|session| session.as_ref().map(|session| session.id.clone()));
+        if current.as_deref() != Some(session_id.as_str()) {
+            return;
+        }
+        let _ = finish_failed_tab_drag(
+            &app,
+            &state,
+            &session_id,
+            shell_error(
+                "SYSTEM_TAB_DRAG_LIFECYCLE_STALE",
+                "The application lifecycle changed during the tab drag.",
+            ),
+        );
+    });
+}
+
 fn tab_drag_terminal(
     state: &CoreState,
     session_id: &str,
@@ -180,6 +213,12 @@ fn tab_drag_fence_error(
     state: &CoreState,
     session: &GameWindowTabDragSession,
 ) -> Option<CoreErrorPayload> {
+    if !tab_drag_lifecycle_is_current(state.runtime.lifecycle_epoch(), session.lifecycle_epoch) {
+        return Some(shell_error(
+            "SYSTEM_TAB_DRAG_LIFECYCLE_STALE",
+            "The application lifecycle changed during the tab drag.",
+        ));
+    }
     if state.display_topology.current_revision() != session.topology_revision {
         return Some(shell_error(
             "SYSTEM_TAB_DRAG_TOPOLOGY_STALE",
@@ -203,6 +242,10 @@ fn tab_drag_fence_error(
         ));
     }
     None
+}
+
+fn tab_drag_lifecycle_is_current(current_epoch: u64, accepted_epoch: u64) -> bool {
+    current_epoch == accepted_epoch
 }
 
 fn serialize_tab_drag_response<T: serde::Serialize>(value: &T) -> Result<Value, CoreErrorPayload> {

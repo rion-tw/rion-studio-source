@@ -27,14 +27,20 @@ impl Drop for ActiveGeometryGuard<'_> {
 
 impl SystemRuntimeExecutor {
     fn require_runtime_accepting(&self) -> RuntimeResult<()> {
-        if RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire))
-            == RuntimeShutdownState::Accepting
-        {
+        let shutdown_accepting = RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        ) == RuntimeShutdownState::Accepting;
+        if shutdown_accepting && self.application_lifecycle.accepts_native_work() {
             Ok(())
-        } else {
+        } else if !shutdown_accepting {
             Err(RuntimeError::new(
                 "SYSTEM_RUNTIME_SHUTTING_DOWN",
                 "The System WebView runtime is shutting down and cannot accept new native work.",
+            ))
+        } else {
+            Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_SUSPENDED",
+                "The System WebView runtime is suspended and cannot accept new native work.",
             ))
         }
     }

@@ -66,6 +66,25 @@ fn surface_recovery_attempts_replay_exactly_and_keep_parent_metadata() {
             panic!("{platform}: duplicate callback must replay");
         };
         assert_eq!(replayed, terminal);
+
+        registry.release_terminal_key_for_retry("role-1", 7);
+        let retry = registry.begin(
+            NativeOperationContext::new_for_platform(
+                NativeOperationSubsystem::Recovery,
+                "lifecycleRetry",
+                Duration::from_secs(1),
+                platform,
+            ),
+            "role-1".to_owned(),
+            "window-1".to_owned(),
+            7,
+            4,
+        );
+        let SurfaceRecoveryBegin::Started(_, retry_record) = retry else {
+            panic!("{platform}: an explicit lifecycle retry must start a new attempt");
+        };
+        assert_ne!(retry_record.operation_id, operation_id);
+        assert_eq!(retry_record.lifecycle_epoch, 4);
     }
 }
 

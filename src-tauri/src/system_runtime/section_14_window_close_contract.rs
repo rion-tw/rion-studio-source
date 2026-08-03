@@ -102,7 +102,7 @@ impl SystemRuntimeExecutor {
             "stateCommit"
         })
         .with_window(window_id)
-        .with_lifecycle_epoch(0);
+        .with_lifecycle_epoch(self.lifecycle_epoch());
         if let Some((_, generation)) = host.as_ref() {
             context = context.with_window_generation(*generation);
         }

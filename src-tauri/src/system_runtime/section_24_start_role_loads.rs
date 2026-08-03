@@ -3,11 +3,14 @@ impl SystemRuntimeExecutor {
         &self,
         roles: Vec<EmbeddedRoleLoadEffectRecord>,
     ) -> RuntimeResult<Vec<PendingRoleNavigation>> {
+        self.require_runtime_accepting()?;
+        let lifecycle_epoch = self.lifecycle_epoch();
         let mut pending_navigations = Vec::with_capacity(roles.len());
         let mut controlled_labels = Vec::with_capacity(roles.len());
 
         let result = (|| -> RuntimeResult<Vec<PendingRoleNavigation>> {
             for role in roles {
+                self.require_application_lifecycle_epoch(lifecycle_epoch)?;
                 if !is_current_system_engine(role.resolved_engine) {
                     return Err(RuntimeError::new(
                         "SYSTEM_RUNTIME_ENGINE_MISMATCH",
@@ -87,7 +90,14 @@ impl SystemRuntimeExecutor {
                 .with_role(&role.role_id)
                 .with_tab(&tab_id)
                 .with_window(&window_id)
+                .with_lifecycle_epoch(lifecycle_epoch)
                 .with_surface_generation(surface_generation);
+                self.operations.register(operation.clone()).map_err(|code| {
+                    RuntimeError::new(
+                        code,
+                        "The native operation registry could not accept role navigation.",
+                    )
+                })?;
                 let pending_operation = if current_url.as_ref() != Some(&url) {
                     if let Ok(mut state) = self.state()
                         && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
@@ -116,6 +126,25 @@ impl SystemRuntimeExecutor {
                             message,
                         ));
                     }
+                    if self
+                        .require_application_lifecycle_epoch(lifecycle_epoch)
+                        .is_err()
+                        || !self.operations.mark_in_flight(&operation.operation_id)
+                    {
+                        navigation.reset();
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "applicationLifecycleCancelled",
+                                NativeOperationStatus::Cancelled,
+                                Some("SYSTEM_LIFECYCLE_SUSPENDED"),
+                            ),
+                        );
+                        return Err(RuntimeError::new(
+                            "SYSTEM_LIFECYCLE_STALE",
+                            "The role navigation was cancelled before entering the native call.",
+                        ));
+                    }
                     if let Err(error) = surface.navigate(url.clone()) {
                         let error = RuntimeError::tauri(error);
                         self.record_native_operation_receipt(
@@ -127,6 +156,21 @@ impl SystemRuntimeExecutor {
                             ),
                         );
                         return Err(error);
+                    }
+                    if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                        navigation.reset();
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "applicationLifecycleInterrupted",
+                                NativeOperationStatus::Indeterminate,
+                                Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
+                            ),
+                        );
+                        return Err(RuntimeError::new(
+                            "SYSTEM_LIFECYCLE_INDETERMINATE",
+                            "The application lifecycle changed during native role navigation.",
+                        ));
                     }
                     Some(operation)
                 } else {
@@ -142,6 +186,25 @@ impl SystemRuntimeExecutor {
                         return Err(RuntimeError::new(
                             "SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE",
                             message,
+                        ));
+                    }
+                    if self
+                        .require_application_lifecycle_epoch(lifecycle_epoch)
+                        .is_err()
+                        || !self.operations.mark_in_flight(&operation.operation_id)
+                    {
+                        navigation.reset();
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation,
+                                "applicationLifecycleCancelled",
+                                NativeOperationStatus::Cancelled,
+                                Some("SYSTEM_LIFECYCLE_SUSPENDED"),
+                            ),
+                        );
+                        return Err(RuntimeError::new(
+                            "SYSTEM_LIFECYCLE_STALE",
+                            "The role navigation was cancelled before waiting for page completion.",
                         ));
                     }
                     Some(operation)
@@ -161,7 +224,25 @@ impl SystemRuntimeExecutor {
                     }
                     return Err(error);
                 }
+                if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                    if let Some(operation) = pending_operation.as_ref() {
+                        navigation.reset();
+                        self.record_native_operation_receipt(
+                            NativeOperationReceipt::with_status(
+                                operation.clone(),
+                                "applicationLifecycleInterrupted",
+                                NativeOperationStatus::Indeterminate,
+                                Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
+                            ),
+                        );
+                    }
+                    return Err(RuntimeError::new(
+                        "SYSTEM_LIFECYCLE_INDETERMINATE",
+                        "The application lifecycle changed while configuring native role navigation.",
+                    ));
+                }
                 pending_navigations.push(PendingRoleNavigation {
+                    lifecycle_epoch,
                     navigation,
                     operation: pending_operation,
                     role_id: role.role_id,

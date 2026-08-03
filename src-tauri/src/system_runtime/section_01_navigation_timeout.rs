@@ -15,7 +15,8 @@ use tokio::sync::watch;
 use crate::native_projection::RevisionedJsonProjection;
 
 use rion_core::{
-    AppCore, BrowserAction, BrowserActionRequest, BrowserLaunchCompletionRecord,
+    AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
+    BrowserLaunchCompletionRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
@@ -68,6 +69,7 @@ const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
 const TAB_DRAG_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
 const SURFACE_RECOVERY_OPERATION_TIMEOUT: Duration = Duration::from_secs(70);
+const POWER_LIFECYCLE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
 const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8);
 const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(windows)]
@@ -528,26 +530,42 @@ impl NavigationTracker {
     }
 
     fn wait(&self) -> Result<(), String> {
+        self.wait_while(|| true).and_then(|completed| {
+            completed
+                .then_some(())
+                .ok_or_else(|| "System WebView navigation was cancelled.".to_owned())
+        })
+    }
+
+    fn wait_while(&self, should_continue: impl Fn() -> bool) -> Result<bool, String> {
         let deadline = Instant::now() + NAVIGATION_TIMEOUT;
         let mut state = self
             .state
             .lock()
             .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
         while !state.finished {
+            if !should_continue() {
+                return Ok(false);
+            }
             let now = Instant::now();
             if now >= deadline {
                 return Err("System WebView navigation timed out.".to_owned());
             }
             let (next, timeout) = self
                 .changed
-                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .wait_timeout(
+                    state,
+                    deadline
+                        .saturating_duration_since(now)
+                        .min(Duration::from_millis(25)),
+                )
                 .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
             state = next;
-            if timeout.timed_out() && !state.finished {
+            if timeout.timed_out() && Instant::now() >= deadline && !state.finished {
                 return Err("System WebView navigation timed out.".to_owned());
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 

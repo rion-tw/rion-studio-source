@@ -239,6 +239,51 @@ impl NativeOperationRegistry {
             .collect()
     }
 
+    fn interrupt_for_lifecycle(&self) -> usize {
+        let Ok(mut state) = self.state.lock() else {
+            return 0;
+        };
+        let interrupted = state
+            .active
+            .iter()
+            .filter(|(_, operation)| {
+                !matches!(
+                    operation.context.subsystem,
+                    NativeOperationSubsystem::Power | NativeOperationSubsystem::Shutdown
+                )
+            })
+            .map(|(operation_id, operation)| (operation_id.clone(), operation.clone()))
+            .collect::<Vec<_>>();
+        for (operation_id, operation) in &interrupted {
+            state.active.remove(operation_id);
+            let (stage, status, failure_code) = match operation.phase {
+                NativeOperationPhase::Queued => (
+                    "applicationLifecycleCancelled",
+                    NativeOperationStatus::Cancelled,
+                    "SYSTEM_LIFECYCLE_SUSPENDED",
+                ),
+                NativeOperationPhase::InFlight => (
+                    "applicationLifecycleInterrupted",
+                    NativeOperationStatus::Indeterminate,
+                    "SYSTEM_LIFECYCLE_INDETERMINATE",
+                ),
+            };
+            Self::insert_terminal(
+                &mut state,
+                NativeOperationReceipt::with_status(
+                    operation.context.clone(),
+                    stage,
+                    status,
+                    Some(failure_code),
+                ),
+            );
+        }
+        if !interrupted.is_empty() {
+            self.changed.notify_all();
+        }
+        interrupted.len()
+    }
+
     #[cfg(test)]
     fn active_count(&self) -> usize {
         self.state

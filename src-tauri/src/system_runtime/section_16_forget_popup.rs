@@ -276,178 +276,14 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn schedule_surface_recovery(
-        self: &Arc<Self>,
-        role_id: String,
-        reason: String,
-        generation: u64,
-    ) -> bool {
-        self.schedule_surface_recovery_with_parent(role_id, reason, generation, None)
-    }
-
-    fn schedule_surface_recovery_with_parent(
-        self: &Arc<Self>,
-        role_id: String,
-        reason: String,
-        generation: u64,
-        parent_operation_id: Option<String>,
-    ) -> bool {
-        if !self.health.is_healthy() {
-            return false;
-        }
-        let claim = {
-            let Ok(mut state) = self.state.lock() else {
-                return false;
-            };
-            if state.close_coordinator.closing_roles.contains(&role_id)
-                || state.close_coordinator.quarantined_roles.contains(&role_id)
-            {
-                return false;
-            }
-            let Some(tab_id) = state.role_tabs.get(&role_id).cloned() else {
-                return false;
-            };
-            let Some((surface_generation, window_id)) = state.tabs.get(&tab_id).and_then(|tab| {
-                tab.roles
-                    .get(&role_id)
-                    .map(|surface| (surface.generation, tab.window_id.clone()))
-            })
-            else {
-                return false;
-            };
-            if !surface_generation_is_current(surface_generation, generation) {
-                return false;
-            }
-            if let Some(record) = self.surface_recoveries.existing(&role_id, generation) {
-                drop(state);
-                self.emit_surface_recovery_attempt(&record);
-                return true;
-            }
-            if !claim_surface_recovery(
-                surface_generation,
-                generation,
-                &mut state.recovering_roles,
-                &role_id,
-            ) {
-                return false;
-            }
-            let now = Instant::now();
-            let budget = state
-                .recovery_budgets
-                .entry(role_id.clone())
-                .or_insert(RecoveryBudget {
-                    attempts: 0,
-                window_started: now,
-            });
-            (window_id, budget.claim(now))
-        };
-        let (window_id, allowed) = claim;
-        let mut context = NativeOperationContext::new(
-            NativeOperationSubsystem::Recovery,
-            "surfaceProcessFailure",
-            SURFACE_RECOVERY_OPERATION_TIMEOUT,
-        )
-        .with_role(role_id.clone())
-        .with_window(window_id.clone())
-        .with_surface_generation(generation)
-        .with_lifecycle_epoch(0);
-        if let Some(parent_operation_id) = parent_operation_id {
-            context = context.with_parent_operation_id(parent_operation_id);
-        }
-        if let Err(failure_code) = self.operations.register(context.clone()) {
-            if let Ok(mut state) = self.state.lock() {
-                state.recovering_roles.remove(&role_id);
-            }
-            self.emit_runtime_shell_error(
-                failure_code,
-                "System WebView recovery could not reserve an operation receipt.".to_owned(),
-                &window_id,
-            );
-            return false;
-        }
-        let (transaction, initial_record) = match self.surface_recoveries.begin(
-            context.clone(),
-            role_id.clone(),
-            window_id.clone(),
-            generation,
-            0,
-        ) {
-            SurfaceRecoveryBegin::Started(transaction, record) => (transaction, record),
-            SurfaceRecoveryBegin::Existing(record) => {
-                self.operations.complete(NativeOperationReceipt::with_status(
-                    context,
-                    "surfaceRecoveryDuplicate",
-                    NativeOperationStatus::Superseded,
-                    None,
-                ));
-                if let Ok(mut state) = self.state.lock() {
-                    state.recovering_roles.remove(&role_id);
-                }
-                self.emit_surface_recovery_attempt(&record);
-                return true;
-            }
-            SurfaceRecoveryBegin::Full => {
-                self.operations.complete(NativeOperationReceipt::with_status(
-                    context,
-                    "surfaceRecoveryRegistryFull",
-                    NativeOperationStatus::Failed,
-                    Some("SYSTEM_SURFACE_RECOVERY_REGISTRY_FULL"),
-                ));
-                if let Ok(mut state) = self.state.lock() {
-                    state.recovering_roles.remove(&role_id);
-                }
-                self.emit_runtime_shell_error(
-                    "SYSTEM_SURFACE_RECOVERY_REGISTRY_FULL",
-                    "The System WebView recovery registry is full. Restart Rion Studio to recover safely."
-                        .to_owned(),
-                    &window_id,
-                );
-                return false;
-            }
-        };
-        self.emit_surface_recovery_attempt(&initial_record);
-        let queued = self.effect_sender.get().ok_or(()).and_then(|sender| {
-            sender
-                .send(SystemRuntimeWork::RecoverSurface {
-                    allowed,
-                    reason: reason.clone(),
-                    transaction: transaction.clone(),
-                })
-                .map_err(|_| ())
-        });
-        if queued.is_err() {
-            if let Ok(mut state) = self.state.lock() {
-                state.recovering_roles.remove(&role_id);
-            }
-            self.complete_surface_recovery(
-                *transaction,
-                "surfaceRecoveryQueueUnavailable",
-                NativeOperationStatus::Failed,
-                Some("SYSTEM_SURFACE_RECOVERY_QUEUE_UNAVAILABLE"),
-                true,
-            );
-            let _ = self.app.emit(
-                "rion://shell-error",
-                json!({
-                    "code": "SYSTEM_SURFACE_RECOVERY_QUEUE_UNAVAILABLE",
-                    "message": "The System WebView recovery queue is unavailable. Restart Rion Studio to recover safely.",
-                    "roleId": role_id,
-                    "reason": reason
-                }),
-            );
-            false
-        } else {
-            true
-        }
-    }
-
     fn recover_system_surface(
-        &self,
+        self: &Arc<Self>,
         transaction: SurfaceRecoveryTransaction,
         reason: String,
         allowed: bool,
     ) {
         let role_id = transaction.role_id.clone();
+        let lifecycle_epoch = transaction.context.lifecycle_epoch.unwrap_or_default();
         let transaction_is_current = self.state.lock().ok().is_some_and(|state| {
             state.role_tabs.get(&role_id).is_some_and(|tab_id| {
                 state.tabs.get(tab_id).is_some_and(|tab| {
@@ -475,6 +311,35 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
+        if !self.operations.mark_in_flight(&transaction.context.operation_id) {
+            if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                self.retry_surface_recovery_after_lifecycle(
+                    transaction,
+                    reason,
+                    "surfaceRecoveryLifecycleCancelled",
+                );
+                return;
+            }
+            if let Ok(mut state) = self.state.lock() {
+                state.recovering_roles.remove(&role_id);
+            }
+            self.complete_surface_recovery(
+                transaction,
+                "surfaceRecoveryCancelled",
+                NativeOperationStatus::Cancelled,
+                Some("SYSTEM_LIFECYCLE_SUSPENDED"),
+                false,
+            );
+            return;
+        }
+        if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+            self.retry_surface_recovery_after_lifecycle(
+                transaction,
+                reason,
+                "surfaceRecoveryLifecycleCancelled",
+            );
+            return;
+        }
         if self.state.lock().ok().is_some_and(|mut state| {
             let fenced = state.close_coordinator.closing_roles.contains(&role_id)
                 || state.close_coordinator.quarantined_roles.contains(&role_id);
@@ -492,8 +357,6 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
-        self.operations
-            .mark_in_flight(&transaction.context.operation_id);
         if !allowed {
             let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
                 role_id: role_id.clone(),
@@ -528,6 +391,14 @@ impl SystemRuntimeExecutor {
             .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .map(|record| record.input_epoch);
         let Some(recovery_epoch) = recovery_epoch else {
+            if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                self.retry_surface_recovery_after_lifecycle(
+                    transaction,
+                    reason,
+                    "surfaceRecoveryLifecycleInterrupted",
+                );
+                return;
+            }
             self.emit_navigation_input_error(
                 "SYSTEM_SURFACE_RECOVERY_INPUT_FENCE_FAILED",
                 "System WebView recovery could not establish an input fence.",
@@ -552,6 +423,14 @@ impl SystemRuntimeExecutor {
             "surface-recovery",
             None,
         ) {
+            if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                self.retry_surface_recovery_after_lifecycle(
+                    transaction,
+                    reason,
+                    "surfaceRecoveryLifecycleInterrupted",
+                );
+                return;
+            }
             self.emit_navigation_input_error(
                 "SYSTEM_SURFACE_RECOVERY_INPUT_FENCE_FAILED",
                 &error.message,
@@ -581,6 +460,14 @@ impl SystemRuntimeExecutor {
             .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .is_some_and(|record| record.current);
         if !drained {
+            if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                self.retry_surface_recovery_after_lifecycle(
+                    transaction,
+                    reason,
+                    "surfaceRecoveryLifecycleInterrupted",
+                );
+                return;
+            }
             self.emit_navigation_input_error(
                 "SYSTEM_SURFACE_RECOVERY_INPUT_DRAIN_FAILED",
                 "System WebView recovery could not confirm that macro input drained.",
@@ -599,6 +486,14 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
+        if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+            self.retry_surface_recovery_after_lifecycle(
+                transaction,
+                reason,
+                "surfaceRecoveryLifecycleInterrupted",
+            );
+            return;
+        }
         if let Ok(mut state) = self.state.lock()
             && let Some(fence) = state.role_input_fences.get_mut(&role_id)
             && fence.input_epoch == recovery_epoch
@@ -613,7 +508,9 @@ impl SystemRuntimeExecutor {
             reason: Some(reason.clone()),
         });
         let mut destructive_started = false;
-        let result = self.rebuild_role_surface(&transaction, &mut destructive_started);
+        let result = self
+            .rebuild_role_surface(&transaction, &mut destructive_started)
+            .and_then(|()| self.require_application_lifecycle_epoch(lifecycle_epoch));
         match result {
             Ok(()) => {
                 let replacement_generation = self.surface_generation_for_role(&role_id);
@@ -695,6 +592,14 @@ impl SystemRuntimeExecutor {
                     }),
                 );
                 let restart_required = surface_recovery_requires_restart(destructive_started);
+                if error.code == "SYSTEM_LIFECYCLE_STALE" && !restart_required {
+                    self.retry_surface_recovery_after_lifecycle(
+                        transaction.clone(),
+                        reason.clone(),
+                        "surfaceRecoveryLifecycleInterrupted",
+                    );
+                    return;
+                }
                 if restart_required
                     && let Ok(mut state) = self.state.lock()
                 {

@@ -107,8 +107,10 @@ impl SystemRuntimeExecutor {
         })
         .map_err(|error| error.to_string())?;
 
+        set_application_lifecycle_epoch(0);
         let operations = Arc::new(NativeOperationRegistry::default());
         NativeOperationRegistry::start_deadline_worker(&operations)?;
+        let application_lifecycle = Arc::new(ApplicationLifecycleCoordinator::new());
         let focus_broker = Arc::new(NativeFocusBroker::default());
         let main_window = app
             .get_webview_window("main")
@@ -132,6 +134,7 @@ impl SystemRuntimeExecutor {
             core,
             critical_activity_sequence: AtomicU64::new(0),
             effect_sender: OnceLock::new(),
+            lifecycle_sender: OnceLock::new(),
             diagnostics: Mutex::new(RuntimeDiagnosticsState::default()),
             health: RuntimeHealth::new(),
             focus_broker,
@@ -143,6 +146,7 @@ impl SystemRuntimeExecutor {
             input_effect_lanes: Mutex::new(HashMap::new()),
             last_critical_activity: Mutex::new(Instant::now()),
             main_window_actor,
+            application_lifecycle,
             input_dispatch_lanes: Mutex::new(HashMap::new()),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(
@@ -173,6 +177,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn start_effect_executor(self: &Arc<Self>) -> Result<(), String> {
+        self.start_application_lifecycle_actor()?;
         let (sender, receiver) = mpsc::channel();
         self.effect_sender
             .set(sender)
@@ -373,10 +378,24 @@ impl SystemRuntimeExecutor {
         action_name: &'static str,
         persist_runtime: bool,
     ) -> Result<(), String> {
-        if RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire))
-            != RuntimeShutdownState::Accepting
+        let shutdown_accepting = RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        ) == RuntimeShutdownState::Accepting;
+        let lifecycle_accepting = self.application_lifecycle.accepts_native_work();
+        if (!shutdown_accepting || !lifecycle_accepting)
             && !is_surface_close_effect(&effect.action)
         {
+            let (code, message) = if shutdown_accepting {
+                (
+                    "SYSTEM_RUNTIME_SUSPENDED",
+                    "The System WebView runtime is suspended and rejected new native work.",
+                )
+            } else {
+                (
+                    "SYSTEM_RUNTIME_SHUTTING_DOWN",
+                    "The System WebView runtime is shutting down and rejected new native work.",
+                )
+            };
             return self
                 .core
                 .dispatch_core_effect_results(vec![CoreEffectResult {
@@ -385,9 +404,8 @@ impl SystemRuntimeExecutor {
                     ok: false,
                     value_json: None,
                     error: Some(rion_core::CoreErrorPayload {
-                        code: "SYSTEM_RUNTIME_SHUTTING_DOWN".to_owned(),
-                        message: "The System WebView runtime is shutting down and rejected new native work."
-                            .to_owned(),
+                        code: code.to_owned(),
+                        message: message.to_owned(),
                     }),
                 }])
                 .map(|_| ())

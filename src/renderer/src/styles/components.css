@@ -97,10 +97,6 @@
       align-items: start;
     }
 
-    .editor-layout-macro-help {
-      grid-column: span 2 / span 2;
-    }
-
     .workspace-editor-surface {
       grid-template-columns: minmax(0, 1fr) 270px;
     }

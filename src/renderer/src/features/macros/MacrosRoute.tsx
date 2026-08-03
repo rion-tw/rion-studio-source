@@ -481,7 +481,7 @@ function MacrosRoute({
                     <td className="max-w-[240px] px-4 py-2 align-middle">
                       <div className="min-w-0" data-macro-name-control>
                         <div className="flex min-w-0 items-center gap-1.5">
-                          <div className="shrink-0" data-macro-run-control>
+                          <div className="-ml-1.5 shrink-0" data-macro-run-control>
                             <MacroRunButton
                               macro={macro}
                               runState={runState}

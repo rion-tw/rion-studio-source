@@ -25,7 +25,7 @@ async fn begin_shell_launch_presentation(
     target: &EmbeddedLaunchTargetRecord,
     source_id: &str,
     tab_type: &'static str,
-) -> Result<Option<String>, CoreErrorPayload> {
+) -> Result<Option<crate::system_runtime::LaunchPreviewHandle>, CoreErrorPayload> {
     if let Some(tab_id) = state
         .runtime
         .presented_tab_for_launcher_source(source_id, tab_type)
@@ -48,10 +48,54 @@ async fn begin_shell_launch_presentation(
     .map_err(|error| shell_error(error.code, error.message))
 }
 
-fn fail_shell_launch_presentation(state: &CoreState, preview_key: Option<&str>) {
-    if let Some(preview_key) = preview_key {
-        state.runtime.fail_tab_launch_preview(preview_key);
+fn cancel_shell_launch_presentation(
+    state: &CoreState,
+    preview: Option<&crate::system_runtime::LaunchPreviewHandle>,
+) {
+    if let Some(preview) = preview {
+        state
+            .runtime
+            .cancel_tab_launch_preview(&preview.launch_preview_id);
     }
+}
+
+async fn prepare_core_launch_preview(
+    state: &CoreState,
+    command: &mut CoreCommand,
+) -> Result<Option<crate::system_runtime::LaunchPreviewHandle>, CoreErrorPayload> {
+    let request = match command {
+        CoreCommand::BrowserRoleLaunch {
+            role_id, target, ..
+        } => Some((role_id.clone(), target.clone(), "role")),
+        CoreCommand::BrowserWorkspaceLaunch {
+            workspace_id,
+            target,
+            ..
+        } => Some((workspace_id.clone(), target.clone(), "workspace")),
+        _ => None,
+    };
+    let Some(request) = request else {
+        return Ok(None);
+    };
+    let runtime = Arc::clone(&state.runtime);
+    let preview = tauri::async_runtime::spawn_blocking(move || {
+        runtime.preview_tab_launch(&request.1, &request.0, request.2)
+    })
+    .await
+    .map_err(|error| shell_error("TAURI_RUNTIME_LAUNCH_PREVIEW_FAILED", error.to_string()))?
+    .map_err(|error| shell_error(error.code, error.message))?;
+    match command {
+        CoreCommand::BrowserRoleLaunch {
+            launch_preview_id,
+            ..
+        }
+        | CoreCommand::BrowserWorkspaceLaunch {
+            launch_preview_id,
+            ..
+        } => *launch_preview_id = Some(preview.launch_preview_id.clone()),
+        _ => return Ok(None),
+    }
+    Ok(Some(preview))
 }
 
 fn launched_source_window_id(
@@ -93,13 +137,16 @@ async fn launch_role_from_shell(
         .invoke_async(CoreCommand::BrowserRoleLaunch {
             role_id: role_id.clone(),
             target,
+            launch_preview_id: launch_preview
+                .as_ref()
+                .map(|preview| preview.launch_preview_id.clone()),
             zoom_factor: None,
         })
         .await
     {
         Ok(statuses) => statuses,
         Err(error) => {
-            fail_shell_launch_presentation(state, launch_preview.as_deref());
+            cancel_shell_launch_presentation(state, launch_preview.as_ref());
             return Err(error_payload(error));
         }
     };
@@ -377,12 +424,15 @@ async fn launch_workspace_from_shell(
         .invoke_async(CoreCommand::BrowserWorkspaceLaunch {
             workspace_id: workspace_id.clone(),
             target,
+            launch_preview_id: launch_preview
+                .as_ref()
+                .map(|preview| preview.launch_preview_id.clone()),
         })
         .await
     {
         Ok(statuses) => statuses,
         Err(error) => {
-            fail_shell_launch_presentation(state, launch_preview.as_deref());
+            cancel_shell_launch_presentation(state, launch_preview.as_ref());
             let rollback_errors =
                 rollback_workspace_conflicts(state, &rollback_plans[..stopped_count]).await;
             return Err(workspace_conflict_transaction_error(

@@ -34,12 +34,16 @@ impl SystemRuntimeExecutor {
         target: &EmbeddedLaunchTargetRecord,
         source_id: &str,
         tab_type: &str,
-    ) -> RuntimeResult<String> {
+    ) -> RuntimeResult<LaunchPreviewHandle> {
         let preview_started = Instant::now();
         self.mark_critical_activity();
-        let key = format!("{tab_type}:{source_id}");
-        if self.state()?.provisional_launches.contains_key(&key) {
-            return Ok(key);
+        let source_key = launch_source_key(tab_type, source_id);
+        let existing = {
+            let state = self.state()?;
+            active_provisional_launch(&state, source_id, tab_type).map(launch_preview_handle)
+        };
+        if let Some(existing) = existing {
+            return Ok(existing);
         }
         // An existing game window already owns a fully initialized native tab controller.
         // Reserving another tab must not wait behind an in-flight WKWebView/WebView2 creation:
@@ -57,6 +61,7 @@ impl SystemRuntimeExecutor {
             })?
         };
         let provisional_id = format!("provisional-{}", uuid::Uuid::new_v4());
+        let launch_preview_id = uuid::Uuid::new_v4().to_string();
         let placeholder_name = self
             .language
             .lock()
@@ -69,57 +74,74 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or("Loading…");
         let revision = self.presentation.next_revision();
-        {
+        let duplicate = {
             let mut state = self.state()?;
-            state.provisional_launches.insert(
-                key.clone(),
-                ProvisionalLaunch {
-                    cancelled: false,
-                    failed: false,
-                    host_created,
-                    id: provisional_id.clone(),
-                    source_id: source_id.to_owned(),
-                    tab_type: tab_type.to_owned(),
-                    window_id: target.window_id.clone(),
-                },
-            );
+            if let Some(existing) = active_provisional_launch(&state, source_id, tab_type) {
+                Some(launch_preview_handle(existing))
+            } else {
+                insert_provisional_launch(
+                    &mut state,
+                    ProvisionalLaunch {
+                        cancelled: false,
+                        failed: false,
+                        host_created,
+                        id: provisional_id.clone(),
+                        launch_preview_id: launch_preview_id.clone(),
+                        source_id: source_id.to_owned(),
+                        tab_type: tab_type.to_owned(),
+                        window_id: target.window_id.clone(),
+                    },
+                );
+                None
+            }
+        };
+        if let Some(existing) = duplicate {
+            self.remove_empty_display_host(&target.window_id, host_created);
+            return Ok(existing);
         }
-        let presentation = self
-            .presentation
-            .coordinator(&target.window_id)
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
-        let (previous_tab_id, previous_surfaces) = {
-            let mut selection = presentation.lock().map_err(|_| {
-                RuntimeError::new(
+        let presentation = match self.presentation.coordinator(&target.window_id) {
+            Ok(presentation) => presentation,
+            Err(message) => {
+                self.cancel_tab_launch_preview(&launch_preview_id);
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    message,
+                ));
+            }
+        };
+        let (previous_tab_id, previous_surfaces) = match presentation.lock() {
+            Ok(mut selection) => {
+                let previous_tab_id = selection.selected_tab_id.clone();
+                let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
+                selection.insert_tab(
+                    TabPresentation {
+                        closable: true,
+                        icon_data_url: None,
+                        id: provisional_id.clone(),
+                        phase: TabPresentationPhase::Reserved,
+                        role_ids: if tab_type == "role" {
+                            vec![source_id.to_owned()]
+                        } else {
+                            Vec::new()
+                        },
+                        source_id: source_id.to_owned(),
+                        tab_type: tab_type.to_owned(),
+                        title: placeholder_name.to_owned(),
+                        #[cfg(any(windows, target_os = "macos"))]
+                        workspace_template: None,
+                    },
+                    revision,
+                    true,
+                );
+                (previous_tab_id, previous_surfaces)
+            }
+            Err(_) => {
+                self.cancel_tab_launch_preview(&launch_preview_id);
+                return Err(RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?;
-            let previous_tab_id = selection.selected_tab_id.clone();
-            let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
-            selection.insert_tab(
-                TabPresentation {
-                    closable: true,
-                    icon_data_url: None,
-                    id: provisional_id.clone(),
-                    phase: TabPresentationPhase::Reserved,
-                    role_ids: if tab_type == "role" {
-                        vec![source_id.to_owned()]
-                    } else {
-                        Vec::new()
-                    },
-                    source_id: source_id.to_owned(),
-                    tab_type: tab_type.to_owned(),
-                    title: placeholder_name.to_owned(),
-                    #[cfg(any(windows, target_os = "macos"))]
-                    workspace_template: None,
-                },
-                revision,
-                true,
-            );
-            (previous_tab_id, previous_surfaces)
+                ));
+            }
         };
         self.publish_launcher_presence();
         if let Err(error) = self.reserve_native_tab(
@@ -130,7 +152,7 @@ impl SystemRuntimeExecutor {
             None,
             revision,
         ) {
-            self.cancel_tab_launch_preview(&key);
+            self.cancel_tab_launch_preview(&launch_preview_id);
             return Err(error);
         }
         // Both native reserve implementations activate the inserted item in the
@@ -138,7 +160,7 @@ impl SystemRuntimeExecutor {
         // event-loop work during a rapid launch burst.
         self.dispatch_native_presentation(
             target.window_id.clone(),
-            Some(provisional_id),
+            Some(provisional_id.clone()),
             revision,
             "launch-preview",
             Instant::now(),
@@ -151,7 +173,7 @@ impl SystemRuntimeExecutor {
             NativePresentationFocus::WindowAndContent,
             None,
         );
-        self.record_presentation_event(
+        self.record_launch_presentation_event_with_error_diagnostic(
             LogLevel::Debug,
             "tab.launch-preview-committed",
             "The launcher action committed its provisional presentation.",
@@ -162,21 +184,31 @@ impl SystemRuntimeExecutor {
                 .and_then(|state| {
                     state
                         .provisional_launches
-                        .get(&key)
+                        .get(&launch_preview_id)
                         .map(|launch| launch.id.clone())
                 })
                 .as_deref(),
             revision,
             "launch-preview",
             preview_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            Some(&launch_preview_id),
+            None,
+            None,
         );
-        Ok(key)
+        Ok(LaunchPreviewHandle {
+            launch_preview_id,
+            provisional_tab_id: provisional_id,
+            source_key,
+        })
     }
 
-    pub(crate) fn cancel_tab_launch_preview(&self, key: &str) {
+    pub(crate) fn cancel_tab_launch_preview(&self, launch_preview_id: &str) {
         let provisional = self.state.lock().ok().and_then(|mut state| {
-            state.automatic_launch_retries.remove(key);
-            state.provisional_launches.remove(key)
+            state.automatic_launch_retries.remove(launch_preview_id);
+            let provisional = state.provisional_launches.remove(launch_preview_id)?;
+            let source_key = launch_source_key(&provisional.tab_type, &provisional.source_id);
+            clear_active_provisional_launch(&mut state, &source_key, launch_preview_id);
+            Some(provisional)
         });
         let Some(provisional) = provisional else {
             return;
@@ -210,9 +242,9 @@ impl SystemRuntimeExecutor {
         self.remove_empty_display_host(&provisional.window_id, provisional.host_created);
     }
 
-    pub(crate) fn fail_tab_launch_preview(&self, key: &str) {
+    pub(crate) fn fail_tab_launch_preview(&self, launch_preview_id: &str) {
         let provisional = self.state.lock().ok().and_then(|mut state| {
-            let provisional = state.provisional_launches.get_mut(key)?;
+            let provisional = state.provisional_launches.get_mut(launch_preview_id)?;
             provisional.failed = true;
             Some(provisional.clone())
         });
@@ -230,29 +262,30 @@ impl SystemRuntimeExecutor {
         &self,
         source_id: &str,
         tab_type: &str,
-    ) -> Option<String> {
-        let key = format!("{tab_type}:{source_id}");
-        let provisional = self.state.lock().ok().and_then(|mut state| {
-            let provisional = state.provisional_launches.get_mut(&key)?;
-            if !provisional.failed || provisional.cancelled {
-                return None;
-            }
-            provisional.failed = false;
-            Some(provisional.clone())
+    ) -> Option<LaunchPreviewHandle> {
+        let source_key = launch_source_key(tab_type, source_id);
+        let (handle, provisional) = self.state.lock().ok().and_then(|mut state| {
+            let launch_preview_id = state.active_provisional_launches.get(&source_key)?.clone();
+            let handle = renew_failed_provisional_launch(&mut state, &launch_preview_id)?;
+            let provisional = state
+                .provisional_launches
+                .get(&handle.launch_preview_id)?
+                .clone();
+            Some((handle, provisional))
         })?;
         if let Some(presentation) = self.presentation.existing(&provisional.window_id)
             && let Ok(mut presentation) = presentation.lock()
         {
             presentation.update_phase(&provisional.id, TabPresentationPhase::Reserved);
         }
-        Some(key)
+        Some(handle)
     }
 
     pub(crate) fn resolve_browser_launch_completion(
         self: &Arc<Self>,
         completion: BrowserLaunchCompletionRecord,
     ) -> bool {
-        let key = format!("{}:{}", completion.tab_type, completion.source_id);
+        let launch_preview_id = completion.launch_preview_id.as_deref();
         let (diagnostic, completed_retries, release_verified) = self
             .state
             .lock()
@@ -260,23 +293,46 @@ impl SystemRuntimeExecutor {
             .map(|mut state| {
                 (
                     state.failed_launch_diagnostics.remove(&completion.tab_id),
-                    state
-                        .automatic_launch_retries
-                        .get(&key)
-                        .copied()
+                    launch_preview_id
+                        .and_then(|launch_preview_id| {
+                            state
+                                .automatic_launch_retries
+                                .get(launch_preview_id)
+                                .copied()
+                        })
                         .unwrap_or_default(),
                     state.retryable_failed_launches.remove(&completion.tab_id),
                 )
             })
             .unwrap_or_default();
-        self.record_presentation_event_with_error_diagnostic(
-            if completion.error.is_some() {
+        let cancellation = completion
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "LAUNCH_CANCELLED");
+        let stale_preview = completion
+            .error
+            .as_ref()
+            .is_some_and(|error| error.code == "LAUNCH_PREVIEW_STALE");
+        self.record_launch_presentation_event_with_error_diagnostic(
+            if cancellation {
+                LogLevel::Debug
+            } else if completion.error.is_some() {
                 LogLevel::Error
             } else {
                 LogLevel::Info
             },
-            "tab.launch-settled",
-            if completion.error.is_some() {
+            if cancellation {
+                "tab.launch-cancelled-settled"
+            } else if stale_preview {
+                "tab.launch-preview-stale"
+            } else {
+                "tab.launch-settled"
+            },
+            if cancellation {
+                "The cancelled launch attempt settled without attaching a native tab."
+            } else if stale_preview {
+                "A launch effect was rejected because its provisional identity was stale."
+            } else if completion.error.is_some() {
                 "The accepted background launch settled with an error."
             } else {
                 "The accepted background launch settled successfully."
@@ -290,13 +346,19 @@ impl SystemRuntimeExecutor {
                 .elapsed()
                 .as_millis()
                 .min(u64::MAX as u128) as u64,
+            launch_preview_id,
             completion.error.as_ref(),
             diagnostic.clone(),
         );
+        if cancellation || stale_preview {
+            return false;
+        }
         let Some(error) = completion.error.as_ref() else {
             if completed_retries > 0 {
-                if let Ok(mut state) = self.state.lock() {
-                    state.automatic_launch_retries.remove(&key);
+                if let Some(launch_preview_id) = launch_preview_id
+                    && let Ok(mut state) = self.state.lock()
+                {
+                    state.automatic_launch_retries.remove(launch_preview_id);
                 }
                 self.record_presentation_event(
                     LogLevel::Info,
@@ -317,11 +379,16 @@ impl SystemRuntimeExecutor {
             &error.code,
             release_verified,
         );
-        if retry && let Ok(mut state) = self.state.lock() {
-            state.automatic_launch_retries.insert(key.clone(), 1);
-        }
-        self.retain_launch_completion_presentation(&completion, !retry);
+        let retained_preview = self.retain_launch_completion_presentation(&completion, !retry);
         if retry {
+            let Some(retained_preview) = retained_preview else {
+                return true;
+            };
+            if let Ok(mut state) = self.state.lock() {
+                state
+                    .automatic_launch_retries
+                    .insert(retained_preview.launch_preview_id.clone(), 1);
+            }
             self.record_presentation_event_with_error_diagnostic(
                 LogLevel::Warn,
                 "tab.launch-auto-retry-scheduled",
@@ -334,11 +401,13 @@ impl SystemRuntimeExecutor {
                 Some(error),
                 diagnostic,
             );
-            self.schedule_automatic_launch_retry(key, completion);
+            self.schedule_automatic_launch_retry(retained_preview.launch_preview_id, completion);
             return false;
         }
-        if let Ok(mut state) = self.state.lock() {
-            state.automatic_launch_retries.remove(&key);
+        if let Some(launch_preview_id) = launch_preview_id
+            && let Ok(mut state) = self.state.lock()
+        {
+            state.automatic_launch_retries.remove(launch_preview_id);
         }
         if completed_retries > 0 {
             self.record_presentation_event_with_error_diagnostic(
@@ -354,18 +423,20 @@ impl SystemRuntimeExecutor {
                 diagnostic.clone(),
             );
         }
-        self.record_presentation_event_with_error_diagnostic(
-            LogLevel::Error,
-            "tab.launch-failed-retained",
-            "The background launch failed and its presentation tab was retained.",
-            &completion.window_id,
-            Some(&completion.tab_id),
-            self.presentation.current_revision(),
-            "launch-completion",
-            0,
-            Some(error),
-            diagnostic,
-        );
+        if retained_preview.is_some() {
+            self.record_presentation_event_with_error_diagnostic(
+                LogLevel::Error,
+                "tab.launch-failed-retained",
+                "The background launch failed and its presentation tab was retained.",
+                &completion.window_id,
+                Some(&completion.tab_id),
+                self.presentation.current_revision(),
+                "launch-completion",
+                0,
+                Some(error),
+                diagnostic,
+            );
+        }
         true
     }
 
@@ -373,14 +444,17 @@ impl SystemRuntimeExecutor {
         &self,
         completion: &BrowserLaunchCompletionRecord,
         failed: bool,
-    ) {
-        let key = format!("{}:{}", completion.tab_type, completion.source_id);
+    ) -> Option<LaunchPreviewHandle> {
         let existing = self.state.lock().ok().and_then(|mut state| {
-            let provisional = state.provisional_launches.get_mut(&key)?;
+            let launch_preview_id = completion.launch_preview_id.as_deref()?;
+            let provisional = state.provisional_launches.get_mut(launch_preview_id)?;
+            if provisional.cancelled {
+                return None;
+            }
             provisional.failed = failed;
-            Some(provisional.clone())
+            Some((launch_preview_handle(provisional), provisional.clone()))
         });
-        if let Some(provisional) = existing {
+        if let Some((handle, provisional)) = existing {
             if let Some(presentation) = self.presentation.existing(&provisional.window_id)
                 && let Ok(mut presentation) = presentation.lock()
             {
@@ -393,7 +467,16 @@ impl SystemRuntimeExecutor {
                     },
                 );
             }
-            return;
+            return Some(handle);
+        }
+        if completion.launch_preview_id.is_some() {
+            return None;
+        }
+        let source_is_busy = self.state.lock().ok().is_some_and(|state| {
+            active_provisional_launch(&state, &completion.source_id, &completion.tab_type).is_some()
+        });
+        if source_is_busy {
+            return None;
         }
         let host_created = match self.ensure_display_host(&completion.target, &completion.title) {
             Ok((_, created)) => created,
@@ -402,7 +485,7 @@ impl SystemRuntimeExecutor {
                     "Failed launch tab could not retain its native host: {}",
                     host_error.message
                 );
-                return;
+                return None;
             }
         };
         let revision = self.presentation.next_revision();
@@ -410,7 +493,7 @@ impl SystemRuntimeExecutor {
             Ok(presentation) => presentation,
             Err(message) => {
                 eprintln!("Failed launch tab presentation could not be retained: {message}");
-                return;
+                return None;
             }
         };
         let phase = if failed {
@@ -451,21 +534,24 @@ impl SystemRuntimeExecutor {
                 }
                 presentation.selected_tab_id.clone()
             }
-            Err(_) => return,
+            Err(_) => return None,
         };
+        let launch_preview_id = uuid::Uuid::new_v4().to_string();
+        let provisional = ProvisionalLaunch {
+            cancelled: false,
+            failed,
+            host_created,
+            id: completion.tab_id.clone(),
+            launch_preview_id: launch_preview_id.clone(),
+            source_id: completion.source_id.clone(),
+            tab_type: completion.tab_type.clone(),
+            window_id: completion.window_id.clone(),
+        };
+        let handle = launch_preview_handle(&provisional);
         if let Ok(mut state) = self.state.lock() {
-            state.provisional_launches.insert(
-                key,
-                ProvisionalLaunch {
-                    cancelled: false,
-                    failed,
-                    host_created,
-                    id: completion.tab_id.clone(),
-                    source_id: completion.source_id.clone(),
-                    tab_type: completion.tab_type.clone(),
-                    window_id: completion.window_id.clone(),
-                },
-            );
+            insert_provisional_launch(&mut state, provisional);
+        } else {
+            return None;
         }
         self.publish_launcher_presence();
         let native_reservation = self.reserve_native_tab(
@@ -484,11 +570,12 @@ impl SystemRuntimeExecutor {
                 "launch-completion-failed",
             );
         }
+        Some(handle)
     }
 
     fn schedule_automatic_launch_retry(
         self: &Arc<Self>,
-        key: String,
+        launch_preview_id: String,
         completion: BrowserLaunchCompletionRecord,
     ) {
         let runtime = Arc::clone(self);
@@ -498,28 +585,44 @@ impl SystemRuntimeExecutor {
                 .state
                 .lock()
                 .ok()
-                .is_some_and(|state| automatic_launch_retry_is_current(&state, &key));
+                .is_some_and(|state| {
+                    automatic_launch_retry_is_current(&state, &launch_preview_id)
+                });
             if !retry_is_current {
                 return;
             }
+            let Some(retry_preview) = runtime.state.lock().ok().and_then(|mut state| {
+                let retry_preview =
+                    renew_provisional_launch(&mut state, &launch_preview_id, false)?;
+                state
+                    .automatic_launch_retries
+                    .insert(retry_preview.launch_preview_id.clone(), 1);
+                Some(retry_preview)
+            }) else {
+                return;
+            };
             let command = if completion.tab_type == "workspace" {
                 CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: completion.source_id.clone(),
                     target: completion.target.clone(),
+                    launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
                 }
             } else {
                 CoreCommand::BrowserRoleLaunch {
                     role_id: completion.source_id.clone(),
                     target: completion.target.clone(),
+                    launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
                     zoom_factor: completion.zoom_factor,
                 }
             };
             if let Err(error) = Arc::clone(&runtime.core).invoke_async(command).await {
                 let error = error.payload();
                 if let Ok(mut state) = runtime.state.lock() {
-                    state.automatic_launch_retries.remove(&key);
+                    state
+                        .automatic_launch_retries
+                        .remove(&retry_preview.launch_preview_id);
                 }
-                runtime.fail_tab_launch_preview(&key);
+                runtime.fail_tab_launch_preview(&retry_preview.launch_preview_id);
                 runtime.record_presentation_event_with_error(
                     LogLevel::Error,
                     "tab.launch-auto-retry-exhausted",
@@ -548,24 +651,15 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn cancel_provisional_tab_launch(&self, tab_id: &str) -> bool {
-        let provisional = self.state.lock().ok().and_then(|mut state| {
-            state
-                .provisional_launches
-                .values_mut()
-                .find(|launch| launch.id == tab_id)
-                .map(|launch| {
-                    launch.cancelled = true;
-                    launch.clone()
-                })
-        });
+        let provisional = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|mut state| cancel_provisional_launch_state(&mut state, tab_id));
         let Some(provisional) = provisional else {
             return false;
         };
         if let Ok(mut state) = self.state.lock() {
-            state.automatic_launch_retries.remove(&format!(
-                "{}:{}",
-                provisional.tab_type, provisional.source_id
-            ));
             state
                 .completed_failed_launch_cleanups
                 .retain(|(tab_id, _)| tab_id != &provisional.id);
@@ -598,40 +692,41 @@ impl SystemRuntimeExecutor {
                 "launch-preview-closed",
             );
         }
+        self.record_launch_presentation_event_with_error_diagnostic(
+            LogLevel::Debug,
+            "tab.launch-preview-cancelled",
+            "The provisional launch was cancelled and fenced from future native attachment.",
+            &provisional.window_id,
+            Some(&provisional.id),
+            self.presentation.current_revision(),
+            "launch-preview-close",
+            0,
+            Some(&provisional.launch_preview_id),
+            None,
+            None,
+        );
         true
     }
 
     fn take_tab_launch_preview(
         &self,
+        launch_preview_id: Option<&str>,
         window_id: &str,
         source_id: &str,
         tab_type: &str,
     ) -> RuntimeResult<Option<ProvisionalLaunch>> {
-        let key = format!("{tab_type}:{source_id}");
-        let mut state = self.state()?;
-        let matches = state.provisional_launches.get(&key).is_some_and(|launch| {
-            launch.window_id == window_id
-                && launch.source_id == source_id
-                && launch.tab_type == tab_type
-        });
-        if !matches {
+        let Some(launch_preview_id) = launch_preview_id else {
             return Ok(None);
-        }
-        if state
-            .provisional_launches
-            .get(&key)
-            .is_some_and(|launch| launch.cancelled)
-        {
-            return Err(RuntimeError::new(
-                "LAUNCH_CANCELLED",
-                "The provisional runtime tab was closed before native attachment began.",
-            ));
-        }
-        Ok(state.provisional_launches.remove(&key).filter(|launch| {
-            launch.window_id == window_id
-                && launch.source_id == source_id
-                && launch.tab_type == tab_type
-        }))
+        };
+        let mut state = self.state()?;
+        take_provisional_launch_attempt(
+            &mut state,
+            launch_preview_id,
+            window_id,
+            source_id,
+            tab_type,
+        )
+        .map(Some)
     }
 
 }

@@ -494,6 +494,9 @@ pub enum CoreCommand {
         role_id: String,
         target: EmbeddedLaunchTargetRecord,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "launchPreviewId")]
+        launch_preview_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "zoomFactor")]
         zoom_factor: Option<f64>,
     },
@@ -501,6 +504,9 @@ pub enum CoreCommand {
         #[ts(rename = "workspaceId")]
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "launchPreviewId")]
+        launch_preview_id: Option<String>,
     },
     BrowserRoleStop {
         #[ts(rename = "roleId")]

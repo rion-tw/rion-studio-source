@@ -381,11 +381,13 @@ impl AppCore {
         self: &Arc<Self>,
         role_id: String,
         target: EmbeddedLaunchTargetRecord,
+        launch_preview_id: Option<String>,
         zoom_factor: f64,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
         let completion_zoom_factor = zoom_factor;
         let completion_permit = self.launch_completion.try_reserve()?;
         let core = Arc::clone(self);
+        let start_launch_preview_id = launch_preview_id.clone();
         let start = tokio::task::spawn_blocking(move || {
             core.ensure_role_session_recovery_complete(&role_id)?;
             let lease = core.browser_operations.acquire(BrowserOperationRequest {
@@ -395,6 +397,7 @@ impl AppCore {
             match core.start_embedded_role_with_lease(
                 &role_id,
                 target,
+                start_launch_preview_id,
                 zoom_factor,
                 lease.id.clone(),
             ) {
@@ -458,6 +461,7 @@ impl AppCore {
                     core.notify_browser_launch_completion(BrowserLaunchCompletionRecord {
                         accepted_at,
                         error: completion.as_ref().err().map(|error| error.payload()),
+                        launch_preview_id,
                         source_id: completion_source_id,
                         tab_id: completion_tab_id,
                         tab_type: "role".to_owned(),
@@ -485,7 +489,13 @@ impl AppCore {
             kind: "normal".to_owned(),
         })?;
         let result = self
-            .start_embedded_role_with_lease(role_id, target, zoom_factor, lease.id.clone())
+            .start_embedded_role_with_lease(
+                role_id,
+                target,
+                None,
+                zoom_factor,
+                lease.id.clone(),
+            )
             .and_then(|start| match start {
                 EmbeddedRoleLaunchStart::Completed(value) => Ok(value),
                 EmbeddedRoleLaunchStart::Pending(pending) => {
@@ -503,6 +513,7 @@ impl AppCore {
         &self,
         role_id: &str,
         target: EmbeddedLaunchTargetRecord,
+        launch_preview_id: Option<String>,
         zoom_factor: f64,
         lease_id: String,
     ) -> CoreResult<EmbeddedRoleLaunchStart> {
@@ -603,6 +614,7 @@ impl AppCore {
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             attempt_generation: None,
+            launch_preview_id,
             source_id: role.id.clone(),
             name: role.name.clone(),
             workspace_id: None,

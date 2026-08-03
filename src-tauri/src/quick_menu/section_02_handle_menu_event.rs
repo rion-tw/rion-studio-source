@@ -92,7 +92,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 let preview_runtime = Arc::clone(&runtime);
                 let preview_target = target.clone();
                 let preview_source_id = source_id.clone();
-                let preview = tauri::async_runtime::spawn_blocking(move || {
+                let preview = match tauri::async_runtime::spawn_blocking(move || {
                     preview_runtime.preview_tab_launch(
                         &preview_target,
                         &preview_source_id,
@@ -100,25 +100,46 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     )
                 })
                 .await
-                .ok()
-                .and_then(Result::ok);
+                {
+                    Ok(Ok(preview)) => preview,
+                    Ok(Err(error)) => {
+                        crate::reveal_shell_error(
+                            &app,
+                            rion_core::CoreErrorPayload {
+                                code: error.code.to_owned(),
+                                message: error.message,
+                            },
+                        );
+                        return;
+                    }
+                    Err(error) => {
+                        crate::reveal_shell_error(
+                            &app,
+                            rion_core::CoreErrorPayload {
+                                code: "TAURI_RUNTIME_LAUNCH_PREVIEW_FAILED".to_owned(),
+                                message: error.to_string(),
+                            },
+                        );
+                        return;
+                    }
+                };
                 let command = if workspace {
                     CoreCommand::BrowserWorkspaceLaunch {
                         workspace_id: source_id,
                         target,
+                        launch_preview_id: Some(preview.launch_preview_id.clone()),
                     }
                 } else {
                     CoreCommand::BrowserRoleLaunch {
                         role_id: source_id,
                         target,
+                        launch_preview_id: Some(preview.launch_preview_id.clone()),
                         zoom_factor: None,
                     }
                 };
                 let result = core.invoke_async(command).await;
-                if let Some(key) = preview {
-                    runtime.cancel_tab_launch_preview(&key);
-                }
                 if let Err(error) = result {
+                    runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
                     crate::reveal_shell_error(&app, error.payload());
                 }
             });

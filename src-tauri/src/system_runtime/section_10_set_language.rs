@@ -70,7 +70,7 @@ impl SystemRuntimeExecutor {
                 || state
                     .provisional_launches
                     .values()
-                    .any(|launch| launch.id == tab_id))
+                    .any(|launch| !launch.cancelled && launch.id == tab_id))
             .then_some(tab_id)
         })
     }
@@ -90,6 +90,7 @@ impl SystemRuntimeExecutor {
                     state
                         .provisional_launches
                         .values()
+                        .filter(|launch| !launch.cancelled)
                         .map(|launch| launch.id.clone()),
                 )
                 .collect::<HashSet<_>>()

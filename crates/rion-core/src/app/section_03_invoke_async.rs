@@ -152,6 +152,7 @@ impl AppCore {
             CoreCommand::BrowserRoleLaunch {
                 role_id,
                 target,
+                launch_preview_id,
                 zoom_factor,
             } => {
                 let launch_started = std::time::Instant::now();
@@ -160,7 +161,12 @@ impl AppCore {
                     launch_started.elapsed().as_millis()
                 );
                 let statuses = self
-                    .accept_browser_role_launch(role_id, target, zoom_factor.unwrap_or(1.0))
+                    .accept_browser_role_launch(
+                        role_id,
+                        target,
+                        launch_preview_id,
+                        zoom_factor.unwrap_or(1.0),
+                    )
                     .await?;
                 serde_json::to_value(statuses)
                     .map_err(|error| CoreError::Internal(error.to_string()))
@@ -168,9 +174,10 @@ impl AppCore {
             CoreCommand::BrowserWorkspaceLaunch {
                 workspace_id,
                 target,
+                launch_preview_id,
             } => {
                 let statuses = self
-                    .accept_browser_workspace_launch(workspace_id, target)
+                    .accept_browser_workspace_launch(workspace_id, target, launch_preview_id)
                     .await?;
                 serde_json::to_value(statuses)
                     .map_err(|error| CoreError::Internal(error.to_string()))
@@ -567,6 +574,7 @@ impl AppCore {
         self: &Arc<Self>,
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
+        launch_preview_id: Option<String>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
@@ -579,8 +587,14 @@ impl AppCore {
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let target = target.clone();
+            let start_launch_preview_id = launch_preview_id.clone();
             let result = tokio::task::spawn_blocking(move || {
-                core.start_embedded_workspace_for_roles(&workspace_id, &expected_role_ids, target)
+                core.start_embedded_workspace_for_roles(
+                    &workspace_id,
+                    &expected_role_ids,
+                    target,
+                    start_launch_preview_id,
+                )
             })
             .await
             .map_err(|error| CoreError::Internal(error.to_string()))?;
@@ -644,6 +658,7 @@ impl AppCore {
                         core.notify_browser_launch_completion(BrowserLaunchCompletionRecord {
                             accepted_at,
                             error: completion.as_ref().err().map(|error| error.payload()),
+                            launch_preview_id,
                             source_id: completion_source_id,
                             tab_id: completion_tab_id,
                             tab_type: "workspace".to_owned(),

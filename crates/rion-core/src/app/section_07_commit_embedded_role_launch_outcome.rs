@@ -80,7 +80,12 @@ impl AppCore {
         expected_role_ids: &[String],
         target: EmbeddedLaunchTargetRecord,
     ) -> CoreResult<Vec<EmbeddedLaunchResultRecord>> {
-        match self.start_embedded_workspace_for_roles(workspace_id, expected_role_ids, target)? {
+        match self.start_embedded_workspace_for_roles(
+            workspace_id,
+            expected_role_ids,
+            target,
+            None,
+        )? {
             EmbeddedWorkspaceLaunchStart::Completed(value) => Ok(value),
             EmbeddedWorkspaceLaunchStart::Pending(pending) => {
                 let lease_id = pending.lease_id.clone();
@@ -99,6 +104,7 @@ impl AppCore {
         workspace_id: &str,
         expected_role_ids: &[String],
         target: EmbeddedLaunchTargetRecord,
+        launch_preview_id: Option<String>,
     ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
         if expected_role_ids.is_empty() {
             return Err(CoreError::Domain {
@@ -183,7 +189,13 @@ impl AppCore {
                         .collect(),
                 ));
             }
-            self.start_embedded_workspace_with_lease(workspace, role_ids, target, lease.id.clone())
+            self.start_embedded_workspace_with_lease(
+                workspace,
+                role_ids,
+                target,
+                launch_preview_id,
+                lease.id.clone(),
+            )
         })();
         match result {
             Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
@@ -205,6 +217,7 @@ impl AppCore {
         workspace: StateLaunchWorkspaceRecord,
         role_ids: Vec<String>,
         target: EmbeddedLaunchTargetRecord,
+        launch_preview_id: Option<String>,
         lease_id: String,
     ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
         let available_roles = self
@@ -299,6 +312,7 @@ impl AppCore {
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             attempt_generation: None,
+            launch_preview_id,
             source_id: workspace.id.clone(),
             name: workspace.name.clone(),
             workspace_id: Some(workspace.id.clone()),

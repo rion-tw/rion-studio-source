@@ -34,7 +34,7 @@ struct LaunchIntent {
     native_action_at: String,
     preview_committed_at: String,
     preview_committed_ms: u64,
-    preview_key: String,
+    launch_preview_id: String,
     source_id: String,
     target: EmbeddedLaunchTargetRecord,
     workspace: bool,
@@ -84,11 +84,13 @@ impl LaunchIntentDispatcher {
                         CoreCommand::BrowserWorkspaceLaunch {
                             workspace_id: intent.source_id.clone(),
                             target: intent.target.clone(),
+                            launch_preview_id: Some(intent.launch_preview_id.clone()),
                         }
                     } else {
                         CoreCommand::BrowserRoleLaunch {
                             role_id: intent.source_id.clone(),
                             target: intent.target.clone(),
+                            launch_preview_id: Some(intent.launch_preview_id.clone()),
                             zoom_factor: None,
                         }
                     };
@@ -103,7 +105,7 @@ impl LaunchIntentDispatcher {
                         error.as_ref(),
                     );
                     if let Err(error) = result {
-                        runtime.fail_tab_launch_preview(&intent.preview_key);
+                        runtime.cancel_tab_launch_preview(&intent.launch_preview_id);
                         crate::reveal_shell_error(&app, error.payload());
                     }
                 });
@@ -210,6 +212,7 @@ fn capture_launch_intent_event(
         "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
         "previewCommittedAt": intent.preview_committed_at,
         "previewCommittedMs": intent.preview_committed_ms,
+        "launchPreviewId": intent.launch_preview_id,
         "sourceId": intent.source_id,
         "sourceType": if intent.workspace { "workspace" } else { "role" },
         "windowId": intent.target.window_id,

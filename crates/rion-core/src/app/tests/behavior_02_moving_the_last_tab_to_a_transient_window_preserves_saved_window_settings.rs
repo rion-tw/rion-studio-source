@@ -212,7 +212,6 @@
             core.shutdown();
         }
     }
-
     #[test]
     fn selecting_live_tabs_preserves_dormant_saved_tabs() {
         for platform in ["darwin", "win32"] {
@@ -370,7 +369,6 @@
                 },
                 presentation: "normal".to_owned(),
             };
-
             let stopped_window_id = create_window("Stop together");
             let other_window_id = create_window("Keep running");
             drive_accepted_launch_to_completion(
@@ -378,6 +376,7 @@
                 CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 },
             );
@@ -386,6 +385,7 @@
                 CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: workspace_id.clone(),
                     target: target(&stopped_window_id),
+                    launch_preview_id: None,
                 },
             );
             drive_accepted_launch_to_completion(
@@ -393,6 +393,7 @@
                 CoreCommand::BrowserRoleLaunch {
                     role_id: other_role_id.clone(),
                     target: target(&other_window_id),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 },
             );
@@ -447,12 +448,12 @@
                 HashSet::from([role_id.as_str(), workspace_id.as_str()]),
                 "{platform}"
             );
-
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 },
             );
@@ -461,6 +462,7 @@
                 CoreCommand::BrowserWorkspaceLaunch {
                     workspace_id: workspace_id.clone(),
                     target: target(&stopped_window_id),
+                    launch_preview_id: None,
                 },
             );
             let reopened = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
@@ -496,13 +498,13 @@
                 2,
                 "{platform}"
             );
-
             let deleted_window_id = create_window("Delete together");
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: deleted_role_id,
                     target: target(&deleted_window_id),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 },
             );
@@ -524,13 +526,13 @@
                     .all(|window| window["id"].as_str() != Some(deleted_window_id.as_str())),
                 "{platform}"
             );
-
             let failed_window_id = create_window("Preserve after failure");
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
                     role_id: failed_role_id,
                     target: target(&failed_window_id),
+                    launch_preview_id: None,
                     zoom_factor: None,
                 },
             );

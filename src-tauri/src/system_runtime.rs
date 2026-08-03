@@ -23,6 +23,7 @@ include!("system_runtime/section_04_input_fence_state.rs");
 include!("system_runtime/section_04_surface_recovery_registry.rs");
 include!("system_runtime/section_04_application_lifecycle.rs");
 include!("system_runtime/section_05_is_surface_close_effect.rs");
+include!("system_runtime/section_05_launch_preview_identity.rs");
 include!("system_runtime/section_05_native_presentation_diagnostics.rs");
 include!("system_runtime/section_06_is_saved_game_window.rs");
 include!("system_runtime/section_07_hydrate_tab_dividers.rs");

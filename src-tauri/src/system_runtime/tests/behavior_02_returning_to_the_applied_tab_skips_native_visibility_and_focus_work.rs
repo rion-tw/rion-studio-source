@@ -232,27 +232,33 @@
 
     #[test]
     fn cancelling_during_retry_delay_invalidates_the_pending_attempt() {
-        let key = "role:role-1";
+        let launch_preview_id = "preview-1";
         let mut state = RuntimeState::default();
-        state.automatic_launch_retries.insert(key.to_owned(), 1);
-        state.provisional_launches.insert(
-            key.to_owned(),
+        state
+            .automatic_launch_retries
+            .insert(launch_preview_id.to_owned(), 1);
+        insert_provisional_launch(
+            &mut state,
             ProvisionalLaunch {
                 cancelled: false,
                 failed: false,
                 host_created: false,
                 id: "tab-1".to_owned(),
+                launch_preview_id: launch_preview_id.to_owned(),
                 source_id: "role-1".to_owned(),
                 tab_type: "role".to_owned(),
                 window_id: "window-1".to_owned(),
             },
         );
-        assert!(automatic_launch_retry_is_current(&state, key));
-        state.provisional_launches.get_mut(key).unwrap().cancelled = true;
-        assert!(!automatic_launch_retry_is_current(&state, key));
-        state.provisional_launches.get_mut(key).unwrap().cancelled = false;
-        state.automatic_launch_retries.remove(key);
-        assert!(!automatic_launch_retry_is_current(&state, key));
+        assert!(automatic_launch_retry_is_current(
+            &state,
+            launch_preview_id
+        ));
+        assert!(cancel_provisional_launch_state(&mut state, "tab-1").is_some());
+        assert!(!automatic_launch_retry_is_current(
+            &state,
+            launch_preview_id
+        ));
     }
 
     #[test]

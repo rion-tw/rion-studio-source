@@ -354,7 +354,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).toContain("TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150)");
     expect(shell).toContain("tokio::sync::watch::channel(request)");
     expect(shell).toContain("preview_and_commit_tab_selection");
-    expect(shell).toContain("runtime.preview_tab_launch(&target, &role_id, \"role\")");
+    expect(shell).toContain("runtime.preview_tab_launch(&target, &source_id, tab_type)");
     expect(shell).toContain("tauri::async_runtime::spawn_blocking(move ||");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
@@ -538,9 +538,10 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       createTab.indexOf("with_native_creation_lane")
     );
     expect(runtime).toContain("pub(crate) fn cancel_provisional_tab_launch(");
-    expect(runtime).toContain(".find(|launch| launch.id == tab_id)");
-    expect(runtime).toContain("launch.cancelled = true");
-    expect(runtime).toContain(".is_some_and(|launch| launch.cancelled)");
+    expect(runtime).toContain("cancel_provisional_launch_state(&mut state, tab_id)");
+    expect(runtime).toContain("take_provisional_launch_attempt(");
+    expect(runtime).toContain('"LAUNCH_PREVIEW_STALE"');
+    expect(runtime).toContain("active_provisional_launches");
     const stopTransaction = shell.slice(
       shell.indexOf("async fn execute_tab_stop("),
       shell.indexOf("async fn execute_tab_mutation_commit(")

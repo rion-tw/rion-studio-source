@@ -324,6 +324,9 @@ pub struct EmbeddedTabEffectRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub attempt_generation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub launch_preview_id: Option<String>,
     pub source_id: String,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

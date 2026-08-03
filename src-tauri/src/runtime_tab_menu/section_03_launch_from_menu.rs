@@ -35,7 +35,7 @@ fn launch_from_menu(
             .runtime
             .preview_tab_launch(&target, source_id, tab_type)
         {
-            Ok(preview_key) => Some(preview_key),
+            Ok(preview) => Some(preview),
             Err(error) => {
                 let payload = rion_core::CoreErrorPayload {
                     code: error.code.to_owned(),
@@ -56,7 +56,7 @@ fn launch_from_menu(
             }
         }
     };
-    let Some(preview_key) = preview else {
+    let Some(preview) = preview else {
         if state
             .runtime
             .presented_tab_for_launcher_source(source_id, tab_type)
@@ -74,12 +74,14 @@ fn launch_from_menu(
         native_action_at,
         preview_committed_at,
         preview_committed_ms,
-        preview_key: preview_key.clone(),
+        launch_preview_id: preview.launch_preview_id.clone(),
         source_id: source_id.to_owned(),
         target: target.clone(),
         workspace,
     }) {
-        state.runtime.fail_tab_launch_preview(&preview_key);
+        state
+            .runtime
+            .cancel_tab_launch_preview(&preview.launch_preview_id);
         let payload = rion_core::CoreErrorPayload {
             code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),
             message,

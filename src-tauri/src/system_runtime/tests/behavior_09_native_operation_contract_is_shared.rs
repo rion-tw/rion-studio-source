@@ -1,20 +1,23 @@
 #[test]
 fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms() {
     let cases = [
-        (NativeOperationSubsystem::SurfaceLifecycle, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Navigation, "pageFinished"),
-        (NativeOperationSubsystem::Input, "nativeSubmission"),
-        (NativeOperationSubsystem::Presentation, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Geometry, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Popup, "stateCommit"),
-        (NativeOperationSubsystem::Security, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Session, "stateCommit"),
-        (NativeOperationSubsystem::Audio, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Zoom, "nativeAcknowledgement"),
-        (NativeOperationSubsystem::Metadata, "nativeSubmission"),
-        (NativeOperationSubsystem::Performance, "runtimeProbe"),
-        (NativeOperationSubsystem::Capability, "runtimeProbe"),
-        (NativeOperationSubsystem::Shutdown, "nativeAcknowledgement"),
+        (NativeOperationSubsystem::SurfaceLifecycle, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Navigation, SystemRuntimeOperationCompletionScope::PageFinished),
+        (NativeOperationSubsystem::Input, SystemRuntimeOperationCompletionScope::NativeSubmission),
+        (NativeOperationSubsystem::Presentation, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::TabActivation, SystemRuntimeOperationCompletionScope::TabActivationConverged),
+        (NativeOperationSubsystem::TabMutation, SystemRuntimeOperationCompletionScope::TabTopologyConverged),
+        (NativeOperationSubsystem::Projection, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Geometry, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Popup, SystemRuntimeOperationCompletionScope::StateCommit),
+        (NativeOperationSubsystem::Security, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Session, SystemRuntimeOperationCompletionScope::StateCommit),
+        (NativeOperationSubsystem::Audio, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Zoom, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
+        (NativeOperationSubsystem::Metadata, SystemRuntimeOperationCompletionScope::NativeSubmission),
+        (NativeOperationSubsystem::Performance, SystemRuntimeOperationCompletionScope::RuntimeProbe),
+        (NativeOperationSubsystem::Capability, SystemRuntimeOperationCompletionScope::RuntimeProbe),
+        (NativeOperationSubsystem::Shutdown, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
     ];
     for platform in ["macos", "windows"] {
         for (subsystem, completion_scope) in cases {
@@ -30,14 +33,14 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
             .with_surface_generation(9);
             let summary = NativeOperationReceipt::applied(context, "contractApplied").summary();
             assert_eq!(summary.platform, platform);
-            assert_eq!(summary.status, "applied");
+            assert_eq!(summary.status, SystemRuntimeOperationStatus::Applied);
             assert_eq!(summary.completion_scope, completion_scope);
             assert_eq!(summary.timeout_ms, 750);
             assert_eq!(summary.surface_generation, Some(9));
             assert!(
                 summary
                     .operation_id
-                    .starts_with(&format!("native-{}-", summary.subsystem))
+                    .starts_with(&format!("native-{}-", summary.subsystem.as_str()))
             );
         }
     }
@@ -110,7 +113,7 @@ fn rollback_failures_are_preserved_in_the_public_summary() {
     )
     .with_rollback_error_count(2)
     .summary();
-    assert_eq!(summary.status, "indeterminate");
+    assert_eq!(summary.status, SystemRuntimeOperationStatus::Indeterminate);
     assert_eq!(summary.rollback_error_count, Some(2));
 
     let session_result: RuntimeResult<()> = Err(RuntimeError::new(
@@ -139,7 +142,7 @@ fn failure_stage_cannot_change_the_declared_completion_scope() {
             Duration::from_secs(1),
             platform,
         )
-        .with_completion_scope("inputReady");
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::InputReady);
         let failed = NativeOperationReceipt::with_status(
             context.clone(),
             "reloadSubmitFailed",
@@ -152,8 +155,8 @@ fn failure_stage_cannot_change_the_declared_completion_scope() {
             NativeOperationStatus::Indeterminate,
             Some("SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE"),
         );
-        assert_eq!(failed.completion_scope(), "inputReady", "{platform}");
-        assert_eq!(indeterminate.completion_scope(), "inputReady", "{platform}");
+        assert_eq!(failed.completion_scope(), SystemRuntimeOperationCompletionScope::InputReady, "{platform}");
+        assert_eq!(indeterminate.completion_scope(), SystemRuntimeOperationCompletionScope::InputReady, "{platform}");
     }
 }
 
@@ -167,7 +170,7 @@ fn an_operation_that_finishes_after_its_deadline_cannot_report_applied() {
             platform,
         );
         let summary = NativeOperationReceipt::applied(context, "metadataSubmitted").summary();
-        assert_eq!(summary.status, "degraded");
+        assert_eq!(summary.status, SystemRuntimeOperationStatus::Degraded);
         assert_eq!(
             summary.failure_code.as_deref(),
             Some("NATIVE_OPERATION_DEADLINE_EXCEEDED")

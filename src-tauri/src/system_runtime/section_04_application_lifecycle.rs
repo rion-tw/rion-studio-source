@@ -340,7 +340,7 @@ impl SystemRuntimeExecutor {
             "applicationSuspend",
             POWER_LIFECYCLE_OPERATION_TIMEOUT,
         )
-        .with_completion_scope("lifecycleTransition")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::LifecycleTransition)
         .with_lifecycle_epoch(epoch);
         let registered = self.operations.register(operation.clone()).is_ok();
         if registered {
@@ -451,7 +451,7 @@ impl SystemRuntimeExecutor {
             "applicationResume",
             POWER_LIFECYCLE_OPERATION_TIMEOUT,
         )
-        .with_completion_scope("lifecycleTransition")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::LifecycleTransition)
         .with_lifecycle_epoch(epoch);
         let registered = self.operations.register(operation.clone()).is_ok();
         if registered {

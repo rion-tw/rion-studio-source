@@ -60,19 +60,19 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         assert_eq!(applied.status, NativePresentationStatus::Applied, "{platform}");
         assert_eq!(applied.applied_revision, Some(41), "{platform}");
         assert_eq!(applied.surface_identities, plan.surface_identities, "{platform}");
-        assert_eq!(applied.operation.completion_scope(), "nativeAcknowledgement");
+        assert_eq!(applied.operation.completion_scope(), SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
 
         let mut window_mode_plan = plan.clone();
         window_mode_plan.window_mode = Some(NativeWindowMode::Fullscreen);
         window_mode_plan.operation = window_mode_plan
             .operation
-            .with_completion_scope("nativeSubmission");
+            .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeSubmission);
         let window_mode = NativePresentationReceipt::from_outcome(
             &window_mode_plan,
             &presentation_outcome(true, Some(true), Some(true), Vec::new()),
         );
         assert_eq!(window_mode.status, NativePresentationStatus::Applied, "{platform}");
-        assert_eq!(window_mode.operation.completion_scope(), "nativeSubmission");
+        assert_eq!(window_mode.operation.completion_scope(), SystemRuntimeOperationCompletionScope::NativeSubmission);
 
         let mut control_only_outcome =
             presentation_outcome(true, Some(true), Some(false), Vec::new());

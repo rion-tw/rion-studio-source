@@ -550,7 +550,7 @@ impl SystemRuntimeExecutor {
             current_runtime_platform(),
             requested_at,
         )
-        .with_completion_scope("nativeAcknowledgement")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
         .with_revision(revision)
         .with_window(window_id.clone())
         .with_window_generation(window_generation)

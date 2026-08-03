@@ -13,7 +13,7 @@ fn tab_activation_operation(
     .with_revision(revision)
     .with_window(window_id)
     .with_tab(tab_id)
-    .with_completion_scope("tabActivationConverged")
+    .with_completion_scope(SystemRuntimeOperationCompletionScope::TabActivationConverged)
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn tab_activation_latest_revision_supersedes_the_previous_transaction() {
             .unwrap();
         assert_eq!(receipt.status, NativeOperationStatus::Applied, "{platform}");
         assert_eq!(receipt.stage, "tabActivationConverged", "{platform}");
-        assert_eq!(receipt.completion_scope(), "tabActivationConverged");
+        assert_eq!(receipt.completion_scope(), SystemRuntimeOperationCompletionScope::TabActivationConverged);
     }
 }
 

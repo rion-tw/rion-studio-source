@@ -5,7 +5,7 @@ fn registry_operation(timeout: Duration) -> NativeOperationContext {
         timeout,
         "windows",
     )
-    .with_completion_scope("nativeAcknowledgement")
+    .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn operation_id_is_stable_and_wait_works_before_and_after_completion() {
 
     assert_eq!(first.context.operation_id, operation_id);
     assert_eq!(second, first);
-    assert_eq!(first.completion_scope(), "nativeAcknowledgement");
+    assert_eq!(first.completion_scope(), SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn v5_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
             Duration::from_secs(1),
             platform,
         )
-        .with_completion_scope("policyDecision")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::PolicyDecision)
         .with_revision(11)
         .with_window_generation(13)
         .with_lifecycle_epoch(14)
@@ -80,11 +80,11 @@ fn v5_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
         ));
         let summary = receipt.summary();
 
-        assert_eq!(summary.status, "cancelled", "{platform}");
+        assert_eq!(summary.status, SystemRuntimeOperationStatus::Cancelled, "{platform}");
         assert_eq!(summary.operation_id, operation_id, "{platform}");
         assert_eq!(summary.accepted_at, accepted_at, "{platform}");
         assert_eq!(summary.deadline_at, deadline_at, "{platform}");
-        assert_eq!(summary.completion_scope, "policyDecision", "{platform}");
+        assert_eq!(summary.completion_scope, SystemRuntimeOperationCompletionScope::PolicyDecision, "{platform}");
         assert_eq!(summary.revision, Some(11), "{platform}");
         assert_eq!(summary.topology_revision, None, "{platform}");
         assert_eq!(summary.window_generation, Some(13), "{platform}");
@@ -267,7 +267,7 @@ fn navigation_is_rejected_before_input_mutation_when_the_registry_is_full() {
         Duration::from_secs(5),
         "windows",
     )
-    .with_completion_scope("inputReady")
+    .with_completion_scope(SystemRuntimeOperationCompletionScope::InputReady)
     .with_role("role-1")
     .with_surface_generation(7);
     let operation_id = operation.operation_id.clone();
@@ -294,7 +294,7 @@ fn queued_and_in_flight_deadlines_have_distinct_terminal_statuses() {
             Duration::ZERO,
             platform,
         )
-        .with_completion_scope("nativeAcknowledgement");
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
         let queued_id = queued.operation_id.clone();
         queued_registry.register(queued).unwrap();
         let queued_receipt = queued_registry.wait(&queued_id).unwrap();
@@ -307,7 +307,7 @@ fn queued_and_in_flight_deadlines_have_distinct_terminal_statuses() {
             Duration::ZERO,
             platform,
         )
-        .with_completion_scope("nativeAcknowledgement");
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
         let in_flight_id = in_flight.operation_id.clone();
         in_flight_registry.register(in_flight).unwrap();
         assert!(in_flight_registry.mark_in_flight(&in_flight_id));
@@ -397,7 +397,7 @@ fn repeated_shutdown_waiters_observe_the_same_terminal_receipt() {
         Duration::from_secs(1),
         "macos",
     )
-    .with_completion_scope("nativeAcknowledgement");
+    .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
     registry.register(operation.clone()).unwrap();
     let terminal = registry.complete(NativeOperationReceipt::applied(
         operation.clone(),

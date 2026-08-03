@@ -6,7 +6,7 @@ import { readSourceTree } from "./helpers/readSourceTree";
 
 describe("System WebView runtime health diagnostics", () => {
   it("exports a bounded privacy-safe native runtime summary", async () => {
-    const [core, runtime, shell, snapshot, diagnostics, failure, activeFence, fenceEvent, operation, capabilityEvidence, generatedIndex] =
+    const [core, runtime, shell, snapshot, diagnostics, failure, activeFence, fenceEvent, operation, subsystem, status, scope, capabilityEvidence, generatedIndex] =
       await Promise.all([
         readSourceTree(new URL("../crates/rion-core/src/app.rs", import.meta.url)),
         readSourceTree(new URL("../src-tauri/src/system_runtime.rs", import.meta.url)),
@@ -17,6 +17,9 @@ describe("System WebView runtime health diagnostics", () => {
         readFile("src/shared/generated/SystemRuntimeInputFenceRecord.ts", "utf8"),
         readFile("src/shared/generated/SystemRuntimeInputFenceEventRecord.ts", "utf8"),
         readFile("src/shared/generated/SystemRuntimeOperationSummaryRecord.ts", "utf8"),
+        readFile("src/shared/generated/SystemRuntimeOperationSubsystem.ts", "utf8"),
+        readFile("src/shared/generated/SystemRuntimeOperationStatus.ts", "utf8"),
+        readFile("src/shared/generated/SystemRuntimeOperationCompletionScope.ts", "utf8"),
         readFile("src/shared/generated/EngineCapabilityEvidenceRecord.ts", "utf8"),
         readFile("src/shared/generated/index.ts", "utf8")
       ]);
@@ -52,10 +55,16 @@ describe("System WebView runtime health diagnostics", () => {
       expect(fenceEvent).not.toContain(`${sensitive}:`);
       expect(operation).not.toContain(`${sensitive}:`);
     }
-    expect(operation).toContain(
-      'status: "applied" | "superseded" | "cancelled" | "degraded" | "failed" | "indeterminate"'
+    expect(status).toContain(
+      '"applied" | "superseded" | "cancelled" | "degraded" | "failed" | "indeterminate"'
     );
-    expect(operation).toContain("completionScope:");
+    expect(operation).toContain("subsystem: SystemRuntimeOperationSubsystem");
+    expect(operation).toContain("status: SystemRuntimeOperationStatus");
+    expect(operation).toContain("completionScope: SystemRuntimeOperationCompletionScope");
+    expect(subsystem).toContain('"tabMutation"');
+    expect(subsystem).toContain('"projection"');
+    expect(scope).toContain('"tabTopologyConverged"');
+    expect(scope).not.toContain('"focusObserved"');
     expect(capabilityEvidence).toContain("contractVersion: number");
     expect(generatedIndex).toContain(
       'export type { SystemRuntimeDiagnosticsRecord } from "./SystemRuntimeDiagnosticsRecord";'

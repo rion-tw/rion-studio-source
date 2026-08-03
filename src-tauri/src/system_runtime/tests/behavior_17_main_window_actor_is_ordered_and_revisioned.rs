@@ -137,7 +137,7 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
         ), "{platform}");
         assert_eq!(
             MainWindowCommand::StartDragging.completion_scope(),
-            "nativeSubmission",
+            SystemRuntimeOperationCompletionScope::NativeSubmission,
             "{platform}"
         );
     }

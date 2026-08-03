@@ -62,7 +62,7 @@ impl SystemRuntimeExecutor {
             "reloadTab",
             NAVIGATION_TIMEOUT,
         )
-        .with_completion_scope("inputReady")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::InputReady)
         .with_tab(tab_id)
         .with_window(&window_id);
         let aggregate_operation_id = aggregate_operation.operation_id.clone();

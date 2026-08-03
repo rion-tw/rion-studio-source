@@ -126,7 +126,7 @@ impl SystemRuntimeExecutor {
             "verifyRoleSession",
             NAVIGATION_TIMEOUT,
         )
-        .with_completion_scope("runtimeProbe")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::RuntimeProbe)
         .with_role(target.role_id);
         let result = self.verify_role_authentication(
             target.role_id,

@@ -52,7 +52,7 @@ impl SystemRuntimeExecutor {
             "runtime-tab-drag",
             TAB_DRAG_OPERATION_TIMEOUT,
         )
-        .with_completion_scope("dragCommitted")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::DragCommitted)
         .with_session_id(session_id)
         .with_window(source_window_id)
         .with_window_generation(window_generation)
@@ -94,7 +94,7 @@ impl SystemRuntimeExecutor {
                     "runtime-tab-drag-receipt-fallback",
                     Duration::ZERO,
                 )
-                .with_completion_scope("dragCommitted"),
+                .with_completion_scope(SystemRuntimeOperationCompletionScope::DragCommitted),
                 "tabDragReceiptUnavailable",
                 NativeOperationStatus::Indeterminate,
                 Some("SYSTEM_TAB_DRAG_RECEIPT_UNAVAILABLE"),

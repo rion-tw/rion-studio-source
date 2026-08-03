@@ -39,13 +39,10 @@ pub struct SystemRuntimeOperationSummaryRecord {
     pub deadline_at: String,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
-    #[ts(type = "\"surfaceLifecycle\" | \"navigation\" | \"input\" | \"presentation\" | \"tabActivation\" | \"geometry\" | \"popup\" | \"security\" | \"session\" | \"audio\" | \"zoom\" | \"metadata\" | \"performance\" | \"capability\" | \"shutdown\" | \"displayTopology\" | \"windowLifecycle\" | \"focus\" | \"recovery\" | \"power\" | \"drag\" | \"projection\"")]
-    pub subsystem: String,
-    #[ts(type = "\"applied\" | \"superseded\" | \"cancelled\" | \"degraded\" | \"failed\" | \"indeterminate\"")]
-    pub status: String,
+    pub subsystem: SystemRuntimeOperationSubsystem,
+    pub status: SystemRuntimeOperationStatus,
     pub stage: String,
-    #[ts(type = "\"stateCommit\" | \"nativeSubmission\" | \"nativeAcknowledgement\" | \"nativeDestroyed\" | \"pageFinished\" | \"inputReady\" | \"policyDecision\" | \"runtimeProbe\" | \"topologyCommitted\" | \"focusObserved\" | \"dragCommitted\" | \"lifecycleTransition\" | \"tabActivationConverged\"")]
-    pub completion_scope: String,
+    pub completion_scope: SystemRuntimeOperationCompletionScope,
     pub operation_id: String,
     pub trigger: String,
     #[ts(type = "number")]
@@ -88,6 +85,127 @@ pub struct SystemRuntimeOperationSummaryRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub rollback_error_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabMutationRequestRecord {
+    pub operation_id: String,
+    #[ts(type = "\"move\" | \"moveToNewWindow\" | \"hide\" | \"reorder\" | \"stop\"")]
+    pub mutation_kind: String,
+    pub tab_id: String,
+    pub source_window_id: String,
+    #[ts(type = "number")]
+    pub source_window_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub target_window_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub target_window_generation: Option<u64>,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    #[ts(type = "number")]
+    pub presentation_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub reorder_target_index: Option<u64>,
+    pub expected_tab_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub expected_active_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabMoveResultRecord {
+    pub target_window_id: String,
+    pub receipt: SystemRuntimeOperationSummaryRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabChromeItemRecord {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    #[ts(rename = "type", type = "\"role\" | \"workspace\"")]
+    pub tab_type: String,
+    pub hidden: bool,
+    pub muted: bool,
+    pub loading: bool,
+    pub degraded: bool,
+    pub role_ids: Vec<String>,
+    pub role_names: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub icon_data_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "unknown")]
+    pub workspace_template: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabChromeProjectionRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub renderer_instance_id: Option<String>,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+    #[ts(type = "number")]
+    pub projection_revision: u64,
+    pub tabs: Vec<RuntimeTabChromeItemRecord>,
+    pub tab_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
+    #[ts(type = "number")]
+    pub display_id: u64,
+    pub displays: Vec<DisplayInfoRecord>,
+    pub fullscreen: bool,
+    pub window_fullscreen: bool,
+    pub toolbar_visible: bool,
+    pub always_hide_tab_close_button: bool,
+    pub always_show_toolbar_in_full_screen: bool,
+    pub language: String,
+    pub theme: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabChromeReadyRecord {
+    pub renderer_instance_id: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub lifecycle_epoch: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabChromeAcknowledgementRecord {
+    pub renderer_instance_id: String,
+    #[ts(type = "number")]
+    pub projection_revision: u64,
+    pub observed_tab_order: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub observed_active_tab_id: Option<String>,
+    #[ts(type = "\"applied\" | \"superseded\" | \"failed\"")]
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -443,4 +561,157 @@ pub struct SystemRuntimeDiagnosticsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_navigation_operation_count: Option<u32>,
+}
+#[derive(Debug, Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum SystemRuntimeOperationSubsystem {
+    SurfaceLifecycle,
+    Navigation,
+    Input,
+    Presentation,
+    TabActivation,
+    TabMutation,
+    Projection,
+    Geometry,
+    Popup,
+    Security,
+    Session,
+    Audio,
+    Zoom,
+    Metadata,
+    Performance,
+    Capability,
+    Shutdown,
+    DisplayTopology,
+    WindowLifecycle,
+    Focus,
+    Drag,
+    Recovery,
+    Power,
+}
+
+impl SystemRuntimeOperationSubsystem {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SurfaceLifecycle => "surfaceLifecycle",
+            Self::Navigation => "navigation",
+            Self::Input => "input",
+            Self::Presentation => "presentation",
+            Self::TabActivation => "tabActivation",
+            Self::TabMutation => "tabMutation",
+            Self::Projection => "projection",
+            Self::Geometry => "geometry",
+            Self::Popup => "popup",
+            Self::Security => "security",
+            Self::Session => "session",
+            Self::Audio => "audio",
+            Self::Zoom => "zoom",
+            Self::Metadata => "metadata",
+            Self::Performance => "performance",
+            Self::Capability => "capability",
+            Self::Shutdown => "shutdown",
+            Self::DisplayTopology => "displayTopology",
+            Self::WindowLifecycle => "windowLifecycle",
+            Self::Focus => "focus",
+            Self::Drag => "drag",
+            Self::Recovery => "recovery",
+            Self::Power => "power",
+        }
+    }
+
+    pub const fn default_completion_scope(self) -> SystemRuntimeOperationCompletionScope {
+        match self {
+            Self::SurfaceLifecycle
+            | Self::Presentation
+            | Self::Geometry
+            | Self::Security
+            | Self::Audio
+            | Self::Zoom
+            | Self::Shutdown
+            | Self::DisplayTopology
+            | Self::WindowLifecycle
+            | Self::Focus => SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
+            Self::TabActivation => {
+                SystemRuntimeOperationCompletionScope::TabActivationConverged
+            }
+            Self::TabMutation => SystemRuntimeOperationCompletionScope::TabTopologyConverged,
+            Self::Projection => SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
+            Self::Drag => SystemRuntimeOperationCompletionScope::DragCommitted,
+            Self::Recovery => SystemRuntimeOperationCompletionScope::InputReady,
+            Self::Power => SystemRuntimeOperationCompletionScope::LifecycleTransition,
+            Self::Navigation => SystemRuntimeOperationCompletionScope::PageFinished,
+            Self::Input | Self::Metadata => {
+                SystemRuntimeOperationCompletionScope::NativeSubmission
+            }
+            Self::Popup | Self::Session => SystemRuntimeOperationCompletionScope::StateCommit,
+            Self::Performance | Self::Capability => {
+                SystemRuntimeOperationCompletionScope::RuntimeProbe
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum SystemRuntimeOperationStatus {
+    Applied,
+    Superseded,
+    Cancelled,
+    Degraded,
+    Failed,
+    Indeterminate,
+}
+
+impl SystemRuntimeOperationStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Superseded => "superseded",
+            Self::Cancelled => "cancelled",
+            Self::Degraded => "degraded",
+            Self::Failed => "failed",
+            Self::Indeterminate => "indeterminate",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum SystemRuntimeOperationCompletionScope {
+    StateCommit,
+    NativeSubmission,
+    NativeAcknowledgement,
+    NativeDestroyed,
+    PageFinished,
+    InputReady,
+    PolicyDecision,
+    RuntimeProbe,
+    TopologyCommitted,
+    DragCommitted,
+    LifecycleTransition,
+    TabActivationConverged,
+    TabTopologyConverged,
+}
+
+impl SystemRuntimeOperationCompletionScope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StateCommit => "stateCommit",
+            Self::NativeSubmission => "nativeSubmission",
+            Self::NativeAcknowledgement => "nativeAcknowledgement",
+            Self::NativeDestroyed => "nativeDestroyed",
+            Self::PageFinished => "pageFinished",
+            Self::InputReady => "inputReady",
+            Self::PolicyDecision => "policyDecision",
+            Self::RuntimeProbe => "runtimeProbe",
+            Self::TopologyCommitted => "topologyCommitted",
+            Self::DragCommitted => "dragCommitted",
+            Self::LifecycleTransition => "lifecycleTransition",
+            Self::TabActivationConverged => "tabActivationConverged",
+            Self::TabTopologyConverged => "tabTopologyConverged",
+        }
+    }
 }

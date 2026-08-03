@@ -15,7 +15,7 @@ impl SystemRuntimeExecutor {
                     "closeAll",
                     SURFACE_RECLAMATION_TIMEOUT,
                 )
-                .with_completion_scope("nativeAcknowledgement")
+                .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
             })
             .clone();
         match self.operations.register(operation.clone()) {
@@ -314,8 +314,11 @@ impl SystemRuntimeExecutor {
     }
 }
 
-pub(crate) fn shutdown_receipt_allows_clean_exit(status: &str) -> bool {
-    matches!(status, "applied" | "degraded")
+pub(crate) fn shutdown_receipt_allows_clean_exit(status: &SystemRuntimeOperationStatus) -> bool {
+    matches!(
+        status,
+        SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+    )
 }
 
 struct ShutdownHostSnapshot {

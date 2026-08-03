@@ -108,9 +108,9 @@ fn surface_recovery_generation_and_destructive_boundary_are_explicit() {
 #[test]
 fn clean_exit_requires_a_terminal_shutdown_drain() {
     for _platform in ["macos", "windows"] {
-        assert!(shutdown_receipt_allows_clean_exit("applied"));
-        assert!(shutdown_receipt_allows_clean_exit("degraded"));
-        assert!(!shutdown_receipt_allows_clean_exit("failed"));
-        assert!(!shutdown_receipt_allows_clean_exit("indeterminate"));
+        assert!(shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Applied));
+        assert!(shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Degraded));
+        assert!(!shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Failed));
+        assert!(!shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Indeterminate));
     }
 }

@@ -219,7 +219,7 @@ impl SystemRuntimeExecutor {
             trigger,
             PLATFORM_CALLBACK_TIMEOUT,
         )
-        .with_completion_scope("nativeAcknowledgement")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
         .with_window(window_id)
         .with_window_generation(window_generation)
         .with_lifecycle_epoch(self.lifecycle_epoch());
@@ -310,7 +310,7 @@ impl SystemRuntimeExecutor {
             "overlay-pointer",
             PLATFORM_CALLBACK_TIMEOUT,
         )
-        .with_completion_scope("nativeAcknowledgement")
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
         .with_role(role_id)
         .with_window(&window_id)
         .with_window_generation(window_generation)

@@ -10,7 +10,7 @@ fn geometry_receipts_keep_readback_and_submission_scopes_distinct_on_both_platfo
             ),
             "geometryPositionAcknowledged",
         );
-        assert_eq!(acknowledged.completion_scope(), "nativeAcknowledgement");
+        assert_eq!(acknowledged.completion_scope(), SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
 
         for stage in ["geometryLayoutSubmitted", "geometryModeSubmitted"] {
             let submitted = NativeOperationReceipt::applied(
@@ -20,10 +20,10 @@ fn geometry_receipts_keep_readback_and_submission_scopes_distinct_on_both_platfo
                     Duration::from_secs(1),
                     platform,
                 )
-                .with_completion_scope("nativeSubmission"),
+                .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeSubmission),
                 stage,
             );
-            assert_eq!(submitted.completion_scope(), "nativeSubmission");
+            assert_eq!(submitted.completion_scope(), SystemRuntimeOperationCompletionScope::NativeSubmission);
         }
     }
 }

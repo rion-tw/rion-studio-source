@@ -329,29 +329,6 @@ function MacroForm({
               </FormField>
             </Surface>
 
-            <Surface className="p-4" padding="none" variant="inset">
-              <FormField
-                label={t("macroForm.activation")}
-                description={t("macroForm.activationDescription")}
-              >
-                <SegmentedControl<MacroActivationMode>
-                  className={cn(
-                    "w-full grid-cols-2 p-0.5 [&>button]:h-6",
-                    isSaving && "pointer-events-none opacity-45"
-                  )}
-                  aria-disabled={isSaving}
-                  items={[
-                    { value: "toggle", label: t("macroForm.activation.toggle"), icon: ToggleRight },
-                    { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Pointer }
-                ]}
-                value={form.activationMode ?? "toggle"}
-                onValueChange={(activationMode) => {
-                  if (!isSaving) update((current) => ({ ...current, activationMode }));
-                }}
-                />
-              </FormField>
-            </Surface>
-
             <Surface className="grid gap-4 p-4" padding="none" variant="inset">
               <FormField label={t("macroForm.shortcut")} description={t("macroForm.shortcutDescription")}>
                 <ShortcutRecorder
@@ -378,6 +355,29 @@ function MacroForm({
                   </p>
                 ) : null}
               </FormField>
+
+              {form.trigger ? (
+                <FormField
+                  label={t("macroForm.activation")}
+                  description={t("macroForm.activationDescription")}
+                >
+                  <SegmentedControl<MacroActivationMode>
+                    className={cn(
+                      "w-full grid-cols-2 p-0.5 [&>button]:h-6",
+                      isSaving && "pointer-events-none opacity-45"
+                    )}
+                    aria-disabled={isSaving}
+                    items={[
+                      { value: "toggle", label: t("macroForm.activation.toggle"), icon: ToggleRight },
+                      { value: "while_held", label: t("macroForm.activation.whileHeld"), icon: Pointer }
+                    ]}
+                    value={form.activationMode ?? "toggle"}
+                    onValueChange={(activationMode) => {
+                      if (!isSaving) update((current) => ({ ...current, activationMode }));
+                    }}
+                  />
+                </FormField>
+              ) : null}
 
               {form.trigger ? (
                 <FormField

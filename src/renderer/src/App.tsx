@@ -100,6 +100,8 @@ export function App(): JSX.Element {
     name: string;
     targetDisplay: Parameters<typeof window.rionStudio.createGameWindow>[0]["targetDisplay"];
     placement: Parameters<typeof window.rionStudio.createGameWindow>[0]["placement"];
+    tabs: GameWindow["tabs"];
+    activeTabId?: GameWindow["activeTabId"];
   }): Promise<GameWindow | undefined> => {
     if (!window.rionStudio || isSavingGameWindowRef.current) return undefined;
     isSavingGameWindowRef.current = true;
@@ -110,7 +112,9 @@ export function App(): JSX.Element {
         ? await window.rionStudio.updateGameWindow(form.id, {
             name: form.name,
             targetDisplay: form.targetDisplay,
-            placement: form.placement
+            placement: form.placement,
+            tabs: form.tabs,
+            activeTabId: form.activeTabId
           })
         : await window.rionStudio.createGameWindow({
             name: form.name,

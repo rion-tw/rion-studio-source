@@ -181,7 +181,6 @@ fn runtime_versions(_app: &tauri::AppHandle, state: &CoreState) -> Result<Value,
 }
 
 async fn create_game_window_transaction(
-    app: &AppHandle,
     state: &CoreState,
     input: GameWindowCreateInputRecord,
 ) -> Result<Value, CoreErrorPayload> {
@@ -193,92 +192,11 @@ async fn create_game_window_transaction(
             serde_json::from_value::<StateGameWindowRecord>(value)
                 .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
         })?;
-    let window_id = created.id.clone();
-    let creation_result = async {
-        let target = launch_target_for_game_window(app, &window_id)?;
-        Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
-            .await
-            .map_err(error_payload)?;
-        game_window_record(&state.core, &window_id)
-    }
-    .await;
-
-    match creation_result {
-        Ok(authoritative) => serde_json::to_value(authoritative)
-            .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string())),
-        Err(native_error) => {
-            if let Err(rollback_error) = rollback_created_game_window(state, &window_id).await {
-                return Err(game_window_create_rollback_error(
-                    &window_id,
-                    &native_error,
-                    rollback_error,
-                ));
-            }
-            Err(native_error)
-        }
-    }
+    serde_json::to_value(created)
+        .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
 }
 
-async fn rollback_created_game_window(state: &CoreState, window_id: &str) -> Result<(), String> {
-    let mut errors = Vec::new();
-    if let Err(error) = Arc::clone(&state.core)
-        .invoke_async(CoreCommand::EmbeddedWindowDelete {
-            window_id: window_id.to_owned(),
-        })
-        .await
-    {
-        errors.push(format!("native cleanup: {}: {}", error.code(), error));
-    }
-    state.runtime.discard_provisional_game_window(window_id);
-    if let Err(error) = Arc::clone(&state.core)
-        .invoke_async(CoreCommand::GameWindowDelete {
-            id: window_id.to_owned(),
-        })
-        .await
-    {
-        errors.push(format!("metadata cleanup: {}: {}", error.code(), error));
-    }
-
-    match state.core.invoke(CoreCommand::GameWindowsList) {
-        Ok(game_windows) => {
-            if game_windows.as_array().is_some_and(|game_windows| {
-                game_windows
-                    .iter()
-                    .any(|game_window| game_window["id"].as_str() == Some(window_id))
-            }) {
-                errors.push("metadata verification: Game Window record still exists".to_owned());
-            }
-        }
-        Err(error) => errors.push(format!(
-            "metadata verification: {}: {}",
-            error.code(),
-            error
-        )),
-    }
-    match state.core.invoke(CoreCommand::BrowserRuntimeSnapshot) {
-        Ok(snapshot) => {
-            if snapshot["windows"].as_array().is_some_and(|windows| {
-                windows
-                    .iter()
-                    .any(|window| window["windowId"].as_str() == Some(window_id))
-            }) {
-                errors.push("runtime verification: Game Window is still registered".to_owned());
-            }
-        }
-        Err(error) => errors.push(format!("runtime verification: {}: {}", error.code(), error)),
-    }
-    if state.runtime.window_for_id(window_id).is_some() {
-        errors.push("native verification: Game Window handle still exists".to_owned());
-    }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("; "))
-    }
-}
-
+#[cfg(test)]
 fn game_window_create_rollback_error(
     window_id: &str,
     native_error: &CoreErrorPayload,

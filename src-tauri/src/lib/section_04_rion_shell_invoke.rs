@@ -46,7 +46,7 @@ async fn rion_shell_invoke(
                         shell_error("TAURI_SHELL_INPUT_INVALID", error.to_string())
                     })
                 })?;
-            create_game_window_transaction(&app, &state, input).await
+            create_game_window_transaction(&state, input).await
         }
         "currentWindowState" => state
             .runtime
@@ -180,7 +180,7 @@ async fn rion_shell_invoke(
             let previous = game_window_record(&state.core, &window_id)?;
             let updated = state
                 .core
-                .invoke(CoreCommand::GameWindowUpdate {
+                .invoke(CoreCommand::GameWindowSaveConfiguration {
                     id: window_id.clone(),
                     input,
                 })

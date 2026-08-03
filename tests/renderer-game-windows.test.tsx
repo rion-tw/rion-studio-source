@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
+import { GameWindowContentPicker } from "../src/renderer/src/features/game-windows/GameWindowContentPicker";
+import GameWindowEditorRoute from "../src/renderer/src/features/game-windows/GameWindowModal";
 import GameWindowsRoute from "../src/renderer/src/features/game-windows/GameWindowsRoute";
+import { GameWindowSavedTabsEditor } from "../src/renderer/src/features/game-windows/GameWindowSavedTabsEditor";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
 import type { EmbeddedRuntimeState, Game, GameWindow, LaunchWorkspace, Role } from "../src/shared/types";
@@ -163,7 +167,7 @@ describe("Game Window management", () => {
           gameWindows={[emptyGameWindow]}
           games={[game]}
           roles={[role]}
-          runtime={{ ...runtime, tabs: [], windows: [] }}
+          runtime={liveEmptyRuntime}
           t={t}
           workspaces={[]}
           onEdit={vi.fn()}
@@ -223,7 +227,7 @@ describe("Game Window management", () => {
           gameWindows={[emptyGameWindow]}
           games={[game]}
           roles={[role]}
-          runtime={{ ...runtime, tabs: [], windows: [] }}
+          runtime={liveEmptyRuntime}
           t={t}
           workspaces={[workspace]}
           onEdit={vi.fn()}
@@ -244,6 +248,148 @@ describe("Game Window management", () => {
       windowId: "window-1",
       stopConflicts: true
     });
+  });
+
+  it("opens the editor instead of launching when an offline window is selected", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    const launchRole = vi.fn(() => Promise.resolve({ windowId: "window-1", status: null }));
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { launchRole }
+    });
+
+    render(
+      <ConfirmationProvider>
+        <GameWindowsRoute
+          displays={[display]}
+          gameWindows={[emptyGameWindow]}
+          games={[game]}
+          roles={[role]}
+          runtime={{ ...runtime, tabs: [], windows: [] }}
+          t={t}
+          workspaces={[]}
+          onEdit={onEdit}
+          onError={vi.fn()}
+          onNew={vi.fn()}
+        />
+      </ConfirmationProvider>
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "Add" })[0]);
+
+    expect(onEdit).toHaveBeenCalledWith("window-1");
+    expect(launchRole).not.toHaveBeenCalled();
+  });
+
+  it("saves an offline tab draft without calling launch or runtime APIs", async () => {
+    const user = userEvent.setup();
+    const onAddSavedTab = vi.fn();
+    const launchRole = vi.fn();
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { launchRole }
+    });
+
+    render(
+      <ConfirmationProvider>
+        <GameWindowContentPicker
+          gameWindows={[emptyGameWindow]}
+          games={[game]}
+          mode="saved"
+          onClose={vi.fn()}
+          onAddSavedTab={onAddSavedTab}
+          onError={vi.fn()}
+          open
+          roles={[role]}
+          runtime={{ ...runtime, tabs: [], windows: [] }}
+          t={t}
+          targetWindow={emptyGameWindow}
+          workspaces={[]}
+        />
+      </ConfirmationProvider>
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Add to Raid window" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(onAddSavedTab).toHaveBeenCalledWith(expect.objectContaining({
+      tabType: "role",
+      sourceId: "role-1",
+      roleIds: ["role-1"]
+    }));
+    expect(launchRole).not.toHaveBeenCalled();
+  });
+
+  it("submits the complete saved tab draft while the window is live", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(emptyGameWindow);
+    const launchRole = vi.fn();
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { launchRole }
+    });
+    const router = createMemoryRouter([
+      {
+        path: "/game-windows/:id/edit",
+        element: (
+          <GameWindowEditorRoute
+            displays={[display]}
+            gameWindows={[emptyGameWindow]}
+            games={[game]}
+            isSaving={false}
+            onError={vi.fn()}
+            roles={[role]}
+            runtime={liveEmptyRuntime}
+            t={t}
+            workspaces={[]}
+            onSave={onSave}
+          />
+        )
+      }
+    ], { initialEntries: ["/game-windows/window-1/edit"] });
+
+    render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    expect(screen.getByText("This window is running. Saved tab changes will apply the next time it starts.")).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: "Add" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Add to Raid window" });
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      id: "window-1",
+      tabs: [expect.objectContaining({ sourceId: "role-1", tabType: "role" })],
+      activeTabId: expect.any(String)
+    });
+    expect(launchRole).not.toHaveBeenCalled();
+  });
+
+  it("reorders and removes saved tabs without runtime calls", async () => {
+    const user = userEvent.setup();
+    let tabs = [gameWindow.tabs[0], {
+      ...gameWindow.tabs[0],
+      id: "tab-2",
+      sourceId: "role-2",
+      name: "Second",
+      roleIds: ["role-2"]
+    }];
+    const onChange = vi.fn((next: typeof tabs) => {
+      tabs = next;
+    });
+    const { rerender } = render(<GameWindowSavedTabsEditor tabs={tabs} t={t} onAdd={vi.fn()} onChange={onChange} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Move tab down" })[0]);
+    expect(tabs.map((tab) => tab.id)).toEqual(["tab-2", "tab-1"]);
+    rerender(<GameWindowSavedTabsEditor tabs={tabs} t={t} onAdd={vi.fn()} onChange={onChange} />);
+    await user.click(screen.getAllByRole("button", { name: "Remove saved tab" })[0]);
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["tab-1"]);
   });
 });
 
@@ -344,4 +490,10 @@ const runtime: EmbeddedRuntimeState = {
     tabCount: 1
   }],
   savedWindows: []
+};
+
+const liveEmptyRuntime: EmbeddedRuntimeState = {
+  ...runtime,
+  tabs: [],
+  windows: [runtime.windows[0]]
 };

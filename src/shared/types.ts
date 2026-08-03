@@ -305,7 +305,7 @@ export type CreateGameWindowInput = GameWindowCreateInputRecord;
 
 export type UpdateGameWindowInput = Pick<
   GameWindowUpdateInputRecord,
-  "name" | "targetDisplay" | "placement"
+  "name" | "targetDisplay" | "placement" | "tabs" | "activeTabId"
 >;
 
 export type LaunchWorkspace = StateLaunchWorkspaceRecord;

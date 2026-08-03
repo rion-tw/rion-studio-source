@@ -160,7 +160,13 @@ export default function GameWindowsRoute({
                       disabled={windowIsBusy}
                       type="button"
                       variant="outline"
-                      onClick={() => setAddTargetId(gameWindow.id)}
+                      onClick={() => {
+                        if (liveWindow) {
+                          setAddTargetId(gameWindow.id);
+                        } else {
+                          onEdit(gameWindow.id);
+                        }
+                      }}
                     >
                       <Plus size={15} />
                       {t("gameWindows.add.button")}
@@ -204,14 +210,20 @@ export default function GameWindowsRoute({
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <GameWindowTabsPanel
-                    gameWindow={gameWindow}
-                    gameWindows={gameWindows}
-                    runtime={runtime}
-                    t={t}
-                    onAdd={() => setAddTargetId(gameWindow.id)}
-                    onError={onError}
-                  />
+                    <GameWindowTabsPanel
+                      gameWindow={gameWindow}
+                      gameWindows={gameWindows}
+                      runtime={runtime}
+                      t={t}
+                      onAdd={() => {
+                        if (liveWindow) {
+                          setAddTargetId(gameWindow.id);
+                        } else {
+                          onEdit(gameWindow.id);
+                        }
+                      }}
+                      onError={onError}
+                    />
                 </CardContent>
               </Card>
             );

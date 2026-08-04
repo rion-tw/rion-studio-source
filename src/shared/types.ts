@@ -25,7 +25,6 @@ import type {
   GameUpdateRequest,
   GameWindowCreateInputRecord,
   GameWindowPlacementRecord,
-  GameWindowTabRecord,
   GameWindowUpdateInputRecord,
   LegalAcceptDocumentsInputRecord,
   LegalAcceptanceStatusRecord,

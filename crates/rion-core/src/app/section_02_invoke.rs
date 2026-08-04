@@ -765,11 +765,10 @@ impl AppCore {
                 None,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::EmbeddedTabMutation {
-                request,
-                target,
-                before_tab_id,
-            } => self.serialized_embedded_tab_mutation(request, target, before_tab_id),
+            command @ (CoreCommand::EmbeddedTabMutation { .. }
+            | CoreCommand::EmbeddedTabDragTopologyCommit { .. }) => {
+                self.invoke_embedded_tab_mutation_command(command)
+            }
             CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::BrowserWorkspaceStatuses => {

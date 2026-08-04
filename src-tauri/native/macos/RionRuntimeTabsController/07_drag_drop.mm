@@ -294,6 +294,18 @@ NS_ASSUME_NONNULL_BEGIN
                    beforeIdentifier:(nullable NSString *)beforeIdentifier
                         screenPoint:(NSPoint)screenPoint {
   if (!_actionHandler || tabIdentifier.length == 0 || sessionID.length == 0) return;
+  NSMutableArray<NSString *> *orderedTabIDs = [NSMutableArray arrayWithCapacity:_tabItems.count + 1];
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    if (item.tabIdentifier.length > 0) [orderedTabIDs addObject:item.tabIdentifier];
+  }
+  if (![orderedTabIDs containsObject:tabIdentifier]) {
+    NSUInteger insertionIndex = orderedTabIDs.count;
+    if (beforeIdentifier.length > 0) {
+      NSUInteger candidate = [orderedTabIDs indexOfObject:beforeIdentifier];
+      if (candidate != NSNotFound) insertionIndex = candidate;
+    }
+    [orderedTabIDs insertObject:tabIdentifier atIndex:insertionIndex];
+  }
   NSMutableDictionary<NSString *, id> *action = [@{
     @"type" : @"tabDragDrop",
     @"sessionId" : sessionID,
@@ -301,7 +313,8 @@ NS_ASSUME_NONNULL_BEGIN
     @"sourceWindowId" : sourceWindowID,
     @"windowId" : _windowID,
     @"screenX" : @(RionTopLeftScreenPoint(screenPoint).x),
-    @"screenY" : @(RionTopLeftScreenPoint(screenPoint).y)
+    @"screenY" : @(RionTopLeftScreenPoint(screenPoint).y),
+    @"orderedTabIds" : orderedTabIDs
   } mutableCopy];
   if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
   _actionHandler(action);

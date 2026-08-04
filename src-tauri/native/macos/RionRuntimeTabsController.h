@@ -96,7 +96,8 @@ typedef void (*RionRuntimeTabsCActionHandler)(
     const char * _Nullable tabIdentifier,
     const char * _Nullable sourceWindowID,
     const char * _Nullable targetWindowID,
-    const char * _Nullable beforeTabIdentifier, double screenX,
+    const char * _Nullable beforeTabIdentifier,
+    const char * _Nullable orderedTabIdentifiersJSON, double screenX,
     double screenY, double grabRatioX, double grabRatioY,
     double tabWidth, double tabHeight, bool cancelled);
 typedef void (*RionRuntimeTabsCLayoutHandler)(

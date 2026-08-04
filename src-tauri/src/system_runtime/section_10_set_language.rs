@@ -463,6 +463,39 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
+    pub(crate) fn preview_tab_drag_order_exact(
+        &self,
+        window_id: &str,
+        ordered_tab_ids: &[String],
+        project_native_order: bool,
+    ) -> Result<(), String> {
+        let coordinator = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let ordered = {
+            let mut state = coordinator
+                .lock()
+                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            if state.tab_ids().len() != ordered_tab_ids.len()
+                || state
+                    .tab_ids()
+                    .iter()
+                    .collect::<HashSet<_>>()
+                    != ordered_tab_ids.iter().collect::<HashSet<_>>()
+            {
+                return Err("Frozen tab drag topology does not match the presentation window.".to_owned());
+            }
+            state.reorder_known_tabs(ordered_tab_ids);
+            ordered_tab_ids.to_vec()
+        };
+        if project_native_order {
+            self.reorder_native_tabs(window_id, &ordered)
+                .map_err(|error| error.message)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn restore_tab_drag_window_snapshot(
         &self,
         snapshot: &RuntimeTabDragWindowSnapshot,

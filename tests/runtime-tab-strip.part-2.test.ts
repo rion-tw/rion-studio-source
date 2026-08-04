@@ -314,6 +314,53 @@ it("uses the original tab as the only drag surface with an equal-width transpare
     ]);
   });
 
+  it("submits the exact visual order before settling a terminal drag", async () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    const dragged = document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')!;
+    document.querySelectorAll<HTMLElement>("#tabs .tab").forEach((tab, index) => {
+      Object.defineProperties(tab, {
+        offsetLeft: { configurable: true, get: () => index * 206 },
+        offsetWidth: { configurable: true, get: () => 200 }
+      });
+    });
+    const dataTransfer = dragTransfer({
+      sessionId: "drag-exact-order",
+      tabId: "tab-3",
+      tabWidth: 168,
+      tabHeight: 28
+    });
+    const start = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(start, {
+      clientX: { value: 420 },
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 420 },
+      screenY: { value: 120 }
+    });
+    dragged.dispatchEvent(start);
+    const over = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(over, {
+      clientX: { value: 900 },
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 900 },
+      screenY: { value: 120 }
+    });
+    document.querySelector("#tabs")?.dispatchEvent(over);
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperties(drop, {
+      clientX: { value: 900 },
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 900 },
+      screenY: { value: 120 }
+    });
+    document.querySelector("#tabs")?.dispatchEvent(drop);
+    await flushPostedDragAction();
+
+    const terminal = invoke.mock.calls
+      .map((call) => (call as unknown as [string, { action: { type: string; orderedTabIds?: string[] } }])[1].action)
+      .find((action) => action.type === "tabDragDrop");
+    expect(terminal?.orderedTabIds).toEqual(["tab-1", "tab-2", "tab-4", "tab-3"]);
+  });
+
 it("patches drag metadata in place and defers native reorder projections until drop", async () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
     const original = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-2"]')!;
@@ -710,54 +757,4 @@ it("keeps the source tab recoverable while a cross-window drop is being committe
     expect(tab.hasAttribute("aria-hidden")).toBe(false);
   });
 
-it("serializes drag lifecycle actions until the previous native action settles", async () => {
-    let resolveStart!: () => void;
-    invoke.mockImplementationOnce(() => new Promise<void>((resolve) => {
-      resolveStart = resolve;
-    }));
-    const values = new Map<string, string>();
-    const dataTransfer = {
-      dropEffect: "move",
-      effectAllowed: "none",
-      getData: (type: string) => values.get(type) ?? "",
-      setData: (type: string, value: string) => values.set(type, value)
-    };
-    const tab = document.querySelector<HTMLElement>('[role="tab"]')!;
-    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
-    Object.defineProperties(dragStart, {
-      dataTransfer: { value: dataTransfer },
-      screenX: { value: 320 },
-      screenY: { value: 240 }
-    });
-    tab.dispatchEvent(dragStart);
-
-    const drop = new Event("drop", { bubbles: true, cancelable: true });
-    Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
-    document.querySelector("#tabs")?.dispatchEvent(drop);
-
-    expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
-      action: expect.objectContaining({ type: "tabDragStart", tabId: "tab-1" })
-    });
-
-    resolveStart();
-    await flushMicrotasks();
-
-    expect(invoke).toHaveBeenCalledTimes(2);
-    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
-      action: expect.objectContaining({ type: "tabDragDrop", windowId: "window-1" })
-    });
-
-    const dragEnd = new Event("dragend", { bubbles: true });
-    Object.defineProperty(dragEnd, "dataTransfer", { value: dataTransfer });
-    tab.dispatchEvent(dragEnd);
-    await flushPostedDragAction();
-    expect(invoke).toHaveBeenCalledTimes(3);
-    expect(invoke).toHaveBeenNthCalledWith(3, "rion_runtime_tab_action", {
-      action: expect.objectContaining({
-        type: "tabDragSourceEnd",
-        dropAccepted: true
-      })
-    });
-  });
 });

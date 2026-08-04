@@ -456,6 +456,7 @@ pub async fn handle_scoped_action(
             "sessionId",
             "windowId",
             "beforeTabId",
+            "orderedTabIds",
             "screenX",
             "screenY",
         ][..],

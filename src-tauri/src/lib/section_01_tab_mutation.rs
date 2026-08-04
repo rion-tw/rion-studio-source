@@ -306,6 +306,59 @@ async fn execute_tab_mutation_commit(
     .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn execute_tab_drag_topology_commit(
+    state: &CoreState,
+    request: RuntimeTabMutationRequestRecord,
+    target: Option<EmbeddedLaunchTargetRecord>,
+    source_before_tab_ids: Vec<String>,
+    source_after_tab_ids: Vec<String>,
+    target_before_tab_ids: Vec<String>,
+    target_after_tab_ids: Vec<String>,
+) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
+    let value = Arc::clone(&state.core)
+        .invoke_async(CoreCommand::EmbeddedTabDragTopologyCommit {
+            request: request.clone(),
+            target,
+            source_before_tab_ids,
+            source_after_tab_ids: source_after_tab_ids.clone(),
+            target_before_tab_ids,
+            target_after_tab_ids,
+        })
+        .await
+        .map_err(error_payload)?;
+    let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(value)
+        .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
+    let persisted = state
+        .core
+        .invoke(CoreCommand::GameWindowsList)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
+                .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
+        })?;
+    if !tab_mutation_persistence_converged(&request, &snapshot, &persisted)
+        || !tab_window_order_persistence_converged(
+            &request.source_window_id,
+            &source_after_tab_ids,
+            &snapshot,
+            &persisted,
+        )
+    {
+        return Err(shell_error(
+            "TAB_MUTATION_RESULT_UNKNOWN",
+            "The saved Game Window topology did not match the committed drag topology.",
+        ));
+    }
+    state.runtime.publish_projection();
+    let runtime = Arc::clone(&state.runtime);
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.tab_mutation_projection_outcome(&request, &snapshot)
+    })
+    .await
+    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
+}
+
 fn tab_mutation_persistence_converged(
     request: &RuntimeTabMutationRequestRecord,
     snapshot: &BrowserRuntimeSnapshot,
@@ -354,4 +407,33 @@ fn tab_mutation_persistence_converged(
         }
         None => persisted.iter().all(|window| window.id != runtime_tab.window_id),
     }
+}
+
+fn tab_window_order_persistence_converged(
+    window_id: &str,
+    expected_tab_order: &[String],
+    snapshot: &BrowserRuntimeSnapshot,
+    persisted: &[StateGameWindowRecord],
+) -> bool {
+    let runtime_order = snapshot
+        .windows
+        .iter()
+        .find(|window| window.window_id == window_id)
+        .map(|window| window.tab_ids.as_slice())
+        .unwrap_or_default();
+    if runtime_order != expected_tab_order {
+        return expected_tab_order.is_empty() && runtime_order.is_empty();
+    }
+    persisted
+        .iter()
+        .find(|window| window.id == window_id)
+        .map(|window| {
+            window
+                .tabs
+                .iter()
+                .map(|tab| tab.id.as_str())
+                .collect::<Vec<_>>()
+                == expected_tab_order.iter().map(String::as_str).collect::<Vec<_>>()
+        })
+        .unwrap_or(expected_tab_order.is_empty())
 }

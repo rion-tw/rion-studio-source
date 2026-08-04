@@ -99,6 +99,63 @@ impl AppCore {
             .map_err(|error| CoreError::Internal(error.to_string()))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn apply_embedded_tab_drag_topology_commit(
+        &self,
+        request: crate::model::RuntimeTabMutationRequestRecord,
+        target: Option<EmbeddedLaunchTargetRecord>,
+        source_before_tab_ids: Vec<String>,
+        source_after_tab_ids: Vec<String>,
+        target_before_tab_ids: Vec<String>,
+        target_after_tab_ids: Vec<String>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let _window_sequence = self.embedded_window_sequence.acquire()?;
+        let _sequence = self.embedded_runtime_sequence.acquire()?;
+        let target_window_id = request
+            .target_window_id
+            .clone()
+            .unwrap_or_else(|| request.source_window_id.clone());
+        let moved = target_window_id != request.source_window_id;
+        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
+            commands: vec![BrowserRuntimeCommand::CommitTabDragTopology {
+                tab_id: request.tab_id.clone(),
+                source_window_id: request.source_window_id.clone(),
+                target_window_id: moved.then_some(target_window_id.clone()),
+                source_before_tab_ids,
+                source_after_tab_ids,
+                target_before_tab_ids,
+                target_after_tab_ids,
+            }],
+            target,
+            reveal_window_ids: moved.then_some(target_window_id.clone()).into_iter().collect(),
+            focus_window_ids: moved.then_some(target_window_id).into_iter().collect(),
+            focus_tab_id: moved.then_some(request.tab_id.clone()),
+            focus_active_window_id: None,
+            parent_operation_id: Some(request.operation_id),
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn serialized_embedded_tab_drag_topology_commit(
+        &self,
+        request: crate::model::RuntimeTabMutationRequestRecord,
+        target: Option<EmbeddedLaunchTargetRecord>,
+        source_before_tab_ids: Vec<String>,
+        source_after_tab_ids: Vec<String>,
+        target_before_tab_ids: Vec<String>,
+        target_after_tab_ids: Vec<String>,
+    ) -> CoreResult<Value> {
+        serde_json::to_value(self.apply_embedded_tab_drag_topology_commit(
+            request,
+            target,
+            source_before_tab_ids,
+            source_after_tab_ids,
+            target_before_tab_ids,
+            target_after_tab_ids,
+        )?)
+        .map_err(|error| CoreError::Internal(error.to_string()))
+    }
+
     fn serialized_browser_runtime_snapshot(&self) -> CoreResult<Value> {
         let snapshot = self
             .browser_runtime

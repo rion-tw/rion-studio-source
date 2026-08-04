@@ -421,6 +421,23 @@ pub enum BrowserRuntimeCommand {
         #[ts(optional, rename = "beforeTabId")]
         before_tab_id: Option<String>,
     },
+    CommitTabDragTopology {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "sourceWindowId")]
+        source_window_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "targetWindowId")]
+        target_window_id: Option<String>,
+        #[ts(rename = "sourceBeforeTabIds")]
+        source_before_tab_ids: Vec<String>,
+        #[ts(rename = "sourceAfterTabIds")]
+        source_after_tab_ids: Vec<String>,
+        #[ts(rename = "targetBeforeTabIds")]
+        target_before_tab_ids: Vec<String>,
+        #[ts(rename = "targetAfterTabIds")]
+        target_after_tab_ids: Vec<String>,
+    },
     MoveTab {
         #[ts(rename = "tabId")]
         tab_id: String,

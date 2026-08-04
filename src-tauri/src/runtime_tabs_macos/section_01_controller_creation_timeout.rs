@@ -36,6 +36,7 @@ type ActionCallback = unsafe extern "C" fn(
     *const c_char,
     *const c_char,
     *const c_char,
+    *const c_char,
     f64,
     f64,
     f64,

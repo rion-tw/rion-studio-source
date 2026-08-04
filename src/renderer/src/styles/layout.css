@@ -108,14 +108,11 @@
   }
 
   .nav-item-active {
-    border-color: hsl(var(--glass-border));
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 72%),
       hsl(var(--glass-control-selected));
     color: hsl(var(--sidebar-foreground));
-    box-shadow:
-      0 0 0 1px hsl(var(--glass-control-ring-selected)),
-      inset 0 1px 0 hsl(var(--glass-highlight-muted));
+    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .nav-item-active:hover {
@@ -231,7 +228,6 @@
   .glass-panel-strong,
   .glass-modal,
   .glass-control,
-  .glass-control-selected,
   .glass-popover,
   .glass-inset {
     border: 1px solid hsl(var(--glass-border));
@@ -303,30 +299,23 @@
 
   .glass-control.macro-role-card-selected,
   .glass-control.macro-role-card-selected:hover {
-    border-color: hsl(var(--activity));
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),
       color-mix(in srgb, hsl(var(--activity)) 8%, hsl(var(--glass-control-selected)));
-    outline: 1px solid hsl(var(--activity));
-    outline-offset: -2px;
   }
 
   .glass-control-selected {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 68%),
       hsl(var(--glass-control-selected));
-    box-shadow:
-      0 0 0 1px hsl(var(--glass-control-ring-selected)),
-      inset 0 1px 0 hsl(var(--glass-highlight-muted));
+    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .glass-control-selected:hover {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 62%),
       hsl(var(--glass-control-selected));
-    box-shadow:
-      0 0 0 1px hsl(var(--glass-control-ring-hover)),
-      inset 0 1px 0 hsl(var(--glass-highlight-muted));
+    box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
   .glass-popover {

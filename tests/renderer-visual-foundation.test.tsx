@@ -113,4 +113,20 @@ describe("renderer visual foundation", () => {
       /:root\[data-theme="dark"\] \.glass-inset \{[\s\S]*?inset 0 0 6px hsl\(var\(--glass-inner-shadow\)\),\s*0 1px 2px hsl\(var\(--glass-shadow\)\);/
     );
   });
+
+  it("uses selected fills instead of activity-colored outlines for shared controls", () => {
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
+    const patterns = readFileSync(rendererPath("src", "components", "ui", "patterns.tsx"), "utf8");
+
+    expect(styles).not.toContain("--glass-control-ring-selected");
+    expect(styles).toMatch(
+      /\.glass-control-selected \{[\s\S]*?box-shadow: inset 0 1px 0 hsl\(var\(--glass-highlight-muted\)\);/
+    );
+    expect(styles).toMatch(
+      /\.nav-item-active \{[\s\S]*?box-shadow: inset 0 1px 0 hsl\(var\(--glass-highlight-muted\)\);/
+    );
+    expect(styles).not.toMatch(/\.glass-control\.macro-role-card-selected[\s\S]*?border-color: hsl\(var\(--activity\)\)/);
+    expect(patterns).toContain('? "glass-control-selected text-foreground"');
+    expect(patterns).toContain('? "nav-item-active text-foreground"');
+  });
 });

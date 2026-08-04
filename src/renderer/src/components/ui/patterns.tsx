@@ -298,7 +298,7 @@ export function SegmentedControl<T extends string>({
             className={cn(
               "flex h-[var(--control-height)] min-h-[var(--control-min-size)] min-w-[var(--control-min-size)] items-center justify-center gap-1.5 rounded-sm border border-transparent px-3 text-control font-semibold leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-45",
               isActive
-                ? "glass-control-selected border-[hsl(var(--glass-border))] text-foreground"
+                ? "glass-control-selected text-foreground"
                 : "text-muted-foreground hover:bg-accent/35 hover:text-foreground"
             )}
             type="button"
@@ -359,7 +359,7 @@ export function NavItem({
     noDrag && "app-no-drag",
     "nav-item flex h-8 items-center gap-2 rounded-sm border border-transparent px-2.5 text-left text-control font-medium leading-none transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25",
     active
-      ? "nav-item-active border-[hsl(var(--glass-border))] text-foreground"
+      ? "nav-item-active text-foreground"
       : "text-muted-foreground hover:bg-accent/35 hover:text-foreground",
     className
   );

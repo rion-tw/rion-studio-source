@@ -33,7 +33,7 @@ import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat
 import { MacroActionMenu, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
 const ALL_ROLES_SELECT_VALUE = "__all_roles__";
-const MACRO_LIST_INDICATOR_CLASS = "inline-flex h-7 items-center gap-1.5 whitespace-nowrap text-muted-foreground";
+const MACRO_LIST_INDICATOR_CLASS = "inline-flex h-5 items-center gap-1.5 whitespace-nowrap text-muted-foreground";
 
 function MacroShortcutIndicator({ macro, t }: { macro: Macro; t: Translator }): JSX.Element | null {
   if (!macro.trigger) {
@@ -468,21 +468,21 @@ function MacrosRoute({
                       data-selection-id={macro.id}
                       onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                     >
-                    <td className="max-w-[240px] px-4 py-2 align-middle">
-                      <div className="min-w-0" data-macro-name-control>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <div className="-ml-1.5 shrink-0" data-macro-run-control>
-                            <MacroRunButton
-                              macro={macro}
-                              runState={runState}
-                              t={t}
-                              onStartMacro={onStartMacro}
-                              onStopMacro={onStopMacro}
-                            />
-                          </div>
+                    <td className="relative max-w-[240px] px-4 py-2 align-middle">
+                      <div className="min-w-0 pl-7" data-macro-name-control>
+                        <div className="absolute inset-y-0 left-4 -ml-1.5 flex items-center" data-macro-run-control>
+                          <MacroRunButton
+                            macro={macro}
+                            runState={runState}
+                            t={t}
+                            onStartMacro={onStartMacro}
+                            onStopMacro={onStopMacro}
+                          />
+                        </div>
+                        <div className="min-w-0">
                           <button
                             className={cn(
-                              "-mx-1 block min-w-0 max-w-full flex-1 rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
+                              "-mx-1 block max-w-full rounded-sm px-1 text-left font-semibold leading-5 transition-colors hover:text-activity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed",
                               macro.enabled ? "text-foreground" : "text-muted-foreground"
                             )}
                             type="button"
@@ -492,13 +492,13 @@ function MacrosRoute({
                           >
                             <span className="block truncate">{macro.name}</span>
                           </button>
+                          <MacroFailureMessage
+                            macro={macro}
+                            macroStatusByRun={macroStatusByRun}
+                            roleById={roleById}
+                            t={t}
+                          />
                         </div>
-                        <MacroFailureMessage
-                          macro={macro}
-                          macroStatusByRun={macroStatusByRun}
-                          roleById={roleById}
-                          t={t}
-                        />
                       </div>
                     </td>
                     <td className="max-w-[240px] px-4 py-2 align-middle">

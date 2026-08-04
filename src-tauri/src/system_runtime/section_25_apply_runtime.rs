@@ -20,30 +20,6 @@ impl SystemRuntimeExecutor {
             // not replay the old projection over the newer AppKit/WebView2 overlay.
             return Ok(());
         }
-        struct TabUpdate {
-            window_id: String,
-            moved: bool,
-            source_window_id: String,
-            surfaces: Vec<Webview>,
-            tab_id: String,
-        }
-        struct PresentationRelocation {
-            source_window_id: String,
-            surface_labels: HashSet<String>,
-            tab_id: String,
-            target_window_id: String,
-        }
-        struct HostUpdate {
-            active_tab_id: Option<String>,
-            focus_window: bool,
-            presentation: String,
-            reveal: bool,
-            retain_visibility: bool,
-            title: Option<String>,
-            window: Window,
-            window_id: String,
-        }
-
         let ensured_target_host = if let Some(target) = target.as_ref() {
             let title = snapshot
                 .windows
@@ -68,7 +44,7 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|window| window.window_id.as_str())
             .collect::<HashSet<_>>();
-        let (live_windows, optimistic_closed_tabs) = {
+        let (live_windows, optimistic_closed_tabs, pending_window_tab_restores) = {
             let state = self.state()?;
             (
                 state
@@ -77,6 +53,7 @@ impl SystemRuntimeExecutor {
                     .map(|(tab_id, tab)| (tab_id.clone(), tab.window_id.clone()))
                     .collect::<HashMap<_, _>>(),
                 state.optimistic_closed_tabs.clone(),
+                state.pending_window_tab_restores.clone(),
             )
         };
         let presentation_before = self.presentation.snapshot_states().map_err(|message| {
@@ -111,7 +88,7 @@ impl SystemRuntimeExecutor {
                             .as_ref()
                             .map(|placeholder| placeholder.webview.clone())
                     }));
-                    Some(TabUpdate {
+                    Some(RuntimeTabProjectionUpdate {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
                         source_window_id: runtime_tab.window_id.clone(),
@@ -258,7 +235,7 @@ impl SystemRuntimeExecutor {
         }
 
         let topology_revision = self.presentation.next_revision();
-        let mut presentation_relocations = Vec::<PresentationRelocation>::new();
+        let mut presentation_relocations = Vec::<RuntimePresentationRelocation>::new();
         for snapshot_tab in &snapshot.tabs {
             if !live_windows.contains_key(&snapshot_tab.id) {
                 continue;
@@ -305,7 +282,7 @@ impl SystemRuntimeExecutor {
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
-            presentation_relocations.push(PresentationRelocation {
+            presentation_relocations.push(RuntimePresentationRelocation {
                 source_window_id,
                 surface_labels: moved_surface_labels,
                 tab_id: snapshot_tab.id.clone(),
@@ -338,6 +315,7 @@ impl SystemRuntimeExecutor {
             .collect::<HashMap<_, _>>();
 
         for runtime_window in &snapshot.windows {
+            let pending_restore = pending_window_tab_restores.get(&runtime_window.window_id);
             let presentation = self
                 .presentation
                 .coordinator(&runtime_window.window_id)
@@ -367,9 +345,13 @@ impl SystemRuntimeExecutor {
                     &snapshot_tab.name,
                 );
             }
-            // Core owns durable ordering, but provisional/closing entries remain local until
-            // their own transaction resolves.
-            window.reorder_known_tabs(&runtime_window.tab_ids);
+            // Live presentation owns ordering. During restore, Core publishes owner-priority
+            // launch snapshots; keep the saved UI order fenced until every native create is
+            // terminal instead of projecting that transient launch order into the tab strip.
+            let authoritative_tab_ids = pending_restore
+                .map(|restore| restore.ordered_tab_ids.as_slice())
+                .unwrap_or(runtime_window.tab_ids.as_slice());
+            window.reorder_known_tabs(authoritative_tab_ids);
             let local_ids = window.tab_ids();
             window
                 .aliases
@@ -393,13 +375,18 @@ impl SystemRuntimeExecutor {
                         .get(runtime_window.window_id.as_str())
                         .copied()
                 });
-            let selection = resolved_runtime_window_selection(
-                &snapshot,
-                &runtime_window.window_id,
-                &previous,
-                selection_tab_id,
-                presentation_revision,
-            );
+            let selection = pending_restore
+                .and_then(|restore| restore.active_tab_id.clone())
+                .filter(|tab_id| window.contains_tab(tab_id))
+                .or_else(|| {
+                    resolved_runtime_window_selection(
+                        &snapshot,
+                        &runtime_window.window_id,
+                        &previous,
+                        selection_tab_id,
+                        presentation_revision,
+                    )
+                });
             if window.selected_tab_id != selection {
                 window.select(selection, topology_revision);
             }
@@ -511,8 +498,11 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|window| projected_native_tab_window_ids.contains(window.window_id.as_str()))
         {
-            let visible_tab_ids = runtime_window
-                .tab_ids
+            let authoritative_tab_ids = pending_window_tab_restores
+                .get(&runtime_window.window_id)
+                .map(|restore| restore.ordered_tab_ids.as_slice())
+                .unwrap_or(runtime_window.tab_ids.as_slice());
+            let visible_tab_ids = authoritative_tab_ids
                 .iter()
                 .filter(|tab_id| {
                     live_windows.contains_key(tab_id.as_str())
@@ -724,7 +714,7 @@ impl SystemRuntimeExecutor {
                     let title = Some(native_runtime_window_title(
                         game_window_names.get(window_id).map(String::as_str),
                     ));
-                    HostUpdate {
+                    RuntimeHostProjectionUpdate {
                         active_tab_id: active_tab.map(str::to_owned),
                         focus_window: runtime_host_should_receive_window_focus(
                             focus_window_ids.contains(window_id),

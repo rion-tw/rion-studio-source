@@ -23,6 +23,51 @@ fn window_close_failure_status(
 }
 
 impl SystemRuntimeExecutor {
+    fn current_window_close_in_progress(&self, window_id: &str) -> bool {
+        self.state.lock().ok().is_some_and(|state| {
+            let Some(generation) = state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.generation)
+            else {
+                return false;
+            };
+            state
+                .window_closes
+                .contains_window_generation(window_id, generation)
+        })
+    }
+
+    pub(crate) fn wait_for_window_close_before_reopen(
+        &self,
+        window_id: &str,
+    ) -> Result<(), String> {
+        let operation_id = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
+            .window_closes
+            .operation_id_for_window(window_id);
+        let Some(operation_id) = operation_id else {
+            return Ok(());
+        };
+        let receipt = self.wait_window_close_operation(&operation_id);
+        if matches!(
+            receipt.status,
+            SystemRuntimeOperationStatus::Applied
+                | SystemRuntimeOperationStatus::Superseded
+                | SystemRuntimeOperationStatus::Cancelled
+                | SystemRuntimeOperationStatus::Degraded
+        ) {
+            Ok(())
+        } else {
+            Err(format!(
+                "The previous native window generation did not finish closing ({}).",
+                receipt.status.as_str()
+            ))
+        }
+    }
+
     pub(crate) fn begin_window_close_requested(
         &self,
         label: &str,

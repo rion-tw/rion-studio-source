@@ -261,6 +261,13 @@ impl OperationActor {
         Ok(true)
     }
 
+    pub fn effect_is_pending(&self, effect_id: &str, operation_id: &str) -> CoreResult<bool> {
+        let state = self.state()?;
+        Ok(state.pending.get(effect_id).is_some_and(|pending| {
+            pending.operation_id == operation_id && Instant::now() <= pending.deadline
+        }))
+    }
+
     pub fn dispatch_results(
         &self,
         results: Vec<CoreEffectResult>,

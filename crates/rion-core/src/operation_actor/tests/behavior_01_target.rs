@@ -63,6 +63,42 @@ use std::sync::mpsc;
     }
 
     #[test]
+    fn cancelled_queued_effect_is_no_longer_admitted_by_the_native_executor() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![OperationStep {
+                    effect: effect(CoreEffectAction::EmbeddedFocusRole {
+                        role_id: "role-1".to_owned(),
+                        zoom_factor: None,
+                    }),
+                    compensation: None,
+                }],
+            })
+            .unwrap();
+        let request = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        assert!(
+            actor
+                .effect_is_pending(&request.effect_id, &request.operation_id)
+                .unwrap()
+        );
+        assert!(actor.cancel(&request.operation_id).unwrap());
+        assert!(
+            !actor
+                .effect_is_pending(&request.effect_id, &request.operation_id)
+                .unwrap()
+        );
+        let outcome = handle.outcome.blocking_recv().unwrap();
+        assert_eq!(
+            outcome.error.as_ref().map(|error| error.code.as_str()),
+            Some("CORE_OPERATION_CANCELLED")
+        );
+    }
+
+    #[test]
     fn classifies_duplicate_unknown_late_and_operation_mismatch_results() {
         let (actor, effects) = actor();
         let handle = actor

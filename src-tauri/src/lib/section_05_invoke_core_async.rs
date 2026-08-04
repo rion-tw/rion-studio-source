@@ -270,6 +270,21 @@ async fn restore_saved_game_windows(
     let mut restored_ids = Vec::new();
     let mut failures = Vec::new();
     for saved in selected {
+        let close_runtime = Arc::clone(&state.runtime);
+        let close_window_id = saved.id.clone();
+        if let Err(error) = tauri::async_runtime::spawn_blocking(move || {
+            close_runtime.wait_for_window_close_before_reopen(&close_window_id)
+        })
+        .await
+        .map_err(|error| shell_error("TAURI_RESTORE_WINDOW_FAILED", error.to_string()))?
+        {
+            failures.push(json!({
+                "windowId": saved.id,
+                "code": "TAURI_RESTORE_WINDOW_CLOSE_PENDING",
+                "message": error
+            }));
+            continue;
+        }
         let target = match launch_target_for_game_window(window.app_handle(), &saved.id) {
             Ok(target) => target,
             Err(error) => {
@@ -301,10 +316,19 @@ async fn restore_saved_game_windows(
             }));
             window_failed = true;
         }
+        state
+            .runtime
+            .prepare_restored_window_tabs(
+                &saved.id,
+                saved.tabs.iter().map(|tab| tab.id.clone()).collect(),
+                saved.active_tab_id.clone(),
+            )
+            .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;
         let mut active_runtime_tab_id = None;
         for tab in restore_tabs_in_owner_priority(&saved) {
             let before = browser_runtime_snapshot(state)?;
             let ready_before = match_runtime_restore_tab(&before, &saved.id, tab);
+            let mut prepared_role_slots = false;
             let launch_succeeded = match ready_before {
                 RuntimeRestoreTabMatch::InTarget { .. } => true,
                 RuntimeRestoreTabMatch::Conflict { window_id } => {
@@ -321,6 +345,18 @@ async fn restore_saved_game_windows(
                     false
                 }
                 RuntimeRestoreTabMatch::Missing => {
+                    // The public launch command returns as soon as Core accepts the
+                    // native create effect. Stage the saved geometry before that
+                    // effect can run so restoration never mistakes a not-yet-
+                    // registered native tab for a permanent layout failure and
+                    // rolls back every accepted launch in the window.
+                    state
+                        .runtime
+                        .prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)
+                        .map_err(|error| {
+                            shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", error)
+                        })?;
+                    prepared_role_slots = true;
                     let launch_result = if tab.tab_type == "workspace" {
                         invoke_core_async(
                             state,
@@ -346,6 +382,7 @@ async fn restore_saved_game_windows(
                     match launch_result {
                         Ok(_) => true,
                         Err(error) => {
+                            state.runtime.discard_prepared_tab_role_slots(&tab.id);
                             failures.push(json!({
                                 "windowId": saved.id,
                                 "tabId": tab.id,
@@ -360,20 +397,6 @@ async fn restore_saved_game_windows(
                 }
             };
 
-            // A launch publishes a partial runtime snapshot. Reapply the full
-            // saved list until every tab is materialized so later tabs retain
-            // their stable IDs and a failed tab stays retryable.
-            state
-                .core
-                .invoke(CoreCommand::GameWindowUpdate {
-                    id: saved.id.clone(),
-                    input: rion_core::GameWindowUpdateInputRecord {
-                        tabs: Some(saved.tabs.clone()),
-                        active_tab_id: Some(saved.active_tab_id.clone()),
-                        ..rion_core::GameWindowUpdateInputRecord::default()
-                    },
-                })
-                .map_err(error_payload)?;
             if !launch_succeeded {
                 continue;
             }
@@ -396,9 +419,14 @@ async fn restore_saved_game_windows(
             if saved.active_tab_id.as_deref() == Some(tab.id.as_str()) {
                 active_runtime_tab_id = Some(restored_tab_id.clone());
             }
-            if let Err(error) = state
-                .runtime
-                .restore_tab_role_slots(&restored_tab_id, &tab.role_slots)
+            if prepared_role_slots && restored_tab_id != tab.id {
+                state.runtime.discard_prepared_tab_role_slots(&tab.id);
+                prepared_role_slots = false;
+            }
+            if !prepared_role_slots
+                && let Err(error) = state
+                    .runtime
+                    .restore_tab_role_slots(&restored_tab_id, &tab.role_slots)
             {
                 failures.push(json!({
                     "windowId": saved.id,
@@ -440,6 +468,17 @@ async fn restore_saved_game_windows(
                 window_failed = true;
             }
         }
+        if let Err(error) = state
+            .runtime
+            .finish_prepared_restored_window_tabs(&saved.id)
+        {
+            failures.push(json!({
+                "windowId": saved.id,
+                "code": "TAURI_RESTORE_TAB_ORDER_FAILED",
+                "message": error
+            }));
+            window_failed = true;
+        }
         if let Some(active_tab_id) = active_runtime_tab_id.as_deref()
             && let Err(error) = invoke_core_async(
                 state,
@@ -455,34 +494,24 @@ async fn restore_saved_game_windows(
             }));
             window_failed = true;
         }
-        if let Some(takeover) = takeover.as_ref() {
-            if window_failed {
-                let rollback_errors = rollback_saved_window_takeover(state, takeover).await;
-                if !rollback_errors.is_empty() {
-                    state.runtime.mark_unhealthy_after_failed_compensation();
-                    return Err(shell_error(
-                        "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
-                        format!(
-                            "Opening the saved Game Window failed, and its previous runtime could not be restored: {}",
-                            rollback_errors.join("; ")
-                        ),
-                    ));
-                }
-            } else {
-                let persistence_errors =
-                    restore_workspace_conflict_metadata(state, &takeover.recovery_records);
-                if !persistence_errors.is_empty() {
-                    let mut rollback_errors = persistence_errors;
-                    rollback_errors.extend(rollback_saved_window_takeover(state, takeover).await);
-                    state.runtime.mark_unhealthy_after_failed_compensation();
-                    return Err(shell_error(
-                        "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
-                        format!(
-                            "The saved Game Window opened, but its reusable configurations could not be preserved: {}",
-                            rollback_errors.join("; ")
-                        ),
-                    ));
-                }
+        if window_failed {
+            state
+                .runtime
+                .discard_prepared_restored_window_tabs(&saved.id);
+        }
+        if let Some(takeover) = takeover.as_ref()
+            && window_failed
+        {
+            let rollback_errors = rollback_saved_window_takeover(state, takeover).await;
+            if !rollback_errors.is_empty() {
+                state.runtime.mark_unhealthy_after_failed_compensation();
+                return Err(shell_error(
+                    "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
+                    format!(
+                        "Opening the saved Game Window failed, and its previous runtime could not be restored: {}",
+                        rollback_errors.join("; ")
+                    ),
+                ));
             }
         }
         if !window_failed {

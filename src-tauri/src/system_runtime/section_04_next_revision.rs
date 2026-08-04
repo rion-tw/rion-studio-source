@@ -420,6 +420,8 @@ struct RuntimeState {
     completed_failed_launch_cleanups: HashSet<(String, String)>,
     failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
     optimistic_closed_tabs: HashSet<String>,
+    pending_restore_role_slots: HashMap<String, Vec<GameWindowRoleSlotRecord>>,
+    pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
@@ -446,6 +448,15 @@ struct RuntimeState {
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingWindowTabRestore {
+    active_tab_id: Option<String>,
+    ordered_tab_ids: Vec<String>,
+    reserved_tab_ids: HashSet<String>,
+    successful_tab_ids: HashSet<String>,
+    terminal_tab_ids: HashSet<String>,
 }
 
 #[derive(Clone)]

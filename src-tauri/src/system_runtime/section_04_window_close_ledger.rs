@@ -13,6 +13,20 @@ struct WindowCloseLedger {
 }
 
 impl WindowCloseLedger {
+    fn contains_window_generation(&self, window_id: &str, generation: u64) -> bool {
+        self.operations.values().any(|transaction| {
+            transaction.window_id == window_id && transaction.generation == Some(generation)
+        })
+    }
+
+    fn operation_id_for_window(&self, window_id: &str) -> Option<String> {
+        self.operations
+            .iter()
+            .find_map(|(operation_id, transaction)| {
+                (transaction.window_id == window_id).then(|| operation_id.clone())
+            })
+    }
+
     fn pending_operation_id(&self, label: &str) -> Option<String> {
         self.operation_by_label.get(label).cloned()
     }

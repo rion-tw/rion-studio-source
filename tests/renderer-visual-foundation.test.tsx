@@ -125,8 +125,10 @@ describe("renderer visual foundation", () => {
     expect(styles).toMatch(
       /\.nav-item-active \{[\s\S]*?box-shadow: inset 0 1px 0 hsl\(var\(--glass-highlight-muted\)\);/
     );
+    expect(styles).toContain(".segmented-item-active {\n    border-color: hsl(var(--border) / 0.42);");
+    expect(styles).toContain(':root[data-theme="dark"] .segmented-item-active {\n    border-color: hsl(var(--glass-border));');
     expect(styles).not.toMatch(/\.glass-control\.macro-role-card-selected[\s\S]*?border-color: hsl\(var\(--activity\)\)/);
-    expect(patterns).toContain('? "glass-control-selected text-foreground"');
+    expect(patterns).toContain('? "glass-control-selected segmented-item-active text-foreground"');
     expect(patterns).toContain('? "nav-item-active text-foreground"');
   });
 });

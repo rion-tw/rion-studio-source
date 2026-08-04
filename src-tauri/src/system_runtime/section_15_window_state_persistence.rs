@@ -312,6 +312,19 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn schedule_live_window_state_persistence(&self, window_id: &str) {
+        // Window teardown owns one frozen, pre-close snapshot. Late close,
+        // selection, geometry, and native readback callbacks are projections of
+        // teardown and have no authority to replace the saved window definition.
+        if self.current_window_close_in_progress(window_id) {
+            return;
+        }
+        // Restore launches are accepted concurrently. Core projection can settle after native
+        // reservations, so partial launch snapshots must not replace the saved definition.
+        // The restore contract schedules one authoritative snapshot after every create reaches
+        // a successful terminal state and the saved order is re-applied.
+        if self.pending_window_tab_restore(window_id).is_some() {
+            return;
+        }
         let Some(runtime) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
             return;
         };

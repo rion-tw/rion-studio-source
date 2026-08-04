@@ -1,5 +1,5 @@
 impl SystemRuntimeExecutor {
-    fn create_tab(&self, tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
+    fn create_tab(&self, mut tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
         let launch_started = Instant::now();
         let attempt_generation = tab
             .attempt_generation
@@ -13,6 +13,12 @@ impl SystemRuntimeExecutor {
             return Err(RuntimeError::new(
                 "SYSTEM_RUNTIME_ENGINE_MISMATCH",
                 "This tab did not resolve to the current platform System WebView.",
+            ));
+        }
+        if self.current_window_close_in_progress(&tab.target.window_id) {
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_WINDOW_CLOSING",
+                "The native create effect belongs to a window generation that is closing.",
             ));
         }
         {
@@ -69,20 +75,16 @@ impl SystemRuntimeExecutor {
             || launch_preview
                 .as_ref()
                 .is_some_and(|preview| preview.host_created);
-        let should_select = launch_preview.as_ref().is_none_or(|preview| {
-            self.presentation
-                .existing(&target.window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|selection| {
-                        selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
-                    })
-                })
-                .unwrap_or(true)
-        });
+        let (pending_window_restore, should_select) = self.restored_tab_selection_intent(
+            &target.window_id,
+            &tab.tab_id,
+            launch_preview.as_ref(),
+        );
         let created_tab_id = tab.tab_id.clone();
         let reservation_revision = self.presentation.next_revision();
         {
             let mut state = self.state()?;
+            apply_prepared_role_slots_to_effect(&mut state, &mut tab)?;
             state
                 .completed_failed_launch_cleanups
                 .retain(|(tab_id, _)| tab_id != &created_tab_id);
@@ -170,6 +172,9 @@ impl SystemRuntimeExecutor {
             } else {
                 selection.insert_tab(presentation_tab, reservation_revision, should_select);
             }
+            if let Some(restore) = pending_window_restore.as_ref() {
+                selection.reorder_known_tabs(&restore.ordered_tab_ids);
+            }
             if should_select {
                 selection.select(Some(created_tab_id.clone()), reservation_revision);
             }
@@ -203,8 +208,8 @@ impl SystemRuntimeExecutor {
                         .ok()
                         .and_then(|selection| selection.selected_tab_id.clone())
                 });
-        if let Some(preview) = launch_preview.as_ref() {
-            let _ = self.replace_native_tab_reservation(
+        let native_reservation = if let Some(preview) = launch_preview.as_ref() {
+            self.replace_native_tab_reservation(
                 &target.window_id,
                 &preview.id,
                 &created_tab_id,
@@ -213,17 +218,21 @@ impl SystemRuntimeExecutor {
                 tab.workspace_template.as_deref(),
                 active_tab_id.as_deref(),
                 reservation_revision,
-            );
+            )
         } else {
-            let _ = self.reserve_native_tab(
+            self.reserve_native_tab(
                 &target.window_id,
                 &created_tab_id,
                 &tab.name,
                 tab_type,
                 tab.workspace_template.as_deref(),
                 reservation_revision,
-            );
+            )
+        };
+        if native_reservation.is_ok() {
+            self.mark_restored_native_tab_reserved(&target.window_id, &created_tab_id);
         }
+        self.reconcile_prepared_restored_window_tabs(&target.window_id)?;
         self.dispatch_native_presentation(
             target.window_id.clone(),
             Some(created_tab_id.clone()),
@@ -321,6 +330,7 @@ impl SystemRuntimeExecutor {
                         state
                             .runtime
                             .finish_main_frame_navigation_page(&webview, payload.url());
+                        state.runtime.schedule_ready_surface_viewport_refresh(&webview);
                     }
                 });
                 // The normalized role rectangle is sufficient for the first frame. Exact gap,
@@ -623,6 +633,7 @@ impl SystemRuntimeExecutor {
             self.set_launch_phase(&tab.tab_id, LaunchPhase::Navigating);
             Ok(())
         })();
+        self.finish_restored_tab_creation(&target.window_id, &created_tab_id, result.is_ok());
         if result.is_err() {
             let failed_launch_diagnostic = result
                 .as_ref()

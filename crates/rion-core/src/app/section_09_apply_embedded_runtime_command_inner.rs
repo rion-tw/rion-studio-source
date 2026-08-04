@@ -451,6 +451,15 @@ impl AppCore {
         Ok(report)
     }
 
+    pub fn core_effect_is_pending(
+        &self,
+        effect_id: &str,
+        operation_id: &str,
+    ) -> CoreResult<bool> {
+        self.operation_actor
+            .effect_is_pending(effect_id, operation_id)
+    }
+
     pub fn resolve_workspace_layout(
         &self,
         input: &crate::model::WorkspaceLayoutInput,

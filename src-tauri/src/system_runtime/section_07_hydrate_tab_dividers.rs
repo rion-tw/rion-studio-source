@@ -261,6 +261,16 @@ impl SystemRuntimeExecutor {
         presentation_revision: u64,
         persist_runtime: bool,
     ) {
+        let created_tab_id = match &effect.action {
+            CoreEffectAction::EmbeddedCreateTab { tab } => Some(tab.tab_id.clone()),
+            _ => None,
+        };
+        // Core cancellation removes an unstarted effect from its pending set.
+        // The native queue may still contain that envelope, so admit create work
+        // only while the exact effect/operation pair remains pending.
+        if created_tab_id.is_some() && !self.create_effect_is_still_pending(&effect) {
+            return;
+        }
         let shutdown_accepting = RuntimeShutdownState::from_raw(
             self.shutdown_state.load(Ordering::Acquire),
         ) == RuntimeShutdownState::Accepting;
@@ -402,16 +412,40 @@ impl SystemRuntimeExecutor {
             .as_ref()
             .map(|report| effect_acknowledgement_status(report, &effect_id))
             .unwrap_or("dispatchFailed");
-        self.record_effect_outcome_failures(
-            action_name,
-            &effect_id,
-            &operation_id,
-            error_payload.as_ref(),
-            acknowledgement_status,
-            started.elapsed(),
-            persist_runtime,
-            &scope,
-        );
+        let stale_create_cleanup = (succeeded && acknowledgement_status != "accepted")
+            .then(|| {
+                created_tab_id
+                    .as_deref()
+                    .map(|tab_id| self.retire_unacknowledged_created_tab(tab_id))
+            })
+            .flatten();
+        let retired_stale_create = stale_create_cleanup.as_ref().is_some_and(Result::is_ok);
+        let stale_create_cleanup_error = stale_create_cleanup
+            .as_ref()
+            .and_then(|cleanup| cleanup.as_ref().err())
+            .map(|error| rion_core::CoreErrorPayload {
+                code: error.code.to_owned(),
+                message: error.message.clone(),
+            });
+        if stale_create_cleanup_error.is_some() {
+            // The duplicate login surface could not be proven offline. Fail
+            // closed only at this genuine isolation boundary.
+            self.health.mark_unhealthy();
+        }
+        if !retired_stale_create {
+            self.record_effect_outcome_failures(
+                action_name,
+                &effect_id,
+                &operation_id,
+                stale_create_cleanup_error
+                    .as_ref()
+                    .or(error_payload.as_ref()),
+                acknowledgement_status,
+                started.elapsed(),
+                persist_runtime,
+                &scope,
+            );
+        }
         if dispatch.is_ok() && succeeded && persist_runtime {
             self.publish_projection();
         }

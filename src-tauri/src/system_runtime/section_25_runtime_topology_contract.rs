@@ -3,6 +3,32 @@ struct RuntimeEffectCorrelation {
     presentation_revision: u64,
 }
 
+struct RuntimeTabProjectionUpdate {
+    window_id: String,
+    moved: bool,
+    source_window_id: String,
+    surfaces: Vec<Webview>,
+    tab_id: String,
+}
+
+struct RuntimePresentationRelocation {
+    source_window_id: String,
+    surface_labels: HashSet<String>,
+    tab_id: String,
+    target_window_id: String,
+}
+
+struct RuntimeHostProjectionUpdate {
+    active_tab_id: Option<String>,
+    focus_window: bool,
+    presentation: String,
+    reveal: bool,
+    retain_visibility: bool,
+    title: Option<String>,
+    window: Window,
+    window_id: String,
+}
+
 impl SystemRuntimeExecutor {
     fn apply_runtime(
         &self,

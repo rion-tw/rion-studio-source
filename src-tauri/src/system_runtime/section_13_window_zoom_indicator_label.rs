@@ -289,9 +289,14 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         target_window_id: &str,
     ) -> Result<(), String> {
-        let owner = self.presentation.tab_window(tab_id)?;
+        let mut owner = self.presentation.tab_window(tab_id)?;
+        if owner.is_none()
+            && self.repair_missing_tab_presentation(tab_id, target_window_id)?
+        {
+            owner = self.presentation.tab_window(tab_id)?;
+        }
         let Some(source_window_id) = owner else {
-            return Err("Runtime tab was not found in the presentation registry.".to_owned());
+            return Err("Runtime tab is no longer available for activation.".to_owned());
         };
         if source_window_id == target_window_id {
             return Ok(());

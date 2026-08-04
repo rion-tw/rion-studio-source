@@ -174,19 +174,9 @@ fn discard_saved_game_windows(
         .iter()
         .filter(|window| requested_window_id.is_none_or(|id| id == window.id))
         .collect::<Vec<_>>();
-    for window in &selected {
-        state
-            .core
-            .invoke(CoreCommand::GameWindowUpdate {
-                id: window.id.clone(),
-                input: rion_core::GameWindowUpdateInputRecord {
-                    tabs: Some(Vec::new()),
-                    active_tab_id: Some(None),
-                    ..rion_core::GameWindowUpdateInputRecord::default()
-                },
-            })
-            .map_err(error_payload)?;
-    }
+    // Discarding crash recovery retires only the previous runtime session.
+    // Permanent Game Window definitions remain reusable; clearing their tabs
+    // here made a recovery choice indistinguishable from deleting saved state.
     replace_restore_progress(state, Vec::new())?;
     let remaining_windows = game_windows
         .iter()

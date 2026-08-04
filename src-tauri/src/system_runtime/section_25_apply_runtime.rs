@@ -70,6 +70,7 @@ impl SystemRuntimeExecutor {
             let state = self.state()?;
             host_plan
                 .iter()
+                .filter(|plan| !optimistic_closed_tabs.contains(&plan.tab_id))
                 .filter_map(|plan| {
                     let runtime_tab = state.tabs.get(&plan.tab_id)?;
                     let mut surfaces = runtime_tab
@@ -101,6 +102,9 @@ impl SystemRuntimeExecutor {
 
         let mut reparented_surfaces = Vec::<RuntimeReparentedSurface>::new();
         for update in &tab_updates {
+            if self.runtime_tab_close_projection_fenced(&update.tab_id)? {
+                continue;
+            }
             if update.moved {
                 let window = self.window_for_id(&update.window_id).ok_or_else(|| {
                     RuntimeError::new(
@@ -237,7 +241,10 @@ impl SystemRuntimeExecutor {
         let topology_revision = self.presentation.next_revision();
         let mut presentation_relocations = Vec::<RuntimePresentationRelocation>::new();
         for snapshot_tab in &snapshot.tabs {
-            if !live_windows.contains_key(&snapshot_tab.id) {
+            if !live_windows.contains_key(&snapshot_tab.id)
+                || optimistic_closed_tabs.contains(&snapshot_tab.id)
+                || self.runtime_tab_close_projection_fenced(&snapshot_tab.id)?
+            {
                 continue;
             }
             let owner = self
@@ -331,7 +338,10 @@ impl SystemRuntimeExecutor {
             for snapshot_tab in snapshot
                 .tabs
                 .iter()
-                .filter(|tab| tab.window_id == runtime_window.window_id)
+                .filter(|tab| {
+                    tab.window_id == runtime_window.window_id
+                        && !optimistic_closed_tabs.contains(&tab.id)
+                })
             {
                 window.update_metadata(
                     &snapshot_tab.id,
@@ -490,7 +500,10 @@ impl SystemRuntimeExecutor {
         let projected_native_tab_window_ids = snapshot
             .tabs
             .iter()
-            .filter(|tab| live_windows.contains_key(&tab.id))
+            .filter(|tab| {
+                live_windows.contains_key(&tab.id)
+                    && !optimistic_closed_tabs.contains(&tab.id)
+            })
             .map(|tab| tab.window_id.as_str())
             .collect::<HashSet<_>>();
         for runtime_window in snapshot
@@ -506,6 +519,7 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .filter(|tab_id| {
                     live_windows.contains_key(tab_id.as_str())
+                        && !optimistic_closed_tabs.contains(tab_id.as_str())
                         && snapshot
                             .tabs
                             .iter()

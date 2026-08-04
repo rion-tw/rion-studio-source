@@ -82,7 +82,8 @@ impl SystemRuntimeExecutor {
             }
         })?;
         self.state.lock().ok().and_then(|state| {
-            (state.tabs.contains_key(&tab_id)
+            ((state.tabs.contains_key(&tab_id)
+                && !state.optimistic_closed_tabs.contains(&tab_id))
                 || state
                     .provisional_launches
                     .values()
@@ -101,6 +102,7 @@ impl SystemRuntimeExecutor {
             state
                 .tabs
                 .keys()
+                .filter(|tab_id| !state.optimistic_closed_tabs.contains(*tab_id))
                 .cloned()
                 .chain(
                     state
@@ -462,11 +464,11 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-        let revision = self.presentation.next_revision();
         let ordered = {
             let mut state = coordinator
                 .lock()
                 .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            let previous = state.tab_ids();
             let mut ordered = state.tab_ids();
             let Some(index) = ordered.iter().position(|id| id == tab_id) else {
                 return Err("Dragged tab is outside the preview window.".to_owned());
@@ -476,6 +478,10 @@ impl SystemRuntimeExecutor {
                 .and_then(|before| ordered.iter().position(|id| id == before))
                 .unwrap_or(ordered.len());
             ordered.insert(insertion, tab_id.to_owned());
+            if ordered == previous {
+                return Ok(());
+            }
+            let revision = self.presentation.next_revision();
             state.reorder_known_tabs(&ordered);
             state.revision = revision;
             ordered
@@ -497,20 +503,23 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-        let revision = self.presentation.next_revision();
         let ordered = {
             let mut state = coordinator
                 .lock()
                 .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            if state.tab_ids().len() != ordered_tab_ids.len()
-                || state
-                    .tab_ids()
+            let previous = state.tab_ids();
+            if previous.len() != ordered_tab_ids.len()
+                || previous
                     .iter()
                     .collect::<HashSet<_>>()
                     != ordered_tab_ids.iter().collect::<HashSet<_>>()
             {
                 return Err("Frozen tab drag topology does not match the presentation window.".to_owned());
             }
+            if previous == ordered_tab_ids {
+                return Ok(());
+            }
+            let revision = self.presentation.next_revision();
             state.reorder_known_tabs(ordered_tab_ids);
             state.revision = revision;
             ordered_tab_ids.to_vec()

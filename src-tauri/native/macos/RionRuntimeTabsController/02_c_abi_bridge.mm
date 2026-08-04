@@ -699,6 +699,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
                   lockedScreenY:(CGFloat)screenY;
 - (void)lockDragPreviewToScreenY:(CGFloat)screenY;
 - (void)clearDragPreviewYLock;
+- (void)setAppKitDragPreviewVisible:(BOOL)visible;
 
 @end
 

@@ -48,6 +48,7 @@ impl SystemRuntimeExecutor {
                 revision,
                 source_id,
                 tab_type,
+                role_ids,
             ) = {
                 let presentation = self.presentation.coordinator(&window_id)?;
                 let revision = self.presentation.next_revision();
@@ -83,6 +84,7 @@ impl SystemRuntimeExecutor {
                     revision,
                     presentation_tab.source_id,
                     presentation_tab.tab_type,
+                    presentation_tab.role_ids,
                 )
             };
             let mut state = self.state().map_err(|error| error.message)?;
@@ -107,7 +109,10 @@ impl SystemRuntimeExecutor {
                 tab_id.to_owned(),
                 TabCloseTombstone {
                     revision,
+                    role_ids,
                     slot_owners,
+                    source_id: source_id.clone(),
+                    tab_type: tab_type.clone(),
                     window_id: window_id.clone(),
                 },
             );

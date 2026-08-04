@@ -53,7 +53,7 @@
                 tab_ids[1].to_owned(),
             ];
             let parent_operation_id = format!("native-tabDragTopology-{platform}");
-            let committed = drive_command_with(
+            let (committed, native_effects) = drive_command_with(
                 Arc::clone(&core),
                 CoreCommand::EmbeddedTabDragTopologyCommit {
                     request: crate::model::RuntimeTabMutationRequestRecord {
@@ -78,9 +78,12 @@
                     target_after_tab_ids: after.clone(),
                 },
                 |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
-            )
-            .0
-            .unwrap();
+            );
+            let committed = committed.unwrap();
+            assert!(
+                native_effects.is_empty(),
+                "the live native presentation must not be replayed on {platform}"
+            );
             assert_eq!(committed["windows"][0]["tabIds"], json!(after), "{platform}");
             let persisted_before_commit = core
                 .invoke(CoreCommand::GameWindowGet {

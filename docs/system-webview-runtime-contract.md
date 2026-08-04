@@ -70,7 +70,7 @@ shutdown result.
 | Display topology | One revision-fenced snapshot drives remap, native movement, state commit, projection publication, and reverse-order compensation | NSScreen notifications and geometry / Win32 display notifications and geometry |
 | Window lifecycle | Close intent, native submission, exact window generation, release proof, and terminal receipt are one idempotent transaction | NSWindow lifecycle / Win32 window lifecycle |
 | Focus | One global intent lease owns focus across the main window and every runtime window; native observation confirms or supersedes it | AppKit activation and focus observation / Win32 foreground and focus observation |
-| Drag | One session freezes source/target generations, topology revision, lifecycle epoch, and terminal receipt | AppKit tab drag adapter / Windows tab-strip pointer adapter |
+| Drag | One session freezes source/target generations, topology revision, lifecycle epoch, and terminal receipt; macOS moves the live native presentation during the gesture while durable topology remains terminal-only | AppKit tab drag adapter / Windows tab-strip pointer adapter |
 | Recovery | One attempt fences generation and input, builds a provisional replacement, retires the old surface at an explicit destructive boundary, and reaches `inputReady` or `restartRequired` | WKWebView process termination / WebView2 process-failure callbacks |
 | Power | Sleep rejects new native work, interrupts old-epoch work, drains input and Core, persists recovery state, and wake restores the same epoch before accepting work | NSWorkspace sleep/wake notifications / `WM_POWERBROADCAST` message-only window |
 
@@ -296,9 +296,27 @@ A runtime tab drag has one stable session and operation ID from pointer-down to
 terminal commit. It freezes the tab, source and target window generations,
 topology revision, lifecycle epoch, and drag ordering. Duplicate completion
 replays the first terminal receipt. Topology changes, window replacement,
-suspension, or a newer session cancel/supersede the old transaction; a partially
-applied cross-window move uses bounded compensation and becomes `indeterminate`
-if compensation cannot restore known ownership.
+suspension, or a newer session cancel/supersede the old transaction. Before a
+drop is accepted, cancellation may restore the frozen presentation snapshot. An
+accepted AppKit or HTML drop is never visually compensated by a later Core or
+SQLite failure: Core advances its projection without replaying a native effect,
+and the retained live-window snapshot retries durability independently.
+
+On macOS, leaving every tab-strip hit region immediately prepares a provisional
+native host and moves the complete live tab presentation into it: AppKit tab
+chrome, owned role WKWebViews, placeholders, and dividers. Pointer samples only
+update this SystemRuntime presentation and window position; they do not invoke a
+Core topology mutation or SQLite persistence. Placement persistence is
+suppressed for every window touched by the gesture. The terminal drop freezes
+the exact AppKit order, commits the latest `LiveWindowTabState` projection, and
+then releases suppression. Cancelling restores the frozen presentation snapshot.
+This keeps the game viewport visible under the pointer without reintroducing a
+second durable tab authority.
+
+A newly observed native drag session supersedes an abandoned macOS session whose
+terminal destination callback was not delivered. Late callbacks for a completed,
+superseded, or never-accepted session are idempotent no-ops and never surface a
+`TAURI_TAB_DRAG_STALE` user error.
 
 ## Lifecycle and readiness rules
 

@@ -27,6 +27,7 @@ describe("native tab drag latest-intent transaction", () => {
     );
     expect(macBridge).toContain("stamp_native_tab_drag_action(");
     expect(macBridge).toContain("coalesce_native_tab_drag_actions(");
+    expect(macBridge).toContain('error.code != "TAURI_TAB_DRAG_STALE"');
     expect(runtime).toContain("struct TabDragIntentCoordinator");
     expect(runtime).toContain("projection_is_superseded(");
     expect(runtime).toContain("reorder_native_tabs_for_projection(");
@@ -57,6 +58,43 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("showExternalDragGhostBeforeIdentifier:");
     expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
+  });
+
+  it("moves the complete macOS tab presentation and its live surfaces during the native gesture", async () => {
+    const [handler, move, contract] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_11_provisionally_move_tab_with_visibility.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_tab_drag_contract.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(contract).toContain("fn tab_drag_defers_native_mutations(is_windows: bool");
+    expect(contract).toContain("is_windows\n}");
+    expect(handler).toContain("provisionally_move_tab(&session.tab_id");
+    expect(handler).toContain("position_provisional_game_window(&target)");
+    expect(handler).toContain("show_tab_drag_window(&floating_window_id)");
+    expect(handler).toContain("Some(&ordered_tab_ids)");
+    expect(move).toContain("surface.reparent(&target_window)");
+    expect(move).toContain("slot.placeholder.as_ref()");
+    expect(move).toContain("surface.show()");
+    expect(move).not.toContain("tab_drag_presentation_preview");
   });
 
   it("carries an exact terminal order across the macOS bridge", async () => {

@@ -2,13 +2,10 @@ enum NativeLayoutMutation {
     Bounds {
         next_position: LogicalPosition<f64>,
         next_size: LogicalSize<f64>,
-        previous_position: PhysicalPosition<i32>,
-        previous_size: tauri::PhysicalSize<u32>,
         webview: Webview,
     },
     Zoom {
         next: f64,
-        previous: f64,
         webview: Webview,
     },
 }
@@ -35,26 +32,9 @@ impl NativeLayoutMutation {
         }
     }
 
-    fn rollback(&self) -> Result<(), String> {
+    fn label(&self) -> &str {
         match self {
-            Self::Bounds {
-                previous_position,
-                previous_size,
-                webview,
-                ..
-            } => {
-                webview
-                    .set_position(*previous_position)
-                    .map_err(|error| error.to_string())?;
-                webview
-                    .set_size(*previous_size)
-                    .map_err(|error| error.to_string())
-            }
-            Self::Zoom {
-                previous, webview, ..
-            } => webview
-                .set_zoom(*previous)
-                .map_err(|error| error.to_string()),
+            Self::Bounds { webview, .. } | Self::Zoom { webview, .. } => webview.label(),
         }
     }
 }
@@ -63,16 +43,12 @@ fn native_layout_bounds_mutation(
     webview: Webview,
     position: LogicalPosition<f64>,
     size: LogicalSize<f64>,
-) -> RuntimeResult<NativeLayoutMutation> {
-    let previous_position = webview.position().map_err(RuntimeError::tauri)?;
-    let previous_size = webview.size().map_err(RuntimeError::tauri)?;
-    Ok(NativeLayoutMutation::Bounds {
+) -> NativeLayoutMutation {
+    NativeLayoutMutation::Bounds {
         next_position: position,
         next_size: size,
-        previous_position,
-        previous_size,
         webview,
-    })
+    }
 }
 
 impl SystemRuntimeExecutor {
@@ -165,6 +141,7 @@ impl SystemRuntimeExecutor {
         let (
             window,
             role_views,
+            role_generations,
             divider_views,
             gap,
             window_zoom_factor,
@@ -211,6 +188,16 @@ impl SystemRuntimeExecutor {
                             role_surface,
                             runtime_role_slot_input(slot),
                         ))
+                    })
+                    .collect::<Vec<_>>(),
+                tab.roles
+                    .iter()
+                    .map(|(role_id, surface)| {
+                        (
+                            surface.webview.label().to_owned(),
+                            role_id.clone(),
+                            surface.generation,
+                        )
                     })
                     .collect::<Vec<_>>(),
                 tab.dividers
@@ -268,7 +255,7 @@ impl SystemRuntimeExecutor {
                 tab_strip,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(metrics.width, tab_strip_height),
-            )?);
+            ));
         }
         #[cfg(not(windows))]
         let _ = tab_strip;
@@ -278,13 +265,12 @@ impl SystemRuntimeExecutor {
                     webview.clone(),
                     LogicalPosition::new(bounds.x, bounds.y),
                     LogicalSize::new(bounds.width, bounds.height),
-                )?);
+                ));
             }
         }
-        for (_, webview, _, effective_zoom, previous_zoom) in &zoom_updates {
+        for (_, webview, _, effective_zoom, _) in &zoom_updates {
             mutations.push(NativeLayoutMutation::Zoom {
                 next: *effective_zoom,
-                previous: *previous_zoom,
                 webview: webview.clone(),
             });
         }
@@ -303,11 +289,10 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>()
         };
-        for (label, effective_zoom, previous_zoom) in popup_updates {
+        for (label, effective_zoom, _) in popup_updates {
             if let Some(webview) = self.app.get_webview(&label) {
                 mutations.push(NativeLayoutMutation::Zoom {
                     next: effective_zoom,
-                    previous: previous_zoom,
                     webview,
                 });
             }
@@ -319,20 +304,50 @@ impl SystemRuntimeExecutor {
                     webview.clone(),
                     LogicalPosition::new(bounds.x, bounds.y),
                     LogicalSize::new(bounds.width, bounds.height),
-                )?);
+                ));
             }
         }
-        if let Err(failure) = apply_reversible_fanout(
-            &mutations,
-            |_, mutation| mutation.apply(),
-            |_, mutation| mutation.rollback(),
-        ) {
-            return Err(reversible_fanout_runtime_error(
-                "SYSTEM_GEOMETRY_APPLY_FAILED",
-                "Native runtime layout",
-                &failure,
-            ));
+        let projection_failures = mutations
+            .iter()
+            .filter_map(|mutation| {
+                mutation
+                    .apply()
+                    .err()
+                    .map(|error| (mutation.label().to_owned(), error))
+            })
+            .collect::<Vec<_>>();
+        let disconnected = projection_failures
+            .iter()
+            .filter(|(_, error)| native_surface_channel_is_unavailable(error))
+            .collect::<Vec<_>>();
+        if !disconnected.is_empty() {
+            let disconnected_labels = disconnected
+                .iter()
+                .map(|(label, _)| label.as_str())
+                .collect::<HashSet<_>>();
+            let reason = format!(
+                "Native layout lost contact with {} System WebView surface(s).",
+                disconnected.len()
+            );
+            self.schedule_layout_surface_recovery(
+                &role_generations,
+                &disconnected_labels,
+                reason,
+            );
+            eprintln!(
+                "Native runtime layout skipped disconnected surfaces and queued recovery: tab={tab_id} surfaces={}",
+                disconnected
+                    .iter()
+                    .map(|(label, _)| label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
         }
+        let projection_errors = projection_failures
+            .iter()
+            .filter(|(_, error)| !native_surface_channel_is_unavailable(error))
+            .map(|(label, error)| format!("{label}: {error}"))
+            .collect::<Vec<_>>();
         let state_commit = (|| -> RuntimeResult<()> {
             let mut state = self.state()?;
             let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
@@ -351,19 +366,45 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if let Err(error) = state_commit {
-            let failure = ReversibleFanoutFailure {
-                apply_error: error.message,
-                rollback_errors: rollback_reversible_fanout(&mutations, |_, mutation| {
-                    mutation.rollback()
-                }),
-            };
-            return Err(reversible_fanout_runtime_error(
+            return Err(RuntimeError::new(
                 "SYSTEM_GEOMETRY_APPLY_FAILED",
-                "Native runtime layout state commit",
-                &failure,
+                format!(
+                    "Native runtime layout state commit failed after the latest projection was submitted: {}",
+                    error.message
+                ),
+            ));
+        }
+        if !projection_errors.is_empty() {
+            return Err(RuntimeError::new(
+                "SYSTEM_GEOMETRY_APPLY_FAILED",
+                format!(
+                    "Native runtime layout could not project every surface: {}",
+                    projection_errors.join("; ")
+                ),
             ));
         }
         Ok(())
+    }
+
+    fn schedule_layout_surface_recovery(
+        &self,
+        role_generations: &[(String, String, u64)],
+        disconnected_labels: &HashSet<&str>,
+        reason: String,
+    ) {
+        let Some(runtime) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
+            return;
+        };
+        for (_, role_id, generation) in role_generations
+            .iter()
+            .filter(|(label, _, _)| disconnected_labels.contains(label.as_str()))
+        {
+            runtime.schedule_surface_recovery(
+                role_id.clone(),
+                reason.clone(),
+                *generation,
+            );
+        }
     }
 
     fn adaptive_zoom_factor(
@@ -556,4 +597,14 @@ impl SystemRuntimeExecutor {
         }
     }
 
+}
+
+fn native_surface_channel_is_unavailable(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("failed to receive message from webview")
+        || message.contains("webview was closed")
+        || message.contains("webview is closed")
+        || message.contains("webview not found")
+        || message.contains("channel closed")
+        || message.contains("broken pipe")
 }

@@ -417,6 +417,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         }
         if let Err(error) =
             crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
+            && error.code != "TAURI_TAB_DRAG_STALE"
         {
             crate::reveal_shell_error(
                 &app,

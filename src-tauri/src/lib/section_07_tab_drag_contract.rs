@@ -43,8 +43,18 @@ fn superseded_tab_drag_response(
     })
 }
 
-fn tab_drag_defers_native_mutations(is_windows: bool, is_macos: bool) -> bool {
-    is_windows || is_macos
+fn active_tab_drag_session_id(
+    state: &CoreState,
+) -> Result<Option<String>, CoreErrorPayload> {
+    state
+        .tab_drag
+        .lock()
+        .map(|session| session.as_ref().map(|session| session.id.clone()))
+        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))
+}
+
+fn tab_drag_defers_native_mutations(is_windows: bool, _is_macos: bool) -> bool {
+    is_windows
 }
 
 #[derive(Clone)]
@@ -317,8 +327,10 @@ fn active_tab_drag_response(
         .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?
         .as_ref()
         .filter(|session| session.id == session_id)
-        .cloned()
-        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
+        .cloned();
+    let Some(session) = session else {
+        return Ok(superseded_tab_drag_response(session_id, 0, 0));
+    };
     emit_tab_drag_active(app, &session);
     serialize_tab_drag_response(&tab_drag_active_record(&session))
 }
@@ -355,6 +367,7 @@ fn finish_superseded_tab_drag(
         "tab.drag-terminal-superseded",
         "An older drag terminal skipped native cleanup because a newer intent owns the tab.",
     );
+    release_tab_drag_window_motion_suppression(state, &session, None);
     let receipt = complete_tab_drag_terminal(
         app,
         state,
@@ -385,6 +398,7 @@ fn finish_failed_tab_drag_session(
             "tab.drag-cleanup-superseded",
             "An older drag failure skipped rollback because a newer user intent owns the tab.",
         );
+        release_tab_drag_window_motion_suppression(state, session, None);
         let receipt = complete_tab_drag_terminal(
             app,
             state,

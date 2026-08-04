@@ -31,6 +31,7 @@ include!("lib/section_04_prepare_shell_invoke.rs");
 include!("lib/section_05_invoke_core_async.rs");
 include!("lib/section_06_select_non_conflicting_saved_windows.rs");
 include!("lib/section_07_tab_drag_contract.rs");
+include!("lib/section_07_deferred_tab_drag_intent.rs");
 include!("lib/section_07_handle_game_window_tab_drag.rs");
 include!("lib/section_07_tab_drag_session_progress.rs");
 include!("lib/section_08_cancel_tab_drag_session.rs");

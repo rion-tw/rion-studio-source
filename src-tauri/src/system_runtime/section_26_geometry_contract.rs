@@ -105,23 +105,10 @@ impl SystemRuntimeExecutor {
             }
             Ok(()) => NativeOperationReceipt::applied(operation, "geometryLayoutSubmitted"),
             Err(error) => {
-                let rollback_failed = error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED"
-                    || error.code == "SYSTEM_GEOMETRY_ROLLBACK_FAILED";
-                if rollback_failed {
-                    self.health.mark_unhealthy();
-                }
                 let receipt = NativeOperationReceipt::with_status(
                     operation,
-                    if rollback_failed {
-                        "geometryLayoutIndeterminate"
-                    } else {
-                        "geometryLayoutRolledBack"
-                    },
-                    if rollback_failed {
-                        NativeOperationStatus::Indeterminate
-                    } else {
-                        NativeOperationStatus::Failed
-                    },
+                    "geometryLayoutProjectionFailed",
+                    NativeOperationStatus::Failed,
                     Some(error.code),
                 );
                 if let Some(count) = error.rollback_error_count {
@@ -405,10 +392,7 @@ impl SystemRuntimeExecutor {
                     target.bounds.height.max(1) as f64,
                 ))
                 .map_err(|error| error.to_string())?;
-            for tab_id in tab_ids {
-                self.layout_runtime_tab_inner(tab_id)
-                    .map_err(|error| error.message)?;
-            }
+            self.submit_window_tab_layouts(tab_ids);
             match target.presentation.as_str() {
                 "fullscreen" => window
                     .set_fullscreen(true)
@@ -425,7 +409,7 @@ impl SystemRuntimeExecutor {
         window: &Window,
         snapshot: &NativeWindowGeometrySnapshot,
         scope: GeometryMutationScope,
-        tab_ids: &[String],
+        _tab_ids: &[String],
     ) -> Vec<String> {
         let mut errors = Vec::new();
         if window.is_fullscreen().unwrap_or(false)
@@ -451,11 +435,6 @@ impl SystemRuntimeExecutor {
             )) {
                 errors.push(format!("size: {error}"));
             }
-            for tab_id in tab_ids {
-                if let Err(error) = self.layout_runtime_tab_inner(tab_id) {
-                    errors.push(format!("layout {tab_id}: {}", error.message));
-                }
-            }
             if snapshot.fullscreen {
                 if let Err(error) = window.set_fullscreen(true) {
                     errors.push(format!("fullscreen: {error}"));
@@ -467,6 +446,21 @@ impl SystemRuntimeExecutor {
             }
         }
         errors
+    }
+
+    fn submit_window_tab_layouts(&self, tab_ids: &[String]) {
+        for tab_id in tab_ids {
+            if let Err(error) = self.layout_runtime_tab_inner(tab_id) {
+                // Tab layout is a projection of the already-committed window
+                // frame. It must never roll the frame back or poison unrelated
+                // windows. A disconnected role surface is recovered by the
+                // layout path; lifecycle races simply retire this projection.
+                eprintln!(
+                    "Native runtime tab layout projection was deferred: tab={tab_id} code={} error={}",
+                    error.code, error.message
+                );
+            }
+        }
     }
 }
 

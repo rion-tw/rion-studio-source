@@ -1,95 +1,3 @@
-fn record_deferred_tab_drag_drop_intent(
-    state: &CoreState,
-    session_id: &str,
-    target_window_id: &str,
-    before_tab_id: Option<&str>,
-    ordered_tab_ids: Vec<String>,
-) -> Result<bool, CoreErrorPayload> {
-    let target = state
-        .runtime
-        .tab_drag_window_snapshot(target_window_id)
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
-    let mut current = state
-        .tab_drag
-        .lock()
-        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
-    let session = current
-        .as_mut()
-        .filter(|session| session.id == session_id)
-        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
-    let target = session
-        .snapshots
-        .entry(target_window_id.to_owned())
-        .or_insert(target);
-    if let Some(before_tab_id) = before_tab_id
-        && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
-    {
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_INVALID",
-            "The drop insertion tab is outside the target Game Window.",
-        ));
-    }
-    let mut expected_tab_ids = target.tab_ids.clone();
-    if target_window_id != session.source_window_id {
-        expected_tab_ids.push(session.tab_id.clone());
-    }
-    if !tab_drag_exact_order_matches(&expected_tab_ids, &ordered_tab_ids) {
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_INVALID",
-            "Drop topology does not match the frozen Game Window tabs.",
-        ));
-    }
-    session.drop_window_id = Some(target_window_id.to_owned());
-    session.drop_before_tab_id = before_tab_id
-        .filter(|before_tab_id| *before_tab_id != session.tab_id)
-        .map(str::to_owned);
-    session.drop_ordered_tab_ids = Some(ordered_tab_ids);
-    session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
-    Ok(session.source_end_received && session.source_drop_accepted)
-}
-
-fn tab_drag_exact_order_matches(expected: &[String], observed: &[String]) -> bool {
-    expected.len() == observed.len()
-        && expected.iter().collect::<HashSet<_>>() == observed.iter().collect::<HashSet<_>>()
-        && observed.iter().all(|tab_id| !tab_id.is_empty())
-}
-
-fn record_deferred_tab_drag_source_end(
-    state: &CoreState,
-    session_id: &str,
-    cancelled: bool,
-    drop_accepted: bool,
-) -> Result<bool, CoreErrorPayload> {
-    let mut current = state
-        .tab_drag
-        .lock()
-        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
-    let session = current
-        .as_mut()
-        .filter(|session| session.id == session_id)
-        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
-    session.source_cancelled = cancelled;
-    session.source_drop_accepted = drop_accepted;
-    session.source_end_received = true;
-    let ready = deferred_tab_drag_terminal_ready(
-        cancelled,
-        drop_accepted,
-        session.drop_window_id.is_some(),
-    );
-    if !ready {
-        session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
-    }
-    Ok(ready)
-}
-
-fn deferred_tab_drag_terminal_ready(
-    cancelled: bool,
-    drop_accepted: bool,
-    has_drop_intent: bool,
-) -> bool {
-    cancelled || !drop_accepted || has_drop_intent
-}
-
 async fn finish_deferred_tab_drag_session(
     app: &AppHandle,
     state: &CoreState,
@@ -349,13 +257,7 @@ fn cancel_tab_drag_session(
     {
         errors.push(message);
     }
-    if session.single_tab
-        && let Err(message) = state
-            .runtime
-            .finish_tab_drag_window_motion(&session.source_window_id, false)
-    {
-        errors.push(message);
-    }
+    release_tab_drag_window_motion_suppression(state, session, None);
     if let Err(message) = state
         .runtime
         .make_provisional_game_window_interactive(&session.source_window_id)
@@ -489,17 +391,14 @@ async fn commit_tab_drag_session(
     {
         // The durable mutation may be retained as the fallback for the newer drag, but
         // every native cleanup below belongs to the older session and must not touch it.
+        release_tab_drag_window_motion_suppression(state, session, None);
         return Ok(RuntimeTabMutationProjectionOutcome::Superseded);
     }
-    if session.single_tab
-        && let Err(message) = state.runtime.finish_tab_drag_window_motion(
-            &session.source_window_id,
-            final_window_id == session.source_window_id && session.window_was_moved,
-        )
-    {
-        outcome = RuntimeTabMutationProjectionOutcome::Degraded;
-        eprintln!("Runtime tab drag committed but motion cleanup failed: {message}");
-    }
+    let persisted_motion_window = (session.single_tab
+        && final_window_id == session.source_window_id
+        && session.window_was_moved)
+        .then_some(final_window_id.as_str());
+    release_tab_drag_window_motion_suppression(state, session, persisted_motion_window);
     if !session.single_tab && final_window_id != session.provisional_window_id {
         state
             .runtime
@@ -516,6 +415,27 @@ async fn commit_tab_drag_session(
         eprintln!("Runtime tab drag committed but focus restoration failed: {message}");
     }
     Ok(outcome)
+}
+
+fn release_tab_drag_window_motion_suppression(
+    state: &CoreState,
+    session: &GameWindowTabDragSession,
+    persist_window_id: Option<&str>,
+) {
+    let mut window_ids = session.snapshots.keys().cloned().collect::<HashSet<_>>();
+    window_ids.insert(session.source_window_id.clone());
+    window_ids.insert(session.provisional_window_id.clone());
+    window_ids.insert(session.current_window_id.clone());
+    for window_id in window_ids {
+        if let Err(message) = state.runtime.finish_tab_drag_window_motion(
+            &window_id,
+            persist_window_id == Some(window_id.as_str()),
+        ) {
+            eprintln!(
+                "Runtime tab drag placement suppression could not be released: window={window_id} error={message}"
+            );
+        }
+    }
 }
 
 fn tab_drag_mutation_request(

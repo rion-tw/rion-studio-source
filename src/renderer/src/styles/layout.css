@@ -318,6 +318,10 @@
     box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
+  .segmented-item-active {
+    border-color: hsl(var(--border) / 0.42);
+  }
+
   .glass-popover {
     background:
       linear-gradient(180deg, hsl(var(--glass-highlight-muted)) 0%, transparent 48%),

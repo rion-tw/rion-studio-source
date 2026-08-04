@@ -208,6 +208,10 @@
     box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
   }
 
+  :root[data-theme="dark"] .segmented-item-active {
+    border-color: hsl(var(--glass-border));
+  }
+
   :root[data-theme="dark"] .glass-popover {
     box-shadow:
       inset 0 1px 0 hsl(var(--glass-highlight-muted)),

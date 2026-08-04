@@ -11,6 +11,8 @@ use crate::{
     },
 };
 
+const MAX_TAB_DRAG_TOPOLOGY_TABS: usize = 256;
+
 #[derive(Clone, Default)]
 pub struct BrowserRuntime {
     windows: HashMap<String, BrowserRuntimeWindowRecord>,
@@ -163,6 +165,23 @@ impl BrowserRuntime {
                 tab_id,
                 before_tab_id,
             } => self.reorder_tab(&tab_id, before_tab_id.as_deref())?,
+            BrowserRuntimeCommand::CommitTabDragTopology {
+                tab_id,
+                source_window_id,
+                target_window_id,
+                source_before_tab_ids,
+                source_after_tab_ids,
+                target_before_tab_ids,
+                target_after_tab_ids,
+            } => self.commit_tab_drag_topology(
+                &tab_id,
+                &source_window_id,
+                target_window_id.as_deref(),
+                &source_before_tab_ids,
+                &source_after_tab_ids,
+                &target_before_tab_ids,
+                &target_after_tab_ids,
+            )?,
             BrowserRuntimeCommand::MoveTab { tab_id, window_id } => {
                 self.move_tab(&tab_id, &window_id)?;
             }
@@ -382,6 +401,107 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn commit_tab_drag_topology(
+        &mut self,
+        tab_id: &str,
+        source_window_id: &str,
+        target_window_id: Option<&str>,
+        source_before_tab_ids: &[String],
+        source_after_tab_ids: &[String],
+        target_before_tab_ids: &[String],
+        target_after_tab_ids: &[String],
+    ) -> CoreResult<()> {
+        let target_window_id = target_window_id.unwrap_or(source_window_id);
+        let same_window = source_window_id == target_window_id;
+        let source = self.windows.get(source_window_id).ok_or_else(|| {
+            domain("RUNTIME_WINDOW_NOT_FOUND", "The source runtime window was not found.")
+        })?;
+        if source.tab_ids != source_before_tab_ids {
+            return Err(domain(
+                "TAB_DRAG_TOPOLOGY_STALE",
+                "The source tab order changed before the drag could commit.",
+            ));
+        }
+        if !ordered_tab_ids_are_unique(source_before_tab_ids)
+            || !ordered_tab_ids_are_unique(source_after_tab_ids)
+            || !ordered_tab_ids_are_unique(target_before_tab_ids)
+            || !ordered_tab_ids_are_unique(target_after_tab_ids)
+            || !source_before_tab_ids.iter().any(|candidate| candidate == tab_id)
+        {
+            return Err(domain(
+                "TAB_DRAG_TOPOLOGY_INVALID",
+                "The tab drag topology contains duplicate or missing tab identifiers.",
+            ));
+        }
+        if self.tabs.get(tab_id).map(|tab| tab.window_id.as_str()) != Some(source_window_id) {
+            return Err(domain(
+                "TAB_DRAG_TOPOLOGY_STALE",
+                "The dragged tab changed owners before the drag could commit.",
+            ));
+        }
+        if same_window {
+            if target_before_tab_ids != source_before_tab_ids
+                || target_after_tab_ids != source_after_tab_ids
+                || !same_tab_members(source_before_tab_ids, source_after_tab_ids)
+            {
+                return Err(domain(
+                    "TAB_DRAG_TOPOLOGY_INVALID",
+                    "A same-window drag must be a permutation of its frozen tab order.",
+                ));
+            }
+            self.windows
+                .get_mut(source_window_id)
+                .expect("source window was checked")
+                .tab_ids = source_after_tab_ids.to_vec();
+            return Ok(());
+        }
+
+        let expected_source_after = source_before_tab_ids
+            .iter()
+            .filter(|candidate| candidate.as_str() != tab_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        let expected_target_members = target_before_tab_ids
+            .iter()
+            .cloned()
+            .chain(std::iter::once(tab_id.to_owned()))
+            .collect::<Vec<_>>();
+        if target_before_tab_ids.iter().any(|candidate| candidate == tab_id)
+            || source_after_tab_ids != expected_source_after
+            || !same_tab_members(target_after_tab_ids, &expected_target_members)
+        {
+            return Err(domain(
+                "TAB_DRAG_TOPOLOGY_INVALID",
+                "A cross-window drag must move exactly one tab between frozen windows.",
+            ));
+        }
+        if let Some(target) = self.windows.get(target_window_id) {
+            if target.tab_ids != target_before_tab_ids {
+                return Err(domain(
+                    "TAB_DRAG_TOPOLOGY_STALE",
+                    "The target tab order changed before the drag could commit.",
+                ));
+            }
+        } else if !target_before_tab_ids.is_empty() {
+            return Err(domain(
+                "TAB_DRAG_TOPOLOGY_STALE",
+                "The target runtime window disappeared before the drag could commit.",
+            ));
+        }
+
+        self.move_tab(tab_id, target_window_id)?;
+        self.windows
+            .get_mut(source_window_id)
+            .expect("source window was checked")
+            .tab_ids = source_after_tab_ids.to_vec();
+        self.windows
+            .get_mut(target_window_id)
+            .expect("target window was registered by move")
+            .tab_ids = target_after_tab_ids.to_vec();
+        Ok(())
+    }
+
     fn move_tab(&mut self, tab_id: &str, window_id: &str) -> CoreResult<()> {
         let source_id = self
             .tabs
@@ -596,6 +716,17 @@ impl BrowserRuntime {
             workspaces,
         }
     }
+}
+
+fn ordered_tab_ids_are_unique(tab_ids: &[String]) -> bool {
+    tab_ids.len() <= MAX_TAB_DRAG_TOPOLOGY_TABS
+        && !tab_ids.iter().any(|tab_id| tab_id.is_empty())
+        && tab_ids.iter().collect::<HashSet<_>>().len() == tab_ids.len()
+}
+
+fn same_tab_members(left: &[String], right: &[String]) -> bool {
+    left.len() == right.len()
+        && left.iter().collect::<HashSet<_>>() == right.iter().collect::<HashSet<_>>()
 }
 
 fn domain(code: &'static str, message: &str) -> CoreError {

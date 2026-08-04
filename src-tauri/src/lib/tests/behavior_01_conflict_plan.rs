@@ -315,7 +315,7 @@ use super::*;
     }
 
     #[test]
-    fn tab_drag_latest_sample_wins_and_terminal_order_is_derived_once() {
+    fn tab_drag_latest_sample_wins_and_terminal_order_is_frozen_exactly() {
         assert_eq!(
             latest_tab_drag_sample((3, 100.0, 200.0), (4, -40.0, 88.0)),
             (4, -40.0, 88.0)
@@ -329,11 +329,12 @@ use super::*;
         let reordered = vec!["b".to_owned(), "a".to_owned(), "c".to_owned()];
         assert!(!tab_drag_order_changed(&original, &original));
         assert!(tab_drag_order_changed(&original, &reordered));
-        assert_eq!(
-            tab_drag_before_tab_id(&reordered, "a").as_deref(),
-            Some("c")
-        );
-        assert_eq!(tab_drag_before_tab_id(&reordered, "c"), None);
+        assert!(tab_drag_exact_order_matches(&original, &reordered));
+        assert!(!tab_drag_exact_order_matches(
+            &original,
+            &["a".to_owned(), "a".to_owned(), "c".to_owned()]
+        ));
+        assert!(!tab_drag_exact_order_matches(&original, &["a".to_owned(), "b".to_owned()]));
     }
 
     #[test]

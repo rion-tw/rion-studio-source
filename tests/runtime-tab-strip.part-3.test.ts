@@ -223,6 +223,11 @@ async function flushMicrotasks(): Promise<void> {
   for (let index = 0; index < 4; index += 1) await Promise.resolve();
 }
 
+async function flushPostedDragAction(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushMicrotasks();
+}
+
 function dispatchDrag(
   target: Element,
   type: "dragend" | "dragover" | "dragstart" | "drop",
@@ -527,7 +532,7 @@ it("reports an asynchronous indeterminate drag receipt without dispatching anoth
     expect(invoke).not.toHaveBeenCalled();
   });
 
-it("cancels a rejected terminal drag once and ignores late motion for that session", async () => {
+  it("cancels a rejected terminal drag once and ignores late motion for that session", async () => {
     invoke
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("drop rejected"))
@@ -571,5 +576,60 @@ it("cancels a rejected terminal drag once and ignores late motion for that sessi
     ]);
     expect(document.querySelector(".drag-slot")).toBeNull();
     expect(document.querySelector(".drag-surface")).toBeNull();
+  });
+
+  it("serializes drag lifecycle actions until the previous native action settles", async () => {
+    let resolveStart!: () => void;
+    invoke.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveStart = resolve;
+    }));
+    const values = new Map<string, string>();
+    const dataTransfer = {
+      dropEffect: "move",
+      effectAllowed: "none",
+      getData: (type: string) => values.get(type) ?? "",
+      setData: (type: string, value: string) => values.set(type, value)
+    };
+    const tab = document.querySelector<HTMLElement>('[role="tab"]')!;
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragStart, {
+      dataTransfer: { value: dataTransfer },
+      screenX: { value: 320 },
+      screenY: { value: 240 }
+    });
+    tab.dispatchEvent(dragStart);
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+    document.querySelector("#tabs")?.dispatchEvent(drop);
+
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
+      action: expect.objectContaining({ type: "tabDragStart", tabId: "tab-1" })
+    });
+
+    resolveStart();
+    await flushMicrotasks();
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: expect.objectContaining({
+        type: "tabDragDrop",
+        windowId: "window-1",
+        orderedTabIds: expect.arrayContaining(["tab-1"])
+      })
+    });
+
+    const dragEnd = new Event("dragend", { bubbles: true });
+    Object.defineProperty(dragEnd, "dataTransfer", { value: dataTransfer });
+    tab.dispatchEvent(dragEnd);
+    await flushPostedDragAction();
+    expect(invoke).toHaveBeenCalledTimes(3);
+    expect(invoke).toHaveBeenNthCalledWith(3, "rion_runtime_tab_action", {
+      action: expect.objectContaining({
+        type: "tabDragSourceEnd",
+        dropAccepted: true
+      })
+    });
   });
 });

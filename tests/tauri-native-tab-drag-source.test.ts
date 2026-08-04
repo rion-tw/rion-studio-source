@@ -56,5 +56,22 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("Cross-window hover is a presentation-only ghost");
     expect(macController).toContain("showExternalDragGhostBeforeIdentifier:");
     expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
+    expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
+  });
+
+  it("carries an exact terminal order across the macOS bridge", async () => {
+    const [header, bridge, rustBridge] = await Promise.all([
+      readFile(new URL("../src-tauri/native/macos/RionRuntimeTabsController.h", import.meta.url), "utf8"),
+      readFile(
+        new URL("../src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm", import.meta.url),
+        "utf8"
+      ),
+      readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8")
+    ]);
+
+    expect(header).toContain("orderedTabIdentifiersJSON");
+    expect(bridge).toContain("orderedTabIDsJSON.UTF8String");
+    expect(rustBridge).toContain("ordered_tab_ids_json");
+    expect(rustBridge).toContain('action["orderedTabIds"]');
   });
 });

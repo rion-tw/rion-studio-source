@@ -302,3 +302,119 @@ use super::*;
             );
         }
     }
+
+    #[test]
+    fn commits_frozen_tab_drag_topology_atomically_for_both_platform_contracts() {
+        for platform in ["macos", "windows"] {
+            let mut runtime = BrowserRuntime::default();
+            let tab_ids = [
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222",
+                "33333333-3333-4333-8333-333333333333",
+            ];
+            for (index, tab_id) in tab_ids.iter().enumerate() {
+                runtime
+                    .invoke(command(json!({
+                        "type":"createTab", "tabId":tab_id, "sourceId":format!("role-{index}"),
+                        "name":format!("Tab {index}"), "windowId":"source", "tabType":"role",
+                        "roleIds":[format!("role-{index}")]
+                    })))
+                    .unwrap();
+            }
+            let before = tab_ids.iter().map(|tab_id| (*tab_id).to_owned()).collect::<Vec<_>>();
+            let after = vec![tab_ids[0].to_owned(), tab_ids[2].to_owned(), tab_ids[1].to_owned()];
+            let committed = runtime
+                .invoke(BrowserRuntimeCommand::CommitTabDragTopology {
+                    tab_id: tab_ids[2].to_owned(),
+                    source_window_id: "source".to_owned(),
+                    target_window_id: None,
+                    source_before_tab_ids: before.clone(),
+                    source_after_tab_ids: after.clone(),
+                    target_before_tab_ids: before,
+                    target_after_tab_ids: after.clone(),
+                })
+                .unwrap();
+            assert_eq!(committed.snapshot.windows[0].tab_ids, after, "{platform}");
+        }
+    }
+
+    #[test]
+    fn commits_cross_window_drag_with_exact_source_and_target_orders() {
+        for platform in ["macos", "windows"] {
+            let mut runtime = BrowserRuntime::default();
+            let source_first = "44444444-4444-4444-8444-444444444444";
+            let moving = "55555555-5555-4555-8555-555555555555";
+            let target_existing = "66666666-6666-4666-8666-666666666666";
+            for (tab_id, source_id, window_id) in [
+                (source_first, "role-source-first", "source"),
+                (moving, "role-moving", "source"),
+                (target_existing, "role-target", "target"),
+            ] {
+                runtime
+                    .invoke(command(json!({
+                        "type":"createTab", "tabId":tab_id, "sourceId":source_id,
+                        "name":source_id, "windowId":window_id, "tabType":"role", "roleIds":[source_id]
+                    })))
+                    .unwrap();
+            }
+            let committed = runtime
+                .invoke(BrowserRuntimeCommand::CommitTabDragTopology {
+                    tab_id: moving.to_owned(),
+                    source_window_id: "source".to_owned(),
+                    target_window_id: Some("target".to_owned()),
+                    source_before_tab_ids: vec![source_first.to_owned(), moving.to_owned()],
+                    source_after_tab_ids: vec![source_first.to_owned()],
+                    target_before_tab_ids: vec![target_existing.to_owned()],
+                    target_after_tab_ids: vec![moving.to_owned(), target_existing.to_owned()],
+                })
+                .unwrap();
+            let source = committed
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "source")
+                .unwrap();
+            let target = committed
+                .snapshot
+                .windows
+                .iter()
+                .find(|window| window.window_id == "target")
+                .unwrap();
+            assert_eq!(source.tab_ids, vec![source_first.to_owned()], "{platform}");
+            assert_eq!(
+                target.tab_ids,
+                vec![moving.to_owned(), target_existing.to_owned()],
+                "{platform}"
+            );
+            assert_eq!(target.active_tab_id.as_deref(), Some(moving), "{platform}");
+        }
+    }
+
+    #[test]
+    fn rejects_stale_frozen_tab_drag_topology_without_mutating_runtime() {
+        let mut runtime = BrowserRuntime::default();
+        let first = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        let second = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        for (tab_id, role_id) in [(first, "role-a"), (second, "role-b")] {
+            runtime
+                .invoke(command(json!({
+                    "type":"createTab", "tabId":tab_id, "sourceId":role_id,
+                    "name":role_id, "windowId":"source", "tabType":"role", "roleIds":[role_id]
+                })))
+                .unwrap();
+        }
+        let before = serde_json::to_value(runtime.snapshot()).unwrap();
+        let error = runtime
+            .invoke(BrowserRuntimeCommand::CommitTabDragTopology {
+                tab_id: second.to_owned(),
+                source_window_id: "source".to_owned(),
+                target_window_id: None,
+                source_before_tab_ids: vec![second.to_owned(), first.to_owned()],
+                source_after_tab_ids: vec![second.to_owned(), first.to_owned()],
+                target_before_tab_ids: vec![second.to_owned(), first.to_owned()],
+                target_after_tab_ids: vec![second.to_owned(), first.to_owned()],
+            })
+            .unwrap_err();
+        assert_eq!(error.code(), "TAB_DRAG_TOPOLOGY_STALE");
+        assert_eq!(serde_json::to_value(runtime.snapshot()).unwrap(), before);
+    }

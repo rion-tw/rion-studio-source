@@ -213,6 +213,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                     accepted_at: operation.accepted_at,
                     current_window_id: source_window_id.to_owned(),
                     drop_before_tab_id: None,
+                    drop_ordered_tab_ids: None,
                     drop_window_id: None,
                     grab_ratio_x,
                     grab_ratio_y,
@@ -351,11 +352,13 @@ pub(crate) async fn handle_game_window_tab_drag(
                     )
                 })?;
             if deferred_native_commit {
+                let ordered_tab_ids = drag_drop_ordered_tab_ids(action)?;
                 let ready = match record_deferred_tab_drag_drop_intent(
                     state,
                     session_id,
                     target_window_id,
                     action["beforeTabId"].as_str(),
+                    ordered_tab_ids,
                 ) {
                     Ok(ready) => ready,
                     Err(error) => {
@@ -467,6 +470,40 @@ pub(crate) async fn handle_game_window_tab_drag(
     active_tab_drag_response(app, state, session_id).map(Some)
 }
 
+fn drag_drop_ordered_tab_ids(action: &Value) -> Result<Vec<String>, CoreErrorPayload> {
+    let tab_ids = action["orderedTabIds"].as_array().ok_or_else(|| {
+        shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Drop topology order is required.",
+        )
+    })?;
+    if tab_ids.is_empty() || tab_ids.len() > 256 {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Drop topology order must contain between one and 256 tabs.",
+        ));
+    }
+    let mut seen = HashSet::new();
+    let ordered_tab_ids = tab_ids
+        .iter()
+        .map(|tab_id| {
+            tab_id.as_str().filter(|tab_id| !tab_id.is_empty()).ok_or_else(|| {
+                shell_error(
+                    "TAURI_TAB_DRAG_INVALID",
+                    "Drop topology contains an invalid tab identifier.",
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if !ordered_tab_ids.iter().all(|tab_id| seen.insert(*tab_id)) {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Drop topology contains duplicate tab identifiers.",
+        ));
+    }
+    Ok(ordered_tab_ids.into_iter().map(str::to_owned).collect())
+}
+
 fn drag_fraction(action: &Value, field: &str) -> Result<f64, CoreErrorPayload> {
     action[field]
         .as_f64()
@@ -489,41 +526,6 @@ fn drag_dimension(action: &Value, field: &str) -> Result<f64, CoreErrorPayload> 
                 format!("Drag {field} is invalid."),
             )
         })
-}
-
-fn record_latest_tab_drag_point(
-    state: &CoreState,
-    session_id: &str,
-    screen_x: f64,
-    screen_y: f64,
-) -> Result<(), CoreErrorPayload> {
-    let mut current = state
-        .tab_drag
-        .lock()
-        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
-    if let Some(session) = current.as_mut().filter(|session| session.id == session_id) {
-        session.latest_screen_x = screen_x;
-        session.latest_screen_y = screen_y;
-        session.latest_move_revision = session.latest_move_revision.saturating_add(1);
-    }
-    Ok(())
-}
-
-fn update_tab_drag_dimensions(
-    state: &CoreState,
-    session_id: &str,
-    tab_width: f64,
-    tab_height: f64,
-) -> Result<(), CoreErrorPayload> {
-    let mut current = state
-        .tab_drag
-        .lock()
-        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
-    if let Some(session) = current.as_mut().filter(|session| session.id == session_id) {
-        session.tab_width = tab_width;
-        session.tab_height = tab_height;
-    }
-    Ok(())
 }
 
 fn process_tab_drag_motion(
@@ -574,7 +576,13 @@ fn process_tab_drag_motion(
         });
 
     if let Some(target_window_id) = attached_window_id {
-        attach_tab_drag_session(state, &mut session, &target_window_id, before_tab_id)?;
+        attach_tab_drag_session(
+            state,
+            &mut session,
+            &target_window_id,
+            before_tab_id,
+            None,
+        )?;
     } else {
         float_tab_drag_session(app, state, &mut session, screen_x, screen_y)?;
     }
@@ -586,6 +594,7 @@ fn attach_tab_drag_session(
     session: &mut GameWindowTabDragSession,
     target_window_id: &str,
     before_tab_id: Option<&str>,
+    ordered_tab_ids: Option<&[String]>,
 ) -> Result<(), CoreErrorPayload> {
     if target_window_id == session.provisional_window_id && !session.single_tab {
         return Ok(());
@@ -612,12 +621,20 @@ fn attach_tab_drag_session(
         .runtime
         .preview_tab_drag_activation(&session.tab_id)
         .and_then(|_| {
-            state.runtime.preview_tab_drag_order(
-                target_window_id,
-                &session.tab_id,
-                before_tab_id.filter(|before| *before != session.tab_id),
-                ownership_changed,
-            )
+            if let Some(ordered_tab_ids) = ordered_tab_ids {
+                state.runtime.preview_tab_drag_order_exact(
+                    target_window_id,
+                    ordered_tab_ids,
+                    ownership_changed,
+                )
+            } else {
+                state.runtime.preview_tab_drag_order(
+                    target_window_id,
+                    &session.tab_id,
+                    before_tab_id.filter(|before| *before != session.tab_id),
+                    ownership_changed,
+                )
+            }
         })
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     session.current_window_id = target_window_id.to_owned();
@@ -714,44 +731,6 @@ fn restore_left_tab_drag_window(
             .map_err(|message| shell_error("TAURI_TAB_DRAG_ROLLBACK_FAILED", message))?;
     }
     Ok(())
-}
-
-fn store_tab_drag_session_progress(
-    state: &CoreState,
-    mut progress: GameWindowTabDragSession,
-) -> Result<(), CoreErrorPayload> {
-    let mut current = state
-        .tab_drag
-        .lock()
-        .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))?;
-    let Some(existing) = current.as_mut().filter(|session| session.id == progress.id) else {
-        return Ok(());
-    };
-    let (revision, screen_x, screen_y) = latest_tab_drag_sample(
-        (
-            progress.latest_move_revision,
-            progress.latest_screen_x,
-            progress.latest_screen_y,
-        ),
-        (
-            existing.latest_move_revision,
-            existing.latest_screen_x,
-            existing.latest_screen_y,
-        ),
-    );
-    progress.latest_move_revision = revision;
-    progress.latest_screen_x = screen_x;
-    progress.latest_screen_y = screen_y;
-    *existing = progress;
-    Ok(())
-}
-
-fn latest_tab_drag_sample(processed: (u64, f64, f64), current: (u64, f64, f64)) -> (u64, f64, f64) {
-    if current.0 > processed.0 {
-        current
-    } else {
-        processed
-    }
 }
 
 fn drag_screen_point(

@@ -692,12 +692,15 @@ export function installRuntimeTabStrip(): void {
     if (!payload || !runtimeState.current) return;
     localDropSessions.add(payload.sessionId);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
+    previewDragPosition(payload, beforeTab, event.clientX);
+    const orderedTabIds = logicalRuntimeTabOrder();
     dispatch({
       type: "tabDragDrop",
       sessionId: payload.sessionId,
       windowId: runtimeState.current.windowId,
       screenX: event.screenX,
       screenY: event.screenY,
+      orderedTabIds,
       ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
     });
     clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
@@ -736,12 +739,15 @@ export function installRuntimeTabStrip(): void {
       ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
       : undefined;
     rememberDragInsertion(payload, beforeTab, event.clientX);
+    previewDragPosition(payload, beforeTab, event.clientX);
+    const orderedTabIds = logicalRuntimeTabOrder();
     dispatch({
       type: "tabDragDrop",
       sessionId: payload.sessionId,
       windowId: runtimeState.current.windowId,
       screenX: event.screenX,
       screenY: event.screenY,
+      orderedTabIds,
       ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
     });
     clearDragVisual({ mode: "settle", sessionId: payload.sessionId });

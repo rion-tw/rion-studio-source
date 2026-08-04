@@ -74,6 +74,18 @@ static void RionForwardRuntimeTabsAction(
   NSString *sessionID = action[@"sessionId"];
   NSString *tabID = action[@"tabId"];
   NSString *beforeTabID = action[@"beforeTabId"];
+  NSArray<NSString *> *orderedTabIDs = action[@"orderedTabIds"];
+  NSString *orderedTabIDsJSON = nil;
+  if ([orderedTabIDs isKindOfClass:NSArray.class]) {
+    NSError *error = nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:orderedTabIDs
+                                                   options:0
+                                                     error:&error];
+    if (data && !error) {
+      orderedTabIDsJSON = [[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding];
+    }
+  }
   NSString *sourceWindowID = action[@"sourceWindowId"];
   NSString *targetWindowID = action[@"windowId"];
   NSNumber *screenX = action[@"screenX"];
@@ -85,7 +97,8 @@ static void RionForwardRuntimeTabsAction(
   NSNumber *cancelled = action[@"cancelled"];
   actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
                 sourceWindowID.UTF8String, targetWindowID.UTF8String,
-                beforeTabID.UTF8String, screenX ? screenX.doubleValue : NAN,
+                beforeTabID.UTF8String, orderedTabIDsJSON.UTF8String,
+                screenX ? screenX.doubleValue : NAN,
                 screenY ? screenY.doubleValue : NAN,
                 grabRatioX ? grabRatioX.doubleValue : NAN,
                 grabRatioY ? grabRatioY.doubleValue : NAN,
@@ -386,12 +399,14 @@ static void RionRuntimeTabsActionScopeProbeCallback(
     void *context, const char *type, const char *sessionIdentifier,
     const char *tabIdentifier,
     const char *sourceWindowID, const char *targetWindowID,
-    const char *beforeTabIdentifier, double screenX, double screenY,
+    const char *beforeTabIdentifier, const char *orderedTabIdentifiersJSON,
+    double screenX, double screenY,
     double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
     bool cancelled) {
   (void)sessionIdentifier;
   (void)tabIdentifier;
   (void)beforeTabIdentifier;
+  (void)orderedTabIdentifiersJSON;
   (void)screenX;
   (void)screenY;
   (void)grabRatioX;

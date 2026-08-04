@@ -50,6 +50,7 @@ export type RuntimeTabAction =
       windowId: string;
       screenX: number;
       screenY: number;
+      orderedTabIds: string[];
       beforeTabId?: string;
     }
   | {
@@ -95,6 +96,20 @@ export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   windowFullscreen: boolean;
 }
 
+const MAX_RUNTIME_TAB_ORDER = 256;
+
+function isBoundedTabOrder(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_RUNTIME_TAB_ORDER) {
+    return false;
+  }
+  const ids = new Set<string>();
+  return value.every((tabId) => {
+    if (typeof tabId !== "string" || tabId.length === 0 || ids.has(tabId)) return false;
+    ids.add(tabId);
+    return true;
+  });
+}
+
 export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
   if (!value || typeof value !== "object" || !("type" in value)) return false;
   const action = value as Record<string, unknown>;
@@ -135,6 +150,7 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       typeof action.windowId === "string" && action.windowId.length > 0 &&
       typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
       typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
+      (action.type !== "tabDragDrop" || isBoundedTabOrder(action.orderedTabIds)) &&
       (action.type !== "tabDragHover" || (
         typeof action.tabWidth === "number" && Number.isFinite(action.tabWidth) &&
         action.tabWidth > 0 &&
@@ -144,7 +160,10 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       (action.beforeTabId === undefined ||
         (typeof action.beforeTabId === "string" && action.beforeTabId.length > 0)) &&
       Object.keys(action).every((key) =>
-        ["type", "sessionId", "windowId", "screenX", "screenY", "tabWidth", "tabHeight", "beforeTabId"].includes(key)
+        (action.type === "tabDragDrop"
+          ? ["type", "sessionId", "windowId", "screenX", "screenY", "beforeTabId", "orderedTabIds"]
+          : ["type", "sessionId", "windowId", "screenX", "screenY", "tabWidth", "tabHeight", "beforeTabId"]
+        ).includes(key)
       );
   }
   if (action.type === "tabDragEnd") {

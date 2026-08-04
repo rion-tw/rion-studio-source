@@ -486,6 +486,20 @@ pub enum CoreCommand {
         #[ts(optional, rename = "beforeTabId")]
         before_tab_id: Option<String>,
     },
+    EmbeddedTabDragTopologyCommit {
+        request: RuntimeTabMutationRequestRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        target: Option<EmbeddedLaunchTargetRecord>,
+        #[ts(rename = "sourceBeforeTabIds")]
+        source_before_tab_ids: Vec<String>,
+        #[ts(rename = "sourceAfterTabIds")]
+        source_after_tab_ids: Vec<String>,
+        #[ts(rename = "targetBeforeTabIds")]
+        target_before_tab_ids: Vec<String>,
+        #[ts(rename = "targetAfterTabIds")]
+        target_after_tab_ids: Vec<String>,
+    },
     EmbeddedTabStop {
         request: RuntimeTabMutationRequestRecord,
         #[ts(rename = "sourceId")]

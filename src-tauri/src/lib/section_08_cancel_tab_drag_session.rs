@@ -3,19 +3,12 @@ fn record_deferred_tab_drag_drop_intent(
     session_id: &str,
     target_window_id: &str,
     before_tab_id: Option<&str>,
+    ordered_tab_ids: Vec<String>,
 ) -> Result<bool, CoreErrorPayload> {
     let target = state
         .runtime
         .tab_drag_window_snapshot(target_window_id)
         .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
-    if let Some(before_tab_id) = before_tab_id
-        && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
-    {
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_INVALID",
-            "The drop insertion tab is outside the target Game Window.",
-        ));
-    }
     let mut current = state
         .tab_drag
         .lock()
@@ -24,16 +17,41 @@ fn record_deferred_tab_drag_drop_intent(
         .as_mut()
         .filter(|session| session.id == session_id)
         .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Runtime tab drag session is stale."))?;
+    let target = session
+        .snapshots
+        .entry(target_window_id.to_owned())
+        .or_insert(target);
+    if let Some(before_tab_id) = before_tab_id
+        && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
+    {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "The drop insertion tab is outside the target Game Window.",
+        ));
+    }
+    let mut expected_tab_ids = target.tab_ids.clone();
+    if target_window_id != session.source_window_id {
+        expected_tab_ids.push(session.tab_id.clone());
+    }
+    if !tab_drag_exact_order_matches(&expected_tab_ids, &ordered_tab_ids) {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Drop topology does not match the frozen Game Window tabs.",
+        ));
+    }
     session.drop_window_id = Some(target_window_id.to_owned());
     session.drop_before_tab_id = before_tab_id
         .filter(|before_tab_id| *before_tab_id != session.tab_id)
         .map(str::to_owned);
+    session.drop_ordered_tab_ids = Some(ordered_tab_ids);
     session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
-    session
-        .snapshots
-        .entry(target_window_id.to_owned())
-        .or_insert(target);
     Ok(session.source_end_received && session.source_drop_accepted)
+}
+
+fn tab_drag_exact_order_matches(expected: &[String], observed: &[String]) -> bool {
+    expected.len() == observed.len()
+        && expected.iter().collect::<HashSet<_>>() == observed.iter().collect::<HashSet<_>>()
+        && observed.iter().all(|tab_id| !tab_id.is_empty())
 }
 
 fn record_deferred_tab_drag_source_end(
@@ -173,7 +191,10 @@ fn record_tab_drag_lifecycle(
     let context_raw_json = serde_json::to_string(&json!({
         "dropAccepted": session.source_drop_accepted,
         "beforeTabId": session.drop_before_tab_id,
+        "orderedTabIds": session.drop_ordered_tab_ids,
         "eventSequence": session.last_event_sequence,
+        "frozenSourceTabOrder": session.snapshots.get(&session.source_window_id).map(|snapshot| &snapshot.tab_ids),
+        "frozenTargetTabOrder": session.drop_window_id.as_ref().and_then(|window_id| session.snapshots.get(window_id)).map(|snapshot| &snapshot.tab_ids),
         "intentGeneration": session.intent_generation,
         "nativeChangesApplied": session.native_changes_applied,
         "projectionRevision": session.topology_revision,
@@ -208,11 +229,18 @@ fn apply_deferred_tab_drag_destination(
     session.native_changes_applied = true;
     if let Some(target_window_id) = session.drop_window_id.clone() {
         let before_tab_id = session.drop_before_tab_id.clone();
+        let ordered_tab_ids = session.drop_ordered_tab_ids.clone().ok_or_else(|| {
+            shell_error(
+                "TAURI_TAB_DRAG_INVALID",
+                "Drop topology order was not frozen before native commit.",
+            )
+        })?;
         return attach_tab_drag_session(
             state,
             session,
             &target_window_id,
             before_tab_id.as_deref(),
+            Some(&ordered_tab_ids),
         );
     }
 
@@ -358,25 +386,55 @@ async fn commit_tab_drag_session(
         .runtime
         .tab_drag_window_snapshot(&final_window_id)
         .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-    let before_tab_id = tab_drag_before_tab_id(&final_snapshot.tab_ids, &session.tab_id);
-    let mut mutation: Option<(
-        RuntimeTabMutationRequestRecord,
-        Option<EmbeddedLaunchTargetRecord>,
-    )> = None;
-    if final_window_id == session.source_window_id {
-        let original_order = session
+    let source_snapshot = session
+        .snapshots
+        .get(&session.source_window_id)
+        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Source drag topology was not frozen."))?;
+    let same_window = final_window_id == session.source_window_id;
+    let source_before_tab_ids = source_snapshot.tab_ids.clone();
+    let source_after_tab_ids = if same_window {
+        session
+            .drop_ordered_tab_ids
+            .clone()
+            .unwrap_or_else(|| source_before_tab_ids.clone())
+    } else {
+        source_before_tab_ids
+            .iter()
+            .filter(|tab_id| tab_id.as_str() != session.tab_id)
+            .cloned()
+            .collect()
+    };
+    let target_before_tab_ids = if same_window {
+        source_before_tab_ids.clone()
+    } else {
+        session
             .snapshots
-            .get(&session.source_window_id)
-            .map(|snapshot| snapshot.tab_ids.as_slice())
-            .unwrap_or_default();
-        if tab_drag_order_changed(original_order, &final_snapshot.tab_ids) {
+            .get(&final_window_id)
+            .map(|snapshot| snapshot.tab_ids.clone())
+            .unwrap_or_default()
+    };
+    let target_after_tab_ids = if same_window {
+        source_after_tab_ids.clone()
+    } else if final_window_id == session.provisional_window_id {
+        vec![session.tab_id.clone()]
+    } else {
+        session.drop_ordered_tab_ids.clone().ok_or_else(|| {
+            shell_error(
+                "TAURI_TAB_DRAG_INVALID",
+                "Cross-window drag did not freeze its final tab order.",
+            )
+        })?
+    };
+    let mut mutation: Option<(RuntimeTabMutationRequestRecord, Option<EmbeddedLaunchTargetRecord>)> = None;
+    if final_window_id == session.source_window_id {
+        if tab_drag_order_changed(&source_before_tab_ids, &source_after_tab_ids) {
             mutation = Some((
                 tab_drag_mutation_request(
                     session,
                     "reorder",
                     &final_snapshot,
                     None,
-                    before_tab_id.as_deref(),
+                    &target_after_tab_ids,
                 ),
                 None,
             ));
@@ -388,7 +446,7 @@ async fn commit_tab_drag_session(
                 "moveToNewWindow",
                 &final_snapshot,
                 Some(&final_window_id),
-                None,
+                &target_after_tab_ids,
             ),
             Some(session.target.clone()),
         ));
@@ -403,14 +461,22 @@ async fn commit_tab_drag_session(
                 "move",
                 &final_snapshot,
                 Some(&final_window_id),
-                before_tab_id.as_deref(),
+                &target_after_tab_ids,
             ),
             Some(target),
         ));
     }
     if let Some((request, target)) = mutation {
-        outcome =
-            execute_tab_mutation_commit(state, request.clone(), target, before_tab_id).await?;
+        outcome = execute_tab_drag_topology_commit(
+            state,
+            request.clone(),
+            target,
+            source_before_tab_ids,
+            source_after_tab_ids,
+            target_before_tab_ids,
+            target_after_tab_ids,
+        )
+        .await?;
         if outcome == RuntimeTabMutationProjectionOutcome::Degraded {
             state.runtime.record_tab_drag_projection_mismatch(&request);
         }
@@ -457,7 +523,7 @@ fn tab_drag_mutation_request(
     mutation_kind: &str,
     final_snapshot: &RuntimeTabDragWindowSnapshot,
     target_window_id: Option<&str>,
-    before_tab_id: Option<&str>,
+    expected_tab_order: &[String],
 ) -> RuntimeTabMutationRequestRecord {
     RuntimeTabMutationRequestRecord {
         operation_id: session.operation_id.clone(),
@@ -470,28 +536,10 @@ fn tab_drag_mutation_request(
         lifecycle_epoch: session.lifecycle_epoch,
         topology_revision: session.topology_revision,
         presentation_revision: session.latest_move_revision,
-        reorder_target_index: before_tab_id.and_then(|before| {
-            final_snapshot
-                .tab_ids
-                .iter()
-                .position(|tab_id| tab_id == before)
-                .map(|index| index as u64)
-        }),
-        expected_tab_order: final_snapshot.tab_ids.clone(),
+        reorder_target_index: None,
+        expected_tab_order: expected_tab_order.to_vec(),
         expected_active_tab_id: final_snapshot.active_tab_id.clone(),
     }
-}
-
-fn tab_drag_before_tab_id(tab_ids: &[String], tab_id: &str) -> Option<String> {
-    tab_ids
-        .iter()
-        .position(|candidate| candidate == tab_id)
-        .and_then(|index| tab_ids.get(index + 1))
-        .cloned()
-}
-
-fn tab_drag_order_changed(original: &[String], current: &[String]) -> bool {
-    original != current
 }
 
 fn tab_drag_target_for_screen(
@@ -524,20 +572,6 @@ fn tab_drag_target_for_screen(
         bounds,
         presentation: "normal".to_owned(),
     })
-}
-
-fn logical_tab_drag_screen_point(
-    screen_x: f64,
-    screen_y: f64,
-    scale_factor: f64,
-    physical_coordinates: bool,
-) -> (f64, f64) {
-    if physical_coordinates {
-        let scale = scale_factor.max(f64::EPSILON);
-        (screen_x / scale, screen_y / scale)
-    } else {
-        (screen_x, screen_y)
-    }
 }
 
 fn anchored_tab_drag_bounds(

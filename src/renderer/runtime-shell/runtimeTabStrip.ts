@@ -519,12 +519,15 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     if (!payload || !runtimeState.current) return;
     localDropSessions.add(payload.sessionId);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
+    previewDragPosition(payload, beforeTab, event.clientX);
+    const orderedTabIds = logicalRuntimeTabOrder();
     dispatch({
       type: "tabDragDrop",
       sessionId: payload.sessionId,
       windowId: runtimeState.current.windowId,
       screenX: event.screenX,
       screenY: event.screenY,
+      orderedTabIds,
       beforeTabId: beforeTab?.dataset.tabId === payload.tabId
         ? nextTabElement(beforeTab)?.dataset.tabId
         : beforeTab?.dataset.tabId

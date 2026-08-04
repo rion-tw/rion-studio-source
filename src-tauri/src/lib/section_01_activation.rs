@@ -225,6 +225,7 @@ struct GameWindowTabDragSession {
     accepted_at: String,
     current_window_id: String,
     drop_before_tab_id: Option<String>,
+    drop_ordered_tab_ids: Option<Vec<String>>,
     drop_window_id: Option<String>,
     grab_ratio_x: f64,
     grab_ratio_y: f64,

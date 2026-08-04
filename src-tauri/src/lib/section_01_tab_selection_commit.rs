@@ -16,7 +16,6 @@ struct TabSelectionCommitWorker {
 #[derive(Clone)]
 struct TabSelectionCommitRequest {
     activation_operation_id: Option<String>,
-    app: AppHandle,
     core: Arc<AppCore>,
     runtime: Arc<SystemRuntimeExecutor>,
     tab_id: String,
@@ -142,17 +141,23 @@ async fn run_tab_selection_commit_worker(
             finish_tab_selection_commit(&request, TabActivationComponentStatus::Applied);
         } else {
             request.runtime.reconcile_tab_activation(&request.window_id);
-            let error = result
+            let failure_code = result
                 .err()
                 .map(|error| error.payload())
-                .unwrap_or_else(|| {
-                    shell_error(
-                        "TAB_ACTIVATION_STATE_COMMIT_FAILED",
-                        "The active tab metadata did not converge after retrying.",
-                    )
-                });
-            reveal_shell_error(&request.app, error);
-            finish_tab_selection_commit(&request, TabActivationComponentStatus::Failed);
+                .map(|payload| payload.code)
+                .unwrap_or_else(|| "CORE_TAB_PROJECTION_PENDING".to_owned());
+            eprintln!(
+                "Background active-tab projection remains pending: window={} tab={} revision={} code={failure_code}",
+                request.window_id, request.tab_id, request.selection_revision
+            );
+            // LiveWindowTabState and the native titlebar already committed the
+            // interaction. Core metadata is a non-blocking projection and may
+            // be superseded by a drag or close; it must never turn a valid UI
+            // state into a user-facing activation failure.
+            finish_tab_selection_commit(
+                &request,
+                TabActivationComponentStatus::Superseded,
+            );
         }
         if !wait_for_tab_selection_commit_request(&mut receiver).await
             && retire_tab_selection_commit_worker(

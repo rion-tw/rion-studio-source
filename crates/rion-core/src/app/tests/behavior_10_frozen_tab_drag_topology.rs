@@ -1,5 +1,5 @@
 #[test]
-    fn frozen_tab_drag_topology_requires_the_live_snapshot_to_persist_order() {
+    fn latest_live_snapshot_is_the_only_persisted_tab_order() {
         for platform in ["darwin", "win32"] {
             let (_directory, core) = core_for_platform(platform);
             let window_id = core
@@ -141,9 +141,8 @@
                 "{platform}"
             );
 
-            let runtime_before_rejection = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
-            let persisted_before_rejection = core.invoke(CoreCommand::GameWindowGet { id: window_id.clone() }).unwrap();
-            let rejected = drive_command(
+            let persisted_before_projection = core.invoke(CoreCommand::GameWindowGet { id: window_id.clone() }).unwrap();
+            let projected = drive_command(
                 Arc::clone(&core),
                 CoreCommand::EmbeddedTabDragTopologyCommit {
                     request: crate::model::RuntimeTabMutationRequestRecord {
@@ -165,14 +164,17 @@
                     source_before_tab_ids: before.clone(),
                     source_after_tab_ids: before.clone(),
                     target_before_tab_ids: before.clone(),
-                    target_after_tab_ids: before,
+                    target_after_tab_ids: before.clone(),
                 },
                 None,
             )
             .0;
-            assert_eq!(rejected.unwrap_err().code(), "TAB_DRAG_TOPOLOGY_STALE", "{platform}");
-            assert_eq!(core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap(), runtime_before_rejection, "{platform}");
-            assert_eq!(core.invoke(CoreCommand::GameWindowGet { id: window_id }).unwrap(), persisted_before_rejection, "{platform}");
+            assert_eq!(projected.unwrap()["windows"][0]["tabIds"], json!(before), "{platform}");
+            assert_eq!(
+                core.invoke(CoreCommand::GameWindowGet { id: window_id }).unwrap(),
+                persisted_before_projection,
+                "Core topology projection must never write or roll back the saved UI snapshot on {platform}"
+            );
             core.shutdown();
         }
     }

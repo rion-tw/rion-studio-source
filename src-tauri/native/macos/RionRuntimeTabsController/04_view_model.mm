@@ -86,19 +86,14 @@ NS_ASSUME_NONNULL_BEGIN
         [self.tabsController previewDragTabIdentifier:parts[1]
                                     beforeIdentifier:identifier];
     if (reorderedLocalTab) {
-      if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
-        [(RionRuntimeTabItemView *)source setAppKitDragPreviewVisible:NO];
-      }
       [self.tabsController hideExternalDragGhost];
       [self.tabsController hideInsertionIndicator];
     } else {
-      // Cross-window hover is a presentation-only ghost. The dragged tab and
-      // WKWebView remain owned by the source until the matching drop commits.
-      if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
-        [(RionRuntimeTabItemView *)source setAppKitDragPreviewVisible:YES];
-      }
-      [self.tabsController showExternalDragGhostBeforeIdentifier:identifier
-                                                           width:sourceTabWidth];
+      // Keep a lightweight slot while the memory-only runtime lane reparents
+      // the real tab and WKWebView into this host.
+      [self.tabsController showExternalDragGhostForTabIdentifier:parts[1]
+                                                beforeIdentifier:identifier
+                                                            width:sourceTabWidth];
       [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
     }
     NSPoint screenPoint =
@@ -120,16 +115,13 @@ NS_ASSUME_NONNULL_BEGIN
   id source = sender.draggingSource;
   if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
     [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
-    [(RionRuntimeTabItemView *)source setAppKitDragPreviewVisible:YES];
   }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController hideExternalDragGhost];
   NSString *payload = [[sender draggingPasteboard]
       stringForType:RionRuntimeTabPasteboardType];
   NSArray<NSString *> *parts = RionRuntimeTabDragPayloadParts(payload);
-  if (parts) {
-    [self.tabsController hideDragSurfaceForTabIdentifier:parts[1]];
-  } else {
+  if (!parts) {
     [self.tabsController setDragPlaceholderIdentifier:nil];
   }
   [self.tabsController resetTabDragInsertionState];
@@ -159,7 +151,6 @@ NS_ASSUME_NONNULL_BEGIN
   id source = sender.draggingSource;
   if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
     [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
-    [(RionRuntimeTabItemView *)source setAppKitDragPreviewVisible:NO];
   }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController hideExternalDragGhost];
@@ -206,6 +197,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_dragHoverBeforeIdentifier;
   CGFloat _dragInsertionVisualCenterX;
   NSString *_externalDragGhostBeforeIdentifier;
+  NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
   CGFloat _dragSurfaceCanvasX;
   BOOL _dragSurfaceOverlayActive;

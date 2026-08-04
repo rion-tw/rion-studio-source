@@ -141,13 +141,6 @@ NS_ASSUME_NONNULL_BEGIN
   [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
 }
 
-- (void)hideDragSurfaceForTabIdentifier:(NSString *)tabIdentifier {
-  if (![_dragPlaceholderTabIdentifier isEqualToString:tabIdentifier]) return;
-  _dragSurfaceVisible = NO;
-  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
-  item.surfaceView.alphaValue = 0.0;
-}
-
 - (void)resetTabDragInsertionState {
   _dragInsertionSessionIdentifier = nil;
   _dragInsertionBeforeIdentifier = nil;
@@ -273,17 +266,21 @@ NS_ASSUME_NONNULL_BEGIN
   _insertionIndicator.hidden = YES;
 }
 
-- (void)showExternalDragGhostBeforeIdentifier:(nullable NSString *)identifier
+- (void)showExternalDragGhostForTabIdentifier:(NSString *)tabIdentifier
+                             beforeIdentifier:(nullable NSString *)identifier
                                          width:(CGFloat)width {
   CGFloat boundedWidth =
       MIN(kRionTabMaximumWidth, MAX(kRionTabMinimumWidth, width));
   BOOL sameIdentifier =
       (_externalDragGhostBeforeIdentifier == identifier) ||
       [_externalDragGhostBeforeIdentifier isEqualToString:identifier];
-  if (sameIdentifier && std::fabs(_externalDragGhostWidth - boundedWidth) < 0.5) {
+  if (sameIdentifier &&
+      [_externalDragGhostTabIdentifier isEqualToString:tabIdentifier] &&
+      std::fabs(_externalDragGhostWidth - boundedWidth) < 0.5) {
     return;
   }
   _externalDragGhostBeforeIdentifier = [identifier copy];
+  _externalDragGhostTabIdentifier = [tabIdentifier copy];
   _externalDragGhostWidth = boundedWidth;
   [self layoutTitlebarContent];
 }
@@ -291,6 +288,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)hideExternalDragGhost {
   if (_externalDragGhostWidth <= 0 && !_externalDragGhostBeforeIdentifier) return;
   _externalDragGhostBeforeIdentifier = nil;
+  _externalDragGhostTabIdentifier = nil;
   _externalDragGhostWidth = 0;
   [self layoutTitlebarContent];
 }

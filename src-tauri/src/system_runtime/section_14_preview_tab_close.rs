@@ -419,15 +419,24 @@ impl SystemRuntimeExecutor {
         let scale_factor = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
         let width = (physical_width as f64 / scale_factor).max(1.0);
         let height = (physical_height as f64 / scale_factor).max(1.0);
-        let normal_state = !window.is_maximized().unwrap_or(false)
-            && !window.is_fullscreen().unwrap_or(false)
-            && !window.is_minimized().unwrap_or(false);
-        if normal_state
-            && let Ok(mut state) = self.state.lock()
+        let maximized = window.is_maximized().unwrap_or(false);
+        let fullscreen = window.is_fullscreen().unwrap_or(false);
+        let minimized = window.is_minimized().unwrap_or(false);
+        let presentation = if fullscreen {
+            "fullscreen"
+        } else if maximized {
+            "maximized"
+        } else {
+            "normal"
+        };
+        if let Ok(mut state) = self.state.lock()
             && let Some(host) = state.display_hosts.get_mut(&window_id)
         {
-            host.target.bounds.width = width.round() as i32;
-            host.target.bounds.height = height.round() as i32;
+            host.target.presentation = presentation.to_owned();
+            if !maximized && !fullscreen && !minimized {
+                host.target.bounds.width = width.round() as i32;
+                host.target.bounds.height = height.round() as i32;
+            }
         }
         let tab_ids = self
             .state
@@ -567,23 +576,29 @@ impl SystemRuntimeExecutor {
             0,
             selected_tab_id,
         );
-        if !self.is_saved_game_window(&window_id).unwrap_or(false) {
+        let is_saved = self.state.lock().ok().is_some_and(|state| {
+            state.saved_window_names.contains_key(&window_id)
+        });
+        if !is_saved {
             return;
         }
-        if let Ok(mut session) = self
-            .core
-            .invoke(CoreCommand::RuntimeRestoreSessionGet)
-            .and_then(|value| {
-                serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
-                    .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
-            })
-        {
-            session.last_focused_window_id = Some(window_id);
-            session.updated_at = chrono::Utc::now().to_rfc3339();
-            let _ = self
-                .core
-                .invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
-        }
+        let core = Arc::clone(&self.core);
+        let focused_window_id = window_id.clone();
+        let _ = thread::Builder::new()
+            .name("rion-runtime-focus-journal".to_owned())
+            .spawn(move || {
+                if let Ok(mut session) = core
+                    .invoke(CoreCommand::RuntimeRestoreSessionGet)
+                    .and_then(|value| {
+                        serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
+                            .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
+                    })
+                {
+                    session.last_focused_window_id = Some(focused_window_id);
+                    session.updated_at = chrono::Utc::now().to_rfc3339();
+                    let _ = core.invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
+                }
+            });
         self.schedule_window_placement_persistence(label.to_owned());
     }
 
@@ -617,69 +632,24 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn persist_game_window_placement(&self, label: &str) -> Result<(), String> {
-        let Some(window_id) = self.window_id_for_label(label) else {
+        let Some((window_id, is_saved)) = self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| {
+                    (
+                        window_id.clone(),
+                        state.saved_window_names.contains_key(window_id),
+                    )
+                })
+            })
+        }) else {
             return Ok(());
         };
-        if !self.is_saved_game_window(&window_id)? {
+        if !is_saved {
             return Ok(());
         }
-        let primary_id = self
-            .app
-            .primary_monitor()
-            .ok()
-            .flatten()
-            .as_ref()
-            .map(super::monitor_id);
-        // Do not call into Tauri/AppKit while holding RuntimeState. These queries
-        // may synchronously wait for the main thread, which also handles moved
-        // events and needs the same mutex.
-        let snapshot = query_unlocked_snapshot(
-            &self.state,
-            |state| {
-                state
-                    .display_hosts
-                    .values()
-                    .find(|host| host.window.label() == label)
-                    .map(|host| (host.window.clone(), host.target.clone()))
-            },
-            |(window, target)| {
-                let presentation = if window.is_fullscreen().unwrap_or(false) {
-                    "fullscreen"
-                } else if window.is_maximized().unwrap_or(false) {
-                    "maximized"
-                } else {
-                    "normal"
-                };
-                let display_target = window
-                    .current_monitor()
-                    .ok()
-                    .flatten()
-                    .map(|monitor| super::display_target_and_work_area(&monitor, primary_id).0)
-                    .unwrap_or(DisplayTargetRecord {
-                        id: target.display_id,
-                        fingerprint: None,
-                    });
-                (target, display_target, presentation.to_owned())
-            },
-        );
-        let Some((target, display_target, presentation)) = snapshot else {
-            return Ok(());
-        };
-        self.core
-            .invoke(CoreCommand::GameWindowUpdate {
-                id: target.window_id,
-                input: GameWindowUpdateInputRecord {
-                    target_display: Some(display_target),
-                    placement: Some(GameWindowPlacementRecord {
-                        normal_bounds: target.bounds,
-                        saved_work_area: target.work_area,
-                        presentation,
-                    }),
-                    ..GameWindowUpdateInputRecord::default()
-                },
-            })
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+        self.touch_live_window_state(&window_id)?;
+        self.schedule_live_window_state_persistence(&window_id);
+        Ok(())
     }
 
     pub fn schedule_resize_window(

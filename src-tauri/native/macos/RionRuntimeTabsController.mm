@@ -7,3 +7,4 @@
 #include "RionRuntimeTabsController/06_fullscreen.mm"
 #include "RionRuntimeTabsController/07_drag_drop.mm"
 #include "RionRuntimeTabsController/08_controller_lifecycle.mm"
+#include "RionRuntimeTabsController/03_support_views.mm"

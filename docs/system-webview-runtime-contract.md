@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 8 defines the shared semantics for WKWebView on macOS and
+Contract version 9 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -70,7 +70,7 @@ shutdown result.
 | Display topology | One revision-fenced snapshot drives remap, native movement, state commit, projection publication, and reverse-order compensation | NSScreen notifications and geometry / Win32 display notifications and geometry |
 | Window lifecycle | Close intent, native submission, exact window generation, release proof, and terminal receipt are one idempotent transaction | NSWindow lifecycle / Win32 window lifecycle |
 | Focus | One global intent lease owns focus across the main window and every runtime window; native observation confirms or supersedes it | AppKit activation and focus observation / Win32 foreground and focus observation |
-| Drag | One session freezes source/target generations, topology revision, lifecycle epoch, and terminal receipt; macOS moves the live native presentation during the gesture while durable topology remains terminal-only | AppKit tab drag adapter / Windows tab-strip pointer adapter |
+| Drag | Visible motion is immediate UI work. AppKit uses its live native-window adapter and the Windows tab strip uses a local pointer adapter; neither waits for Core, SQLite, persistence, or a receipt | AppKit live window/tab drag adapter / Windows tab-strip pointer adapter |
 | Recovery | One attempt fences generation and input, builds a provisional replacement, retires the old surface at an explicit destructive boundary, and reaches `inputReady` or `restartRequired` | WKWebView process termination / WebView2 process-failure callbacks |
 | Power | Sleep rejects new native work, interrupts old-epoch work, drains input and Core, persists recovery state, and wake restores the same epoch before accepting work | NSWorkspace sleep/wake notifications / `WM_POWERBROADCAST` message-only window |
 
@@ -274,11 +274,13 @@ duplicate write.
 
 A failed write leaves the newest snapshot dirty. Retries use 250 ms, 1 s, 5 s,
 then bounded exponential backoff up to 30 s. Failure never mutates
-`LiveWindowTabState` or native chrome. Window close captures and attempts the
-final snapshot before teardown, continues closing regardless of that result,
+`LiveWindowTabState` or native chrome. Snapshot construction reads only the
+already-committed in-memory live tab and runtime metadata; it does not query
+Core, SQLite, AppKit, or a WebView. Window close freezes and immediately enqueues
+that final memory snapshot before teardown, continues closing without waiting,
 and retains the captured input so retries do not depend on a native window
-handle. Application exit performs one bounded flush and records any remaining
-dirty revision without blocking shutdown.
+handle. Application exit makes one immediate dirty-snapshot enqueue and records
+any remaining revision without blocking shutdown.
 
 ## Display topology and tab dragging
 
@@ -292,26 +294,30 @@ order. Successful compensation is `failed`; incomplete compensation is
 cannot overwrite a newer topology. Both platforms are tested with explicit
 platform inputs even when only one native shell is locally available.
 
-A runtime tab drag has one stable session and operation ID from pointer-down to
-terminal commit. It freezes the tab, source and target window generations,
-topology revision, lifecycle epoch, and drag ordering. Duplicate completion
-replays the first terminal receipt. Topology changes, window replacement,
-suspension, or a newer session cancel/supersede the old transaction. Before a
-drop is accepted, cancellation may restore the frozen presentation snapshot. An
-accepted AppKit or HTML drop is never visually compensated by a later Core or
-SQLite failure: Core advances its projection without replaying a native effect,
-and the retained live-window snapshot retries durability independently.
+A runtime tab drag has one stable tab identity, lifecycle fence, and terminal
+receipt from pointer-down to drop. Duplicate completion replays the first
+terminal receipt. A newer user gesture supersedes older background projection;
+old source order, Core order, persistence revision, or native readback cannot
+reject the final order currently visible in the UI. An accepted AppKit or HTML
+drop is never visually compensated by a later Core, surface-transfer, or SQLite
+failure. Core advances its role/topology projection afterward, WebView transfer
+retries toward the committed host, and the retained live-window snapshot retries
+durability independently.
 
-On macOS, leaving every tab-strip hit region immediately prepares a provisional
-native host and moves the complete live tab presentation into it: AppKit tab
-chrome, owned role WKWebViews, placeholders, and dividers. Pointer samples only
-update this SystemRuntime presentation and window position; they do not invoke a
-Core topology mutation or SQLite persistence. Placement persistence is
-suppressed for every window touched by the gesture. The terminal drop freezes
-the exact AppKit order, commits the latest `LiveWindowTabState` projection, and
-then releases suppression. Cancelling restores the frozen presentation snapshot.
-This keeps the game viewport visible under the pointer without reintroducing a
-second durable tab authority.
+On macOS, AppKit owns the held gesture and updates in-strip reorder previews and
+insertion indicators synchronously. Leaving every tab-strip hit region uses the
+original live native-window preview: coalesced pointer samples enter only the
+in-memory SystemRuntime lane, which creates or positions the provisional native
+window and moves the real WKWebView surface. It never captures a frozen game
+viewport or tab bitmap and never consults Core or SQLite. The AppKit dragging
+item stays transparent so only the current titlebar's real tab UI is visible.
+Returning to a tab strip reparents
+the same surface into the hovered live host. These native transitions run behind
+the AppKit callback; no receipt, persistence result, or topology readback can
+block pointer delivery. The terminal drop freezes the visible AppKit order into
+`LiveWindowTabState`; persistence then follows on the independent latest-wins
+background lane. Cancellation restores the surface to the source host but does
+not roll back or rewrite a persisted UI snapshot.
 
 A newly observed native drag session supersedes an abandoned macOS session whose
 terminal destination callback was not delivered. Late callbacks for a completed,

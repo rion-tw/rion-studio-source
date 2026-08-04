@@ -341,95 +341,82 @@ impl BrowserRuntime {
     fn commit_tab_drag_topology(
         &mut self,
         tab_id: &str,
-        source_window_id: &str,
+        _source_window_id: &str,
         target_window_id: Option<&str>,
-        source_before_tab_ids: &[String],
+        _source_before_tab_ids: &[String],
         source_after_tab_ids: &[String],
-        target_before_tab_ids: &[String],
+        _target_before_tab_ids: &[String],
         target_after_tab_ids: &[String],
     ) -> CoreResult<()> {
-        let target_window_id = target_window_id.unwrap_or(source_window_id);
-        let same_window = source_window_id == target_window_id;
-        let source = self.windows.get(source_window_id).ok_or_else(|| {
-            domain("RUNTIME_WINDOW_NOT_FOUND", "The source runtime window was not found.")
-        })?;
-        if source.tab_ids != source_before_tab_ids {
-            return Err(domain(
-                "TAB_DRAG_TOPOLOGY_STALE",
-                "The source tab order changed before the drag could commit.",
-            ));
-        }
-        if !ordered_tab_ids_are_unique(source_before_tab_ids)
-            || !ordered_tab_ids_are_unique(source_after_tab_ids)
-            || !ordered_tab_ids_are_unique(target_before_tab_ids)
+        let actual_source_window_id = self
+            .tabs
+            .get(tab_id)
+            .map(|tab| tab.window_id.clone())
+            .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+        let target_window_id = target_window_id.unwrap_or(&actual_source_window_id);
+        if !ordered_tab_ids_are_unique(source_after_tab_ids)
             || !ordered_tab_ids_are_unique(target_after_tab_ids)
-            || !source_before_tab_ids.iter().any(|candidate| candidate == tab_id)
         {
             return Err(domain(
                 "TAB_DRAG_TOPOLOGY_INVALID",
-                "The tab drag topology contains duplicate or missing tab identifiers.",
+                "The committed tab drag order contains duplicate tab identifiers.",
             ));
         }
-        if self.tabs.get(tab_id).map(|tab| tab.window_id.as_str()) != Some(source_window_id) {
-            return Err(domain(
-                "TAB_DRAG_TOPOLOGY_STALE",
-                "The dragged tab changed owners before the drag could commit.",
-            ));
-        }
-        if same_window {
-            if target_before_tab_ids != source_before_tab_ids
-                || target_after_tab_ids != source_after_tab_ids
-                || !same_tab_members(source_before_tab_ids, source_after_tab_ids)
-            {
+        if actual_source_window_id == target_window_id {
+            let current = self
+                .windows
+                .get(target_window_id)
+                .map(|window| window.tab_ids.clone())
+                .unwrap_or_default();
+            let desired = if target_after_tab_ids.is_empty() {
+                source_after_tab_ids
+            } else {
+                target_after_tab_ids
+            };
+            if !same_tab_members(&current, desired) {
                 return Err(domain(
                     "TAB_DRAG_TOPOLOGY_INVALID",
-                    "A same-window drag must be a permutation of its frozen tab order.",
+                    "The committed tab order does not match the live window members.",
                 ));
             }
             self.windows
-                .get_mut(source_window_id)
-                .expect("source window was checked")
-                .tab_ids = source_after_tab_ids.to_vec();
+                .get_mut(target_window_id)
+                .expect("runtime tab window exists")
+                .tab_ids = desired.to_vec();
             return Ok(());
         }
-
-        let expected_source_after = source_before_tab_ids
+        let current_source = self
+            .windows
+            .get(&actual_source_window_id)
+            .map(|window| window.tab_ids.clone())
+            .unwrap_or_default();
+        let current_target = self
+            .windows
+            .get(target_window_id)
+            .map(|window| window.tab_ids.clone())
+            .unwrap_or_default();
+        let expected_source = current_source
             .iter()
             .filter(|candidate| candidate.as_str() != tab_id)
             .cloned()
             .collect::<Vec<_>>();
-        let expected_target_members = target_before_tab_ids
+        let expected_target = current_target
             .iter()
             .cloned()
             .chain(std::iter::once(tab_id.to_owned()))
             .collect::<Vec<_>>();
-        if target_before_tab_ids.iter().any(|candidate| candidate == tab_id)
-            || source_after_tab_ids != expected_source_after
-            || !same_tab_members(target_after_tab_ids, &expected_target_members)
+        if !same_tab_members(&expected_source, source_after_tab_ids)
+            || !same_tab_members(&expected_target, target_after_tab_ids)
         {
             return Err(domain(
                 "TAB_DRAG_TOPOLOGY_INVALID",
-                "A cross-window drag must move exactly one tab between frozen windows.",
+                "The committed drag projection does not match the current tab members.",
             ));
         }
-        if let Some(target) = self.windows.get(target_window_id) {
-            if target.tab_ids != target_before_tab_ids {
-                return Err(domain(
-                    "TAB_DRAG_TOPOLOGY_STALE",
-                    "The target tab order changed before the drag could commit.",
-                ));
-            }
-        } else if !target_before_tab_ids.is_empty() {
-            return Err(domain(
-                "TAB_DRAG_TOPOLOGY_STALE",
-                "The target runtime window disappeared before the drag could commit.",
-            ));
-        }
-
         self.move_tab(tab_id, target_window_id)?;
         self.windows
-            .get_mut(source_window_id)
-            .expect("source window was checked")
+            .get_mut(&actual_source_window_id)
+            .expect("source window remains registered")
             .tab_ids = source_after_tab_ids.to_vec();
         self.windows
             .get_mut(target_window_id)

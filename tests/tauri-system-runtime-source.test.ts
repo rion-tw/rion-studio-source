@@ -611,22 +611,19 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
   });
 
 it("rolls back every provisional move stage and surfaces compensation errors", async () => {
-    const runtime = await readFile(
+    const [runtime, move] = await Promise.all([readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
-    );
-    const move = runtime.slice(
-      runtime.indexOf("pub fn provisionally_move_tab("),
-      runtime.indexOf("fn rollback_provisional_tab_move(")
-    );
+    ), readFile(
+      new URL("../src-tauri/src/system_runtime/section_11_provisionally_move_tab_with_visibility.rs", import.meta.url),
+      "utf8"
+    )]);
     const hidePhase = move.indexOf("for surface in &surfaces");
     const reparentPhase = move.indexOf("for (index, surface) in surfaces.iter().enumerate()");
     const reparentSyncPhase = move.indexOf("synchronize_windows_reparented_surfaces(");
     const stateCommit = move.indexOf("tab.window_id = target_window_id.to_owned()");
     const presentationCommit = move.indexOf("let selected_tabs_after_move");
-    const nativeRelocation = move.indexOf(
-      "if let Err(error) = self.relocate_native_tab_reservation("
-    );
+    const nativeRelocation = move.indexOf("self.relocate_native_tab_reservation(");
     const revealPhase = move.indexOf("let reveal_result");
     expect(hidePhase).toBeGreaterThan(-1);
     expect(reparentPhase).toBeGreaterThan(hidePhase);
@@ -635,7 +632,7 @@ it("rolls back every provisional move stage and surfaces compensation errors", a
     expect(presentationCommit).toBeGreaterThan(stateCommit);
     expect(nativeRelocation).toBeGreaterThan(presentationCommit);
     expect(revealPhase).toBeGreaterThan(nativeRelocation);
-    expect(move).toContain("native_move.relocated = true");
+    expect(move).toContain("native_move.relocated = !presentation_precommitted");
     expect(move).toContain('"provisional-move"');
     expect(move).toContain("rollback_provisional_tab_move(");
     expect(move).toContain("provisional_move_error(");

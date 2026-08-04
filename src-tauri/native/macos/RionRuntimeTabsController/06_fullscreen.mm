@@ -306,6 +306,32 @@ NS_ASSUME_NONNULL_BEGIN
     return [item.tabIdentifier isEqualToString:tabIdentifier];
   }];
   if (existingIndex == NSNotFound) {
+    BOOL promotesExternalDragGhost =
+        [_externalDragGhostTabIdentifier isEqualToString:tabIdentifier];
+    NSUInteger insertionIndex = _tabItems.count;
+    CGFloat promotedCanvasX = _tabSurfaces.count > 0
+        ? NSMaxX(_tabSurfaces.lastObject.frame) + kRionTabSpacing
+        : 0;
+    if (promotesExternalDragGhost &&
+        _externalDragGhostBeforeIdentifier.length > 0) {
+      NSUInteger candidate = [_tabItems indexOfObjectPassingTest:
+          ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+        (void)index;
+        BOOL matches = [item.tabIdentifier
+            isEqualToString:self->_externalDragGhostBeforeIdentifier];
+        if (matches) *stop = YES;
+        return matches;
+      }];
+      if (candidate != NSNotFound) {
+        insertionIndex = candidate;
+        promotedCanvasX = NSMinX(_tabSurfaces[candidate].frame);
+      }
+    }
+    if (promotesExternalDragGhost) {
+      _externalDragGhostBeforeIdentifier = nil;
+      _externalDragGhostTabIdentifier = nil;
+      _externalDragGhostWidth = 0;
+    }
     RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
     tab.active = NO;
     tab.audible = NO;
@@ -331,10 +357,17 @@ NS_ASSUME_NONNULL_BEGIN
          audioPlayingLabel:@"Playing audio"
             audioMutedLabel:@"Tab muted"
                windowActive:_window.isKeyWindow];
-    [_tabItems addObject:item];
-    [_tabSurfaces addObject:surface];
+    [_tabItems insertObject:item atIndex:insertionIndex];
+    [_tabSurfaces insertObject:surface atIndex:insertionIndex];
     [_tabCanvas addSubview:surface];
     _tabItemsByIdentifier[tabIdentifier] = item;
+    if (promotesExternalDragGhost) {
+      _dragPlaceholderTabIdentifier = [tabIdentifier copy];
+      _dragSurfaceCanvasX = promotedCanvasX;
+      _dragSurfaceOverlayActive = YES;
+      _dragSurfaceVisible = YES;
+      surface.alphaValue = 1.0;
+    }
   }
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   item.sourceWindowID = _windowID;

@@ -489,7 +489,7 @@ use super::*;
     }
 
     #[test]
-    fn rejects_stale_frozen_tab_drag_topology_without_mutating_runtime() {
+    fn latest_visible_tab_drag_order_ignores_stale_before_snapshots() {
         let mut runtime = BrowserRuntime::default();
         let first = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
         let second = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -501,8 +501,7 @@ use super::*;
                 })))
                 .unwrap();
         }
-        let before = serde_json::to_value(runtime.snapshot()).unwrap();
-        let error = runtime
+        let committed = runtime
             .invoke(BrowserRuntimeCommand::CommitTabDragTopology {
                 tab_id: second.to_owned(),
                 source_window_id: "source".to_owned(),
@@ -512,7 +511,9 @@ use super::*;
                 target_before_tab_ids: vec![second.to_owned(), first.to_owned()],
                 target_after_tab_ids: vec![second.to_owned(), first.to_owned()],
             })
-            .unwrap_err();
-        assert_eq!(error.code(), "TAB_DRAG_TOPOLOGY_STALE");
-        assert_eq!(serde_json::to_value(runtime.snapshot()).unwrap(), before);
+            .unwrap();
+        assert_eq!(
+            committed.snapshot.windows[0].tab_ids,
+            vec![second.to_owned(), first.to_owned()]
+        );
     }

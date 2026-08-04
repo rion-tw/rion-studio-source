@@ -1,7 +1,7 @@
 use super::coalesce_native_tab_drag_actions;
 
 #[test]
-fn drag_action_queue_coalesces_samples_but_preserves_hover_boundaries() {
+fn drag_action_queue_coalesces_all_transient_samples_for_the_same_session() {
     assert!(coalesce_native_tab_drag_actions(
         "tabDragMove",
         Some("session-a"),
@@ -14,10 +14,16 @@ fn drag_action_queue_coalesces_samples_but_preserves_hover_boundaries() {
         "tabDragHover",
         Some("session-a"),
     ));
-    assert!(!coalesce_native_tab_drag_actions(
+    assert!(coalesce_native_tab_drag_actions(
         "tabDragMove",
         Some("session-a"),
         "tabDragHover",
+        Some("session-a"),
+    ));
+    assert!(coalesce_native_tab_drag_actions(
+        "tabDragHover",
+        Some("session-a"),
+        "tabDragMove",
         Some("session-a"),
     ));
     assert!(!coalesce_native_tab_drag_actions(

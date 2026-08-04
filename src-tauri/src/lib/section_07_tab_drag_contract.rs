@@ -53,7 +53,8 @@ fn active_tab_drag_session_id(
         .map_err(|_| shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned."))
 }
 
-fn tab_drag_defers_native_mutations(is_windows: bool, _is_macos: bool) -> bool {
+fn tab_drag_defers_native_mutations(is_windows: bool, is_macos: bool) -> bool {
+    let _ = is_macos;
     is_windows
 }
 
@@ -66,20 +67,6 @@ struct CompletedGameWindowTabDrag {
 struct TabDragRollbackFailure {
     error: CoreErrorPayload,
     error_count: usize,
-}
-
-#[cfg(test)]
-fn tab_drag_rollback_error(
-    error: &CoreErrorPayload,
-    cleanup: &CoreErrorPayload,
-) -> CoreErrorPayload {
-    shell_error(
-        "TAURI_TAB_DRAG_ROLLBACK_FAILED",
-        format!(
-            "Runtime tab drag failed ({}: {}); rollback failed ({}: {}).",
-            error.code, error.message, cleanup.code, cleanup.message
-        ),
-    )
 }
 
 fn tab_drag_active_phase(phase: &GameWindowTabDragPhase) -> &'static str {
@@ -277,28 +264,6 @@ fn tab_drag_fence_error(
         return Some(shell_error(
             "SYSTEM_TAB_DRAG_LIFECYCLE_STALE",
             "The application lifecycle changed during the tab drag.",
-        ));
-    }
-    if state.display_topology.current_revision() != session.topology_revision {
-        return Some(shell_error(
-            "SYSTEM_TAB_DRAG_TOPOLOGY_STALE",
-            "Display topology changed during the tab drag.",
-        ));
-    }
-    let generation_is_current = session.snapshots.values().all(|snapshot| {
-        state
-            .runtime
-            .tab_drag_window_generation_matches(&snapshot.window_id, snapshot.generation)
-    });
-    if !generation_is_current
-        || !state.runtime.tab_drag_window_generation_matches(
-            &session.source_window_id,
-            session.source_window_generation,
-        )
-    {
-        return Some(shell_error(
-            "SYSTEM_TAB_DRAG_WINDOW_STALE",
-            "A Game Window generation changed during the tab drag.",
         ));
     }
     None

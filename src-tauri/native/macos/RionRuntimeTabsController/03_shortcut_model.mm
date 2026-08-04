@@ -356,6 +356,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _dragStarted;
   BOOL _dragPreviewYLocked;
   CGFloat _dragPreviewLockedScreenY;
+  NSImage *_dragPreviewImage;
+  BOOL _appKitDragPreviewVisible;
+  NSTimeInterval _lastDragMoveDispatchTime;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   NSImageView *_audioView;
@@ -623,7 +626,36 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)beginDragPreviewSession:(NSDraggingSession *)session
                   lockedScreenY:(CGFloat)screenY {
   _activeDraggingSession = session;
+  NSBitmapImageRep *representation =
+      [self bitmapImageRepForCachingDisplayInRect:self.bounds];
+  if (representation) {
+    [self cacheDisplayInRect:self.bounds toBitmapImageRep:representation];
+    _dragPreviewImage = [[NSImage alloc] initWithSize:self.bounds.size];
+    [_dragPreviewImage addRepresentation:representation];
+  }
+  _appKitDragPreviewVisible = NO;
+  _lastDragMoveDispatchTime = 0;
   [self lockDragPreviewToScreenY:screenY];
+}
+
+- (void)setAppKitDragPreviewVisible:(BOOL)visible {
+  if (!_activeDraggingSession || _appKitDragPreviewVisible == visible) return;
+  _appKitDragPreviewVisible = visible;
+  NSImage *contents = visible && _dragPreviewImage
+      ? _dragPreviewImage
+      : RionRuntimeTransparentDragImage();
+  [_activeDraggingSession
+      enumerateDraggingItemsWithOptions:0
+                                forView:nil
+                                classes:@[ NSPasteboardItem.class ]
+                          searchOptions:@{}
+                             usingBlock:^(NSDraggingItem *draggingItem,
+                                          NSInteger index, BOOL *stop) {
+    (void)index;
+    (void)stop;
+    [draggingItem setDraggingFrame:draggingItem.draggingFrame
+                          contents:contents];
+  }];
 }
 
 - (void)lockDragPreviewToScreenY:(CGFloat)screenY {
@@ -653,6 +685,12 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
           movedToPoint:(NSPoint)screenPoint {
   _activeDraggingSession = session;
   [self applyDragPreviewYLock];
+  NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+  if (_lastDragMoveDispatchTime > 0 &&
+      now - _lastDragMoveDispatchTime < (1.0 / 120.0)) {
+    return;
+  }
+  _lastDragMoveDispatchTime = now;
   if (self.dragSessionID.length > 0) {
     [self.tabsController moveTabDrag:self atScreenPoint:screenPoint];
   }
@@ -663,7 +701,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
               operation:(NSDragOperation)operation {
   (void)session;
   [self clearDragPreviewYLock];
+  [self setAppKitDragPreviewVisible:NO];
   _activeDraggingSession = nil;
+  _dragPreviewImage = nil;
+  _lastDragMoveDispatchTime = 0;
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =
       event.type == NSEventTypeKeyDown && event.keyCode == 53;

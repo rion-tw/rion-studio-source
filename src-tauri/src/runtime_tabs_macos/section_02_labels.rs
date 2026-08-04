@@ -263,8 +263,8 @@ fn coalesce_native_tab_drag_actions(
     next_type: &str,
     next_session_id: Option<&str>,
 ) -> bool {
-    matches!(current_type, "tabDragMove" | "tabDragHover")
-        && matches!(next_type, "tabDragMove" | "tabDragHover")
+    current_type == next_type
+        && matches!(current_type, "tabDragMove" | "tabDragHover")
         && current_session_id.is_some()
         && current_session_id == next_session_id
 }

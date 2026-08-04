@@ -68,25 +68,7 @@ async fn finish_deferred_tab_drag_session(
         );
         return finish_failed_tab_drag_session(app, state, &mut session, error);
     }
-    let exact_cleanup = match commit_tab_drag_session(state, &session).await {
-        Ok(exact_cleanup) => exact_cleanup,
-        Err(error) => {
-            record_tab_drag_lifecycle(
-                state,
-                &session,
-                "tab.drag-core-commit-failed",
-                "The durable tab move failed and native rollback was requested.",
-            );
-            return finish_failed_tab_drag_session(app, state, &mut session, error);
-        }
-    };
-    record_tab_drag_lifecycle(
-        state,
-        &session,
-        "tab.drag-committed",
-        "The deferred native tab drag committed successfully.",
-    );
-    finish_applied_tab_drag(app, state, &session, exact_cleanup)
+    finish_visible_tab_drag_and_schedule_projection(app, state, &session)
 }
 
 fn record_tab_drag_lifecycle(
@@ -104,6 +86,7 @@ fn record_tab_drag_lifecycle(
         "frozenSourceTabOrder": session.snapshots.get(&session.source_window_id).map(|snapshot| &snapshot.tab_ids),
         "frozenTargetTabOrder": session.drop_window_id.as_ref().and_then(|window_id| session.snapshots.get(window_id)).map(|snapshot| &snapshot.tab_ids),
         "intentGeneration": session.intent_generation,
+        "hoverWindowId": session.hover_window_id,
         "nativeChangesApplied": session.native_changes_applied,
         "projectionRevision": session.topology_revision,
         "sessionId": session.id,
@@ -258,6 +241,13 @@ fn cancel_tab_drag_session(
         errors.push(message);
     }
     release_tab_drag_window_motion_suppression(state, session, None);
+    if session.hover_window_id.is_some()
+        && let Err(message) = state
+            .runtime
+            .show_tab_drag_window(&session.source_window_id)
+    {
+        errors.push(message);
+    }
     if let Err(message) = state
         .runtime
         .make_provisional_game_window_interactive(&session.source_window_id)
@@ -275,148 +265,6 @@ fn cancel_tab_drag_session(
     }
 }
 
-async fn commit_tab_drag_session(
-    state: &CoreState,
-    session: &GameWindowTabDragSession,
-) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
-    let mut outcome = RuntimeTabMutationProjectionOutcome::Applied;
-    let final_window_id = state
-        .runtime
-        .tab_window_id(&session.tab_id)
-        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_FAILED", "Dragged tab was not found."))?;
-    let final_snapshot = state
-        .runtime
-        .tab_drag_window_snapshot(&final_window_id)
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-    let source_snapshot = session
-        .snapshots
-        .get(&session.source_window_id)
-        .ok_or_else(|| shell_error("TAURI_TAB_DRAG_STALE", "Source drag topology was not frozen."))?;
-    let same_window = final_window_id == session.source_window_id;
-    let source_before_tab_ids = source_snapshot.tab_ids.clone();
-    let source_after_tab_ids = if same_window {
-        session
-            .drop_ordered_tab_ids
-            .clone()
-            .unwrap_or_else(|| source_before_tab_ids.clone())
-    } else {
-        source_before_tab_ids
-            .iter()
-            .filter(|tab_id| tab_id.as_str() != session.tab_id)
-            .cloned()
-            .collect()
-    };
-    let target_before_tab_ids = if same_window {
-        source_before_tab_ids.clone()
-    } else {
-        session
-            .snapshots
-            .get(&final_window_id)
-            .map(|snapshot| snapshot.tab_ids.clone())
-            .unwrap_or_default()
-    };
-    let target_after_tab_ids = if same_window {
-        source_after_tab_ids.clone()
-    } else if final_window_id == session.provisional_window_id {
-        vec![session.tab_id.clone()]
-    } else {
-        session.drop_ordered_tab_ids.clone().ok_or_else(|| {
-            shell_error(
-                "TAURI_TAB_DRAG_INVALID",
-                "Cross-window drag did not freeze its final tab order.",
-            )
-        })?
-    };
-    let mut mutation: Option<(RuntimeTabMutationRequestRecord, Option<EmbeddedLaunchTargetRecord>)> = None;
-    if final_window_id == session.source_window_id {
-        if tab_drag_order_changed(&source_before_tab_ids, &source_after_tab_ids) {
-            mutation = Some((
-                tab_drag_mutation_request(
-                    session,
-                    "reorder",
-                    &final_snapshot,
-                    None,
-                    &target_after_tab_ids,
-                ),
-                None,
-            ));
-        }
-    } else if final_window_id == session.provisional_window_id && !session.single_tab {
-        mutation = Some((
-            tab_drag_mutation_request(
-                session,
-                "moveToNewWindow",
-                &final_snapshot,
-                Some(&final_window_id),
-                &target_after_tab_ids,
-            ),
-            Some(session.target.clone()),
-        ));
-    } else {
-        let target = state
-            .runtime
-            .launch_target_for_window_id(&final_window_id)
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
-        mutation = Some((
-            tab_drag_mutation_request(
-                session,
-                "move",
-                &final_snapshot,
-                Some(&final_window_id),
-                &target_after_tab_ids,
-            ),
-            Some(target),
-        ));
-    }
-    if let Some((request, target)) = mutation {
-        outcome = execute_tab_drag_topology_commit(
-            state,
-            request.clone(),
-            target,
-            source_before_tab_ids,
-            source_after_tab_ids,
-            target_before_tab_ids,
-            target_after_tab_ids,
-        )
-        .await?;
-        if outcome == RuntimeTabMutationProjectionOutcome::Degraded {
-            state.runtime.record_tab_drag_projection_mismatch(&request);
-        }
-    }
-    if outcome == RuntimeTabMutationProjectionOutcome::Superseded
-        || (session.intent_generation > 0
-            && !state
-                .runtime
-                .tab_drag_projection_is_latest(&session.id, session.intent_generation))
-    {
-        // The durable mutation may be retained as the fallback for the newer drag, but
-        // every native cleanup below belongs to the older session and must not touch it.
-        release_tab_drag_window_motion_suppression(state, session, None);
-        return Ok(RuntimeTabMutationProjectionOutcome::Superseded);
-    }
-    let persisted_motion_window = (session.single_tab
-        && final_window_id == session.source_window_id
-        && session.window_was_moved)
-        .then_some(final_window_id.as_str());
-    release_tab_drag_window_motion_suppression(state, session, persisted_motion_window);
-    if !session.single_tab && final_window_id != session.provisional_window_id {
-        state
-            .runtime
-            .discard_provisional_game_window(&session.provisional_window_id);
-    } else if session.single_tab && final_window_id != session.source_window_id {
-        state
-            .runtime
-            .discard_provisional_game_window(&session.source_window_id);
-    }
-    if let Err(message) = state
-        .runtime
-        .make_provisional_game_window_interactive(&final_window_id)
-    {
-        eprintln!("Runtime tab drag committed but focus restoration failed: {message}");
-    }
-    Ok(outcome)
-}
-
 fn release_tab_drag_window_motion_suppression(
     state: &CoreState,
     session: &GameWindowTabDragSession,
@@ -427,6 +275,14 @@ fn release_tab_drag_window_motion_suppression(
     window_ids.insert(session.provisional_window_id.clone());
     window_ids.insert(session.current_window_id.clone());
     for window_id in window_ids {
+        if let Err(message) = state
+            .runtime
+            .release_tab_drag_cursor_lease(&window_id, &session.id)
+        {
+            eprintln!(
+                "Runtime tab drag cursor lease could not be released: window={window_id} error={message}"
+            );
+        }
         if let Err(message) = state.runtime.finish_tab_drag_window_motion(
             &window_id,
             persist_window_id == Some(window_id.as_str()),

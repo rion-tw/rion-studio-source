@@ -444,6 +444,7 @@ struct RuntimeState {
     saved_window_names: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
     surface_registry: HashMap<String, ManagedSurface>,
+    tab_drag_cursor_leases: HashMap<String, TabDragCursorLease>,
     tab_drag_placement_suppressed_windows: HashSet<String>,
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
@@ -462,7 +463,10 @@ struct PendingWindowTabRestore {
 #[derive(Clone)]
 struct TabCloseTombstone {
     revision: u64,
+    role_ids: Vec<String>,
     slot_owners: Vec<(String, String, Option<u64>)>,
+    source_id: String,
+    tab_type: String,
     window_id: String,
 }
 

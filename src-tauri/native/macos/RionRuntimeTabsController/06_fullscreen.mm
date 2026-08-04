@@ -565,6 +565,8 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event {
+  [self hideInsertionIndicator];
+  [self hideExternalDragGhost];
   [self resetTabDragInsertionState];
   NSString *sessionID = NSUUID.UUID.UUIDString;
   item.dragSessionID = sessionID;

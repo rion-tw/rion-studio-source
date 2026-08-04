@@ -37,6 +37,12 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<LaunchPreviewHandle> {
         let preview_started = Instant::now();
         self.mark_critical_activity();
+        if self.launcher_source_is_closing(source_id, tab_type) {
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_TAB_CLOSING",
+                "The previous runtime tab is still completing native isolation.",
+            ));
+        }
         let source_key = launch_source_key(tab_type, source_id);
         let existing = {
             let state = self.state()?;

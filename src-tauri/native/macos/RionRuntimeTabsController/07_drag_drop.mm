@@ -97,7 +97,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)previewDragTabIdentifier:(NSString *)tabIdentifier
                 beforeIdentifier:(nullable NSString *)beforeIdentifier {
   RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
-  if (!draggedItem || _tabItems.count < 2) return NO;
+  if (!draggedItem) return NO;
+  // A local single-tab drag is already represented by its lifted surface. It
+  // does not need an ordering mutation, but it is still a local preview. If we
+  // report NO here, the root view mistakes it for a cross-window hover and
+  // allocates a second ghost-width slot plus an insertion indicator.
+  if (_tabItems.count < 2) return YES;
   NSMutableArray<NSString *> *order =
       [NSMutableArray arrayWithCapacity:_tabItems.count];
   for (RionRuntimeTabItemView *item in _tabItems) {
@@ -147,6 +152,8 @@ NS_ASSUME_NONNULL_BEGIN
   _dragInsertionSessionIdentifier = nil;
   _dragInsertionBeforeIdentifier = nil;
   _dragInsertionVisualCenterX = 0;
+  _dragHoverSessionIdentifier = nil;
+  _dragHoverBeforeIdentifier = nil;
 }
 
 - (void)scrollTabStripForDragPoint:(NSPoint)point inView:(NSView *)view {
@@ -326,6 +333,15 @@ NS_ASSUME_NONNULL_BEGIN
                     beforeIdentifier:(nullable NSString *)beforeIdentifier
                          screenPoint:(NSPoint)screenPoint {
   if (!_actionHandler || tabIdentifier.length == 0 || sessionID.length == 0) return;
+  BOOL sameBeforeIdentifier =
+      (_dragHoverBeforeIdentifier == beforeIdentifier) ||
+      [_dragHoverBeforeIdentifier isEqualToString:beforeIdentifier];
+  if ([_dragHoverSessionIdentifier isEqualToString:sessionID] &&
+      sameBeforeIdentifier) {
+    return;
+  }
+  _dragHoverSessionIdentifier = [sessionID copy];
+  _dragHoverBeforeIdentifier = [beforeIdentifier copy];
   NSPoint point = RionTopLeftScreenPoint(screenPoint);
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   NSMutableDictionary<NSString *, id> *action = [@{
@@ -370,6 +386,8 @@ NS_ASSUME_NONNULL_BEGIN
     @"cancelled" : @(cancelled)
   });
   item.dragSessionID = @"";
+  [self hideInsertionIndicator];
+  [self hideExternalDragGhost];
   [self setDragPlaceholderIdentifier:nil];
   [self resetTabDragInsertionState];
   [self stopTabDragEdgeScroll];

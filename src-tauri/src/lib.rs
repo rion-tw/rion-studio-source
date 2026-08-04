@@ -35,6 +35,7 @@ include!("lib/section_07_deferred_tab_drag_intent.rs");
 include!("lib/section_07_handle_game_window_tab_drag.rs");
 include!("lib/section_07_tab_drag_session_progress.rs");
 include!("lib/section_08_cancel_tab_drag_session.rs");
+include!("lib/section_08_tab_drag_projection.rs");
 include!("lib/section_08_tab_drag_geometry.rs");
 include!("lib/section_09_run.rs");
 

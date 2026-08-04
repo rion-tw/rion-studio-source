@@ -1,8 +1,20 @@
 use super::coalesce_native_tab_drag_actions;
 
 #[test]
-fn drag_action_queue_only_coalesces_one_sessions_move_and_hover_samples() {
+fn drag_action_queue_coalesces_samples_but_preserves_hover_boundaries() {
     assert!(coalesce_native_tab_drag_actions(
+        "tabDragMove",
+        Some("session-a"),
+        "tabDragMove",
+        Some("session-a"),
+    ));
+    assert!(coalesce_native_tab_drag_actions(
+        "tabDragHover",
+        Some("session-a"),
+        "tabDragHover",
+        Some("session-a"),
+    ));
+    assert!(!coalesce_native_tab_drag_actions(
         "tabDragMove",
         Some("session-a"),
         "tabDragHover",

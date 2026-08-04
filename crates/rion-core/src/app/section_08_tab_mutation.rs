@@ -218,10 +218,13 @@ impl AppCore {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
             })?;
-        if tab.source_id != source_id
-            || tab.tab_type != tab_type
-            || tab.window_id != request.source_window_id
-        {
+        // LiveWindowTabState owns window membership while the native gesture is
+        // active. A close may therefore carry the new live window before an
+        // older, best-effort Core drag projection has caught up. The stable tab
+        // identity and its persisted source are sufficient to authorize stop;
+        // treating a window mismatch as an identity change strands the tab in
+        // `stopping` even though it is the exact instance the user closed.
+        if tab.source_id != source_id || tab.tab_type != tab_type {
             return Err(CoreError::Domain {
                 code: "TAB_MUTATION_RESULT_UNKNOWN",
                 message: "The runtime tab identity changed before stop committed.".to_owned(),

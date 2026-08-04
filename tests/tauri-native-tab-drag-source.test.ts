@@ -42,9 +42,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(contract).toContain(
       '#[cfg(target_os = "macos")]\n    pub(crate) fn stamp_native_tab_drag_action('
     );
-    expect(activation).toContain(
-      '#[cfg(target_os = "macos")]\nuse std::sync::OnceLock;'
-    );
+    expect(activation).toContain("Arc, Mutex, OnceLock");
+    expect(activation).toContain("tab_drag_projection_queue:");
   });
 
   it("uses a non-owning cross-window ghost slot", async () => {
@@ -58,6 +57,48 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("showExternalDragGhostBeforeIdentifier:");
     expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
+    expect(macController).toContain("if (_tabItems.count < 2) return YES;");
+    expect(macController).toMatch(
+      /endTabDrag:[\s\S]*hideInsertionIndicator[\s\S]*hideExternalDragGhost/
+    );
+  });
+
+  it("releases the visible drag immediately and projects Core state in the background", async () => {
+    const [handler, projection, cursorLease, state] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/lib/section_08_cancel_tab_drag_session.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_08_tab_drag_projection.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_10_tab_drag_cursor_lease.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_04_next_revision.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(projection).toContain("fn complete_visible_tab_drag(");
+    expect(projection).toContain("fn schedule_tab_drag_projection(");
+    expect(projection).toContain("unbounded_channel::<QueuedTabDragProjection>()");
+    expect(projection).toContain("process_tab_drag_projection(&app, queued).await");
+    expect(handler).toContain("release_tab_drag_window_motion_suppression(state, session");
+    expect(cursorLease).toContain("window_generation");
+    expect(cursorLease).toContain("lease.session_id != session_id");
+    expect(cursorLease).toContain("position_tab_drag_window(");
+    expect(cursorLease).toContain(".set_position(PhysicalPosition::new(");
+    expect(state).toContain("tab_drag_cursor_leases");
   });
 
   it("moves the complete macOS tab presentation and its live surfaces during the native gesture", async () => {
@@ -88,13 +129,41 @@ describe("native tab drag latest-intent transaction", () => {
     expect(contract).toContain("fn tab_drag_defers_native_mutations(is_windows: bool");
     expect(contract).toContain("is_windows\n}");
     expect(handler).toContain("provisionally_move_tab(&session.tab_id");
-    expect(handler).toContain("position_provisional_game_window(&target)");
+    expect(handler).toContain("position_tab_drag_window(&target, &session.id)");
     expect(handler).toContain("show_tab_drag_window(&floating_window_id)");
     expect(handler).toContain("Some(&ordered_tab_ids)");
     expect(move).toContain("surface.reparent(&target_window)");
     expect(move).toContain("slot.placeholder.as_ref()");
     expect(move).toContain("surface.show()");
     expect(move).not.toContain("tab_drag_presentation_preview");
+  });
+
+  it("keeps pointer-rate drag visuals in AppKit and deduplicates topology hover intents", async () => {
+    const [handler, macController] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+        "utf8"
+      )
+    ]);
+
+    expect(handler).toContain("target_window_id == session.current_window_id");
+    expect(handler).toContain("ordered_tab_ids.is_none()");
+    expect(handler).toContain("preview_parked_tab_drag_hover(");
+    expect(handler).toContain("returning_from_hover");
+    expect(handler).toContain("hide_tab_drag_window(&session.provisional_window_id)");
+    expect(handler).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
+    expect(macController).toContain("setAppKitDragPreviewVisible:YES");
+    expect(macController).toContain("setAppKitDragPreviewVisible:NO");
+    expect(macController).toContain("now - _lastDragMoveDispatchTime < (1.0 / 120.0)");
+    expect(macController).toContain("_dragHoverSessionIdentifier");
+    expect(macController).toContain("sameBeforeIdentifier");
   });
 
   it("carries an exact terminal order across the macOS bridge", async () => {

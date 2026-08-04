@@ -120,6 +120,40 @@ describe("runtime window lifecycle authority", () => {
     expect(admission).toContain('"tab.stale-create-retired"');
   });
 
+  it("queues relaunch behind both active tombstones and fenced closing tabs", async () => {
+    const [menu, preview, state] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/runtime_tab_menu/section_03_launch_from_menu.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_22_with_native_creation_lane.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_10_tab_close_fence.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(menu).toContain("defer_launch_until_close_settles");
+    expect(menu).toContain('message == "The runtime tab is closing."');
+    expect(preview).toContain('"SYSTEM_RUNTIME_TAB_CLOSING"');
+    expect(state).toContain("launcher_source_is_closing");
+    expect(state).toContain("close_previews");
+    expect(state).toContain("optimistic_close_matches_launcher_source");
+    expect(state).toContain("optimistic_closed_tabs");
+  });
+
   it("stages saved role slots before an accepted restore can race native tab registration", async () => {
     const [restore, create, roleSlots, state] = await Promise.all([
       readFile(

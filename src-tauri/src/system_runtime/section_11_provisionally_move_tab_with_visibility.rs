@@ -379,14 +379,10 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.to_string())
     }
 
-    pub(crate) fn set_tab_drag_window_ignores_cursor(
-        &self,
-        window_id: &str,
-        ignores_cursor: bool,
-    ) -> Result<(), String> {
+    pub(crate) fn hide_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
         self.window_for_id(window_id)
             .ok_or_else(|| "Tab drag window was not found.".to_owned())?
-            .set_ignore_cursor_events(ignores_cursor)
+            .hide()
             .map_err(|error| error.to_string())
     }
 

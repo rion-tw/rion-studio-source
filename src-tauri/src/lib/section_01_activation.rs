@@ -2,15 +2,12 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::Duration,
 };
-
-#[cfg(target_os = "macos")]
-use std::sync::OnceLock;
 
 use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
@@ -81,6 +78,8 @@ struct CoreState {
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     tab_drag_finished: Mutex<VecDeque<CompletedGameWindowTabDrag>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
+    tab_drag_projection_queue:
+        OnceLock<tokio::sync::mpsc::UnboundedSender<QueuedTabDragProjection>>,
     #[cfg(target_os = "macos")]
     macos_tab_drag_actions:
         OnceLock<tokio::sync::mpsc::UnboundedSender<runtime_tabs_macos::QueuedNativeTabAction>>,
@@ -247,6 +246,7 @@ struct GameWindowTabDragSession {
     drop_window_id: Option<String>,
     grab_ratio_x: f64,
     grab_ratio_y: f64,
+    hover_window_id: Option<String>,
     id: String,
     intent_generation: u64,
     last_event_sequence: u64,

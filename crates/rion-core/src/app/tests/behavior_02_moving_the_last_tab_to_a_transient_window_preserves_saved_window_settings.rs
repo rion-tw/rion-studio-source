@@ -113,6 +113,58 @@
             .0
             .unwrap();
 
+            let windows_before_commit = core.invoke(CoreCommand::GameWindowsList).unwrap();
+            let source_before_commit = windows_before_commit
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == source_id)
+                .unwrap();
+            let mut moved_tab = source_before_commit["tabs"][0].clone();
+            moved_tab["hidden"] = json!(false);
+            assert_eq!(
+                source_before_commit["tabs"].as_array().unwrap().len(),
+                1,
+                "Core move must not write the UI snapshot on {platform}"
+            );
+            let target_before_commit = windows_before_commit
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|window| window["id"] == target_id)
+                .unwrap();
+            let target_tabs = vec![
+                target_before_commit["tabs"][0].clone(),
+                moved_tab,
+                target_before_commit["tabs"][2].clone(),
+            ];
+            assert_eq!(
+                commit_live_window_tabs(
+                    &core,
+                    &source_id,
+                    1,
+                    1,
+                    "Source",
+                    Vec::new(),
+                    None,
+                )["status"],
+                "applied",
+                "{platform}"
+            );
+            assert_eq!(
+                commit_live_window_tabs(
+                    &core,
+                    &target_id,
+                    1,
+                    1,
+                    "Target",
+                    target_tabs,
+                    Some(&tab_id),
+                )["status"],
+                "applied",
+                "{platform}"
+            );
+
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
             let source = windows
@@ -176,13 +228,38 @@
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::EmbeddedTabMove {
-                    tab_id,
+                    tab_id: tab_id.clone(),
                     target: launch_target(&torn_out_id),
                 },
                 None,
             )
             .0
             .unwrap();
+            let target_before_final_commit = core
+                .invoke(CoreCommand::GameWindowGet {
+                    id: target_id.clone(),
+                })
+                .unwrap();
+            let final_target_tabs = target_before_final_commit["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|tab| tab["id"].as_str() != Some(tab_id.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                commit_live_window_tabs(
+                    &core,
+                    &target_id,
+                    1,
+                    2,
+                    "Target",
+                    final_target_tabs,
+                    Some(&dormant_tab_ids[0]),
+                )["status"],
+                "applied",
+                "{platform}"
+            );
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
             let saved_target = windows
@@ -212,101 +289,6 @@
             core.shutdown();
         }
     }
-    #[test]
-    fn selecting_live_tabs_preserves_dormant_saved_tabs() {
-        for platform in ["darwin", "win32"] {
-            let (_directory, core) = core_for_platform(platform);
-            let window_id = core
-                .invoke(command(json!({
-                    "type": "gameWindowCreate",
-                    "input": {
-                        "name": "Mixed live and dormant",
-                        "targetDisplay": { "id": 1 },
-                        "placement": {
-                            "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                            "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                            "presentation": "normal"
-                        }
-                    }
-                })))
-                .unwrap()["id"]
-                .as_str()
-                .unwrap()
-                .to_owned();
-            let dormant_a = uuid::Uuid::new_v4().to_string();
-            let dormant_b = uuid::Uuid::new_v4().to_string();
-            core.invoke(command(json!({
-                "type": "gameWindowUpdate",
-                "id": window_id,
-                "input": {
-                    "tabs": [{
-                        "id": dormant_a,
-                        "tabType": "role",
-                        "sourceId": "dormant-a",
-                        "name": "Dormant A",
-                        "roleIds": ["dormant-a"],
-                        "hidden": false,
-                        "audioMuted": true,
-                        "roleViews": []
-                    }, {
-                        "id": dormant_b,
-                        "tabType": "role",
-                        "sourceId": "dormant-b",
-                        "name": "Dormant B",
-                        "roleIds": ["dormant-b"],
-                        "hidden": false,
-                        "audioMuted": false,
-                        "roleViews": []
-                    }],
-                    "activeTabId": dormant_a
-                }
-            })))
-            .unwrap();
-            let create_live_tab = |source_id: &str| {
-                core.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                    tab_id: None,
-                    source_id: source_id.to_owned(),
-                    name: source_id.to_owned(),
-                    window_id: window_id.clone(),
-                    tab_type: "role".to_owned(),
-                    workspace_id: None,
-                    role_slots: test_role_slots(&[source_id]),
-                })
-                .unwrap()
-            };
-            let live_c = create_live_tab("live-c").created_tab_id.unwrap();
-            let created_d = create_live_tab("live-d");
-            let live_d = created_d.created_tab_id.unwrap();
-            core.sync_game_windows_from_runtime(&created_d.snapshot, &HashSet::new())
-                .unwrap();
-
-            for selected in [&live_c, &live_d, &live_c] {
-                core.invoke(CoreCommand::EmbeddedTabActivate {
-                    tab_id: selected.clone(),
-                })
-                .unwrap();
-            }
-
-            let window = core
-                .invoke(CoreCommand::GameWindowGet {
-                    id: window_id.clone(),
-                })
-                .unwrap();
-            assert_eq!(
-                window["tabs"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|tab| tab["sourceId"].as_str().unwrap())
-                    .collect::<Vec<_>>(),
-                ["dormant-a", "dormant-b", "live-c", "live-d"],
-                "{platform}"
-            );
-            assert_eq!(window["activeTabId"], live_c, "{platform}");
-            core.shutdown();
-        }
-    }
-
     #[test]
     fn window_scoped_stop_and_delete_finish_from_one_authoritative_snapshot() {
         for platform in ["darwin", "win32"] {

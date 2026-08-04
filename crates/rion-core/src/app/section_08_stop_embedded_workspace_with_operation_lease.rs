@@ -6,6 +6,7 @@ struct EmbeddedRuntimeTransition {
     focus_tab_id: Option<String>,
     focus_active_window_id: Option<String>,
     parent_operation_id: Option<String>,
+    persist_runtime_topology: bool,
 }
 
 impl AppCore {
@@ -13,6 +14,7 @@ impl AppCore {
         &self,
         workspace_id: &str,
         acquire_operation_lease: bool,
+        persist_closed_tab: bool,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         let initial_snapshot = self
@@ -149,9 +151,13 @@ impl AppCore {
                     })?
                     .remove(&tab_id);
             }
-            self.commit_embedded_runtime_snapshot_without_native_effect(
-                &std::collections::HashSet::new(),
-            )?;
+            if persist_closed_tab {
+                self.commit_embedded_runtime_snapshot_without_native_effect(
+                    &std::collections::HashSet::new(),
+                )?;
+            } else {
+                self.browser_runtime_snapshot_without_persistence()?;
+            }
             Ok(())
         })();
         let Some(lease) = lease else {
@@ -165,40 +171,11 @@ impl AppCore {
     }
 
     fn stop_embedded_window(&self, window_id: &str, delete: bool) -> CoreResult<()> {
-        let preserved_window = if delete {
-            None
-        } else {
-            self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
-                .into_iter()
-                .find(|window| window.id == window_id)
-        };
         let stop_result = self.stop_embedded_window_runtime(window_id, delete);
         if stop_result.is_ok() {
             self.clear_pending_game_window_configuration(window_id)?;
         }
-        let preserve_result = preserved_window.map_or(Ok(()), |window| {
-            self.mutate_state(StateMutation::GameWindowUpdate {
-                id: window_id.to_owned(),
-                input: GameWindowUpdateInputRecord {
-                    tabs: Some(window.tabs),
-                    active_tab_id: Some(window.active_tab_id),
-                    ..GameWindowUpdateInputRecord::default()
-                },
-            })
-            .map(|_| ())
-        });
-        match (stop_result, preserve_result) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
-            (Err(stop_error), Err(preserve_error)) => Err(CoreError::Effect {
-                code: "GAME_WINDOW_STOP_PRESERVE_FAILED".to_owned(),
-                message: format!(
-                    "Stopping the Game Window failed ({}: {stop_error}), and restoring its saved tabs also failed ({}: {preserve_error}).",
-                    stop_error.code(),
-                    preserve_error.code()
-                ),
-            }),
-        }
+        stop_result
     }
 
     fn stop_embedded_window_runtime(&self, window_id: &str, delete: bool) -> CoreResult<()> {
@@ -232,9 +209,15 @@ impl AppCore {
 
         for (tab_type, source_id) in sources {
             if tab_type == "workspace" {
-                self.stop_embedded_workspace_with_operation_lease(&source_id, true, None)?;
+                self.stop_embedded_workspace_with_operation_lease(&source_id, true, false, None)?;
             } else {
-                self.stop_embedded_role_with_operation_lease(&source_id, true, true, None)?;
+                self.stop_embedded_role_with_operation_lease(
+                    &source_id,
+                    true,
+                    true,
+                    false,
+                    None,
+                )?;
             }
         }
 
@@ -262,6 +245,7 @@ impl AppCore {
                 focus_tab_id: None,
                 focus_active_window_id: None,
                 parent_operation_id: None,
+                persist_runtime_topology: false,
             })?;
         }
 

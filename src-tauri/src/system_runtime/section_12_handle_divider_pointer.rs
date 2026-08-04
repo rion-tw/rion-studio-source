@@ -235,66 +235,17 @@ impl SystemRuntimeExecutor {
     }
 
     fn persist_runtime_tab_role_views(&self, tab_id: &str) -> Result<(), String> {
-        let role_slots = {
+        let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             let tab = state
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "Runtime tab was not found while saving its layout.".to_owned())?;
-            let mut role_slots = tab
-                .slots
-                .values()
-                .map(|slot| {
-                    let live = tab.roles.get(&slot.role.id);
-                    let zoom_factor = live
-                        .map(|surface| surface.zoom_factor)
-                        .unwrap_or(slot.zoom_factor);
-                    let zoom_mode = live
-                        .map(|surface| surface.zoom_mode.as_str())
-                        .unwrap_or(slot.zoom_mode.as_str());
-                    GameWindowRoleSlotRecord {
-                        slot_id: slot.slot_id.clone(),
-                        role_id: slot.role.id.clone(),
-                        rect: slot.rect.clone(),
-                        browser_zoom_percent: (zoom_mode == "fixed")
-                            .then_some((zoom_factor * 100.0).clamp(25.0, 500.0)),
-                    }
-                })
-                .collect::<Vec<_>>();
-            role_slots.sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
-            role_slots
+            tab.window_id.clone()
         };
-        let mut game_windows = self
-            .core
-            .invoke(CoreCommand::GameWindowsList)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let Some(game_window) = game_windows
-            .iter_mut()
-            .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
-        else {
-            return Ok(());
-        };
-        let tab = game_window
-            .tabs
-            .iter_mut()
-            .find(|tab| tab.id == tab_id)
-            .ok_or_else(|| "Saved runtime tab was not found while saving its layout.".to_owned())?;
-        tab.role_slots = role_slots;
-        self.core
-            .invoke(CoreCommand::GameWindowUpdate {
-                id: game_window.id.clone(),
-                input: GameWindowUpdateInputRecord {
-                    tabs: Some(game_window.tabs.clone()),
-                    active_tab_id: Some(game_window.active_tab_id.clone()),
-                    ..GameWindowUpdateInputRecord::default()
-                },
-            })
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+        self.touch_live_window_state(&window_id)?;
+        self.schedule_live_window_state_persistence(&window_id);
+        Ok(())
     }
 
     fn send_divider_indicators(&self, role_ids: &[String], indicator_type: &str) {

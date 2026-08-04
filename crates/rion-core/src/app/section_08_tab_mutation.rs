@@ -18,6 +18,7 @@ impl AppCore {
             focus_tab_id,
             focus_active_window_id,
             parent_operation_id: None,
+            persist_runtime_topology: true,
         })
     }
 
@@ -86,6 +87,7 @@ impl AppCore {
             focus_tab_id,
             focus_active_window_id: None,
             parent_operation_id: Some(request.operation_id),
+            persist_runtime_topology: false,
         })
     }
 
@@ -132,6 +134,7 @@ impl AppCore {
             focus_tab_id: moved.then_some(request.tab_id.clone()),
             focus_active_window_id: None,
             parent_operation_id: Some(request.operation_id),
+            persist_runtime_topology: false,
         })
     }
 
@@ -201,6 +204,7 @@ impl AppCore {
             self.stop_embedded_workspace_with_operation_lease(
                 source_id,
                 true,
+                false,
                 Some(&request.operation_id),
             )?;
         } else {
@@ -208,6 +212,7 @@ impl AppCore {
                 source_id,
                 true,
                 true,
+                false,
                 Some(&request.operation_id),
             )?;
         }

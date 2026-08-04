@@ -62,9 +62,25 @@ impl SystemRuntimeExecutor {
         source_id: &str,
         tab_type: &str,
     ) -> Option<String> {
-        let tab_id = self
-            .presentation
-            .tab_for_launcher_source(source_id, tab_type)?;
+        let live_owner = if tab_type == "role" {
+            self.state.lock().ok().and_then(|state| {
+                state
+                    .role_tabs
+                    .get(source_id)
+                    .filter(|tab_id| !state.optimistic_closed_tabs.contains(*tab_id))
+                    .cloned()
+            })
+        } else {
+            None
+        };
+        let tab_id = live_owner.or_else(|| {
+            if tab_type == "role" {
+                self.presentation.tab_for_source(source_id, "role")
+            } else {
+                self.presentation
+                    .tab_for_launcher_source(source_id, tab_type)
+            }
+        })?;
         self.state.lock().ok().and_then(|state| {
             (state.tabs.contains_key(&tab_id)
                 || state
@@ -414,8 +430,14 @@ impl SystemRuntimeExecutor {
                 .get(window_id)
                 .map(|host| host.window.label().to_owned())
         });
-        if persist_final_placement && let Some(label) = label {
-            self.persist_game_window_placement(&label)?;
+        if persist_final_placement && label.is_some() {
+            if let Err(error) = self.touch_live_window_state(window_id) {
+                eprintln!(
+                    "Live Game Window drag placement snapshot could not be queued: window={window_id} error={error}"
+                );
+            } else {
+                self.schedule_live_window_state_persistence(window_id);
+            }
         }
         Ok(())
     }
@@ -440,6 +462,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let revision = self.presentation.next_revision();
         let ordered = {
             let mut state = coordinator
                 .lock()
@@ -454,6 +477,7 @@ impl SystemRuntimeExecutor {
                 .unwrap_or(ordered.len());
             ordered.insert(insertion, tab_id.to_owned());
             state.reorder_known_tabs(&ordered);
+            state.revision = revision;
             ordered
         };
         if project_native_order {
@@ -473,6 +497,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let revision = self.presentation.next_revision();
         let ordered = {
             let mut state = coordinator
                 .lock()
@@ -487,6 +512,7 @@ impl SystemRuntimeExecutor {
                 return Err("Frozen tab drag topology does not match the presentation window.".to_owned());
             }
             state.reorder_known_tabs(ordered_tab_ids);
+            state.revision = revision;
             ordered_tab_ids.to_vec()
         };
         if project_native_order {

@@ -208,7 +208,7 @@ impl SystemRuntimeExecutor {
             trigger,
             TAB_MUTATION_OPERATION_TIMEOUT,
         )
-        .with_completion_scope(SystemRuntimeOperationCompletionScope::TabTopologyConverged)
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_tab(tab_id)
         .with_window(&source_window_id)
         .with_window_generation(source_snapshot.generation)
@@ -427,15 +427,92 @@ impl SystemRuntimeExecutor {
         request: &RuntimeTabMutationRequestRecord,
         snapshot: &BrowserRuntimeSnapshot,
     ) -> RuntimeTabMutationProjectionOutcome {
-        let stale_projection_outcome = || {
-            if self
-                .tab_drag_intents
-                .operation_is_superseded(&request.operation_id, &request.tab_id)
-            {
-                RuntimeTabMutationProjectionOutcome::Superseded
+        let presentation_outcome = self.tab_mutation_presentation_outcome(request, snapshot);
+        if presentation_outcome != RuntimeTabMutationProjectionOutcome::Applied {
+            return presentation_outcome;
+        }
+        let window_id = request
+            .target_window_id
+            .as_deref()
+            .filter(|_| matches!(request.mutation_kind.as_str(), "move" | "moveToNewWindow"))
+            .unwrap_or(&request.source_window_id);
+
+        #[cfg(target_os = "macos")]
+        {
+            let controller = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.tabs_controller.clone())
+                });
+            if controller.map_or(request.expected_tab_order.is_empty(), |controller| {
+                controller
+                    .matches_projection(
+                        &request.expected_tab_order,
+                        request.expected_active_tab_id.as_deref(),
+                    )
+                    .unwrap_or(false)
+            }) {
+                RuntimeTabMutationProjectionOutcome::Applied
             } else {
-                RuntimeTabMutationProjectionOutcome::Degraded
+                self.stale_tab_mutation_projection_outcome(request)
             }
+        }
+        #[cfg(windows)]
+        {
+            let host_exists = self
+                .state
+                .lock()
+                .is_ok_and(|state| state.display_hosts.contains_key(window_id));
+            if !host_exists {
+                return if request.expected_tab_order.is_empty() {
+                    RuntimeTabMutationProjectionOutcome::Applied
+                } else {
+                    self.stale_tab_mutation_projection_outcome(request)
+                };
+            }
+            match self.tab_chrome_projections.wait_for_projection_status(
+                    window_id,
+                    &request.expected_tab_order,
+                    request.expected_active_tab_id.as_deref(),
+                    Duration::from_millis(4_500),
+                ) {
+                Some(NativeOperationStatus::Applied) => RuntimeTabMutationProjectionOutcome::Applied,
+                Some(NativeOperationStatus::Superseded) => {
+                    RuntimeTabMutationProjectionOutcome::Superseded
+                }
+                _ => self.stale_tab_mutation_projection_outcome(request),
+            }
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
+        RuntimeTabMutationProjectionOutcome::Applied
+    }
+
+    fn stale_tab_mutation_projection_outcome(
+        &self,
+        request: &RuntimeTabMutationRequestRecord,
+    ) -> RuntimeTabMutationProjectionOutcome {
+        if self
+            .tab_drag_intents
+            .operation_is_superseded(&request.operation_id, &request.tab_id)
+        {
+            RuntimeTabMutationProjectionOutcome::Superseded
+        } else {
+            RuntimeTabMutationProjectionOutcome::Degraded
+        }
+    }
+
+    pub(crate) fn tab_mutation_presentation_outcome(
+        &self,
+        request: &RuntimeTabMutationRequestRecord,
+        snapshot: &BrowserRuntimeSnapshot,
+    ) -> RuntimeTabMutationProjectionOutcome {
+        let stale_projection_outcome = || {
+            self.stale_tab_mutation_projection_outcome(request)
         };
         if stale_projection_outcome() == RuntimeTabMutationProjectionOutcome::Superseded {
             return RuntimeTabMutationProjectionOutcome::Superseded;
@@ -497,60 +574,26 @@ impl SystemRuntimeExecutor {
         } else if !request.expected_tab_order.is_empty() {
             return stale_projection_outcome();
         }
-
-        #[cfg(target_os = "macos")]
-        {
-            let controller = self
-                .state
-                .lock()
-                .ok()
-                .and_then(|state| {
-                    state
-                        .display_hosts
-                        .get(window_id)
-                        .map(|host| host.tabs_controller.clone())
-                });
-            if controller.map_or(request.expected_tab_order.is_empty(), |controller| {
-                controller
-                    .matches_projection(
-                        &request.expected_tab_order,
-                        request.expected_active_tab_id.as_deref(),
-                    )
-                    .unwrap_or(false)
-            }) {
-                RuntimeTabMutationProjectionOutcome::Applied
-            } else {
-                stale_projection_outcome()
-            }
-        }
-        #[cfg(windows)]
-        {
-            let host_exists = self
-                .state
-                .lock()
-                .is_ok_and(|state| state.display_hosts.contains_key(window_id));
-            if !host_exists {
-                return if request.expected_tab_order.is_empty() {
-                    RuntimeTabMutationProjectionOutcome::Applied
-                } else {
-                    stale_projection_outcome()
-                };
-            }
-            match self.tab_chrome_projections.wait_for_projection_status(
-                    window_id,
-                    &request.expected_tab_order,
-                    request.expected_active_tab_id.as_deref(),
-                    Duration::from_millis(4_500),
-                ) {
-                Some(NativeOperationStatus::Applied) => RuntimeTabMutationProjectionOutcome::Applied,
-                Some(NativeOperationStatus::Superseded) => {
-                    RuntimeTabMutationProjectionOutcome::Superseded
-                }
-                _ => stale_projection_outcome(),
-            }
-        }
-        #[cfg(not(any(windows, target_os = "macos")))]
         RuntimeTabMutationProjectionOutcome::Applied
+    }
+
+    pub(crate) fn schedule_tab_mutation_projection_diagnostic(
+        self: &Arc<Self>,
+        request: RuntimeTabMutationRequestRecord,
+        snapshot: BrowserRuntimeSnapshot,
+    ) {
+        let runtime = Arc::clone(self);
+        let operation_id = request.operation_id.clone();
+        let _ = thread::Builder::new()
+            .name(format!("rion-tab-projection-diagnostic-{operation_id}"))
+            .spawn(move || {
+                let outcome = runtime.tab_mutation_projection_outcome(&request, &snapshot);
+                if outcome != RuntimeTabMutationProjectionOutcome::Applied {
+                    eprintln!(
+                        "Runtime tab projection requires background reconciliation: operation={operation_id} outcome={outcome:?}"
+                    );
+                }
+            });
     }
 }
 
@@ -561,7 +604,7 @@ fn tab_mutation_fallback_receipt() -> SystemRuntimeOperationSummaryRecord {
             "tab-mutation-receipt-fallback",
             Duration::ZERO,
         )
-        .with_completion_scope(SystemRuntimeOperationCompletionScope::TabTopologyConverged),
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit),
         "tabMutationReceiptUnavailable",
         NativeOperationStatus::Indeterminate,
         Some("TAB_MUTATION_RESULT_UNKNOWN"),

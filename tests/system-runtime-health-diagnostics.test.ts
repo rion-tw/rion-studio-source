@@ -63,7 +63,7 @@ describe("System WebView runtime health diagnostics", () => {
     expect(operation).toContain("completionScope: SystemRuntimeOperationCompletionScope");
     expect(subsystem).toContain('"tabMutation"');
     expect(subsystem).toContain('"projection"');
-    expect(scope).toContain('"tabTopologyConverged"');
+    expect(scope).not.toContain('"tabTopologyConverged"');
     expect(scope).not.toContain('"focusObserved"');
     expect(capabilityEvidence).toContain("contractVersion: number");
     expect(generatedIndex).toContain(

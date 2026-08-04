@@ -205,10 +205,11 @@ impl AppCore {
                 "GAME_WINDOW_NOT_FOUND",
                 "Game window not found.",
             ),
-            CoreCommand::GameWindowCreate { input } => {
-                self.mutate_state(StateMutation::GameWindowCreate(input))
-            }
+            CoreCommand::GameWindowCreate { input } =>
+                self.mutate_state(StateMutation::GameWindowCreate(input)),
             CoreCommand::GameWindowSaveRuntime { input } => self.save_runtime_game_window(input),
+            CoreCommand::GameWindowRuntimeSnapshotCommit { input } =>
+                self.commit_runtime_window_snapshot(input),
             CoreCommand::GameWindowUpdate { id, input } => {
                 self.mutate_state(StateMutation::GameWindowUpdate { id, input })
             }

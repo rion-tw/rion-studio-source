@@ -194,7 +194,7 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         return true;
     };
     if let Some(tab_id) = id.strip_prefix(ACTIVATE_PREFIX) {
-        if let Err(message) = crate::preview_and_commit_native_tab_selection(app, &state, tab_id) {
+        if let Err(message) = crate::preview_and_schedule_native_tab_selection(app, &state, tab_id) {
             reveal_menu_error(app, message);
         }
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
@@ -427,7 +427,14 @@ pub async fn handle_scoped_action(
         .as_str()
         .ok_or_else(|| "runtime tab action type is required".to_owned())?;
     let allowed_keys = match action_type {
-        "activate" | "hide" | "stop" | "openTabMenu" => &["type", "tabId"][..],
+        "activate" | "hide" | "openTabMenu" => &["type", "tabId"][..],
+        "stop" => &[
+            "type",
+            "tabId",
+            "orderedTabIds",
+            "activeTabId",
+            "windowGeneration",
+        ][..],
         "move" => &["type", "tabId", "windowId"][..],
         "tabDragStart" => &[
             "type",
@@ -546,7 +553,7 @@ pub async fn handle_scoped_action(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "runtime tab ID is required".to_owned())?;
     if action_type == "activate" {
-        return crate::preview_and_commit_native_tab_selection(app, state, tab_id);
+        return crate::preview_and_schedule_native_tab_selection(app, state, tab_id);
     }
     if action_type == "stop" {
         return crate::execute_tab_stop(state, tab_id)

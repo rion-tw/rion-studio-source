@@ -22,7 +22,7 @@ fn launch_from_menu(
         .runtime
         .presented_tab_for_launcher_source(source_id, tab_type)
     {
-        if let Err(message) = crate::preview_and_commit_native_tab_selection(app, state, &tab_id) {
+        if let Err(message) = crate::preview_and_schedule_launcher_tab_selection(app, state, &tab_id) {
             reveal_menu_error(app, message);
             return;
         }

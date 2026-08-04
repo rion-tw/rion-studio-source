@@ -446,7 +446,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
     if action_type == "activate" {
         if let Some(tab_id) = tab_id.as_deref()
             && let Err(message) =
-                crate::preview_and_commit_native_tab_selection(&app, &state, tab_id)
+                crate::preview_and_schedule_native_tab_selection(&app, &state, tab_id)
         {
             crate::reveal_shell_error(
                 &app,

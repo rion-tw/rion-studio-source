@@ -12,6 +12,13 @@ const systemRuntimeSource = await readFile(
 describe("runtime tab shell-neutral contracts", () => {
   it("accepts only bounded runtime tab action shapes", () => {
     expect(isRuntimeTabAction({ type: "activate", tabId: "tab-1" })).toBe(true);
+    expect(isRuntimeTabAction({
+      type: "stop",
+      tabId: "tab-1",
+      orderedTabIds: ["tab-2"],
+      activeTabId: "tab-2",
+      windowGeneration: 4
+    })).toBe(true);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "window-22" })).toBe(true);
     expect(isRuntimeTabAction({
       type: "tabDragStart",
@@ -40,6 +47,11 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "windowControl", control: "close" })).toBe(true);
 
     expect(isRuntimeTabAction({ type: "activate", tabId: "" })).toBe(false);
+    expect(isRuntimeTabAction({
+      type: "stop",
+      tabId: "tab-1",
+      orderedTabIds: ["tab-2", "tab-2"]
+    })).toBe(false);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "" })).toBe(false);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: 22 })).toBe(false);
     expect(isRuntimeTabAction({ type: "tabDragStart", sessionId: "drag-1", tabId: "tab-1", screenX: 0, screenY: 0, grabRatioX: 1.2, grabRatioY: 0.5, tabWidth: 100, tabHeight: 30 })).toBe(false);

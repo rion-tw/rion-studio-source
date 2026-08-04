@@ -537,8 +537,15 @@ NS_ASSUME_NONNULL_BEGIN
       }
       [self layoutTitlebarContent];
     }
+    NSMutableArray<NSString *> *orderedTabIDs = [NSMutableArray array];
+    for (RionRuntimeTabItemView *item in _tabItems) {
+      if (item.tabIdentifier.length > 0) {
+        [orderedTabIDs addObject:item.tabIdentifier];
+      }
+    }
     _actionHandler(@{ @"type" : @"stop", @"tabId" : tabIdentifier,
-                      @"sourceWindowId" : _windowID });
+                      @"sourceWindowId" : _windowID,
+                      @"orderedTabIds" : orderedTabIDs });
   }
 }
 

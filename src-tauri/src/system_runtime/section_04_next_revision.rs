@@ -54,7 +54,7 @@ impl PresentationRegistry {
             .unwrap_or_default()
     }
 
-    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<WindowPresentationState>>, String> {
+    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<LiveWindowTabState>>, String> {
         let mut windows = self
             .windows
             .lock()
@@ -62,11 +62,26 @@ impl PresentationRegistry {
         Ok(Arc::clone(
             windows
                 .entry(window_id.to_owned())
-                .or_insert_with(|| Arc::new(Mutex::new(WindowPresentationState::default()))),
+                .or_insert_with(|| {
+                    Arc::new(Mutex::new(LiveWindowTabState {
+                        window_id: window_id.to_owned(),
+                        ..LiveWindowTabState::default()
+                    }))
+                }),
         ))
     }
 
-    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<WindowPresentationState>>> {
+    fn set_window_generation(&self, window_id: &str, generation: u64) -> Result<(), String> {
+        let coordinator = self.coordinator(window_id)?;
+        let mut state = coordinator
+            .lock()
+            .map_err(|_| "The live runtime tab state is unavailable.".to_owned())?;
+        state.window_id = window_id.to_owned();
+        state.window_generation = generation;
+        Ok(())
+    }
+
+    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<LiveWindowTabState>>> {
         self.windows
             .lock()
             .ok()
@@ -144,7 +159,7 @@ impl PresentationRegistry {
         Ok(owner)
     }
 
-    fn snapshot_states(&self) -> Result<HashMap<String, WindowPresentationState>, String> {
+    fn snapshot_states(&self) -> Result<HashMap<String, LiveWindowTabState>, String> {
         let windows = self
             .windows
             .lock()
@@ -163,7 +178,6 @@ impl PresentationRegistry {
             .collect()
     }
 
-    #[cfg(test)]
     fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
         self.windows.lock().ok().and_then(|windows| {
             windows.values().find_map(|window| {
@@ -274,6 +288,8 @@ impl PresentationRegistry {
                 .retain(|alias, target| alias != tab_id && target != tab_id);
             if was_selected {
                 source.select(successor, revision);
+            } else {
+                source.revision = revision;
             }
             (tab, bindings, was_selected, source_before)
         };
@@ -321,6 +337,7 @@ impl PresentationRegistry {
         if !target.contains_tab(tab_id) {
             target.tabs.push(tab);
         }
+        target.revision = revision;
         if !bindings.is_empty() {
             target.surface_bindings.insert(tab_id.to_owned(), bindings);
         }
@@ -399,7 +416,7 @@ struct RuntimeState {
     last_completed_document_ids: HashMap<String, String>,
     last_input_ready_epochs: HashMap<String, u64>,
     pending_macro_page_request: Option<Value>,
-    close_previews: HashMap<String, CloseTransaction>,
+    close_previews: HashMap<String, TabCloseTombstone>,
     completed_failed_launch_cleanups: HashSet<(String, String)>,
     failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
     optimistic_closed_tabs: HashSet<String>,
@@ -432,7 +449,11 @@ struct RuntimeState {
 }
 
 #[derive(Clone)]
-struct CloseTransaction;
+struct TabCloseTombstone {
+    revision: u64,
+    slot_owners: Vec<(String, String, Option<u64>)>,
+    window_id: String,
+}
 
 pub(crate) struct RuntimeTabCloseIntent {
     pub(crate) source_id: String,
@@ -679,9 +700,11 @@ pub struct SystemRuntimeExecutor {
     restore_persist_running: AtomicBool,
     runtime_projection: RevisionedJsonProjection,
     shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
+    self_weak: OnceLock<std::sync::Weak<SystemRuntimeExecutor>>,
     shutdown_operation: OnceLock<NativeOperationContext>,
     shutdown_state: Arc<AtomicU8>,
     state: Mutex<RuntimeState>,
+    window_state_persistence: WindowStatePersistCoordinator,
     user_data_dir: PathBuf,
 }
 

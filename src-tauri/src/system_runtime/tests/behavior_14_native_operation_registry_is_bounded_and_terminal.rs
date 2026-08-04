@@ -54,12 +54,12 @@ fn first_terminal_receipt_wins_over_late_callbacks() {
 }
 
 #[test]
-fn v7_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
+fn v8_operation_metadata_and_cancelled_receipts_are_frozen_at_acceptance() {
     for platform in ["macos", "windows"] {
         let registry = NativeOperationRegistry::default();
         let operation = NativeOperationContext::new_for_platform(
             NativeOperationSubsystem::WindowLifecycle,
-            "v6-metadata-test",
+            "v8-metadata-test",
             Duration::from_secs(1),
             platform,
         )
@@ -337,6 +337,26 @@ fn a_late_native_callback_cannot_turn_an_in_flight_timeout_into_success() {
         registry.wait(&operation_id).unwrap().failure_code.as_deref(),
         Some("NATIVE_OPERATION_INDETERMINATE")
     );
+}
+
+#[test]
+fn background_tab_presentation_timeout_is_superseded_without_user_error() {
+    let registry = NativeOperationRegistry::default();
+    let operation = NativeOperationContext::new_for_platform(
+        NativeOperationSubsystem::Presentation,
+        "launcher-external",
+        Duration::ZERO,
+        "macos",
+    )
+    .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement);
+    let operation_id = operation.operation_id.clone();
+    registry.register(operation).unwrap();
+    assert!(registry.mark_in_flight(&operation_id));
+
+    let receipt = registry.wait(&operation_id).unwrap();
+    assert_eq!(receipt.status, NativeOperationStatus::Superseded);
+    assert_eq!(receipt.stage, "backgroundTabPresentationSuperseded");
+    assert_eq!(receipt.failure_code, None);
 }
 
 #[test]

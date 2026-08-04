@@ -244,6 +244,44 @@ pub struct GameWindowSaveRuntimeInputRecord {
     pub active_tab_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeWindowTabSnapshotRecord {
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub tabs: Vec<GameWindowTabRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowRuntimeSnapshotCommitInputRecord {
+    pub snapshot: RuntimeWindowTabSnapshotRecord,
+    pub name: String,
+    pub target_display: DisplayTargetRecord,
+    pub placement: GameWindowPlacementRecord,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeWindowPersistenceReceiptRecord {
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[ts(type = "\"applied\" | \"superseded\"")]
+    pub status: String,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

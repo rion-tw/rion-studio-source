@@ -757,11 +757,11 @@ impl AppCore {
     }
 
     fn stop_embedded_workspace(&self, workspace_id: &str) -> CoreResult<()> {
-        self.stop_embedded_workspace_with_operation_lease(workspace_id, true, None)
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, true, true, None)
     }
 
     fn stop_embedded_workspace_under_active_lease(&self, workspace_id: &str) -> CoreResult<()> {
-        self.stop_embedded_workspace_with_operation_lease(workspace_id, false, None)
+        self.stop_embedded_workspace_with_operation_lease(workspace_id, false, true, None)
     }
 
 }

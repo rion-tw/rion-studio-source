@@ -305,7 +305,17 @@ export const dispatch = (action: RuntimeTabAction): void => {
     dispatchNextDragAction();
     return;
   }
-  void invoke<SystemRuntimeOperationSummaryRecord | null>("rion_runtime_tab_action", { action })
+  const committedAction: RuntimeTabAction = action.type === "stop" ? {
+    ...action,
+    orderedTabIds: tabElements().map((tab) => tab.dataset.tabId).filter(Boolean) as string[],
+    ...(runtimeState.activeTabId ? { activeTabId: runtimeState.activeTabId } : {}),
+    ...(window.__rionRuntimeTabChromeIdentity?.windowGeneration
+      ? { windowGeneration: window.__rionRuntimeTabChromeIdentity.windowGeneration }
+      : {})
+  } : action;
+  void invoke<SystemRuntimeOperationSummaryRecord | null>("rion_runtime_tab_action", {
+    action: committedAction
+  })
     .then(async (receipt) => {
       const handlesReceipt = action.type === "activate"
         || action.type === "activateAdjacent"

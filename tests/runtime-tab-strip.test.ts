@@ -60,6 +60,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   invoke.mockReset();
   invoke.mockResolvedValue(undefined);
+  window.__rionRuntimeTabChromeIdentity = undefined;
   installScrollGeometry(1_000, 140);
   window.__rionApplyRuntimeTabState?.(state);
   await nextAnimationFrame();
@@ -270,7 +271,7 @@ it("renders workspace detail, audio state, and a stop control", () => {
 
     expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
-      action: { type: "stop", tabId: "tab-1" }
+      action: { type: "stop", tabId: "tab-1", orderedTabIds: [] }
     });
   });
 
@@ -561,7 +562,12 @@ it("gives provisional and metadata-created tab controls the same keyboard behavi
       action: { type: "openTabMenu", tabId: "provisional-1" }
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
-      action: { type: "stop", tabId: "provisional-1" }
+      action: {
+        type: "stop",
+        tabId: "provisional-1",
+        orderedTabIds: ["tab-1"],
+        activeTabId: "tab-1"
+      }
     });
 
     invoke.mockClear();
@@ -623,7 +629,7 @@ it("removes close controls while preserving context-menu and middle-click stop a
       action: { type: "openTabMenu", tabId: "tab-1" }
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
-      action: { type: "stop", tabId: "tab-1" }
+      action: { type: "stop", tabId: "tab-1", orderedTabIds: [] }
     });
   });
 

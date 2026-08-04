@@ -87,9 +87,29 @@ impl SystemRuntimeExecutor {
             };
             let mut state = self.state().map_err(|error| error.message)?;
             state.optimistic_closed_tabs.insert(tab_id.to_owned());
+            let slot_owners = state
+                .tabs
+                .get(tab_id)
+                .map(|tab| {
+                    tab.slots
+                        .values()
+                        .map(|slot| {
+                            (
+                                slot.slot_id.clone(),
+                                slot.role.id.clone(),
+                                slot.owner_generation,
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             state.close_previews.insert(
                 tab_id.to_owned(),
-                CloseTransaction,
+                TabCloseTombstone {
+                    revision,
+                    slot_owners,
+                    window_id: window_id.clone(),
+                },
             );
             (
                 window,
@@ -110,7 +130,7 @@ impl SystemRuntimeExecutor {
         self.apply_native_active_style(&window_id, next_tab_id.as_deref(), revision, "close");
         self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
         self.dispatch_native_presentation(
-            window_id,
+            window_id.clone(),
             next_tab_id.clone(),
             revision,
             "close",
@@ -125,6 +145,7 @@ impl SystemRuntimeExecutor {
             None,
         );
         self.request_preview_surface_isolation(isolation_surfaces);
+        self.schedule_live_window_state_persistence(&window_id);
         Ok(RuntimeTabCloseIntent {
             source_id,
             tab_type,
@@ -170,16 +191,27 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str, succeeded: bool) {
-        if let Ok(mut state) = self.state.lock() {
-            state.close_previews.remove(tab_id);
+        let tombstone = if let Ok(mut state) = self.state.lock() {
+            let tombstone = state.close_previews.remove(tab_id);
             if succeeded || !state.tabs.contains_key(tab_id) {
                 state.optimistic_closed_tabs.remove(tab_id);
             } else {
-                let role_ids = state
-                    .tabs
-                    .get(tab_id)
-                    .map(|tab| tab.roles.keys().cloned().collect::<Vec<_>>())
-                    .unwrap_or_default();
+                let role_ids = tombstone
+                    .as_ref()
+                    .map(|tombstone| {
+                        tombstone
+                            .slot_owners
+                            .iter()
+                            .map(|(_, role_id, _)| role_id.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|| {
+                        state
+                            .tabs
+                            .get(tab_id)
+                            .map(|tab| tab.roles.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default()
+                    });
                 state.close_coordinator.quarantined_roles.extend(role_ids);
                 for surface in state
                     .surface_registry
@@ -189,6 +221,34 @@ impl SystemRuntimeExecutor {
                     surface.phase = ManagedSurfacePhase::Quarantined;
                 }
             }
+            tombstone
+        } else {
+            None
+        };
+        if let Some(tombstone) = tombstone {
+            let owner_generations = tombstone
+                .slot_owners
+                .iter()
+                .filter(|(_, _, generation)| generation.is_some())
+                .count();
+            self.record_presentation_event(
+                if succeeded { LogLevel::Debug } else { LogLevel::Warn },
+                "tab.close-tombstone-resolved",
+                if succeeded {
+                    "The live tab tombstone completed after role isolation."
+                } else {
+                    "The live tab tombstone retained fenced role ownership after isolation could not be confirmed."
+                },
+                &tombstone.window_id,
+                Some(tab_id),
+                tombstone.revision,
+                if owner_generations == 0 {
+                    "no-owned-slots"
+                } else {
+                    "generation-fenced-slots"
+                },
+                0,
+            );
         }
         self.publish_projection();
     }

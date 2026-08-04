@@ -188,32 +188,32 @@ it("keeps tab interaction responsive while native launch verification is pending
       )
       ]);
 
-    expect(runtime).toContain("fn preview_tab_activation(");
+    expect(runtime).toContain("fn preview_tab_activation_background(");
     expect(runtime).toContain("fn preview_adjacent_tab_activation(");
     expect(runtime).toContain("fn preview_tab_close(");
     expect(runtime).toContain("optimistic_closed_tabs");
-    expect(runtime).toContain("struct WindowPresentationState {");
+    expect(runtime).toContain("struct LiveWindowTabState {");
     expect(runtime).toContain("selected_tab_id: Option<String>");
     expect(runtime).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
     expect(runtime).not.toContain("runtime_tab.visible");
     const activationInfrastructure = runtime.slice(
-      runtime.indexOf("pub(crate) fn preview_tab_activation("),
+      runtime.indexOf("pub(crate) fn preview_tab_activation_background("),
       runtime.indexOf("pub(crate) fn preview_tab_close(")
     );
     expect(activationInfrastructure).toContain("request_tab_presentation");
     expect(activationInfrastructure).toContain("request_provisional_tab_presentation");
     expect(activationInfrastructure).toContain("selected_tab_id");
-    expect(activationInfrastructure).toContain("dispatch_native_presentation");
+    expect(activationInfrastructure).not.toContain("wait_native_operation_summary");
     expect(activationInfrastructure).not.toContain("BrowserRuntimeSnapshot");
     expect(activationInfrastructure).not.toContain("presentation_lane");
     const pointerActivation = runtime.slice(
-      runtime.indexOf("pub(crate) fn preview_tab_activation("),
-      runtime.indexOf("pub(crate) fn preview_launcher_tab_activation(")
+      runtime.indexOf("pub(crate) fn preview_tab_activation_background("),
+      runtime.indexOf("pub(crate) fn preview_adjacent_tab_activation_background(")
     );
     expect(pointerActivation).toContain("NativePresentationFocus::ContentOnly");
     expect(pointerActivation).not.toContain("NativePresentationFocus::WindowAndContent");
     const launcherActivation = runtime.slice(
-      runtime.indexOf("pub(crate) fn preview_launcher_tab_activation("),
+      runtime.indexOf("pub(crate) fn preview_launcher_tab_activation_background("),
       runtime.indexOf("fn reconcile_presentation_tab_owner(")
     );
     expect(launcherActivation).toContain("NativePresentationFocus::WindowAndContent");
@@ -249,7 +249,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(closePreflight).not.toContain("Duration::from_secs(1)");
     expect(runtime).toContain('"preflightMode": preflight_mode');
     expect(runtime).toContain('"waitedTabId": waited_tab_id');
-    expect(runtime).toContain("struct WindowPresentationState {");
+    expect(runtime).toContain("struct LiveWindowTabState {");
     expect(runtime).toContain("struct NativePresentationQueue<T>");
     expect(runtime).toContain("NATIVE_WINDOW_PRESENTATION_QUEUE_CAPACITY");
     expect(runtime).toContain("enqueue_ordered(request)");
@@ -497,7 +497,6 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       readFile(new URL("../src-tauri/src/quick_menu.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8")
     ]);
-
     const launchPreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_launch("),
       runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
@@ -551,8 +550,13 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     expect(stopTransaction).toContain("RuntimeTabMutationTerminalStatus::Indeterminate");
     expect(stopTransaction).toContain("tab_surface_release_confirmed(tab_id)");
     expect(stopTransaction).toContain("tab_stop_terminal_outcome(");
-    expect(shell).toContain("preview_tab_activation(tab_id, native_style_applied)?");
-    expect(shell).toContain("preview_and_commit_native_tab_selection");
+    expect(shell).toContain("complete_background_presentation_summary(&operation_id)");
+    expect(shell).toContain("preview_and_schedule_native_tab_selection");
+    const scheduledNativeSelection = shell.slice(
+      shell.indexOf("pub(crate) fn preview_and_schedule_native_tab_selection("),
+      shell.indexOf("fn monitor_background_tab_presentation(")
+    );
+    expect(scheduledNativeSelection).not.toContain("wait_native_operation_summary");
     expect(menu).toContain("crate::execute_tab_stop(state, tab_id)");
     const scopedTabAction = menu.slice(
       menu.indexOf("pub async fn handle_scoped_action("),
@@ -569,7 +573,8 @@ it("keeps failed destructive close quarantined instead of rolling presentation b
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
     );
-    expect(runtime).toContain("struct CloseTransaction;");
+    expect(runtime).toContain("struct TabCloseTombstone {");
+    expect(runtime).toContain("slot_owners: Vec<(String, String, Option<u64>)>");
     expect(runtime).not.toContain("cancel_tab_close_preview");
     expect(runtime).toContain("pub(crate) fn resolve_tab_close_preview(");
     expect(runtime).toContain("surface.phase = ManagedSurfacePhase::Quarantined");
@@ -582,7 +587,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     );
     expect(runtime).toContain("struct ManagedSurface {");
     expect(runtime).toContain("struct CloseCoordinator {");
-    expect(runtime).toContain("struct CloseTransaction;");
+    expect(runtime).toContain("struct TabCloseTombstone {");
     expect(runtime).toContain("surface_registry: HashMap<String, ManagedSurface>");
     expect(runtime).toContain("fn wait_for_managed_surface_isolation(");
     expect(runtime).toContain("state.close_coordinator.closing_roles.contains(role_id)");

@@ -11,6 +11,7 @@ impl AppCore {
             focus_tab_id,
             focus_active_window_id,
             parent_operation_id,
+            persist_runtime_topology,
         } = transition;
         let (previous, mut next_runtime, mut next) = {
             let runtime = self
@@ -70,11 +71,13 @@ impl AppCore {
             })
             .map(|window| window.window_id.clone())
             .collect::<std::collections::HashSet<_>>();
-        if let Err(error) = self.sync_game_windows_from_runtime_transition(
-            &previous_snapshot,
-            &next,
-            &removed_window_ids,
-        ) {
+        if persist_runtime_topology
+            && let Err(error) = self.sync_game_windows_from_runtime_transition(
+                &previous_snapshot,
+                &next,
+                &removed_window_ids,
+            )
+        {
             let _ = self.run_embedded_runtime_effect(
                 "embedded-runtime-persistence-rollback",
                 compensation,
@@ -188,6 +191,44 @@ impl AppCore {
         self.publish_embedded_runtime_snapshot_with_removed(&std::collections::HashSet::new())
     }
 
+    fn project_embedded_runtime_snapshot_without_persistence(
+        &self,
+        parent_operation_id: Option<&str>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let step = effect_step(
+            "embedded-runtime-projection",
+            CoreEffectAction::EmbeddedApplyRuntime {
+                snapshot: snapshot.clone(),
+                target: None,
+                reveal_window_ids: Vec::new(),
+                focus_window_ids: Vec::new(),
+                focus_tab_id: None,
+            },
+            Duration::from_secs(15),
+            None,
+        );
+        if let Some(parent_operation_id) = parent_operation_id {
+            self.run_effect_plan_with_parent(vec![step], parent_operation_id)?;
+        } else {
+            self.run_effect_plan(vec![step])?;
+        }
+        self.emit_browser_statuses();
+        Ok(snapshot)
+    }
+
+    fn browser_runtime_snapshot_without_persistence(
+        &self,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        let snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        self.emit_browser_statuses();
+        Ok(snapshot)
+    }
+
     fn commit_embedded_runtime_snapshot_without_native_effect(
         &self,
         removed_window_ids: &std::collections::HashSet<String>,
@@ -243,7 +284,6 @@ impl AppCore {
         // browser runtime with a clone that predates this selection.
         let _sequence = self.embedded_runtime_sequence.acquire()?;
         let snapshot = self.invoke_browser_runtime(command)?.snapshot;
-        self.sync_game_windows_from_runtime(&snapshot, &std::collections::HashSet::new())?;
         Ok(snapshot)
     }
 

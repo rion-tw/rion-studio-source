@@ -639,7 +639,7 @@ impl SystemRuntimeOperationSubsystem {
             Self::TabActivation => {
                 SystemRuntimeOperationCompletionScope::TabActivationConverged
             }
-            Self::TabMutation => SystemRuntimeOperationCompletionScope::TabTopologyConverged,
+            Self::TabMutation => SystemRuntimeOperationCompletionScope::StateCommit,
             Self::Projection => SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
             Self::Drag => SystemRuntimeOperationCompletionScope::DragCommitted,
             Self::Recovery => SystemRuntimeOperationCompletionScope::InputReady,
@@ -697,7 +697,6 @@ pub enum SystemRuntimeOperationCompletionScope {
     DragCommitted,
     LifecycleTransition,
     TabActivationConverged,
-    TabTopologyConverged,
 }
 
 impl SystemRuntimeOperationCompletionScope {
@@ -715,7 +714,6 @@ impl SystemRuntimeOperationCompletionScope {
             Self::DragCommitted => "dragCommitted",
             Self::LifecycleTransition => "lifecycleTransition",
             Self::TabActivationConverged => "tabActivationConverged",
-            Self::TabTopologyConverged => "tabTopologyConverged",
         }
     }
 }

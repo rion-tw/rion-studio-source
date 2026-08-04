@@ -1,5 +1,5 @@
 #[test]
-fn destructive_tab_stop_requires_chrome_and_native_release_for_applied() {
+fn destructive_tab_stop_completes_after_isolation_while_chrome_and_release_reconcile() {
     for platform in ["macos", "windows"] {
         assert_eq!(
             tab_stop_terminal_outcome(true, true),
@@ -13,17 +13,26 @@ fn destructive_tab_stop_requires_chrome_and_native_release_for_applied() {
         assert_eq!(
             tab_stop_terminal_outcome(false, true),
             (
-                "tabStopChromeUnconfirmed",
-                RuntimeTabMutationTerminalStatus::Degraded,
-                Some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
+                "tabStopChromeReconcilePending",
+                RuntimeTabMutationTerminalStatus::Applied,
+                None,
             ),
             "{platform}"
         );
         assert_eq!(
             tab_stop_terminal_outcome(true, false),
             (
-                "tabStopReleasePending",
-                RuntimeTabMutationTerminalStatus::Degraded,
+                "tabStopIsolatedReleasePending",
+                RuntimeTabMutationTerminalStatus::Applied,
+                None,
+            ),
+            "{platform}"
+        );
+        assert_eq!(
+            tab_stop_terminal_outcome(false, false),
+            (
+                "tabStopIsolatedReleaseAndChromeReconcilePending",
+                RuntimeTabMutationTerminalStatus::Applied,
                 None,
             ),
             "{platform}"

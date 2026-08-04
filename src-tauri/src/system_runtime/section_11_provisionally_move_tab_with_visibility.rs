@@ -654,7 +654,7 @@ impl SystemRuntimeExecutor {
             .tabs
             .into_iter()
             .find(|tab| tab.id == tab_id)
-            .and_then(|tab| tab.role_ids.first().cloned())
+            .and_then(|tab| tab.slots.first().map(|slot| slot.role_id.clone()))
             .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
         let (previous_muted, window_id, surface_generation) = {
             let state = self.state().map_err(|error| error.message)?;

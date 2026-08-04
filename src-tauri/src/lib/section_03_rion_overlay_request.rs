@@ -69,6 +69,26 @@ async fn rion_runtime_audio_state(
 }
 
 #[tauri::command]
+async fn rion_runtime_role_slot_action(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    action: system_runtime::RuntimeRolePlaceholderIdentity,
+) -> Result<Value, CoreErrorPayload> {
+    state
+        .runtime
+        .authorize_role_placeholder_action(webview.label(), &action)
+        .map_err(|error| shell_error(error.code, error.message))?;
+    Arc::clone(&state.core)
+        .invoke_async(CoreCommand::BrowserRoleSlotClaim {
+            tab_id: action.tab_id,
+            slot_id: action.slot_id,
+            expected_owner_generation: action.owner_generation,
+        })
+        .await
+        .map_err(error_payload)
+}
+
+#[tauri::command]
 async fn rion_divider_pointer(
     app: AppHandle,
     webview: Webview,

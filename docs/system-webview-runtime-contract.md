@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 6 defines the shared semantics for WKWebView on macOS and
+Contract version 7 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -116,6 +116,42 @@ share `NativeWindowStateRecord`. Focus itself is global: the latest intent lease
 across the main window and runtime windows wins, a matching native focus
 observation confirms it, and a different observation supersedes older leases.
 Every lease is scoped to the exact window generation and lifecycle epoch.
+
+### Role slot and native-surface ownership
+
+A runtime tab owns a stable list of role slots. Every slot keeps its slot ID,
+role ID, normalized rectangle, and zoom policy for the lifetime of the tab,
+whether it currently contains a role surface or a local placeholder. Layout is
+always computed from the full slot list, so stopping or moving one role never
+reflows the remaining slots.
+
+At most one native role WebView may exist for a role. Core stores that global
+surface owner as `{ windowId, tabId, slotId, generation }`; all other slots for
+the role project `blocked`. A stopped role has no owner and all of its slots
+project `available`. Workspace state is derived from these slot projections and
+is never a second mutable ownership authority.
+
+Blocked and available slots use a bundled local placeholder WebView. It is not
+registered as a managed role surface and cannot receive macro input, role audio,
+role navigation, or role zoom. Its command is accepted only from the exact
+registered placeholder label and frozen tab, slot, role, and owner generation.
+The placeholder names the current owner tab when one exists and disables its
+button while a claim is in flight.
+
+A role claim is serialized by the role operation lease and generation-fenced.
+Core first marks the source `stopping`; native code then closes and verifies the
+exact source surface before Core moves ownership to the target as `launching`.
+Only then may native code create the target surface. Input readiness commits
+`running` and replaces every other occurrence with a placeholder carrying the
+new owner generation. Native state locks cover only snapshot preparation and
+commit and are never held across WebView creation, close, navigation, or layout
+calls.
+
+If source isolation cannot be proven, no target WebView is created and the old
+owner remains fenced. If isolation succeeds but target creation or readiness
+fails, Core releases the owner and every occurrence remains an available,
+retryable placeholder. Closing a tab isolates only roles whose owner points to
+that tab; blocked placeholders do not stop a role owned elsewhere.
 
 Geometry, presentation, and native window controls share one mutation lane per
 window. A geometry transaction snapshots native bounds and mode before mutation,

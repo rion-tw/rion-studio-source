@@ -17,9 +17,13 @@ const workspaceHelpKeys = [
   "workspaces.help.runtimeTitle",
   "workspaces.help.runtimeZoom",
   "workspaces.help.runtimeResource",
-  "workspaces.launchConflict.title",
-  "workspaces.launchConflict.description",
-  "workspaces.launchConflict.confirm",
+  "runtimeRolePlaceholder.blocked",
+  "runtimeRolePlaceholder.unknownTab",
+  "runtimeRolePlaceholder.available",
+  "runtimeRolePlaceholder.claim",
+  "runtimeRolePlaceholder.open",
+  "runtimeRolePlaceholder.busy",
+  "runtimeRolePlaceholder.failed",
   "gameWindows.title"
 ] as const;
 

@@ -308,7 +308,7 @@ impl SystemRuntimeExecutor {
             .tabs
             .iter()
             .find(|tab| tab.source_id == source_id)
-            .and_then(|tab| tab.role_ids.first())
+            .and_then(|tab| tab.slots.first().map(|slot| &slot.role_id))
             .ok_or_else(|| "The restored runtime tab has no role surface.".to_owned())?;
         self.set_role_audio_muted(role_id, muted)
             .map_err(|error| error.message)

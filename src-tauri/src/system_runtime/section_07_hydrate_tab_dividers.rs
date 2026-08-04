@@ -8,7 +8,7 @@ impl SystemRuntimeExecutor {
                     "The runtime tab closed before optional dividers were attached.",
                 )
             })?;
-            if !tab.dividers.is_empty() || tab.roles.len() < 2 {
+            if !tab.dividers.is_empty() || tab.slots.len() < 2 {
                 return Ok(());
             }
             if state.close_coordinator.closing_tabs.contains(tab_id) {
@@ -24,17 +24,9 @@ impl SystemRuntimeExecutor {
                 tab.window_id.clone(),
                 host.window.clone(),
                 tab.workspace_appearance.gap,
-                tab.roles
-                    .iter()
-                    .map(|(role_id, surface)| LayoutRoleInput {
-                        role_id: role_id.clone(),
-                        rect: LayoutRect {
-                            x: surface.rect.x,
-                            y: surface.rect.y,
-                            width: surface.rect.width,
-                            height: surface.rect.height,
-                        },
-                    })
+                tab.slots
+                    .values()
+                    .map(runtime_role_slot_input)
                     .collect::<Vec<_>>(),
             )
         };

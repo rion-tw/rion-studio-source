@@ -216,26 +216,7 @@ export function useWorkspaceWorkflow({
     setNotice?.(null);
 
     try {
-      let result = await window.rionStudio.launchWorkspace(workspace.id);
-      if (result.kind === "conflict") {
-        const conflictSummary = result.conflicts
-          .map((conflict) => `${conflict.windowName}: ${conflict.roleNames.join(", ")}`)
-          .join("; ");
-        const accepted = await confirm({
-          title: t("workspaces.launchConflict.title"),
-          description: t("workspaces.launchConflict.description")
-            .replace("{conflicts}", conflictSummary),
-          cancelLabel: t("confirm.cancel"),
-          confirmLabel: t("workspaces.launchConflict.confirm"),
-          tone: "destructive"
-        });
-        if (!accepted) return;
-        result = await window.rionStudio.launchWorkspace(workspace.id, {
-          windowId: result.windowId,
-          stopConflicts: true
-        });
-      }
-      if (result.kind !== "launched") return;
+      const result = await window.rionStudio.launchWorkspace(workspace.id);
       const nextStatuses = result.statuses;
 
       setStatuses((current) => mergeStatuses(current, nextStatuses));

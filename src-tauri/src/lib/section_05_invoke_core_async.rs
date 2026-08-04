@@ -302,7 +302,7 @@ async fn restore_saved_game_windows(
             window_failed = true;
         }
         let mut active_runtime_tab_id = None;
-        for tab in &saved.tabs {
+        for tab in restore_tabs_in_owner_priority(&saved) {
             let before = browser_runtime_snapshot(state)?;
             let ready_before = match_runtime_restore_tab(&before, &saved.id, tab);
             let launch_succeeded = match ready_before {
@@ -327,7 +327,8 @@ async fn restore_saved_game_windows(
                             json!({
                                 "type": "browserWorkspaceLaunch",
                                 "workspaceId": tab.source_id,
-                                "target": target
+                                "target": target,
+                                "restoreRoleSlots": tab.role_slots
                             }),
                         )
                         .await
@@ -397,7 +398,7 @@ async fn restore_saved_game_windows(
             }
             if let Err(error) = state
                 .runtime
-                .restore_tab_role_views(&restored_tab_id, &tab.role_views)
+                .restore_tab_role_slots(&restored_tab_id, &tab.role_slots)
             {
                 failures.push(json!({
                     "windowId": saved.id,
@@ -537,18 +538,10 @@ fn match_runtime_restore_tab(
     window_id: &str,
     saved: &GameWindowTabRecord,
 ) -> RuntimeRestoreTabMatch {
-    let saved_role_ids = saved.role_ids.iter().collect::<HashSet<_>>();
     let Some(tab) = snapshot
         .tabs
         .iter()
         .find(|tab| tab.source_id == saved.source_id && tab.tab_type == saved.tab_type)
-        .or_else(|| {
-            snapshot.tabs.iter().find(|tab| {
-                tab.role_ids
-                    .iter()
-                    .any(|role_id| saved_role_ids.contains(role_id))
-            })
-        })
     else {
         return RuntimeRestoreTabMatch::Missing;
     };

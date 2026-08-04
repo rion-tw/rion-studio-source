@@ -123,12 +123,21 @@ impl AppCore {
                         tab_type: tab.tab_type.clone(),
                         source_id: tab.source_id.clone(),
                         name: tab.name.clone(),
-                        role_ids: tab.role_ids.clone(),
+                        role_slots: previous
+                            .map(|tab| tab.role_slots.clone())
+                            .unwrap_or_else(|| {
+                                tab.slots
+                                    .iter()
+                                    .map(|slot| GameWindowRoleSlotRecord {
+                                        slot_id: slot.slot_id.clone(),
+                                        role_id: slot.role_id.clone(),
+                                        rect: slot.rect.clone(),
+                                        browser_zoom_percent: slot.browser_zoom_percent,
+                                    })
+                                    .collect()
+                            }),
                         hidden: tab.hidden,
                         audio_muted: previous.is_some_and(|tab| tab.audio_muted),
-                        role_views: previous
-                            .map(|tab| tab.role_views.clone())
-                            .unwrap_or_default(),
                     }
                 })
                 .filter(runtime_game_window_tab_is_valid)
@@ -229,10 +238,9 @@ fn merge_pending_saved_tabs(
                 tab_type: saved.tab_type.clone(),
                 source_id: saved.source_id.clone(),
                 name: runtime.name.clone(),
-                role_ids: runtime.role_ids.clone(),
+                role_slots: saved.role_slots.clone(),
                 hidden: runtime.hidden,
                 audio_muted: runtime.audio_muted,
-                role_views: saved.role_views.clone(),
             }
         })
         .collect()

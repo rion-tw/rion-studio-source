@@ -692,7 +692,10 @@
                     "name": "Role A",
                     "windowId": "window-11",
                     "tabType": "role",
-                    "roleIds": ["role-a"],
+                    "slots": [{
+                        "slotId":"slot-a","roleId":"role-a","state":"available",
+                        "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }],
                     "hidden": false
                 },
                 {
@@ -701,7 +704,10 @@
                     "name": "Role B",
                     "windowId": "window-11",
                     "tabType": "role",
-                    "roleIds": ["role-b"],
+                    "slots": [{
+                        "slotId":"slot-b","roleId":"role-b","state":"available",
+                        "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }],
                     "hidden": false
                 }
             ],

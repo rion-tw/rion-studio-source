@@ -175,12 +175,38 @@ impl AppCore {
                 workspace_id,
                 target,
                 launch_preview_id,
+                restore_role_slots,
             } => {
                 let statuses = self
-                    .accept_browser_workspace_launch(workspace_id, target, launch_preview_id)
+                    .accept_browser_workspace_launch(
+                        workspace_id,
+                        target,
+                        launch_preview_id,
+                        restore_role_slots,
+                    )
                     .await?;
                 serde_json::to_value(statuses)
                     .map_err(|error| CoreError::Internal(error.to_string()))
+            }
+            CoreCommand::BrowserRoleSlotClaim {
+                tab_id,
+                slot_id,
+                expected_owner_generation,
+            } => {
+                let core = Arc::clone(self);
+                tokio::task::spawn_blocking(move || {
+                    core.claim_embedded_role_slot(
+                        &tab_id,
+                        &slot_id,
+                        expected_owner_generation,
+                    )
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))?
+                .and_then(|snapshot| {
+                    serde_json::to_value(snapshot)
+                        .map_err(|error| CoreError::Internal(error.to_string()))
+                })
             }
             CoreCommand::BrowserRoleStop { role_id } => {
                 let core = Arc::clone(self);
@@ -575,25 +601,33 @@ impl AppCore {
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
         launch_preview_id: Option<String>,
+        restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
-            let expected_role_ids = workspace
-                .slots
-                .iter()
-                .filter_map(|slot| slot.role_id.clone())
-                .collect::<Vec<_>>();
+            let expected_role_ids = restore_role_slots
+                .as_ref()
+                .map(|slots| slots.iter().map(|slot| slot.role_id.clone()).collect())
+                .unwrap_or_else(|| {
+                    workspace
+                        .slots
+                        .iter()
+                        .filter_map(|slot| slot.role_id.clone())
+                        .collect::<Vec<_>>()
+                });
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let target = target.clone();
             let start_launch_preview_id = launch_preview_id.clone();
+            let start_restore_role_slots = restore_role_slots.clone();
             let result = tokio::task::spawn_blocking(move || {
                 core.start_embedded_workspace_for_roles(
                     &workspace_id,
                     &expected_role_ids,
                     target,
                     start_launch_preview_id,
+                    start_restore_role_slots,
                 )
             })
             .await

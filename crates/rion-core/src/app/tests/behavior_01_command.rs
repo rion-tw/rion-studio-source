@@ -172,7 +172,7 @@ use std::{
                 window_id,
                 tab_type: "role".to_owned(),
                 workspace_id: None,
-                role_ids: vec![role_id.to_owned()],
+                role_slots: test_role_slots(&[role_id]),
             })
             .unwrap()
             .created_tab_id
@@ -180,8 +180,8 @@ use std::{
         core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
             role_id: role_id.to_owned(),
             runtime: "embedded".to_owned(),
-            workspace_id: None,
-            tab_id: Some(tab_id.clone()),
+            tab_id: tab_id.clone(),
+            slot_id: None,
             state: "launching".to_owned(),
             launched_at: None,
         })
@@ -189,8 +189,8 @@ use std::{
         core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
             role_id: role_id.to_owned(),
             runtime: "embedded".to_owned(),
-            workspace_id: None,
-            tab_id: Some(tab_id),
+            tab_id,
+            slot_id: None,
             state: "running".to_owned(),
             launched_at: Some(chrono::Utc::now().to_rfc3339()),
         })
@@ -633,6 +633,7 @@ use std::{
     fn effect_result(effect: CoreEffectRequest, fail_action: Option<&str>) -> CoreEffectResult {
         let action_name = match &effect.action {
             CoreEffectAction::EmbeddedLoadRoles { .. } => "embeddedLoadRoles",
+            CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
             CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
             CoreEffectAction::RoleBrowserDataClearSession { .. } => "roleBrowserDataClearSession",
             _ => "other",
@@ -653,6 +654,18 @@ use std::{
                 .to_owned(),
                 message: "The fixture rejected the desktop shell effect.".to_owned(),
             }),
+        }
+    }
+
+    fn browser_workspace_launch(
+        workspace_id: String,
+        target: EmbeddedLaunchTargetRecord,
+    ) -> CoreCommand {
+        CoreCommand::BrowserWorkspaceLaunch {
+            workspace_id,
+            target,
+            launch_preview_id: None,
+            restore_role_slots: None,
         }
     }
 

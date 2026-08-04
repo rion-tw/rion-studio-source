@@ -33,6 +33,7 @@ const state: RuntimeTabStripState = {
     id: "tab-1",
     name: "四人隊伍",
     roleIds: ["role-1", "role-2"],
+    slots: [],
     roleNames: ["米娜", "露娜"],
     sourceId: "workspace-1",
     type: "workspace"

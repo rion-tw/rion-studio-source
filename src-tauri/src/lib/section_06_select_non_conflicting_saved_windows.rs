@@ -11,29 +11,21 @@ fn select_non_conflicting_saved_windows(
         let focused = ordered.remove(index);
         ordered.insert(0, focused);
     }
-    let mut claimed_roles = HashSet::new();
     let mut claimed_sources = HashSet::new();
     ordered
         .into_iter()
         .filter(|window| {
-            let roles = window
-                .tabs
-                .iter()
-                .flat_map(|tab| tab.role_ids.iter())
-                .collect::<HashSet<_>>();
             let sources = window
                 .tabs
                 .iter()
                 .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
                 .collect::<HashSet<_>>();
-            if roles.iter().any(|role_id| claimed_roles.contains(*role_id))
-                || sources
-                    .iter()
-                    .any(|source| claimed_sources.contains(source))
+            if sources
+                .iter()
+                .any(|source| claimed_sources.contains(source))
             {
                 return false;
             }
-            claimed_roles.extend(roles.into_iter().cloned());
             claimed_sources.extend(sources);
             true
         })
@@ -54,15 +46,23 @@ fn select_auto_restore_saved_windows(
     select_non_conflicting_saved_windows(&eligible, last_focused_window_id)
 }
 
+fn restore_tabs_in_owner_priority(
+    window: &StateGameWindowRecord,
+) -> Vec<&GameWindowTabRecord> {
+    let mut tabs = window.tabs.iter().collect::<Vec<_>>();
+    if let Some(active_tab_id) = window.active_tab_id.as_deref()
+        && let Some(index) = tabs.iter().position(|tab| tab.id == active_tab_id)
+    {
+        let active = tabs.remove(index);
+        tabs.insert(0, active);
+    }
+    tabs
+}
+
 fn saved_window_conflicts_with_runtime(
     saved: &StateGameWindowRecord,
     snapshot: &BrowserRuntimeSnapshot,
 ) -> bool {
-    let desired_roles = saved
-        .tabs
-        .iter()
-        .flat_map(|tab| tab.role_ids.iter())
-        .collect::<HashSet<_>>();
     let desired_sources = saved
         .tabs
         .iter()
@@ -70,11 +70,7 @@ fn saved_window_conflicts_with_runtime(
         .collect::<HashSet<_>>();
     snapshot.tabs.iter().any(|tab| {
         tab.window_id != saved.id
-            && (desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
-                || tab
-                    .role_ids
-                    .iter()
-                    .any(|role_id| desired_roles.contains(role_id)))
+            && desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
     })
 }
 
@@ -100,7 +96,11 @@ fn game_window_restore_record(
                 tab_type: tab.tab_type.clone(),
                 source_id: tab.source_id.clone(),
                 name: tab.name.clone(),
-                role_ids: tab.role_ids.clone(),
+                role_ids: tab
+                    .role_slots
+                    .iter()
+                    .map(|slot| slot.role_id.clone())
+                    .collect(),
                 hidden: tab.hidden,
                 audio_muted: tab.audio_muted,
             })

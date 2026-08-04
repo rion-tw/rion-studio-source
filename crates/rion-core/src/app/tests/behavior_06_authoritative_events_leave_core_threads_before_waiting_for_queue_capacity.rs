@@ -451,7 +451,13 @@
                 "name": "Role 1",
                 "windowId": "window-1",
                 "tabType": "role",
-                "roleIds": ["role-1"],
+                "slots": [{
+                    "slotId": "role:role-1",
+                    "roleId": "role-1",
+                    "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                    "browserZoomPercent": 100.0,
+                    "state": "available"
+                }],
                 "hidden": false
             }],
             "roles": [],
@@ -472,10 +478,14 @@
                 "tabType": "role",
                 "sourceId": "role-1",
                 "name": "Role 1",
-                "roleIds": ["role-1"],
+                "roleSlots": [{
+                    "slotId": "role:role-1",
+                    "roleId": "role-1",
+                    "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                    "browserZoomPercent": 100.0
+                }],
                 "hidden": false,
                 "audioMuted": true,
-                "roleViews": []
             }],
             "activeTabId": "tab-1"
         }))

@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "src/renderer/index.html"),
         runtimeDivider: resolve(__dirname, "src/renderer/runtime-divider.html"),
+        runtimeRolePlaceholder: resolve(__dirname, "src/renderer/runtime-role-placeholder.html"),
         runtimeTabs: resolve(__dirname, "src/renderer/runtime-tabs.html")
       },
       output: {

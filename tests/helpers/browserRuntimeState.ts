@@ -2,25 +2,26 @@ import type {
   BrowserOperationLease,
   BrowserOperationRequest,
   BrowserRoleStatusRecord,
-  CoreCommand,
-  CoreCommandResult,
-  CoreEvent,
   BrowserRuntimeCommand,
-  BrowserRuntimeWindowRecord,
-  BrowserRuntimeRoleRecord,
   BrowserRuntimeResult,
+  BrowserRuntimeRoleOwnerRecord,
+  BrowserRuntimeRoleRecord,
   BrowserRuntimeSnapshot,
   BrowserRuntimeTabRecord,
-  BrowserRuntimeWorkspaceRecord
+  BrowserRuntimeWindowRecord,
+  BrowserRuntimeWorkspaceRecord,
+  CoreCommand,
+  CoreCommandResult,
+  CoreEvent
 } from "../../src/shared/generated";
 
 export function createBrowserRuntimeState() {
   let nextTabId = 0;
   let nextOperationId = 0;
+  let nextOwnerGeneration = 0;
   const windows = new Map<string, BrowserRuntimeWindowRecord>();
   const roles = new Map<string, BrowserRuntimeRoleRecord>();
   const tabs = new Map<string, BrowserRuntimeTabRecord>();
-  const workspaces = new Map<string, BrowserRuntimeWorkspaceRecord>();
   const operationQueues = new Map<string, string[]>();
   const roleVersions = new Map<string, number>();
   const blockedRoleIds = new Set<string>();
@@ -36,6 +37,11 @@ export function createBrowserRuntimeState() {
     resolve: (lease: BrowserOperationLease) => void;
   }>();
 
+  const operationError = (code: string, message: string): Error => {
+    const error = new Error(message) as Error & { code: string };
+    error.code = code;
+    return error;
+  };
   const removeOperation = (id: string): void => {
     const ticket = operationTickets.get(id);
     if (!ticket) return;
@@ -46,11 +52,6 @@ export function createBrowserRuntimeState() {
       else operationQueues.set(roleId, queue);
     });
   };
-  const operationError = (code: string, message: string): Error => {
-    const error = new Error(message) as Error & { code: string };
-    error.code = code;
-    return error;
-  };
   const grantReadyOperations = (): void => {
     for (const [id, ticket] of operationTickets) {
       if (ticket.active || !ticket.lease.roleIds.every(
@@ -58,7 +59,10 @@ export function createBrowserRuntimeState() {
       )) continue;
       if (ticket.lease.roleIds.some((roleId) => blockedRoleIds.has(roleId))) {
         removeOperation(id);
-        ticket.reject(operationError("ROLE_MUTATION_BLOCKED", "Role is blocked by a destructive mutation."));
+        ticket.reject(operationError(
+          "ROLE_MUTATION_BLOCKED",
+          "Role is blocked by a destructive mutation."
+        ));
         grantReadyOperations();
         return;
       }
@@ -66,7 +70,10 @@ export function createBrowserRuntimeState() {
         (roleId) => (roleVersions.get(roleId) ?? 0) !== (ticket.queuedVersions.get(roleId) ?? 0)
       )) {
         removeOperation(id);
-        ticket.reject(operationError("ROLE_DATA_CHANGED", "Role data changed while the operation was queued."));
+        ticket.reject(operationError(
+          "ROLE_DATA_CHANGED",
+          "Role data changed while the operation was queued."
+        ));
         grantReadyOperations();
         return;
       }
@@ -80,37 +87,77 @@ export function createBrowserRuntimeState() {
       ticket.resolve(ticket.lease);
     }
   };
-
   const registerWindow = (windowId: string): BrowserRuntimeWindowRecord => {
     const existing = windows.get(windowId);
     if (existing) return existing;
-    const runtimeWindow = { windowId, tabIds: [] };
+    const runtimeWindow: BrowserRuntimeWindowRecord = { windowId, tabIds: [] };
     windows.set(windowId, runtimeWindow);
     return runtimeWindow;
   };
-  const snapshot = (): BrowserRuntimeSnapshot => ({
-    windows: [...windows.values()].map((runtimeWindow) => ({
-      ...runtimeWindow,
-      tabIds: [...runtimeWindow.tabIds]
-    })),
-    roles: [...roles.values()].map((role) => ({ ...role })),
-    tabs: [...tabs.values()].map((tab) => ({ ...tab, roleIds: [...tab.roleIds] })),
-    workspaces: [...workspaces.values()].map((workspace) => ({
-      ...workspace,
-      roleIds: [...workspace.roleIds]
-    }))
-  });
-  const refreshWorkspace = (workspaceId: string): void => {
-    const workspace = workspaces.get(workspaceId);
-    if (!workspace) return;
-    const states = workspace.roleIds
-      .map((roleId) => roles.get(roleId)?.state)
-      .filter((state): state is NonNullable<typeof state> => Boolean(state));
-    if (states.includes("stopping")) workspace.state = "stopping";
-    else if (states.length === workspace.roleIds.length && states.every((state) => state === "running")) {
-      workspace.state = "running";
-    } else if (states.length > 0) workspace.state = "launching";
+  const nextOwner = (tabId: string, slotId: string): BrowserRuntimeRoleOwnerRecord => {
+    const tab = tabs.get(tabId);
+    if (!tab) throw operationError("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.");
+    return {
+      windowId: tab.windowId,
+      tabId,
+      slotId,
+      generation: ++nextOwnerGeneration
+    };
   };
+  const refreshSlots = (): void => {
+    tabs.forEach((tab) => {
+      tab.slots.forEach((slot) => {
+        const role = roles.get(slot.roleId);
+        if (!role) {
+          slot.state = "available";
+          delete slot.owner;
+        } else if (role.owner.tabId === tab.id && role.owner.slotId === slot.slotId) {
+          slot.state = role.state;
+          slot.owner = { ...role.owner };
+        } else {
+          slot.state = "blocked";
+          slot.owner = { ...role.owner };
+        }
+      });
+    });
+  };
+  const workspaceState = (
+    slots: BrowserRuntimeTabRecord["slots"]
+  ): BrowserRuntimeWorkspaceRecord["state"] => {
+    if (slots.some((slot) => slot.state === "stopping")) return "stopping";
+    if (slots.every((slot) => slot.state === "running")) return "running";
+    if (slots.some((slot) => slot.state === "launching")) return "launching";
+    return "partial";
+  };
+  const projectedWorkspaces = (): BrowserRuntimeWorkspaceRecord[] => [...tabs.values()]
+    .filter((tab) => tab.tabType === "workspace")
+    .map((tab) => ({
+      workspaceId: tab.workspaceId ?? tab.sourceId,
+      name: tab.name,
+      runtime: "embedded",
+      windowId: tab.windowId,
+      tabId: tab.id,
+      roleIds: tab.slots.map((slot) => slot.roleId),
+      state: workspaceState(tab.slots)
+    }));
+  const snapshot = (): BrowserRuntimeSnapshot => ({
+    windows: [...windows.values()].map((window) => ({
+      ...window,
+      tabIds: [...window.tabIds]
+    })),
+    roles: [...roles.values()].map((role) => ({
+      ...role,
+      owner: { ...role.owner }
+    })),
+    tabs: [...tabs.values()].map((tab) => ({
+      ...tab,
+      slots: tab.slots.map((slot) => ({
+        ...slot,
+        ...(slot.owner ? { owner: { ...slot.owner } } : {})
+      }))
+    })),
+    workspaces: projectedWorkspaces()
+  });
   const removeTab = (tabId: string): void => {
     const tab = tabs.get(tabId);
     if (!tab) return;
@@ -122,7 +169,10 @@ export function createBrowserRuntimeState() {
         runtimeWindow.activeTabId = runtimeWindow.tabIds.find((id) => !tabs.get(id)?.hidden);
       }
     }
-    if (tab.workspaceId) workspaces.delete(tab.workspaceId);
+    roles.forEach((role, roleId) => {
+      if (role.owner.tabId === tabId) roles.delete(roleId);
+    });
+    refreshSlots();
   };
 
   return {
@@ -138,17 +188,15 @@ export function createBrowserRuntimeState() {
       listeners.forEach((listener) => listener([{ type: "browserStatuses", statuses }]));
     },
     listBrowserStatuses(): BrowserRoleStatusRecord[] {
-      return snapshot().roles.map((role) => {
-        return {
-          roleId: role.roleId,
-          state: role.state,
-          ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
-          runtimeMode: role.runtime
-        };
-      });
+      return snapshot().roles.map((role) => ({
+        roleId: role.roleId,
+        state: role.state,
+        ...(role.launchedAt ? { launchedAt: role.launchedAt } : {}),
+        runtimeMode: role.runtime
+      }));
     },
     listBrowserWorkspaceStatuses() {
-      return snapshot().workspaces.map(({ state, workspaceId }) => ({ state, workspaceId }));
+      return projectedWorkspaces().map(({ state, workspaceId }) => ({ state, workspaceId }));
     },
     invoke<C extends CoreCommand>(command: C): Promise<CoreCommandResult<C>> {
       if (command.type === "browserStatuses") {
@@ -164,10 +212,10 @@ export function createBrowserRuntimeState() {
         return Promise.reject(new Error("The test Rust intent executor is not configured."));
       }
       if (
-        command.type === "browserRoleStop" ||
-        command.type === "browserWorkspaceStop" ||
-        command.type === "embeddedRoleStop" ||
-        command.type === "embeddedWorkspaceStop"
+        command.type === "browserRoleStop"
+        || command.type === "browserWorkspaceStop"
+        || command.type === "embeddedRoleStop"
+        || command.type === "embeddedWorkspaceStop"
       ) {
         return typedInvoker(command) as Promise<CoreCommandResult<C>>;
       }
@@ -211,16 +259,6 @@ export function createBrowserRuntimeState() {
       switch (command.type) {
         case "snapshot":
           break;
-        case "beginWorkspace":
-          workspaces.set(command.workspaceId, {
-            workspaceId: command.workspaceId,
-            name: command.name,
-            runtime: "pending",
-            ...(command.windowId === undefined ? {} : { windowId: command.windowId }),
-            roleIds: [...command.roleIds],
-            state: "launching"
-          });
-          break;
         case "registerWindow":
           registerWindow(command.windowId);
           break;
@@ -230,6 +268,19 @@ export function createBrowserRuntimeState() {
           }
           break;
         case "createTab": {
+          if ([...tabs.values()].some((tab) =>
+            tab.sourceId === command.sourceId && tab.tabType === command.tabType)) {
+            throw operationError("RUNTIME_SOURCE_ALREADY_OPEN", "The runtime source is already open.");
+          }
+          const roleIds = new Set(command.roleSlots.map((slot) => slot.roleId));
+          const slotIds = new Set(command.roleSlots.map((slot) => slot.slotId));
+          if (
+            command.roleSlots.length === 0
+            || roleIds.size !== command.roleSlots.length
+            || slotIds.size !== command.roleSlots.length
+          ) {
+            throw operationError("RUNTIME_ROLE_SLOT_INVALID", "Runtime role slots are invalid.");
+          }
           createdTabId = command.tabId ?? `runtime-tab-${++nextTabId}`;
           const runtimeWindow = registerWindow(command.windowId);
           runtimeWindow.tabIds.push(createdTabId);
@@ -240,20 +291,13 @@ export function createBrowserRuntimeState() {
             windowId: command.windowId,
             tabType: command.tabType,
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
-            roleIds: [...command.roleIds],
+            slots: command.roleSlots.map((slot) => ({
+              ...slot,
+              state: "available"
+            })),
             hidden: true
           });
-          if (command.workspaceId) {
-            workspaces.set(command.workspaceId, {
-              workspaceId: command.workspaceId,
-              name: command.name,
-              runtime: "embedded",
-              windowId: command.windowId,
-              tabId: createdTabId,
-              roleIds: [...command.roleIds],
-              state: "launching"
-            });
-          }
+          refreshSlots();
           break;
         }
         case "removeTab":
@@ -269,7 +313,8 @@ export function createBrowserRuntimeState() {
         }
         case "showWindow": {
           const runtimeWindow = windows.get(command.windowId);
-          const selected = runtimeWindow?.activeTabId && !tabs.get(runtimeWindow.activeTabId)?.hidden
+          const selected = runtimeWindow?.activeTabId
+            && !tabs.get(runtimeWindow.activeTabId)?.hidden
             ? runtimeWindow.activeTabId
             : runtimeWindow?.tabIds[0];
           const tab = selected ? tabs.get(selected) : undefined;
@@ -313,6 +358,8 @@ export function createBrowserRuntimeState() {
           }
           break;
         }
+        case "commitTabDragTopology":
+          break;
         case "moveTab": {
           const tab = tabs.get(command.tabId);
           if (!tab) break;
@@ -328,10 +375,10 @@ export function createBrowserRuntimeState() {
           const target = registerWindow(command.windowId);
           target.tabIds.push(tab.id);
           target.activeTabId = tab.id;
-          if (tab.workspaceId) {
-            const workspace = workspaces.get(tab.workspaceId);
-            if (workspace) workspace.windowId = command.windowId;
-          }
+          roles.forEach((runtimeRole) => {
+            if (runtimeRole.owner.tabId === tab.id) runtimeRole.owner.windowId = command.windowId;
+          });
+          refreshSlots();
           break;
         }
         case "moveWindowTabs": {
@@ -343,45 +390,75 @@ export function createBrowserRuntimeState() {
             if (!tab) continue;
             tab.windowId = command.targetWindowId;
             target.tabIds.push(tabId);
-            if (tab.workspaceId) {
-              const workspace = workspaces.get(tab.workspaceId);
-              if (workspace) workspace.windowId = command.targetWindowId;
-            }
+            roles.forEach((runtimeRole) => {
+              if (runtimeRole.owner.tabId === tabId) {
+                runtimeRole.owner.windowId = command.targetWindowId;
+              }
+            });
           }
           if (!target.activeTabId) target.activeTabId = source.activeTabId;
           source.tabIds = [];
-          source.activeTabId = undefined;
+          delete source.activeTabId;
+          refreshSlots();
           break;
         }
         case "roleTransition": {
-          const previousRole = roles.get(command.roleId);
+          const tab = tabs.get(command.tabId);
+          const slot = tab?.slots.find((candidate) =>
+            candidate.roleId === command.roleId
+            && (!command.slotId || candidate.slotId === command.slotId));
+          if (!tab || !slot) {
+            throw operationError("RUNTIME_ROLE_SLOT_NOT_FOUND", "Runtime role slot was not found.");
+          }
+          const previous = roles.get(command.roleId);
+          const owner = previous?.owner.tabId === tab.id && previous.owner.slotId === slot.slotId
+            ? previous.owner
+            : nextOwner(tab.id, slot.slotId);
           roles.set(command.roleId, {
             roleId: command.roleId,
             runtime: command.runtime,
-            ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
-            ...(command.tabId ? { tabId: command.tabId } : {}),
+            owner,
             state: command.state,
-            ...(command.launchedAt || previousRole?.launchedAt
-              ? { launchedAt: command.launchedAt ?? previousRole?.launchedAt }
+            ...(command.launchedAt || previous?.launchedAt
+              ? { launchedAt: command.launchedAt ?? previous?.launchedAt }
               : {})
           });
-          if (command.workspaceId) refreshWorkspace(command.workspaceId);
+          refreshSlots();
           break;
         }
-        case "removeRole": {
+        case "releaseRole": {
           const role = roles.get(command.roleId);
+          if (command.expectedTabId && role?.owner.tabId !== command.expectedTabId) {
+            throw operationError("RUNTIME_ROLE_OWNER_STALE", "Runtime role owner changed.");
+          }
           roles.delete(command.roleId);
-          if (role?.workspaceId) refreshWorkspace(role.workspaceId);
+          refreshSlots();
           break;
         }
-        case "setWorkspaceState": {
-          const workspace = workspaces.get(command.workspaceId);
-          if (workspace) workspace.state = command.state;
+        case "claimRoleSlot": {
+          const tab = tabs.get(command.tabId);
+          const slot = tab?.slots.find((candidate) =>
+            candidate.slotId === command.slotId && candidate.roleId === command.roleId);
+          if (!tab || !slot) {
+            throw operationError("RUNTIME_ROLE_SLOT_NOT_FOUND", "Runtime role slot was not found.");
+          }
+          const previous = roles.get(command.roleId);
+          if (
+            command.expectedOwnerGeneration !== undefined
+            && previous?.owner.generation !== command.expectedOwnerGeneration
+          ) {
+            throw operationError("RUNTIME_ROLE_OWNER_STALE", "Runtime role owner changed.");
+          }
+          roles.set(command.roleId, {
+            roleId: command.roleId,
+            runtime: "embedded",
+            owner: nextOwner(command.tabId, command.slotId),
+            state: "launching",
+            ...(previous?.launchedAt ? { launchedAt: previous.launchedAt } : {})
+          });
+          refreshSlots();
           break;
         }
-        case "removeWorkspace":
-          workspaces.delete(command.workspaceId);
-          break;
       }
       const runtimeSnapshot = snapshot();
       this.publishStatuses();

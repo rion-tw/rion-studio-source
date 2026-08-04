@@ -392,7 +392,7 @@ fn portable_operation_role_ids(
         .filter(|window| changed_window_ids.contains(&window.id))
         .flat_map(|window| window.tabs.iter())
     {
-        operation_ids.extend(tab.role_ids.iter().cloned());
+        operation_ids.extend(tab.role_slots.iter().map(|slot| slot.role_id.clone()));
         if tab.tab_type == "workspace" {
             operation_ids.insert(workspace_operation_key(&tab.source_id));
         }

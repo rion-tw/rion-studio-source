@@ -21,13 +21,13 @@
             CoreCommand::EmbeddedRoleStop {
                 role_id: role_id.clone(),
             },
-            Some("embeddedDestroyTab"),
+            Some("embeddedDestroyRole"),
         );
         assert_eq!(stop.unwrap_err().code(), "DESKTOP_EFFECT_FAILED");
         assert!(
             actions
                 .iter()
-                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyRole { .. }))
         );
         assert!(
             actions
@@ -49,7 +49,11 @@
             snapshot
                 .tabs
                 .iter()
-                .any(|tab| { tab.role_ids.contains(&role_id) && tab.hidden })
+                .any(|tab| {
+                    tab.slots.iter().any(|slot| {
+                        slot.role_id == role_id && slot.state == "stopping"
+                    }) && !tab.hidden
+                })
         );
         assert!(
             core.invoke(CoreCommand::GameWindowsList)
@@ -58,8 +62,10 @@
                 .is_some_and(|windows| windows.iter().all(|window| {
                     window["tabs"].as_array().is_none_or(|tabs| {
                         tabs.iter().all(|tab| {
-                            tab["roleIds"].as_array().is_none_or(|ids| {
-                                ids.iter().all(|id| id.as_str() != Some(role_id.as_str()))
+                            tab["roleSlots"].as_array().is_none_or(|slots| {
+                                slots.iter().all(|slot| {
+                                    slot["roleId"].as_str() != Some(role_id.as_str())
+                                })
                             })
                         })
                     })

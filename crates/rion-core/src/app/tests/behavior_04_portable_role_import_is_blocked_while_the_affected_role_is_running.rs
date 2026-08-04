@@ -141,19 +141,24 @@
         assert!(
             stop_actions
                 .iter()
-                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyRole { .. }))
         );
-        assert!(
-            stop_actions
-                .iter()
-                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
-        );
+        let destroy_index = stop_actions
+            .iter()
+            .position(|action| matches!(action, CoreEffectAction::EmbeddedDestroyRole { .. }))
+            .unwrap();
+        let projection_index = stop_actions
+            .iter()
+            .position(|action| matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+            .unwrap();
+        assert!(destroy_index < projection_index);
         let stopped_snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
             .unwrap()
             .snapshot;
         assert!(stopped_snapshot.roles.is_empty());
-        assert!(stopped_snapshot.tabs.is_empty());
+        assert_eq!(stopped_snapshot.tabs.len(), 1);
+        assert_eq!(stopped_snapshot.tabs[0].slots[0].state, "available");
         core.shutdown();
     }
 
@@ -417,7 +422,7 @@
                 .expect("native isolation must be emitted before persistence is available");
             if let Some(effect) = events.into_iter().find_map(|event| match event {
                 CoreEvent::CoreEffects { effects } => effects.into_iter().find(|effect| {
-                    matches!(effect.action, CoreEffectAction::EmbeddedDestroyTab { .. })
+                    matches!(effect.action, CoreEffectAction::EmbeddedDestroyRole { .. })
                 }),
                 _ => None,
             }) {
@@ -428,6 +433,27 @@
             .unwrap();
         assert!(!stop.is_finished());
         drop(persistence_guard);
+        while !stop.is_finished() {
+            let Ok(events) = events.recv_timeout(Duration::from_secs(2)) else {
+                continue;
+            };
+            let results = events
+                .into_iter()
+                .filter_map(|event| match event {
+                    CoreEvent::CoreEffects { effects } => Some(
+                        effects
+                            .into_iter()
+                            .map(|effect| effect_result(effect, None))
+                            .collect::<Vec<_>>(),
+                    ),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+            if !results.is_empty() {
+                core.dispatch_core_effect_results(results).unwrap();
+            }
+        }
         assert!(stop.join().unwrap().is_ok());
         core.shutdown();
     }
@@ -509,7 +535,10 @@
             .unwrap()
             .snapshot;
         assert!(snapshot.roles.is_empty());
-        assert!(snapshot.tabs.is_empty());
+        assert_eq!(snapshot.tabs.len(), 2);
+        assert!(snapshot.tabs.iter().all(|tab| {
+            tab.slots.iter().all(|slot| slot.state == "available")
+        }));
         core.shutdown();
     }
 

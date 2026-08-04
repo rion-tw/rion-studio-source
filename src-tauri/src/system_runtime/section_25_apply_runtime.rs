@@ -106,6 +106,11 @@ impl SystemRuntimeExecutor {
                             .iter()
                             .map(|divider| divider.webview.clone()),
                     );
+                    surfaces.extend(runtime_tab.slots.values().filter_map(|slot| {
+                        slot.placeholder
+                            .as_ref()
+                            .map(|placeholder| placeholder.webview.clone())
+                    }));
                     Some(TabUpdate {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
@@ -354,7 +359,11 @@ impl SystemRuntimeExecutor {
                     &snapshot_tab.id,
                     &snapshot_tab.source_id,
                     &snapshot_tab.tab_type,
-                    &snapshot_tab.role_ids,
+                    &snapshot_tab
+                        .slots
+                        .iter()
+                        .map(|slot| slot.role_id.clone())
+                        .collect::<Vec<_>>(),
                     &snapshot_tab.name,
                 );
             }

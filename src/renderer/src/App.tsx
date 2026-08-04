@@ -600,8 +600,8 @@ export function App(): JSX.Element {
                     games={data.games}
                     query={workspaceWorkflow.query}
                     roles={data.roles}
+                    runtimeTabs={data.embeddedRuntime.tabs}
                     scrollPositionRef={workspaceWorkflow.listScrollTopRef}
-                    statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
                     onCopyWorkspace={(workspace) => void workspaceWorkflow.handleCopyWorkspace(workspace)}

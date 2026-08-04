@@ -365,6 +365,7 @@ pub fn run() {
             rion_overlay_request,
             rion_overlay_ready,
             rion_runtime_audio_state,
+            rion_runtime_role_slot_action,
             rion_runtime_tab_action,
             rion_dispatch_core_effect_results,
             rion_shared_user_data_dir,

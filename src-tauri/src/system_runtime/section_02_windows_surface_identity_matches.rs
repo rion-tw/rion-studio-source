@@ -301,6 +301,7 @@ struct RuntimeTab {
     dividers: Vec<RuntimeDivider>,
     window_id: String,
     roles: HashMap<String, RoleSurface>,
+    slots: HashMap<String, RuntimeRoleSlot>,
     workspace_id: Option<String>,
     workspace_appearance: WorkspaceAppearanceSettingsRecord,
     #[cfg(any(windows, target_os = "macos"))]

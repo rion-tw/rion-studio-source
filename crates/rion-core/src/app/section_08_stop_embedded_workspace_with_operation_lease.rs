@@ -24,7 +24,14 @@ impl AppCore {
             .find(|workspace| {
                 workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
             })
-            .map(|workspace| workspace.role_ids.clone())
+            .map(|workspace| {
+                initial_snapshot
+                    .roles
+                    .iter()
+                    .filter(|role| role.owner.tab_id == workspace.tab_id)
+                    .map(|role| role.role_id.clone())
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         self.cancel_embedded_operations(&initial_role_ids)?;
         let lease = acquire_operation_lease
@@ -53,28 +60,25 @@ impl AppCore {
                 else {
                     return Ok(());
                 };
-                let tab_id = workspace.tab_id.clone().ok_or_else(|| {
-                    CoreError::Internal("embedded workspace has no tab".to_owned())
-                })?;
-                for role_id in &workspace.role_ids {
+                let tab_id = workspace.tab_id.clone();
+                let owned_roles = snapshot
+                    .roles
+                    .iter()
+                    .filter(|role| role.owner.tab_id == tab_id)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for role in &owned_roles {
+                    let role_id = &role.role_id;
                     self.macro_runtime.request_stop_role(role_id)?;
                     self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.clone(),
                         runtime: "embedded".to_owned(),
-                        workspace_id: Some(workspace_id.to_owned()),
-                        tab_id: Some(tab_id.clone()),
+                        tab_id: tab_id.clone(),
+                        slot_id: Some(role.owner.slot_id.clone()),
                         state: "stopping".to_owned(),
-                        launched_at: snapshot
-                            .roles
-                            .iter()
-                            .find(|role| role.role_id == *role_id)
-                            .and_then(|role| role.launched_at.clone()),
+                        launched_at: role.launched_at.clone(),
                     })?;
                 }
-                self.invoke_browser_runtime(BrowserRuntimeCommand::SetWorkspaceState {
-                    workspace_id: workspace_id.to_owned(),
-                    state: "stopping".to_owned(),
-                })?;
                 let next_active_tab_id = next_active_tab_after_removal(&snapshot, &tab_id);
                 self.invoke_browser_runtime(BrowserRuntimeCommand::HideTab {
                     tab_id: tab_id.clone(),
@@ -90,13 +94,13 @@ impl AppCore {
                         CoreError::Internal("embedded closing tab lock poisoned".to_owned())
                     })?
                     .insert(tab_id.clone());
-                (workspace, tab_id, next_active_tab_id)
+                (owned_roles, tab_id, next_active_tab_id)
             };
 
             // Keep durability behind native isolation. The final runtime commit
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
-            let (workspace, tab_id, next_active_tab_id) = prepared;
+            let (owned_roles, tab_id, next_active_tab_id) = prepared;
             self.run_embedded_runtime_effect(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
@@ -113,13 +117,13 @@ impl AppCore {
                 let current = self
                     .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                     .snapshot;
-                if workspace.role_ids.iter().any(|role_id| {
+                if owned_roles.iter().any(|owned| {
                     current
                         .roles
                         .iter()
-                        .find(|role| role.role_id == *role_id)
+                        .find(|role| role.role_id == owned.role_id)
                         .is_none_or(|role| {
-                            role.tab_id.as_deref() != Some(tab_id.as_str())
+                            role.owner.tab_id != tab_id
                                 || role.state != "stopping"
                         })
                 }) {
@@ -129,16 +133,14 @@ impl AppCore {
                             .to_owned(),
                     });
                 }
-                for role_id in &workspace.role_ids {
-                    self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
-                        role_id: role_id.clone(),
+                for role in &owned_roles {
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
+                        role_id: role.role_id.clone(),
+                        expected_tab_id: Some(tab_id.clone()),
                     })?;
                 }
                 self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                     tab_id: tab_id.clone(),
-                })?;
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWorkspace {
-                    workspace_id: workspace_id.to_owned(),
                 })?;
                 self.embedded_closing_tabs
                     .lock()
@@ -206,7 +208,7 @@ impl AppCore {
             .tabs
             .iter()
             .filter(|tab| tab.window_id == window_id)
-            .flat_map(|tab| tab.role_ids.iter().cloned())
+            .flat_map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()))
             .collect::<Vec<_>>();
         self.cancel_embedded_operations(&pending_role_ids)?;
         for role_id in &pending_role_ids {
@@ -232,7 +234,7 @@ impl AppCore {
             if tab_type == "workspace" {
                 self.stop_embedded_workspace_with_operation_lease(&source_id, true, None)?;
             } else {
-                self.stop_embedded_role_with_operation_lease(&source_id, true, None)?;
+                self.stop_embedded_role_with_operation_lease(&source_id, true, true, None)?;
             }
         }
 
@@ -404,8 +406,13 @@ impl AppCore {
         let role_ids = snapshot
             .tabs
             .iter()
-            .find(|tab| runtime_role.tab_id.as_deref() == Some(tab.id.as_str()))
-            .map(|tab| tab.role_ids.clone())
+            .find(|tab| runtime_role.owner.tab_id == tab.id)
+            .map(|tab| {
+                tab.slots
+                    .iter()
+                    .map(|slot| slot.role_id.clone())
+                    .collect::<Vec<_>>()
+            })
             .ok_or_else(|| CoreError::Domain {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),
@@ -453,8 +460,13 @@ impl AppCore {
         let role_ids = snapshot
             .tabs
             .iter()
-            .find(|tab| runtime_role.tab_id.as_deref() == Some(tab.id.as_str()))
-            .map(|tab| tab.role_ids.clone())
+            .find(|tab| runtime_role.owner.tab_id == tab.id)
+            .map(|tab| {
+                tab.slots
+                    .iter()
+                    .map(|slot| slot.role_id.clone())
+                    .collect::<Vec<_>>()
+            })
             .ok_or_else(|| CoreError::Domain {
                 code: "RUNTIME_TAB_NOT_FOUND",
                 message: "Runtime tab was not found.".to_owned(),

@@ -59,9 +59,9 @@ impl SystemRuntimeExecutor {
                             .tabs_controller
                             .clone();
                         let names = tab
-                            .role_ids
+                            .slots
                             .iter()
-                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
+                            .filter_map(|slot| role_names.get(slot.role_id.as_str()).copied())
                             .collect::<Vec<_>>();
                         let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
                             let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
@@ -74,9 +74,9 @@ impl SystemRuntimeExecutor {
                             tab.name.clone()
                         };
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
-                            tab.role_ids.first().and_then(|role_id| {
+                            tab.slots.first().and_then(|slot| {
                                 role_games
-                                    .get(role_id.as_str())
+                                    .get(slot.role_id.as_str())
                                     .and_then(|game_id| game_icons.get(*game_id))
                                     .map(|value| (*value).to_owned())
                             })
@@ -200,9 +200,9 @@ impl SystemRuntimeExecutor {
                         let presented = self.presentation.tab(&live.window_id, &tab.id)?;
                         let tab_strip = state.display_hosts.get(&live.window_id)?.tab_strip.clone();
                         let names = tab
-                            .role_ids
+                            .slots
                             .iter()
-                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
+                            .filter_map(|slot| role_names.get(slot.role_id.as_str()).copied())
                             .collect::<Vec<_>>();
                         let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
                             let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
@@ -215,9 +215,9 @@ impl SystemRuntimeExecutor {
                             tab.name.clone()
                         };
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
-                            tab.role_ids
+                            tab.slots
                                 .first()
-                                .and_then(|role_id| icons.get(role_id.as_str()))
+                                .and_then(|slot| icons.get(slot.role_id.as_str()))
                                 .cloned()
                         });
                         Some((

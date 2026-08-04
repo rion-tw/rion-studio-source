@@ -660,10 +660,6 @@ fn game_window_tabs_conflict(
 ) -> bool {
         saved.id == runtime.id
         || (saved.tab_type == runtime.tab_type && saved.source_id == runtime.source_id)
-        || saved
-            .role_ids
-            .iter()
-            .any(|role_id| runtime.role_ids.contains(role_id))
 }
 
 fn merge_runtime_tabs_with_saved(

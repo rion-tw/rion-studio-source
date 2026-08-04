@@ -53,7 +53,7 @@ use super::*;
 
     #[test]
     fn portable_game_windows_remap_dependencies_and_preserve_cross_window_role_claims() {
-        let mut source = fixture_value(11);
+        let mut source = fixture_value(15);
         let first_window_id = uuid::Uuid::new_v4().to_string();
         let second_window_id = uuid::Uuid::new_v4().to_string();
         source["gameWindows"] = json!([
@@ -132,7 +132,7 @@ use super::*;
         assert_eq!(prepared.snapshot.game_windows[1].tabs.len(), 1);
         assert_eq!(
             prepared.snapshot.game_windows[1].tabs[0].source_id,
-            prepared.snapshot.game_windows[0].tabs[0].role_ids[0]
+            prepared.snapshot.game_windows[0].tabs[0].role_slots[0].role_id
         );
         assert!(
             prepared
@@ -160,7 +160,7 @@ use super::*;
             let error = normalize(&cycle.to_string()).unwrap_err();
             assert_eq!(error.code(), "PORTABLE_MACRO_DEPENDENCY_INVALID");
         };
-        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":16");
+        let future = fixture(11).replace("\"schemaVersion\":11", "\"schemaVersion\":17");
         assert!(normalize(&future).is_err());
     }
 
@@ -174,7 +174,7 @@ use super::*;
 
             let normalized = normalize(&source.to_string()).unwrap();
 
-            assert_eq!(normalized["schemaVersion"], 15);
+            assert_eq!(normalized["schemaVersion"], 16);
             assert!(normalized["games"][0].get("localStorageSyncKeys").is_none());
             assert!(normalized["games"][0].get("localStorageSyncSelectors").is_none());
             assert!(normalized["roles"][0].get("localStorageSourceRoleId").is_none());
@@ -503,7 +503,7 @@ use super::*;
                 "2.0.0",
             )
             .unwrap();
-            assert_eq!(exported.schema_version, 15);
+            assert_eq!(exported.schema_version, 16);
             let settings = exported.preferences.unwrap().macro_settings.unwrap();
             assert_eq!(settings.startup_delay_ms, 100);
             assert_eq!(settings.default_loop_delay_ms, 1_000);

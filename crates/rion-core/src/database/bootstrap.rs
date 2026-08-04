@@ -266,7 +266,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn creates_fresh_schema_twenty_four_databases() {
+    fn creates_fresh_schema_twenty_five_databases() {
         let directory = tempdir().unwrap();
         let paths = bootstrap_databases(directory.path()).unwrap();
 
@@ -280,7 +280,7 @@ mod tests {
                     row.get::<_, u32>(0)
                 })
                 .unwrap(),
-            24
+            25
         );
     }
 

@@ -42,6 +42,7 @@ export function stateFromChromeProjection(
       name: tab.name,
       roleIds: tab.roleIds,
       roleNames: tab.roleNames,
+      slots: [],
       sourceId: tab.sourceId,
       type: tab.type,
       windowId: projection.windowId

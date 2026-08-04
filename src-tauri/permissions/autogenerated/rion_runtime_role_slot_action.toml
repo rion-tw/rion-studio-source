@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-runtime-role-slot-action"
+description = "Enables the rion_runtime_role_slot_action command without any pre-configured scope."
+commands.allow = ["rion_runtime_role_slot_action"]
+
+[[permission]]
+identifier = "deny-rion-runtime-role-slot-action"
+description = "Denies the rion_runtime_role_slot_action command without any pre-configured scope."
+commands.deny = ["rion_runtime_role_slot_action"]

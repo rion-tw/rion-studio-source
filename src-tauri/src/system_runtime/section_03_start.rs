@@ -457,6 +457,13 @@ impl WindowPresentationState {
         }
     }
 
+    fn tab_title(&self, tab_id: &str) -> Option<String> {
+        self.tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .map(|tab| tab.title.clone())
+    }
+
     fn reorder_known_tabs(&mut self, ordered_tab_ids: &[String]) {
         let mut positions = ordered_tab_ids
             .iter()

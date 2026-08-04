@@ -30,7 +30,7 @@ fn conditional_tab_activation_noops_after_the_tab_moves_to_another_window() {
                 window_id: window_id.to_owned(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
-                role_ids: vec![source_id.to_owned()],
+                role_slots: test_role_slots(&[source_id]),
             })
             .unwrap()
             .created_tab_id
@@ -101,14 +101,27 @@ fn runtime_projection_rejects_transient_invalid_role_membership() {
         tab_type: "role".to_owned(),
         source_id: "role-source".to_owned(),
         name: "Role".to_owned(),
-        role_ids: vec!["role-source".to_owned(), "role-stale".to_owned()],
+        role_slots: ["role-source", "role-stale"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, role_id)| crate::model::GameWindowRoleSlotRecord {
+                slot_id: format!("slot-{index}"),
+                role_id: role_id.to_owned(),
+                rect: full_window_rect(),
+                browser_zoom_percent: None,
+            })
+            .collect(),
         hidden: false,
         audio_muted: false,
-        role_views: Vec::new(),
     };
     assert!(!runtime_game_window_tab_is_valid(&tab));
     assert!(runtime_game_window_tab_is_valid(&GameWindowTabRecord {
-        role_ids: vec!["role-source".to_owned()],
+        role_slots: vec![crate::model::GameWindowRoleSlotRecord {
+            slot_id: "slot-0".to_owned(),
+            role_id: "role-source".to_owned(),
+            rect: full_window_rect(),
+            browser_zoom_percent: None,
+        }],
         ..tab
     }));
 }

@@ -45,6 +45,7 @@ describe("Game Window recovery dashboard", () => {
             name: "Live",
             windowId: "live-window",
             roleIds: ["role-live"],
+            slots: [],
             hidden: false,
             active: true,
             audible: false,

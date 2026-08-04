@@ -601,7 +601,7 @@
     }
 
     #[test]
-    fn export_is_v15_and_never_emits_internal_or_retired_sync_fields() {
+    fn export_is_v16_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -617,7 +617,7 @@
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 15);
+            assert_eq!(value["schemaVersion"], 16);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

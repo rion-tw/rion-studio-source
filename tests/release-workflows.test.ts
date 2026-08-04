@@ -416,6 +416,7 @@ describe("Tauri-only release workflows", () => {
     expect(uploadIndex).toBeGreaterThan(draftIndex);
     expect(verifyIndex).toBeGreaterThan(uploadIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(workflow).toContain("contents: write");
     expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY");
     expect(workflow).toContain("--verify-checksums");
     expect(workflow).not.toContain("--clobber");

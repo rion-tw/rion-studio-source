@@ -18,7 +18,9 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # A private draft is not visible to a read-only workflow token; this workflow
+  # must verify its assets before it can publish the source-free public release.
+  contents: write
 
 env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio

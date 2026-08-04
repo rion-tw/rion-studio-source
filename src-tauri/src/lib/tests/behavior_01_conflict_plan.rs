@@ -263,19 +263,6 @@ use super::*;
     }
 
     #[test]
-    fn tab_drag_rollback_error_preserves_primary_and_cleanup_failures() {
-        let error = tab_drag_rollback_error(
-            &shell_error("TAURI_TAB_DRAG_FAILED", "position failed"),
-            &shell_error("TAURI_TAB_DRAG_ROLLBACK_FAILED", "reparent failed"),
-        );
-
-        assert_eq!(error.code, "TAURI_TAB_DRAG_ROLLBACK_FAILED");
-        assert!(error.message.contains("TAURI_TAB_DRAG_FAILED"));
-        assert!(error.message.contains("position failed"));
-        assert!(error.message.contains("reparent failed"));
-    }
-
-    #[test]
     fn tab_drag_anchor_preserves_left_middle_and_right_grab_points() {
         let source = StatePixelBoundsRecord {
             x: 40,
@@ -340,7 +327,7 @@ use super::*;
     }
 
     #[test]
-    fn windows_defers_native_tab_drag_while_macos_moves_live_presentation() {
+    fn windows_defers_surface_mutation_while_macos_uses_a_live_native_preview() {
         assert!(tab_drag_defers_native_mutations(true, false));
         assert!(!tab_drag_defers_native_mutations(false, true));
         assert!(!tab_drag_defers_native_mutations(false, false));
@@ -349,6 +336,23 @@ use super::*;
         assert!(deferred_tab_drag_terminal_ready(false, true, true));
         assert!(deferred_tab_drag_terminal_ready(false, false, false));
         assert!(deferred_tab_drag_terminal_ready(true, true, false));
+    }
+
+    #[test]
+    fn macos_drag_motion_uses_the_original_live_native_preview_without_a_window_snapshot() {
+        let model = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/native/macos/RionRuntimeTabsController/03_shortcut_model.mm"
+        ));
+        let view = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/native/macos/RionRuntimeTabsController/04_view_model.mm"
+        ));
+
+        assert!(model.contains("[self.tabsController moveTabDrag:self"));
+        assert!(view.contains("handleHoverWithTabIdentifier"));
+        assert!(!model.contains("RionRuntimeWindowSnapshot"));
+        assert!(!model.contains("detachedWindowPreview"));
     }
 
     #[test]

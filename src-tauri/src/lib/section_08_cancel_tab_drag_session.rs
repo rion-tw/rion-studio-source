@@ -126,13 +126,35 @@ fn apply_deferred_tab_drag_destination(
                 "Drop topology order was not frozen before native commit.",
             )
         })?;
-        return attach_tab_drag_session(
+        state
+            .runtime
+            .commit_live_tab_drag_destination(
+                &session.source_window_id,
+                &target_window_id,
+                &session.tab_id,
+                &ordered_tab_ids,
+            )
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+        let materialized = attach_tab_drag_session(
             state,
             session,
             &target_window_id,
             before_tab_id.as_deref(),
             Some(&ordered_tab_ids),
         );
+        if let Err(error) = materialized {
+            eprintln!(
+                "Committed tab drag surface will retry in place: tab={} target={} error={}",
+                session.tab_id, target_window_id, error.message
+            );
+            state.runtime.schedule_tab_surface_move_retry(
+                session.tab_id.clone(),
+                target_window_id.clone(),
+            );
+            session.current_window_id = target_window_id;
+            session.phase = GameWindowTabDragPhase::Attached;
+        }
+        return Ok(());
     }
 
     if session.single_tab {
@@ -158,14 +180,42 @@ fn apply_deferred_tab_drag_destination(
             .prepare_provisional_game_window(&target, &session.title)
             .and_then(|_| state.runtime.position_provisional_game_window(&target))
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+        state
+            .runtime
+            .commit_live_tab_drag_destination(
+                &session.source_window_id,
+                &session.provisional_window_id,
+                &session.tab_id,
+                std::slice::from_ref(&session.tab_id),
+            )
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     }
-    float_tab_drag_session(
+    let materialized = float_tab_drag_session(
         app,
         state,
         session,
         session.latest_screen_x,
         session.latest_screen_y,
-    )
+    );
+    if let Err(error) = materialized {
+        if session.single_tab {
+            return Err(error);
+        }
+        eprintln!(
+            "Committed detached tab surface will retry in place: tab={} target={} error={}",
+            session.tab_id, session.provisional_window_id, error.message
+        );
+        state.runtime.schedule_tab_surface_move_retry(
+            session.tab_id.clone(),
+            session.provisional_window_id.clone(),
+        );
+        let _ = state
+            .runtime
+            .show_tab_drag_window(&session.provisional_window_id);
+        session.current_window_id = session.provisional_window_id.clone();
+        session.phase = GameWindowTabDragPhase::Floating;
+    }
+    Ok(())
 }
 
 fn schedule_windows_tab_drag_intent_timeout(app: &AppHandle, session_id: &str) {
@@ -208,7 +258,7 @@ fn cancel_tab_drag_session(
     state: &CoreState,
     session: &GameWindowTabDragSession,
 ) -> Result<(), TabDragRollbackFailure> {
-    if cfg!(windows) && !session.native_changes_applied {
+    if !session.native_changes_applied {
         return Ok(());
     }
     let mut errors = Vec::new();

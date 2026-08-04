@@ -1,14 +1,4 @@
 impl SystemRuntimeExecutor {
-    fn is_saved_game_window(&self, window_id: &str) -> Result<bool, String> {
-        match self.core.invoke(CoreCommand::GameWindowGet {
-            id: window_id.to_owned(),
-        }) {
-            Ok(_) => Ok(true),
-            Err(error) if error.payload().code == "GAME_WINDOW_NOT_FOUND" => Ok(false),
-            Err(error) => Err(error.to_string()),
-        }
-    }
-
     pub fn new(app: AppHandle, user_data_dir: PathBuf, core: Arc<AppCore>) -> Result<Self, String> {
         let settings = core
             .invoke(CoreCommand::GameBrowserSettingsGet)
@@ -125,6 +115,8 @@ impl SystemRuntimeExecutor {
             Arc::clone(&operations),
             Arc::clone(&focus_broker),
         )?;
+        let window_state_persistence = WindowStatePersistCoordinator::default();
+        window_state_persistence.seed(&game_windows);
         Ok(Self {
             app,
             close_effect_senders: OnceLock::new(),
@@ -182,7 +174,7 @@ impl SystemRuntimeExecutor {
                 saved_window_names,
                 ..RuntimeState::default()
             }),
-            window_state_persistence: WindowStatePersistCoordinator::default(),
+            window_state_persistence,
             user_data_dir,
         })
     }

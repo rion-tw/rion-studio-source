@@ -28,7 +28,7 @@ use rion_core::{
     GameWindowPlacementRecord, GameWindowRuntimeSnapshotCommitInputRecord,
     GameWindowRoleSlotRecord, GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowTabRecord,
-    GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
+    HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroInputDiagnosticsRecord, MacroInputEpochRecord, RuntimeTabMutationRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,

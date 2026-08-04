@@ -185,7 +185,7 @@ fn monitor_background_tab_presentation(runtime: Arc<SystemRuntimeExecutor>, oper
 }
 
 pub(crate) fn commit_previewed_tab_selection(
-    app: &AppHandle,
+    _app: &AppHandle,
     state: &CoreState,
     window_id: &str,
     tab_id: &str,
@@ -199,7 +199,6 @@ pub(crate) fn commit_previewed_tab_selection(
         .tab_selection_commit
         .request(TabSelectionCommitRequest {
             activation_operation_id: activation_operation_id.map(str::to_owned),
-            app: app.clone(),
             core: Arc::clone(&state.core),
             runtime: Arc::clone(&state.runtime),
             tab_id: tab_id.to_owned(),

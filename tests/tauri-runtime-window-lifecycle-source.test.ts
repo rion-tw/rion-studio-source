@@ -3,6 +3,21 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
+  it("keeps Core active-tab metadata as a silent background projection", async () => {
+    const selection = await readFile(
+      new URL(
+        "../src-tauri/src/lib/section_01_tab_selection_commit.rs",
+        import.meta.url
+      ),
+      "utf8"
+    );
+
+    expect(selection).toContain("Background active-tab projection remains pending");
+    expect(selection).toContain("TabActivationComponentStatus::Superseded");
+    expect(selection).not.toContain("The active tab metadata did not converge");
+    expect(selection).not.toContain("reveal_shell_error(&request.app");
+  });
+
   it("commits terminal drag topology without replaying the native presentation", async () => {
     const core = await readFile(
       new URL(
@@ -83,8 +98,10 @@ describe("runtime window lifecycle authority", () => {
     expect(close).toContain("current_window_close_in_progress");
     expect(tabClose).toContain("if !self.current_window_close_in_progress(&window_id)");
     expect(persistence).toContain("if self.current_window_close_in_progress(window_id)");
-    expect(saveInput).toContain("LiveWindowTabState owns which tabs are saved");
+    expect(saveInput).toContain("Persistence is a projection of the already-committed in-memory UI state");
     expect(saveInput).toMatch(/live_window\s*\.tabs/);
+    expect(saveInput).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
+    expect(saveInput).not.toContain("current_monitor()");
     expect(saveInput).not.toContain("snapshot.tabs.iter().any(|tab| tab.id == *tab_id)");
   });
 

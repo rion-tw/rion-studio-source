@@ -128,9 +128,8 @@ pub(crate) async fn handle_game_window_tab_drag(
                 {
                     // A new native NSDraggingSession proves the previous one
                     // has ended even if AppKit omitted its terminal callback.
-                    // macOS moves the live presentation during the gesture, so
-                    // restore that provisional presentation before accepting a
-                    // new gesture instead of leaving an orphaned surface move.
+                    // Held gestures are AppKit-local, so cancellation only
+                    // retires the old intent and visual suppression.
                     if let Some(abandoned) = take_tab_drag_session(state, &abandoned_session_id)? {
                         let _ = finish_cancelled_tab_drag(app, state, abandoned)?;
                     }
@@ -150,10 +149,22 @@ pub(crate) async fn handle_game_window_tab_drag(
                     shell_error("TAURI_TAB_DRAG_INVALID", "Runtime tab ID is required.")
                 })?;
             let (screen_x, screen_y) = drag_screen_point(app, action, false)?;
-            let title = state
+            let title = match state
                 .runtime
                 .tab_drag_source_title(source_window_id, tab_id)
-                .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
+            {
+                Ok(title) => title,
+                Err(message) => {
+                    eprintln!(
+                        "Late AppKit tab drag start was retired: tab={tab_id} window={source_window_id} error={message}"
+                    );
+                    return Ok(Some(superseded_tab_drag_response(
+                        session_id,
+                        event_sequence,
+                        intent_generation,
+                    )));
+                }
+            };
             let grab_ratio_x = drag_fraction(action, "grabRatioX")?;
             let grab_ratio_y = drag_fraction(action, "grabRatioY")?;
             let tab_width = drag_dimension(action, "tabWidth")?;
@@ -543,20 +554,13 @@ fn process_tab_drag_motion(
         if target_window_id == session.current_window_id && ordered_tab_ids.is_none() {
             return store_tab_drag_session_progress(state, session);
         }
-        if cfg!(target_os = "macos")
-            && matches!(session.phase, GameWindowTabDragPhase::Floating)
-            && ordered_tab_ids.is_none()
-        {
-            preview_parked_tab_drag_hover(state, &mut session, &target_window_id)?;
-        } else {
-            attach_tab_drag_session(
-                state,
-                &mut session,
-                &target_window_id,
-                before_tab_id,
-                ordered_tab_ids,
-            )?;
-        }
+        attach_tab_drag_session(
+            state,
+            &mut session,
+            &target_window_id,
+            before_tab_id,
+            ordered_tab_ids,
+        )?;
         if let Some(ordered_tab_ids) = ordered_tab_ids {
             session.drop_window_id = Some(target_window_id);
             session.drop_before_tab_id = before_tab_id
@@ -597,7 +601,7 @@ fn attach_tab_drag_session(
     if ownership_changed {
         state
             .runtime
-            .provisionally_move_tab(&session.tab_id, target_window_id)
+            .provisionally_move_tab_for_live_drag(&session.tab_id, target_window_id)
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
         restore_left_tab_drag_window(state, session, &previous_window_id)?;
     }
@@ -622,36 +626,6 @@ fn attach_tab_drag_session(
     Ok(())
 }
 
-fn preview_parked_tab_drag_hover(
-    state: &CoreState,
-    session: &mut GameWindowTabDragSession,
-    target_window_id: &str,
-) -> Result<(), CoreErrorPayload> {
-    if target_window_id == session.provisional_window_id {
-        return Ok(());
-    }
-    if !session.snapshots.contains_key(target_window_id) {
-        let snapshot = state
-            .runtime
-            .tab_drag_window_snapshot(target_window_id)
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        session
-            .snapshots
-            .insert(target_window_id.to_owned(), snapshot);
-    }
-    state
-        .runtime
-        .begin_tab_drag_window_motion(target_window_id);
-    if session.hover_window_id.as_deref() != Some(target_window_id) {
-        state
-            .runtime
-            .hide_tab_drag_window(&session.provisional_window_id)
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        session.hover_window_id = Some(target_window_id.to_owned());
-    }
-    Ok(())
-}
-
 fn float_tab_drag_session(
     app: &AppHandle,
     state: &CoreState,
@@ -668,7 +642,7 @@ fn float_tab_drag_session(
     if previous_window_id != floating_window_id {
         state
             .runtime
-            .provisionally_move_tab(&session.tab_id, &floating_window_id)
+            .provisionally_move_tab_for_live_drag(&session.tab_id, &floating_window_id)
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
         restore_left_tab_drag_window(state, session, &previous_window_id)?;
     }

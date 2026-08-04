@@ -68,6 +68,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         target_window_id: &str,
         reveal_hidden_target: bool,
+        live_drag: bool,
     ) -> Result<(), String> {
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Presentation,
@@ -81,6 +82,7 @@ impl SystemRuntimeExecutor {
             tab_id,
             target_window_id,
             reveal_hidden_target,
+            live_drag,
         );
         self.record_native_operation_receipt(receipt_for_string_result(
             operation,

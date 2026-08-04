@@ -38,7 +38,6 @@ NS_ASSUME_NONNULL_BEGIN
                                     atPoint:(NSPoint)point
                                      inView:(NSView *)view
                                  grabRatioX:(CGFloat)grabRatioX;
-- (void)hideDragSurfaceForTabIdentifier:(NSString *)tabIdentifier;
 - (void)resetTabDragInsertionState;
 - (void)hideInsertionIndicator;
 - (void)hideExternalDragGhost;
@@ -93,32 +92,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateFullscreenToolbarPresentationPolicy;
 - (BOOL)updateTitlebarButtonPositionsForFrameView:(nullable NSView *)frameView;
 - (void)updateInsertionIndicatorBeforeIdentifier:(nullable NSString *)identifier;
-- (void)showExternalDragGhostBeforeIdentifier:(nullable NSString *)identifier
+- (void)showExternalDragGhostForTabIdentifier:(NSString *)tabIdentifier
+                             beforeIdentifier:(nullable NSString *)identifier
                                          width:(CGFloat)width;
 - (nullable NSView *)toolbarHostView;
-
-@end
-
-@implementation RionRuntimeTabModel
-@end
-
-@implementation RionRuntimeDraggableView
-
-- (BOOL)isFlipped {
-  return YES;
-}
-
-- (BOOL)mouseDownCanMoveWindow {
-  return YES;
-}
-
-@end
-
-@implementation RionRuntimeWindowNameField
-
-- (BOOL)mouseDownCanMoveWindow {
-  return YES;
-}
 
 @end
 
@@ -126,62 +103,6 @@ static void *RionRuntimeTrafficLightObservationContext =
     &RionRuntimeTrafficLightObservationContext;
 static void *RionRuntimeContentLayoutObservationContext =
     &RionRuntimeContentLayoutObservationContext;
-
-@implementation RionRuntimeBackdropView
-
-- (BOOL)isFlipped {
-  return YES;
-}
-
-- (BOOL)mouseDownCanMoveWindow {
-  return YES;
-}
-
-@end
-
-@implementation RionRuntimeVerticallyCenteredTextFieldCell
-
-- (NSRect)titleRectForBounds:(NSRect)bounds {
-  NSRect titleRect = [super titleRectForBounds:bounds];
-  NSFont *font = self.font;
-  if (!font || NSHeight(bounds) <= 0) return titleRect;
-
-  CGFloat metricHeight =
-      ceil(font.ascender - font.descender + font.leading);
-  CGFloat titleHeight = MIN(NSHeight(bounds), MAX(0, metricHeight));
-  titleRect.origin.y =
-      NSMinY(bounds) + (NSHeight(bounds) - titleHeight) / 2.0;
-  titleRect.size.height = titleHeight;
-  return titleRect;
-}
-
-- (void)drawInteriorWithFrame:(NSRect)cellFrame
-                       inView:(NSView *)controlView {
-  [super drawInteriorWithFrame:[self titleRectForBounds:cellFrame]
-                        inView:controlView];
-}
-
-@end
-
-@implementation RionRuntimeHorizontalScrollView
-
-- (void)scrollWheel:(NSEvent *)event {
-  if (std::fabs(event.scrollingDeltaX) >= std::fabs(event.scrollingDeltaY)) {
-    [super scrollWheel:event];
-    return;
-  }
-  NSClipView *clipView = self.contentView;
-  CGFloat scale = event.hasPreciseScrollingDeltas ? 1.0 : 14.0;
-  CGFloat maximumOrigin =
-      MAX(0, self.documentView.frame.size.width - clipView.bounds.size.width);
-  CGFloat originX = MIN(
-      maximumOrigin,
-      MAX(0, clipView.bounds.origin.x - event.scrollingDeltaY * scale));
-  [clipView scrollToPoint:NSMakePoint(originX, clipView.bounds.origin.y)];
-  [self reflectScrolledClipView:clipView];
-}
-
-@end
 
 static BOOL RionRuntimeUsesDarkAppearance(NSAppearance *appearance) {
   NSAppearanceName match = [appearance
@@ -356,8 +277,6 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _dragStarted;
   BOOL _dragPreviewYLocked;
   CGFloat _dragPreviewLockedScreenY;
-  NSImage *_dragPreviewImage;
-  BOOL _appKitDragPreviewVisible;
   NSTimeInterval _lastDragMoveDispatchTime;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
@@ -626,36 +545,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 - (void)beginDragPreviewSession:(NSDraggingSession *)session
                   lockedScreenY:(CGFloat)screenY {
   _activeDraggingSession = session;
-  NSBitmapImageRep *representation =
-      [self bitmapImageRepForCachingDisplayInRect:self.bounds];
-  if (representation) {
-    [self cacheDisplayInRect:self.bounds toBitmapImageRep:representation];
-    _dragPreviewImage = [[NSImage alloc] initWithSize:self.bounds.size];
-    [_dragPreviewImage addRepresentation:representation];
-  }
-  _appKitDragPreviewVisible = NO;
   _lastDragMoveDispatchTime = 0;
   [self lockDragPreviewToScreenY:screenY];
-}
-
-- (void)setAppKitDragPreviewVisible:(BOOL)visible {
-  if (!_activeDraggingSession || _appKitDragPreviewVisible == visible) return;
-  _appKitDragPreviewVisible = visible;
-  NSImage *contents = visible && _dragPreviewImage
-      ? _dragPreviewImage
-      : RionRuntimeTransparentDragImage();
-  [_activeDraggingSession
-      enumerateDraggingItemsWithOptions:0
-                                forView:nil
-                                classes:@[ NSPasteboardItem.class ]
-                          searchOptions:@{}
-                             usingBlock:^(NSDraggingItem *draggingItem,
-                                          NSInteger index, BOOL *stop) {
-    (void)index;
-    (void)stop;
-    [draggingItem setDraggingFrame:draggingItem.draggingFrame
-                          contents:contents];
-  }];
 }
 
 - (void)lockDragPreviewToScreenY:(CGFloat)screenY {
@@ -701,9 +592,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
               operation:(NSDragOperation)operation {
   (void)session;
   [self clearDragPreviewYLock];
-  [self setAppKitDragPreviewVisible:NO];
   _activeDraggingSession = nil;
-  _dragPreviewImage = nil;
   _lastDragMoveDispatchTime = 0;
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =

@@ -4,6 +4,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         target_window_id: &str,
         reveal_hidden_target: bool,
+        live_drag: bool,
     ) -> Result<(), String> {
         let (source_window_id, source_window, target_window, surfaces) = {
             let state = self
@@ -42,9 +43,20 @@ impl SystemRuntimeExecutor {
         if source_window_id == target_window_id {
             return Ok(());
         }
+        let presentation_precommitted = self
+            .presentation
+            .window_contains_tab(target_window_id, tab_id)
+            && !self
+                .presentation
+                .window_contains_tab(&source_window_id, tab_id);
+        let presentation_window_id = if presentation_precommitted {
+            target_window_id
+        } else {
+            source_window_id.as_str()
+        };
         let tab_presentation = self
             .presentation
-            .tab(&source_window_id, tab_id)
+            .tab(presentation_window_id, tab_id)
             .ok_or_else(|| "Runtime tab presentation was not found.".to_owned())?;
         let selected_tabs_before_move = self.presentation.selected_tabs();
         let mut native_move = ProvisionalNativeTabMove {
@@ -55,7 +67,11 @@ impl SystemRuntimeExecutor {
             target_active_after_move: None,
             target_active_before_move: selected_tabs_before_move.get(target_window_id).cloned(),
         };
-        let tab_was_visible = native_move.source_active_before_move.as_deref() == Some(tab_id);
+        let tab_was_visible = if presentation_precommitted {
+            native_move.target_active_before_move.as_deref() == Some(tab_id)
+        } else {
+            native_move.source_active_before_move.as_deref() == Some(tab_id)
+        };
         let source_window_was_visible = source_window
             .is_visible()
             .map_err(|error| error.to_string())?;
@@ -63,23 +79,26 @@ impl SystemRuntimeExecutor {
             .is_visible()
             .map_err(|error| error.to_string())?;
 
-        for surface in &surfaces {
-            if let Err(error) = surface.hide() {
-                let rollback_errors = self.rollback_provisional_tab_move(
-                    tab_id,
-                    &source_window_id,
-                    target_window_id,
-                    &source_window,
-                    &target_window,
-                    &surfaces,
-                    0,
-                    false,
-                    &native_move,
-                    tab_was_visible,
-                    source_window_was_visible,
-                    target_window_was_visible,
-                );
-                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+        let hide_surfaces_before_reparent = !(cfg!(target_os = "macos") && live_drag);
+        if hide_surfaces_before_reparent {
+            for surface in &surfaces {
+                if let Err(error) = surface.hide() {
+                    let rollback_errors = self.rollback_provisional_tab_move(
+                        tab_id,
+                        &source_window_id,
+                        target_window_id,
+                        &source_window,
+                        &target_window,
+                        &surfaces,
+                        0,
+                        false,
+                        &native_move,
+                        tab_was_visible,
+                        source_window_was_visible,
+                        target_window_was_visible,
+                    );
+                    return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+                }
             }
         }
         for (index, surface) in surfaces.iter().enumerate() {
@@ -234,9 +253,13 @@ impl SystemRuntimeExecutor {
             );
         }
         let move_revision = self.presentation.next_revision();
-        if let Err(message) =
-            self.presentation
-                .move_tab(tab_id, &source_window_id, target_window_id, move_revision)
+        if !presentation_precommitted
+            && let Err(message) = self.presentation.move_tab(
+                tab_id,
+                &source_window_id,
+                target_window_id,
+                move_revision,
+            )
         {
             let rollback_errors = self.rollback_provisional_tab_move(
                 tab_id,
@@ -263,7 +286,7 @@ impl SystemRuntimeExecutor {
         let workspace_template = native_move.tab.workspace_template.as_deref();
         #[cfg(not(any(windows, target_os = "macos")))]
         let workspace_template: Option<&str> = None;
-        if let Err(error) = self.relocate_native_tab_reservation(
+        if !presentation_precommitted && let Err(error) = self.relocate_native_tab_reservation(
             &source_window_id,
             target_window_id,
             tab_id,
@@ -293,7 +316,7 @@ impl SystemRuntimeExecutor {
             );
             return Err(self.provisional_move_error(error.message, rollback_errors));
         }
-        native_move.relocated = true;
+        native_move.relocated = !presentation_precommitted;
         let source_presentation_result = if let Some(source_active_tab_id) =
             native_move.source_active_after_move.as_deref()
         {
@@ -313,6 +336,9 @@ impl SystemRuntimeExecutor {
             Ok(())
         };
         if let Err(message) = source_presentation_result {
+            if presentation_precommitted {
+                return Err(message);
+            }
             let rollback_errors = self.rollback_provisional_tab_move(
                 tab_id,
                 &source_window_id,
@@ -336,11 +362,15 @@ impl SystemRuntimeExecutor {
             "provisional-move",
         );
         let reveal_result = (|| {
-            self.layout_runtime_tab(tab_id)
-                .map_err(|error| error.message)?;
+            if !(cfg!(target_os = "macos") && live_drag) {
+                self.layout_runtime_tab(tab_id)
+                    .map_err(|error| error.message)?;
+            }
             if tab_was_visible {
                 for surface in &surfaces {
-                    surface.show().map_err(|error| error.to_string())?;
+                    if hide_surfaces_before_reparent {
+                        surface.show().map_err(|error| error.to_string())?;
+                    }
                 }
                 if reveal_hidden_target || target_window_was_visible {
                     target_window.show().map_err(|error| error.to_string())?;
@@ -352,6 +382,9 @@ impl SystemRuntimeExecutor {
             Ok::<(), String>(())
         })();
         if let Err(message) = reveal_result {
+            if presentation_precommitted {
+                return Err(message);
+            }
             let rollback_errors = self.rollback_provisional_tab_move(
                 tab_id,
                 &source_window_id,
@@ -368,21 +401,36 @@ impl SystemRuntimeExecutor {
             );
             return Err(self.provisional_move_error(message, rollback_errors));
         }
+        if cfg!(target_os = "macos") && live_drag {
+            self.schedule_live_tab_drag_layout(tab_id.to_owned());
+        }
         self.publish_projection();
         Ok(())
+    }
+
+    fn schedule_live_tab_drag_layout(&self, tab_id: String) {
+        let Some(runtime) = self.self_weak.get().cloned() else {
+            return;
+        };
+        let _ = thread::Builder::new()
+            .name(format!("rion-tab-drag-layout-{tab_id}"))
+            .spawn(move || {
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                if let Err(error) = runtime.layout_runtime_tab(&tab_id) {
+                    eprintln!(
+                        "Live tab drag layout projection will retry through normal window layout: tab={tab_id} error={}",
+                        error.message
+                    );
+                }
+            });
     }
 
     pub(crate) fn show_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
         self.window_for_id(window_id)
             .ok_or_else(|| "Tab drag window was not found.".to_owned())?
             .show()
-            .map_err(|error| error.to_string())
-    }
-
-    pub(crate) fn hide_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
-        self.window_for_id(window_id)
-            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
-            .hide()
             .map_err(|error| error.to_string())
     }
 

@@ -779,7 +779,15 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         target_window_id: &str,
     ) -> Result<(), String> {
-        self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false)
+        self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false, false)
+    }
+
+    pub(crate) fn provisionally_move_tab_for_live_drag(
+        &self,
+        tab_id: &str,
+        target_window_id: &str,
+    ) -> Result<(), String> {
+        self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false, true)
     }
 
 }

@@ -26,6 +26,15 @@ async fn begin_shell_launch_presentation(
     source_id: &str,
     tab_type: &'static str,
 ) -> Result<Option<crate::system_runtime::LaunchPreviewHandle>, CoreErrorPayload> {
+    for _ in 0..400 {
+        if !state
+            .runtime
+            .launcher_source_is_closing(source_id, tab_type)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
     if let Some(tab_id) = state
         .runtime
         .presented_tab_for_launcher_source(source_id, tab_type)

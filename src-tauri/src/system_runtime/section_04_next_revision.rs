@@ -412,6 +412,7 @@ struct RuntimeState {
     popup_roles: HashMap<String, String>,
     active_provisional_launches: HashMap<String, String>,
     provisional_launches: HashMap<String, ProvisionalLaunch>,
+    role_placeholder_identities: HashMap<String, RuntimeRolePlaceholderIdentity>,
     automatic_launch_retries: HashMap<String, u8>,
     retryable_failed_launches: HashSet<String>,
     recovery_required: bool,

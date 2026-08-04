@@ -16,16 +16,18 @@ use crate::native_projection::RevisionedJsonProjection;
 
 use rion_core::{
     AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
-    BrowserLaunchCompletionRecord,
+    BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
     DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
-    EmbeddedRoleLoadEffectRecord, EmbeddedTabEffectRecord, EngineCapabilitySnapshotRecord,
+    EmbeddedRoleLoadEffectRecord, EmbeddedRoleSlotEffectRecord, EmbeddedTabEffectRecord,
+    EngineCapabilitySnapshotRecord,
     EngineCapabilityEvidenceRecord, EngineCapabilityStatus, GameBrowserSettingsRecord,
     GameWindowPlacementRecord,
-    GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
+    GameWindowRoleSlotRecord, GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord,
+    GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroInputDiagnosticsRecord, MacroInputEpochRecord, RuntimeTabMutationRequestRecord,
@@ -614,6 +616,35 @@ struct RoleSurface {
     webview: Webview,
     zoom_factor: f64,
     zoom_mode: String,
+}
+
+struct RolePlaceholderSurface {
+    surface_instance_id: String,
+    webview: Webview,
+}
+
+struct RuntimeRoleSlot {
+    owner_generation: Option<u64>,
+    placeholder: Option<RolePlaceholderSurface>,
+    rect: StateNormalizedRectRecord,
+    role: StateRoleRecord,
+    slot_id: String,
+    zoom_factor: f64,
+    zoom_mode: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RuntimeRolePlaceholderIdentity {
+    pub(crate) blocked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) owner_generation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) owner_tab_name: Option<String>,
+    pub(crate) role_id: String,
+    pub(crate) role_name: String,
+    pub(crate) slot_id: String,
+    pub(crate) tab_id: String,
 }
 
 struct ReleasedRoleSurface {

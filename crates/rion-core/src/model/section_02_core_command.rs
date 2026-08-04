@@ -525,6 +525,18 @@ pub enum CoreCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "launchPreviewId")]
         launch_preview_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "restoreRoleSlots")]
+        restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
+    },
+    BrowserRoleSlotClaim {
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "slotId")]
+        slot_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "expectedOwnerGeneration", type = "number")]
+        expected_owner_generation: Option<u64>,
     },
     BrowserRoleStop {
         #[ts(rename = "roleId")]
@@ -575,6 +587,7 @@ impl CoreCommand {
                 | Self::OverlayRequest { .. }
                 | Self::BrowserRoleLaunch { .. }
                 | Self::BrowserWorkspaceLaunch { .. }
+                | Self::BrowserRoleSlotClaim { .. }
                 | Self::BrowserRoleStop { .. }
                 | Self::BrowserWorkspaceStop { .. }
         )

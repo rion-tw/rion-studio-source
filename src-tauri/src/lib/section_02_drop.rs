@@ -247,14 +247,14 @@ fn preview_game_window_close(
         .tabs
         .iter()
         .filter(|tab| tab.window_id == window_id)
-        .flat_map(|tab| tab.role_ids.iter().cloned())
+        .flat_map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()))
         .collect::<HashSet<_>>();
     let launching = snapshot
         .roles
         .iter()
         .any(|role| role_ids.contains(&role.role_id) && role.state == "launching")
         || snapshot.workspaces.iter().any(|workspace| {
-            workspace.window_id.as_deref() == Some(window_id) && workspace.state == "launching"
+            workspace.window_id == window_id && workspace.state == "launching"
         });
     let macro_statuses = core
         .invoke(CoreCommand::MacroStatuses)

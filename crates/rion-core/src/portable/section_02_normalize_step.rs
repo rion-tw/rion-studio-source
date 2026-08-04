@@ -635,9 +635,9 @@ fn validate_portable_target_snapshot(snapshot: &CoreStateSnapshotRecord) -> Core
         };
         if !source_exists
             || tab
-                .role_ids
+                .role_slots
                 .iter()
-                .any(|role_id| !role_ids.contains(role_id.as_str()))
+                .any(|slot| !role_ids.contains(slot.role_id.as_str()))
         {
             return Err(invalid(
                 "portable import target game window references a missing source",

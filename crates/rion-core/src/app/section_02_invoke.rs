@@ -786,6 +786,7 @@ impl AppCore {
             | CoreCommand::OverlayRequest { .. }
             | CoreCommand::BrowserRoleLaunch { .. }
             | CoreCommand::BrowserWorkspaceLaunch { .. }
+            | CoreCommand::BrowserRoleSlotClaim { .. }
             | CoreCommand::BrowserRoleStop { .. }
             | CoreCommand::BrowserWorkspaceStop { .. }
             | CoreCommand::EmbeddedTabStop { .. }

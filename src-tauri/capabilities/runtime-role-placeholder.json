@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "runtime-role-placeholder-local-only",
+  "description": "Allows only registered bundled role placeholder WebViews to request a generation-fenced role slot claim.",
+  "local": true,
+  "webviews": ["role-placeholder-*"],
+  "permissions": ["allow-rion-runtime-role-slot-action"]
+}

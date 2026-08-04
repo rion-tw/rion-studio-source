@@ -30,6 +30,10 @@ impl SystemRuntimeExecutor {
                 self.destroy_role(&role_id)?;
                 Ok(None)
             }
+            CoreEffectAction::EmbeddedClaimRoleSlot { tab_id, slot, role } => {
+                self.claim_role_slot_surface(&tab_id, *slot, *role)?;
+                Ok(None)
+            }
             CoreEffectAction::EmbeddedDestroyTab {
                 tab_id,
                 attempt_generation,

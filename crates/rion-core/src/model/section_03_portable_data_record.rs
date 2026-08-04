@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "15")]
+    #[ts(type = "16")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,

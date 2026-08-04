@@ -54,6 +54,7 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
         CoreEffectAction::EmbeddedInstallOverlays { .. } => "embeddedInstallOverlays",
         CoreEffectAction::EmbeddedFocusRole { .. } => "embeddedFocusRole",
         CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
+        CoreEffectAction::EmbeddedClaimRoleSlot { .. } => "embeddedClaimRoleSlot",
         CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
         CoreEffectAction::EmbeddedApplyRuntime { .. } => "embeddedApplyRuntime",
         CoreEffectAction::OverlayOpenMacroPage { .. } => "overlayOpenMacroPage",
@@ -322,6 +323,7 @@ async fn rollback_workspace_conflicts(
                 workspace_id: plan.source_id.clone(),
                 target: plan.target.clone(),
                 launch_preview_id: None,
+                restore_role_slots: None,
             }
         } else {
             CoreCommand::BrowserRoleLaunch {
@@ -454,11 +456,6 @@ async fn begin_saved_window_takeover(
     game_windows: &[StateGameWindowRecord],
 ) -> Result<SavedWindowTakeover, CoreErrorPayload> {
     let snapshot = browser_runtime_snapshot(state)?;
-    let desired_roles = saved
-        .tabs
-        .iter()
-        .flat_map(|tab| tab.role_ids.iter().cloned())
-        .collect::<HashSet<_>>();
     let desired_sources = saved
         .tabs
         .iter()
@@ -475,11 +472,7 @@ async fn begin_saved_window_takeover(
         .iter()
         .filter(|tab| {
             tab.window_id != saved.id
-                && (desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
-                    || tab
-                        .role_ids
-                        .iter()
-                        .any(|role_id| desired_roles.contains(role_id)))
+                && desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
         })
         .cloned()
         .collect::<Vec<_>>();

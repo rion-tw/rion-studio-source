@@ -304,7 +304,9 @@ impl SystemRuntimeExecutor {
         expected_tab_id: Option<&str>,
     ) -> RuntimeResult<()> {
         let released = self.release_marked_role_surfaces(role_id, expected_tab_id)?;
-        self.commit_released_role(released)
+        self.commit_released_role(&released)?;
+        self.create_available_placeholder(&released)?;
+        self.refresh_role_placeholders(role_id, None)
     }
 
     fn release_marked_role_surfaces(
@@ -409,7 +411,7 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    fn commit_released_role(&self, released: ReleasedRoleSurface) -> RuntimeResult<()> {
+    fn commit_released_role(&self, released: &ReleasedRoleSurface) -> RuntimeResult<()> {
         let mut state = self.state()?;
         let current_tab_id = state
             .role_tabs
@@ -456,6 +458,94 @@ impl SystemRuntimeExecutor {
             .roles
             .remove(&released.role_id);
         Ok(())
+    }
+
+    fn create_available_placeholder(
+        &self,
+        released: &ReleasedRoleSurface,
+    ) -> RuntimeResult<()> {
+        let (window, window_id, slot, selected) = {
+            let state = self.state()?;
+            let tab = state.tabs.get(&released.tab_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_CLOSE_STALE",
+                    "The role tab disappeared before its placeholder could be restored.",
+                )
+            })?;
+            let slot = tab
+                .slots
+                .values()
+                .find(|slot| slot.role.id == released.role_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_ROLE_SLOT_NOT_FOUND",
+                        "The stopped role no longer has a runtime slot.",
+                    )
+                })?;
+            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
+                    "The runtime display host closed before the placeholder was restored.",
+                )
+            })?;
+            let selected = self
+                .presentation
+                .existing(&tab.window_id)
+                .and_then(|presentation| {
+                    presentation.lock().ok().map(|presentation| {
+                        presentation.selected_tab_id.as_deref() == Some(released.tab_id.as_str())
+                    })
+                })
+                .unwrap_or(false);
+            (
+                host.window.clone(),
+                tab.window_id.clone(),
+                EmbeddedRoleSlotEffectRecord {
+                    owner: None,
+                    rect: slot.rect.clone(),
+                    role: slot.role.clone(),
+                    slot_id: slot.slot_id.clone(),
+                    state: "available".to_owned(),
+                    zoom_factor: slot.zoom_factor,
+                    zoom_mode: slot.zoom_mode.clone(),
+                },
+                selected,
+            )
+        };
+        let metrics = runtime_window_content_metrics(&window)?;
+        let bounds = role_bounds_for_content(metrics, &slot.rect);
+        let placeholder = self.create_role_placeholder(
+            &window,
+            &window_id,
+            &released.tab_id,
+            &slot,
+            bounds,
+            selected,
+        )?;
+        let inserted = {
+            let mut state = self.state()?;
+            state
+                .tabs
+                .get_mut(&released.tab_id)
+                .and_then(|tab| tab.slots.get_mut(&slot.slot_id))
+                .filter(|runtime_slot| runtime_slot.placeholder.is_none())
+                .map(|runtime_slot| {
+                    runtime_slot.owner_generation = None;
+                    runtime_slot.placeholder = Some(RolePlaceholderSurface {
+                        surface_instance_id: placeholder.surface_instance_id.clone(),
+                        webview: placeholder.webview.clone(),
+                    });
+                })
+                .is_some()
+        };
+        if !inserted {
+            self.close_role_placeholder_surface(placeholder)?;
+            return Err(RuntimeError::new(
+                "SYSTEM_SURFACE_CLOSE_STALE",
+                "The runtime role slot changed before its placeholder could commit.",
+            ));
+        }
+        self.layout_runtime_tab_inner(&released.tab_id)
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
@@ -541,6 +631,30 @@ impl SystemRuntimeExecutor {
             };
             for (_, instance_id, _) in &released_dividers {
                 self.close_managed_divider(instance_id)?;
+            }
+            let released_placeholders = {
+                let state = self.state()?;
+                state
+                    .tabs
+                    .get(tab_id)
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_SURFACE_CLOSE_STALE",
+                            "The runtime tab disappeared during placeholder cleanup.",
+                        )
+                    })?
+                    .slots
+                    .values()
+                    .filter_map(|slot| {
+                        slot.placeholder.as_ref().map(|placeholder| RolePlaceholderSurface {
+                            surface_instance_id: placeholder.surface_instance_id.clone(),
+                            webview: placeholder.webview.clone(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for placeholder in released_placeholders {
+                self.close_role_placeholder_surface(placeholder)?;
             }
 
             let mut state = self.state()?;

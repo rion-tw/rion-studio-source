@@ -320,8 +320,11 @@ const gameWindow: GameWindow = {
     tabType: "role",
     sourceId: "role-1",
     name: "Mina",
-    roleIds: ["role-1"],
-    roleViews: [],
+    roleSlots: [{
+      slotId: "slot-role-1",
+      roleId: "role-1",
+      rect: { x: 0, y: 0, width: 1, height: 1 }
+    }],
     hidden: false,
     audioMuted: false
   }],
@@ -340,8 +343,28 @@ const multiTabGameWindow: GameWindow = {
   ...gameWindow,
   tabs: [
     gameWindow.tabs[0],
-    { ...gameWindow.tabs[0], id: "tab-2", name: "Rhea", roleIds: ["role-2"], sourceId: "role-2" },
-    { ...gameWindow.tabs[0], id: "tab-3", name: "Sora", roleIds: ["role-3"], sourceId: "role-3" }
+    {
+      ...gameWindow.tabs[0],
+      id: "tab-2",
+      name: "Rhea",
+      roleSlots: [{
+        slotId: "slot-role-2",
+        roleId: "role-2",
+        rect: { x: 0, y: 0, width: 1, height: 1 }
+      }],
+      sourceId: "role-2"
+    },
+    {
+      ...gameWindow.tabs[0],
+      id: "tab-3",
+      name: "Sora",
+      roleSlots: [{
+        slotId: "slot-role-3",
+        roleId: "role-3",
+        rect: { x: 0, y: 0, width: 1, height: 1 }
+      }],
+      sourceId: "role-3"
+    }
   ]
 };
 
@@ -364,6 +387,7 @@ const runtime: EmbeddedRuntimeState = {
     type: "role",
     sourceId: "role-1",
     roleIds: ["role-1"],
+    slots: [],
     name: "Mina",
     active: true,
     hidden: false,
@@ -384,7 +408,8 @@ const multiTabRuntime: EmbeddedRuntimeState = {
     windowId: "window-1",
     type: tab.tabType,
     sourceId: tab.sourceId,
-    roleIds: tab.roleIds,
+    roleIds: tab.roleSlots.map((slot) => slot.roleId),
+    slots: [],
     name: tab.name,
     active: index === 0,
     hidden: false,

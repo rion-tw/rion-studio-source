@@ -59,7 +59,7 @@ describe("Tauri shell contract guard", () => {
   });
 
   it("owns menus, quick-menu restore, tabs, dividers, and workspace launch requests in Tauri", async () => {
-    const [menu, quickMenu, quickMenuMac, nativeDockMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, roleCapability] = await Promise.all([
+    const [menu, quickMenu, quickMenuMac, nativeDockMenu, tabMenu, tabs, nativeTabs, nativeTabsHeader, nativeTabsBridge, nativeInput, shell, build, capability, placeholderCapability, roleCapability] = await Promise.all([
       readFile("src-tauri/src/application_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu.rs", "utf8"),
       readFile("src-tauri/src/quick_menu_macos.rs", "utf8"),
@@ -73,6 +73,7 @@ describe("Tauri shell contract guard", () => {
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/build.rs", "utf8"),
       readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
+      readFile("src-tauri/capabilities/runtime-role-placeholder.json", "utf8"),
       readFile("src-tauri/capabilities/system-role-overlay.json", "utf8")
     ]);
 
@@ -132,6 +133,7 @@ describe("Tauri shell contract guard", () => {
     expect(nativeTabsBridge).toContain("handle_game_window_tab_drag");
     expect(shell).toContain("rion_runtime_audio_state");
     expect(build).toContain('"rion_runtime_tab_action"');
+    expect(build).toContain('"rion_runtime_role_slot_action"');
     expect(build).toContain('"rion_divider_pointer"');
     expect(build).toContain('"rion_runtime_audio_state"');
     expect(build).toContain("clang_rt.osx");
@@ -146,6 +148,12 @@ describe("Tauri shell contract guard", () => {
       webviews: ["game-tab-strip-*", "game-divider-*"],
       permissions: ["allow-rion-divider-pointer", "allow-rion-runtime-tab-action"]
     });
+    expect(JSON.parse(placeholderCapability)).toMatchObject({
+      local: true,
+      webviews: ["role-placeholder-*"],
+      permissions: ["allow-rion-runtime-role-slot-action"]
+    });
+    expect(capability).not.toContain("allow-rion-runtime-role-slot-action");
     expect(JSON.parse(roleCapability)).toMatchObject({
       local: false,
       webviews: ["game-role-*"],
@@ -155,6 +163,7 @@ describe("Tauri shell contract guard", () => {
         "allow-rion-runtime-audio-state"
       ]
     });
+    expect(roleCapability).not.toContain("allow-rion-runtime-role-slot-action");
     expect(roleCapability).not.toContain("local-storage-sync");
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');
     expect(shell).toContain('"reorderGameWindowTab"');
@@ -162,8 +171,8 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain("rollback_workspace_conflicts(");
     expect(shell).toContain("restore_workspace_conflict_metadata(");
     expect(shell).toContain("TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED");
-    expect(shell).toContain("&rollback_plans[..=index]");
-    expect(shell).toContain("&rollback_plans[..stopped_count]");
+    expect(shell).toContain("rollback_workspace_conflicts(state, &plans[..index])");
+    expect(shell).toContain("rollback_workspace_conflicts(state, &plans)");
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 

@@ -183,24 +183,34 @@ impl SystemRuntimeExecutor {
             })?;
             (
                 host.window.clone(),
-                tab.roles
-                    .iter()
-                    .map(|(role_id, surface)| {
-                        (
-                            role_id.clone(),
-                            surface.webview.clone(),
-                            surface.zoom_factor,
-                            surface.zoom_mode.clone(),
-                            LayoutRoleInput {
-                                role_id: role_id.clone(),
-                                rect: LayoutRect {
-                                    x: surface.rect.x,
-                                    y: surface.rect.y,
-                                    width: surface.rect.width,
-                                    height: surface.rect.height,
-                                },
-                            },
-                        )
+                tab.slots
+                    .values()
+                    .filter_map(|slot| {
+                        let (webview, current_zoom, zoom_mode, role_surface) =
+                            if let Some(surface) = tab.roles.get(&slot.role.id) {
+                                (
+                                    surface.webview.clone(),
+                                    surface.zoom_factor,
+                                    surface.zoom_mode.clone(),
+                                    true,
+                                )
+                            } else {
+                                let placeholder = slot.placeholder.as_ref()?;
+                                (
+                                    placeholder.webview.clone(),
+                                    slot.zoom_factor,
+                                    slot.zoom_mode.clone(),
+                                    false,
+                                )
+                            };
+                        Some((
+                            slot.role.id.clone(),
+                            webview,
+                            current_zoom,
+                            zoom_mode,
+                            role_surface,
+                            runtime_role_slot_input(slot),
+                        ))
                     })
                     .collect::<Vec<_>>(),
                 tab.dividers
@@ -227,12 +237,12 @@ impl SystemRuntimeExecutor {
         let metrics = runtime_window_content_metrics(&window)?;
         let role_inputs = role_views
             .iter()
-            .map(|(_, _, _, _, input)| input.clone())
+            .map(|(_, _, _, _, _, input)| input.clone())
             .collect();
         let (role_bounds, divider_bounds) =
             self.resolve_runtime_layout(metrics, role_inputs, gap)?;
         let mut zoom_updates = Vec::with_capacity(role_views.len());
-        for (role_id, webview, current_zoom, zoom_mode, _) in &role_views {
+        for (role_id, webview, current_zoom, zoom_mode, role_surface, _) in &role_views {
             let Some(bounds) = role_bounds.get(role_id) else {
                 continue;
             };
@@ -241,13 +251,15 @@ impl SystemRuntimeExecutor {
             } else {
                 *current_zoom
             };
-            zoom_updates.push((
-                role_id.clone(),
-                webview.clone(),
-                base_zoom,
-                effective_zoom_factor(base_zoom, window_zoom_factor),
-                effective_zoom_factor(*current_zoom, window_zoom_factor),
-            ));
+            if *role_surface {
+                zoom_updates.push((
+                    role_id.clone(),
+                    webview.clone(),
+                    base_zoom,
+                    effective_zoom_factor(base_zoom, window_zoom_factor),
+                    effective_zoom_factor(*current_zoom, window_zoom_factor),
+                ));
+            }
         }
         let mut mutations = Vec::new();
         #[cfg(windows)]
@@ -260,7 +272,7 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(not(windows))]
         let _ = tab_strip;
-        for (role_id, webview, _, _, _) in &role_views {
+        for (role_id, webview, _, _, _, _) in &role_views {
             if let Some(bounds) = role_bounds.get(role_id) {
                 mutations.push(native_layout_bounds_mutation(
                     webview.clone(),

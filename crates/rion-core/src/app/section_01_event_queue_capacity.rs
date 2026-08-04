@@ -39,16 +39,18 @@ use crate::{
         CoreEffectDispatchReport, CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind,
         CoreEvent, CoreStateSnapshotRecord, DiagnosticExportResultRecord,
         EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-        EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord, GameBrowserSettingsPatchRecord,
-        GameBrowserSettingsRecord, GameWindowSaveRuntimeInputRecord, GameWindowTabRecord,
+        EmbeddedRoleSlotEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
+        GameBrowserSettingsPatchRecord,
+        GameBrowserSettingsRecord, GameWindowRoleSlotRecord, GameWindowSaveRuntimeInputRecord,
+        GameWindowTabRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, LogCaptureRecord, LogLevel,
         MacroInputDiagnosticsRecord, MacroInputEpochRecord, MacroOverlayRequestRecord,
         MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressRequest,
         MacroReleaseRequest, MacroSettingsRecord, MacroStartRequest,
         OperationCancelResultRecord, RolePathsRecord, RuntimeRestoreSessionRecord,
-        RuntimeWindowPreferencesRecord, StateCollection, StateGameRecord, StateGameWindowRecord,
-        StateLaunchWorkspaceRecord, StateMacroRecord, StateNormalizedRectRecord, StateRoleRecord,
-        SystemWebViewRuntimeRegistrationRecord,
+        RuntimeRoleSlotInputRecord, RuntimeWindowPreferencesRecord, StateCollection,
+        StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
+        StateNormalizedRectRecord, StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
     },
     scheduler::MonotonicScheduler,
 };
@@ -101,7 +103,16 @@ fn validate_runtime_game_window_snapshot(
                         || runtime_tab.tab_type != input_tab.tab_type
                         || runtime_tab.source_id != input_tab.source_id
                         || runtime_tab.name != input_tab.name
-                        || runtime_tab.role_ids != input_tab.role_ids
+                        || runtime_tab
+                            .slots
+                            .iter()
+                            .map(|slot| slot.role_id.as_str())
+                            .collect::<Vec<_>>()
+                            != input_tab
+                                .role_slots
+                                .iter()
+                                .map(|slot| slot.role_id.as_str())
+                                .collect::<Vec<_>>()
                         || runtime_tab.hidden != input_tab.hidden
                 })
         })

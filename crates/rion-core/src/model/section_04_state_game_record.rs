@@ -115,17 +115,90 @@ pub struct GameWindowRoleViewRecord {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowRoleSlotRecord {
+    pub slot_id: String,
+    pub role_id: String,
+    pub rect: StateNormalizedRectRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub browser_zoom_percent: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameWindowTabRecord {
     pub id: String,
     #[ts(type = "\"role\" | \"workspace\"")]
     pub tab_type: String,
     pub source_id: String,
     pub name: String,
-    pub role_ids: Vec<String>,
+    pub role_slots: Vec<GameWindowRoleSlotRecord>,
     pub hidden: bool,
     pub audio_muted: bool,
-    #[serde(default)]
-    pub role_views: Vec<GameWindowRoleViewRecord>,
+}
+
+impl<'de> Deserialize<'de> for GameWindowTabRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input {
+            id: String,
+            tab_type: String,
+            source_id: String,
+            name: String,
+            #[serde(default)]
+            role_slots: Vec<GameWindowRoleSlotRecord>,
+            #[serde(default)]
+            role_ids: Vec<String>,
+            #[serde(default)]
+            role_views: Vec<GameWindowRoleViewRecord>,
+            hidden: bool,
+            audio_muted: bool,
+        }
+        let input = Input::deserialize(deserializer)?;
+        let role_count = input.role_ids.len().max(1);
+        let role_slots = if input.role_slots.is_empty() {
+            input
+                .role_ids
+                .iter()
+                .enumerate()
+                .map(|(index, role_id)| {
+                    let view = input
+                        .role_views
+                        .iter()
+                        .find(|view| view.role_id == *role_id);
+                    GameWindowRoleSlotRecord {
+                        slot_id: format!("legacy:{index}:{role_id}"),
+                        role_id: role_id.clone(),
+                        rect: view.map(|view| view.rect.clone()).unwrap_or_else(|| {
+                            StateNormalizedRectRecord {
+                                x: index as f64 / role_count as f64,
+                                y: 0.0,
+                                width: 1.0 / role_count as f64,
+                                height: 1.0,
+                            }
+                        }),
+                        browser_zoom_percent: view.map(|view| view.browser_zoom_percent),
+                    }
+                })
+                .collect()
+        } else {
+            input.role_slots
+        };
+        Ok(Self {
+            id: input.id,
+            tab_type: input.tab_type,
+            source_id: input.source_id,
+            name: input.name,
+            role_slots,
+            hidden: input.hidden,
+            audio_muted: input.audio_muted,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -354,17 +427,6 @@ pub enum CoreEvent {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum BrowserRuntimeCommand {
     Snapshot,
-    BeginWorkspace {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-        name: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "windowId")]
-        window_id: Option<String>,
-        #[serde(rename = "roleIds")]
-        #[ts(rename = "roleIds")]
-        role_ids: Vec<String>,
-    },
     RegisterWindow {
         #[ts(rename = "windowId")]
         window_id: String,
@@ -388,9 +450,9 @@ pub enum BrowserRuntimeCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "workspaceId")]
         workspace_id: Option<String>,
-        #[serde(rename = "roleIds")]
-        #[ts(rename = "roleIds")]
-        role_ids: Vec<String>,
+        #[serde(rename = "roleSlots")]
+        #[ts(rename = "roleSlots")]
+        role_slots: Vec<RuntimeRoleSlotInputRecord>,
     },
     RemoveTab {
         #[ts(rename = "tabId")]
@@ -455,120 +517,35 @@ pub enum BrowserRuntimeCommand {
         role_id: String,
         #[ts(type = "\"embedded\"")]
         runtime: String,
+        #[ts(rename = "tabId")]
+        tab_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "workspaceId")]
-        workspace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "tabId")]
-        tab_id: Option<String>,
+        #[ts(optional, rename = "slotId")]
+        slot_id: Option<String>,
         #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
         state: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "launchedAt")]
         launched_at: Option<String>,
     },
-    RemoveRole {
+    ReleaseRole {
         #[ts(rename = "roleId")]
         role_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "expectedTabId")]
+        expected_tab_id: Option<String>,
     },
-    SetWorkspaceState {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-        #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
-        state: String,
+    ClaimRoleSlot {
+        #[ts(rename = "roleId")]
+        role_id: String,
+        #[ts(rename = "tabId")]
+        tab_id: String,
+        #[ts(rename = "slotId")]
+        slot_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "expectedOwnerGeneration", type = "number")]
+        expected_owner_generation: Option<u64>,
     },
-    RemoveWorkspace {
-        #[ts(rename = "workspaceId")]
-        workspace_id: String,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeWindowRecord {
-    pub window_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub active_tab_id: Option<String>,
-    pub tab_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeTabRecord {
-    pub id: String,
-    pub source_id: String,
-    pub name: String,
-    pub window_id: String,
-    #[serde(rename = "tabType")]
-    #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
-    pub tab_type: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub workspace_id: Option<String>,
-    pub role_ids: Vec<String>,
-    pub hidden: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeRoleRecord {
-    pub role_id: String,
-    #[ts(type = "\"embedded\"")]
-    pub runtime: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub workspace_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub tab_id: Option<String>,
-    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
-    pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub launched_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeWorkspaceRecord {
-    pub workspace_id: String,
-    pub name: String,
-    #[ts(type = "\"pending\" | \"embedded\"")]
-    pub runtime: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub window_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub tab_id: Option<String>,
-    pub role_ids: Vec<String>,
-    #[ts(type = "\"launching\" | \"running\" | \"stopping\"")]
-    pub state: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeSnapshot {
-    pub windows: Vec<BrowserRuntimeWindowRecord>,
-    pub roles: Vec<BrowserRuntimeRoleRecord>,
-    pub tabs: Vec<BrowserRuntimeTabRecord>,
-    pub workspaces: Vec<BrowserRuntimeWorkspaceRecord>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct BrowserRuntimeResult {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub created_tab_id: Option<String>,
-    pub snapshot: BrowserRuntimeSnapshot,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

@@ -606,6 +606,7 @@ impl SystemRuntimeExecutor {
                     workspace_id: completion.source_id.clone(),
                     target: completion.target.clone(),
                     launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
+                    restore_role_slots: None,
                 }
             } else {
                 CoreCommand::BrowserRoleLaunch {

@@ -207,6 +207,7 @@ impl AppCore {
             self.stop_embedded_role_with_operation_lease(
                 source_id,
                 true,
+                true,
                 Some(&request.operation_id),
             )?;
         }

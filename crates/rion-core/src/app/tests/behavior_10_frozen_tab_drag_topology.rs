@@ -34,7 +34,7 @@
                         window_id: window_id.clone(),
                         tab_type: "role".to_owned(),
                         workspace_id: None,
-                        role_ids: vec![format!("role-{tab_id}")],
+                        role_slots: test_role_slots(&[&format!("role-{tab_id}")]),
                     })
                     .unwrap()
                     .snapshot,

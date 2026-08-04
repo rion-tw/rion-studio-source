@@ -103,14 +103,16 @@ fn runtime_game_window_tab_is_valid(tab: &GameWindowTabRecord) -> bool {
         && matches!(tab.tab_type.as_str(), "role" | "workspace")
         && !tab.source_id.trim().is_empty()
         && tab.source_id.len() <= 128
-        && (tab.tab_type != "role" || tab.role_ids == [tab.source_id.clone()])
-        && tab.role_ids.iter().all(|role_id| {
-            !role_id.trim().is_empty() && role_id.len() <= 128
+        && (tab.tab_type != "role"
+            || (tab.role_slots.len() == 1 && tab.role_slots[0].role_id == tab.source_id))
+        && tab.role_slots.iter().all(|slot| {
+            !slot.role_id.trim().is_empty() && slot.role_id.len() <= 128
         })
         && tab
-            .role_ids
+            .role_slots
             .iter()
+            .map(|slot| slot.role_id.as_str())
             .collect::<std::collections::HashSet<_>>()
             .len()
-            == tab.role_ids.len()
+            == tab.role_slots.len()
 }

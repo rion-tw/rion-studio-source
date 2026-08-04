@@ -182,6 +182,11 @@ pub enum CoreEffectAction {
     EmbeddedDestroyRole {
         role_id: String,
     },
+    EmbeddedClaimRoleSlot {
+        tab_id: String,
+        slot: Box<EmbeddedRoleSlotEffectRecord>,
+        role: Box<EmbeddedRoleViewEffectRecord>,
+    },
     EmbeddedDestroyTab {
         tab_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -309,6 +314,23 @@ pub struct EmbeddedRoleViewEffectRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct EmbeddedRoleSlotEffectRecord {
+    pub slot_id: String,
+    pub role: StateRoleRecord,
+    pub rect: StateNormalizedRectRecord,
+    pub zoom_factor: f64,
+    #[ts(type = "\"adaptive\" | \"fixed\"")]
+    pub zoom_mode: String,
+    #[ts(type = "\"launching\" | \"running\" | \"stopping\" | \"blocked\" | \"available\"")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub owner: Option<BrowserRuntimeRoleOwnerRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedRoleLoadEffectRecord {
     pub role_id: String,
     pub resolved_engine: ResolvedBrowserEngine,
@@ -337,6 +359,7 @@ pub struct EmbeddedTabEffectRecord {
     pub workspace_template: Option<String>,
     pub workspace_appearance: WorkspaceAppearanceSettingsRecord,
     pub target: EmbeddedLaunchTargetRecord,
+    pub slots: Vec<EmbeddedRoleSlotEffectRecord>,
     pub roles: Vec<EmbeddedRoleViewEffectRecord>,
 }
 

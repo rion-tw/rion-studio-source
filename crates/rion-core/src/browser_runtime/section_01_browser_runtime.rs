@@ -5,9 +5,9 @@ use uuid::Uuid;
 use crate::{
     error::{CoreError, CoreResult},
     model::{
-        BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleRecord,
-        BrowserRuntimeSnapshot, BrowserRuntimeTabRecord, BrowserRuntimeWindowRecord,
-        BrowserRuntimeWorkspaceRecord,
+        BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleOwnerRecord,
+        BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot, BrowserRuntimeTabRecord,
+        BrowserRuntimeWindowRecord, BrowserRuntimeWorkspaceRecord, RuntimeRoleSlotRecord,
     },
 };
 
@@ -15,10 +15,10 @@ const MAX_TAB_DRAG_TOPOLOGY_TABS: usize = 256;
 
 #[derive(Clone, Default)]
 pub struct BrowserRuntime {
+    next_owner_generation: u64,
     windows: HashMap<String, BrowserRuntimeWindowRecord>,
     roles: HashMap<String, BrowserRuntimeRoleRecord>,
     tabs: HashMap<String, BrowserRuntimeTabRecord>,
-    workspaces: HashMap<String, BrowserRuntimeWorkspaceRecord>,
 }
 
 impl BrowserRuntime {
@@ -37,32 +37,6 @@ impl BrowserRuntime {
         let mut created_tab_id = None;
         match command {
             BrowserRuntimeCommand::Snapshot => {}
-            BrowserRuntimeCommand::BeginWorkspace {
-                workspace_id,
-                name,
-                window_id,
-                role_ids,
-            } => {
-                if self.workspaces.contains_key(&workspace_id) {
-                    return Err(domain(
-                        "WORKSPACE_ALREADY_RUNNING",
-                        "Launch workspace is already running.",
-                    ));
-                }
-                self.ensure_roles_available(&role_ids, None)?;
-                self.workspaces.insert(
-                    workspace_id.clone(),
-                    BrowserRuntimeWorkspaceRecord {
-                        workspace_id,
-                        name,
-                        runtime: "pending".to_owned(),
-                        window_id,
-                        tab_id: None,
-                        role_ids,
-                        state: "launching".to_owned(),
-                    },
-                );
-            }
             BrowserRuntimeCommand::RegisterWindow { window_id } => {
                 self.windows
                     .entry(window_id.clone())
@@ -92,23 +66,28 @@ impl BrowserRuntime {
                 window_id,
                 tab_type,
                 workspace_id,
-                role_ids,
+                role_slots,
             } => {
                 self.register_window(&window_id);
-                if let Some(workspace_id) = &workspace_id {
-                    if self
-                        .workspaces
-                        .get(workspace_id)
-                        .is_some_and(|workspace| workspace.tab_id.is_some())
-                    {
-                        return Err(domain(
-                            "WORKSPACE_ALREADY_RUNNING",
-                            "Launch workspace is already running.",
-                        ));
-                    }
-                    self.ensure_workspace_roles_match(workspace_id, &role_ids)?;
+                if !matches!(tab_type.as_str(), "role" | "workspace") {
+                    return Err(domain(
+                        "RUNTIME_TAB_TYPE_INVALID",
+                        "Runtime tab type is invalid.",
+                    ));
                 }
-                self.ensure_roles_available(&role_ids, workspace_id.as_deref())?;
+                if self.tabs.values().any(|tab| {
+                    tab.tab_type == tab_type && tab.source_id == source_id
+                }) {
+                    return Err(domain(
+                        if tab_type == "workspace" {
+                            "WORKSPACE_ALREADY_RUNNING"
+                        } else {
+                            "ROLE_ALREADY_RUNNING"
+                        },
+                        "The runtime source is already open.",
+                    ));
+                }
+                validate_role_slot_inputs(&role_slots)?;
                 let id = tab_id.unwrap_or_else(|| Uuid::new_v4().to_string());
                 if Uuid::parse_str(&id).is_err() || self.tabs.contains_key(&id) {
                     return Err(domain(
@@ -122,8 +101,18 @@ impl BrowserRuntime {
                     name,
                     window_id: window_id.clone(),
                     tab_type,
-                    workspace_id: workspace_id.clone(),
-                    role_ids: role_ids.clone(),
+                    workspace_id,
+                    slots: role_slots
+                        .into_iter()
+                        .map(|slot| RuntimeRoleSlotRecord {
+                            slot_id: slot.slot_id,
+                            role_id: slot.role_id,
+                            rect: slot.rect,
+                            browser_zoom_percent: slot.browser_zoom_percent,
+                            state: "available".to_owned(),
+                            owner: None,
+                        })
+                        .collect(),
                     hidden: true,
                 };
                 self.tabs.insert(id.clone(), tab);
@@ -132,25 +121,7 @@ impl BrowserRuntime {
                     .expect("window was registered")
                     .tab_ids
                     .push(id.clone());
-                if let Some(workspace_id) = workspace_id {
-                    let workspace =
-                        self.workspaces
-                            .entry(workspace_id.clone())
-                            .or_insert_with(|| BrowserRuntimeWorkspaceRecord {
-                                workspace_id,
-                                name: self.tabs[&id].name.clone(),
-                                runtime: "embedded".to_owned(),
-                                window_id: Some(window_id.clone()),
-                                tab_id: None,
-                                role_ids: role_ids.clone(),
-                                state: "launching".to_owned(),
-                            });
-                    workspace.name = self.tabs[&id].name.clone();
-                    workspace.runtime = "embedded".to_owned();
-                    workspace.window_id = Some(window_id);
-                    workspace.tab_id = Some(id.clone());
-                    workspace.role_ids = role_ids;
-                }
+                self.refresh_slot_states();
                 created_tab_id = Some(id);
             }
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
@@ -192,30 +163,42 @@ impl BrowserRuntime {
             BrowserRuntimeCommand::RoleTransition {
                 role_id,
                 runtime,
-                workspace_id,
                 tab_id,
+                slot_id,
                 state,
                 launched_at,
             } => {
-                self.transition_role(role_id, runtime, workspace_id, tab_id, &state, launched_at)?
+                self.transition_role(role_id, runtime, tab_id, slot_id, &state, launched_at)?
             }
-            BrowserRuntimeCommand::RemoveRole { role_id } => {
+            BrowserRuntimeCommand::ReleaseRole {
+                role_id,
+                expected_tab_id,
+            } => {
+                if let Some(expected_tab_id) = expected_tab_id
+                    && self
+                        .roles
+                        .get(&role_id)
+                        .is_some_and(|role| role.owner.tab_id != expected_tab_id)
+                {
+                    return Err(domain(
+                        "RUNTIME_ROLE_OWNER_STALE",
+                        "The role moved to another slot before it could be released.",
+                    ));
+                }
                 self.roles.remove(&role_id);
-                self.tabs
-                    .values_mut()
-                    .for_each(|tab| tab.role_ids.retain(|candidate| candidate != &role_id));
-                self.workspaces.values_mut().for_each(|workspace| {
-                    workspace.role_ids.retain(|candidate| candidate != &role_id);
-                });
-                self.refresh_workspace_states();
+                self.refresh_slot_states();
             }
-            BrowserRuntimeCommand::SetWorkspaceState {
-                workspace_id,
-                state,
-            } => self.set_workspace_state(&workspace_id, &state)?,
-            BrowserRuntimeCommand::RemoveWorkspace { workspace_id } => {
-                self.workspaces.remove(&workspace_id);
-            }
+            BrowserRuntimeCommand::ClaimRoleSlot {
+                role_id,
+                tab_id,
+                slot_id,
+                expected_owner_generation,
+            } => self.claim_role_slot(
+                &role_id,
+                &tab_id,
+                &slot_id,
+                expected_owner_generation,
+            )?,
         }
         self.validate()?;
         Ok(BrowserRuntimeResult {
@@ -234,53 +217,6 @@ impl BrowserRuntime {
             });
     }
 
-    fn ensure_roles_available(
-        &self,
-        role_ids: &[String],
-        except_workspace_id: Option<&str>,
-    ) -> CoreResult<()> {
-        let running = role_ids
-            .iter()
-            .filter(|role_id| {
-                self.roles.contains_key(*role_id)
-                    || self
-                        .workspaces
-                        .values()
-                        .filter(|workspace| {
-                            Some(workspace.workspace_id.as_str()) != except_workspace_id
-                        })
-                        .any(|workspace| workspace.role_ids.contains(*role_id))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if running.is_empty() {
-            Ok(())
-        } else {
-            Err(domain(
-                "ROLE_ALREADY_RUNNING",
-                &format!("Roles are already running: {}.", running.join(", ")),
-            ))
-        }
-    }
-
-    fn ensure_workspace_roles_match(
-        &self,
-        workspace_id: &str,
-        role_ids: &[String],
-    ) -> CoreResult<()> {
-        if self
-            .workspaces
-            .get(workspace_id)
-            .is_some_and(|workspace| workspace.role_ids != role_ids)
-        {
-            return Err(domain(
-                "WORKSPACE_ROLES_CHANGED",
-                "Launch workspace roles changed while launch was pending.",
-            ));
-        }
-        Ok(())
-    }
-
     fn remove_tab(&mut self, tab_id: &str) {
         let Some(tab) = self.tabs.remove(tab_id) else {
             return;
@@ -295,9 +231,9 @@ impl BrowserRuntime {
                     .cloned();
             }
         }
-        if let Some(workspace_id) = tab.workspace_id {
-            self.workspaces.remove(&workspace_id);
-        }
+        self.roles
+            .retain(|_, role| role.owner.tab_id.as_str() != tab_id);
+        self.refresh_slot_states();
     }
 
     fn activate_tab(&mut self, tab_id: &str) -> CoreResult<()> {
@@ -537,11 +473,12 @@ impl BrowserRuntime {
         target.tab_ids.push(tab_id.to_owned());
         target.active_tab_id = Some(tab_id.to_owned());
         self.tabs.get_mut(tab_id).expect("tab exists").window_id = window_id.to_owned();
-        if let Some(workspace_id) = self.tabs[tab_id].workspace_id.as_ref()
-            && let Some(workspace) = self.workspaces.get_mut(workspace_id)
-        {
-            workspace.window_id = Some(window_id.to_owned());
+        for role in self.roles.values_mut() {
+            if role.owner.tab_id == tab_id {
+                role.owner.window_id = window_id.to_owned();
+            }
         }
+        self.refresh_slot_states();
         Ok(())
     }
 
@@ -557,16 +494,17 @@ impl BrowserRuntime {
         let target_had_active = target_record.active_tab_id.is_some();
         for tab_id in &source_tab_ids {
             self.tabs.get_mut(tab_id).expect("tab exists").window_id = target.to_owned();
-            if let Some(workspace_id) = self.tabs[tab_id].workspace_id.as_ref()
-                && let Some(workspace) = self.workspaces.get_mut(workspace_id)
-            {
-                workspace.window_id = Some(target.to_owned());
+            for role in self.roles.values_mut() {
+                if role.owner.tab_id == *tab_id {
+                    role.owner.window_id = target.to_owned();
+                }
             }
         }
         target_record.tab_ids.extend(source_tab_ids);
         if !target_had_active {
             target_record.active_tab_id = source_active_tab_id;
         }
+        self.refresh_slot_states();
         Ok(())
     }
 
@@ -574,8 +512,8 @@ impl BrowserRuntime {
         &mut self,
         role_id: String,
         runtime: String,
-        workspace_id: Option<String>,
-        tab_id: Option<String>,
+        tab_id: String,
+        slot_id: Option<String>,
         state: &str,
         launched_at: Option<String>,
     ) -> CoreResult<()> {
@@ -591,6 +529,28 @@ impl BrowserRuntime {
                 "Browser runtime state is invalid.",
             ));
         }
+        let tab = self
+            .tabs
+            .get(&tab_id)
+            .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+        let slot = slot_id
+            .as_deref()
+            .and_then(|slot_id| tab.slots.iter().find(|slot| slot.slot_id == slot_id))
+            .or_else(|| tab.slots.iter().find(|slot| slot.role_id == role_id))
+            .ok_or_else(|| {
+                domain(
+                    "RUNTIME_ROLE_SLOT_NOT_FOUND",
+                    "The runtime tab does not contain a slot for this role.",
+                )
+            })?;
+        if slot.role_id != role_id {
+            return Err(domain(
+                "RUNTIME_ROLE_SLOT_MISMATCH",
+                "The runtime slot belongs to another role.",
+            ));
+        }
+        let slot_id = slot.slot_id.clone();
+        let window_id = tab.window_id.clone();
         let previous = self.roles.get(&role_id).map(|role| role.state.as_str());
         let valid = matches!(
             (previous, state),
@@ -605,58 +565,134 @@ impl BrowserRuntime {
                 "Browser role transition is invalid.",
             ));
         }
+        if let Some(existing) = self.roles.get(&role_id)
+            && (existing.owner.tab_id != tab_id || existing.owner.slot_id != slot_id)
+        {
+            return Err(domain(
+                "RUNTIME_ROLE_ALREADY_OWNED",
+                "The role is owned by another runtime slot.",
+            ));
+        }
         let launched_at = launched_at.or_else(|| {
             self.roles
                 .get(&role_id)
                 .and_then(|role| role.launched_at.clone())
         });
+        let owner = self
+            .roles
+            .get(&role_id)
+            .map(|role| role.owner.clone())
+            .unwrap_or_else(|| self.next_owner(window_id, tab_id, slot_id));
         self.roles.insert(
             role_id.clone(),
             BrowserRuntimeRoleRecord {
                 role_id,
                 runtime,
-                workspace_id,
-                tab_id,
+                owner,
                 state: state.to_owned(),
                 launched_at,
             },
         );
-        self.refresh_workspace_states();
+        self.refresh_slot_states();
         Ok(())
     }
 
-    fn set_workspace_state(&mut self, workspace_id: &str, state: &str) -> CoreResult<()> {
-        if !matches!(state, "launching" | "running" | "stopping") {
+    fn claim_role_slot(
+        &mut self,
+        role_id: &str,
+        tab_id: &str,
+        slot_id: &str,
+        expected_owner_generation: Option<u64>,
+    ) -> CoreResult<()> {
+        let tab = self
+            .tabs
+            .get(tab_id)
+            .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+        if !tab
+            .slots
+            .iter()
+            .any(|slot| slot.slot_id == slot_id && slot.role_id == role_id)
+        {
             return Err(domain(
-                "RUNTIME_STATE_INVALID",
-                "Browser runtime state is invalid.",
+                "RUNTIME_ROLE_SLOT_NOT_FOUND",
+                "The requested runtime role slot was not found.",
             ));
         }
-        let workspace = self.workspaces.get_mut(workspace_id).ok_or_else(|| {
-            domain(
-                "WORKSPACE_RUNTIME_NOT_FOUND",
-                "Launch workspace runtime was not found.",
-            )
-        })?;
-        workspace.state = state.to_owned();
+        match (self.roles.get(role_id), expected_owner_generation) {
+            (None, None) => {}
+            (Some(role), Some(expected)) if role.owner.generation == expected => {
+                if role.owner.tab_id == tab_id && role.owner.slot_id == slot_id {
+                    return Err(domain(
+                        "RUNTIME_ROLE_SLOT_ALREADY_OWNED",
+                        "The target slot already owns this role.",
+                    ));
+                }
+            }
+            _ => {
+                return Err(domain(
+                    "RUNTIME_ROLE_OWNER_STALE",
+                    "The role owner changed before the takeover could commit.",
+                ));
+            }
+        }
+        let launched_at = self
+            .roles
+            .get(role_id)
+            .and_then(|role| role.launched_at.clone());
+        let owner = self.next_owner(
+            tab.window_id.clone(),
+            tab_id.to_owned(),
+            slot_id.to_owned(),
+        );
+        self.roles.insert(
+            role_id.to_owned(),
+            BrowserRuntimeRoleRecord {
+                role_id: role_id.to_owned(),
+                runtime: "embedded".to_owned(),
+                owner,
+                state: "launching".to_owned(),
+                launched_at,
+            },
+        );
+        self.refresh_slot_states();
         Ok(())
     }
 
-    fn refresh_workspace_states(&mut self) {
-        for workspace in self.workspaces.values_mut() {
-            let states = workspace
-                .role_ids
-                .iter()
-                .filter_map(|role_id| self.roles.get(role_id).map(|role| role.state.as_str()))
-                .collect::<Vec<_>>();
-            workspace.state = if states.contains(&"stopping") {
-                "stopping"
-            } else if states.len() < workspace.role_ids.len() || states.contains(&"launching") {
-                "launching"
-            } else {
-                "running"
+    fn next_owner(
+        &mut self,
+        window_id: String,
+        tab_id: String,
+        slot_id: String,
+    ) -> BrowserRuntimeRoleOwnerRecord {
+        self.next_owner_generation = self.next_owner_generation.saturating_add(1).max(1);
+        BrowserRuntimeRoleOwnerRecord {
+            window_id,
+            tab_id,
+            slot_id,
+            generation: self.next_owner_generation,
+        }
+    }
+
+    fn refresh_slot_states(&mut self) {
+        for tab in self.tabs.values_mut() {
+            for slot in &mut tab.slots {
+                match self.roles.get(&slot.role_id) {
+                    Some(role)
+                        if role.owner.tab_id == tab.id && role.owner.slot_id == slot.slot_id =>
+                    {
+                        slot.state = role.state.clone();
+                        slot.owner = Some(role.owner.clone());
+                    }
+                    Some(role) => {
+                        slot.state = "blocked".to_owned();
+                        slot.owner = Some(role.owner.clone());
+                    }
+                    None => {
+                        slot.state = "available".to_owned();
+                        slot.owner = None;
+                    }
+                }
             }
-            .to_owned();
         }
     }
 
@@ -683,16 +719,21 @@ impl BrowserRuntime {
                 "browser runtime contains an unowned tab".to_owned(),
             ));
         }
-        let mut seen = HashSet::new();
-        if self
-            .workspaces
-            .values()
-            .flat_map(|workspace| workspace.role_ids.iter())
-            .any(|role_id| !seen.insert(role_id))
-        {
-            return Err(CoreError::Internal(
-                "browser runtime role is assigned to multiple workspaces".to_owned(),
-            ));
+        for role in self.roles.values() {
+            let Some(tab) = self.tabs.get(&role.owner.tab_id) else {
+                return Err(CoreError::Internal(
+                    "browser runtime role owner references a missing tab".to_owned(),
+                ));
+            };
+            if tab.window_id != role.owner.window_id
+                || !tab.slots.iter().any(|slot| {
+                    slot.slot_id == role.owner.slot_id && slot.role_id == role.role_id
+                })
+            {
+                return Err(CoreError::Internal(
+                    "browser runtime role owner references an inconsistent slot".to_owned(),
+                ));
+            }
         }
         Ok(())
     }
@@ -707,7 +748,19 @@ impl BrowserRuntime {
             .flat_map(|window| &window.tab_ids)
             .filter_map(|tab_id| self.tabs.get(tab_id).cloned())
             .collect::<Vec<_>>();
-        let mut workspaces = self.workspaces.values().cloned().collect::<Vec<_>>();
+        let mut workspaces = tabs
+            .iter()
+            .filter(|tab| tab.tab_type == "workspace")
+            .map(|tab| BrowserRuntimeWorkspaceRecord {
+                workspace_id: tab.source_id.clone(),
+                name: tab.name.clone(),
+                runtime: "embedded".to_owned(),
+                window_id: tab.window_id.clone(),
+                tab_id: tab.id.clone(),
+                role_ids: tab.slots.iter().map(|slot| slot.role_id.clone()).collect(),
+                state: workspace_state(&tab.slots).to_owned(),
+            })
+            .collect::<Vec<_>>();
         workspaces.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
         BrowserRuntimeSnapshot {
             windows,
@@ -715,23 +768,5 @@ impl BrowserRuntime {
             tabs,
             workspaces,
         }
-    }
-}
-
-fn ordered_tab_ids_are_unique(tab_ids: &[String]) -> bool {
-    tab_ids.len() <= MAX_TAB_DRAG_TOPOLOGY_TABS
-        && !tab_ids.iter().any(|tab_id| tab_id.is_empty())
-        && tab_ids.iter().collect::<HashSet<_>>().len() == tab_ids.len()
-}
-
-fn same_tab_members(left: &[String], right: &[String]) -> bool {
-    left.len() == right.len()
-        && left.iter().collect::<HashSet<_>>() == right.iter().collect::<HashSet<_>>()
-}
-
-fn domain(code: &'static str, message: &str) -> CoreError {
-    CoreError::Domain {
-        code,
-        message: message.to_owned(),
     }
 }

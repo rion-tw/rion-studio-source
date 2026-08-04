@@ -89,7 +89,7 @@
                     window_id: source_id.clone(),
                     tab_type: "role".to_owned(),
                     workspace_id: None,
-                    role_ids: vec!["role-source".to_owned()],
+                    role_slots: test_role_slots(&["role-source"]),
                 })
                 .unwrap();
             let tab_id = created.created_tab_id.unwrap();
@@ -270,7 +270,7 @@
                     window_id: window_id.clone(),
                     tab_type: "role".to_owned(),
                     workspace_id: None,
-                    role_ids: vec![source_id.to_owned()],
+                    role_slots: test_role_slots(&[source_id]),
                 })
                 .unwrap()
             };
@@ -382,11 +382,7 @@
             );
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
-                CoreCommand::BrowserWorkspaceLaunch {
-                    workspace_id: workspace_id.clone(),
-                    target: target(&stopped_window_id),
-                    launch_preview_id: None,
-                },
+                browser_workspace_launch(workspace_id.clone(), target(&stopped_window_id)),
             );
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
@@ -459,11 +455,7 @@
             );
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
-                CoreCommand::BrowserWorkspaceLaunch {
-                    workspace_id: workspace_id.clone(),
-                    target: target(&stopped_window_id),
-                    launch_preview_id: None,
-                },
+                browser_workspace_launch(workspace_id.clone(), target(&stopped_window_id)),
             );
             let reopened = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
             let reopened_window = reopened["windows"]
@@ -593,7 +585,7 @@
                 window_id: window_id.clone(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
-                role_ids: vec!["projection-role".to_owned()],
+                role_slots: test_role_slots(&["projection-role"]),
             })
             .unwrap()
             .snapshot;

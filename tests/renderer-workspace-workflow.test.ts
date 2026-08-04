@@ -10,8 +10,8 @@ describe("workspace launch workflow", () => {
     );
 
     expect(workflow).toContain("launchWorkspace(workspace.id)");
-    expect(workflow).toContain('result.kind === "conflict"');
-    expect(workflow).toContain("stopConflicts: true");
+    expect(workflow).not.toContain('result.kind === "conflict"');
+    expect(workflow).not.toContain("stopConflicts: true");
     expect(workflow).not.toContain("selectDisplay");
     expect(workflow).not.toContain("target_occupied");
   });

@@ -72,17 +72,31 @@ impl SystemRuntimeExecutor {
                     let runtime_tab = state.tabs.get(tab_id).ok_or_else(|| {
                         "Native runtime tab was not found while saving.".to_owned()
                     })?;
-                    let mut role_views = runtime_tab
-                        .roles
+                    let role_slots = runtime_tab
+                        .slots
                         .iter()
-                        .map(|(role_id, surface)| GameWindowRoleViewRecord {
-                            role_id: role_id.clone(),
-                            rect: surface.rect.clone(),
-                            browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+                        .map(|(slot_id, slot)| {
+                            let live = runtime_tab.roles.get(&slot.role.id);
+                            let zoom_factor = live
+                                .map(|surface| surface.zoom_factor)
+                                .unwrap_or(slot.zoom_factor);
+                            let zoom_mode = live
+                                .map(|surface| surface.zoom_mode.as_str())
+                                .unwrap_or(slot.zoom_mode.as_str());
+                            (
+                                slot_id.clone(),
+                                GameWindowRoleSlotRecord {
+                                    slot_id: slot_id.clone(),
+                                    role_id: slot.role.id.clone(),
+                                    rect: slot.rect.clone(),
+                                    browser_zoom_percent: (zoom_mode == "fixed").then_some(
+                                        (zoom_factor * 100.0).clamp(25.0, 500.0),
+                                    ),
+                                },
+                            )
                         })
-                        .collect::<Vec<_>>();
-                    role_views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-                    Ok::<_, String>((tab_id.clone(), (runtime_tab.audio_muted, role_views)))
+                        .collect::<HashMap<_, _>>();
+                    Ok::<_, String>((tab_id.clone(), (runtime_tab.audio_muted, role_slots)))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?
         };
@@ -95,7 +109,7 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .find(|tab| &tab.id == tab_id)
                     .ok_or_else(|| "Runtime tab metadata changed while saving.".to_owned())?;
-                let (audio_muted, role_views) = native_tabs.get(tab_id).ok_or_else(|| {
+                let (audio_muted, native_role_slots) = native_tabs.get(tab_id).ok_or_else(|| {
                     "Native runtime tab metadata changed while saving.".to_owned()
                 })?;
                 Ok(GameWindowTabRecord {
@@ -103,10 +117,23 @@ impl SystemRuntimeExecutor {
                     tab_type: tab.tab_type.clone(),
                     source_id: tab.source_id.clone(),
                     name: tab.name.clone(),
-                    role_ids: tab.role_ids.clone(),
+                    role_slots: tab
+                        .slots
+                        .iter()
+                        .map(|slot| {
+                            native_role_slots
+                                .get(&slot.slot_id)
+                                .cloned()
+                                .unwrap_or_else(|| GameWindowRoleSlotRecord {
+                                    slot_id: slot.slot_id.clone(),
+                                    role_id: slot.role_id.clone(),
+                                    rect: slot.rect.clone(),
+                                    browser_zoom_percent: slot.browser_zoom_percent,
+                                })
+                        })
+                        .collect(),
                     hidden: tab.hidden,
                     audio_muted: *audio_muted,
-                    role_views: role_views.clone(),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
@@ -175,21 +202,6 @@ impl SystemRuntimeExecutor {
             .get(window_id)
             .ok_or_else(|| "The runtime window has no live native host.".to_owned())?;
         Ok((host.window.clone(), host.target.clone()))
-    }
-
-    pub(crate) fn role_zoom_factor_for_tab(
-        &self,
-        tab_id: &str,
-        role_id: &str,
-    ) -> Result<f64, String> {
-        self.state
-            .lock()
-            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
-            .tabs
-            .get(tab_id)
-            .and_then(|tab| tab.roles.get(role_id))
-            .map(|surface| surface.zoom_factor)
-            .ok_or_else(|| "The conflicting role has no live native surface.".to_owned())
     }
 
     pub(crate) fn runtime_tab_role_views(

@@ -57,8 +57,8 @@ use super::*;
     fn shell_launch_result_resolves_the_matching_source_type_and_window() {
         let runtime = json!({
             "tabs": [
-                { "sourceId": "shared", "tabType": "role", "roleIds": ["shared"], "windowId": "role-window" },
-                { "sourceId": "shared", "tabType": "workspace", "roleIds": ["workspace-role"], "windowId": "workspace-window" }
+                { "sourceId": "shared", "tabType": "role", "slots": [{"roleId":"shared"}], "windowId": "role-window" },
+                { "sourceId": "shared", "tabType": "workspace", "slots": [{"roleId":"workspace-role"}], "windowId": "workspace-window" }
             ]
         });
 
@@ -207,10 +207,12 @@ use super::*;
                 "tabType": "role",
                 "sourceId": "role-1",
                 "name": "Role",
-                "roleIds": ["role-1"],
+                "roleSlots": [{
+                    "slotId":"saved-slot-1","roleId":"role-1",
+                    "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
                 "hidden": false,
-                "audioMuted": false,
-                "roleViews": []
+                "audioMuted": false
             }],
             "activeTabId": "tab-1",
             "createdAt": "2026-01-01T00:00:00Z",
@@ -368,7 +370,10 @@ use super::*;
                 "name": "Role 1",
                 "windowId": "window-1",
                 "tabType": "role",
-                "roleIds": ["role-1"],
+                "slots": [{
+                    "slotId":"runtime-slot-1","roleId":"role-1","state":"available",
+                    "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
                 "hidden": true
             }],
             "windows": [],
@@ -380,10 +385,19 @@ use super::*;
             tab_type: "role".to_owned(),
             source_id: "role-1".to_owned(),
             name: "Role 1".to_owned(),
-            role_ids: vec!["role-1".to_owned()],
+            role_slots: vec![rion_core::GameWindowRoleSlotRecord {
+                slot_id: "saved-slot-1".to_owned(),
+                role_id: "role-1".to_owned(),
+                rect: rion_core::StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                browser_zoom_percent: None,
+            }],
             hidden: true,
             audio_muted: false,
-            role_views: Vec::new(),
         };
 
         assert_eq!(
@@ -402,7 +416,7 @@ use super::*;
 
         let mut missing = saved;
         missing.source_id = "role-2".to_owned();
-        missing.role_ids = vec!["role-2".to_owned()];
+        missing.role_slots[0].role_id = "role-2".to_owned();
         assert_eq!(
             match_runtime_restore_tab(&snapshot, "window-1", &missing),
             RuntimeRestoreTabMatch::Missing
@@ -426,10 +440,12 @@ use super::*;
                     "tabType": "role",
                     "sourceId": role_id,
                     "name": role_id,
-                    "roleIds": [role_id],
+                    "roleSlots": [{
+                        "slotId": format!("slot-{id}"), "roleId": role_id,
+                        "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }],
                     "hidden": false,
-                    "audioMuted": false,
-                    "roleViews": []
+                    "audioMuted": false
                 }],
                 "activeTabId": format!("tab-{id}"),
                 "createdAt": "2026-01-01T00:00:00Z",
@@ -464,7 +480,10 @@ use super::*;
                 "name": "Shared role",
                 "windowId": "transient-window",
                 "tabType": "role",
-                "roleIds": ["role-shared"],
+                "slots": [{
+                    "slotId":"runtime-shared","roleId":"role-shared","state":"available",
+                    "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
                 "hidden": false
             }],
             "roles": [],
@@ -478,6 +497,58 @@ use super::*;
                 .map(|window| window.id.as_str())
                 .collect::<Vec<_>>(),
             ["window-c"]
+        );
+    }
+
+    #[test]
+    fn restore_owner_priority_launches_the_saved_active_tab_before_saved_order() {
+        let window = serde_json::from_value::<StateGameWindowRecord>(json!({
+            "id": "window-priority",
+            "name": "Priority",
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            },
+            "tabs": [
+                {
+                    "id": "tab-first", "tabType": "role", "sourceId": "role-first",
+                    "name": "First", "hidden": false, "audioMuted": false,
+                    "roleSlots": [{
+                        "slotId": "slot-first", "roleId": "role-first",
+                        "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }]
+                },
+                {
+                    "id": "tab-active", "tabType": "role", "sourceId": "role-active",
+                    "name": "Active", "hidden": false, "audioMuted": false,
+                    "roleSlots": [{
+                        "slotId": "slot-active", "roleId": "role-active",
+                        "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }]
+                },
+                {
+                    "id": "tab-last", "tabType": "role", "sourceId": "role-last",
+                    "name": "Last", "hidden": false, "audioMuted": false,
+                    "roleSlots": [{
+                        "slotId": "slot-last", "roleId": "role-last",
+                        "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }]
+                }
+            ],
+            "activeTabId": "tab-active",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            restore_tabs_in_owner_priority(&window)
+                .iter()
+                .map(|tab| tab.id.as_str())
+                .collect::<Vec<_>>(),
+            ["tab-active", "tab-first", "tab-last"]
         );
     }
 

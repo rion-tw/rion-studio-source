@@ -77,7 +77,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=24;
+                "DELETE FROM schema_migrations WHERE version IN (24, 25);
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  INSERT INTO legacy_session_restores(id) VALUES ('retired');
@@ -94,7 +94,7 @@
                     0
                 ))
                 .unwrap(),
-            24
+            25
         );
         assert_eq!(
             connection
@@ -161,7 +161,135 @@
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
                 .unwrap(),
-            24
+            25
+        );
+    }
+
+    #[test]
+    fn schema_twenty_four_migrates_game_window_role_slots_with_stable_fallbacks() {
+        let connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let workspace_id = "10000000-0000-4000-8000-000000000001";
+        let first_slot_id = "20000000-0000-4000-8000-000000000001";
+        let second_slot_id = "20000000-0000-4000-8000-000000000002";
+        let workspace = json!({
+            "id": workspace_id,
+            "name": "Legacy workspace",
+            "template": "two_columns",
+            "slots": [
+                {
+                    "id": first_slot_id,
+                    "roleId": "role-1",
+                    "browserZoomPercent": 110.0,
+                    "rect": {"x":0.0,"y":0.0,"width":0.5,"height":1.0}
+                },
+                {
+                    "id": second_slot_id,
+                    "roleId": "role-2",
+                    "browserZoomPercent": 125.0,
+                    "rect": {"x":0.5,"y":0.0,"width":0.5,"height":1.0}
+                }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        });
+        connection
+            .execute(
+                "INSERT INTO workspaces(id, ordinal, name, payload_json) VALUES (?1, 0, ?2, ?3)",
+                params![workspace_id, "Legacy workspace", serde_json::to_string(&workspace).unwrap()],
+            )
+            .unwrap();
+        let game_window = json!({
+            "id": "30000000-0000-4000-8000-000000000001",
+            "name": "Legacy window",
+            "targetDisplay": {"id": 1},
+            "placement": {
+                "normalBounds": {"x":0,"y":0,"width":1200,"height":800},
+                "savedWorkArea": {"x":0,"y":0,"width":1440,"height":900},
+                "presentation": "normal"
+            },
+            "tabs": [
+                {
+                    "id": "40000000-0000-4000-8000-000000000001",
+                    "tabType": "workspace",
+                    "sourceId": workspace_id,
+                    "name": "Legacy workspace",
+                    "roleIds": ["role-1", "role-2"],
+                    "roleViews": [{
+                        "roleId": "role-1",
+                        "rect": {"x":0.1,"y":0.2,"width":0.3,"height":0.4},
+                        "browserZoomPercent": 140.0
+                    }],
+                    "hidden": false,
+                    "audioMuted": false
+                },
+                {
+                    "id": "40000000-0000-4000-8000-000000000002",
+                    "tabType": "role",
+                    "sourceId": "role-3",
+                    "name": "Legacy role",
+                    "roleIds": ["role-3"],
+                    "hidden": false,
+                    "audioMuted": false
+                }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        });
+        connection
+            .execute(
+                "INSERT INTO game_windows(id, ordinal, name, payload_json) VALUES (?1, 0, ?2, ?3)",
+                params![
+                    "30000000-0000-4000-8000-000000000001",
+                    "Legacy window",
+                    serde_json::to_string(&game_window).unwrap()
+                ],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM schema_migrations;
+                 INSERT INTO schema_migrations(version, applied_at) VALUES (24, 'current');",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+
+        let migrated: Value = serde_json::from_str(
+            &connection
+                .query_row(
+                    "SELECT payload_json FROM game_windows WHERE name='Legacy window'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let workspace_tab = &migrated["tabs"][0];
+        assert!(workspace_tab.get("roleIds").is_none());
+        assert!(workspace_tab.get("roleViews").is_none());
+        assert_eq!(workspace_tab["roleSlots"][0]["slotId"], first_slot_id);
+        assert_eq!(
+            workspace_tab["roleSlots"][0]["rect"],
+            json!({"x":0.1,"y":0.2,"width":0.3,"height":0.4})
+        );
+        assert_eq!(workspace_tab["roleSlots"][0]["browserZoomPercent"], 140.0);
+        assert_eq!(workspace_tab["roleSlots"][1]["slotId"], second_slot_id);
+        assert_eq!(
+            workspace_tab["roleSlots"][1]["rect"],
+            json!({"x":0.5,"y":0.0,"width":0.5,"height":1.0})
+        );
+        assert_eq!(workspace_tab["roleSlots"][1]["browserZoomPercent"], 125.0);
+        assert_eq!(migrated["tabs"][1]["roleSlots"][0]["slotId"], "legacy:0:role-3");
+        assert_eq!(
+            migrated["tabs"][1]["roleSlots"][0]["rect"],
+            json!({"x":0.0,"y":0.0,"width":1.0,"height":1.0})
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
+                .unwrap(),
+            25
         );
     }
 
@@ -171,7 +299,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version=24;
+                "DELETE FROM schema_migrations WHERE version IN (24, 25);
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
@@ -290,7 +418,7 @@
                         row.get::<_, u32>(0)
                     })
                     .unwrap(),
-                24
+                25
             );
             for game_id in ["builtin-flyff-universe", "custom-game"] {
                 let migrated_game: Value = serde_json::from_str(

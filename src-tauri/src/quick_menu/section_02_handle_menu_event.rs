@@ -128,6 +128,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                         workspace_id: source_id,
                         target,
                         launch_preview_id: Some(preview.launch_preview_id.clone()),
+                        restore_role_slots: None,
                     }
                 } else {
                     CoreCommand::BrowserRoleLaunch {

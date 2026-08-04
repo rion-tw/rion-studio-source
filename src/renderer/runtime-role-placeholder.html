@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost" />
+    <title>Rion Studio Role Slot</title>
+    <link rel="stylesheet" href="/runtime-role-placeholder.css" />
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true"></div>
+      <h1 id="role-name"></h1>
+      <p id="message"></p>
+      <button id="claim" type="button"></button>
+      <p id="error" role="alert" hidden></p>
+    </main>
+    <script type="module" src="/runtime-shell/runtimeRolePlaceholder.ts"></script>
+  </body>
+</html>

@@ -243,19 +243,13 @@ pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -
             ));
         }
         let mut source_keys = HashSet::new();
-        let mut claimed_role_ids = HashSet::new();
         for tab in &window.tabs {
             tab_count += 1;
             let source_key = format!("{}:{}", tab.tab_type, tab.source_id);
-            if !source_keys.insert(source_key)
-                || tab
-                    .role_ids
-                    .iter()
-                    .any(|role_id| !claimed_role_ids.insert(role_id.clone()))
-            {
+            if !source_keys.insert(source_key) {
                 return Err(domain(
                     "GAME_WINDOW_TAB_CONFLICT",
-                    "A role or source can belong to only one tab in the same saved game window.",
+                    "A saved game window cannot contain the same tab source twice.",
                 ));
             }
         }
@@ -317,22 +311,17 @@ fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateG
             tab.name = tab.source_id.clone();
         }
         let mut role_ids = HashSet::new();
-        tab.role_ids = tab
-            .role_ids
-            .drain(..)
-            .map(|role_id| role_id.trim().to_owned())
-            .filter(|role_id| !role_id.is_empty() && role_id.len() <= 128)
-            .filter(|role_id| role_ids.insert(role_id.clone()))
-            .collect();
-        if tab.tab_type == "role" && tab.role_ids != [tab.source_id.clone()] {
-            return Err(domain(
-                "GAME_WINDOW_TAB_INVALID",
-                "A role tab must contain exactly its source role.",
-            ));
-        }
-        for view in &tab.role_views {
-            let rect = &view.rect;
-            if view.role_id.trim().is_empty()
+        let mut slot_ids = HashSet::new();
+        for slot in &mut tab.role_slots {
+            slot.slot_id = slot.slot_id.trim().to_owned();
+            slot.role_id = slot.role_id.trim().to_owned();
+            let rect = &slot.rect;
+            if slot.slot_id.is_empty()
+                || slot.slot_id.len() > 256
+                || !slot_ids.insert(slot.slot_id.clone())
+                || slot.role_id.is_empty()
+                || slot.role_id.len() > 128
+                || !role_ids.insert(slot.role_id.clone())
                 || !rect.x.is_finite()
                 || !rect.y.is_finite()
                 || !rect.width.is_finite()
@@ -343,14 +332,25 @@ fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateG
                 || rect.height <= 0.0
                 || rect.x + rect.width > 1.000_001
                 || rect.y + rect.height > 1.000_001
-                || !view.browser_zoom_percent.is_finite()
-                || !(25.0..=500.0).contains(&view.browser_zoom_percent)
+                || slot.browser_zoom_percent.is_some_and(|percent| {
+                    !percent.is_finite() || !(25.0..=500.0).contains(&percent)
+                })
             {
                 return Err(domain(
                     "GAME_WINDOW_TAB_LAYOUT_INVALID",
-                    "Game window tab layout is invalid.",
+                    "Game window tab role slots are invalid or duplicated.",
                 ));
             }
+        }
+        if tab.role_slots.is_empty()
+            || (tab.tab_type == "role"
+                && (tab.role_slots.len() != 1
+                    || tab.role_slots[0].role_id != tab.source_id))
+        {
+            return Err(domain(
+                "GAME_WINDOW_TAB_INVALID",
+                "A role tab must contain exactly its source role.",
+            ));
         }
     }
     window.active_tab_id = if window.tabs.is_empty() {

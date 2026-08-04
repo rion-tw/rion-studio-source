@@ -80,7 +80,11 @@ impl SystemRuntimeExecutor {
                             tab_type: tab.tab_type.clone(),
                             source_id: tab.source_id.clone(),
                             name: tab.name.clone(),
-                            role_ids: tab.role_ids.clone(),
+                            role_ids: tab
+                                .role_slots
+                                .iter()
+                                .map(|slot| slot.role_id.clone())
+                                .collect(),
                             hidden: tab.hidden,
                             audio_muted: tab.audio_muted,
                         })

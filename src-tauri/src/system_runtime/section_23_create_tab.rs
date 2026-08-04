@@ -98,6 +98,27 @@ impl SystemRuntimeExecutor {
                     dividers: Vec::new(),
                     window_id: target.window_id.clone(),
                     roles: HashMap::new(),
+                    slots: tab
+                        .slots
+                        .iter()
+                        .map(|slot| {
+                            (
+                                slot.slot_id.clone(),
+                                RuntimeRoleSlot {
+                                    owner_generation: slot
+                                        .owner
+                                        .as_ref()
+                                        .map(|owner| owner.generation),
+                                    placeholder: None,
+                                    rect: slot.rect.clone(),
+                                    role: slot.role.clone(),
+                                    slot_id: slot.slot_id.clone(),
+                                    zoom_factor: slot.zoom_factor.clamp(0.25, 3.0),
+                                    zoom_mode: slot.zoom_mode.clone(),
+                                },
+                            )
+                        })
+                        .collect(),
                     workspace_id: tab.workspace_id.clone(),
                     workspace_appearance: tab.workspace_appearance.clone(),
                     #[cfg(any(windows, target_os = "macos"))]
@@ -128,7 +149,11 @@ impl SystemRuntimeExecutor {
                 icon_data_url: None,
                 id: created_tab_id.clone(),
                 phase: TabPresentationPhase::Attaching,
-                role_ids: tab.roles.iter().map(|role| role.role.id.clone()).collect(),
+                role_ids: tab
+                    .slots
+                    .iter()
+                    .map(|slot| slot.role.id.clone())
+                    .collect(),
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),
@@ -222,23 +247,60 @@ impl SystemRuntimeExecutor {
             .map(|host| host.zoom_factor)
             .unwrap_or(1.0);
         let mut created_surfaces = Vec::new();
+        let mut created_placeholders = Vec::new();
         let mut first_surface_recorded = false;
         let mut first_navigation_recorded = false;
         let mut result = (|| -> RuntimeResult<()> {
             let content_metrics = runtime_window_content_metrics(&window)?;
             let role_inputs = tab
-                .roles
+                .slots
                 .iter()
-                .map(|role| LayoutRoleInput {
-                    role_id: role.role.id.clone(),
-                    rect: LayoutRect {
-                        x: role.rect.x,
-                        y: role.rect.y,
-                        width: role.rect.width,
-                        height: role.rect.height,
-                    },
-                })
+                .map(embedded_role_slot_input)
                 .collect::<Vec<_>>();
+            for slot in tab.slots.iter().filter(|slot| {
+                !tab.roles
+                    .iter()
+                    .any(|role| role.role.id == slot.role.id)
+            }) {
+                let bounds = role_bounds_for_content(content_metrics, &slot.rect);
+                let placeholder = self.create_role_placeholder(
+                    &window,
+                    &target.window_id,
+                    &tab.tab_id,
+                    slot,
+                    bounds,
+                    should_select,
+                )?;
+                let state = match self.state() {
+                    Ok(state) => state,
+                    Err(error) => {
+                        let _ = self.close_role_placeholder_surface(placeholder);
+                        return Err(error);
+                    }
+                };
+                let attached = {
+                    let mut state = state;
+                    state
+                        .tabs
+                        .get_mut(&tab.tab_id)
+                        .and_then(|runtime_tab| runtime_tab.slots.get_mut(&slot.slot_id))
+                        .map(|runtime_slot| {
+                            runtime_slot.placeholder = Some(RolePlaceholderSurface {
+                                surface_instance_id: placeholder.surface_instance_id.clone(),
+                                webview: placeholder.webview.clone(),
+                            });
+                        })
+                        .is_some()
+                };
+                if !attached {
+                    self.close_role_placeholder_surface(placeholder)?;
+                    return Err(RuntimeError::new(
+                        "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
+                        "The runtime role slot disappeared before its placeholder attached.",
+                    ));
+                }
+                created_placeholders.push((slot.slot_id.clone(), placeholder));
+            }
             for role in &tab.roles {
                 let role_id = role.role.id.clone();
                 let generation = self.claim_surface_generation(&role_id)?;
@@ -483,27 +545,43 @@ impl SystemRuntimeExecutor {
                 role_inputs,
                 tab.workspace_appearance.gap,
             )?;
-            for role in &tab.roles {
-                let Some(bounds) = resolved_role_bounds.get(&role.role.id).copied() else {
+            for slot in &tab.slots {
+                let Some(bounds) = resolved_role_bounds.get(&slot.role.id).copied() else {
                     continue;
                 };
-                let (webview, current_zoom_factor, adaptive) = {
+                let surface = {
                     let state = self.state()?;
-                    let surface = state
-                        .tabs
-                        .get(&tab.tab_id)
-                        .and_then(|runtime_tab| runtime_tab.roles.get(&role.role.id))
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                                "Runtime role was not found after native attachment.",
-                            )
-                        })?;
-                    (
-                        surface.webview.clone(),
-                        surface.zoom_factor,
-                        surface.zoom_mode == "adaptive",
-                    )
+                    let runtime_tab = state.tabs.get(&tab.tab_id).ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAURI_RUNTIME_TAB_NOT_FOUND",
+                            "Runtime tab was not found after native attachment.",
+                        )
+                    })?;
+                    if let Some(surface) = runtime_tab.roles.get(&slot.role.id) {
+                        Some((
+                            surface.webview.clone(),
+                            surface.zoom_factor,
+                            surface.zoom_mode == "adaptive",
+                        ))
+                    } else {
+                        runtime_tab
+                            .slots
+                            .get(&slot.slot_id)
+                            .and_then(|runtime_slot| runtime_slot.placeholder.as_ref())
+                            .map(|placeholder| {
+                                (
+                                    placeholder.webview.clone(),
+                                    slot.zoom_factor.clamp(0.25, 3.0),
+                                    false,
+                                )
+                            })
+                    }
+                };
+                let Some((webview, current_zoom_factor, adaptive)) = surface else {
+                    return Err(RuntimeError::new(
+                        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                        "Runtime role slot was not found after native attachment.",
+                    ));
                 };
                 let base_zoom_factor = if adaptive {
                     self.adaptive_zoom_factor(bounds.width, Some(current_zoom_factor))?
@@ -515,7 +593,7 @@ impl SystemRuntimeExecutor {
                     && let Some(surface) = state
                         .tabs
                         .get_mut(&tab.tab_id)
-                        .and_then(|runtime_tab| runtime_tab.roles.get_mut(&role.role.id))
+                        .and_then(|runtime_tab| runtime_tab.roles.get_mut(&slot.role.id))
                 {
                     surface.zoom_factor = base_zoom_factor;
                 }
@@ -523,8 +601,14 @@ impl SystemRuntimeExecutor {
                     .set_position(LogicalPosition::new(bounds.x, bounds.y))
                     .and_then(|()| webview.set_size(LogicalSize::new(bounds.width, bounds.height)))
                     .and_then(|()| {
-                        webview
-                            .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
+                        if adaptive {
+                            webview.set_zoom(effective_zoom_factor(
+                                base_zoom_factor,
+                                window_zoom_factor,
+                            ))
+                        } else {
+                            Ok(())
+                        }
                     })
                     .map_err(RuntimeError::tauri)?;
             }
@@ -584,6 +668,11 @@ impl SystemRuntimeExecutor {
                     }
                 };
                 if let Err(error) = cleanup {
+                    cleanup_error.get_or_insert(error);
+                }
+            }
+            for (_, placeholder) in created_placeholders {
+                if let Err(error) = self.close_role_placeholder_surface(placeholder) {
                     cleanup_error.get_or_insert(error);
                 }
             }

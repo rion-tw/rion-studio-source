@@ -635,7 +635,7 @@
                 window_id,
                 tab_type: "role".to_owned(),
                 workspace_id: None,
-                role_ids: vec![role_id.clone()],
+                role_slots: test_role_slots(&[&role_id]),
             })
             .unwrap()
             .created_tab_id
@@ -643,8 +643,8 @@
         core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
             role_id: role_id.clone(),
             runtime: "embedded".to_owned(),
-            workspace_id: None,
-            tab_id: Some(tab_id.clone()),
+            tab_id: tab_id.clone(),
+            slot_id: None,
             state: "launching".to_owned(),
             launched_at: None,
         })
@@ -652,8 +652,8 @@
         core.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
             role_id,
             runtime: "embedded".to_owned(),
-            workspace_id: None,
-            tab_id: Some(tab_id),
+            tab_id,
+            slot_id: None,
             state: "running".to_owned(),
             launched_at: Some(chrono::Utc::now().to_rfc3339()),
         })

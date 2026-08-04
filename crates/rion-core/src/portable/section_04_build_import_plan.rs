@@ -257,7 +257,6 @@ fn build_import_plan(
             }
             let mut tabs = Vec::new();
             let mut claimed_sources = HashSet::new();
-            let mut claimed_roles = HashSet::new();
             let mut imported_tab_ids = HashMap::new();
             for tab in &portable.tabs {
                 let source_id = if tab.tab_type == "role" {
@@ -274,21 +273,21 @@ fn build_import_plan(
                     ));
                     continue;
                 };
-                let role_ids = if tab.tab_type == "role" {
-                    vec![source_id.clone()]
-                } else {
-                    tab.role_ids
-                        .iter()
-                        .filter_map(|role_id| role_id_map.get(role_id).cloned())
-                        .collect::<Vec<_>>()
-                };
+                let role_slots = tab
+                    .role_slots
+                    .iter()
+                    .filter_map(|slot| {
+                        let role_id = role_id_map.get(&slot.role_id)?.clone();
+                        Some(crate::model::GameWindowRoleSlotRecord {
+                            slot_id: slot.slot_id.clone(),
+                            role_id,
+                            rect: slot.rect.clone(),
+                            browser_zoom_percent: slot.browser_zoom_percent,
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 let source_key = format!("{}:{source_id}", tab.tab_type);
-                if role_ids.is_empty()
-                    || claimed_sources.contains(&source_key)
-                    || role_ids
-                        .iter()
-                        .any(|role_id| claimed_roles.contains(role_id))
-                {
+                if role_slots.is_empty() || claimed_sources.contains(&source_key) {
                     warnings.push(warning(
                         "GAME_WINDOW_TAB_ROLE_CONFLICT",
                         Some(tab.name.clone()),
@@ -304,32 +303,16 @@ fn build_import_plan(
                     used_tab_ids.insert(id.clone());
                     id
                 };
-                let role_views = tab
-                    .role_views
-                    .iter()
-                    .filter_map(|view| {
-                        let role_id = role_id_map.get(&view.role_id)?.clone();
-                        role_ids.contains(&role_id).then(|| {
-                            crate::model::GameWindowRoleViewRecord {
-                                role_id,
-                                rect: view.rect.clone(),
-                                browser_zoom_percent: view.browser_zoom_percent,
-                            }
-                        })
-                    })
-                    .collect();
                 claimed_sources.insert(source_key);
-                claimed_roles.extend(role_ids.iter().cloned());
                 imported_tab_ids.insert(tab.id.clone(), tab_id.clone());
                 tabs.push(GameWindowTabRecord {
                     id: tab_id,
                     tab_type: tab.tab_type.clone(),
                     source_id,
                     name: tab.name.clone(),
-                    role_ids,
+                    role_slots,
                     hidden: tab.hidden,
                     audio_muted: tab.audio_muted,
-                    role_views,
                 });
             }
             let existing = existing_index.map(|index| snapshot.game_windows[index].clone());

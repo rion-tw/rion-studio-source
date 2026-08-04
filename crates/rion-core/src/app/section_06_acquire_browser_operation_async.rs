@@ -121,13 +121,22 @@ impl AppCore {
             .collect::<std::collections::HashMap<_, _>>();
         let workspaces =
             self.read_typed_state_collection::<StateLaunchWorkspaceRecord>("launchWorkspaces")?;
-        let active_workspace_by_role = self
+        let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
+            .snapshot;
+        let workspace_by_tab = runtime_snapshot
+            .tabs
+            .iter()
+            .filter(|tab| tab.tab_type == "workspace")
+            .map(|tab| (tab.id.clone(), tab.source_id.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let active_workspace_by_role = runtime_snapshot
             .roles
             .into_iter()
             .filter_map(|role| {
-                role.workspace_id
+                workspace_by_tab
+                    .get(&role.owner.tab_id)
+                    .cloned()
                     .map(|workspace_id| (role.role_id, workspace_id))
             })
             .collect::<std::collections::HashMap<_, _>>();
@@ -539,9 +548,7 @@ impl AppCore {
                     message: "The role is already launching or stopping.".to_owned(),
                 });
             }
-            let tab_id = runtime_role.tab_id.clone().ok_or_else(|| {
-                CoreError::Internal("embedded role runtime is missing its tab".to_owned())
-            })?;
+            let tab_id = runtime_role.owner.tab_id.clone();
             self.apply_embedded_tab_selection_without_native_effect(
                 BrowserRuntimeCommand::ActivateTab {
                     tab_id: tab_id.clone(),
@@ -565,6 +572,16 @@ impl AppCore {
                         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
                 ),
             ]));
+        }
+        if let Some(runtime_tab) = snapshot.tabs.iter().find(|tab| {
+            tab.tab_type == "role" && tab.source_id == role_id
+        }) {
+            self.apply_embedded_tab_selection_without_native_effect(
+                BrowserRuntimeCommand::ActivateTab {
+                    tab_id: runtime_tab.id.clone(),
+                },
+            )?;
+            return Ok(EmbeddedRoleLaunchStart::Completed(Vec::new()));
         }
         if snapshot
             .roles
@@ -595,15 +612,22 @@ impl AppCore {
                 window_id: target.window_id.clone(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
-                role_ids: vec![role.id.clone()],
+                role_slots: vec![RuntimeRoleSlotInputRecord {
+                    slot_id: format!("role:{}", role.id),
+                    role_id: role.id.clone(),
+                    rect: full_window_rect(),
+                    browser_zoom_percent: Some(
+                        (zoom_factor * 100.0).clamp(25.0, 500.0),
+                    ),
+                }],
             })?
             .created_tab_id
             .ok_or_else(|| CoreError::Internal("embedded tab was not created".to_owned()))?;
         self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
             role_id: role.id.clone(),
             runtime: "embedded".to_owned(),
-            workspace_id: None,
-            tab_id: Some(tab_id.clone()),
+            tab_id: tab_id.clone(),
+            slot_id: Some(format!("role:{}", role.id)),
             state: "launching".to_owned(),
             launched_at: None,
         })?;
@@ -611,6 +635,21 @@ impl AppCore {
             tab_id: tab_id.clone(),
         })?;
 
+        let role_slot = EmbeddedRoleSlotEffectRecord {
+            slot_id: format!("role:{}", role.id),
+            role: role.clone(),
+            rect: full_window_rect(),
+            zoom_factor,
+            zoom_mode: "fixed".to_owned(),
+            state: "launching".to_owned(),
+            owner: self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                .snapshot
+                .roles
+                .into_iter()
+                .find(|runtime| runtime.role_id == role.id)
+                .map(|runtime| runtime.owner),
+        };
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             attempt_generation: None,
@@ -621,6 +660,7 @@ impl AppCore {
             workspace_template: None,
             workspace_appearance: settings.workspace,
             target,
+            slots: vec![role_slot],
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
                 resolved_engine,
@@ -640,8 +680,9 @@ impl AppCore {
             &std::collections::HashSet::new(),
         ) {
             let _ = self.operation_actor.cancel(&handle.operation_id);
-            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveRole {
+            let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::ReleaseRole {
                 role_id: role.id.clone(),
+                expected_tab_id: Some(tab_id.clone()),
             });
             let _ = self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
                 tab_id: tab_id.clone(),

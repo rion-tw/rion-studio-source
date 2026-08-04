@@ -85,6 +85,7 @@ impl LaunchIntentDispatcher {
                             workspace_id: intent.source_id.clone(),
                             target: intent.target.clone(),
                             launch_preview_id: Some(intent.launch_preview_id.clone()),
+                            restore_role_slots: None,
                         }
                     } else {
                         CoreCommand::BrowserRoleLaunch {

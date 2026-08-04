@@ -11,7 +11,7 @@ use super::*;
         let created = runtime
             .invoke(command(json!({
                 "type":"createTab","sourceId":"w1","name":"Party","windowId":"window-1",
-                "tabType":"workspace","workspaceId":"w1","roleIds":["r1","r2"]
+                "tabType":"workspace","workspaceId":"w1","roleSlots":["r1","r2"]
             })))
             .unwrap();
         let tab_id = created.created_tab_id.unwrap();
@@ -40,34 +40,51 @@ use super::*;
         assert_eq!(moved.snapshot.windows[0].window_id, "window-1");
         assert_eq!(moved.snapshot.workspaces[0].state, "running");
         assert_eq!(
-            moved.snapshot.workspaces[0].window_id.as_deref(),
-            Some("window-2")
+            moved.snapshot.workspaces[0].window_id,
+            "window-2"
         );
     }
 
     #[test]
-    fn rejects_duplicate_workspace_roles_and_invalid_transitions() {
+    fn duplicate_workspace_roles_project_blocked_slots_and_invalid_transitions_fail() {
         let mut runtime = BrowserRuntime::default();
-        runtime
+        let first = runtime
             .invoke(command(json!({
                 "type":"createTab","sourceId":"w1","name":"One","windowId":"window-1",
-                "tabType":"workspace","workspaceId":"w1","roleIds":["r1"]
+                "tabType":"workspace","workspaceId":"w1","roleSlots":["r1","r2"]
+            })))
+            .unwrap()
+            .created_tab_id
+            .unwrap();
+        runtime
+            .invoke(command(json!({
+                "type":"roleTransition","roleId":"r1","runtime":"embedded",
+                "tabId":first,"state":"launching"
             })))
             .unwrap();
+        let second = runtime
+            .invoke(command(json!({
+                "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
+                "tabType":"workspace","workspaceId":"w2","roleSlots":["r1"]
+            })))
+            .unwrap();
+        assert_eq!(second.snapshot.workspaces.len(), 2);
         assert_eq!(
-            runtime
-                .invoke(command(json!({
-                    "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
-                    "tabType":"workspace","workspaceId":"w2","roleIds":["r1"]
-                })))
-                .unwrap_err()
-                .code(),
-            "ROLE_ALREADY_RUNNING"
+            second
+                .snapshot
+                .tabs
+                .iter()
+                .find(|tab| tab.source_id == "w2")
+                .unwrap()
+                .slots[0]
+                .state,
+            "blocked"
         );
         assert_eq!(
             runtime
                 .invoke(command(json!({
-                    "type":"roleTransition","roleId":"r1","runtime":"embedded","state":"running"
+                    "type":"roleTransition","roleId":"r2","runtime":"embedded",
+                    "tabId":first,"state":"running"
                 })))
                 .unwrap_err()
                 .code(),
@@ -76,12 +93,93 @@ use super::*;
     }
 
     #[test]
+    fn role_slot_claims_move_one_owner_and_reject_stale_or_repeated_generations() {
+        let mut runtime = BrowserRuntime::default();
+        let source_tab_id = runtime
+            .invoke(command(json!({
+                "type":"createTab","sourceId":"w1","name":"One","windowId":"window-1",
+                "tabType":"workspace","workspaceId":"w1","roleSlots":["r1"]
+            })))
+            .unwrap()
+            .created_tab_id
+            .unwrap();
+        runtime
+            .invoke(command(json!({
+                "type":"roleTransition","roleId":"r1","runtime":"embedded",
+                "tabId":source_tab_id,"state":"launching"
+            })))
+            .unwrap();
+        let target_tab_id = runtime
+            .invoke(command(json!({
+                "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
+                "tabType":"workspace","workspaceId":"w2","roleSlots":["r1"]
+            })))
+            .unwrap()
+            .created_tab_id
+            .unwrap();
+        let before = runtime.snapshot();
+        let source_owner = before.roles[0].owner.clone();
+        let target_slot_id = before
+            .tabs
+            .iter()
+            .find(|tab| tab.id == target_tab_id)
+            .unwrap()
+            .slots[0]
+            .slot_id
+            .clone();
+
+        let claimed = runtime
+            .invoke(BrowserRuntimeCommand::ClaimRoleSlot {
+                role_id: "r1".to_owned(),
+                tab_id: target_tab_id.clone(),
+                slot_id: target_slot_id.clone(),
+                expected_owner_generation: Some(source_owner.generation),
+            })
+            .unwrap()
+            .snapshot;
+        assert_eq!(claimed.roles.len(), 1);
+        let claimed_owner = claimed.roles[0].owner.clone();
+        assert_eq!(claimed_owner.tab_id, target_tab_id);
+        assert_eq!(claimed_owner.slot_id, target_slot_id);
+        assert!(claimed_owner.generation > source_owner.generation);
+        assert_eq!(
+            claimed
+                .tabs
+                .iter()
+                .find(|tab| tab.id == source_tab_id)
+                .unwrap()
+                .slots[0]
+                .state,
+            "blocked"
+        );
+
+        let stale = runtime
+            .invoke(BrowserRuntimeCommand::ClaimRoleSlot {
+                role_id: "r1".to_owned(),
+                tab_id: source_tab_id.clone(),
+                slot_id: source_owner.slot_id.clone(),
+                expected_owner_generation: Some(source_owner.generation),
+            })
+            .unwrap_err();
+        assert_eq!(stale.code(), "RUNTIME_ROLE_OWNER_STALE");
+        let repeated = runtime
+            .invoke(BrowserRuntimeCommand::ClaimRoleSlot {
+                role_id: "r1".to_owned(),
+                tab_id: target_tab_id,
+                slot_id: target_slot_id,
+                expected_owner_generation: Some(claimed_owner.generation),
+            })
+            .unwrap_err();
+        assert_eq!(repeated.code(), "RUNTIME_ROLE_SLOT_ALREADY_OWNED");
+    }
+
+    #[test]
     fn owns_window_show_and_adjacent_tab_selection() {
         let mut runtime = BrowserRuntime::default();
         let first = runtime
             .invoke(command(json!({
                 "type":"createTab","sourceId":"r1","name":"One","windowId":"window-1",
-                "tabType":"role","roleIds":["r1"]
+                "tabType":"role","roleSlots":["r1"]
             })))
             .unwrap()
             .created_tab_id
@@ -89,7 +187,7 @@ use super::*;
         let second = runtime
             .invoke(command(json!({
                 "type":"createTab","sourceId":"r2","name":"Two","windowId":"window-1",
-                "tabType":"role","roleIds":["r2"]
+                "tabType":"role","roleSlots":["r2"]
             })))
             .unwrap()
             .created_tab_id
@@ -127,7 +225,7 @@ use super::*;
                 runtime
                     .invoke(command(json!({
                         "type":"createTab", "sourceId":source_id, "name":name,
-                        "windowId":"window-1", "tabType":"role", "roleIds":[source_id]
+                        "windowId":"window-1", "tabType":"role", "roleSlots":[source_id]
                     })))
                     .unwrap()
                     .created_tab_id
@@ -184,7 +282,7 @@ use super::*;
             runtime
                 .invoke(command(json!({
                     "type":"createTab","tabId":tab_id,"sourceId":role_id,"name":name,
-                    "windowId":"window-1","tabType":"role","roleIds":[role_id]
+                    "windowId":"window-1","tabType":"role","roleSlots":[role_id]
                 })))
                 .unwrap();
         }
@@ -207,7 +305,7 @@ use super::*;
         let created = runtime
             .invoke(command(json!({
                 "type":"createTab","tabId":third,"sourceId":"r3","name":"Third",
-                "windowId":"window-1","tabType":"role","roleIds":["r3"]
+                "windowId":"window-1","tabType":"role","roleSlots":["r3"]
             })))
             .unwrap();
 
@@ -232,7 +330,7 @@ use super::*;
                     .invoke(command(json!({
                         "type":"createTab","tabId":tab_id,"sourceId":role_id,
                         "name":role_id,"windowId":"source","tabType":"role",
-                        "roleIds":[role_id]
+                        "roleSlots":[role_id]
                     })))
                     .unwrap();
             };
@@ -317,7 +415,7 @@ use super::*;
                     .invoke(command(json!({
                         "type":"createTab", "tabId":tab_id, "sourceId":format!("role-{index}"),
                         "name":format!("Tab {index}"), "windowId":"source", "tabType":"role",
-                        "roleIds":[format!("role-{index}")]
+                        "roleSlots":[format!("role-{index}")]
                     })))
                     .unwrap();
             }
@@ -353,7 +451,7 @@ use super::*;
                 runtime
                     .invoke(command(json!({
                         "type":"createTab", "tabId":tab_id, "sourceId":source_id,
-                        "name":source_id, "windowId":window_id, "tabType":"role", "roleIds":[source_id]
+                        "name":source_id, "windowId":window_id, "tabType":"role", "roleSlots":[source_id]
                     })))
                     .unwrap();
             }
@@ -399,7 +497,7 @@ use super::*;
             runtime
                 .invoke(command(json!({
                     "type":"createTab", "tabId":tab_id, "sourceId":role_id,
-                    "name":role_id, "windowId":"source", "tabType":"role", "roleIds":[role_id]
+                    "name":role_id, "windowId":"source", "tabType":"role", "roleSlots":[role_id]
                 })))
                 .unwrap();
         }

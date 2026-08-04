@@ -149,7 +149,7 @@ it("routes close around slow effects and keeps failed close intent committed", a
 
     const stopRole = core.slice(
       core.indexOf("fn stop_embedded_role_with_operation_lease("),
-      core.indexOf("fn stop_embedded_workspace(")
+      core.indexOf("fn stop_embedded_window(")
     );
     expect(stopRole).toContain("request_stop_role(role_id)");
     expect(stopRole).toContain("parent_operation_id: Option<&str>");

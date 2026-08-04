@@ -40,10 +40,10 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
   Game,
+  EmbeddedRuntimeTabSummary,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   Role,
-  RoleStatus,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
 import {
@@ -61,8 +61,8 @@ interface LaunchWorkspacesViewProps {
   isReordering: boolean;
   query: string;
   roles: Role[];
+  runtimeTabs: EmbeddedRuntimeTabSummary[];
   scrollPositionRef: MutableRefObject<number>;
-  statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
   onCopyWorkspace: (workspace: LaunchWorkspace) => void;
@@ -82,8 +82,8 @@ function LaunchWorkspacesView({
   isReordering,
   query,
   roles,
+  runtimeTabs,
   scrollPositionRef,
-  statusByRole,
   t,
   workspaces,
   onCopyWorkspace,
@@ -98,6 +98,10 @@ function LaunchWorkspacesView({
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
+  const openWorkspaceIds = useMemo(
+    () => new Set(runtimeTabs.filter((tab) => tab.type === "workspace").map((tab) => tab.sourceId)),
+    [runtimeTabs]
+  );
   const pageRef = useRef<HTMLElement | null>(null);
   const filteredWorkspaces = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -218,7 +222,7 @@ function LaunchWorkspacesView({
               isSelected={selection.isSelected(workspace.id)}
               gameNameById={gameNameById}
               roleById={roleById}
-              statusByRole={statusByRole}
+              isRunning={openWorkspaceIds.has(workspace.id)}
               t={t}
               workspace={workspace}
               selectionRef={selection.registerItem(workspace.id)}
@@ -254,7 +258,7 @@ interface WorkspaceCardProps {
   onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   roleById: Map<string, Role>;
-  statusByRole: Map<string, RoleStatus>;
+  isRunning: boolean;
   t: Translator;
   selectionRef: RefCallback<HTMLElement>;
   workspace: LaunchWorkspace;
@@ -275,14 +279,12 @@ function WorkspaceCard({
   onStop,
   onSelectionClick,
   roleById,
-  statusByRole,
+  isRunning,
   t,
   selectionRef,
   workspace
 }: WorkspaceCardProps): JSX.Element {
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
-  const runningCount = workspace.slots.filter((slot) => slot.roleId && statusByRole.has(slot.roleId)).length;
-  const isRunning = runningCount > 0;
   const isBusy = busyWorkspaceIds.has(workspace.id);
   const LayoutIcon = workspaceTemplateIcons[workspace.template];
   const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);

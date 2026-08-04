@@ -1,4 +1,4 @@
-use crate::model::GameWindowTabRecord;
+use crate::model::{GameWindowRoleSlotRecord, GameWindowTabRecord, StateNormalizedRectRecord};
 
 fn pending_tab(
     id: &str,
@@ -12,10 +12,23 @@ fn pending_tab(
         tab_type: tab_type.to_owned(),
         source_id: source_id.to_owned(),
         name: name.to_owned(),
-        role_ids: role_ids.iter().map(|role_id| (*role_id).to_owned()).collect(),
+        role_slots: role_ids
+            .iter()
+            .enumerate()
+            .map(|(index, role_id)| GameWindowRoleSlotRecord {
+                slot_id: format!("slot-{index}"),
+                role_id: (*role_id).to_owned(),
+                rect: StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                browser_zoom_percent: None,
+            })
+            .collect(),
         hidden: false,
         audio_muted: false,
-        role_views: Vec::new(),
     }
 }
 

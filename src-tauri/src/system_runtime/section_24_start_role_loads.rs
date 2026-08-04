@@ -308,6 +308,9 @@ impl SystemRuntimeExecutor {
                 }
             }
             result = self.reassert_role_keys(&pending.role_id, &pending.surface);
+            if result.is_ok() {
+                result = self.finish_claimed_role_slot(&pending.role_id);
+            }
         }
         self.finish_controlled_navigations(&controlled_labels);
         result

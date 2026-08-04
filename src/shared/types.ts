@@ -65,6 +65,7 @@ import type {
   RoleCreateRequest,
   RolePathsRecord,
   RoleUpdateRequest,
+  RuntimeRoleSlotRecord,
   RuntimeWindowPreferencesRecord,
   ResolvedBrowserEngine as RustResolvedBrowserEngine,
   WorkspaceCreateRequest,
@@ -163,6 +164,7 @@ export interface EmbeddedRuntimeTabSummary {
   name: string;
   windowId: string;
   roleIds: string[];
+  slots: RuntimeRoleSlotRecord[];
   /** Role names in the same order as roleIds, present for workspace tabs. */
   roleNames?: string[];
   hidden: boolean;
@@ -329,7 +331,6 @@ export interface RoleLaunchInput {
 
 export interface WorkspaceLaunchInput {
   windowId?: string;
-  stopConflicts?: boolean;
 }
 
 export interface RoleLaunchResult {
@@ -337,24 +338,11 @@ export interface RoleLaunchResult {
   status: RoleStatus | null;
 }
 
-export interface WorkspaceLaunchConflict {
-  roleIds: string[];
-  roleNames: string[];
-  tabId: string;
-  tabName: string;
-  windowId: string;
-  windowName: string;
-}
-
-export type WorkspaceLaunchResult = {
+export interface WorkspaceLaunchResult {
   kind: "launched";
   windowId: string;
   statuses: RoleStatus[];
-} | {
-  kind: "conflict";
-  windowId: string;
-  conflicts: WorkspaceLaunchConflict[];
-};
+}
 
 export type BrowserFontSlot = "cjk" | "latin" | "numeric" | "monospace" | "math";
 export type BrowserFontSettingsMode = "default" | "custom";

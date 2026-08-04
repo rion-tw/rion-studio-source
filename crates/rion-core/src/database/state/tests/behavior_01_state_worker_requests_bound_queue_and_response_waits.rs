@@ -113,7 +113,7 @@ use std::fs;
             .unwrap();
         assert_eq!(saved["value"]["tabs"][0]["audioMuted"], true);
         assert_eq!(
-            saved["value"]["tabs"][0]["roleViews"][0]["browserZoomPercent"],
+            saved["value"]["tabs"][0]["roleSlots"][0]["browserZoomPercent"],
             125.0
         );
 

@@ -43,17 +43,9 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .map(|divider| divider.descriptor.clone())
                     .collect::<Vec<_>>(),
-                tab.roles
-                    .iter()
-                    .map(|(role_id, role)| LayoutRoleInput {
-                        role_id: role_id.clone(),
-                        rect: LayoutRect {
-                            x: role.rect.x,
-                            y: role.rect.y,
-                            width: role.rect.width,
-                            height: role.rect.height,
-                        },
-                    })
+                tab.slots
+                    .values()
+                    .map(runtime_role_slot_input)
                     .collect::<Vec<_>>(),
                 tab.window_id.clone(),
                 previous,
@@ -150,6 +142,18 @@ impl SystemRuntimeExecutor {
                 .get_mut(&tab_id)
                 .ok_or_else(|| "runtime tab was closed during divider resize".to_owned())?;
             for role in &result.roles {
+                if let Some(slot) = tab
+                    .slots
+                    .values_mut()
+                    .find(|slot| slot.role.id == role.role_id)
+                {
+                    slot.rect = StateNormalizedRectRecord {
+                        x: role.rect.x,
+                        y: role.rect.y,
+                        width: role.rect.width,
+                        height: role.rect.height,
+                    };
+                }
                 if let Some(surface) = tab.roles.get_mut(&role.role_id) {
                     surface.rect = StateNormalizedRectRecord {
                         x: role.rect.x,
@@ -183,6 +187,19 @@ impl SystemRuntimeExecutor {
                     };
                     let mut restored_roles = 0;
                     for role in &roles {
+                        if let Some(slot) = tab
+                            .slots
+                            .values_mut()
+                            .find(|slot| slot.role.id == role.role_id)
+                        {
+                            slot.rect = StateNormalizedRectRecord {
+                                x: role.rect.x,
+                                y: role.rect.y,
+                                width: role.rect.width,
+                                height: role.rect.height,
+                            };
+                            restored_roles += 1;
+                        }
                         if let Some(surface) = tab.roles.get_mut(&role.role_id) {
                             surface.rect = StateNormalizedRectRecord {
                                 x: role.rect.x,
@@ -190,7 +207,6 @@ impl SystemRuntimeExecutor {
                                 width: role.rect.width,
                                 height: role.rect.height,
                             };
-                            restored_roles += 1;
                         }
                     }
                     tab.active_divider_resize = previous_active_resize;
@@ -219,23 +235,34 @@ impl SystemRuntimeExecutor {
     }
 
     fn persist_runtime_tab_role_views(&self, tab_id: &str) -> Result<(), String> {
-        let role_views = {
+        let role_slots = {
             let state = self.state().map_err(|error| error.message)?;
             let tab = state
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "Runtime tab was not found while saving its layout.".to_owned())?;
-            let mut role_views = tab
-                .roles
-                .iter()
-                .map(|(role_id, surface)| GameWindowRoleViewRecord {
-                    role_id: role_id.clone(),
-                    rect: surface.rect.clone(),
-                    browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
+            let mut role_slots = tab
+                .slots
+                .values()
+                .map(|slot| {
+                    let live = tab.roles.get(&slot.role.id);
+                    let zoom_factor = live
+                        .map(|surface| surface.zoom_factor)
+                        .unwrap_or(slot.zoom_factor);
+                    let zoom_mode = live
+                        .map(|surface| surface.zoom_mode.as_str())
+                        .unwrap_or(slot.zoom_mode.as_str());
+                    GameWindowRoleSlotRecord {
+                        slot_id: slot.slot_id.clone(),
+                        role_id: slot.role.id.clone(),
+                        rect: slot.rect.clone(),
+                        browser_zoom_percent: (zoom_mode == "fixed")
+                            .then_some((zoom_factor * 100.0).clamp(25.0, 500.0)),
+                    }
                 })
                 .collect::<Vec<_>>();
-            role_views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-            role_views
+            role_slots.sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
+            role_slots
         };
         let mut game_windows = self
             .core
@@ -256,7 +283,7 @@ impl SystemRuntimeExecutor {
             .iter_mut()
             .find(|tab| tab.id == tab_id)
             .ok_or_else(|| "Saved runtime tab was not found while saving its layout.".to_owned())?;
-        tab.role_views = role_views;
+        tab.role_slots = role_slots;
         self.core
             .invoke(CoreCommand::GameWindowUpdate {
                 id: game_window.id.clone(),

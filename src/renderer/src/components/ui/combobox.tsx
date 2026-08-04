@@ -165,7 +165,7 @@ export function ComboboxChip({
     <ComboboxPrimitive.Chip
       data-slot="combobox-chip"
       className={cn(
-        "glass-control-selected inline-flex h-6 max-w-full items-center gap-1 rounded-xs border border-[hsl(var(--glass-border))] pl-2 pr-1 text-caption font-semibold text-foreground transition-[background-color,border-color,color,box-shadow] duration-150 has-[:disabled]:pointer-events-none has-[:disabled]:opacity-45",
+        "glass-control-selected inline-flex h-6 max-w-full items-center gap-1 rounded-xs border pl-2 pr-1 text-caption font-semibold text-foreground transition-[background-color,border-color,color,box-shadow] duration-150 has-[:disabled]:pointer-events-none has-[:disabled]:opacity-45",
         className
       )}
       {...props}

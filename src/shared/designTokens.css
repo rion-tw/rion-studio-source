@@ -126,7 +126,6 @@
   --glass-control-selected: 0 0% 100% / 0.48;
   --glass-control-ring: 222 18% 14% / 0.07;
   --glass-control-ring-hover: 222 18% 14% / 0.095;
-  --glass-control-ring-selected: 217 91% 46% / 0.2;
   --glass-popover: 0 0% 100% / 0.72;
   --glass-inset: 0 0% 100% / 0.24;
   --glass-border: 0 0% 100% / 0.32;
@@ -210,7 +209,6 @@
   --glass-control-selected: 0 0% 100% / 0.082;
   --glass-control-ring: 0 0% 100% / 0;
   --glass-control-ring-hover: 0 0% 100% / 0;
-  --glass-control-ring-selected: 213 94% 68% / 0.22;
   --glass-popover: 228 13% 15% / 0.82;
   --glass-inset: 0 0% 100% / 0.038;
   --glass-border: 0 0% 100% / 0.072;

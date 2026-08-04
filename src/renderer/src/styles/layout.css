@@ -344,7 +344,8 @@
       hsl(var(--glass-inset));
     box-shadow:
       inset 0 1px 0 hsl(var(--glass-highlight-muted)),
-      inset 0 0 4px hsl(var(--glass-inner-shadow));
+      inset 0 0 4px hsl(var(--glass-inner-shadow)),
+      0 1px 2px hsl(var(--glass-shadow));
   }
 
   .glass-divider {

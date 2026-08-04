@@ -54,7 +54,6 @@ jobs:
       - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
 
       - name: Validate immutable release inputs
@@ -117,11 +116,18 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
+      - name: Start release build timing
+        shell: bash
+        run: echo "RELEASE_BUILD_STARTED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
       - name: Checkout immutable release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
+
+      - name: Record checkout timing
+        shell: bash
+        run: echo "RELEASE_CHECKOUT_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -141,14 +147,33 @@ jobs:
           cache-bin: "false"
           shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
 
+      - name: Record environment timing
+        shell: bash
+        run: echo "RELEASE_ENVIRONMENT_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Record dependency timing
+        shell: bash
+        run: echo "RELEASE_DEPENDENCIES_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
 
       - name: Apply release version
         run: pnpm run release:version -- ${{ needs.validate.outputs.version }}
 
+      - name: Record versioning timing
+        shell: bash
+        run: echo "RELEASE_VERSION_FINISHED_AT=$(date +%s)" >> "${GITHUB_ENV}"
+
       - name: Build Tauri release candidate
-        run: pnpm run dist -- --bundles ${{ matrix.bundles }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_started_at=$(date +%s)
+          pnpm run dist -- --bundles ${{ matrix.bundles }}
+          package_finished_at=$(date +%s)
+          echo "RELEASE_PACKAGE_SECONDS=$(( package_finished_at - build_started_at ))" >> "${GITHUB_ENV}"
+          echo "RELEASE_PACKAGE_FINISHED_AT=${package_finished_at}" >> "${GITHUB_ENV}"
 
       - name: Verify packaged macOS candidate
         if: runner.os == 'macOS'
@@ -209,6 +234,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: candidate
+          compression-level: 0
+
+      - name: Publish release build timing summary
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          finished_at=$(date +%s)
+          {
+            echo "## Release build timing (${RUNNER_OS} ${RUNNER_ARCH})"
+            echo
+            echo "| Stage | Duration |"
+            echo "| --- | ---: |"
+            echo "| Checkout | $(( RELEASE_CHECKOUT_FINISHED_AT - RELEASE_BUILD_STARTED_AT )) s |"
+            echo "| Toolchain setup and Rust cache restore | $(( RELEASE_ENVIRONMENT_FINISHED_AT - RELEASE_CHECKOUT_FINISHED_AT )) s |"
+            echo "| JavaScript dependencies | $(( RELEASE_DEPENDENCIES_FINISHED_AT - RELEASE_ENVIRONMENT_FINISHED_AT )) s |"
+            echo "| Release versioning | $(( RELEASE_VERSION_FINISHED_AT - RELEASE_DEPENDENCIES_FINISHED_AT )) s |"
+            echo "| Tauri build, signing, and bundles | ${RELEASE_PACKAGE_SECONDS} s |"
+            echo "| Verification and artifact upload | $(( finished_at - RELEASE_PACKAGE_FINISHED_AT )) s |"
+            echo "| Total | $(( finished_at - RELEASE_BUILD_STARTED_AT )) s |"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   manifest:
     needs:

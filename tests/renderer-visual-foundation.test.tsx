@@ -102,4 +102,15 @@ describe("renderer visual foundation", () => {
       ".glass-control,\n  .glass-control-selected,\n  .glass-inset {\n    -webkit-backdrop-filter: none;"
     );
   });
+
+  it("gives inset editor surfaces a subtle edge against the page material", () => {
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
+
+    expect(styles).toMatch(
+      /\.glass-inset \{[\s\S]*?inset 0 0 4px hsl\(var\(--glass-inner-shadow\)\),\s*0 1px 2px hsl\(var\(--glass-shadow\)\);/
+    );
+    expect(styles).toMatch(
+      /:root\[data-theme="dark"\] \.glass-inset \{[\s\S]*?inset 0 0 6px hsl\(var\(--glass-inner-shadow\)\),\s*0 1px 2px hsl\(var\(--glass-shadow\)\);/
+    );
+  });
 });

@@ -3,8 +3,8 @@ name: Tauri Release Compatibility
 on:
   workflow_call:
     inputs:
-      tag:
-        description: Release tag whose candidate must be verified
+      source_ref:
+        description: Immutable source SHA whose candidate must be verified
         required: true
         type: string
       version:
@@ -23,7 +23,7 @@ env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: tauri-release-compatibility-${{ inputs.tag }}
+  group: tauri-release-compatibility-${{ inputs.source_ref }}
   cancel-in-progress: false
 
 jobs:
@@ -35,10 +35,10 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - name: Checkout requested tag
+      - name: Checkout immutable candidate source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.source_ref }}
 
       - name: Download complete updater-signed candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -129,6 +129,7 @@ jobs:
           Invoke-BoundedProcess -FilePath $previousInstaller -ArgumentList @("/S", "/D=$installPath") -Stage "Previous Tauri NSIS installation"
           $previousExecutable = Join-Path $installPath "rion-tauri.exe"
           if (-not (Test-Path $previousExecutable -PathType Leaf)) { throw "Previous Tauri installation did not create the executable." }
+          New-Item -ItemType Directory -Force -Path $userData | Out-Null
           $stateStore = Join-Path $userData "rion-studio.sqlite3"
           $stateSentinel = "preserve-sqlite-store"
           Set-Content -NoNewline -Path $stateStore -Value $stateSentinel

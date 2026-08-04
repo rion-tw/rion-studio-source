@@ -28,7 +28,8 @@ describe("system-only product gate", () => {
       '"verify:system-only": "node scripts/verifySystemOnlyProduct.mjs"'
     );
     expect(ci).toContain("pnpm run verify:system-only");
-    expect(release).toContain("needs: await-preflight");
+    expect(release).toContain("- await-preflight");
+    expect(release).toContain("- verify-upgrade-compatibility");
     expect(release).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
     expect(preflight).toContain("uses: ./.github/workflows/tauri-release-build.yml");
     expect(preflight).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");

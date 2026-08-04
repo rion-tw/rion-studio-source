@@ -90,9 +90,11 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   compatibility:
-    needs: build
+    needs:
+      - resolve
+      - build
     uses: ./.github/workflows/tauri-release-compatibility.yml
     with:
-      tag: ${{ inputs.tag }}
+      source_ref: ${{ needs.resolve.outputs.source_ref }}
       version: ${{ needs.build.outputs.version }}
       release_artifact_name: ${{ needs.build.outputs.release_artifact_name }}

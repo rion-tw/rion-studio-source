@@ -1,4 +1,54 @@
 impl AppCore {
+    fn commit_runtime_window_snapshot(
+        &self,
+        input: GameWindowRuntimeSnapshotCommitInputRecord,
+    ) -> CoreResult<Value> {
+        let GameWindowRuntimeSnapshotCommitInputRecord {
+            snapshot,
+            name,
+            target_display,
+            placement,
+        } = input;
+        let window_id = snapshot.window_id.clone();
+        let window_generation = snapshot.window_generation;
+        let revision = snapshot.revision;
+        let mut revisions = self
+            .runtime_window_persistence_revisions
+            .lock()
+            .map_err(|_| CoreError::Internal("runtime window persistence revision lock poisoned".to_owned()))?;
+        let superseded = revisions.get(&window_id).is_some_and(|(saved_generation, saved_revision)| {
+            *saved_generation > window_generation
+                || (*saved_generation == window_generation && *saved_revision >= revision)
+        });
+        if superseded {
+            return serde_json::to_value(RuntimeWindowPersistenceReceiptRecord {
+                window_id,
+                window_generation,
+                revision,
+                status: "superseded".to_owned(),
+            })
+            .map_err(|error| CoreError::Internal(error.to_string()));
+        }
+        self.mutate_state(StateMutation::GameWindowUpdate {
+            id: window_id.clone(),
+            input: GameWindowUpdateInputRecord {
+                name: Some(name),
+                target_display: Some(target_display),
+                placement: Some(placement),
+                tabs: Some(snapshot.tabs),
+                active_tab_id: Some(snapshot.active_tab_id),
+            },
+        })?;
+        revisions.insert(window_id.clone(), (window_generation, revision));
+        serde_json::to_value(RuntimeWindowPersistenceReceiptRecord {
+            window_id,
+            window_generation,
+            revision,
+            status: "applied".to_owned(),
+        })
+        .map_err(|error| CoreError::Internal(error.to_string()))
+    }
+
     fn delete_game_window(&self, id: String) -> CoreResult<Value> {
         let result = self.mutate_state(StateMutation::GameWindowDelete { id: id.clone() })?;
         self.clear_pending_game_window_configuration(&id)?;

@@ -131,6 +131,9 @@ pub enum CoreCommand {
     GameWindowSaveRuntime {
         input: GameWindowSaveRuntimeInputRecord,
     },
+    GameWindowRuntimeSnapshotCommit {
+        input: GameWindowRuntimeSnapshotCommitInputRecord,
+    },
     GameWindowUpdate {
         id: String,
         input: GameWindowUpdateInputRecord,

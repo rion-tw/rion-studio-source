@@ -23,6 +23,38 @@ struct NativeOperationRegistry {
     changed: Condvar,
 }
 
+fn native_operation_timeout_receipt(
+    operation: ActiveNativeOperation,
+) -> NativeOperationReceipt {
+    if operation.context.subsystem == NativeOperationSubsystem::Presentation
+        && matches!(
+            operation.context.trigger,
+            "pointer" | "native-pointer" | "launcher-external" | "shortcut"
+        )
+    {
+        return NativeOperationReceipt::with_status(
+            operation.context,
+            "backgroundTabPresentationSuperseded",
+            NativeOperationStatus::Superseded,
+            None,
+        );
+    }
+    match operation.phase {
+        NativeOperationPhase::Queued => NativeOperationReceipt::with_status(
+            operation.context,
+            "nativeOperationQueuedTimeout",
+            NativeOperationStatus::Failed,
+            Some("NATIVE_OPERATION_DEADLINE_EXCEEDED"),
+        ),
+        NativeOperationPhase::InFlight => NativeOperationReceipt::with_status(
+            operation.context,
+            "nativeOperationInFlightTimeout",
+            NativeOperationStatus::Indeterminate,
+            Some("NATIVE_OPERATION_INDETERMINATE"),
+        ),
+    }
+}
+
 impl NativeOperationRegistry {
     fn start_deadline_worker(registry: &Arc<Self>) -> Result<(), String> {
         let registry = Arc::downgrade(registry);
@@ -112,20 +144,7 @@ impl NativeOperationRegistry {
         if let Some(operation) = state.active.get(&receipt.context.operation_id).cloned()
             && operation.context.deadline <= Instant::now()
         {
-            let timeout_receipt = match operation.phase {
-                NativeOperationPhase::Queued => NativeOperationReceipt::with_status(
-                    operation.context,
-                    "nativeOperationQueuedTimeout",
-                    NativeOperationStatus::Failed,
-                    Some("NATIVE_OPERATION_DEADLINE_EXCEEDED"),
-                ),
-                NativeOperationPhase::InFlight => NativeOperationReceipt::with_status(
-                    operation.context,
-                    "nativeOperationInFlightTimeout",
-                    NativeOperationStatus::Indeterminate,
-                    Some("NATIVE_OPERATION_INDETERMINATE"),
-                ),
-            };
+            let timeout_receipt = native_operation_timeout_receipt(operation);
             state.active.remove(&receipt.context.operation_id);
             Self::insert_terminal(&mut state, timeout_receipt.clone());
             self.changed.notify_all();
@@ -170,20 +189,7 @@ impl NativeOperationRegistry {
                 .deadline
                 .saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                let receipt = match operation.phase {
-                    NativeOperationPhase::Queued => NativeOperationReceipt::with_status(
-                        operation.context,
-                        "nativeOperationQueuedTimeout",
-                        NativeOperationStatus::Failed,
-                        Some("NATIVE_OPERATION_DEADLINE_EXCEEDED"),
-                    ),
-                    NativeOperationPhase::InFlight => NativeOperationReceipt::with_status(
-                        operation.context,
-                        "nativeOperationInFlightTimeout",
-                        NativeOperationStatus::Indeterminate,
-                        Some("NATIVE_OPERATION_INDETERMINATE"),
-                    ),
-                };
+                let receipt = native_operation_timeout_receipt(operation);
                 state.active.remove(operation_id);
                 Self::insert_terminal(&mut state, receipt.clone());
                 self.changed.notify_all();
@@ -195,34 +201,6 @@ impl NativeOperationRegistry {
                 .map_err(|_| "SYSTEM_NATIVE_OPERATION_REGISTRY_UNAVAILABLE")?;
             state = next;
         }
-    }
-
-    fn fail_active(
-        &self,
-        operation_id: &str,
-        stage: &'static str,
-        failure_code: &'static str,
-    ) -> Result<NativeOperationReceipt, &'static str> {
-        let context = {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| "SYSTEM_NATIVE_OPERATION_REGISTRY_UNAVAILABLE")?;
-            if let Some(receipt) = state.terminal.get(operation_id) {
-                return Ok(receipt.clone());
-            }
-            state
-                .active
-                .get(operation_id)
-                .map(|operation| operation.context.clone())
-                .ok_or("SYSTEM_NATIVE_OPERATION_NOT_FOUND")?
-        };
-        Ok(self.complete(NativeOperationReceipt::with_status(
-            context,
-            stage,
-            NativeOperationStatus::Failed,
-            Some(failure_code),
-        )))
     }
 
     fn recent_summaries(&self) -> Vec<SystemRuntimeOperationSummaryRecord> {
@@ -326,20 +304,7 @@ impl NativeOperationRegistry {
         let expired_any = !expired.is_empty();
         for (operation_id, operation) in expired {
             state.active.remove(&operation_id);
-            let receipt = match operation.phase {
-                NativeOperationPhase::Queued => NativeOperationReceipt::with_status(
-                    operation.context,
-                    "nativeOperationQueuedTimeout",
-                    NativeOperationStatus::Failed,
-                    Some("NATIVE_OPERATION_DEADLINE_EXCEEDED"),
-                ),
-                NativeOperationPhase::InFlight => NativeOperationReceipt::with_status(
-                    operation.context,
-                    "nativeOperationInFlightTimeout",
-                    NativeOperationStatus::Indeterminate,
-                    Some("NATIVE_OPERATION_INDETERMINATE"),
-                ),
-            };
+            let receipt = native_operation_timeout_receipt(operation);
             Self::insert_terminal(&mut state, receipt);
         }
         if expired_any {
@@ -349,6 +314,18 @@ impl NativeOperationRegistry {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn complete_background_presentation_summary(
+        &self,
+        operation_id: &str,
+    ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+        let mut context = self
+            .operations
+            .context(operation_id)
+            .ok_or_else(|| "SYSTEM_NATIVE_OPERATION_NOT_FOUND".to_owned())?;
+        context.completion_scope = SystemRuntimeOperationCompletionScope::StateCommit;
+        Ok(NativeOperationReceipt::applied(context, "tabPresentationQueued").summary())
+    }
+
     pub(crate) fn wait_native_operation_summary(
         &self,
         operation_id: &str,
@@ -359,15 +336,4 @@ impl SystemRuntimeExecutor {
             .map_err(str::to_owned)
     }
 
-    pub(crate) fn fail_native_operation_summary(
-        &self,
-        operation_id: &str,
-        stage: &'static str,
-        failure_code: &'static str,
-    ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
-        self.operations
-            .fail_active(operation_id, stage, failure_code)
-            .map(|receipt| receipt.summary())
-            .map_err(str::to_owned)
-    }
 }

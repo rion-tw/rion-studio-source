@@ -6,7 +6,7 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
         (NativeOperationSubsystem::Input, SystemRuntimeOperationCompletionScope::NativeSubmission),
         (NativeOperationSubsystem::Presentation, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
         (NativeOperationSubsystem::TabActivation, SystemRuntimeOperationCompletionScope::TabActivationConverged),
-        (NativeOperationSubsystem::TabMutation, SystemRuntimeOperationCompletionScope::TabTopologyConverged),
+        (NativeOperationSubsystem::TabMutation, SystemRuntimeOperationCompletionScope::StateCommit),
         (NativeOperationSubsystem::Projection, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
         (NativeOperationSubsystem::Geometry, SystemRuntimeOperationCompletionScope::NativeAcknowledgement),
         (NativeOperationSubsystem::Popup, SystemRuntimeOperationCompletionScope::StateCommit),

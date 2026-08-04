@@ -362,7 +362,7 @@ struct SurfacePresentationBinding {
 }
 
 #[derive(Clone, Default)]
-struct WindowPresentationState {
+struct LiveWindowTabState {
     aliases: HashMap<String, String>,
     applied_tab_id: Option<String>,
     applied_revision: u64,
@@ -373,9 +373,11 @@ struct WindowPresentationState {
     selected_tab_id: Option<String>,
     surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>,
     tabs: Vec<TabPresentation>,
+    window_generation: u64,
+    window_id: String,
 }
 
-impl WindowPresentationState {
+impl LiveWindowTabState {
     fn tab_ids(&self) -> Vec<String> {
         self.tabs.iter().map(|tab| tab.id.clone()).collect()
     }
@@ -391,6 +393,7 @@ impl WindowPresentationState {
         } else {
             self.tabs.push(tab);
         }
+        self.revision = revision;
         if select {
             self.select(Some(id), revision);
         }
@@ -410,6 +413,8 @@ impl WindowPresentationState {
             }
             if selected_provisional {
                 self.select(Some(replacement_id), revision);
+            } else {
+                self.revision = revision;
             }
         } else {
             tab.phase = TabPresentationPhase::Attaching;
@@ -423,6 +428,9 @@ impl WindowPresentationState {
         self.surface_bindings.remove(tab_id);
         self.aliases
             .retain(|alias, target| alias != tab_id && target != tab_id);
+        if existed {
+            self.revision = revision;
+        }
         if self.selected_tab_id.as_deref() == Some(tab_id) {
             self.select(None, revision);
         }

@@ -1,5 +1,5 @@
 #[test]
-    fn frozen_tab_drag_topology_persists_the_exact_three_tab_order_on_both_platforms() {
+    fn frozen_tab_drag_topology_requires_the_live_snapshot_to_persist_order() {
         for platform in ["darwin", "win32"] {
             let (_directory, core) = core_for_platform(platform);
             let window_id = core
@@ -82,8 +82,61 @@
             .0
             .unwrap();
             assert_eq!(committed["windows"][0]["tabIds"], json!(after), "{platform}");
-            let persisted = core.invoke(CoreCommand::GameWindowGet { id: window_id.clone() }).unwrap();
-            assert_eq!(persisted["tabs"].as_array().unwrap().iter().map(|tab| tab["id"].as_str().unwrap()).collect::<Vec<_>>(), after, "{platform}");
+            let persisted_before_commit = core
+                .invoke(CoreCommand::GameWindowGet {
+                    id: window_id.clone(),
+                })
+                .unwrap();
+            assert_eq!(
+                persisted_before_commit["tabs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tab| tab["id"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                before,
+                "Core runtime topology is no longer a persistence authority on {platform}"
+            );
+            let persisted_tabs = after
+                .iter()
+                .map(|tab_id| {
+                    persisted_before_commit["tabs"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|tab| tab["id"].as_str() == Some(tab_id))
+                        .unwrap()
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                commit_live_window_tabs(
+                    &core,
+                    &window_id,
+                    1,
+                    1,
+                    "Game Window 1",
+                    persisted_tabs,
+                    Some(tab_ids[0]),
+                )["status"],
+                "applied",
+                "{platform}"
+            );
+            let persisted = core
+                .invoke(CoreCommand::GameWindowGet {
+                    id: window_id.clone(),
+                })
+                .unwrap();
+            assert_eq!(
+                persisted["tabs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|tab| tab["id"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                after,
+                "{platform}"
+            );
 
             let runtime_before_rejection = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
             let persisted_before_rejection = core.invoke(CoreCommand::GameWindowGet { id: window_id.clone() }).unwrap();

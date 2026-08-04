@@ -508,6 +508,11 @@ impl SystemRuntimeExecutor {
             },
         );
         drop(state);
+        self.presentation
+            .set_window_generation(&target.window_id, window_generation)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
         self.register_runtime_launcher_window(&target.window_id);
         Ok((window, true))
     }

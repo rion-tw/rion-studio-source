@@ -55,12 +55,13 @@ impl SystemRuntimeExecutor {
                     if suppressed {
                         break;
                     }
-                    if let Err(error) = runtime.persist_game_window_placement(&worker_label) {
-                        runtime.emit_runtime_shell_error(
-                            "TAURI_RUNTIME_WINDOW_PERSIST_FAILED",
-                            error,
-                            &worker_label,
-                        );
+                    if let Some(window_id) = runtime.window_id_for_label(&worker_label) {
+                        match runtime.touch_live_window_state(&window_id) {
+                            Ok(_) => runtime.schedule_live_window_state_persistence(&window_id),
+                            Err(error) => eprintln!(
+                                "Live Game Window placement snapshot could not be queued: window={window_id} error={error}"
+                            ),
+                        }
                     }
                     break;
                 }
@@ -70,8 +71,13 @@ impl SystemRuntimeExecutor {
                 state.active_window_placement_workers.remove(&label);
                 state.pending_window_placement_writes.remove(&label);
             }
-            if let Err(error) = self.persist_game_window_placement(&label) {
-                self.emit_runtime_shell_error("TAURI_RUNTIME_WINDOW_PERSIST_FAILED", error, &label);
+            if let Some(window_id) = self.window_id_for_label(&label) {
+                match self.touch_live_window_state(&window_id) {
+                    Ok(_) => self.schedule_live_window_state_persistence(&window_id),
+                    Err(error) => eprintln!(
+                        "Live Game Window placement snapshot could not be queued: window={window_id} error={error}"
+                    ),
+                }
             }
         }
     }
@@ -454,6 +460,7 @@ impl SystemRuntimeExecutor {
         let role_id = self.role_id_for_webview(webview_label)?;
         let (
             tab_id,
+            window_id,
             workspace_id,
             persist_saved_zoom,
             window_zoom_factor,
@@ -496,6 +503,7 @@ impl SystemRuntimeExecutor {
             );
             (
                 tab_id,
+                tab.window_id.clone(),
                 tab.workspace_id.clone(),
                 should_persist_role_zoom(&state.saved_window_names, &tab.window_id),
                 window_zoom_factor,
@@ -570,11 +578,14 @@ impl SystemRuntimeExecutor {
         {
             show_zoom_indicator(source, &format!("{percent}%"));
         }
-        if persist_saved_zoom {
-            self.persist_runtime_tab_role_views(&tab_id)?;
-            if let Some(workspace_id) = workspace_id {
-                self.schedule_role_zoom_persistence(workspace_id, role_id, percent);
-            }
+        if let Err(error) = self.touch_live_window_state(&window_id) {
+            eprintln!("Live role zoom revision could not advance: window={window_id} error={error}");
+        }
+        self.schedule_live_window_state_persistence(&window_id);
+        if persist_saved_zoom
+            && let Some(workspace_id) = workspace_id
+        {
+            self.schedule_role_zoom_persistence(workspace_id, role_id, percent);
         }
         Ok(percent)
     }

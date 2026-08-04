@@ -1,22 +1,22 @@
-fn preview_and_commit_launcher_tab_selection(
+fn preview_and_schedule_launcher_tab_selection(
     app: &AppHandle,
     state: &CoreState,
     tab_id: &str,
 ) -> Result<(), String> {
-    let (window_id, provisional, resolved_tab_id, operation_id) =
-        state.runtime.preview_launcher_tab_activation(tab_id)?;
+    let (window_id, provisional, resolved_tab_id, operation_id) = state
+        .runtime
+        .preview_launcher_tab_activation_background(tab_id)?;
     if !provisional {
         commit_previewed_tab_selection(
             app,
             state,
             &window_id,
             &resolved_tab_id,
-            Some(&operation_id),
+            None,
         )?;
     }
-    crate::runtime_operation_receipt_result(
-        state.runtime.wait_native_operation_summary(&operation_id)?,
-    )
+    monitor_background_tab_presentation(Arc::clone(&state.runtime), operation_id);
+    Ok(())
 }
 
 async fn begin_shell_launch_presentation(
@@ -30,7 +30,7 @@ async fn begin_shell_launch_presentation(
         .runtime
         .presented_tab_for_launcher_source(source_id, tab_type)
     {
-        preview_and_commit_launcher_tab_selection(app, state, &tab_id).map_err(|message| {
+        preview_and_schedule_launcher_tab_selection(app, state, &tab_id).map_err(|message| {
             shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
         })?;
         return Ok(state.runtime.retry_failed_tab_launch(source_id, tab_type));

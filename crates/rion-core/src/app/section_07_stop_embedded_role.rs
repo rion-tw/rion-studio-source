@@ -1,10 +1,10 @@
 impl AppCore {
     fn stop_embedded_role(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, true, false, None)
+        self.stop_embedded_role_with_operation_lease(role_id, true, false, false, None)
     }
 
     fn stop_embedded_role_under_active_lease(&self, role_id: &str) -> CoreResult<()> {
-        self.stop_embedded_role_with_operation_lease(role_id, false, false, None)
+        self.stop_embedded_role_with_operation_lease(role_id, false, false, false, None)
     }
 
     fn stop_embedded_role_with_operation_lease(
@@ -12,6 +12,7 @@ impl AppCore {
         role_id: &str,
         acquire_operation_lease: bool,
         close_role_tab: bool,
+        persist_closed_tab: bool,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
         self.cancel_embedded_operations(&[role_id.to_owned()])?;
@@ -114,13 +115,15 @@ impl AppCore {
                 }
             }
             if close_role_tab {
-                self.commit_embedded_runtime_snapshot_without_native_effect(
-                    &std::collections::HashSet::new(),
-                )?;
+                if persist_closed_tab {
+                    self.commit_embedded_runtime_snapshot_without_native_effect(
+                        &std::collections::HashSet::new(),
+                    )?;
+                } else {
+                    self.browser_runtime_snapshot_without_persistence()?;
+                }
             } else {
-                self.publish_embedded_runtime_snapshot_with_removed(
-                    &std::collections::HashSet::new(),
-                )?;
+                self.project_embedded_runtime_snapshot_without_persistence(parent_operation_id)?;
             }
             Ok(())
         })();

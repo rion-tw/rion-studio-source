@@ -469,7 +469,7 @@ function MacrosRoute({
                       onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
                     >
                     <td className="relative max-w-[240px] px-4 py-2 align-middle">
-                      <div className="min-w-0 pl-7" data-macro-name-control>
+                      <div className="min-w-0 pl-6" data-macro-name-control>
                         <div className="absolute inset-y-0 left-4 -ml-1.5 flex items-center" data-macro-run-control>
                           <MacroRunButton
                             macro={macro}

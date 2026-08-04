@@ -32,3 +32,4 @@ include!("behavior_08_display_remap_transaction_is_atomic.rs");
 include!("behavior_09_pending_game_window_configuration.rs");
 include!("behavior_10_frozen_tab_drag_topology.rs");
 include!("behavior_11_shared_workspace_role_slot_claim.rs");
+include!("behavior_12_runtime_window_snapshot_revision.rs");

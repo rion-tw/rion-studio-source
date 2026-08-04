@@ -25,7 +25,7 @@ use rion_core::{
     EmbeddedRoleLoadEffectRecord, EmbeddedRoleSlotEffectRecord, EmbeddedTabEffectRecord,
     EngineCapabilitySnapshotRecord,
     EngineCapabilityEvidenceRecord, EngineCapabilityStatus, GameBrowserSettingsRecord,
-    GameWindowPlacementRecord,
+    GameWindowPlacementRecord, GameWindowRuntimeSnapshotCommitInputRecord,
     GameWindowRoleSlotRecord, GameWindowRoleViewRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowTabRecord,
     GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
@@ -38,7 +38,8 @@ use rion_core::{
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemRuntimeOperationCompletionScope, SystemRuntimeOperationStatus,
     SystemRuntimeOperationSubsystem, SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord,
-    SurfaceRecoveryAttemptRecord,
+    SurfaceRecoveryAttemptRecord, RuntimeWindowPersistenceReceiptRecord,
+    RuntimeWindowTabSnapshotRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
@@ -127,6 +128,7 @@ fn point_in_runtime_tab_control_row(
     screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
 }
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
+const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(200);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str = concat!(
     include_str!("../../../src/shared/browser-overlay/macro-overlay-runtime/state-and-input.js"),

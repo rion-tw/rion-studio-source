@@ -103,24 +103,21 @@ pub(crate) fn preview_and_commit_adjacent_tab_selection(
 ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
     let (target_tab_id, provisional, operation_id) = state
         .runtime
-        .preview_adjacent_tab_activation(window_id, direction)?;
+        .preview_adjacent_tab_activation_background(window_id, direction)?;
     if !provisional
         && let Err(message) = commit_previewed_tab_selection(
             app,
             state,
             window_id,
             &target_tab_id,
-            Some(&operation_id),
+            None,
         )
     {
         eprintln!("Adjacent tab selection commit could not be scheduled: {message}");
-        return state.runtime.fail_native_operation_summary(
-            &operation_id,
-            "tabSelectionCommitFailed",
-            "TAB_ACTIVATION_STATE_COMMIT_FAILED",
-        );
     }
-    state.runtime.wait_native_operation_summary(&operation_id)
+    state
+        .runtime
+        .complete_background_presentation_summary(&operation_id)
 }
 
 fn preview_and_commit_tab_selection_inner(
@@ -131,7 +128,7 @@ fn preview_and_commit_tab_selection_inner(
 ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
     let (window_id, provisional, resolved_tab_id, operation_id) = state
         .runtime
-        .preview_tab_activation(tab_id, native_style_applied)?;
+        .preview_tab_activation_background(tab_id, native_style_applied)?;
     if !provisional
         && let Err(message) =
             commit_previewed_tab_selection(
@@ -139,37 +136,53 @@ fn preview_and_commit_tab_selection_inner(
                 state,
                 &window_id,
                 &resolved_tab_id,
-                Some(&operation_id),
+                None,
             )
     {
         eprintln!("Runtime tab selection commit could not be scheduled: {message}");
-        return state.runtime.fail_native_operation_summary(
-            &operation_id,
-            "tabSelectionCommitFailed",
-            "SYSTEM_TAB_SELECTION_COMMIT_FAILED",
-        );
     }
-    state.runtime.wait_native_operation_summary(&operation_id)
+    state
+        .runtime
+        .complete_background_presentation_summary(&operation_id)
 }
 
-pub(crate) fn preview_and_commit_native_tab_selection(
+pub(crate) fn preview_and_schedule_native_tab_selection(
     app: &AppHandle,
     state: &CoreState,
     tab_id: &str,
 ) -> Result<(), String> {
-    match preview_and_commit_tab_selection_inner(app, state, tab_id, true) {
+    let (window_id, provisional, resolved_tab_id, operation_id) = match state
+        .runtime
+        .preview_tab_activation_background(tab_id, true)
+    {
         Err(message)
             if matches!(
                 message.as_str(),
                 "Runtime tab was not found." | "The runtime tab is closing."
-            ) =>
-        {
-            // Native pointer/key actions can arrive after an optimistic close or provisional-ID
-            // replacement. They are stale presentation intents, not user-visible failures.
-            Ok(())
-        }
-        result => result.and_then(runtime_operation_receipt_result),
+            ) => return Ok(()),
+        result => result?,
+    };
+    if !provisional {
+        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id, None)?;
     }
+    monitor_background_tab_presentation(Arc::clone(&state.runtime), operation_id);
+    Ok(())
+}
+
+fn monitor_background_tab_presentation(runtime: Arc<SystemRuntimeExecutor>, operation_id: String) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let receipt = runtime.wait_native_operation_summary(&operation_id);
+        if let Ok(receipt) = receipt
+            && !matches!(receipt.status.as_str(), "applied" | "superseded")
+        {
+            eprintln!(
+                "Background tab presentation did not fully apply: operation={} status={} code={}",
+                receipt.operation_id,
+                receipt.status.as_str(),
+                receipt.failure_code.as_deref().unwrap_or("none")
+            );
+        }
+    });
 }
 
 pub(crate) fn commit_previewed_tab_selection(
@@ -193,7 +206,11 @@ pub(crate) fn commit_previewed_tab_selection(
             tab_id: tab_id.to_owned(),
             window_id: window_id.to_owned(),
             selection_revision,
-        })
+        })?;
+    state
+        .runtime
+        .schedule_live_window_state_persistence(window_id);
+    Ok(())
 }
 
 #[derive(Default)]

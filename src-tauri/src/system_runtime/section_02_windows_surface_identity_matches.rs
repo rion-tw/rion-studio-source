@@ -360,7 +360,7 @@ struct RuntimeTabHostPlan {
 fn resolved_runtime_window_selection(
     snapshot: &BrowserRuntimeSnapshot,
     window_id: &str,
-    previous: &WindowPresentationState,
+    previous: &LiveWindowTabState,
     focus_tab_id: Option<&str>,
     presentation_revision: u64,
 ) -> Option<String> {
@@ -510,7 +510,7 @@ struct PresentationRegistry {
         Mutex<HashMap<String, RuntimeTabActivationAcknowledgementRecord>>,
     #[cfg(windows)]
     tab_chrome_changed: Condvar,
-    windows: Mutex<HashMap<String, Arc<Mutex<WindowPresentationState>>>>,
+    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowTabState>>>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -661,7 +661,7 @@ impl NativePresentationAdapter for TauriNativePresentationAdapter {
 
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
-    coordinator: Arc<Mutex<WindowPresentationState>>,
+    coordinator: Arc<Mutex<LiveWindowTabState>>,
     core: Arc<AppCore>,
     focus: NativePresentationFocus,
     focus_broker: Arc<NativeFocusBroker>,

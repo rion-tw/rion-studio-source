@@ -397,6 +397,7 @@ pub fn run() {
                         return;
                     }
                     api.prevent_exit();
+                    state.runtime.flush_all_live_window_states();
                     let _ = state.runtime.persist_all_game_window_placements();
                     if let Err(error) = state.runtime.persist_restore_session(false) {
                         let _ = app_handle.emit(

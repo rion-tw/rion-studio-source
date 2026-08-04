@@ -492,15 +492,15 @@ async fn process_game_window_close_requested(
         }
     }
 
-    if let Err(error) = runtime.persist_game_window_placement(&label) {
-        let receipt = runtime.fail_window_close_operation(
-            &operation_id,
-            "windowClosePlacementPersistFailed",
-            "SYSTEM_WINDOW_CLOSE_PERSIST_FAILED",
+    if let Err(error) = runtime.flush_live_window_state(&window_id) {
+        eprintln!(
+            "Final live Game Window snapshot flush will retry after close: window={window_id} error={error}"
         );
-        let _ = app.emit("rion://window-lifecycle", receipt);
-        reveal_shell_error(&app, shell_error("TAURI_GAME_WINDOW_FLUSH_FAILED", error));
-        return;
+    }
+    if let Err(error) = runtime.persist_game_window_placement(&label) {
+        eprintln!(
+            "Final Game Window placement flush failed; close will continue: window={window_id} error={error}"
+        );
     }
 
     if let Err(error) = runtime.mark_window_close_native_submitted(&operation_id) {
@@ -557,17 +557,17 @@ async fn execute_game_window_close_transaction(
         .begin_window_close_operation(&window_id, trigger)
         .map_err(|error| shell_error(error.code, error.message))?;
     if operation.should_execute {
-        if let Some(label) = operation.label.as_deref()
-            && let Err(_error) = state.runtime.persist_game_window_placement(label)
-        {
-            let receipt = state.runtime.fail_window_close_operation(
-                &operation.operation_id,
-                "windowClosePlacementPersistFailed",
-                "SYSTEM_WINDOW_CLOSE_PERSIST_FAILED",
+        if let Err(error) = state.runtime.flush_live_window_state(&window_id) {
+            eprintln!(
+                "Final live Game Window snapshot flush will retry after close: window={window_id} error={error}"
             );
-            let _ = app.emit("rion://window-lifecycle", &receipt);
-            return serde_json::to_value(receipt)
-                .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()));
+        }
+        if let Some(label) = operation.label.as_deref()
+            && let Err(error) = state.runtime.persist_game_window_placement(label)
+        {
+            eprintln!(
+                "Final Game Window placement flush failed; close will continue: window={window_id} error={error}"
+            );
         }
         if operation.native_expected
             && let Err(error) = state

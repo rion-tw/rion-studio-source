@@ -29,6 +29,7 @@ import type { PortableExportResultRecord } from "./PortableExportResultRecord";
 import type { PortableImportPreviewRecord } from "./PortableImportPreviewRecord";
 import type { PortableImportResultRecord } from "./PortableImportResultRecord";
 import type { RolePathsRecord } from "./RolePathsRecord";
+import type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
 import type { RuntimeRestoreSessionRecord } from "./RuntimeRestoreSessionRecord";
 import type { StateGameRecord } from "./StateGameRecord";
@@ -86,6 +87,7 @@ type TypedCoreCommandResultMap = {
   gameWindowGet: StateGameWindowRecord;
   gameWindowCreate: StateGameWindowRecord;
   gameWindowSaveRuntime: StateGameWindowRecord;
+  gameWindowRuntimeSnapshotCommit: RuntimeWindowPersistenceReceiptRecord;
   gameWindowUpdate: StateGameWindowRecord;
   gameWindowsDisplayRemap: StateGameWindowRecord[];
   gameWindowReorder: StateGameWindowRecord[];

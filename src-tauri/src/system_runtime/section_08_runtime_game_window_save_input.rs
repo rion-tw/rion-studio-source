@@ -12,11 +12,18 @@ impl SystemRuntimeExecutor {
                 serde_json::from_value::<BrowserRuntimeSnapshot>(value)
                     .map_err(|error| error.to_string())
             })?;
-        let runtime_window = snapshot
-            .windows
-            .iter()
-            .find(|window| window.window_id == window_id)
-            .ok_or_else(|| "Runtime window was not found while saving.".to_owned())?;
+        let live_window = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Live runtime window was not found while saving.".to_owned())?
+            .lock()
+            .map_err(|_| "Live runtime window state is unavailable while saving.".to_owned())?
+            .clone();
+        let live_tab_ids = live_window
+            .tab_ids()
+            .into_iter()
+            .filter(|tab_id| snapshot.tabs.iter().any(|tab| tab.id == *tab_id))
+            .collect::<Vec<_>>();
         let primary_id = self
             .app
             .primary_monitor()
@@ -65,8 +72,7 @@ impl SystemRuntimeExecutor {
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-            runtime_window
-                .tab_ids
+            live_tab_ids
                 .iter()
                 .map(|tab_id| {
                     let runtime_tab = state.tabs.get(tab_id).ok_or_else(|| {
@@ -100,8 +106,7 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?
         };
-        let tabs = runtime_window
-            .tab_ids
+        let tabs = live_tab_ids
             .iter()
             .map(|tab_id| {
                 let tab = snapshot
@@ -143,7 +148,9 @@ impl SystemRuntimeExecutor {
             target_display: placement.0,
             placement: placement.1,
             tabs,
-            active_tab_id: runtime_window.active_tab_id.clone(),
+            active_tab_id: live_window
+                .selected_tab_id
+                .filter(|tab_id| live_tab_ids.contains(tab_id)),
         })
     }
 

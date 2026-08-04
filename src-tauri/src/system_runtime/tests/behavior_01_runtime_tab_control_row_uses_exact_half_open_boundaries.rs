@@ -284,7 +284,7 @@ use super::*;
 
     #[test]
     fn presentation_selection_is_independent_from_launch_phase_and_core_metadata() {
-        let mut state = WindowPresentationState::default();
+        let mut state = LiveWindowTabState::default();
         state.insert_tab(
             presentation_tab("tab-a", TabPresentationPhase::Ready),
             1,
@@ -521,7 +521,7 @@ use super::*;
     #[test]
     fn runtime_selection_honors_focus_fences_and_repairs_hidden_tabs() {
         let mut snapshot = runtime_tab_host_snapshot("tab-a");
-        let mut previous = WindowPresentationState::default();
+        let mut previous = LiveWindowTabState::default();
         previous.select(Some("tab-a".to_owned()), 4);
         assert_eq!(
             resolved_runtime_window_selection(&snapshot, "window-11", &previous, Some("tab-b"), 4,)

@@ -246,7 +246,7 @@ export function MacroRunButton({
 
   return (
     <Button
-      className={cn("h-6 w-6 shrink-0", runState.isRunning && "text-activity hover:text-activity")}
+      className={cn("h-5 w-5 shrink-0", runState.isRunning && "text-activity hover:text-activity")}
       type="button"
       variant="ghost"
       size="icon"
@@ -256,11 +256,11 @@ export function MacroRunButton({
       disabled={runState.disabled}
     >
       {runState.isBusy ? (
-        <Loader2 className="spin" size={12} />
+        <Loader2 className="spin" size={10} />
       ) : runState.isRunning ? (
-        <Pause size={12} fill="currentColor" />
+        <Pause size={10} fill="currentColor" />
       ) : (
-        <Play size={12} fill="currentColor" />
+        <Play size={10} fill="currentColor" />
       )}
     </Button>
   );
@@ -479,7 +479,7 @@ export function MacroActionMenu({
     <div className="relative flex shrink-0 items-center">
       <Button
         ref={triggerRef}
-        className="h-6 w-6"
+        className="h-5 w-5"
         type="button"
         variant="ghost"
         size="icon"
@@ -489,7 +489,7 @@ export function MacroActionMenu({
         aria-expanded={isOpen}
         onClick={() => setIsOpen((current) => !current)}
       >
-        <MoreHorizontal size={12} />
+        <MoreHorizontal size={10} />
       </Button>
       {menu}
     </div>

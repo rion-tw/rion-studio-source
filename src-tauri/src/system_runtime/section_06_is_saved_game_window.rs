@@ -171,6 +171,7 @@ impl SystemRuntimeExecutor {
             restore_persist_running: AtomicBool::new(false),
             runtime_projection: RevisionedJsonProjection::default(),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
+            self_weak: OnceLock::new(),
             shutdown_operation: OnceLock::new(),
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),
             state: Mutex::new(RuntimeState {
@@ -181,11 +182,13 @@ impl SystemRuntimeExecutor {
                 saved_window_names,
                 ..RuntimeState::default()
             }),
+            window_state_persistence: WindowStatePersistCoordinator::default(),
             user_data_dir,
         })
     }
 
     pub fn start_effect_executor(self: &Arc<Self>) -> Result<(), String> {
+        let _ = self.self_weak.set(Arc::downgrade(self));
         self.start_application_lifecycle_actor()?;
         let (sender, receiver) = mpsc::channel();
         self.effect_sender

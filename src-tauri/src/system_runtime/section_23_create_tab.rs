@@ -781,6 +781,7 @@ impl SystemRuntimeExecutor {
                     "surface-attached",
                 );
             }
+            self.schedule_live_window_state_persistence(&target.window_id);
         }
         result
     }

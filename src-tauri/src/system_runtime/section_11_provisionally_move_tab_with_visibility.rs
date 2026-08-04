@@ -656,14 +656,14 @@ impl SystemRuntimeExecutor {
             .find(|tab| tab.id == tab_id)
             .and_then(|tab| tab.slots.first().map(|slot| slot.role_id.clone()))
             .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
-        let (previous_muted, window_id, surface_generation) = {
+        let (window_id, surface_generation) = {
             let state = self.state().map_err(|error| error.message)?;
             let tab = state
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "runtime tab was not found".to_owned())?;
             let surface_generation = tab.roles.get(&role_id).map(|role| role.generation);
-            (tab.audio_muted, tab.window_id.clone(), surface_generation)
+            (tab.window_id.clone(), surface_generation)
         };
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Audio,
@@ -673,7 +673,7 @@ impl SystemRuntimeExecutor {
         .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
         .with_role(&role_id)
         .with_tab(tab_id)
-        .with_window(window_id);
+        .with_window(window_id.clone());
         operation.surface_generation = surface_generation;
         self.operations
             .register(operation.clone())
@@ -698,61 +698,11 @@ impl SystemRuntimeExecutor {
             }
             return Ok(self.operations.complete(receipt).summary());
         }
-        let persist_result = (|| -> Result<(), String> {
-            let mut game_windows = self
-                .core
-                .invoke(CoreCommand::GameWindowsList)
-                .map_err(|error| error.to_string())
-                .and_then(|value| {
-                    serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                        .map_err(|error| error.to_string())
-                })?;
-            if let Some(game_window) = game_windows
-                .iter_mut()
-                .find(|window| window.tabs.iter().any(|tab| tab.id == tab_id))
-            {
-                if let Some(tab) = game_window.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                    tab.audio_muted = muted;
-                }
-                self.core
-                    .invoke(CoreCommand::GameWindowUpdate {
-                        id: game_window.id.clone(),
-                        input: GameWindowUpdateInputRecord {
-                            tabs: Some(game_window.tabs.clone()),
-                            active_tab_id: Some(game_window.active_tab_id.clone()),
-                            ..GameWindowUpdateInputRecord::default()
-                        },
-                    })
-                    .map_err(|error| error.to_string())?;
-            }
-            Ok(())
-        })();
-        if let Err(error) = persist_result {
-            let receipt = match self.apply_role_audio_muted(&role_id, previous_muted) {
-                Ok(()) => NativeOperationReceipt::with_status(
-                    operation,
-                    "audioMutePersistenceFailed",
-                    NativeOperationStatus::Failed,
-                    Some("SYSTEM_AUDIO_PERSIST_FAILED"),
-                ),
-                Err(rollback_error) => {
-                    self.health.mark_unhealthy();
-                    let mut receipt = NativeOperationReceipt::with_status(
-                        operation,
-                        "audioMutePersistenceRollbackFailed",
-                        NativeOperationStatus::Indeterminate,
-                        Some("SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED"),
-                    );
-                    if let Some(count) = rollback_error.rollback_error_count {
-                        receipt = receipt.with_rollback_error_count(count as usize);
-                    }
-                    receipt
-                }
-            };
-            eprintln!("Runtime tab audio persistence failed: {error}");
-            return Ok(self.operations.complete(receipt).summary());
-        }
         self.publish_projection();
+        if let Err(error) = self.touch_live_window_state(&window_id) {
+            eprintln!("Live tab audio revision could not advance: window={window_id} error={error}");
+        }
+        self.schedule_live_window_state_persistence(&window_id);
         Ok(self
             .operations
             .complete(NativeOperationReceipt::applied(

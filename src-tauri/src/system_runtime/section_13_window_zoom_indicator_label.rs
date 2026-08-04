@@ -238,7 +238,7 @@ impl SystemRuntimeExecutor {
         let snapshot = self.snapshot_with_native_tab_locations(snapshot);
         // Renderer projection and native tab metadata may lag presentation, but neither path
         // owns topology or selection. Insert/replace/remove/select are committed directly by
-        // WindowPresentationState and therefore never wait for Core or a game page.
+        // LiveWindowTabState and therefore never wait for Core or a game page.
         #[cfg(target_os = "macos")]
         self.sync_native_tab_metadata(&snapshot);
         #[cfg(windows)]
@@ -251,64 +251,33 @@ impl SystemRuntimeExecutor {
             .emit("rion://runtime-state", self.projection(&snapshot));
     }
 
-    /// Commits selection immediately and coalesces native visibility work by window revision.
-    /// Page readiness is intentionally absent from this path.
-    pub(crate) fn preview_tab_activation(
+    /// Commits launcher selection without creating a transaction that a native menu callback
+    /// must wait to converge. The visible presentation is authoritative; Core selection
+    /// persistence is queued separately by the caller.
+    pub(crate) fn preview_launcher_tab_activation_background(
         &self,
         tab_id: &str,
-        native_style_applied: bool,
-    ) -> Result<(String, bool, String, String), String> {
-        let trigger = if native_style_applied {
-            "native-pointer"
-        } else {
-            "pointer"
-        };
-        self.preview_tab_activation_with_focus(
-            tab_id,
-            NativePresentationFocus::ContentOnly,
-            trigger,
-            None,
-        )
-    }
-
-    pub(crate) fn preview_launcher_tab_activation(
-        &self,
-        tab_id: &str,
-    ) -> Result<(String, bool, String, String), String> {
-        self.preview_tab_activation_with_focus(
-            tab_id,
-            NativePresentationFocus::WindowAndContent,
-            "launcher-external",
-            Some(true),
-        )
-    }
-
-    fn preview_tab_activation_with_focus(
-        &self,
-        tab_id: &str,
-        focus: NativePresentationFocus,
-        trigger: &'static str,
-        window_visibility: Option<bool>,
     ) -> Result<(String, bool, String, String), String> {
         let resolved_tab_id = self
             .presentation
             .resolve_tab_alias(tab_id)
             .unwrap_or_else(|| tab_id.to_owned());
-        if let Some((window_id, operation_id)) =
-            self.request_provisional_tab_activation(
+        if let Some((window_id, operation_id)) = self
+            .request_provisional_tab_presentation_with_transaction(
                 &resolved_tab_id,
-                focus,
-                trigger,
-                window_visibility,
+                NativePresentationFocus::WindowAndContent,
+                "launcher-external",
+                Some(true),
+                false,
             )?
         {
             return Ok((window_id, true, resolved_tab_id, operation_id));
         }
-        self.request_tab_activation_with_window_visibility(
+        self.request_tab_presentation_with_window_visibility(
             &resolved_tab_id,
-            focus,
-            trigger,
-            window_visibility,
+            NativePresentationFocus::WindowAndContent,
+            "launcher-external",
+            Some(true),
         )
         .map(|(window_id, _, operation_id)| {
             (window_id, false, resolved_tab_id, operation_id)

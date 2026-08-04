@@ -98,25 +98,13 @@ fn tab_stop_terminal_outcome(
     RuntimeTabMutationTerminalStatus,
     Option<&'static str>,
 ) {
-    if !chrome_converged {
-        return (
-            "tabStopChromeUnconfirmed",
-            RuntimeTabMutationTerminalStatus::Degraded,
-            Some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
-        );
-    }
-    if !native_release_confirmed {
-        return (
-            "tabStopReleasePending",
-            RuntimeTabMutationTerminalStatus::Degraded,
-            None,
-        );
-    }
-    (
-        "tabStopConverged",
-        RuntimeTabMutationTerminalStatus::Applied,
-        None,
-    )
+    let stage = match (chrome_converged, native_release_confirmed) {
+        (true, true) => "tabStopConverged",
+        (true, false) => "tabStopIsolatedReleasePending",
+        (false, true) => "tabStopChromeReconcilePending",
+        (false, false) => "tabStopIsolatedReleaseAndChromeReconcilePending",
+    };
+    (stage, RuntimeTabMutationTerminalStatus::Applied, None)
 }
 
 async fn execute_tab_stop(
@@ -151,20 +139,12 @@ async fn execute_tab_stop(
     let operation_id = lease.request.operation_id.clone();
 
     if state.runtime.cancel_provisional_tab_launch(tab_id) {
-        let converged = tab_stop_projection_converged(state, lease.request).await?;
+        state.runtime.publish_projection();
         return Ok(state.runtime.complete_tab_mutation(
             &operation_id,
-            if converged {
-                "provisionalTabStopConverged"
-            } else {
-                "provisionalTabStopChromeUnconfirmed"
-            },
-            if converged {
-                RuntimeTabMutationTerminalStatus::Applied
-            } else {
-                RuntimeTabMutationTerminalStatus::Degraded
-            },
-            (!converged).then_some("TAB_MUTATION_CHROME_NOT_CONFIRMED"),
+            "provisionalTabStopCommitted",
+            RuntimeTabMutationTerminalStatus::Applied,
+            None,
             0,
         ));
     }
@@ -221,16 +201,13 @@ async fn execute_tab_stop(
     };
     state.runtime.resolve_tab_close_preview(tab_id, true);
     state.runtime.publish_projection();
-    let runtime = Arc::clone(&state.runtime);
-    let request = lease.request;
-    let converged = tauri::async_runtime::spawn_blocking(move || {
-        matches!(
-            runtime.tab_mutation_projection_outcome(&request, &snapshot),
-            RuntimeTabMutationProjectionOutcome::Applied
-        )
-    })
-    .await
-    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
+    let converged = matches!(
+        state
+            .runtime
+            .tab_mutation_presentation_outcome(&lease.request, &snapshot),
+        RuntimeTabMutationProjectionOutcome::Applied
+    );
+    state.runtime.schedule_tab_mutation_projection_diagnostic(lease.request, snapshot);
     let native_release_confirmed = state.runtime.tab_surface_release_confirmed(tab_id);
     let (stage, status, failure_code) =
         tab_stop_terminal_outcome(converged, native_release_confirmed);
@@ -243,36 +220,13 @@ async fn execute_tab_stop(
     ))
 }
 
-async fn tab_stop_projection_converged(
-    state: &CoreState,
-    request: RuntimeTabMutationRequestRecord,
-) -> Result<bool, CoreErrorPayload> {
-    state.runtime.publish_projection();
-    let snapshot = state
-        .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
-        })?;
-    let runtime = Arc::clone(&state.runtime);
-    tauri::async_runtime::spawn_blocking(move || {
-        matches!(
-            runtime.tab_mutation_projection_outcome(&request, &snapshot),
-            RuntimeTabMutationProjectionOutcome::Applied
-        )
-    })
-    .await
-    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
-}
-
 async fn execute_tab_mutation_commit(
     state: &CoreState,
     request: RuntimeTabMutationRequestRecord,
     target: Option<EmbeddedLaunchTargetRecord>,
     before_tab_id: Option<String>,
 ) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
+    let target_window_id = target.as_ref().map(|target| target.window_id.clone());
     let value = Arc::clone(&state.core)
         .invoke_async(CoreCommand::EmbeddedTabMutation {
             request: request.clone(),
@@ -283,27 +237,21 @@ async fn execute_tab_mutation_commit(
         .map_err(error_payload)?;
     let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(value)
         .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
-    let persisted = state
-        .core
-        .invoke(CoreCommand::GameWindowsList)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
-        })?;
-    if !tab_mutation_persistence_converged(&request, &snapshot, &persisted) {
-        return Err(shell_error(
-            "TAB_MUTATION_RESULT_UNKNOWN",
-            "The saved Game Window topology did not match the committed runtime.",
-        ));
-    }
     state.runtime.publish_projection();
-    let runtime = Arc::clone(&state.runtime);
-    tauri::async_runtime::spawn_blocking(move || {
-        runtime.tab_mutation_projection_outcome(&request, &snapshot)
-    })
-    .await
-    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
+    state
+        .runtime
+        .schedule_live_window_state_persistence(&request.source_window_id);
+    if let Some(target_window_id) = target_window_id.as_deref()
+        && target_window_id != request.source_window_id
+    {
+        state
+            .runtime
+            .schedule_live_window_state_persistence(target_window_id);
+    }
+    state
+        .runtime
+        .schedule_tab_mutation_projection_diagnostic(request, snapshot);
+    Ok(RuntimeTabMutationProjectionOutcome::Applied)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -316,6 +264,7 @@ async fn execute_tab_drag_topology_commit(
     target_before_tab_ids: Vec<String>,
     target_after_tab_ids: Vec<String>,
 ) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
+    let target_window_id = target.as_ref().map(|target| target.window_id.clone());
     let value = Arc::clone(&state.core)
         .invoke_async(CoreCommand::EmbeddedTabDragTopologyCommit {
             request: request.clone(),
@@ -329,111 +278,19 @@ async fn execute_tab_drag_topology_commit(
         .map_err(error_payload)?;
     let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(value)
         .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))?;
-    let persisted = state
-        .core
-        .invoke(CoreCommand::GameWindowsList)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
-        })?;
-    if !tab_mutation_persistence_converged(&request, &snapshot, &persisted)
-        || !tab_window_order_persistence_converged(
-            &request.source_window_id,
-            &source_after_tab_ids,
-            &snapshot,
-            &persisted,
-        )
-    {
-        return Err(shell_error(
-            "TAB_MUTATION_RESULT_UNKNOWN",
-            "The saved Game Window topology did not match the committed drag topology.",
-        ));
-    }
     state.runtime.publish_projection();
-    let runtime = Arc::clone(&state.runtime);
-    tauri::async_runtime::spawn_blocking(move || {
-        runtime.tab_mutation_projection_outcome(&request, &snapshot)
-    })
-    .await
-    .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()))
-}
-
-fn tab_mutation_persistence_converged(
-    request: &RuntimeTabMutationRequestRecord,
-    snapshot: &BrowserRuntimeSnapshot,
-    persisted: &[StateGameWindowRecord],
-) -> bool {
-    let Some(runtime_tab) = snapshot.tabs.iter().find(|tab| tab.id == request.tab_id) else {
-        return request.mutation_kind == "stop";
-    };
-    if request.mutation_kind == "hide" && !runtime_tab.hidden {
-        return false;
+    state
+        .runtime
+        .schedule_live_window_state_persistence(&request.source_window_id);
+    if let Some(target_window_id) = target_window_id.as_deref()
+        && target_window_id != request.source_window_id
+    {
+        state
+            .runtime
+            .schedule_live_window_state_persistence(target_window_id);
     }
-    let persisted_owner = persisted.iter().find_map(|window| {
-        window
-            .tabs
-            .iter()
-            .find(|tab| tab.id == request.tab_id)
-            .map(|tab| (window, tab))
-    });
-    match persisted_owner {
-        Some((window, tab)) => {
-            window.id == runtime_tab.window_id
-                && (request.mutation_kind != "hide" || tab.hidden)
-                && snapshot
-                    .windows
-                    .iter()
-                    .find(|runtime_window| runtime_window.window_id == window.id)
-                    .is_none_or(|runtime_window| {
-                        let persisted_live_order = window
-                            .tabs
-                            .iter()
-                            .filter(|saved| {
-                                runtime_window
-                                    .tab_ids
-                                    .iter()
-                                    .any(|tab_id| tab_id == &saved.id)
-                            })
-                            .map(|saved| saved.id.as_str())
-                            .collect::<Vec<_>>();
-                        let runtime_order = runtime_window
-                            .tab_ids
-                            .iter()
-                            .map(String::as_str)
-                            .collect::<Vec<_>>();
-                        persisted_live_order == runtime_order
-                    })
-        }
-        None => persisted.iter().all(|window| window.id != runtime_tab.window_id),
-    }
-}
-
-fn tab_window_order_persistence_converged(
-    window_id: &str,
-    expected_tab_order: &[String],
-    snapshot: &BrowserRuntimeSnapshot,
-    persisted: &[StateGameWindowRecord],
-) -> bool {
-    let runtime_order = snapshot
-        .windows
-        .iter()
-        .find(|window| window.window_id == window_id)
-        .map(|window| window.tab_ids.as_slice())
-        .unwrap_or_default();
-    if runtime_order != expected_tab_order {
-        return expected_tab_order.is_empty() && runtime_order.is_empty();
-    }
-    persisted
-        .iter()
-        .find(|window| window.id == window_id)
-        .map(|window| {
-            window
-                .tabs
-                .iter()
-                .map(|tab| tab.id.as_str())
-                .collect::<Vec<_>>()
-                == expected_tab_order.iter().map(String::as_str).collect::<Vec<_>>()
-        })
-        .unwrap_or(expected_tab_order.is_empty())
+    state
+        .runtime
+        .schedule_tab_mutation_projection_diagnostic(request, snapshot);
+    Ok(RuntimeTabMutationProjectionOutcome::Applied)
 }

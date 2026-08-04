@@ -232,6 +232,11 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     if (event.button !== 0 || event.isPrimary === false || isInteractiveTarget(event.target as HTMLElement)) {
       return;
     }
+    const marqueeTopInset = Number.parseFloat(event.currentTarget.dataset.selectionMarqueeInsetTop ?? "0");
+    const containerTop = event.currentTarget.getBoundingClientRect().top;
+    if (Number.isFinite(marqueeTopInset) && event.clientY < containerTop + marqueeTopInset) {
+      return;
+    }
     const scrollContainer = scrollContainerRef.current;
     const startPoint = scrollContainer
       ? getContainerPoint(event.clientX, event.clientY, scrollContainer)

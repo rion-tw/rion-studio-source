@@ -1,11 +1,12 @@
 import { Gamepad2, House, Keyboard, LayoutDashboard, PanelsTopLeft, Settings, Users } from "lucide-react";
-import { type JSX, type MouseEvent } from "react";
+import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import appIconUrl from "../assets/app-icon.png";
 import { normalizeAppReturnTo } from "../app/editorNavigation";
 import type { Translator } from "../i18n";
 import { NavItem } from "./ui/patterns";
+import { WindowDragHandle } from "./WindowDragHandle";
 
 interface AppSidebarProps {
   hasUpdateBadge: boolean;
@@ -21,37 +22,16 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
   const location = useLocation();
   const navigate = useNavigate();
 
-  function handleBrandMouseDown(event: MouseEvent<HTMLDivElement>): void {
-    if (event.button !== 0) return;
-
-    if (event.detail === 1) {
-      event.preventDefault();
-      event.stopPropagation();
-      void window.rionStudio.startCurrentWindowDrag()
-        .catch((error) => console.error("Main window drag failed.", error));
-      return;
-    }
-
-    if (event.detail === 2) {
-      event.preventDefault();
-      event.stopPropagation();
-      void window.rionStudio.toggleCurrentWindowMaximize()
-        .catch((error) => console.error("Main window maximize toggle failed.", error));
-    }
-  }
-
   return (
     <aside data-tauri-drag-region className="app-sidebar app-main-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
-      <div
+      <WindowDragHandle
         className="app-sidebar-brand-region app-no-drag -mx-3 px-3 pb-5"
-        data-window-drag-handle
-        onMouseDown={handleBrandMouseDown}
       >
         <div className="flex w-full items-center gap-2 rounded-md px-2 text-left">
           <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />
           <span className="min-w-0 truncate text-heading font-semibold">Rion Studio</span>
         </div>
-      </div>
+      </WindowDragHandle>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
         <NavItem

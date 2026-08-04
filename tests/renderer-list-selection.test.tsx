@@ -5,6 +5,7 @@ import { type JSX, useCallback, useRef, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SelectionMarquee } from "../src/renderer/src/components/ListSelection";
+import { WindowDragHandle } from "../src/renderer/src/components/WindowDragHandle";
 import { useListSelection } from "../src/renderer/src/hooks/useListSelection";
 
 beforeAll(() => {
@@ -113,6 +114,18 @@ describe("list selection", () => {
     expect(screen.getByTestId("selected").textContent).toBe("one");
   });
 
+  it("does not start a marquee from a window drag region", () => {
+    render(<SelectionHarness ids={["one"]} includeWindowDragHandle />);
+    const collection = screen.getByTestId("collection");
+    const dragHandle = screen.getByTestId("window-drag-handle");
+
+    fireEvent.pointerDown(dragHandle, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 4 });
+    fireEvent.pointerMove(collection, { clientX: 40, clientY: 40, isPrimary: true, pointerId: 4 });
+
+    expect(screen.getByTestId("selected").textContent).toBe("");
+    expect(document.querySelector("[data-selection-marquee]")).toBeNull();
+  });
+
   it("prunes selected ids when filtering changes the visible collection", () => {
     const { rerender } = render(<SelectionHarness ids={["one", "two"]} />);
     fireEvent.keyDown(window, { metaKey: true, key: "a" });
@@ -155,7 +168,15 @@ describe("list selection", () => {
   });
 });
 
-function SelectionHarness({ ids, onAction = () => undefined }: { ids: string[]; onAction?: () => void }): JSX.Element {
+function SelectionHarness({
+  ids,
+  includeWindowDragHandle = false,
+  onAction = () => undefined
+}: {
+  ids: string[];
+  includeWindowDragHandle?: boolean;
+  onAction?: () => void;
+}): JSX.Element {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const selection = useListSelection({ orderedIds: ids, scrollContainerRef });
@@ -167,6 +188,7 @@ function SelectionHarness({ ids, onAction = () => undefined }: { ids: string[]; 
   return (
     <section ref={setScrollContainerRef} data-testid="scroll-container">
       <div data-testid="collection" {...selection.collectionProps}>
+        {includeWindowDragHandle ? <WindowDragHandle data-testid="window-drag-handle" /> : null}
         {ids.map((id) => (
           <div
             key={id}

@@ -3,6 +3,7 @@ import { Suspense, type JSX, useCallback, useEffect, useRef, useState } from "re
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { AppSidebar } from "./components/AppSidebar";
 import { UpdateReadyBanner } from "./components/UpdateReadyBanner";
+import { WindowDragHandle } from "./components/WindowDragHandle";
 import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { FirstRunOnboardingGate } from "./features/onboarding/FirstRunOnboardingGate";
@@ -458,6 +459,7 @@ export function App(): JSX.Element {
       )}
 
       <main className="app-content relative min-w-0 flex-1 overflow-hidden">
+        <WindowDragHandle className="app-content-window-drag-region absolute inset-x-0 top-0 z-[var(--layer-selection)]" />
         <UpdateReadyBanner
           status={updates.status}
           t={preferences.t}

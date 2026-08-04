@@ -80,7 +80,7 @@ jobs:
     needs: verify-and-upload-private-release
     uses: ./.github/workflows/publish-public-release.yml
     permissions:
-      contents: read
+      contents: write
     with:
       tag: ${{ inputs.tag }}
     secrets:

@@ -30,6 +30,12 @@ impl SystemRuntimeExecutor {
                 .values()
                 .map(|role| role.webview.clone())
                 .collect::<Vec<_>>();
+            surfaces.extend(
+                tab.slots
+                    .values()
+                    .filter_map(|slot| slot.placeholder.as_ref())
+                    .map(|placeholder| placeholder.webview.clone()),
+            );
             surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
             (source_window_id, source_window, target_window, surfaces)
         };

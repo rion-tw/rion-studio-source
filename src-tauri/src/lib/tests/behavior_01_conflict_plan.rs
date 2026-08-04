@@ -340,9 +340,9 @@ use super::*;
     }
 
     #[test]
-    fn native_tab_drag_defers_topology_on_windows_and_macos() {
+    fn windows_defers_native_tab_drag_while_macos_moves_live_presentation() {
         assert!(tab_drag_defers_native_mutations(true, false));
-        assert!(tab_drag_defers_native_mutations(false, true));
+        assert!(!tab_drag_defers_native_mutations(false, true));
         assert!(!tab_drag_defers_native_mutations(false, false));
 
         assert!(!deferred_tab_drag_terminal_ready(false, true, false));

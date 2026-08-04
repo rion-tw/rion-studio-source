@@ -20,7 +20,7 @@ impl WindowStatePersistCoordinator {
         window_generation: u64,
         revision: u64,
         immediate: bool,
-        input: Option<GameWindowRuntimeSnapshotCommitInputRecord>,
+        input: GameWindowRuntimeSnapshotCommitInputRecord,
     ) {
         let should_spawn = self.lanes.lock().ok().is_some_and(|mut lanes| {
             let lane = lanes
@@ -42,9 +42,7 @@ impl WindowStatePersistCoordinator {
                 }
                 lane.window_generation = window_generation;
                 lane.revision = revision;
-                if input.is_some() {
-                    lane.input = input;
-                }
+                lane.input = Some(input);
             }
             lane.immediate |= immediate;
             if lane.active {
@@ -129,23 +127,7 @@ fn run_window_state_persist_worker(
         if current_generation != window_generation || current_revision != revision {
             continue;
         }
-        let input = match retained_input {
-            Some(input) => Some(input),
-            None => match runtime.runtime_window_snapshot_commit_input(&window_id) {
-                Ok(input) => input,
-                Err(message) => {
-                    record_window_state_persist_failure(
-                        &runtime,
-                        &window_id,
-                        window_generation,
-                        revision,
-                        message,
-                    );
-                    continue;
-                }
-            },
-        };
-        let Some(input) = input else {
+        let Some(input) = retained_input else {
             retire_window_state_persist_lane(&runtime, &window_id, window_generation, revision);
             return;
         };
@@ -158,7 +140,7 @@ fn run_window_state_persist_worker(
                 input.snapshot.window_generation,
                 input.snapshot.revision,
                 false,
-                None,
+                input,
             );
             continue;
         }
@@ -333,16 +315,27 @@ impl SystemRuntimeExecutor {
         let Some(runtime) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
             return;
         };
-        let Some((window_generation, revision)) = self.live_window_identity(window_id) else {
-            return;
+        let input = match self.runtime_window_snapshot_commit_input(window_id) {
+            Ok(Some(input)) => input,
+            Ok(None) => return,
+            Err(error) => {
+                // A lifecycle event can race a native host teardown. Persistence
+                // is projection-only, so a late event is retired instead of
+                // re-querying a window that no longer exists. Close flushes
+                // capture their final input before native teardown.
+                eprintln!(
+                    "Live Game Window snapshot was not queued because its native host has already retired: window={window_id} error={error}"
+                );
+                return;
+            }
         };
         self.window_state_persistence.request(
             &runtime,
             window_id,
-            window_generation,
-            revision,
+            input.snapshot.window_generation,
+            input.snapshot.revision,
             false,
-            None,
+            input,
         );
     }
 
@@ -379,7 +372,7 @@ impl SystemRuntimeExecutor {
             input.snapshot.window_generation,
             input.snapshot.revision,
             true,
-            Some(input),
+            input,
         );
         Err(result
             .err()

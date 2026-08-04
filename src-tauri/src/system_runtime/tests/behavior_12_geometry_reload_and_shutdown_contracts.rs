@@ -200,3 +200,18 @@ fn native_resize_retry_is_bounded_and_stops_during_shutdown() {
         ));
     }
 }
+
+#[test]
+fn disconnected_webview_layout_is_recoverable_not_global_geometry_corruption() {
+    for message in [
+        "runtime error: failed to receive message from webview",
+        "WebView was closed",
+        "native channel closed",
+        "broken pipe",
+    ] {
+        assert!(native_surface_channel_is_unavailable(message));
+    }
+    assert!(!native_surface_channel_is_unavailable(
+        "window bounds were rejected"
+    ));
+}

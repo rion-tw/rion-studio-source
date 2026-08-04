@@ -73,6 +73,10 @@
     padding-top: 1.25rem;
   }
 
+  .app-content-window-drag-region {
+    height: 3.5rem;
+  }
+
   .sidebar-settings {
     margin-right: -0.75rem;
     margin-left: -0.75rem;

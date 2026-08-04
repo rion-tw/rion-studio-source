@@ -74,7 +74,7 @@ describe("bulk selection UI", () => {
     expect(screen.getByText("1 selected")).toBeTruthy();
   });
 
-  it("starts a marquee from the page header instead of requiring the grid", () => {
+  it("reserves the content top for window dragging before starting a marquee", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
     render(
@@ -104,6 +104,17 @@ describe("bulk selection UI", () => {
     fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
     expect(screen.queryByText("1 selected")).toBeNull();
     fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 7 });
+
+    fireEvent.pointerDown(screen.getByRole("heading", { name: "Games" }), {
+      button: 0,
+      clientX: 0,
+      clientY: 56,
+      isPrimary: true,
+      pointerId: 8
+    });
+    fireEvent.pointerMove(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 8 });
+    expect(screen.queryByText("1 selected")).toBeNull();
+    fireEvent.pointerUp(page!, { clientX: 140, clientY: 200, isPrimary: true, pointerId: 8 });
 
     expect(screen.getByText("1 selected")).toBeTruthy();
     expectSelectedCardOverlay(item);

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
 import { AppSidebar } from "../src/renderer/src/components/AppSidebar";
+import { WindowDragHandle } from "../src/renderer/src/components/WindowDragHandle";
 import en from "../src/renderer/src/i18n/en.json";
 import type { Translator } from "../src/renderer/src/i18n";
 import type { RionStudioApi } from "../src/shared/api";
@@ -55,16 +56,17 @@ describe("application sidebar window dragging", () => {
       expect(brandRegion?.className).toContain("app-sidebar-brand-region");
       expect(brandRegion?.parentElement?.className).toContain("app-main-sidebar");
       expect(brandTitle.closest("button")).toBeNull();
+      if (!brandRegion) throw new Error("Expected a sidebar window drag handle.");
 
-      fireEvent.mouseDown(brandTitle, { button: 0, detail: 1 });
+      fireEvent.mouseDown(brandRegion, { button: 0, detail: 1 });
       expect(startCurrentWindowDrag).toHaveBeenCalledOnce();
       expect(toggleCurrentWindowMaximize).not.toHaveBeenCalled();
 
-      fireEvent.mouseDown(brandTitle, { button: 0, detail: 2 });
+      fireEvent.mouseDown(brandRegion, { button: 0, detail: 2 });
       expect(startCurrentWindowDrag).toHaveBeenCalledOnce();
       expect(toggleCurrentWindowMaximize).toHaveBeenCalledOnce();
 
-      fireEvent.mouseDown(brandTitle, { button: 2, detail: 1 });
+      fireEvent.mouseDown(brandRegion, { button: 2, detail: 1 });
       expect(startCurrentWindowDrag).toHaveBeenCalledOnce();
 
       const home = screen.getByRole("button", { name: "Home" });
@@ -76,4 +78,29 @@ describe("application sidebar window dragging", () => {
       await waitFor(() => expect(home.className).toContain("nav-item-active"));
     }
   );
+
+  it("uses the same native window actions for a content-top drag region", () => {
+    const startCurrentWindowDrag = vi.fn(() => Promise.resolve());
+    const toggleCurrentWindowMaximize = vi.fn(() => Promise.resolve());
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        startCurrentWindowDrag,
+        toggleCurrentWindowMaximize
+      } as unknown as RionStudioApi
+    });
+    render(<WindowDragHandle className="app-content-window-drag-region" />);
+
+    const contentRegion = document.querySelector<HTMLElement>(".app-content-window-drag-region");
+    expect(contentRegion).not.toBeNull();
+    expect(contentRegion?.className).toContain("app-no-drag");
+    expect(contentRegion?.hasAttribute("data-selection-ignore")).toBe(true);
+
+    fireEvent.pointerDown(contentRegion!, { button: 0, isPrimary: true, pointerId: 1 });
+    fireEvent.mouseDown(contentRegion!, { button: 0, detail: 1 });
+    fireEvent.mouseDown(contentRegion!, { button: 0, detail: 2 });
+
+    expect(startCurrentWindowDrag).toHaveBeenCalledOnce();
+    expect(toggleCurrentWindowMaximize).toHaveBeenCalledOnce();
+  });
 });

@@ -331,6 +331,8 @@ describe("Tauri-only release workflows", () => {
     expect(semantic).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
     expect(workflow).toContain('test "${VERSION}" = "${EXPECTED_VERSION}"');
     expect(workflow).toContain('test "$(git rev-list -1 "${tag}")" = "${SOURCE_REF}"');
+    expect(stage).toContain("Checkout verified source");
+    expect(stage).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
     expect(stage).toContain('gh run download "${PREFLIGHT_RUN_ID}"');
     expect(stage).toContain("Stage verified release assets for release checks");
     expect(stage).toContain("node scripts/releaseArtifacts.mjs release-assets");

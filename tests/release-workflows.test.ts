@@ -251,6 +251,11 @@ describe("Tauri-only release workflows", () => {
     expect(buildWorkflow).toContain("RION_STUDIO_UPDATER_PUBLIC_KEY");
     expect(buildWorkflow).toContain("pnpm run release:version -- ${{ needs.validate.outputs.version }}");
     expect(buildWorkflow).toContain("pnpm run dist -- --bundles");
+    expect(buildWorkflow).toContain("Start release build timing");
+    expect(buildWorkflow).toContain("Publish release build timing summary");
+    expect(buildWorkflow).toContain("RELEASE_PACKAGE_SECONDS");
+    expect(buildWorkflow).toContain("compression-level: 0");
+    expect(build).not.toContain("fetch-depth: 0");
     expect(build).toContain(
       "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
     );

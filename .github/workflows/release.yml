@@ -176,82 +176,10 @@ jobs:
           echo "release_version=${release_version}" >> "${GITHUB_OUTPUT}"
           echo "source_ref=${SOURCE_REF}" >> "${GITHUB_OUTPUT}"
 
-  semantic-release:
-    needs: await-preflight
-    if: needs.await-preflight.outputs.has_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      release_version: ${{ steps.semantic.outputs.release_version }}
-    steps:
-      - name: Checkout verified source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.await-preflight.outputs.source_ref }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
-
-      - name: Setup Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Create semantic release
-        id: semantic
-        run: pnpm run release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  resolve-release:
-    needs:
-      - await-preflight
-      - semantic-release
-    if: needs.semantic-release.result == 'success'
-    runs-on: ubuntu-latest
-    outputs:
-      has_release: ${{ steps.resolve.outputs.has_release }}
-      release_tag: ${{ steps.resolve.outputs.release_tag }}
-      release_version: ${{ steps.resolve.outputs.release_version }}
-    steps:
-      - name: Checkout verified source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-          ref: ${{ needs.await-preflight.outputs.source_ref }}
-
-      - name: Resolve private release
-        id: resolve
-        shell: bash
-        env:
-          EXPECTED_VERSION: ${{ needs.await-preflight.outputs.release_version }}
-          SOURCE_REF: ${{ needs.await-preflight.outputs.source_ref }}
-          VERSION: ${{ needs.semantic-release.outputs.release_version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          [[ "${SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
-          test -n "${VERSION}"
-          test "${VERSION}" = "${EXPECTED_VERSION}"
-          tag="v${VERSION}"
-          git fetch --tags origin
-          test "$(git rev-list -1 "${tag}")" = "${SOURCE_REF}"
-          gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-          echo "has_release=true" >> "${GITHUB_OUTPUT}"
-          echo "release_tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "release_version=${VERSION}" >> "${GITHUB_OUTPUT}"
-
   stage-preflight-release:
     needs:
-      - resolve-release
       - await-preflight
-    if: needs.resolve-release.outputs.has_release == 'true'
+    if: needs.await-preflight.outputs.has_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -268,7 +196,7 @@ jobs:
           ARTIFACT_NAME: ${{ needs.await-preflight.outputs.release_artifact_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREFLIGHT_RUN_ID: ${{ needs.await-preflight.outputs.preflight_run_id }}
-          VERSION: ${{ needs.resolve-release.outputs.release_version }}
+          VERSION: ${{ needs.await-preflight.outputs.release_version }}
         run: |
           set -euo pipefail
           test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
@@ -284,93 +212,57 @@ jobs:
           retention-days: 14
           path: release-assets
 
-  verify-and-upload-private-release:
-    needs:
-      - await-preflight
-      - resolve-release
-      - stage-preflight-release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout release tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ needs.resolve-release.outputs.release_tag }}
-
-      - name: Validate release candidate output
-        shell: bash
-        env:
-          ARTIFACT_NAME: ${{ needs.await-preflight.outputs.release_artifact_name }}
-          VERSION: ${{ needs.resolve-release.outputs.release_version }}
-        run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"
-
-      - name: Download verified release assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: ${{ needs.await-preflight.outputs.release_artifact_name }}
-          path: release-assets
-
-      - name: Verify private release assets
-        run: node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --verify-checksums
-
-      - name: Upload immutable private release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.resolve-release.outputs.release_tag }}
-          VERSION: ${{ needs.resolve-release.outputs.release_version }}
-        run: |
-          set -euo pipefail
-          immutable_assets=(
-            release-assets/Rion.Studio-mac.dmg
-            release-assets/Rion.Studio-mac.app.tar.gz
-            release-assets/Rion.Studio-mac.app.tar.gz.sig
-            release-assets/Rion.Studio-win.exe
-            release-assets/Rion.Studio-win.exe.sig
-            release-assets/SHA256SUMS.txt
-          )
-          manifests=(release-assets/latest.json)
-
-          upload_immutable_asset() {
-            local asset="$1"
-            local name="${asset##*/}"
-            if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fxq "${name}"; then
-              mkdir -p existing-assets
-              gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${name}" --dir existing-assets
-              cmp "${asset}" "existing-assets/${name}"
-            else
-              gh release upload "${TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
-            fi
-          }
-
-          for asset in "${immutable_assets[@]}"; do upload_immutable_asset "${asset}"; done
-          for manifest in "${manifests[@]}"; do upload_immutable_asset "${manifest}"; done
-          rm -rf downloaded-assets
-          mkdir downloaded-assets
-          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir downloaded-assets
-          node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" --verify-checksums
-          cmp release-assets/SHA256SUMS.txt downloaded-assets/SHA256SUMS.txt
-
   verify-upgrade-compatibility:
     needs:
       - await-preflight
-      - resolve-release
       - stage-preflight-release
-    if: needs.resolve-release.outputs.has_release == 'true'
     uses: ./.github/workflows/tauri-release-compatibility.yml
     with:
-      tag: ${{ needs.resolve-release.outputs.release_tag }}
-      version: ${{ needs.resolve-release.outputs.release_version }}
+      source_ref: ${{ needs.await-preflight.outputs.source_ref }}
+      version: ${{ needs.await-preflight.outputs.release_version }}
       release_artifact_name: ${{ needs.await-preflight.outputs.release_artifact_name }}
 
-  publish-public-release:
+  semantic-release:
     needs:
-      - resolve-release
-      - verify-and-upload-private-release
+      - await-preflight
       - verify-upgrade-compatibility
-    uses: ./.github/workflows/publish-public-release.yml
+    runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
+    outputs:
+      release_version: ${{ steps.semantic.outputs.release_version }}
+    steps:
+      - name: Checkout verified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.await-preflight.outputs.source_ref }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Create semantic private draft
+        id: semantic
+        run: pnpm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  finalize-release:
+    needs:
+      - await-preflight
+      - semantic-release
+    if: needs.semantic-release.result == 'success'
+    uses: ./.github/workflows/finalize-private-release.yml
+    permissions:
+      contents: write
     with:
-      tag: ${{ needs.resolve-release.outputs.release_tag }}
+      tag: v${{ needs.semantic-release.outputs.release_version }}
+      version: ${{ needs.semantic-release.outputs.release_version }}
+      release_artifact_name: ${{ needs.await-preflight.outputs.release_artifact_name }}
     secrets:
       RION_RELEASE_APP_PRIVATE_KEY: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}

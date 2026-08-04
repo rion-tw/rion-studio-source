@@ -1,0 +1,100 @@
+name: Finalize Private Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      release_artifact_name:
+        required: true
+        type: string
+    secrets:
+      RION_RELEASE_APP_PRIVATE_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-upload-private-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Require the semantic private draft or a verified prior publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft,tagName >/dev/null
+
+      - name: Download verified release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ inputs.release_artifact_name }}
+          path: release-assets
+
+      - name: Verify and upload immutable private release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          node scripts/releaseArtifacts.mjs release-assets "${VERSION}" --verify-checksums
+          immutable_assets=(
+            release-assets/Rion.Studio-mac.dmg
+            release-assets/Rion.Studio-mac.app.tar.gz
+            release-assets/Rion.Studio-mac.app.tar.gz.sig
+            release-assets/Rion.Studio-win.exe
+            release-assets/Rion.Studio-win.exe.sig
+            release-assets/SHA256SUMS.txt
+            release-assets/latest.json
+          )
+          for asset in "${immutable_assets[@]}"; do
+            name="${asset##*/}"
+            if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' | grep -Fxq "${name}"; then
+              mkdir -p existing-assets
+              gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${name}" --dir existing-assets
+              cmp "${asset}" "existing-assets/${name}"
+            else
+              gh release upload "${TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}"
+            fi
+          done
+          mkdir downloaded-assets
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --dir downloaded-assets
+          node scripts/releaseArtifacts.mjs downloaded-assets "${VERSION}" --verify-checksums
+          cmp release-assets/SHA256SUMS.txt downloaded-assets/SHA256SUMS.txt
+
+  publish-public-release:
+    needs: verify-and-upload-private-release
+    uses: ./.github/workflows/publish-public-release.yml
+    permissions:
+      contents: read
+    with:
+      tag: ${{ inputs.tag }}
+    secrets:
+      RION_RELEASE_APP_PRIVATE_KEY: ${{ secrets.RION_RELEASE_APP_PRIVATE_KEY }}
+
+  finalize-private-release:
+    needs: publish-public-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the verified private release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "${TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest=false

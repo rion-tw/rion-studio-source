@@ -10,6 +10,13 @@ export default {
         successCmd: "echo release_version=${nextRelease.version} >> $GITHUB_OUTPUT"
       }
     ],
-    "@semantic-release/github"
+    [
+      "@semantic-release/github",
+      {
+        // The tag is immutable release identity, but a draft prevents a partially
+        // finalized private release from becoming visible while assets are checked.
+        draftRelease: true
+      }
+    ]
   ]
 };

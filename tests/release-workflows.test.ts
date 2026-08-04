@@ -283,6 +283,9 @@ describe("Tauri-only release workflows", () => {
       .toBeLessThan(build.indexOf("Upload verified platform candidate"));
     expect(compatibilityWorkflow).toContain("rion-studio.sqlite3");
     expect(compatibilityWorkflow).toContain("preserve-sqlite-store");
+    expect(compatibilityWorkflow).toContain(
+      "New-Item -ItemType Directory -Force -Path $userData | Out-Null"
+    );
     expect(compatibilityWorkflow).toContain("The in-place upgrade modified the SQLite store.");
     expect(compatibilityWorkflow).toContain("roles/upgrade/browser/data.marker");
     expect(releasePlanScript).toContain("dryRun: true");
@@ -295,24 +298,25 @@ describe("Tauri-only release workflows", () => {
     expect(compatibilityWorkflow.toLowerCase()).not.toContain("electron");
   });
 
-  it("requires a matching concurrent Tauri preflight before semantic-release publishes assets", async () => {
-    const [workflow, preflightWorkflow] = await Promise.all([
+  it("validates the candidate before creating a resumable semantic draft", async () => {
+    const [workflow, preflightWorkflow, compatibilityWorkflow, finalizeWorkflow, resumeWorkflow, config] = await Promise.all([
       readWorkflow(".github/workflows/release.yml"),
-      readWorkflow(".github/workflows/tauri-release-preflight.yml")
+      readWorkflow(".github/workflows/tauri-release-preflight.yml"),
+      readWorkflow(".github/workflows/tauri-release-compatibility.yml"),
+      readWorkflow(".github/workflows/finalize-private-release.yml"),
+      readWorkflow(".github/workflows/resume-release.yml"),
+      readWorkflow("release.config.mjs")
     ]);
     const awaitIndex = workflow.indexOf("await-preflight:");
-    const semanticIndex = workflow.indexOf("semantic-release:");
-    const resolveIndex = workflow.indexOf("resolve-release:");
     const stageIndex = workflow.indexOf("stage-preflight-release:");
-    const verifyIndex = workflow.indexOf("verify-and-upload-private-release:");
     const compatibilityIndex = workflow.indexOf("verify-upgrade-compatibility:");
-    const publishIndex = workflow.indexOf("publish-public-release:");
+    const semanticIndex = workflow.indexOf("semantic-release:");
+    const finalizeIndex = workflow.indexOf("finalize-release:");
     const awaitPreflight = workflow.slice(awaitIndex, semanticIndex);
-    const semantic = workflow.slice(semanticIndex, resolveIndex);
-    const stage = workflow.slice(stageIndex, verifyIndex);
-    const verify = workflow.slice(verifyIndex, compatibilityIndex);
-    const compatibility = workflow.slice(compatibilityIndex, publishIndex);
-    const publish = workflow.slice(publishIndex);
+    const stage = workflow.slice(stageIndex, compatibilityIndex);
+    const compatibility = workflow.slice(compatibilityIndex, semanticIndex);
+    const semantic = workflow.slice(semanticIndex, finalizeIndex);
+    const finalize = workflow.slice(finalizeIndex);
 
     expect(workflow).toContain("name: Private Tauri Release");
     expect(workflow).toContain("workflow_run:");
@@ -326,11 +330,11 @@ describe("Tauri-only release workflows", () => {
     expect(awaitPreflight).toContain("gh workflow run");
     expect(awaitPreflight).toContain("current_has_release");
     expect(awaitPreflight).toContain("release_version");
-    expect(semantic).toContain("needs: await-preflight");
-    expect(semantic).toContain("needs.await-preflight.outputs.has_release == 'true'");
+    expect(semantic).toContain("- await-preflight");
+    expect(semantic).toContain("- verify-upgrade-compatibility");
     expect(semantic).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
-    expect(workflow).toContain('test "${VERSION}" = "${EXPECTED_VERSION}"');
-    expect(workflow).toContain('test "$(git rev-list -1 "${tag}")" = "${SOURCE_REF}"');
+    expect(semantic).toContain("Create semantic private draft");
+    expect(config).toContain("draftRelease: true");
     expect(stage).toContain("Checkout verified source");
     expect(stage).toContain("ref: ${{ needs.await-preflight.outputs.source_ref }}");
     expect(stage).toContain('gh run download "${PREFLIGHT_RUN_ID}"');
@@ -340,36 +344,33 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain(
       "name: ${{ needs.await-preflight.outputs.release_artifact_name }}"
     );
-    expect(workflow).toContain(
-      'run: test "${ARTIFACT_NAME}" = "tauri-release-assets-${VERSION}"'
-    );
-    expect(workflow).not.toContain(
-      "name: tauri-release-assets-${{ needs.resolve-release.outputs.release_version }}"
-    );
-    expect(workflow).toContain("cmp release-assets/SHA256SUMS.txt");
-    expect(workflow).toContain("--verify-checksums");
-    expect(verify).toContain(
-      "node scripts/releaseArtifacts.mjs release-assets ${{ needs.resolve-release.outputs.release_version }} --verify-checksums"
-    );
-    expect(verify).not.toContain("--write-checksums");
-    expect(verify).not.toContain("verify-upgrade-compatibility");
     expect(compatibility).toContain("- await-preflight");
-    expect(compatibility).toContain("- resolve-release");
     expect(compatibility).toContain("- stage-preflight-release");
+    expect(compatibility).toContain("source_ref: ${{ needs.await-preflight.outputs.source_ref }}");
     expect(compatibility).toContain(
       "release_artifact_name: ${{ needs.await-preflight.outputs.release_artifact_name }}"
     );
-    expect(publish).toContain("- verify-and-upload-private-release");
-    expect(publish).toContain("- verify-upgrade-compatibility");
+    expect(finalize).toContain("uses: ./.github/workflows/finalize-private-release.yml");
+    expect(finalizeWorkflow).toContain("verify-and-upload-private-release:");
+    expect(finalizeWorkflow).toContain("publish-public-release:");
+    expect(finalizeWorkflow).toContain("finalize-private-release:");
+    expect(finalizeWorkflow).toContain("--draft=false --latest=false");
+    expect(finalizeWorkflow).toContain("cmp release-assets/SHA256SUMS.txt");
+    expect(finalizeWorkflow).toContain("--verify-checksums");
+    expect(compatibilityWorkflow).toContain("source_ref:");
+    expect(compatibilityWorkflow).not.toContain("inputs.tag");
+    expect(resumeWorkflow).toContain("workflow_dispatch:");
+    expect(resumeWorkflow).toContain("actions: read");
+    expect(resumeWorkflow).toContain("git merge-base --is-ancestor");
+    expect(resumeWorkflow).toContain("Checkout immutable release source");
+    expect(resumeWorkflow).toContain("run_quality: true");
+    expect(resumeWorkflow).toContain("uses: ./.github/workflows/finalize-private-release.yml");
     expect(workflow).not.toContain("--clobber");
     expect(awaitIndex).toBeGreaterThan(-1);
-    expect(semanticIndex).toBeGreaterThan(awaitIndex);
-    expect(resolveIndex).toBeGreaterThan(semanticIndex);
-    expect(stageIndex).toBeGreaterThan(resolveIndex);
-    expect(verifyIndex).toBeGreaterThan(stageIndex);
+    expect(stageIndex).toBeGreaterThan(awaitIndex);
     expect(compatibilityIndex).toBeGreaterThan(stageIndex);
-    expect(publishIndex).toBeGreaterThan(verifyIndex);
-    expect(publishIndex).toBeGreaterThan(compatibilityIndex);
+    expect(semanticIndex).toBeGreaterThan(compatibilityIndex);
+    expect(finalizeIndex).toBeGreaterThan(semanticIndex);
     expect(workflow.toLowerCase()).not.toContain("electron");
 
     expect(preflightWorkflow).toContain("name: Tauri Release Preflight");

@@ -308,6 +308,7 @@ impl TabChromeProjectionCoordinator {
         })
     }
 
+    #[cfg(test)]
     fn wait_for_projection_status(
         &self,
         window_id: &str,

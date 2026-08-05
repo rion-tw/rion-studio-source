@@ -1,4 +1,5 @@
 impl SystemRuntimeExecutor {
+    #[cfg(target_os = "macos")]
     pub(crate) fn release_tab_drag_pointer_passthrough(
         &self,
         window_id: &str,

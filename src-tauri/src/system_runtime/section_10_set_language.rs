@@ -375,10 +375,8 @@ impl SystemRuntimeExecutor {
             .lock()
             .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
         Ok(RuntimeTabDragWindowSnapshot {
-            active_tab_id: state.selected_tab_id.clone(),
             generation,
             tab_ids: state.tab_ids(),
-            window_id: window_id.to_owned(),
         })
     }
 
@@ -506,52 +504,6 @@ impl SystemRuntimeExecutor {
             eprintln!(
                 "Native tab order projection will reconcile from live topology: window={window_id} error={}",
                 error.message
-            );
-        }
-        Ok(())
-    }
-
-    pub(crate) fn restore_tab_drag_window_snapshot(
-        &self,
-        snapshot: &RuntimeTabDragWindowSnapshot,
-    ) -> Result<(), String> {
-        let Some(coordinator) = self.presentation.existing(&snapshot.window_id) else {
-            return Ok(());
-        };
-        let revision = self.presentation.next_revision();
-        let active_tab_id = {
-            let mut state = coordinator
-                .lock()
-                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            state.reorder_known_tabs(&snapshot.tab_ids);
-            let active = snapshot
-                .active_tab_id
-                .as_ref()
-                .filter(|tab_id| state.contains_tab(tab_id))
-                .cloned()
-                .or_else(|| state.tab_ids().first().cloned());
-            state.select(active.clone(), revision);
-            active
-        };
-        let present_order = self
-            .presentation
-            .existing(&snapshot.window_id)
-            .and_then(|state| state.lock().ok().map(|state| state.tab_ids()))
-            .unwrap_or_default();
-        self.reorder_native_tabs(&snapshot.window_id, &present_order)
-            .map_err(|error| error.message)?;
-        if let Some(active_tab_id) = active_tab_id {
-            let _ = self.request_tab_presentation(
-                &active_tab_id,
-                NativePresentationFocus::None,
-                "tab-drag-rollback",
-            )?;
-        } else {
-            self.apply_native_active_style(
-                &snapshot.window_id,
-                None,
-                revision,
-                "tab-drag-rollback",
             );
         }
         Ok(())
@@ -724,12 +676,33 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
     ) -> Result<(), String> {
-        let window = self
-            .window_for_id(window_id)
+        let (window, generation) = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| (host.window.clone(), host.generation))
+            })
             .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
         window
             .set_ignore_cursor_events(false)
             .map_err(|error| error.to_string())?;
+        self.reassert_tab_drag_pointer_passthrough_if_leased(
+            window_id,
+            generation,
+            &window,
+        )?;
+        if self.state.lock().ok().is_some_and(|state| {
+            state
+                .tab_drag_cursor_leases
+                .get(window_id)
+                .is_some_and(|lease| lease.window_generation == generation)
+        }) {
+            return Ok(());
+        }
         self.focus_runtime_window_direct(
             window_id,
             &window,

@@ -634,10 +634,6 @@ impl SystemRuntimeExecutor {
         registration
     }
 
-    pub(crate) fn mark_unhealthy_after_failed_compensation(&self) {
-        self.health.mark_unhealthy();
-    }
-
     pub(crate) fn launch_target_for_window_id(
         &self,
         window_id: &str,

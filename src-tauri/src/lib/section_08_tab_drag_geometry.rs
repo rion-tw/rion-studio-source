@@ -1,3 +1,4 @@
+#[cfg(test)]
 fn tab_drag_order_changed(original: &[String], current: &[String]) -> bool {
     original != current
 }

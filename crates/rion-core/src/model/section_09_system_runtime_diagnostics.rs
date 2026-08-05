@@ -92,31 +92,14 @@ pub struct SystemRuntimeOperationSummaryRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeTabMutationRequestRecord {
     pub operation_id: String,
-    #[ts(type = "\"move\" | \"moveToNewWindow\" | \"hide\" | \"reorder\" | \"stop\"")]
+    #[ts(type = "\"stop\"")]
     pub mutation_kind: String,
     pub tab_id: String,
     pub source_window_id: String,
     #[ts(type = "number")]
     pub source_window_generation: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub target_window_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "number")]
-    pub target_window_generation: Option<u64>,
     #[ts(type = "number")]
     pub lifecycle_epoch: u64,
-    #[ts(type = "number")]
-    pub topology_revision: u64,
-    #[ts(type = "number")]
-    pub presentation_revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "number")]
-    pub reorder_target_index: Option<u64>,
-    pub expected_tab_order: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub expected_active_tab_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]

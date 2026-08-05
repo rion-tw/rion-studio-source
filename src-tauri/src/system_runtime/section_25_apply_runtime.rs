@@ -21,16 +21,6 @@ impl SystemRuntimeExecutor {
             })?;
         let parent_operation_id = correlation.parent_operation_id.as_deref();
         let presentation_revision = correlation.presentation_revision;
-        if parent_operation_id.is_some()
-            && self
-                .tab_drag_intents
-                .projection_is_superseded(parent_operation_id, "")
-        {
-            // Drag commits preview their frozen topology before entering Core. If a newer
-            // native drag starts while Core is persisting that fallback, its late effect must
-            // not replay the old projection over the newer AppKit/WebView2 overlay.
-            return Ok(());
-        }
         let ensured_target_host = if let Some(target) = target.as_ref() {
             let title = snapshot
                 .windows
@@ -70,11 +60,6 @@ impl SystemRuntimeExecutor {
         let presentation_before = self.presentation.snapshot_states().map_err(|message| {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })?;
-        let visible_surface_labels = presentation_before
-            .values()
-            .flat_map(|state| state.surfaces(state.selected_tab_id.as_deref()))
-            .map(|surface| surface.label().to_owned())
-            .collect::<HashSet<_>>();
         let host_plan =
             resolve_runtime_tab_host_plan(&snapshot, &live_windows, focus_window_ids, focus_tab_id);
         let tab_updates = {
@@ -103,6 +88,7 @@ impl SystemRuntimeExecutor {
                     Some(RuntimeTabProjectionUpdate {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
+                        #[cfg(windows)]
                         source_window_id: runtime_tab.window_id.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
@@ -111,59 +97,26 @@ impl SystemRuntimeExecutor {
                 .collect::<Vec<_>>()
         };
 
-        let mut reparented_surfaces = Vec::<RuntimeReparentedSurface>::new();
+        let mut projected_tab_ids = HashSet::new();
         for update in &tab_updates {
             if self.runtime_tab_close_projection_fenced(&update.tab_id)? {
                 continue;
             }
-            if update.moved {
+            if !update.moved {
+                projected_tab_ids.insert(update.tab_id.clone());
+                continue;
+            }
+            let projection = (|| -> RuntimeResult<()> {
                 let window = self.window_for_id(&update.window_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                         "The target runtime display host was not found.",
                     )
                 })?;
-                let source_window =
-                    self.window_for_id(&update.source_window_id)
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
-                                "The source runtime display host was not found.",
-                            )
-                        })?;
                 for surface in &update.surfaces {
-                    if let Err(error) = surface.hide() {
-                        let rollback_errors =
-                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
-                        if let Some((window_id, created)) = &ensured_target_host {
-                            self.remove_empty_display_host(window_id, *created);
-                        }
-                        return Err(self.runtime_reparent_failure(
-                            RuntimeError::tauri(error),
-                            rollback_errors,
-                        ));
-                    }
-                    reparented_surfaces.push(RuntimeReparentedSurface {
-                        source_window: source_window.clone(),
-                        #[cfg(windows)]
-                        source_window_id: update.source_window_id.clone(),
-                        surface: surface.clone(),
-                        tab_id: update.tab_id.clone(),
-                        #[cfg(windows)]
-                        target_window_id: update.window_id.clone(),
-                        was_visible: visible_surface_labels.contains(surface.label()),
-                    });
-                    if let Err(error) = surface.reparent(&window) {
-                        let rollback_errors =
-                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
-                        if let Some((window_id, created)) = &ensured_target_host {
-                            self.remove_empty_display_host(window_id, *created);
-                        }
-                        return Err(self.runtime_reparent_failure(
-                            RuntimeError::tauri(error),
-                            rollback_errors,
-                        ));
-                    }
+                    #[cfg(windows)]
+                    surface.hide().map_err(RuntimeError::tauri)?;
+                    surface.reparent(&window).map_err(RuntimeError::tauri)?;
                 }
                 #[cfg(windows)]
                 match synchronize_windows_reparented_surfaces(&update.surfaces, &window) {
@@ -188,19 +141,27 @@ impl SystemRuntimeExecutor {
                             Err(&failure),
                             None,
                         );
-                        let rollback_errors =
-                            self.rollback_runtime_reparented_surfaces(&reparented_surfaces);
-                        if let Some((window_id, created)) = &ensured_target_host {
-                            self.remove_empty_display_host(window_id, *created);
-                        }
-                        return Err(self.runtime_reparent_failure(
-                            RuntimeError::new(
-                                "SYSTEM_WEBVIEW_REPARENT_SYNC_FAILED",
-                                failure.message,
-                            ),
-                            rollback_errors,
+                        return Err(RuntimeError::new(
+                            "SYSTEM_WEBVIEW_REPARENT_SYNC_FAILED",
+                            failure.message,
                         ));
                     }
+                }
+                Ok(())
+            })();
+            match projection {
+                Ok(()) => {
+                    projected_tab_ids.insert(update.tab_id.clone());
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Live tab surface projection remains pending: tab={} target={} error={}",
+                        update.tab_id, update.window_id, error.message
+                    );
+                    self.schedule_tab_surface_move_retry(
+                        update.tab_id.clone(),
+                        update.window_id.clone(),
+                    );
                 }
             }
         }
@@ -213,6 +174,9 @@ impl SystemRuntimeExecutor {
                 host.target = target.clone();
             }
             for update in &tab_updates {
+                if update.moved && !projected_tab_ids.contains(&update.tab_id) {
+                    continue;
+                }
                 if let Some(runtime_tab) = state.tabs.get_mut(&update.tab_id) {
                     runtime_tab.window_id = update.window_id.clone();
                 }
@@ -227,7 +191,9 @@ impl SystemRuntimeExecutor {
                 .values()
                 .filter(|surface| {
                     tab_updates.iter().any(|update| {
-                        update.moved && surface.tab_id.as_deref() == Some(update.tab_id.as_str())
+                        update.moved
+                            && projected_tab_ids.contains(&update.tab_id)
+                            && surface.tab_id.as_deref() == Some(update.tab_id.as_str())
                     })
                 })
                 .cloned()
@@ -284,10 +250,9 @@ impl SystemRuntimeExecutor {
                     &snapshot_tab.name,
                 );
             }
-            // Live presentation owns ordering. Core publishes owner-priority snapshots while
-            // restoring surfaces, so it may only supply metadata here. The saved restore fence
-            // is the one exception because it seeds the live topology before native creation is
-            // complete; after that fence retires, no Core projection may reorder the tab strip.
+            // Live presentation owns ordering. Core may only supply role-owner metadata here.
+            // The saved restore record is the one initialization input because it seeds live
+            // topology before native creation; it is not a later Core projection or readback.
             if let Some(restore) = pending_restore {
                 window.reorder_known_tabs(&restore.ordered_tab_ids);
             }
@@ -378,63 +343,6 @@ impl SystemRuntimeExecutor {
                 parent_operation_id,
             )?;
         }
-        for snapshot_tab in &snapshot.tabs {
-            if !live_windows.contains_key(&snapshot_tab.id)
-                || optimistic_closed_tabs.contains(&snapshot_tab.id)
-            {
-                continue;
-            }
-            let owner = self
-                .presentation
-                .tab_window(&snapshot_tab.id)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            if owner.as_deref() != Some(snapshot_tab.window_id.as_str()) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_TOPOLOGY_INVALID",
-                    format!(
-                        "Runtime tab {} did not commit to presentation window {}.",
-                        snapshot_tab.id, snapshot_tab.window_id
-                    ),
-                ));
-            }
-        }
-        for (window_id, state) in &presentation_after {
-            let Some(selected_tab_id) = state.selected_tab_id.as_deref() else {
-                continue;
-            };
-            if let Some(snapshot_tab) = snapshot.tabs.iter().find(|tab| tab.id == selected_tab_id)
-                && (snapshot_tab.window_id != *window_id || snapshot_tab.hidden)
-            {
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_SELECTION_INVALID",
-                    format!(
-                        "Presentation window {window_id} selected unavailable runtime tab {selected_tab_id}."
-                    ),
-                ));
-            }
-        }
-        {
-            let state = self.state()?;
-            for surface in state.surface_registry.values() {
-                let Some(tab_id) = surface.tab_id.as_deref() else {
-                    continue;
-                };
-                let Some(snapshot_tab) = snapshot.tabs.iter().find(|tab| tab.id == tab_id) else {
-                    continue;
-                };
-                if surface.window_id != snapshot_tab.window_id {
-                    return Err(RuntimeError::new(
-                        "SYSTEM_RUNTIME_TOPOLOGY_INVALID",
-                        format!(
-                            "Native surface {} did not move with runtime tab {tab_id}.",
-                            surface.instance_id
-                        ),
-                    ));
-                }
-            }
-        }
         let presentation_windows = snapshot
             .windows
             .iter()
@@ -461,7 +369,7 @@ impl SystemRuntimeExecutor {
         }
 
         for update in &tab_updates {
-            if update.moved
+            if (update.moved && projected_tab_ids.contains(&update.tab_id))
                 || target
                     .as_ref()
                     .is_some_and(|target| target.window_id == update.window_id)

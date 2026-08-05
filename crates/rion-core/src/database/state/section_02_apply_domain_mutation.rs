@@ -349,6 +349,47 @@ fn apply_domain_mutation(
                 upsert_game_window(&transaction, &json_value(&game_window)?, ordinal)?;
                 serde_json::to_value(game_window)
             }
+            StateMutation::GameWindowRuntimeSnapshotBatch { inputs } => {
+                let mut game_windows =
+                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
+                let mut seen = std::collections::HashSet::new();
+                let mut updated = Vec::with_capacity(inputs.len());
+                for input in inputs {
+                    let snapshot = input.snapshot;
+                    if !seen.insert(snapshot.window_id.clone()) {
+                        return Err(CoreError::InvalidInput(
+                            "runtime window snapshot batch contains a duplicate window".to_owned(),
+                        ));
+                    }
+                    let id = snapshot.window_id;
+                    let window = update_game_window(
+                        &mut game_windows,
+                        &id,
+                        GameWindowUpdateInputRecord {
+                            name: Some(input.name),
+                            target_display: Some(input.target_display),
+                            placement: Some(input.placement),
+                            tabs: Some(snapshot.tabs),
+                            active_tab_id: Some(snapshot.active_tab_id),
+                        },
+                    )?;
+                    let ordinal = game_windows
+                        .iter()
+                        .position(|candidate| candidate.id == id)
+                        .expect("updated Game Window remains in its validated collection");
+                    updated.push((ordinal, window));
+                }
+                validate_game_window_collection(&game_windows)?;
+                for (ordinal, window) in &updated {
+                    upsert_game_window(&transaction, &json_value(window)?, *ordinal)?;
+                }
+                serde_json::to_value(
+                    updated
+                        .into_iter()
+                        .map(|(_, window)| window)
+                        .collect::<Vec<_>>(),
+                )
+            }
             StateMutation::GameWindowsDisplayRemap { updates } => {
                 let mut game_windows =
                     read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
@@ -404,31 +445,6 @@ fn apply_domain_mutation(
                         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
                 }
                 Ok(json!({ "deleted": deleted }))
-            }
-            StateMutation::GameWindowsRuntimeSync { windows } => {
-                let mut game_windows =
-                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
-                let mut updates = Vec::new();
-                for window in windows {
-                    let Some(ordinal) = game_windows
-                        .iter()
-                        .position(|candidate| candidate.id == window.id)
-                    else {
-                        continue;
-                    };
-                    game_windows[ordinal] = window.clone();
-                    updates.push((ordinal, window));
-                }
-                validate_game_window_collection(&game_windows)?;
-                for (ordinal, window) in &updates {
-                    upsert_game_window(&transaction, &json_value(window)?, *ordinal)?;
-                }
-                serde_json::to_value(
-                    updates
-                        .into_iter()
-                        .map(|(_, window)| window)
-                        .collect::<Vec<_>>(),
-                )
             }
             StateMutation::MacroCreate(input) => {
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;

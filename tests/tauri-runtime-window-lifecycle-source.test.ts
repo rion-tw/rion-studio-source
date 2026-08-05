@@ -3,22 +3,17 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
-  it("keeps Core active-tab metadata as a silent background projection", async () => {
-    const selection = await readFile(
-      new URL(
-        "../src-tauri/src/lib/section_01_tab_selection_commit.rs",
-        import.meta.url
-      ),
-      "utf8"
-    );
+  it("keeps active-tab selection entirely outside Core", async () => {
+    const [selection, core] = await Promise.all([
+      readFile(new URL("../src-tauri/src/lib/section_01_activation.rs", import.meta.url), "utf8"),
+      readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8")
+    ]);
 
-    expect(selection).toContain("Background active-tab projection remains pending");
-    expect(selection).toContain("TabActivationComponentStatus::Superseded");
-    expect(selection).not.toContain("tab_selection_commit_matches");
-    expect(selection).not.toContain("TAB_SELECTION_COMMIT_RETRY_DELAY");
-    expect(selection).not.toContain("reconcile_tab_activation");
+    expect(selection).toContain("schedule_live_window_state_persistence(window_id)");
+    expect(selection).not.toContain("TabSelectionCommitCoordinator");
     expect(selection).not.toContain("The active tab metadata did not converge");
-    expect(selection).not.toContain("reveal_shell_error(&request.app");
+    expect(core).not.toContain("CoreCommand::EmbeddedTabActivate");
+    expect(core).not.toContain("apply_embedded_tab_selection_without_native_effect");
   });
 
   it("authorizes behavior-layer tab actions only against live topology", async () => {
@@ -77,7 +72,7 @@ describe("runtime window lifecycle authority", () => {
     expect(quickMenu).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
   });
 
-  it("commits terminal drag topology without replaying the native presentation", async () => {
+  it("has no Core terminal drag topology command", async () => {
     const core = await readFile(
       new URL(
         "../crates/rion-core/src/app/section_08_tab_mutation.rs",
@@ -85,19 +80,12 @@ describe("runtime window lifecycle authority", () => {
       ),
       "utf8"
     );
-    const commit = core.slice(
-      core.indexOf("fn apply_embedded_tab_drag_topology_commit"),
-      core.indexOf("fn serialized_embedded_tab_drag_topology_commit")
-    );
-
-    expect(commit).toContain("BrowserRuntimeCommand::CommitTabDragTopology");
-    expect(commit).toContain("self.emit_browser_statuses()");
-    expect(commit).not.toContain("apply_embedded_runtime_command_inner");
-    expect(commit).not.toContain("EmbeddedApplyRuntime");
-    expect(commit).not.toContain("run_embedded_runtime_effect");
+    expect(core).not.toContain("apply_embedded_tab_drag_topology_commit");
+    expect(core).not.toContain("BrowserRuntimeCommand::CommitTabDragTopology");
+    expect(core).not.toContain("EmbeddedTabDragTopologyCommit");
   });
 
-  it("commits every tab behavior to live state before a one-way Core sink", async () => {
+  it("commits ordinary tab behavior without a Core topology sink", async () => {
     const [shell, core, coordinator] = await Promise.all([
       readFile(
         new URL("../src-tauri/src/lib/section_01_tab_mutation.rs", import.meta.url),
@@ -115,31 +103,18 @@ describe("runtime window lifecycle authority", () => {
         "utf8"
       ),
     ]);
-    const mutation = shell.slice(
-      shell.indexOf("async fn execute_tab_mutation("),
-      shell.indexOf("struct QueuedTabMutationSink")
-    );
-    const sink = shell.slice(
-      shell.indexOf("struct QueuedTabMutationSink"),
-      shell.indexOf("fn tab_stop_terminal_outcome")
-    );
-    const coreMutation = core.slice(
-      core.indexOf("fn apply_embedded_tab_mutation("),
-      core.indexOf("fn serialized_embedded_tab_mutation")
-    );
-
-    expect(mutation.indexOf("commit_live_tab_mutation_intent(")).toBeLessThan(
-      mutation.indexOf("schedule_tab_mutation_core_sink(")
-    );
-    expect(sink).toContain("unbounded_channel::<QueuedTabMutationSink>()");
-    expect(sink).not.toContain("publish_projection");
-    expect(sink).not.toContain("schedule_live_window_state_persistence");
-    expect(coreMutation).toContain("self.emit_browser_statuses()");
-    expect(coreMutation).not.toContain("EmbeddedApplyRuntime");
-    expect(coreMutation).not.toContain("apply_embedded_runtime_command_inner");
+    expect(shell).toContain("commit_live_tab_mutation_intent(");
+    expect(shell).toContain("accept_tab_stop(");
+    expect(shell).not.toContain("QueuedTabMutationSink");
+    expect(shell).not.toContain("schedule_tab_mutation_core_sink(");
+    expect(core).not.toContain("fn apply_embedded_tab_mutation(");
+    expect(core).not.toContain("EmbeddedTabMutation");
     expect(coordinator).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
     expect(coordinator).not.toContain("matches_projection(");
     expect(coordinator).not.toContain("schedule_tab_mutation_projection_diagnostic");
+    expect(coordinator).toContain("fn tab_stop_window_id(");
+    expect(coordinator).toContain(".close_previews");
+    expect(coordinator).not.toContain("request.target_window");
   });
 
   it("retains the full persistence input before the debounce worker can outlive its host", async () => {
@@ -163,11 +138,13 @@ describe("runtime window lifecycle authority", () => {
       persistence.indexOf("fn run_window_state_persist_worker"),
       persistence.indexOf("fn retire_window_state_persist_lane")
     );
-    expect(worker).toContain("let Some(input) = retained_input else");
+    expect(worker).toContain("GameWindowRuntimeSnapshotBatchCommit");
+    expect(worker).toContain("lane.input.clone()");
+    expect(worker).toContain("retire_window_state_persist_lane(");
     expect(worker).not.toContain("runtime_window_snapshot_commit_input");
   });
 
-  it("freezes the complete live snapshot while a window close tears down its tabs", async () => {
+  it("retains the complete live revision while a window close tears down its tabs", async () => {
     const [close, tabClose, persistence, saveInput] = await Promise.all([
       readFile(
         new URL(
@@ -202,11 +179,37 @@ describe("runtime window lifecycle authority", () => {
     expect(close).toContain("current_window_close_in_progress");
     expect(tabClose).toContain("if !self.current_window_close_in_progress(&window_id)");
     expect(persistence).toContain("if self.current_window_close_in_progress(window_id)");
-    expect(saveInput).toContain("Persistence is a projection of the already-committed in-memory UI state");
-    expect(saveInput).toMatch(/live_window\s*\.tabs/);
+    expect(saveInput).toContain("The live presentation is the complete tab snapshot");
+    expect(saveInput).toContain("Self::live_game_window_tabs(&live_window)");
     expect(saveInput).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
     expect(saveInput).not.toContain("current_monitor()");
     expect(saveInput).not.toContain("snapshot.tabs.iter().any(|tab| tab.id == *tab_id)");
+  });
+
+  it("scopes window teardown to the tabs owned by the final live topology", async () => {
+    const [shellClose, coreClose, closeContract] = await Promise.all([
+      readFile(new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url), "utf8"),
+      readFile(
+        new URL(
+          "../crates/rion-core/src/app/section_08_stop_embedded_workspace_with_operation_lease.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_14_window_close_contract.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(closeContract).toContain("pub(crate) fn live_window_tab_ids(");
+    expect(shellClose).toContain("runtime.live_window_tab_ids(&window_id)");
+    expect(shellClose).toContain("tab_ids: live_tab_ids");
+    expect(coreClose).toContain("live_tab_ids: &[String]");
+    expect(coreClose).toContain("live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)");
   });
 
   it("fences cancelled create effects and retires a create that loses its Core acknowledgement race", async () => {
@@ -430,9 +433,8 @@ describe("runtime window lifecycle authority", () => {
       "pending_window_tab_restores.contains_key(&runtime_window.window_id)"
     );
     expect(projection).toContain("restore.active_tab_id.clone()");
-    expect(configuration).toContain(
-      "self.mark_pending_game_window_configuration(&window_id)"
-    );
+    expect(configuration).toContain("GameWindowRuntimeSnapshotBatch");
+    expect(configuration).not.toContain("pending_game_window_configurations");
     expect(state).toContain("pending_window_tab_restores");
   });
 

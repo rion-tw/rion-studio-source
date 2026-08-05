@@ -23,6 +23,15 @@ fn window_close_failure_status(
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn live_window_tab_ids(&self, window_id: &str) -> Result<Vec<String>, String> {
+        self.presentation
+            .existing(window_id)
+            .ok_or_else(|| "Live runtime window state was not found.".to_owned())?
+            .lock()
+            .map(|state| state.all_tab_ids())
+            .map_err(|_| "Live runtime window state is unavailable.".to_owned())
+    }
+
     fn current_window_close_in_progress(&self, window_id: &str) -> bool {
         self.state.lock().ok().is_some_and(|state| {
             let Some(generation) = state

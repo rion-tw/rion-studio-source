@@ -5,118 +5,33 @@ async fn execute_tab_mutation(
     target: Option<EmbeddedLaunchTargetRecord>,
     before_tab_id: Option<String>,
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
-    let target_window_id = target.as_ref().map(|target| target.window_id.as_str());
-    let acceptance = state
-        .runtime
-        .accept_tab_mutation(
-            mutation_kind,
-            tab_id,
-            target_window_id,
-            before_tab_id.as_deref(),
-            state.display_topology.current_revision(),
-        )
-        .map_err(|error| shell_error(error.code, error.message))?;
-    let operation = match acceptance {
-        RuntimeTabMutationAcceptance::Accepted(operation) => *operation,
-        RuntimeTabMutationAcceptance::ExistingStop(operation_id) => {
-            let runtime = Arc::clone(&state.runtime);
-            return tauri::async_runtime::spawn_blocking(move || {
-                runtime.wait_tab_mutation_receipt(&operation_id)
-            })
-            .await
-            .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()));
-        }
-        RuntimeTabMutationAcceptance::Superseded => {
-            return Ok(state
-                .runtime
-                .superseded_tab_mutation_summary(mutation_kind, tab_id));
-        }
-    };
-    let lease = match state.runtime.await_tab_mutation_turn(operation).await {
-        Ok(lease) => lease,
-        Err(receipt) => return Ok(receipt),
-    };
-    let operation_id = lease.request.operation_id.clone();
     if let Err(message) = state.runtime.commit_live_tab_mutation_intent(
         mutation_kind,
         tab_id,
         target.as_ref(),
-        lease.before_tab_id.as_deref(),
+        before_tab_id.as_deref(),
     ) {
+        if stale_live_tab_action_error(&message) {
+            return Ok(state
+                .runtime
+                .superseded_tab_mutation_summary(mutation_kind, tab_id));
+        }
         eprintln!(
             "Live tab mutation could not commit: kind={mutation_kind} tab={tab_id} error={message}"
         );
-        return Ok(state.runtime.complete_tab_mutation(
-            &operation_id,
-            "tabMutationLiveCommitFailed",
+        return Ok(state.runtime.live_tab_mutation_summary(
+            mutation_kind,
+            tab_id,
             RuntimeTabMutationTerminalStatus::Failed,
             Some("TAB_MUTATION_LIVE_COMMIT_FAILED"),
-            0,
         ));
     }
-    schedule_tab_mutation_core_sink(
-        state,
-        lease.request,
-        target,
-        lease.before_tab_id,
-    );
-    Ok(state.runtime.complete_tab_mutation(
-        &operation_id,
-        "tabMutationLiveCommitted",
+    Ok(state.runtime.live_tab_mutation_summary(
+        mutation_kind,
+        tab_id,
         RuntimeTabMutationTerminalStatus::Applied,
         None,
-        0,
     ))
-}
-
-struct QueuedTabMutationSink {
-    before_tab_id: Option<String>,
-    request: RuntimeTabMutationRequestRecord,
-    target: Option<EmbeddedLaunchTargetRecord>,
-}
-
-fn schedule_tab_mutation_core_sink(
-    state: &CoreState,
-    request: RuntimeTabMutationRequestRecord,
-    target: Option<EmbeddedLaunchTargetRecord>,
-    before_tab_id: Option<String>,
-) {
-    let core = Arc::clone(&state.core);
-    let sender = state.tab_mutation_sink_queue.get_or_init(move || {
-        let (sender, mut receiver) =
-            tokio::sync::mpsc::unbounded_channel::<QueuedTabMutationSink>();
-        tauri::async_runtime::spawn(async move {
-            while let Some(queued) = receiver.recv().await {
-                let tab_id = queued.request.tab_id.clone();
-                let mutation_kind = queued.request.mutation_kind.clone();
-                if let Err(error) = Arc::clone(&core)
-                    .invoke_async(CoreCommand::EmbeddedTabMutation {
-                        request: queued.request,
-                        target: queued.target,
-                        before_tab_id: queued.before_tab_id,
-                    })
-                    .await
-                {
-                    let payload = error.payload();
-                    eprintln!(
-                        "Background tab topology sink remains pending without live rollback: kind={mutation_kind} tab={tab_id} code={} error={}",
-                        payload.code, payload.message
-                    );
-                }
-            }
-        });
-        sender
-    });
-    if sender
-        .send(QueuedTabMutationSink {
-            before_tab_id,
-            request,
-            target,
-        })
-        .is_err()
-    {
-        eprintln!("Background tab topology sink queue is unavailable; live topology was retained.");
-    }
 }
 
 fn tab_stop_terminal_outcome(native_release_confirmed: bool) -> (
@@ -138,13 +53,7 @@ async fn execute_tab_stop(
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
     let acceptance = state
         .runtime
-        .accept_tab_mutation(
-            "stop",
-            tab_id,
-            None,
-            None,
-            state.display_topology.current_revision(),
-        )
+        .accept_tab_stop(tab_id, state.display_topology.current_revision())
         .map_err(|error| shell_error(error.code, error.message))?;
     let operation = match acceptance {
         RuntimeTabMutationAcceptance::Accepted(operation) => *operation,
@@ -246,28 +155,4 @@ async fn execute_tab_stop(
         failure_code,
         0,
     ))
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn execute_tab_drag_topology_commit(
-    state: &CoreState,
-    request: RuntimeTabMutationRequestRecord,
-    target: Option<EmbeddedLaunchTargetRecord>,
-    source_before_tab_ids: Vec<String>,
-    source_after_tab_ids: Vec<String>,
-    target_before_tab_ids: Vec<String>,
-    target_after_tab_ids: Vec<String>,
-) -> Result<RuntimeTabMutationProjectionOutcome, CoreErrorPayload> {
-    Arc::clone(&state.core)
-        .invoke_async(CoreCommand::EmbeddedTabDragTopologyCommit {
-            request,
-            target,
-            source_before_tab_ids,
-            source_after_tab_ids,
-            target_before_tab_ids,
-            target_after_tab_ids,
-        })
-        .await
-        .map_err(error_payload)?;
-    Ok(RuntimeTabMutationProjectionOutcome::Applied)
 }

@@ -267,80 +267,60 @@ impl PresentationRegistry {
             .existing(source_window_id)
             .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
         let target = self.coordinator(target_window_id)?;
-        let (tab, bindings, was_hidden, was_selected, source_before) = {
-            let mut source = source
+        // Acquire every fallible live-state guard before changing either window.
+        // A stable window-id order prevents opposite-direction moves from
+        // deadlocking. Once the mutation starts there is no rollback path: the
+        // destination becomes the sole live topology and native surfaces only
+        // project that decision forward.
+        let mut surface_owners = self
+            .surface_owners
+            .lock()
+            .map_err(|_| "The native surface ownership registry is unavailable.".to_owned())?;
+        let (mut source, mut target) = if source_window_id < target_window_id {
+            let source = source
                 .lock()
                 .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
-            let source_before = source.clone();
-            let index = source
-                .tabs
-                .iter()
-                .position(|tab| tab.id == tab_id)
-                .ok_or_else(|| "The moving presentation tab was not found.".to_owned())?;
-            let was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
-            let successor = was_selected
-                .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
-                .flatten();
-            let tab = source.tabs.remove(index);
-            let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
-            let was_hidden = source.hidden_tab_ids.remove(tab_id);
-            source
-                .aliases
-                .retain(|alias, target| alias != tab_id && target != tab_id);
-            if was_selected {
-                source.select(successor, revision);
-            } else {
-                source.revision = revision;
-            }
-            (tab, bindings, was_hidden, was_selected, source_before)
-        };
-        let moved_surfaces = bindings
-            .iter()
-            .map(|binding| {
-                (
-                    binding.webview.label().to_owned(),
-                    binding.instance_id.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let mut surface_owners = if moved_surfaces.is_empty() {
-            None
+            let target = target
+                .lock()
+                .map_err(|_| "The target presentation state is unavailable.".to_owned())?;
+            (source, target)
         } else {
-            match self.surface_owners.lock() {
-                Ok(owners) => Some(owners),
-                Err(_) => {
-                    if let Ok(mut source) = source.lock() {
-                        *source = source_before;
-                        return Err(
-                            "The native surface ownership registry is unavailable.".to_owned()
-                        );
-                    }
-                    return Err(
-                        "The native surface ownership registry is unavailable and source restoration failed."
-                            .to_owned(),
-                    );
-                }
-            }
+            let target = target
+                .lock()
+                .map_err(|_| "The target presentation state is unavailable.".to_owned())?;
+            let source = source
+                .lock()
+                .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
+            (source, target)
         };
-        let mut target = match target.lock() {
-            Ok(target) => target,
-            Err(_) => {
-                if let Ok(mut source) = source.lock() {
-                    *source = source_before;
-                    return Err("The target presentation state is unavailable.".to_owned());
-                }
-                return Err(
-                    "The target presentation state is unavailable and source restoration failed."
-                        .to_owned(),
-                );
-            }
-        };
+        let index = source
+            .tabs
+            .iter()
+            .position(|tab| tab.id == tab_id)
+            .ok_or_else(|| "The moving presentation tab was not found.".to_owned())?;
+        let was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
+        let successor = was_selected
+            .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
+            .flatten();
+        let tab = source.tabs.remove(index);
+        let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
+        let was_hidden = source.hidden_tab_ids.remove(tab_id);
+        source
+            .aliases
+            .retain(|alias, target| alias != tab_id && target != tab_id);
+        if was_selected {
+            source.select(successor, revision);
+        } else {
+            source.revision = revision;
+        }
         if !target.contains_tab(tab_id) {
             target.tabs.push(tab);
         }
         target.revision = revision;
         if !bindings.is_empty() {
-            target.surface_bindings.insert(tab_id.to_owned(), bindings);
+            target
+                .surface_bindings
+                .insert(tab_id.to_owned(), bindings.clone());
         }
         if was_hidden {
             target.hidden_tab_ids.insert(tab_id.to_owned());
@@ -348,21 +328,19 @@ impl PresentationRegistry {
         if was_selected && activate_target_if_selected {
             target.select(Some(tab_id.to_owned()), revision);
         }
-        if let Some(surface_owners) = surface_owners.as_mut() {
-            let owner_revision = self
-                .next_surface_owner_revision
-                .fetch_add(1, Ordering::AcqRel)
-                .saturating_add(1);
-            for (surface_label, instance_id) in moved_surfaces {
-                surface_owners.insert(
-                    surface_label,
-                    SurfacePresentationOwner {
-                        instance_id,
-                        revision: owner_revision,
-                        window_id: target_window_id.to_owned(),
-                    },
-                );
-            }
+        let owner_revision = self
+            .next_surface_owner_revision
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        for binding in bindings {
+            surface_owners.insert(
+                binding.webview.label().to_owned(),
+                SurfacePresentationOwner {
+                    instance_id: binding.instance_id,
+                    revision: owner_revision,
+                    window_id: target_window_id.to_owned(),
+                },
+            );
         }
         Ok(())
     }

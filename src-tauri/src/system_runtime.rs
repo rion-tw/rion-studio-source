@@ -73,7 +73,6 @@ include!("system_runtime/section_23_create_tab.rs");
 include!("system_runtime/section_23_claim_role_slot.rs");
 include!("system_runtime/section_24_start_role_loads.rs");
 include!("system_runtime/section_24_reload_contract.rs");
-include!("system_runtime/section_25_reparent_rollback.rs");
 include!("system_runtime/section_25_runtime_topology_contract.rs");
 include!("system_runtime/section_25_apply_runtime.rs");
 include!("system_runtime/section_26_window_tab_geometry.rs");

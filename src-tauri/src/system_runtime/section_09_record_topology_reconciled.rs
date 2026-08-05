@@ -304,29 +304,13 @@ impl SystemRuntimeExecutor {
         tab_type: &str,
         workspace_template: Option<&str>,
         source_active_tab_id: Option<&str>,
-        target_rollback_active_tab_id: Option<&str>,
         revision: u64,
     ) -> RuntimeResult<()> {
         self.try_ensure_native_tab(target_window_id, tab_id, name, tab_type, workspace_template)?;
-        if let Err(error) =
-            self.try_remove_native_tab_reservation(source_window_id, tab_id, source_active_tab_id)
-        {
-            let rollback = self.try_remove_native_tab_reservation(
-                target_window_id,
-                tab_id,
-                target_rollback_active_tab_id,
-            );
-            return match rollback {
-                Ok(()) => Err(error),
-                Err(rollback_error) => Err(RuntimeError::new(
-                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
-                    format!(
-                        "Moving native tab {tab_id} failed: {} Compensation also failed: {}. Restart Rion Studio to recover safely.",
-                        error.message, rollback_error.message
-                    ),
-                )),
-            };
-        }
+        // The target chrome represents the committed live topology. If source
+        // removal fails, retain the target and retry removal forward; never
+        // compensate by recreating the obsolete source topology.
+        self.try_remove_native_tab_reservation(source_window_id, tab_id, source_active_tab_id)?;
         self.record_presentation_event(
             LogLevel::Debug,
             "tab.chrome-relocated",

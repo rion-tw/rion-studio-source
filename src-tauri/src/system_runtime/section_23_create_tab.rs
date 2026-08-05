@@ -150,15 +150,18 @@ impl SystemRuntimeExecutor {
             let previous_tab_id = selection.selected_tab_id.clone();
             let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
             let presentation_tab = TabPresentation {
+                audio_muted: false,
                 closable: true,
                 icon_data_url: None,
                 id: created_tab_id.clone(),
                 phase: TabPresentationPhase::Attaching,
+                persistable: true,
                 role_ids: tab
                     .slots
                     .iter()
                     .map(|slot| slot.role.id.clone())
                     .collect(),
+                role_slots: persisted_role_slots_from_effect(&tab.slots),
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),

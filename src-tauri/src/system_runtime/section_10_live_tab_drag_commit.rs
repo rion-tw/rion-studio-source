@@ -279,7 +279,6 @@ impl SystemRuntimeExecutor {
             .presentation
             .tab(&actual_source_window_id, tab_id)
             .ok_or_else(|| "Dragged tab presentation changed during the final commit.".to_owned())?;
-        let selected_before = self.presentation.selected_tabs();
         let revision = self.presentation.next_revision();
         self.presentation.move_tab(
             tab_id,
@@ -303,7 +302,6 @@ impl SystemRuntimeExecutor {
             selected_after
                 .get(&actual_source_window_id)
                 .map(String::as_str),
-            selected_before.get(target_window_id).map(String::as_str),
             revision,
         ) {
             eprintln!(
@@ -315,7 +313,6 @@ impl SystemRuntimeExecutor {
                 target_window_id.to_owned(),
                 tab.clone(),
                 selected_after.get(&actual_source_window_id).cloned(),
-                selected_before.get(target_window_id).cloned(),
                 revision,
             );
         }
@@ -345,7 +342,6 @@ impl SystemRuntimeExecutor {
         target_window_id: String,
         tab: TabPresentation,
         source_active_tab_id: Option<String>,
-        target_active_before: Option<String>,
         revision: u64,
     ) {
         let Some(runtime) = self.self_weak.get().cloned() else {
@@ -378,7 +374,6 @@ impl SystemRuntimeExecutor {
                         &tab.tab_type,
                         workspace_template,
                         source_active_tab_id.as_deref(),
-                        target_active_before.as_deref(),
                         revision,
                     ) {
                         Ok(()) => {
@@ -403,11 +398,13 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn schedule_tab_surface_move_retry(
-        self: &Arc<Self>,
+        &self,
         tab_id: String,
         target_window_id: String,
     ) {
-        let runtime = Arc::downgrade(self);
+        let Some(runtime) = self.self_weak.get().cloned() else {
+            return;
+        };
         let _ = thread::Builder::new()
             .name(format!("rion-tab-surface-move-{tab_id}"))
             .spawn(move || {

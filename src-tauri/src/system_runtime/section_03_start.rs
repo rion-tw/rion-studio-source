@@ -303,11 +303,14 @@ impl TabPresentationPhase {
 
 #[derive(Clone)]
 struct TabPresentation {
+    audio_muted: bool,
     closable: bool,
     icon_data_url: Option<String>,
     id: String,
     phase: TabPresentationPhase,
+    persistable: bool,
     role_ids: Vec<String>,
+    role_slots: Vec<GameWindowRoleSlotRecord>,
     source_id: String,
     tab_type: String,
     title: String,
@@ -326,10 +329,8 @@ struct ProvisionalNativeTabMove {
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeTabDragWindowSnapshot {
-    pub(crate) active_tab_id: Option<String>,
     pub(crate) generation: u64,
     pub(crate) tab_ids: Vec<String>,
-    pub(crate) window_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -499,6 +500,18 @@ impl LiveWindowTabState {
             tab.source_id = source_id.to_owned();
             tab.tab_type = tab_type.to_owned();
             tab.title = title.to_owned();
+        }
+    }
+
+    fn update_persistence_metadata(
+        &mut self,
+        tab_id: &str,
+        role_slots: Vec<GameWindowRoleSlotRecord>,
+        audio_muted: bool,
+    ) {
+        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+            tab.role_slots = role_slots;
+            tab.audio_muted = audio_muted;
         }
     }
 

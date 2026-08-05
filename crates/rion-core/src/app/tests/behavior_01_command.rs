@@ -422,33 +422,6 @@ use std::{
         drive_async_command_with(core, command, |effect| effect_result(effect, fail_action))
     }
 
-    fn embedded_tab_move_mutation_command(
-        parent_operation_id: &str,
-        tab_id: &str,
-        source_window_id: &str,
-        target: EmbeddedLaunchTargetRecord,
-    ) -> CoreCommand {
-        CoreCommand::EmbeddedTabMutation {
-            request: crate::model::RuntimeTabMutationRequestRecord {
-                operation_id: parent_operation_id.to_owned(),
-                mutation_kind: "move".to_owned(),
-                tab_id: tab_id.to_owned(),
-                source_window_id: source_window_id.to_owned(),
-                source_window_generation: 7,
-                target_window_id: Some(target.window_id.clone()),
-                target_window_generation: Some(11),
-                lifecycle_epoch: 3,
-                topology_revision: 5,
-                presentation_revision: 13,
-                reorder_target_index: None,
-                expected_tab_order: vec![tab_id.to_owned()],
-                expected_active_tab_id: Some(tab_id.to_owned()),
-            },
-            target: Some(target),
-            before_tab_id: None,
-        }
-    }
-
     fn embedded_tab_stop_mutation_command(
         parent_operation_id: &str,
         tab_id: &str,
@@ -462,14 +435,7 @@ use std::{
                 tab_id: tab_id.to_owned(),
                 source_window_id: source_window_id.to_owned(),
                 source_window_generation: 7,
-                target_window_id: None,
-                target_window_generation: None,
                 lifecycle_epoch: 3,
-                topology_revision: 5,
-                presentation_revision: 13,
-                reorder_target_index: None,
-                expected_tab_order: Vec::new(),
-                expected_active_tab_id: None,
             },
             source_id: source_id.to_owned(),
             tab_type: "role".to_owned(),

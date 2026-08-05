@@ -285,12 +285,9 @@ pub fn run() {
                 runtime_launcher_refresh: runtime_launcher_refresh.clone(),
                 launch_intents,
                 runtime,
-                tab_selection_commit: TabSelectionCommitCoordinator::default(),
                 tab_drag: Mutex::new(None),
                 tab_drag_finished: Mutex::new(VecDeque::new()),
                 tab_drag_lane: tokio::sync::Mutex::new(()),
-                tab_drag_projection_queue: OnceLock::new(),
-                tab_mutation_sink_queue: OnceLock::new(),
                 #[cfg(target_os = "macos")]
                 macos_tab_drag_actions: OnceLock::new(),
                 updates: Arc::clone(&updates),

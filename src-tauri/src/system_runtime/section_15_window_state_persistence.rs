@@ -2,19 +2,18 @@
 struct WindowStatePersistCoordinator {
     lanes: Mutex<HashMap<String, WindowStatePersistLane>>,
     snapshots: Mutex<WindowStatePersistSnapshots>,
+    worker_active: Mutex<bool>,
 }
 
 #[derive(Default)]
 struct WindowStatePersistSnapshots {
     inputs: HashMap<String, GameWindowRuntimeSnapshotCommitInputRecord>,
-    tabs: HashMap<String, GameWindowTabRecord>,
 }
 
 struct WindowStatePersistLane {
-    active: bool,
     failure_count: u32,
     immediate: bool,
-    input: Option<GameWindowRuntimeSnapshotCommitInputRecord>,
+    input: GameWindowRuntimeSnapshotCommitInputRecord,
     revision: u64,
     window_generation: u64,
 }
@@ -25,9 +24,6 @@ impl WindowStatePersistCoordinator {
             return;
         };
         for window in windows {
-            for tab in &window.tabs {
-                snapshots.tabs.insert(tab.id.clone(), tab.clone());
-            }
             snapshots.inputs.insert(
                 window.id.clone(),
                 GameWindowRuntimeSnapshotCommitInputRecord {
@@ -64,34 +60,21 @@ impl WindowStatePersistCoordinator {
         let Ok(mut snapshots) = self.snapshots.lock() else {
             return;
         };
-        for tab in &input.snapshot.tabs {
-            snapshots.tabs.insert(tab.id.clone(), tab.clone());
-        }
         snapshots
             .inputs
             .insert(input.snapshot.window_id.clone(), input.clone());
     }
 
-    fn freeze_cached(
+    fn materialize_live_snapshot(
         &self,
         window_id: &str,
         live: &LiveWindowTabState,
     ) -> Option<GameWindowRuntimeSnapshotCommitInputRecord> {
         let snapshots = self.snapshots.lock().ok()?;
         let mut input = snapshots.inputs.get(window_id)?.clone();
-        let tabs = live
-            .tabs
-            .iter()
-            .map(|tab| {
-                snapshots.tabs.get(&tab.id).cloned().map(|mut snapshot| {
-                    snapshot.hidden = live.tab_is_hidden(&tab.id);
-                    snapshot
-                })
-            })
-            .collect::<Option<Vec<_>>>()?;
         input.snapshot.window_generation = live.window_generation;
         input.snapshot.revision = live.revision;
-        input.snapshot.tabs = tabs;
+        input.snapshot.tabs = SystemRuntimeExecutor::live_game_window_tabs(live);
         input.snapshot.active_tab_id = live
             .selected_tab_id
             .clone()
@@ -109,33 +92,40 @@ impl WindowStatePersistCoordinator {
         input: GameWindowRuntimeSnapshotCommitInputRecord,
     ) {
         self.remember(&input);
-        let should_spawn = self.lanes.lock().ok().is_some_and(|mut lanes| {
-            let lane = lanes
-                .entry(window_id.to_owned())
-                .or_insert(WindowStatePersistLane {
-                    active: false,
-                    failure_count: 0,
+        let accepted = self.lanes.lock().ok().is_some_and(|mut lanes| {
+            let newer = lanes.get(window_id).is_none_or(|lane| {
+                window_generation > lane.window_generation
+                    || (window_generation == lane.window_generation && revision >= lane.revision)
+            });
+            if !newer {
+                return false;
+            }
+            let failure_count = lanes
+                .get(window_id)
+                .filter(|lane| {
+                    lane.window_generation == window_generation && lane.revision == revision
+                })
+                .map_or(0, |lane| lane.failure_count);
+            lanes.insert(
+                window_id.to_owned(),
+                WindowStatePersistLane {
+                    failure_count,
                     immediate,
-                    input: None,
+                    input,
                     revision,
                     window_generation,
-                });
-            let newer = window_generation > lane.window_generation
-                || (window_generation == lane.window_generation && revision >= lane.revision);
-            if newer {
-                if window_generation != lane.window_generation || revision > lane.revision {
-                    lane.failure_count = 0;
-                    lane.input = None;
-                }
-                lane.window_generation = window_generation;
-                lane.revision = revision;
-                lane.input = Some(input);
-            }
-            lane.immediate |= immediate;
-            if lane.active {
+                },
+            );
+            true
+        });
+        if !accepted {
+            return;
+        }
+        let should_spawn = self.worker_active.lock().ok().is_some_and(|mut active| {
+            if *active {
                 false
             } else {
-                lane.active = true;
+                *active = true;
                 true
             }
         });
@@ -143,128 +133,160 @@ impl WindowStatePersistCoordinator {
             return;
         }
         let runtime = Arc::downgrade(runtime);
-        let window_id = window_id.to_owned();
-        let worker_window_id = window_id.clone();
-        let spawn = thread::Builder::new()
-            .name(format!("rion-window-state-persist-{window_id}"))
-            .spawn(move || run_window_state_persist_worker(runtime, worker_window_id));
-        if spawn.is_err()
-            && let Ok(mut lanes) = self.lanes.lock()
-            && let Some(lane) = lanes.get_mut(&window_id)
+        if thread::Builder::new()
+            .name("rion-window-state-persist".to_owned())
+            .spawn(move || run_window_state_persist_worker(runtime))
+            .is_err()
+            && let Ok(mut active) = self.worker_active.lock()
         {
-            lane.active = false;
+            *active = false;
         }
     }
 
-    fn pending(&self, window_id: &str) -> Option<(u64, u64)> {
-        self.lanes.lock().ok().and_then(|lanes| {
-            lanes
-                .get(window_id)
-                .map(|lane| (lane.window_generation, lane.revision))
-        })
-    }
 }
 
-fn run_window_state_persist_worker(
-    runtime: std::sync::Weak<SystemRuntimeExecutor>,
-    window_id: String,
-) {
+fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecutor>) {
     loop {
         let Some(runtime) = runtime.upgrade() else {
             return;
         };
-        let (window_generation, revision, immediate, retained_input, failure_count) = runtime
+        let delay = runtime
             .window_state_persistence
             .lanes
             .lock()
             .ok()
-            .and_then(|mut lanes| {
-                let lane = lanes.get_mut(&window_id)?;
-                let snapshot = (
-                    lane.window_generation,
-                    lane.revision,
-                    lane.immediate,
-                    lane.input.clone(),
-                    lane.failure_count,
-                );
-                lane.immediate = false;
-                Some(snapshot)
-            })
-            .unwrap_or((0, 0, false, None, 0));
-        if revision == 0 {
-            retire_window_state_persist_lane(&runtime, &window_id, window_generation, revision);
+            .and_then(|lanes| {
+                if lanes.is_empty() {
+                    None
+                } else if lanes.values().any(|lane| lane.immediate) {
+                    Some(Duration::ZERO)
+                } else {
+                    let failure_count = lanes
+                        .values()
+                        .map(|lane| lane.failure_count)
+                        .min()
+                        .unwrap_or_default();
+                    Some(window_state_persist_retry_delay(failure_count))
+                }
+            });
+        let Some(delay) = delay else {
+            if let Ok(mut active) = runtime.window_state_persistence.worker_active.lock() {
+                *active = false;
+            }
+            // A request can arrive between observing the empty map and retiring
+            // the worker. Re-arm once so no latest snapshot is stranded.
+            let should_continue = runtime
+                .window_state_persistence
+                .lanes
+                .lock()
+                .is_ok_and(|lanes| !lanes.is_empty())
+                && runtime
+                    .window_state_persistence
+                    .worker_active
+                    .lock()
+                    .is_ok_and(|mut active| {
+                        if *active {
+                            false
+                        } else {
+                            *active = true;
+                            true
+                        }
+                    });
+            if should_continue {
+                continue;
+            }
             return;
-        }
-        let delay = if immediate {
-            Duration::ZERO
-        } else if failure_count == 0 {
-            WINDOW_STATE_PERSIST_DEBOUNCE
-        } else {
-            window_state_persist_retry_delay(failure_count)
         };
         if !delay.is_zero() {
             thread::sleep(delay);
         }
-        let Some((current_generation, current_revision)) = runtime
+        let inputs = runtime
             .window_state_persistence
-            .pending(&window_id)
-        else {
-            return;
-        };
-        if current_generation != window_generation || current_revision != revision {
+            .lanes
+            .lock()
+            .map(|mut lanes| {
+                for lane in lanes.values_mut() {
+                    lane.immediate = false;
+                }
+                lanes
+                    .values()
+                    .map(|lane| lane.input.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if inputs.is_empty() {
             continue;
         }
-        let Some(input) = retained_input else {
-            retire_window_state_persist_lane(&runtime, &window_id, window_generation, revision);
-            return;
-        };
-        if input.snapshot.window_generation != window_generation
-            || input.snapshot.revision != revision
-        {
-            runtime.window_state_persistence.request(
-                &runtime,
-                &window_id,
-                input.snapshot.window_generation,
-                input.snapshot.revision,
-                false,
-                input,
-            );
-            continue;
-        }
+        let requested = inputs
+            .iter()
+            .map(|input| {
+                (
+                    input.snapshot.window_id.clone(),
+                    input.snapshot.window_generation,
+                    input.snapshot.revision,
+                )
+            })
+            .collect::<Vec<_>>();
         let result = runtime
             .core
-            .invoke(CoreCommand::GameWindowRuntimeSnapshotCommit {
-                input: input.clone(),
+            .invoke(CoreCommand::GameWindowRuntimeSnapshotBatchCommit {
+                input: GameWindowRuntimeSnapshotBatchCommitInputRecord { inputs },
             })
             .and_then(|value| {
-                serde_json::from_value::<RuntimeWindowPersistenceReceiptRecord>(value)
+                serde_json::from_value::<RuntimeWindowPersistenceBatchReceiptRecord>(value)
                     .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
             });
         match result {
-            Ok(receipt) if matches!(receipt.status.as_str(), "applied" | "superseded") => {
-                if retire_window_state_persist_lane(
-                    &runtime,
-                    &window_id,
-                    input.snapshot.window_generation,
-                    input.snapshot.revision,
-                ) {
-                    return;
+            Ok(batch) => {
+                let receipt_keys = batch
+                    .receipts
+                    .iter()
+                    .filter(|receipt| {
+                        matches!(receipt.status.as_str(), "applied" | "superseded")
+                    })
+                    .map(|receipt| {
+                        (
+                            receipt.window_id.as_str(),
+                            receipt.window_generation,
+                            receipt.revision,
+                        )
+                    })
+                    .collect::<HashSet<_>>();
+                for (window_id, window_generation, revision) in &requested {
+                    if receipt_keys.contains(&(
+                        window_id.as_str(),
+                        *window_generation,
+                        *revision,
+                    )) {
+                        retire_window_state_persist_lane(
+                            &runtime,
+                            window_id,
+                            *window_generation,
+                            *revision,
+                        );
+                    } else {
+                        record_window_state_persist_failure(
+                            &runtime,
+                            window_id,
+                            *window_generation,
+                            *revision,
+                            "The persistence batch omitted the requested revision.".to_owned(),
+                        );
+                    }
                 }
             }
-            Ok(receipt) => record_window_state_persist_failure(
-                &runtime,
-                &window_id,
-                input.snapshot.window_generation,
-                input.snapshot.revision,
-                format!("Unexpected persistence status {}.", receipt.status),
-            ),
-            Err(error) => record_window_state_persist_failure(
-                &runtime,
-                &window_id,
-                input.snapshot.window_generation,
-                input.snapshot.revision,
-                error.to_string(),
-            ),
+            Err(error) => {
+                let message = error.to_string();
+                for (window_id, window_generation, revision) in requested {
+                    record_window_state_persist_failure(
+                        &runtime,
+                        &window_id,
+                        window_generation,
+                        revision,
+                        message.clone(),
+                    );
+                }
+            }
         }
     }
 }
@@ -274,23 +296,14 @@ fn retire_window_state_persist_lane(
     window_id: &str,
     window_generation: u64,
     revision: u64,
-) -> bool {
-    runtime
-        .window_state_persistence
-        .lanes
-        .lock()
-        .ok()
-        .is_none_or(|mut lanes| {
-            let current = lanes.get(window_id).map(|lane| {
-                (lane.window_generation, lane.revision)
-            });
-            if current == Some((window_generation, revision)) {
-                lanes.remove(window_id);
-                true
-            } else {
-                false
-            }
+) {
+    if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
+        && lanes.get(window_id).is_some_and(|lane| {
+            lane.window_generation == window_generation && lane.revision == revision
         })
+    {
+        lanes.remove(window_id);
+    }
 }
 
 fn record_window_state_persist_failure(
@@ -339,7 +352,10 @@ fn window_state_persist_retry_delay(failure_count: u32) -> Duration {
         1 => Duration::from_millis(250),
         2 => Duration::from_secs(1),
         3 => Duration::from_secs(5),
-        count => Duration::from_secs(5_u64.saturating_mul(1_u64 << (count - 4).min(3))).min(Duration::from_secs(30)),
+        count => Duration::from_secs(
+            5_u64.saturating_mul(1_u64 << (count - 4).min(3)),
+        )
+        .min(Duration::from_secs(30)),
     }
 }
 
@@ -399,22 +415,28 @@ impl SystemRuntimeExecutor {
                 self.window_state_persistence.remember(&input);
                 Ok(Some(input))
             }
-            Err(fresh_error) => self
-                .window_state_persistence
-                .freeze_cached(window_id, &live)
-                .map(Some)
-                .ok_or(fresh_error),
+            Err(fresh_error) => {
+                let latest_live = self
+                    .presentation
+                    .existing(window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.clone()))
+                    .unwrap_or(live);
+                self.window_state_persistence
+                    .materialize_live_snapshot(window_id, &latest_live)
+                    .map(Some)
+                    .ok_or(fresh_error)
+            }
         }
     }
 
     pub(crate) fn schedule_live_window_state_persistence(&self, window_id: &str) {
-        // Window teardown owns one frozen, pre-close snapshot. Late close,
+        // Window teardown owns the final pre-close live revision. Late close,
         // selection, geometry, and native readback callbacks are projections of
         // teardown and have no authority to replace the saved window definition.
         if self.current_window_close_in_progress(window_id) {
             return;
         }
-        // Restore launches are accepted concurrently. Core projection can settle after native
+        // Restore launches are accepted concurrently. Native surfaces can settle after chrome
         // reservations, so partial launch snapshots must not replace the saved definition.
         // The restore contract schedules one authoritative snapshot after every create reaches
         // a successful terminal state and the saved order is re-applied.
@@ -517,11 +539,24 @@ mod window_state_persistence_tests {
 
     fn live_tab(id: &str, source_id: &str) -> TabPresentation {
         TabPresentation {
+            audio_muted: source_id == "role-b",
             closable: true,
             icon_data_url: None,
             id: id.to_owned(),
             phase: TabPresentationPhase::Ready,
+            persistable: true,
             role_ids: vec![source_id.to_owned()],
+            role_slots: vec![GameWindowRoleSlotRecord {
+                slot_id: format!("slot-{source_id}"),
+                role_id: source_id.to_owned(),
+                rect: StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                browser_zoom_percent: None,
+            }],
             source_id: source_id.to_owned(),
             tab_type: "role".to_owned(),
             title: source_id.to_owned(),
@@ -539,7 +574,7 @@ mod window_state_persistence_tests {
     }
 
     #[test]
-    fn frozen_memory_snapshot_keeps_latest_ui_order_after_native_host_retires() {
+    fn live_memory_snapshot_keeps_latest_ui_order_after_native_host_retires() {
         let coordinator = WindowStatePersistCoordinator::default();
         coordinator.seed(&[saved_window()]);
         let live = LiveWindowTabState {
@@ -551,13 +586,15 @@ mod window_state_persistence_tests {
             ..LiveWindowTabState::default()
         };
 
-        let frozen = coordinator.freeze_cached("window-a", &live).unwrap();
+        let snapshot = coordinator
+            .materialize_live_snapshot("window-a", &live)
+            .unwrap();
 
-        assert_eq!(frozen.snapshot.window_generation, 4);
-        assert_eq!(frozen.snapshot.revision, 19);
-        assert_eq!(frozen.snapshot.active_tab_id.as_deref(), Some("tab-b"));
+        assert_eq!(snapshot.snapshot.window_generation, 4);
+        assert_eq!(snapshot.snapshot.revision, 19);
+        assert_eq!(snapshot.snapshot.active_tab_id.as_deref(), Some("tab-b"));
         assert_eq!(
-            frozen
+            snapshot
                 .snapshot
                 .tabs
                 .iter()
@@ -565,7 +602,7 @@ mod window_state_persistence_tests {
                 .collect::<Vec<_>>(),
             vec!["tab-b", "tab-a"]
         );
-        assert!(frozen.snapshot.tabs[0].audio_muted);
+        assert!(snapshot.snapshot.tabs[0].audio_muted);
         assert_eq!(
             coordinator.cached_target_display("window-a", 7).unwrap().id,
             7

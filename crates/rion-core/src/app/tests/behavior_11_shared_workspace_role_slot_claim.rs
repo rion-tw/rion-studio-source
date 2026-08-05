@@ -329,7 +329,7 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
 }
 
 #[test]
-fn reopening_a_stopped_role_focuses_its_preserved_available_slot() {
+fn reopening_a_stopped_role_reuses_its_preserved_available_slot() {
     let (_directory, core) = core();
     let role_id = create_role(&core, &first_game_id(&core), 1);
     let launch = || {
@@ -373,6 +373,6 @@ fn reopening_a_stopped_role_focuses_its_preserved_available_slot() {
     assert_eq!(snapshot.tabs.len(), 1);
     assert_eq!(snapshot.tabs[0].id, original_tab_id);
     assert_eq!(snapshot.tabs[0].slots[0].state, "available");
-    assert!(!snapshot.tabs[0].hidden);
+    assert!(snapshot.tabs[0].hidden, "Core must not project tab visibility");
     core.shutdown();
 }

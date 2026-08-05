@@ -52,7 +52,7 @@
                 .any(|tab| {
                     tab.slots.iter().any(|slot| {
                         slot.role_id == role_id && slot.state == "stopping"
-                    }) && !tab.hidden
+                    })
                 })
         );
         assert!(
@@ -82,7 +82,7 @@
     }
 
     #[test]
-    fn rolls_back_runtime_and_native_handles_after_load_failure() {
+    fn load_failure_keeps_live_tab_cleanup_out_of_core_compensation() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let (result, actions) = drive_command(
@@ -101,7 +101,7 @@
         assert!(
             actions
                 .iter()
-                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
         );
         let snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
@@ -109,20 +109,14 @@
             .snapshot;
         assert!(snapshot.roles.is_empty());
         assert!(snapshot.tabs.is_empty());
-        assert!(actions.iter().any(|action| matches!(
-            action,
-            CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                if snapshot.roles.is_empty() && snapshot.tabs.is_empty()
-        )));
         core.shutdown();
     }
 
     #[test]
-    fn failed_native_compensation_requires_restart_and_is_journaled() {
-        let (directory, core) = core();
+    fn failed_role_load_returns_the_original_error_without_a_restart_journal() {
+        let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
-        let expected_role_id = role_id.clone();
-        let (result, actions) = drive_command_with(
+        let (result, actions) = drive_command(
             Arc::clone(&core),
             command(json!({
                 "type": "embeddedRoleLaunch",
@@ -132,66 +126,24 @@
                     "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
                 }
             })),
-            |effect| {
-                let (failed, code) = match &effect.action {
-                    CoreEffectAction::EmbeddedLoadRoles { .. } => (true, "GAME_PAGE_LOAD_FAILED"),
-                    CoreEffectAction::EmbeddedDestroyTab { .. } => (true, "NATIVE_DESTROY_FAILED"),
-                    _ => (false, ""),
-                };
-                CoreEffectResult {
-                    effect_id: effect.effect_id,
-                    operation_id: effect.operation_id,
-                    ok: !failed,
-                    value_json: None,
-                    error: failed.then(|| CoreErrorPayload {
-                        code: code.to_owned(),
-                        message: "Injected native effect failure.".to_owned(),
-                    }),
-                }
-            },
+            Some("embeddedLoadRoles"),
         );
 
-        let error = result.unwrap_err();
-        assert_eq!(error.code(), "CORE_OPERATION_COMPENSATION_FAILED");
-        assert!(error.to_string().contains("Restart Rion Studio"));
+        assert_eq!(result.unwrap_err().code(), "GAME_PAGE_LOAD_FAILED");
         assert!(
             actions
                 .iter()
-                .any(|action| matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedDestroyTab { .. }))
         );
-        let journals = core
-            .with_runtime(|runtime| runtime.state.operation_journals())
-            .unwrap();
-        assert_eq!(journals.len(), 1);
-        assert_eq!(journals[0].kind, "native_effect_compensation_v1");
-        assert_eq!(journals[0].phase, "restart-required");
-        assert_eq!(journals[0].payload["roleIds"], json!([expected_role_id]));
-        assert_eq!(
-            journals[0].payload["failures"][0]["error"]["code"],
-            json!("NATIVE_DESTROY_FAILED")
-        );
-
-        let data_dir = directory.path().to_string_lossy().into_owned();
-        core.shutdown();
-        drop(core);
-        let restarted = AppCore::create(AppCoreOptions {
-            app_version: "2.1.0-test".to_owned(),
-            platform: "darwin".to_owned(),
-            user_data_dir: data_dir,
-            performance_telemetry_path: None,
-        })
-        .unwrap();
         assert!(
-            restarted
-                .with_runtime(|runtime| runtime.state.operation_journals())
+            core.with_runtime(|runtime| runtime.state.operation_journals())
                 .unwrap()
                 .is_empty()
         );
-        restarted.shutdown();
+        core.shutdown();
     }
-
     #[test]
-    fn stopping_a_launching_role_cancels_the_active_operation_and_rolls_back() {
+    fn stopping_a_launching_role_cancels_without_topology_compensation() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let receiver = core.subscribe().unwrap();
@@ -257,7 +209,7 @@
             "LAUNCH_CANCELLED"
         );
         assert!(stop.unwrap().join().unwrap().is_ok());
-        assert!(saw_compensation);
+        assert!(!saw_compensation);
         let snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
             .unwrap()

@@ -10,8 +10,6 @@ pub(crate) enum RuntimeTabDragTerminalStatus {
     Applied,
     Superseded,
     Cancelled,
-    Failed,
-    Indeterminate,
 }
 
 impl RuntimeTabDragTerminalStatus {
@@ -20,8 +18,6 @@ impl RuntimeTabDragTerminalStatus {
             Self::Applied => NativeOperationStatus::Applied,
             Self::Superseded => NativeOperationStatus::Superseded,
             Self::Cancelled => NativeOperationStatus::Cancelled,
-            Self::Failed => NativeOperationStatus::Failed,
-            Self::Indeterminate => NativeOperationStatus::Indeterminate,
         }
     }
 }

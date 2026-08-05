@@ -27,7 +27,8 @@ use crate::error::{CoreError, CoreResult};
 use crate::macro_graph::validate_macro_graph;
 use crate::model::{
     GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
-    GameWindowCreateInputRecord, GameWindowDisplayRemapRecord, GameWindowSaveRuntimeInputRecord,
+    GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
+    GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowUpdateInputRecord,
     LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
     MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
@@ -139,6 +140,9 @@ pub(crate) enum StateMutation {
         id: String,
         input: GameWindowUpdateInputRecord,
     },
+    GameWindowRuntimeSnapshotBatch {
+        inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
+    },
     GameWindowsDisplayRemap {
         updates: Vec<GameWindowDisplayRemapRecord>,
     },
@@ -151,9 +155,6 @@ pub(crate) enum StateMutation {
     GameWindowDeleteIfUnchanged {
         id: String,
         updated_at: String,
-    },
-    GameWindowsRuntimeSync {
-        windows: Vec<StateGameWindowRecord>,
     },
     MacroCreate(MacroCreateInputRecord),
     MacroUpdate {
@@ -199,11 +200,11 @@ impl StateMutation {
             Self::GameWindowCreate(_)
             | Self::GameWindowSaveRuntime(_)
             | Self::GameWindowUpdate { .. }
+            | Self::GameWindowRuntimeSnapshotBatch { .. }
             | Self::GameWindowsDisplayRemap { .. }
             | Self::GameWindowReorder { .. }
             | Self::GameWindowDelete { .. }
-            | Self::GameWindowDeleteIfUnchanged { .. }
-            | Self::GameWindowsRuntimeSync { .. } => vec![GameWindows],
+            | Self::GameWindowDeleteIfUnchanged { .. } => vec![GameWindows],
             Self::MacroCreate(_)
             | Self::MacroUpdate { .. }
             | Self::MacroDelete { .. }

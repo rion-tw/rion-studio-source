@@ -142,17 +142,6 @@ fn surface_close_commit_is_current(
     active_tab_id == expected_tab_id && active_label == closed_label
 }
 
-fn provisional_move_failure_message(original: String, rollback_errors: &[String]) -> String {
-    if rollback_errors.is_empty() {
-        original
-    } else {
-        format!(
-            "SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED: {original} Compensation failed: {}. Restart Rion Studio to recover safely.",
-            rollback_errors.join("; ")
-        )
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 struct ReversibleFanoutFailure {
     apply_error: String,

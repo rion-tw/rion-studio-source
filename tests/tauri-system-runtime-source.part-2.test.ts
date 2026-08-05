@@ -103,7 +103,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).toContain("selection belongs exclusively to");
     expect(applyRuntime).toContain("dispatch_native_presentation(");
     expect(applyRuntime).toContain("NativePresentationFocus::WindowAndContent");
-    expect(applyRuntime).toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
+    expect(applyRuntime).toContain("schedule_tab_surface_move_retry(");
+    expect(applyRuntime).not.toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
     expect(applyRuntime).toContain("self.presentation.remove(&window_id)");
     expect(applyRuntime).not.toContain("visibility_mutations");
     expect(applyRuntime).not.toContain("webview.set_focus()");
@@ -126,15 +127,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("GetAncestor(controller_parent, GA_ROOT)");
     expect(runtime).toContain("controller.NotifyParentWindowPositionChanged()");
     expect(runtime).not.toContain("controller.SetParentWindow(");
-    const reparentRollback = runtime.slice(
-      runtime.indexOf("fn rollback_runtime_reparented_surfaces("),
-      runtime.indexOf("fn runtime_reparent_failure(")
-    );
-    expect(reparentRollback).toContain("moved.surface.reparent(&moved.source_window)");
-    expect(reparentRollback).toContain("synchronize_windows_reparented_surfaces(");
-    expect(reparentRollback).toContain("self.layout_runtime_tab(&moved.tab_id)");
-    expect(reparentRollback).toContain("moved.surface.show()");
-    expect(reparentRollback).toContain("self.health.mark_unhealthy()");
+    expect(runtime).not.toContain("rollback_runtime_reparented_surfaces(");
+    expect(runtime).not.toContain("runtime_reparent_failure(");
+    expect(applyRuntime).toContain("Live tab surface projection remains pending");
 
     const closeRuntimeWindowStart = runtime.indexOf(
       "pub(crate) fn begin_window_close_requested("
@@ -280,7 +275,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(dividerPointer).toContain("previous_active_resize");
     expect(dividerPointer).toContain("state_rolled_back");
     expect(dividerPointer).not.toContain("persist_restore_session(false)");
-    expect(runtime).toContain("pub fn restore_tab_role_views(");
+    expect(runtime).toContain("pub fn restore_tab_role_slots(");
 
     expect(shell).toContain("on_web_content_process_terminate");
     expect(shell).toContain("rion-tauri-display-watcher");

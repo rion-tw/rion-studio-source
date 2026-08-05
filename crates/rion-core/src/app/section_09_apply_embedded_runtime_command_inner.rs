@@ -11,7 +11,6 @@ impl AppCore {
             focus_tab_id,
             focus_active_window_id,
             parent_operation_id,
-            persist_runtime_topology,
         } = transition;
         let (previous, mut next_runtime, mut next) = {
             let runtime = self
@@ -45,17 +44,10 @@ impl AppCore {
             focus_window_ids,
             focus_tab_id,
         };
-        let compensation = CoreEffectAction::EmbeddedApplyRuntime {
-            snapshot: previous_snapshot.clone(),
-            target,
-            reveal_window_ids: Vec::new(),
-            focus_window_ids: Vec::new(),
-            focus_tab_id: None,
-        };
         self.run_embedded_runtime_effect(
             "embedded-runtime",
             effect,
-            Some(compensation.clone()),
+            None,
             parent_operation_id.as_deref(),
         )?;
         let removed_window_ids = previous_snapshot
@@ -71,21 +63,6 @@ impl AppCore {
             })
             .map(|window| window.window_id.clone())
             .collect::<std::collections::HashSet<_>>();
-        if persist_runtime_topology
-            && let Err(error) = self.sync_game_windows_from_runtime_transition(
-                &previous_snapshot,
-                &next,
-                &removed_window_ids,
-            )
-        {
-            let _ = self.run_embedded_runtime_effect(
-                "embedded-runtime-persistence-rollback",
-                compensation,
-                None,
-                parent_operation_id.as_deref(),
-            );
-            return Err(error);
-        }
         if !removed_window_ids.is_empty() {
             let mut cleaned_runtime = next_runtime.clone();
             for window_id in &removed_window_ids {
@@ -138,51 +115,6 @@ impl AppCore {
                     .find(|tab| tab.tab_type == tab_type && tab.source_id == source_id)
             })
             .map(|tab| tab.id))
-    }
-
-    fn sync_game_windows_from_runtime(
-        &self,
-        snapshot: &crate::model::BrowserRuntimeSnapshot,
-        removed_window_ids: &std::collections::HashSet<String>,
-    ) -> CoreResult<()> {
-        self.sync_game_windows_from_runtime_with_previous(None, snapshot, removed_window_ids)
-    }
-
-    fn sync_game_windows_from_runtime_transition(
-        &self,
-        previous_snapshot: &crate::model::BrowserRuntimeSnapshot,
-        snapshot: &crate::model::BrowserRuntimeSnapshot,
-        removed_window_ids: &std::collections::HashSet<String>,
-    ) -> CoreResult<()> {
-        self.sync_game_windows_from_runtime_with_previous(
-            Some(previous_snapshot),
-            snapshot,
-            removed_window_ids,
-        )
-    }
-
-    fn sync_game_windows_from_runtime_with_previous(
-        &self,
-        previous_snapshot: Option<&crate::model::BrowserRuntimeSnapshot>,
-        snapshot: &crate::model::BrowserRuntimeSnapshot,
-        removed_window_ids: &std::collections::HashSet<String>,
-    ) -> CoreResult<()> {
-        let _guard = self.state_mutation_guard()?;
-        let game_windows =
-            self.read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?;
-        let game_windows = self.project_game_windows_from_runtime(
-            game_windows,
-            previous_snapshot,
-            snapshot,
-            removed_window_ids,
-        );
-        if !game_windows.is_empty() {
-            self.mutate_state_under_guard(StateMutation::GameWindowsRuntimeSync {
-                windows: game_windows,
-            })?;
-        }
-        self.clear_pending_game_window_configurations(removed_window_ids)?;
-        Ok(())
     }
 
     fn publish_embedded_runtime_snapshot(
@@ -253,7 +185,6 @@ impl AppCore {
         // indefinitely showing roles as `stopping` after their exact surfaces
         // are offline.
         self.emit_browser_statuses();
-        self.sync_game_windows_from_runtime(&snapshot, &removed_window_ids)?;
         for window_id in &removed_window_ids {
             self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
                 window_id: window_id.clone(),
@@ -266,37 +197,6 @@ impl AppCore {
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                 .snapshot)
         }
-    }
-
-    /// Commits presentation metadata without entering the native runtime effect lane.
-    ///
-    /// A tab selection is independent from navigation, overlay installation, and launch
-    /// verification. Keeping this path free of the launch sequences prevents a slow or
-    /// unresponsive page from delaying keyboard and pointer selection. If persistence fails,
-    /// the in-memory selection deliberately remains authoritative and can be retried by a
-    /// later snapshot sync instead of visually rolling the user back.
-    fn apply_embedded_tab_selection_without_native_effect(
-        &self,
-        command: BrowserRuntimeCommand,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        self.apply_embedded_tab_projection_without_native_effect(vec![command])
-    }
-
-    fn apply_embedded_tab_projection_without_native_effect(
-        &self,
-        commands: Vec<BrowserRuntimeCommand>,
-    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
-        // Presentation is previewed by the native shell before this commit runs. Serialize only
-        // the durable runtime mutation so a long topology transition cannot later replace the
-        // browser runtime with a clone that predates this selection.
-        let _sequence = self.embedded_runtime_sequence.acquire()?;
-        let mut snapshot = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot;
-        for command in commands {
-            snapshot = self.invoke_browser_runtime(command)?.snapshot;
-        }
-        Ok(snapshot)
     }
 
     fn publish_embedded_runtime_snapshot_with_removed(
@@ -329,7 +229,6 @@ impl AppCore {
             Duration::from_secs(15),
             None,
         )])?;
-        self.sync_game_windows_from_runtime(&snapshot, &removed_window_ids)?;
         let mut cleaned = false;
         for window_id in &removed_window_ids {
             if snapshot
@@ -713,55 +612,4 @@ impl AppCore {
         self.browser_operations.complete(id)
     }
 
-}
-
-fn game_window_tabs_conflict(
-    saved: &GameWindowTabRecord,
-    runtime: &GameWindowTabRecord,
-) -> bool {
-        saved.id == runtime.id
-        || (saved.tab_type == runtime.tab_type && saved.source_id == runtime.source_id)
-}
-
-fn merge_runtime_tabs_with_saved(
-    saved_tabs: &[GameWindowTabRecord],
-    runtime_tabs: Vec<GameWindowTabRecord>,
-    previous_live_tab_ids: &std::collections::HashSet<String>,
-    live_tab_ids: &std::collections::HashSet<String>,
-) -> Vec<GameWindowTabRecord> {
-    let replaced_indices = saved_tabs
-        .iter()
-        .enumerate()
-        .filter(|(_, saved)| {
-            runtime_tabs
-                .iter()
-                .any(|runtime| game_window_tabs_conflict(saved, runtime))
-        })
-        .map(|(index, _)| index)
-        .collect::<std::collections::HashSet<_>>();
-    let first_replaced = replaced_indices.iter().copied().min();
-    let mut preserved = saved_tabs
-        .iter()
-        .enumerate()
-        .filter(|(index, tab)| {
-            !replaced_indices.contains(index)
-                && !previous_live_tab_ids.contains(&tab.id)
-                && !live_tab_ids.contains(&tab.id)
-        })
-        .map(|(index, tab)| (index, tab.clone()))
-        .collect::<Vec<_>>();
-    let insertion_index = first_replaced.map_or(preserved.len(), |replaced| {
-        preserved
-            .iter()
-            .take_while(|(index, _)| *index < replaced)
-            .count()
-    });
-    let mut tail = preserved.split_off(insertion_index);
-    let mut merged = preserved
-        .into_iter()
-        .map(|(_, tab)| tab)
-        .collect::<Vec<_>>();
-    merged.extend(runtime_tabs);
-    merged.extend(tail.drain(..).map(|(_, tab)| tab));
-    merged
 }

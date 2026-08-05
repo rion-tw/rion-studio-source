@@ -11,12 +11,7 @@ impl AppCore {
                 .collect(),
         };
         serde_json::to_value(self.apply_embedded_runtime_command(
-            window_ids
-                .iter()
-                .map(|window_id| BrowserRuntimeCommand::ShowWindow {
-                    window_id: window_id.clone(),
-                })
-                .collect(),
+            Vec::new(),
             None,
             window_ids.clone(),
             window_ids,

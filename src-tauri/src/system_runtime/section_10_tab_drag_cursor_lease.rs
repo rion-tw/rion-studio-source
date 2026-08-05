@@ -12,7 +12,37 @@ fn tab_drag_cursor_lease_matches(
     lease.session_id == session_id && lease.window_generation == window_generation
 }
 
+fn tab_drag_cursor_release_allowed(
+    lease: Option<&TabDragCursorLease>,
+    session_id: &str,
+    window_generation: u64,
+) -> bool {
+    lease.is_none_or(|lease| {
+        tab_drag_cursor_lease_matches(lease, session_id, window_generation)
+    })
+}
+
 impl SystemRuntimeExecutor {
+    fn reassert_tab_drag_pointer_passthrough_if_leased(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        window: &Window,
+    ) -> Result<(), String> {
+        let leased = self.state.lock().ok().is_some_and(|state| {
+            state
+                .tab_drag_cursor_leases
+                .get(window_id)
+                .is_some_and(|lease| lease.window_generation == window_generation)
+        });
+        if leased {
+            window
+                .set_ignore_cursor_events(true)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn acquire_tab_drag_cursor_lease(
         &self,
         window_id: &str,
@@ -132,14 +162,19 @@ impl SystemRuntimeExecutor {
                 .display_hosts
                 .get(window_id)
                 .filter(|host| host.generation == lease_generation)
-                .map(|host| host.window.clone())
+                .map(|host| (host.window.clone(), lease_generation))
         };
-        let Some(window) = window else {
+        let Some((window, lease_generation)) = window else {
             return Ok(false);
         };
         window
             .set_ignore_cursor_events(false)
-            .map(|()| true)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.reassert_tab_drag_pointer_passthrough_if_leased(
+            window_id,
+            lease_generation,
+            &window,
+        )?;
+        Ok(true)
     }
 }

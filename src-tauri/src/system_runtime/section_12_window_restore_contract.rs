@@ -91,15 +91,18 @@ impl SystemRuntimeExecutor {
             for tab in tabs {
                 live.insert_tab(
                     TabPresentation {
+                        audio_muted: tab.audio_muted,
                         closable: true,
                         icon_data_url: None,
                         id: tab.id.clone(),
                         phase: TabPresentationPhase::Reserved,
+                        persistable: true,
                         role_ids: tab
                             .role_slots
                             .iter()
                             .map(|slot| slot.role_id.clone())
                             .collect(),
+                        role_slots: tab.role_slots.clone(),
                         source_id: tab.source_id.clone(),
                         tab_type: tab.tab_type.clone(),
                         title: tab.name.clone(),

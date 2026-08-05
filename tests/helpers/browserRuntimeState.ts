@@ -165,9 +165,7 @@ export function createBrowserRuntimeState() {
     const runtimeWindow = windows.get(tab.windowId);
     if (runtimeWindow) {
       runtimeWindow.tabIds = runtimeWindow.tabIds.filter((id) => id !== tabId);
-      if (runtimeWindow.activeTabId === tabId) {
-        runtimeWindow.activeTabId = runtimeWindow.tabIds.find((id) => !tabs.get(id)?.hidden);
-      }
+      if (runtimeWindow.activeTabId === tabId) delete runtimeWindow.activeTabId;
     }
     roles.forEach((role, roleId) => {
       if (role.owner.tabId === tabId) roles.delete(roleId);
@@ -303,105 +301,6 @@ export function createBrowserRuntimeState() {
         case "removeTab":
           removeTab(command.tabId);
           break;
-        case "activateTab": {
-          const tab = tabs.get(command.tabId);
-          if (tab) {
-            tab.hidden = false;
-            registerWindow(tab.windowId).activeTabId = tab.id;
-          }
-          break;
-        }
-        case "showWindow": {
-          const runtimeWindow = windows.get(command.windowId);
-          const selected = runtimeWindow?.activeTabId
-            && !tabs.get(runtimeWindow.activeTabId)?.hidden
-            ? runtimeWindow.activeTabId
-            : runtimeWindow?.tabIds[0];
-          const tab = selected ? tabs.get(selected) : undefined;
-          if (runtimeWindow && tab) {
-            tab.hidden = false;
-            runtimeWindow.activeTabId = tab.id;
-          }
-          break;
-        }
-        case "activateAdjacentTab": {
-          const runtimeWindow = windows.get(command.windowId);
-          const visible = runtimeWindow?.tabIds.filter((tabId) => !tabs.get(tabId)?.hidden) ?? [];
-          if (runtimeWindow && visible.length >= 2) {
-            const current = visible.indexOf(runtimeWindow.activeTabId ?? "");
-            const next = current < 0
-              ? 0
-              : command.direction === "next"
-                ? (current + 1) % visible.length
-                : (current - 1 + visible.length) % visible.length;
-            runtimeWindow.activeTabId = visible[next];
-          }
-          break;
-        }
-        case "hideTab": {
-          const tab = tabs.get(command.tabId);
-          const runtimeWindow = tab ? windows.get(tab.windowId) : undefined;
-          if (tab) tab.hidden = true;
-          if (runtimeWindow?.activeTabId === command.tabId) {
-            runtimeWindow.activeTabId = runtimeWindow.tabIds.find((id) => !tabs.get(id)?.hidden);
-          }
-          break;
-        }
-        case "reorderTab": {
-          const tab = tabs.get(command.tabId);
-          const runtimeWindow = tab ? windows.get(tab.windowId) : undefined;
-          if (runtimeWindow) {
-            const ids = runtimeWindow.tabIds.filter((id) => id !== command.tabId);
-            const index = command.beforeTabId ? ids.indexOf(command.beforeTabId) : -1;
-            ids.splice(index < 0 ? ids.length : index, 0, command.tabId);
-            runtimeWindow.tabIds = ids;
-          }
-          break;
-        }
-        case "commitTabDragTopology":
-          break;
-        case "moveTab": {
-          const tab = tabs.get(command.tabId);
-          if (!tab) break;
-          const source = windows.get(tab.windowId);
-          if (source) {
-            source.tabIds = source.tabIds.filter((id) => id !== tab.id);
-            if (source.activeTabId === tab.id) {
-              source.activeTabId = source.tabIds.find((id) => !tabs.get(id)?.hidden);
-            }
-          }
-          tab.windowId = command.windowId;
-          tab.hidden = false;
-          const target = registerWindow(command.windowId);
-          target.tabIds.push(tab.id);
-          target.activeTabId = tab.id;
-          roles.forEach((runtimeRole) => {
-            if (runtimeRole.owner.tabId === tab.id) runtimeRole.owner.windowId = command.windowId;
-          });
-          refreshSlots();
-          break;
-        }
-        case "moveWindowTabs": {
-          const source = windows.get(command.sourceWindowId);
-          if (!source) break;
-          const target = registerWindow(command.targetWindowId);
-          for (const tabId of source.tabIds) {
-            const tab = tabs.get(tabId);
-            if (!tab) continue;
-            tab.windowId = command.targetWindowId;
-            target.tabIds.push(tabId);
-            roles.forEach((runtimeRole) => {
-              if (runtimeRole.owner.tabId === tabId) {
-                runtimeRole.owner.windowId = command.targetWindowId;
-              }
-            });
-          }
-          if (!target.activeTabId) target.activeTabId = source.activeTabId;
-          source.tabIds = [];
-          delete source.activeTabId;
-          refreshSlots();
-          break;
-        }
         case "roleTransition": {
           const tab = tabs.get(command.tabId);
           const slot = tab?.slots.find((candidate) =>

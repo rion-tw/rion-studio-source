@@ -45,7 +45,7 @@ describe("native tab drag latest-intent transaction", () => {
       '#[cfg(target_os = "macos")]\n    pub(crate) fn stamp_native_tab_drag_action('
     );
     expect(activation).toContain("Arc, Mutex, OnceLock");
-    expect(activation).toContain("tab_drag_projection_queue:");
+    expect(activation).not.toContain("tab_drag_projection_queue:");
   });
 
   it("uses a lightweight cross-window insertion slot without freezing the viewport", async () => {
@@ -71,7 +71,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).not.toContain("RionRuntimeWindowSnapshot");
   });
 
-  it("releases the visible drag immediately and projects Core state in the background", async () => {
+  it("releases the visible drag immediately without a Core topology sink", async () => {
     const [handler, projection, cursorLease, state] = await Promise.all([
       readFile(
         new URL("../src-tauri/src/lib/section_08_cancel_tab_drag_session.rs", import.meta.url),
@@ -98,11 +98,13 @@ describe("native tab drag latest-intent transaction", () => {
     ]);
 
     expect(projection).toContain("fn complete_visible_tab_drag(");
-    expect(projection).toContain("fn schedule_tab_drag_projection(");
-    expect(projection).toContain("unbounded_channel::<QueuedTabDragProjection>()");
-    expect(projection).toContain("process_tab_drag_projection(&app, queued).await");
+    expect(projection).not.toContain("fn schedule_tab_drag_projection(");
+    expect(projection).not.toContain("QueuedTabDragProjection");
+    expect(projection).not.toContain("CoreCommand::EmbeddedTabDragTopologyCommit");
     expect(handler).toContain("release_tab_drag_window_motion_suppression(state, session");
     expect(cursorLease).toContain("window_generation");
+    expect(cursorLease).toContain("tab_drag_cursor_release_allowed(");
+    expect(cursorLease).toContain("reassert_tab_drag_pointer_passthrough_if_leased(");
     expect(cursorLease).toContain("lease.session_id != session_id");
     expect(cursorLease).toContain("position_tab_drag_window(");
     expect(cursorLease).toContain(".set_position(PhysicalPosition::new(");

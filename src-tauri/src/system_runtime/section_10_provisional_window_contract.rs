@@ -3,13 +3,30 @@ impl SystemRuntimeExecutor {
     pub(crate) fn release_tab_drag_pointer_passthrough(
         &self,
         window_id: &str,
-    ) -> Result<(), String> {
-        let Some(window) = self.window_for_id(window_id) else {
-            return Ok(());
+        session_id: &str,
+    ) -> Result<bool, String> {
+        let (window, generation) = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            let Some(host) = state.display_hosts.get(window_id) else {
+                return Ok(false);
+            };
+            let generation = host.generation;
+            let window = host.window.clone();
+            if !tab_drag_cursor_release_allowed(
+                state.tab_drag_cursor_leases.get(window_id),
+                session_id,
+                generation,
+            ) {
+                return Ok(false);
+            }
+            state.tab_drag_cursor_leases.remove(window_id);
+            (window, generation)
         };
         window
             .set_ignore_cursor_events(false)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        self.reassert_tab_drag_pointer_passthrough_if_leased(window_id, generation, &window)?;
+        Ok(true)
     }
 
     pub fn prepare_provisional_game_window(

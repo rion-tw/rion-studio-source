@@ -65,10 +65,6 @@ fn record_deferred_tab_drag_drop_intent(
     else {
         return Ok(false);
     };
-    let target = session
-        .snapshots
-        .entry(target_window_id.to_owned())
-        .or_insert(target);
     if let Some(before_tab_id) = before_tab_id
         && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
     {

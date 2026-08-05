@@ -296,11 +296,6 @@ async fn restore_saved_game_windows(
                 continue;
             }
         };
-        let takeover = if scope == "window" {
-            Some(begin_saved_window_takeover(state, &saved, &game_windows).await?)
-        } else {
-            None
-        };
         let mut window_failed = false;
         if saved.tabs.is_empty()
             && let Err(error) = Arc::clone(&state.core)
@@ -452,9 +447,12 @@ async fn restore_saved_game_windows(
             if tab.hidden
                 && !restored_hidden
                 && saved.active_tab_id.as_deref() != Some(tab.id.as_str())
-                && let Err(error) = invoke_core_async(
+                && let Err(error) = execute_tab_mutation(
                     state,
-                    json!({ "type": "embeddedTabHide", "tabId": restored_tab_id }),
+                    "hide",
+                    &restored_tab_id,
+                    None,
+                    None,
                 )
                 .await
             {
@@ -480,17 +478,17 @@ async fn restore_saved_game_windows(
             window_failed = true;
         }
         if let Some(active_tab_id) = active_runtime_tab_id.as_deref()
-            && let Err(error) = invoke_core_async(
+            && let Err(error) = preview_and_commit_tab_selection(
+                window.app_handle(),
                 state,
-                json!({ "type": "embeddedTabActivate", "tabId": active_tab_id }),
+                active_tab_id,
             )
-            .await
         {
             failures.push(json!({
                 "windowId": saved.id,
                 "tabId": active_tab_id,
-                "code": error.code,
-                "message": error.message
+                "code": "TAURI_RESTORE_ACTIVATION_FAILED",
+                "message": error
             }));
             window_failed = true;
         }
@@ -498,21 +496,6 @@ async fn restore_saved_game_windows(
             state
                 .runtime
                 .discard_prepared_restored_window_tabs(&saved.id);
-        }
-        if let Some(takeover) = takeover.as_ref()
-            && window_failed
-        {
-            let rollback_errors = rollback_saved_window_takeover(state, takeover).await;
-            if !rollback_errors.is_empty() {
-                state.runtime.mark_unhealthy_after_failed_compensation();
-                return Err(shell_error(
-                    "TAURI_GAME_WINDOW_TAKEOVER_ROLLBACK_FAILED",
-                    format!(
-                        "Opening the saved Game Window failed, and its previous runtime could not be restored: {}",
-                        rollback_errors.join("; ")
-                    ),
-                ));
-            }
         }
         if !window_failed {
             restored_ids.push(saved.id.clone());

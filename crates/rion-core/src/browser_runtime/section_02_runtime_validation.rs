@@ -43,17 +43,6 @@ fn workspace_state(slots: &[RuntimeRoleSlotRecord]) -> &'static str {
     }
 }
 
-fn ordered_tab_ids_are_unique(tab_ids: &[String]) -> bool {
-    tab_ids.len() <= MAX_TAB_DRAG_TOPOLOGY_TABS
-        && !tab_ids.iter().any(|tab_id| tab_id.is_empty())
-        && tab_ids.iter().collect::<HashSet<_>>().len() == tab_ids.len()
-}
-
-fn same_tab_members(left: &[String], right: &[String]) -> bool {
-    left.len() == right.len()
-        && left.iter().collect::<HashSet<_>>() == right.iter().collect::<HashSet<_>>()
-}
-
 fn domain(code: &'static str, message: &str) -> CoreError {
     CoreError::Domain {
         code,

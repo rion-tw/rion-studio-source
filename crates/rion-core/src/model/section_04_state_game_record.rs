@@ -272,6 +272,13 @@ pub struct GameWindowRuntimeSnapshotCommitInputRecord {
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct GameWindowRuntimeSnapshotBatchCommitInputRecord {
+    pub inputs: Vec<GameWindowRuntimeSnapshotCommitInputRecord>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct RuntimeWindowPersistenceReceiptRecord {
     pub window_id: String,
     #[ts(type = "number")]
@@ -280,6 +287,13 @@ pub struct RuntimeWindowPersistenceReceiptRecord {
     pub revision: u64,
     #[ts(type = "\"applied\" | \"superseded\"")]
     pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeWindowPersistenceBatchReceiptRecord {
+    pub receipts: Vec<RuntimeWindowPersistenceReceiptRecord>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
@@ -495,60 +509,6 @@ pub enum BrowserRuntimeCommand {
     RemoveTab {
         #[ts(rename = "tabId")]
         tab_id: String,
-    },
-    ActivateTab {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-    },
-    ShowWindow {
-        #[ts(rename = "windowId")]
-        window_id: String,
-    },
-    ActivateAdjacentTab {
-        #[ts(rename = "windowId")]
-        window_id: String,
-        #[ts(type = "\"next\" | \"previous\"")]
-        direction: String,
-    },
-    HideTab {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-    },
-    ReorderTab {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "beforeTabId")]
-        before_tab_id: Option<String>,
-    },
-    CommitTabDragTopology {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        #[ts(rename = "sourceWindowId")]
-        source_window_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "targetWindowId")]
-        target_window_id: Option<String>,
-        #[ts(rename = "sourceBeforeTabIds")]
-        source_before_tab_ids: Vec<String>,
-        #[ts(rename = "sourceAfterTabIds")]
-        source_after_tab_ids: Vec<String>,
-        #[ts(rename = "targetBeforeTabIds")]
-        target_before_tab_ids: Vec<String>,
-        #[ts(rename = "targetAfterTabIds")]
-        target_after_tab_ids: Vec<String>,
-    },
-    MoveTab {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        #[ts(rename = "windowId")]
-        window_id: String,
-    },
-    MoveWindowTabs {
-        #[ts(rename = "sourceWindowId")]
-        source_window_id: String,
-        #[ts(rename = "targetWindowId")]
-        target_window_id: String,
     },
     RoleTransition {
         #[ts(rename = "roleId")]

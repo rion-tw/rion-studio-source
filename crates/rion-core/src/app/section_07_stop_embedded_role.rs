@@ -41,10 +41,6 @@ impl AppCore {
                     return Ok(());
                 };
                 let tab_id = role.owner.tab_id.clone();
-                let next_active_tab_id = close_role_tab
-                    .then(|| next_active_tab_after_removal(&snapshot, &tab_id))
-                    .flatten();
-
                 // Cancellation is a fence, not a synchronous worker join. Native
                 // isolation must never wait for the macro cleanup timeout.
                 self.macro_runtime.request_stop_role(role_id)?;
@@ -57,18 +53,10 @@ impl AppCore {
                     launched_at: role.launched_at.clone(),
                 })?;
                 let action = if close_role_tab {
-                    self.invoke_browser_runtime(BrowserRuntimeCommand::HideTab {
-                        tab_id: tab_id.clone(),
-                    })?;
-                    if let Some(next_tab_id) = next_active_tab_id.as_ref() {
-                        self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
-                            tab_id: next_tab_id.clone(),
-                        })?;
-                    }
                     CoreEffectAction::EmbeddedDestroyTab {
                         tab_id: tab_id.clone(),
                         attempt_generation: None,
-                        next_active_tab_id,
+                        next_active_tab_id: None,
                     }
                 } else {
                     CoreEffectAction::EmbeddedDestroyRole {

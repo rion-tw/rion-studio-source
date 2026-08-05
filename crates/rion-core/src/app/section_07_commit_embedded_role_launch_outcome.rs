@@ -133,11 +133,6 @@ impl AppCore {
                     });
                 }
                 let tab_id = runtime_workspace.tab_id.clone();
-                self.apply_embedded_tab_selection_without_native_effect(
-                    BrowserRuntimeCommand::ActivateTab {
-                        tab_id: tab_id.clone(),
-                    },
-                )?;
                 return Ok(EmbeddedWorkspaceLaunchStart::Completed(
                     runtime_workspace
                         .role_ids
@@ -269,9 +264,6 @@ impl AppCore {
                 launched_at: None,
             })?;
         }
-        self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
-            tab_id: tab_id.clone(),
-        })?;
         let effect_roles = workspace
             .slots
             .iter()

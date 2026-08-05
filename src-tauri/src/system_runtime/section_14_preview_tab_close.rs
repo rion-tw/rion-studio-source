@@ -300,15 +300,6 @@ impl SystemRuntimeExecutor {
             })
     }
 
-    pub(crate) fn tab_selection_is_desired(
-        &self,
-        window_id: &str,
-        tab_id: &str,
-        selection_revision: u64,
-    ) -> bool {
-        self.tab_selection_revision(window_id, tab_id) == Some(selection_revision)
-    }
-
     /// Overlays Core metadata with the already-committed live topology. Core
     /// snapshots are allowed to lag, but they can never move, reorder, reveal,
     /// hide, or select an open-window tab on their way back through a native

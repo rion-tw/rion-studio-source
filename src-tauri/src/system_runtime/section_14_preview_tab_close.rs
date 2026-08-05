@@ -14,10 +14,11 @@ impl SystemRuntimeExecutor {
                 tab_type: tombstone.tab_type,
             });
         }
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
         let (
-            window,
-            window_id,
-            isolation_surfaces,
             previous_tab_id,
             previous_surfaces,
             next_surfaces,
@@ -26,81 +27,54 @@ impl SystemRuntimeExecutor {
             revision,
             source_id,
             tab_type,
+            role_ids,
         ) = {
-            let (runtime_window_id, isolation_surfaces) = {
-                let state = self.state().map_err(|error| error.message)?;
-                let tab = state
-                    .tabs
-                    .get(tab_id)
-                    .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-                let isolation_surfaces = state
-                    .surface_registry
-                    .values()
-                    .filter(|surface| {
-                        surface.tab_id.as_deref() == Some(tab_id)
-                            && surface.kind != ManagedSurfaceKind::Divider
-                            && surface.phase.blocks_role_relaunch()
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                (tab.window_id.clone(), isolation_surfaces)
+            let presentation = self.presentation.coordinator(&window_id)?;
+            let revision = self.presentation.next_revision();
+            let mut window_state = presentation.lock().map_err(|_| {
+                "The runtime tab presentation coordinator is unavailable.".to_owned()
+            })?;
+            let presentation_tab = window_state
+                .tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .cloned()
+                .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
+            let original_active_tab_id = window_state.selected_tab_id.clone();
+            let previous_surfaces = window_state.surfaces(original_active_tab_id.as_deref());
+            let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
+                successor_tab_after_close(&window_state.tab_ids(), tab_id, |_| true)
+            } else {
+                original_active_tab_id.clone()
             };
-            let window_id = self
-                .presentation
-                .tab_window(tab_id)?
-                .unwrap_or(runtime_window_id);
-            let window = self
-                .window_for_id(&window_id)
-                .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
-            let (
+            window_state.remove_tab(tab_id, revision);
+            window_state.select(next_tab_id.clone(), revision);
+            let next_surfaces = window_state.surfaces(next_tab_id.as_deref());
+            let active_webview = next_surfaces.first().cloned();
+            (
                 original_active_tab_id,
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
                 next_tab_id,
                 revision,
-                source_id,
-                tab_type,
-                role_ids,
-            ) = {
-                let presentation = self.presentation.coordinator(&window_id)?;
-                let revision = self.presentation.next_revision();
-                let mut window_state = presentation.lock().map_err(|_| {
-                    "The runtime tab presentation coordinator is unavailable.".to_owned()
-                })?;
-                if !window_state.contains_tab(tab_id) {
-                    return Err("Runtime tab was not found in the presentation state.".to_owned());
-                }
-                let presentation_tab = window_state
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.id == tab_id)
-                    .cloned()
-                    .ok_or_else(|| "Runtime tab presentation metadata was not found.".to_owned())?;
-                let original_active_tab_id = window_state.selected_tab_id.clone();
-                let previous_surfaces = window_state.surfaces(original_active_tab_id.as_deref());
-                let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
-                    successor_tab_after_close(&window_state.tab_ids(), tab_id, |_| true)
-                } else {
-                    original_active_tab_id.clone()
-                };
-                window_state.remove_tab(tab_id, revision);
-                window_state.select(next_tab_id.clone(), revision);
-                let next_surfaces = window_state.surfaces(next_tab_id.as_deref());
-                let active_webview = next_surfaces.first().cloned();
-                (
-                    original_active_tab_id,
-                    previous_surfaces,
-                    next_surfaces,
-                    active_webview,
-                    next_tab_id,
-                    revision,
-                    presentation_tab.source_id,
-                    presentation_tab.tab_type,
-                    presentation_tab.role_ids,
-                )
-            };
+                presentation_tab.source_id,
+                presentation_tab.tab_type,
+                presentation_tab.role_ids,
+            )
+        };
+        let isolation_surfaces = {
             let mut state = self.state().map_err(|error| error.message)?;
+            let isolation_surfaces = state
+                .surface_registry
+                .values()
+                .filter(|surface| {
+                    surface.tab_id.as_deref() == Some(tab_id)
+                        && surface.kind != ManagedSurfaceKind::Divider
+                        && surface.phase.blocks_role_relaunch()
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             state.optimistic_closed_tabs.insert(tab_id.to_owned());
             let slot_owners = state
                 .tabs
@@ -129,39 +103,29 @@ impl SystemRuntimeExecutor {
                     window_id: window_id.clone(),
                 },
             );
-            (
-                window,
-                window_id,
-                isolation_surfaces,
-                original_active_tab_id,
-                previous_surfaces,
-                next_surfaces,
-                active_webview,
-                next_tab_id,
-                revision,
-                source_id,
-                tab_type,
-            )
+            isolation_surfaces
         };
         let elapsed = started.elapsed();
         self.publish_launcher_presence();
         self.apply_native_active_style(&window_id, next_tab_id.as_deref(), revision, "close");
         self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
-        self.dispatch_native_presentation(
-            window_id.clone(),
-            next_tab_id.clone(),
-            revision,
-            "close",
-            started,
-            window,
-            previous_tab_id,
-            previous_surfaces,
-            next_surfaces,
-            active_webview,
-            next_tab_id.is_none().then_some(false),
-            NativePresentationFocus::ContentOnly,
-            None,
-        );
+        if let Some(window) = self.window_for_id(&window_id) {
+            self.dispatch_native_presentation(
+                window_id.clone(),
+                next_tab_id.clone(),
+                revision,
+                "close",
+                started,
+                window,
+                previous_tab_id,
+                previous_surfaces,
+                next_surfaces,
+                active_webview,
+                next_tab_id.is_none().then_some(false),
+                NativePresentationFocus::ContentOnly,
+                None,
+            );
+        }
         self.request_preview_surface_isolation(isolation_surfaces);
         // A window close flushes the complete pre-close LiveWindowTabState before
         // BrowserWindowStop starts isolating its tabs. Those teardown tombstones

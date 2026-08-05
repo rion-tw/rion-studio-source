@@ -346,6 +346,10 @@
         assert_eq!(presence.tabs.len(), 1);
         assert_eq!(presence.tabs[0].source_id, "workspace-a");
         assert_eq!(presence.tabs[0].role_ids, ["role-a", "role-b"]);
+        assert_eq!(presence.windows.len(), 1);
+        assert_eq!(presence.windows[0].window_id, "window-b");
+        assert_eq!(presence.windows[0].title, "Tab workspace-tab");
+        assert!(!presence.windows[0].persisted);
         assert_eq!(
             registry
                 .tab_for_launcher_source("workspace-a", "workspace")
@@ -411,6 +415,7 @@
                     tab_type: "role".to_owned(),
                 })
                 .collect(),
+            windows: Vec::new(),
         };
 
         retain_live_runtime_launcher_tabs(&mut presence, &HashSet::from(["live-tab".to_owned()]));

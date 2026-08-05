@@ -115,7 +115,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)draggingExited:(nullable id<NSDraggingInfo>)sender {
   id source = sender.draggingSource;
   if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
-    [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
+    RionRuntimeTabItemView *sourceItem = (RionRuntimeTabItemView *)source;
+    [sourceItem clearDragPreviewYLock];
   }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController hideExternalDragGhost];
@@ -151,7 +152,9 @@ NS_ASSUME_NONNULL_BEGIN
       [self.window convertPointToScreen:sender.draggingLocation];
   id source = sender.draggingSource;
   if ([source isKindOfClass:RionRuntimeTabItemView.class]) {
-    [(RionRuntimeTabItemView *)source clearDragPreviewYLock];
+    RionRuntimeTabItemView *sourceItem = (RionRuntimeTabItemView *)source;
+    sourceItem.tabDropHandled = YES;
+    [sourceItem clearDragPreviewYLock];
   }
   [self.tabsController hideInsertionIndicator];
   [self.tabsController hideExternalDragGhost];

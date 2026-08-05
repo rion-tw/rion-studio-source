@@ -408,7 +408,7 @@ fn apply_native_presentation_batch(
     let mutation_plan = mutation_plan.clone();
     let focus_broker = Arc::clone(&request.focus_broker);
     let focus_lease = request.focus_lease.clone();
-    let scheduling = request.window.run_on_main_thread(move || {
+    let task = move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let presentation_current = live.lock().ok().is_some_and(|live| {
@@ -644,7 +644,14 @@ fn apply_native_presentation_batch(
             window_visibility_ms,
             window_was_minimized,
         });
-    });
+    };
+    #[cfg(target_os = "macos")]
+    let scheduling = crate::runtime_tabs_macos::run_on_appkit_tracking_main(task);
+    #[cfg(not(target_os = "macos"))]
+    let scheduling = request
+        .window
+        .run_on_main_thread(task)
+        .map_err(|error| error.to_string());
     if let Err(error) = scheduling {
         return NativePresentationOutcome {
             applied: false,

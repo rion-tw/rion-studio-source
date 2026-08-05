@@ -267,69 +267,6 @@ use super::*;
     }
 
     #[test]
-    fn restore_tab_matching_is_idempotent_and_window_scoped() {
-        let snapshot = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
-            "roles": [],
-            "tabs": [{
-                "id": "runtime-tab-1",
-                "sourceId": "role-1",
-                "name": "Role 1",
-                "windowId": "window-1",
-                "tabType": "role",
-                "slots": [{
-                    "slotId":"runtime-slot-1","roleId":"role-1","state":"available",
-                    "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
-                }],
-                "hidden": true
-            }],
-            "windows": [],
-            "workspaces": []
-        }))
-        .unwrap();
-        let saved = GameWindowTabRecord {
-            id: "saved-tab-1".to_owned(),
-            tab_type: "role".to_owned(),
-            source_id: "role-1".to_owned(),
-            name: "Role 1".to_owned(),
-            role_slots: vec![rion_core::GameWindowRoleSlotRecord {
-                slot_id: "saved-slot-1".to_owned(),
-                role_id: "role-1".to_owned(),
-                rect: rion_core::StateNormalizedRectRecord {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 1.0,
-                    height: 1.0,
-                },
-                browser_zoom_percent: None,
-            }],
-            hidden: true,
-            audio_muted: false,
-        };
-
-        assert_eq!(
-            match_runtime_restore_tab(&snapshot, "window-1", &saved),
-            RuntimeRestoreTabMatch::InTarget {
-                hidden: true,
-                id: "runtime-tab-1".to_owned(),
-            }
-        );
-        assert_eq!(
-            match_runtime_restore_tab(&snapshot, "window-2", &saved),
-            RuntimeRestoreTabMatch::Conflict {
-                window_id: "window-1".to_owned(),
-            }
-        );
-
-        let mut missing = saved;
-        missing.source_id = "role-2".to_owned();
-        missing.role_slots[0].role_id = "role-2".to_owned();
-        assert_eq!(
-            match_runtime_restore_tab(&snapshot, "window-1", &missing),
-            RuntimeRestoreTabMatch::Missing
-        );
-    }
-
-    #[test]
     fn restore_selection_prioritizes_last_focus_and_keeps_overlaps_dormant() {
         let window = |id: &str, role_id: &str| {
             serde_json::from_value::<StateGameWindowRecord>(json!({

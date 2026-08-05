@@ -74,9 +74,17 @@ impl SystemRuntimeExecutor {
                         0,
                     );
                 } else {
-                    let _ = self
-                        .prepare_destroy_tab_presentation(&tab_id, next_active_tab_id.as_deref())
-                        .ok();
+                    // A visible close already removed the tab from LiveWindowTabStore and
+                    // presented its successor. A late Core owner-cleanup effect must not run
+                    // a second UI preflight against the now-absent tab.
+                    if self.presentation.tab_window(&tab_id).ok().flatten().is_some() {
+                        let _ = self
+                            .prepare_destroy_tab_presentation(
+                                &tab_id,
+                                next_active_tab_id.as_deref(),
+                            )
+                            .ok();
+                    }
                     self.destroy_tab(&tab_id)?;
                     if let Ok(mut state) = self.state.lock() {
                         state.launch_attempt_generations.remove(&tab_id);

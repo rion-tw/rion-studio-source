@@ -130,17 +130,6 @@ impl SystemRuntimeExecutor {
         Ok(presence)
     }
 
-    pub(crate) fn live_window_ids(&self) -> Result<Vec<String>, String> {
-        Ok(self
-            .presentation
-            .snapshot_states()?
-            .into_iter()
-            .filter_map(|(window_id, window)| {
-                (!window.all_tab_ids().is_empty()).then_some(window_id)
-            })
-            .collect())
-    }
-
     fn publish_launcher_presence(&self) {
         let Ok(presence) = self.launcher_presence_snapshot() else {
             return;
@@ -153,6 +142,21 @@ impl SystemRuntimeExecutor {
             .update_presence(&self.app, presence)
         {
             eprintln!("Runtime launcher presence refresh failed: {error}");
+        }
+        let language = state
+            .menu_language
+            .lock()
+            .map(|language| language.clone())
+            .unwrap_or_else(|_| "en".to_owned());
+        if let Some(runtime) = self.self_weak.get().and_then(|runtime| runtime.upgrade())
+            && let Err(error) = state.quick_menu_refresh.request(
+                self.app.clone(),
+                Arc::clone(&state.core),
+                runtime,
+                language,
+            )
+        {
+            eprintln!("Quick Menu live topology refresh failed: {error}");
         }
     }
 
@@ -409,8 +413,46 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    pub(crate) fn tab_window_id(&self, tab_id: &str) -> Option<String> {
-        self.presentation.tab_window(tab_id).ok().flatten()
+    pub(crate) fn native_tab_host_id(&self, tab_id: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            state.native_tab_hosts.get(tab_id).cloned().or_else(|| {
+                state
+                    .surface_registry
+                    .values()
+                    .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                    .map(|surface| surface.window_id.clone())
+            })
+        })
+    }
+
+    pub(crate) fn native_tab_exists(&self, tab_id: &str) -> bool {
+        self.state.lock().ok().is_some_and(|state| {
+            state.tabs.contains_key(tab_id)
+                && !state.optimistic_closed_tabs.contains(tab_id)
+                && !state.close_coordinator.closing_tabs.contains(tab_id)
+        })
+    }
+
+    pub(crate) fn native_tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
+        let tab_ids = self.state.lock().ok().map(|state| {
+            state
+                .tabs
+                .keys()
+                .filter(|tab_id| {
+                    !state.optimistic_closed_tabs.contains(*tab_id)
+                        && !state.close_coordinator.closing_tabs.contains(*tab_id)
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })?;
+        tab_ids.into_iter().find(|tab_id| {
+            self.presentation
+                .tab_window(tab_id)
+                .ok()
+                .flatten()
+                .and_then(|window_id| self.presentation.tab(&window_id, tab_id))
+                .is_some_and(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
+        })
     }
 
     pub(crate) fn window_tab_count(&self, window_id: &str) -> usize {
@@ -662,9 +704,7 @@ impl SystemRuntimeExecutor {
             .ensure_display_host(target, title)
             .map_err(|error| error.message)?;
         #[cfg(not(windows))]
-        window
-            .set_ignore_cursor_events(true)
-            .map_err(|error| error.to_string())?;
+        set_tab_drag_window_interaction(&window, true, false)?;
         window.hide().map_err(|error| error.to_string())
     }
 
@@ -683,22 +723,17 @@ impl SystemRuntimeExecutor {
                     .map(|host| (host.window.clone(), host.generation))
             })
             .ok_or_else(|| "Provisional Game Window was not found.".to_owned())?;
-        window
-            .set_ignore_cursor_events(false)
-            .map_err(|error| error.to_string())?;
-        self.reassert_tab_drag_pointer_passthrough_if_leased(
-            window_id,
-            generation,
-            &window,
-        )?;
-        if self.state.lock().ok().is_some_and(|state| {
+        let pointer_passthrough_leased = self.state.lock().ok().is_some_and(|state| {
             state
                 .tab_drag_cursor_leases
                 .get(window_id)
                 .is_some_and(|lease| lease.window_generation == generation)
-        }) {
+        });
+        if pointer_passthrough_leased {
+            set_tab_drag_window_interaction(&window, true, false)?;
             return Ok(());
         }
+        set_tab_drag_window_interaction(&window, false, true)?;
         self.focus_runtime_window_direct(
             window_id,
             &window,

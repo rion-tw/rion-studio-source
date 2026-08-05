@@ -77,7 +77,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(formatRuntimeTabTooltip(tab, "zh-TW")).toBe("Daily：One, Two");
   });
 
-  it("forwards workspace templates through every Windows tab metadata path", () => {
+  it("forwards workspace templates through every native tab metadata path", () => {
     expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(3);
     expect(
       systemRuntimeSource.match(
@@ -88,7 +88,7 @@ describe("runtime tab shell-neutral contracts", () => {
       systemRuntimeSource.match(
         /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+let workspace_template/g
       )
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(systemRuntimeSource).toContain(
       '"workspaceTemplate": presented\n                                    .workspace_template\n                                    .or_else(|| live.workspace_template.clone())'
     );

@@ -17,7 +17,8 @@ describe("runtime window lifecycle authority", () => {
   });
 
   it("authorizes behavior-layer tab actions only against live topology", async () => {
-    const [overlay, menu, shell, runtimeBehavior, quickMenu] = await Promise.all([
+    const [overlay, menu, shell, runtimeBehavior, quickMenu, quickMenuActions] =
+      await Promise.all([
       readFile(
         new URL("../src-tauri/src/lib/section_03_rion_overlay_request.rs", import.meta.url),
         "utf8"
@@ -47,6 +48,13 @@ describe("runtime window lifecycle authority", () => {
         ),
         "utf8"
       ),
+      readFile(
+        new URL(
+          "../src-tauri/src/quick_menu/section_02_handle_menu_event.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
     ]);
     const overlayActions = overlay.slice(
       overlay.indexOf('Some("hide" | "move" | "reorder")'),
@@ -67,8 +75,9 @@ describe("runtime window lifecycle authority", () => {
     }
     expect(runtimeBehavior).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
     expect(runtimeBehavior).toContain("self.presentation.selected_tabs()");
-    expect(quickMenu).toContain("runtime.live_window_ids()?");
     expect(quickMenu).toContain("runtime.launcher_presence_snapshot()?");
+    expect(quickMenu).toMatch(/let mut running_window_ids = presence\s+\.windows/u);
+    expect(quickMenuActions).toContain("focus_live_runtime_window(&window_id)");
     expect(quickMenu).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
   });
 
@@ -306,7 +315,7 @@ describe("runtime window lifecycle authority", () => {
     expect(closeFollower).toContain("retire_quarantined_tab_after_close(tab_id)");
     expect(closeFollower).toContain("return self.refresh_role_placeholders(role_id, None)");
     expect(create.indexOf("commit_live_window_record(")).toBeLessThan(
-      create.indexOf("runtime_tab_from_effect(&tab)")
+      create.indexOf("runtime_tab_from_effect(")
     );
     expect(create).toContain("state.close_previews.contains_key(&created_tab_id)");
   });
@@ -407,8 +416,8 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     const missingRestore = restore.slice(
-      restore.indexOf("RuntimeRestoreTabMatch::Missing =>"),
-      restore.indexOf("// A launch publishes a partial runtime snapshot")
+      restore.indexOf("let native_owner ="),
+      restore.indexOf("if !launch_succeeded")
     );
     expect(missingRestore).toContain("prepare_restored_tab_role_slots");
     expect(missingRestore.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
@@ -501,6 +510,10 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(restore).toContain("prepare_restored_window_tabs");
+    expect(restore).toContain("native_tab_for_source(&tab.source_id, &tab.tab_type)");
+    expect(restore).toContain("prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)");
+    expect(restore).not.toContain("match_runtime_restore_tab(");
+    expect(restore).not.toContain('"TAURI_RESTORE_TAB_MISSING"');
     expect(restore).toContain("&target");
     expect(restore).toContain("&saved.tabs");
     expect(restore).toContain("finish_prepared_restored_window_tabs");

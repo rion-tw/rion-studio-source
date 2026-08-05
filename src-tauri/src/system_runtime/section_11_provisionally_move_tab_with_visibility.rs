@@ -23,10 +23,16 @@ impl SystemRuntimeExecutor {
                 return Ok(());
             };
             let source_window_id = state
-                .surface_registry
-                .values()
-                .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
-                .map(|surface| surface.window_id.clone())
+                .native_tab_hosts
+                .get(tab_id)
+                .cloned()
+                .or_else(|| {
+                    state
+                        .surface_registry
+                        .values()
+                        .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                        .map(|surface| surface.window_id.clone())
+                })
                 .unwrap_or_else(|| live_window_id.clone());
             let source_window = state
                 .display_hosts
@@ -72,7 +78,18 @@ impl SystemRuntimeExecutor {
             }
         }
         for surface in &surfaces {
-            if let Err(error) = surface.reparent(&target_window) {
+            #[cfg(target_os = "macos")]
+            let result = crate::runtime_tabs_macos::run_on_appkit_tracking_main({
+                let surface = surface.clone();
+                let target_window = target_window.clone();
+                move || surface.reparent(&target_window)
+            })
+            .and_then(|result| result.map_err(|error| error.to_string()));
+            #[cfg(not(target_os = "macos"))]
+            let result = surface
+                .reparent(&target_window)
+                .map_err(|error| error.to_string());
+            if let Err(error) = result {
                 return Err(error.to_string());
             }
         }
@@ -118,6 +135,9 @@ impl SystemRuntimeExecutor {
                     surface.window_id = target_window_id.to_owned();
                 }
             }
+            state
+                .native_tab_hosts
+                .insert(tab_id.to_owned(), target_window_id.to_owned());
             let moved_surfaces = state
                 .surface_registry
                 .values()
@@ -226,6 +246,17 @@ impl SystemRuntimeExecutor {
             return;
         }
         let Some((host, can_discard)) = self.state.lock().ok().map(|mut state| {
+            let still_hosts_native_tab = state
+                .native_tab_hosts
+                .values()
+                .any(|native_window_id| native_window_id == window_id)
+                || state
+                    .surface_registry
+                    .values()
+                    .any(|surface| surface.window_id == window_id && surface.tab_id.is_some());
+            if still_hosts_native_tab {
+                return (None, false);
+            }
             let host = state.display_hosts.remove(window_id);
             if let Some(host) = host.as_ref() {
                 state

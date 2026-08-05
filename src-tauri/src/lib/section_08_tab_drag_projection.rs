@@ -7,7 +7,7 @@ fn complete_visible_tab_drag(state: &CoreState, session: &GameWindowTabDragSessi
     release_tab_drag_window_motion_suppression(state, session, persisted_motion_window);
     if let Err(message) = state
         .runtime
-        .make_provisional_game_window_interactive(final_window_id)
+        .make_provisional_game_window_interactive(final_window_id, &session.id)
     {
         eprintln!(
             "Committed tab drag window interactivity remains pending: window={final_window_id} error={message}"

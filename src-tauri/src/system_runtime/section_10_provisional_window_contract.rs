@@ -22,9 +22,7 @@ impl SystemRuntimeExecutor {
             state.tab_drag_cursor_leases.remove(window_id);
             (window, generation)
         };
-        window
-            .set_ignore_cursor_events(false)
-            .map_err(|error| error.to_string())?;
+        set_tab_drag_window_interaction(&window, false, false)?;
         self.reassert_tab_drag_pointer_passthrough_if_leased(window_id, generation, &window)?;
         Ok(true)
     }
@@ -54,6 +52,7 @@ impl SystemRuntimeExecutor {
     pub fn make_provisional_game_window_interactive(
         &self,
         window_id: &str,
+        session_id: &str,
     ) -> Result<(), String> {
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Presentation,
@@ -62,7 +61,9 @@ impl SystemRuntimeExecutor {
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeSubmission)
         .with_window(window_id);
-        let result = self.make_provisional_game_window_interactive_inner(window_id);
+        let result = self
+            .release_tab_drag_cursor_lease(window_id, session_id)
+            .and_then(|_| self.make_provisional_game_window_interactive_inner(window_id));
         self.record_native_operation_receipt(receipt_for_string_result(
             operation,
             "provisionalWindowActivated",

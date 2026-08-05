@@ -304,73 +304,74 @@ async fn restore_saved_game_windows(
             .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;
         let mut active_runtime_tab_id = None;
         for tab in restore_tabs_in_owner_priority(&saved) {
-            let before = browser_runtime_snapshot(state)?;
-            let ready_before = match_runtime_restore_tab(&before, &saved.id, tab);
             let mut prepared_role_slots = false;
-            let launch_succeeded = match ready_before {
-                RuntimeRestoreTabMatch::InTarget { .. } => true,
-                RuntimeRestoreTabMatch::Conflict { window_id } => {
+            let mut restored_tab_id = tab.id.clone();
+            let native_owner = state
+                .runtime
+                .native_tab_for_source(&tab.source_id, &tab.tab_type);
+            let launch_succeeded = if let Some(native_tab_id) = native_owner {
+                let owner_window_id = state.runtime.live_tab_window_id(&native_tab_id);
+                if owner_window_id.as_deref() == Some(saved.id.as_str()) {
+                    restored_tab_id = native_tab_id;
+                    true
+                } else {
                     failures.push(json!({
                         "windowId": saved.id,
                         "tabId": tab.id,
                         "sourceId": tab.source_id,
                         "code": "TAURI_RESTORE_SOURCE_CONFLICT",
                         "message": format!(
-                            "The saved source is already running in Game Window {window_id}."
+                            "The saved source is already running in Game Window {}.",
+                            owner_window_id.unwrap_or_else(|| "unknown".to_owned())
                         )
                     }));
                     window_failed = true;
                     false
                 }
-                RuntimeRestoreTabMatch::Missing => {
-                    // The public launch command returns as soon as Core accepts the
-                    // native create effect. Stage the saved geometry before that
-                    // effect can run so restoration never mistakes a not-yet-
-                    // registered native tab for a permanent layout failure and
-                    // rolls back every accepted launch in the window.
-                    state
-                        .runtime
-                        .prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)
-                        .map_err(|error| {
-                            shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", error)
-                        })?;
-                    prepared_role_slots = true;
-                    let launch_result = if tab.tab_type == "workspace" {
-                        invoke_core_async(
-                            state,
-                            json!({
-                                "type": "browserWorkspaceLaunch",
-                                "workspaceId": tab.source_id,
-                                "target": target,
-                                "restoreRoleSlots": tab.role_slots
-                            }),
-                        )
-                        .await
-                    } else {
-                        invoke_core_async(
-                            state,
-                            json!({
-                                "type": "browserRoleLaunch",
-                                "roleId": tab.source_id,
-                                "target": target
-                            }),
-                        )
-                        .await
-                    };
-                    match launch_result {
-                        Ok(_) => true,
-                        Err(error) => {
-                            state.runtime.discard_prepared_tab_role_slots(&tab.id);
-                            failures.push(json!({
-                                "windowId": saved.id,
-                                "tabId": tab.id,
-                                "sourceId": tab.source_id,
-                                "code": error.code,
-                                "message": error.message
-                            }));
-                            window_failed = true;
-                            false
-                        }
+            } else {
+                // Live topology was seeded for the whole saved window above, but it is
+                // only durable demand. Stage slot geometry and enqueue native creation
+                // without treating the pre-seeded LiveTabRecord as an attached WebView.
+                state
+                    .runtime
+                    .prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)
+                    .map_err(|error| shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", error))?;
+                prepared_role_slots = true;
+                let launch_result = if tab.tab_type == "workspace" {
+                    invoke_core_async(
+                        state,
+                        json!({
+                            "type": "browserWorkspaceLaunch",
+                            "workspaceId": tab.source_id,
+                            "target": target,
+                            "restoreRoleSlots": tab.role_slots
+                        }),
+                    )
+                    .await
+                } else {
+                    invoke_core_async(
+                        state,
+                        json!({
+                            "type": "browserRoleLaunch",
+                            "roleId": tab.source_id,
+                            "target": target
+                        }),
+                    )
+                    .await
+                };
+                match launch_result {
+                    Ok(_) => true,
+                    Err(error) => {
+                        state.runtime.discard_prepared_tab_role_slots(&tab.id);
+                        failures.push(json!({
+                            "windowId": saved.id,
+                            "tabId": tab.id,
+                            "sourceId": tab.source_id,
+                            "code": error.code,
+                            "message": error.message
+                        }));
+                        window_failed = true;
+                        false
                     }
                 }
             };
@@ -378,22 +379,6 @@ async fn restore_saved_game_windows(
             if !launch_succeeded {
                 continue;
             }
-            let snapshot = browser_runtime_snapshot(state)?;
-            let (restored_tab_id, restored_hidden) =
-                match match_runtime_restore_tab(&snapshot, &saved.id, tab) {
-                    RuntimeRestoreTabMatch::InTarget { hidden, id } => (id, hidden),
-                    RuntimeRestoreTabMatch::Missing | RuntimeRestoreTabMatch::Conflict { .. } => {
-                        failures.push(json!({
-                            "windowId": saved.id,
-                            "tabId": tab.id,
-                            "sourceId": tab.source_id,
-                            "code": "TAURI_RESTORE_TAB_MISSING",
-                            "message": "The restored tab was not found in its target Game Window."
-                        }));
-                        window_failed = true;
-                        continue;
-                    }
-                };
             if saved.active_tab_id.as_deref() == Some(tab.id.as_str()) {
                 active_runtime_tab_id = Some(restored_tab_id.clone());
             }
@@ -402,6 +387,7 @@ async fn restore_saved_game_windows(
                 prepared_role_slots = false;
             }
             if !prepared_role_slots
+                && state.runtime.native_tab_exists(&restored_tab_id)
                 && let Err(error) = state
                     .runtime
                     .restore_tab_role_slots(&restored_tab_id, &tab.role_slots)
@@ -416,6 +402,7 @@ async fn restore_saved_game_windows(
                 window_failed = true;
             }
             if tab.audio_muted
+                && state.runtime.native_tab_exists(&restored_tab_id)
                 && let Err(error) = state.runtime.restore_tab_audio_muted(&tab.source_id, true)
             {
                 failures.push(json!({
@@ -424,27 +411,6 @@ async fn restore_saved_game_windows(
                     "sourceId": tab.source_id,
                     "code": "TAURI_RESTORE_AUDIO_FAILED",
                     "message": error
-                }));
-                window_failed = true;
-            }
-            if tab.hidden
-                && !restored_hidden
-                && saved.active_tab_id.as_deref() != Some(tab.id.as_str())
-                && let Err(error) = execute_tab_mutation(
-                    state,
-                    "hide",
-                    &restored_tab_id,
-                    None,
-                    None,
-                )
-                .await
-            {
-                failures.push(json!({
-                    "windowId": saved.id,
-                    "tabId": tab.id,
-                    "sourceId": tab.source_id,
-                    "code": error.code,
-                    "message": error.message
                 }));
                 window_failed = true;
             }
@@ -534,28 +500,4 @@ fn browser_runtime_snapshot(state: &CoreState) -> Result<BrowserRuntimeSnapshot,
                 )
             })
         })
-}
-
-fn match_runtime_restore_tab(
-    snapshot: &BrowserRuntimeSnapshot,
-    window_id: &str,
-    saved: &GameWindowTabRecord,
-) -> RuntimeRestoreTabMatch {
-    let Some(tab) = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.source_id == saved.source_id && tab.tab_type == saved.tab_type)
-    else {
-        return RuntimeRestoreTabMatch::Missing;
-    };
-    if tab.window_id == window_id {
-        RuntimeRestoreTabMatch::InTarget {
-            hidden: tab.hidden,
-            id: tab.id.clone(),
-        }
-    } else {
-        RuntimeRestoreTabMatch::Conflict {
-            window_id: tab.window_id.clone(),
-        }
-    }
 }

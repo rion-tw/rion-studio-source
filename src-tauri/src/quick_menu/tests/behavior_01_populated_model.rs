@@ -20,6 +20,10 @@ use super::*;
                 {"id":"role-busy","name":"Busy Role"}
             ]),
             running_window_ids: vec!["active-window".to_owned(), "unsaved-window".to_owned()],
+            transient_windows: vec![(
+                "unsaved-window".to_owned(),
+                "Unsaved Role".to_owned(),
+            )],
             open_workspace_ids: vec!["workspace-running".to_owned()],
             workspace_statuses: serde_json::json!([
                 {"workspaceId":"workspace-running","state":"running"},
@@ -138,7 +142,7 @@ use super::*;
     }
 
     #[test]
-    fn platform_specs_list_only_saved_windows_and_check_running_ones() {
+    fn platform_specs_list_saved_and_transient_live_windows() {
         let model = populated_model("en", true);
         for platform in [QuickMenuPlatform::Macos, QuickMenuPlatform::Windows] {
             let entries = menu_spec(&model, platform);
@@ -159,9 +163,13 @@ use super::*;
                 "Dormant Saved Window",
                 true,
             );
-            assert!(root_item(windows, "show-display:unsaved-window").is_none());
+            assert_item(
+                root_item(windows, "show-display:unsaved-window").unwrap(),
+                "✓ Unsaved Role · Temporary Window",
+                true,
+            );
             assert!(root_item(windows, "show-games").is_none());
-            assert_eq!(windows.len(), 2);
+            assert_eq!(windows.len(), 3);
             assert_eq!(submenu(&entries, "Roles").len(), 2);
             assert_eq!(submenu(&entries, "Workspaces").len(), 4);
         }
@@ -243,6 +251,7 @@ use super::*;
             role_statuses: serde_json::json!([]),
             roles: serde_json::json!([]),
             running_window_ids: vec![],
+            transient_windows: vec![],
             open_workspace_ids: vec![],
             workspace_statuses: serde_json::json!([]),
             workspaces: serde_json::json!([]),
@@ -272,6 +281,7 @@ use super::*;
                 "Roles",
                 "Workspaces",
                 "Windows",
+                "Temporary Window",
             ),
             (
                 "zh-TW",
@@ -279,6 +289,7 @@ use super::*;
                 "角色",
                 "工作區",
                 "視窗",
+                "臨時視窗",
             ),
             (
                 "zh-CN",
@@ -286,6 +297,7 @@ use super::*;
                 "角色",
                 "工作区",
                 "窗口",
+                "临时窗口",
             ),
             (
                 "ja",
@@ -293,15 +305,17 @@ use super::*;
                 "ロール",
                 "ワークスペース",
                 "ウインドウ",
+                "一時ウインドウ",
             ),
         ];
 
-        for (language, open, roles, workspaces, windows) in cases {
+        for (language, open, roles, workspaces, windows, temporary_window) in cases {
             let labels = labels(language);
             assert_eq!(labels.open, open);
             assert_eq!(labels.roles, roles);
             assert_eq!(labels.workspaces, workspaces);
             assert_eq!(labels.windows, windows);
+            assert_eq!(labels.temporary_window, temporary_window);
         }
     }
 

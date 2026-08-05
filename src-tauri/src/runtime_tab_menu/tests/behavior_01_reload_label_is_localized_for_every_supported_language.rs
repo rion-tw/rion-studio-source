@@ -89,6 +89,7 @@ use super::*;
                 tab_id: "tab-a".to_owned(),
                 tab_type: "workspace".to_owned(),
             }],
+            windows: Vec::new(),
         };
 
         assert_eq!(

@@ -93,8 +93,11 @@ describe("Tauri shell contract guard", () => {
     expect(menu).toContain('#[cfg(target_os = "macos")]\nstruct Labels');
     expect(menu).toContain('#[cfg(target_os = "macos")]\nfn labels(');
     expect(quickMenu).toContain("restore_saved_game_windows");
-    expect(quickMenu).toContain("runtime.live_window_ids()?");
     expect(quickMenu).toContain("runtime.launcher_presence_snapshot()?");
+    expect(quickMenu).toMatch(/let mut running_window_ids = presence\s+\.windows/u);
+    expect(quickMenu).toContain("live_window_tab_ids(&window_id)");
+    expect(quickMenu).toContain("if is_live {");
+    expect(quickMenu).toContain("focus_live_runtime_window(&window_id)");
     expect(quickMenu).not.toContain("BrowserRuntimeSnapshot");
     expect(quickMenu).toContain("GameWindowsList");
     expect(quickMenu).not.toContain("targetDisplay");

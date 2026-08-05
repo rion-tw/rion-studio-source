@@ -22,6 +22,31 @@ fn tab_drag_cursor_release_allowed(
     })
 }
 
+fn set_tab_drag_window_interaction(
+    window: &Window,
+    pointer_passthrough: bool,
+    focus_window: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::runtime_tabs_macos::set_appkit_window_interaction(
+            window,
+            pointer_passthrough,
+            focus_window,
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window
+            .set_ignore_cursor_events(pointer_passthrough)
+            .map_err(|error| error.to_string())?;
+        if !pointer_passthrough && focus_window {
+            window.set_focus().map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn reassert_tab_drag_pointer_passthrough_if_leased(
         &self,
@@ -36,9 +61,7 @@ impl SystemRuntimeExecutor {
                 .is_some_and(|lease| lease.window_generation == window_generation)
         });
         if leased {
-            window
-                .set_ignore_cursor_events(true)
-                .map_err(|error| error.to_string())?;
+            set_tab_drag_window_interaction(window, true, false)?;
         }
         Ok(())
     }
@@ -74,7 +97,7 @@ impl SystemRuntimeExecutor {
             );
             (window, window_generation)
         };
-        if let Err(error) = window.set_ignore_cursor_events(true) {
+        if let Err(error) = set_tab_drag_window_interaction(&window, true, false) {
             if let Ok(mut state) = self.state.lock()
                 && state
                     .tab_drag_cursor_leases
@@ -85,8 +108,8 @@ impl SystemRuntimeExecutor {
             {
                 state.tab_drag_cursor_leases.remove(window_id);
             }
-            let _ = window.set_ignore_cursor_events(false);
-            return Err(error.to_string());
+            let _ = set_tab_drag_window_interaction(&window, false, false);
+            return Err(error);
         }
         Ok(())
     }
@@ -167,9 +190,7 @@ impl SystemRuntimeExecutor {
         let Some((window, lease_generation)) = window else {
             return Ok(false);
         };
-        window
-            .set_ignore_cursor_events(false)
-            .map_err(|error| error.to_string())?;
+        set_tab_drag_window_interaction(&window, false, false)?;
         self.reassert_tab_drag_pointer_passthrough_if_leased(
             window_id,
             lease_generation,

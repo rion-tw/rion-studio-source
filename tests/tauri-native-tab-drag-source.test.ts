@@ -28,6 +28,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macBridge).toContain("stamp_native_tab_drag_action(");
     expect(macBridge).toContain("coalesce_native_tab_drag_actions(");
     expect(macBridge).toContain("release_terminal_tab_drag_pointer_passthrough(");
+    expect(macBridge).toContain("run_on_appkit_tracking_main");
+    expect(macBridge).toContain("DispatchQueue::main().exec_async");
     expect(macBridge).not.toContain("TAURI_TAB_DRAG_STALE");
     expect(runtime).toContain("struct TabDragIntentCoordinator");
     expect(runtime).toContain("release_tab_drag_pointer_passthrough(");
@@ -69,11 +71,23 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("if (_tabItems.count < 2) return YES;");
     expect(macController).toContain("animatesToStartingPositionsOnCancelOrFail = NO");
     expect(macController).not.toContain("animatesToStartingPositionsOnCancelOrFail = YES");
+    expect(macController).toContain("window.ignoresMouseEvents = pointerPassthrough;");
+    expect(macController).toContain("[window makeKeyAndOrderFront:nil]");
+    const dragExit = macController.slice(
+      macController.indexOf("- (void)draggingExited:"),
+      macController.indexOf("- (BOOL)performDragOperation:")
+    );
+    const dragDrop = macController.slice(
+      macController.indexOf("- (BOOL)performDragOperation:"),
+      macController.indexOf("@implementation RionRuntimeTitlebarAccessoryViewController")
+    );
+    expect(dragExit).not.toContain("tabDropHandled = YES");
+    expect(dragDrop).toContain("sourceItem.tabDropHandled = YES");
     expect(macController).not.toContain("RionRuntimeWindowSnapshot");
   });
 
   it("releases the visible drag immediately without a Core topology sink", async () => {
-    const [handler, projection, cursorLease, state] = await Promise.all([
+    const [handler, projection, cursorLease, provisionalWindow, state] = await Promise.all([
       readFile(
         new URL("../src-tauri/src/lib/section_08_cancel_tab_drag_session.rs", import.meta.url),
         "utf8"
@@ -85,6 +99,13 @@ describe("native tab drag latest-intent transaction", () => {
       readFile(
         new URL(
           "../src-tauri/src/system_runtime/section_10_tab_drag_cursor_lease.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_10_provisional_window_contract.rs",
           import.meta.url
         ),
         "utf8"
@@ -109,14 +130,23 @@ describe("native tab drag latest-intent transaction", () => {
     expect(cursorLease).toContain("lease.session_id != session_id");
     expect(cursorLease).toContain("position_tab_drag_window(");
     expect(cursorLease).toContain(".set_position(PhysicalPosition::new(");
+    expect(cursorLease).toContain("set_appkit_window_interaction(");
+    expect(provisionalWindow).toContain("release_tab_drag_cursor_lease(window_id, session_id)");
     expect(state).toContain("tab_drag_cursor_leases");
   });
 
-  it("commits the final topology before moving macOS surfaces in the background", async () => {
-    const [handler, move, commit, contract] = await Promise.all([
+  it("commits topology before the immediate forward-only macOS surface follower", async () => {
+    const [handler, motion, move, commit, contract] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_tab_drag_motion.rs",
           import.meta.url
         ),
         "utf8"
@@ -151,8 +181,20 @@ describe("native tab drag latest-intent transaction", () => {
     expect(commit).toContain("primary_window_id: target_window_id.to_owned()");
     expect(commit).toContain("schedule_native_tab_drag_chrome_retry(");
     expect(commit).toContain("schedule_tab_surface_move_retry(");
+    expect(commit).toContain("runtime.native_tab_host_id(&tab_id)");
+    expect(commit).toContain("self.relocate_native_tab_reservation(");
+    expect(motion).toContain(".commit_live_tab_drag_destination(");
+    expect(motion).toContain(".provisionally_move_tab_for_live_drag(");
+    expect(motion.indexOf(".commit_live_tab_drag_destination(")).toBeLessThan(
+      motion.indexOf(".provisionally_move_tab_for_live_drag(")
+    );
     expect(handler).toContain("Some(&ordered_tab_ids)");
     expect(move).toContain("surface.reparent(&target_window)");
+    expect(move).toContain("run_on_appkit_tracking_main");
+    expect(move).toMatch(/state\s*\.native_tab_hosts\s*\.get\(tab_id\)/u);
+    expect(move).toMatch(/\.native_tab_hosts\s*\.insert\(tab_id\.to_owned\(\), target_window_id\.to_owned\(\)\)/u);
+    expect(move).toContain("still_hosts_native_tab");
+    expect(move).toContain("surface.window_id == window_id && surface.tab_id.is_some()");
     expect(move).toContain("slot.placeholder.as_ref()");
     expect(move).toContain("surface.show()");
     expect(move).toContain('cfg!(target_os = "macos") && live_drag');
@@ -179,6 +221,9 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("RionRuntimeTransparentDragImage()");
     expect(macController).toContain('@"type" : @"tabDragMove"');
     expect(macController).toContain("handleHoverWithTabIdentifier");
+    expect(macController).toContain("sourceItem.tabDropHandled = YES");
+    expect(macController).toContain("if (self.tabDropHandled)");
+    expect(macController).not.toContain("if (operation != NSDragOperationNone)");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
     expect(macController).toContain("_dragHoverSessionIdentifier");
     expect(macController).not.toContain("RionRuntimeWindowSnapshot");

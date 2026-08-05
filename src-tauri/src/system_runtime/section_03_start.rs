@@ -332,9 +332,17 @@ pub(crate) struct RuntimeLauncherPresenceTab {
     pub(crate) tab_type: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeLauncherPresenceWindow {
+    pub(crate) persisted: bool,
+    pub(crate) title: String,
+    pub(crate) window_id: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RuntimeLauncherPresence {
     pub(crate) tabs: Vec<RuntimeLauncherPresenceTab>,
+    pub(crate) windows: Vec<RuntimeLauncherPresenceWindow>,
 }
 
 fn retain_live_runtime_launcher_tabs(

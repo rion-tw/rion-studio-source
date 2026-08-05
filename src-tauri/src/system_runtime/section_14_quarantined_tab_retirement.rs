@@ -35,10 +35,10 @@ fn retain_available_roles_for_create(
     }
 }
 
-fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> RuntimeTab {
+fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord, audio_muted: bool) -> RuntimeTab {
     RuntimeTab {
         active_divider_resize: None,
-        audio_muted: false,
+        audio_muted,
         dividers: Vec::new(),
         roles: HashMap::new(),
         slots: tab
@@ -70,6 +70,7 @@ impl SystemRuntimeExecutor {
     fn retire_quarantined_tab_after_close(&self, tab_id: &str) {
         let retired = self.state.lock().ok().and_then(|mut state| {
             let tab = state.tabs.remove(tab_id)?;
+            state.native_tab_hosts.remove(tab_id);
             let role_ids = tab.roles.keys().cloned().collect::<Vec<_>>();
             let role_webviews = tab
                 .roles

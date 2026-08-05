@@ -106,7 +106,6 @@ export const runtimeState = {
 } | undefined,
   dragProxyElement: undefined as HTMLElement | undefined,
   dragVisualState: undefined as RuntimeTabDragVisualState | undefined,
-  pendingRuntimeTabOrder: undefined as PendingRuntimeTabOrder | undefined,
   latestDragIntentSessionId: undefined as string | undefined,
   renderRevision: 0,
   activeTabId: undefined as string | undefined,
@@ -169,12 +168,6 @@ type RuntimeTabDragVisualState = {
   tabWidth: number;
 };
 
-export type PendingRuntimeTabOrder = {
-  order: string[];
-  ownerSessionId: string;
-  projectionRevision?: number;
-};
-
 export function pinsSingleLocalDrag(): boolean {
   const visual = runtimeState.dragVisualState;
   return visual?.originOrder.length === 1
@@ -193,23 +186,12 @@ export function logicalRuntimeTabOrder(): string[] {
 }
 
 export function deferRuntimeTabOrder(
-  order: string[],
-  projectionRevision?: number
+  _order: string[],
+  _projectionRevision?: number
 ): boolean {
-  const ownerSessionId = runtimeState.latestDragIntentSessionId;
-  if (!ownerSessionId) return false;
-  const pending = runtimeState.pendingRuntimeTabOrder;
-  if (pending?.ownerSessionId === ownerSessionId
-    && pending.projectionRevision !== undefined
-    && (projectionRevision === undefined || projectionRevision < pending.projectionRevision)) {
-    return true;
-  }
-  runtimeState.pendingRuntimeTabOrder = {
-    order: [...order],
-    ownerSessionId,
-    ...(projectionRevision !== undefined ? { projectionRevision } : {})
-  };
-  return true;
+  // A background projection may be older than the gesture already visible in
+  // this renderer. Ignore it while a drag owns the UI; never replay it later.
+  return runtimeState.latestDragIntentSessionId !== undefined;
 }
 
 export function createLucideSvg(Icon: LucideIcon): SVGSVGElement {
@@ -289,25 +271,29 @@ export const dispatch = (action: RuntimeTabAction): void => {
   if (action.type.startsWith("tabDrag")) {
     const isMotion = action.type === "tabDragMove" || action.type === "tabDragHover";
     if (isMotion && terminalDragSessions.has(action.sessionId)) return;
+    if (isMotion) {
+      // Pointer motion is presentation-only. The DOM already reflects it, so a
+      // slow Rust/native follower must never serialize or stall later samples.
+      void invoke<RuntimeTabDragSessionRecord | null>("rion_runtime_tab_action", { action })
+        .catch(() => undefined);
+      return;
+    }
     if (action.type === "tabDragSourceEnd" || action.type === "tabDragEnd"
       || action.type === "tabDragCancel") {
       rememberTerminalDragSession(action.sessionId);
     }
     const queued = dragActionQueue.at(-1);
-    const queuedIsMotion = queued?.type === "tabDragMove" || queued?.type === "tabDragHover";
-    if (isMotion && queuedIsMotion && action.sessionId === queued.sessionId) {
-      dragActionQueue[dragActionQueue.length - 1] = action;
-    } else {
-      if ((action.type === "tabDragSourceEnd" || action.type === "tabDragEnd")
-        && dragActionQueue.length > 0) {
-        for (let index = dragActionQueue.length - 1; index >= 0; index -= 1) {
-          const pending = dragActionQueue[index];
-          if (pending.type !== "tabDragMove" && pending.type !== "tabDragHover") continue;
-          if (pending.sessionId === action.sessionId) dragActionQueue.splice(index, 1);
-        }
+    if ((action.type === "tabDragSourceEnd" || action.type === "tabDragEnd")
+      && dragActionQueue.length > 0) {
+      for (let index = dragActionQueue.length - 1; index >= 0; index -= 1) {
+        const pending = dragActionQueue[index];
+        if (pending.type !== "tabDragMove" && pending.type !== "tabDragHover") continue;
+        if (pending.sessionId === action.sessionId) dragActionQueue.splice(index, 1);
       }
-      dragActionQueue.push(action as Extract<RuntimeTabAction, { sessionId: string }>);
     }
+    if (queued?.type === "tabDragCancel" && action.type === "tabDragCancel"
+      && queued.sessionId === action.sessionId) return;
+    dragActionQueue.push(action as Extract<RuntimeTabAction, { sessionId: string }>);
     dispatchNextDragAction();
     return;
   }
@@ -432,9 +418,6 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     runtimeState.draggingTabId = tabId;
     runtimeState.dragSessionId = crypto.randomUUID();
     runtimeState.latestDragIntentSessionId = runtimeState.dragSessionId;
-    if (runtimeState.pendingRuntimeTabOrder) {
-      runtimeState.pendingRuntimeTabOrder.ownerSessionId = runtimeState.dragSessionId;
-    }
     runtimeState.dragCancelled = false;
     runtimeState.lastDragPoint = { screenX: event.screenX, screenY: event.screenY };
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";

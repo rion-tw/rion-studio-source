@@ -363,7 +363,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
   });
 
-  it("restores the durable order when the newest drag is cancelled", () => {
+  it("never replays a background order when the newest drag terminal is cancelled", () => {
     const durable = _stateWithTabs(3);
     durable.tabs = [durable.tabs[1], durable.tabs[2], durable.tabs[3], durable.tabs[0]];
     window.__rionApplyRuntimeTabState?.(durable);
@@ -384,7 +384,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       payload: dragSession(payload.sessionId, "cancelled")
     });
 
-    expect(_dragLayoutOrder()).toEqual(["tab-2", "tab-3", "tab-4", "tab-1"]);
+    expect(_dragLayoutOrder()).toEqual(["tab-1", "tab-2", "tab-3", "tab-4"]);
   });
 
   it("acknowledges the exact active tab and ignores stale activation revisions", () => {
@@ -519,7 +519,7 @@ describe("Tauri-owned Windows runtime tab strip", () => {
     });
   });
 
-it("reports an asynchronous indeterminate drag receipt without dispatching another cancel", async () => {
+it("retires an asynchronous indeterminate drag diagnostic without changing the UI", async () => {
     const listener = eventListeners.get("rion://runtime-tab-drag-session");
     expect(listener).toBeTypeOf("function");
 
@@ -540,10 +540,7 @@ it("reports an asynchronous indeterminate drag receipt without dispatching anoth
     });
     await flushMicrotasks();
 
-    expect(emit).toHaveBeenCalledWith("rion://shell-error", {
-      code: "TAURI_TAB_DRAG_ROLLBACK_FAILED",
-      message: expect.stringContaining("Restart Rion Studio")
-    });
+    expect(emit).not.toHaveBeenCalledWith("rion://shell-error", expect.anything());
     expect(invoke).not.toHaveBeenCalled();
   });
 

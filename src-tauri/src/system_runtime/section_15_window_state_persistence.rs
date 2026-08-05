@@ -14,6 +14,7 @@ struct WindowStatePersistLane {
     failure_count: u32,
     immediate: bool,
     input: GameWindowRuntimeSnapshotCommitInputRecord,
+    last_error: Option<String>,
     revision: u64,
     window_generation: u64,
 }
@@ -65,6 +66,7 @@ impl WindowStatePersistCoordinator {
             .insert(input.snapshot.window_id.clone(), input.clone());
     }
 
+    #[cfg(test)]
     fn materialize_live_snapshot(
         &self,
         window_id: &str,
@@ -106,12 +108,19 @@ impl WindowStatePersistCoordinator {
                     lane.window_generation == window_generation && lane.revision == revision
                 })
                 .map_or(0, |lane| lane.failure_count);
+            let last_error = lanes
+                .get(window_id)
+                .filter(|lane| {
+                    lane.window_generation == window_generation && lane.revision == revision
+                })
+                .and_then(|lane| lane.last_error.clone());
             lanes.insert(
                 window_id.to_owned(),
                 WindowStatePersistLane {
                     failure_count,
                     immediate,
                     input,
+                    last_error,
                     revision,
                     window_generation,
                 },
@@ -324,6 +333,7 @@ fn record_window_state_persist_failure(
                 return None;
             }
             lane.failure_count = lane.failure_count.saturating_add(1);
+            lane.last_error = Some(message.clone());
             Some(lane.failure_count)
         });
     let Some(failure_count) = failure_count else {
@@ -332,18 +342,6 @@ fn record_window_state_persist_failure(
     eprintln!(
         "Live Game Window snapshot persistence failed: window={window_id} generation={window_generation} revision={revision} attempt={failure_count} error={message}"
     );
-    if failure_count == 4 {
-        let _ = runtime.app.emit(
-            "rion://shell-error",
-            json!({
-                "code": "TAURI_RUNTIME_WINDOW_STATE_PERSIST_FAILED",
-                "message": message,
-                "revision": revision,
-                "windowGeneration": window_generation,
-                "windowId": window_id,
-            }),
-        );
-    }
 }
 
 fn window_state_persist_retry_delay(failure_count: u32) -> Duration {
@@ -374,16 +372,6 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
     ) -> Result<Option<GameWindowRuntimeSnapshotCommitInputRecord>, String> {
-        let name = self
-            .state
-            .lock()
-            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
-            .saved_window_names
-            .get(window_id)
-            .cloned();
-        let Some(name) = name else {
-            return Ok(None);
-        };
         let live = self
             .presentation
             .existing(window_id)
@@ -391,42 +379,39 @@ impl SystemRuntimeExecutor {
             .lock()
             .map_err(|_| "Live runtime window state is unavailable while saving.".to_owned())?
             .clone();
+        let Some(name) = live.persisted_name.clone() else {
+            return Ok(None);
+        };
         let window_generation = live.window_generation;
         let revision = live.revision;
         if window_generation == 0 || revision == 0 {
             return Err("Live runtime window identity is not ready for persistence.".to_owned());
         }
-        let fresh = self.runtime_game_window_save_input(window_id, name.clone()).map(|input| {
-            GameWindowRuntimeSnapshotCommitInputRecord {
+        let target_display = live
+            .target_display
+            .clone()
+            .ok_or_else(|| "Live runtime window target display is not initialized.".to_owned())?;
+        let placement = live
+            .placement
+            .clone()
+            .ok_or_else(|| "Live runtime window placement is not initialized.".to_owned())?;
+        let input = GameWindowRuntimeSnapshotCommitInputRecord {
             snapshot: RuntimeWindowTabSnapshotRecord {
-                window_id: input.window_id,
+                window_id: window_id.to_owned(),
                 window_generation,
                 revision,
-                tabs: input.tabs,
-                active_tab_id: input.active_tab_id,
+                tabs: Self::live_game_window_tabs(&live),
+                active_tab_id: live
+                    .selected_tab_id
+                    .clone()
+                    .filter(|tab_id| live.contains_tab(tab_id)),
             },
-            name: input.name,
-            target_display: input.target_display,
-            placement: input.placement,
-            }
-        });
-        match fresh {
-            Ok(input) => {
-                self.window_state_persistence.remember(&input);
-                Ok(Some(input))
-            }
-            Err(fresh_error) => {
-                let latest_live = self
-                    .presentation
-                    .existing(window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.clone()))
-                    .unwrap_or(live);
-                self.window_state_persistence
-                    .materialize_live_snapshot(window_id, &latest_live)
-                    .map(Some)
-                    .ok_or(fresh_error)
-            }
-        }
+            name,
+            target_display,
+            placement,
+        };
+        self.window_state_persistence.remember(&input);
+        Ok(Some(input))
     }
 
     pub(crate) fn schedule_live_window_state_persistence(&self, window_id: &str) {
@@ -497,6 +482,44 @@ impl SystemRuntimeExecutor {
             if let Err(message) = self.flush_live_window_state(&window_id) {
                 eprintln!("Final live window snapshot flush failed for {window_id}: {message}");
             }
+        }
+    }
+
+    pub(crate) fn wait_for_final_window_state_flush(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let pending = self
+                .window_state_persistence
+                .lanes
+                .lock()
+                .map(|lanes| {
+                    lanes
+                        .values()
+                        .map(|lane| {
+                            (
+                                lane.input.snapshot.window_id.clone(),
+                                lane.window_generation,
+                                lane.revision,
+                                lane.failure_count,
+                                lane.last_error.clone(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if pending.is_empty() {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                for (window_id, generation, revision, attempts, error) in pending {
+                    eprintln!(
+                        "Final Live Game Window snapshot remains dirty: window={window_id} generation={generation} revision={revision} attempts={attempts} error={}",
+                        error.as_deref().unwrap_or("persistence worker still pending")
+                    );
+                }
+                return false;
+            }
+            thread::sleep(Duration::from_millis(10));
         }
     }
 }

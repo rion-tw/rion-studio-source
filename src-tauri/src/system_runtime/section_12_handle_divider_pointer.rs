@@ -243,6 +243,37 @@ impl SystemRuntimeExecutor {
             .presentation
             .tab_window(tab_id)?
             .ok_or_else(|| "Runtime tab is no longer live while saving its layout.".to_owned())?;
+        let role_slots = self
+            .state()
+            .map_err(|error| error.message)?
+            .tabs
+            .get(tab_id)
+            .map(|tab| {
+                tab.slots
+                    .values()
+                    .map(|slot| {
+                        let surface = tab.roles.get(&slot.role.id);
+                        let zoom_mode = surface.map_or(slot.zoom_mode.as_str(), |role| {
+                            role.zoom_mode.as_str()
+                        });
+                        let zoom_factor = surface.map_or(slot.zoom_factor, |role| role.zoom_factor);
+                        GameWindowRoleSlotRecord {
+                            slot_id: slot.slot_id.clone(),
+                            role_id: slot.role.id.clone(),
+                            rect: slot.rect.clone(),
+                            browser_zoom_percent: (zoom_mode == "fixed")
+                                .then_some((zoom_factor * 100.0).clamp(25.0, 500.0)),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .ok_or_else(|| "Runtime tab layout resources are no longer available.".to_owned())?;
+        if let Some(live) = self.presentation.existing(&window_id)
+            && let Ok(mut live) = live.lock()
+            && let Some(tab) = live.tabs.iter_mut().find(|tab| tab.id == tab_id)
+        {
+            tab.role_slots = role_slots;
+        }
         self.touch_live_window_state(&window_id)?;
         self.schedule_live_window_state_persistence(&window_id);
         Ok(())

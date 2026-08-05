@@ -439,14 +439,21 @@ impl SystemRuntimeExecutor {
         } else {
             "normal"
         };
-        if let Ok(mut state) = self.state.lock()
-            && let Some(host) = state.display_hosts.get_mut(&window_id)
-        {
+        let live_target = self.state.lock().ok().and_then(|mut state| {
+            let host = state.display_hosts.get_mut(&window_id)?;
             host.target.presentation = presentation.to_owned();
             if !maximized && !fullscreen && !minimized {
                 host.target.bounds.width = width.round() as i32;
                 host.target.bounds.height = height.round() as i32;
             }
+            Some(host.target.clone())
+        });
+        if let Some(target) = live_target
+            && let Err(error) = self.update_live_window_target(&target, true)
+        {
+            eprintln!(
+                "Live Game Window resize commit failed: window={window_id} error={error}"
+            );
         }
         let tab_ids = self.live_tab_ids_for_window(&window_id);
         let mut layout_errors = Vec::new();
@@ -520,9 +527,8 @@ impl SystemRuntimeExecutor {
         if self.native_window_mutations.is_busy(&window_id) {
             return;
         }
-        if let Ok(mut state) = self.state.lock()
-            && let Some(host) = state.display_hosts.get_mut(&window_id)
-        {
+        let live_target = self.state.lock().ok().and_then(|mut state| {
+            let host = state.display_hosts.get_mut(&window_id)?;
             host.target.bounds.x = logical_x;
             host.target.bounds.y = logical_y;
             if let Some((display_id, work_area, scale_factor)) = monitor_target {
@@ -530,6 +536,12 @@ impl SystemRuntimeExecutor {
                 host.target.work_area = work_area;
                 host.target.scale_factor = scale_factor;
             }
+            Some(host.target.clone())
+        });
+        if let Some(target) = live_target
+            && let Err(error) = self.update_live_window_target(&target, true)
+        {
+            eprintln!("Live Game Window move commit failed: window={window_id} error={error}");
         }
         self.schedule_window_placement_persistence(label.to_owned());
     }
@@ -629,23 +641,22 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn persist_game_window_placement(&self, label: &str) -> Result<(), String> {
-        let Some((window_id, is_saved)) = self.state.lock().ok().and_then(|state| {
+        let Some(window_id) = self.state.lock().ok().and_then(|state| {
             state.display_hosts.iter().find_map(|(window_id, host)| {
-                (host.window.label() == label).then(|| {
-                    (
-                        window_id.clone(),
-                        state.saved_window_names.contains_key(window_id),
-                    )
-                })
+                (host.window.label() == label).then(|| window_id.clone())
             })
         }) else {
             return Ok(());
         };
+        let is_saved = self
+            .presentation
+            .existing(&window_id)
+            .and_then(|window| window.lock().ok().map(|live| live.persisted_name.is_some()))
+            .unwrap_or(false);
         if !is_saved {
             return Ok(());
         }
-        self.touch_live_window_state(&window_id)?;
-        self.schedule_live_window_state_persistence(&window_id);
+        self.flush_live_window_state(&window_id)?;
         Ok(())
     }
 

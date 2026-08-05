@@ -26,6 +26,14 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>()
         };
+        for window_id in self
+            .presentation
+            .snapshot_states()?
+            .into_keys()
+            .collect::<Vec<_>>()
+        {
+            self.set_live_window_persisted_name(&window_id, names.get(&window_id).cloned())?;
+        }
         for update in updates {
             #[cfg(target_os = "macos")]
             let (window_id, window, controller) = update;

@@ -310,16 +310,13 @@ impl SystemRuntimeExecutor {
         let Some(coordinator) = self.presentation.existing(window_id) else {
             return Ok(());
         };
-        let revision = self.presentation.next_revision();
-        let (topology_ready, all_terminal, all_successful, active_tab_id) = {
-            let mut live = coordinator.lock().map_err(|_| {
+        let (topology_ready, all_terminal, all_successful) = {
+            let live = coordinator.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The restored tab presentation state is unavailable.",
                 )
             })?;
-            live.reorder_known_tabs(&prepared.ordered_tab_ids);
-            live.revision = revision;
             let live_ready = prepared
                 .ordered_tab_ids
                 .iter()
@@ -342,19 +339,7 @@ impl SystemRuntimeExecutor {
                     .ordered_tab_ids
                     .iter()
                     .all(|tab_id| prepared.successful_tab_ids.contains(tab_id));
-            if topology_ready {
-                let active_tab_id = prepared
-                    .active_tab_id
-                    .clone()
-                    .or_else(|| prepared.visible_tab_ids.first().cloned());
-                live.select(active_tab_id, revision);
-            }
-            (
-                topology_ready,
-                all_terminal,
-                all_successful,
-                live.selected_tab_id.clone(),
-            )
+            (topology_ready, all_terminal, all_successful)
         };
         let retired = all_terminal
             && (!all_successful || topology_ready)
@@ -365,18 +350,6 @@ impl SystemRuntimeExecutor {
                 state.pending_window_tab_restores.remove(window_id);
                 true
             });
-        if topology_ready && let Some(active_tab_id) = active_tab_id {
-            let _ = self.request_tab_presentation(
-                &active_tab_id,
-                NativePresentationFocus::None,
-                "saved-window-restore",
-            )
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
-        } else if topology_ready {
-            self.apply_native_active_style(window_id, None, revision, "saved-window-restore");
-        }
         if retired && all_successful {
             self.schedule_live_window_state_persistence(window_id);
         }

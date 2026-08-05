@@ -106,12 +106,18 @@ impl LiveWindowTabStore {
                         .map(|tab| tab.id.clone())
                 });
             let aliases = std::mem::take(&mut state.live.aliases);
+            let persisted_name = state.live.persisted_name.clone();
+            let placement = state.live.placement.clone();
+            let target_display = state.live.target_display.clone();
             state.live = LiveWindowRecord {
                 aliases,
                 hidden_tab_ids: std::mem::take(&mut commit.hidden_tab_ids),
+                persisted_name,
+                placement,
                 revision,
                 selected_tab_id: active_tab_id,
                 tabs: std::mem::take(&mut commit.tabs),
+                target_display,
                 ui_sequence: commit.ui_sequence,
                 window_generation: commit.window_generation,
                 window_id: commit.window_id.clone(),
@@ -167,5 +173,47 @@ impl SystemRuntimeExecutor {
             .existing(window_id)
             .and_then(|live| live.lock().ok().map(|live| live.all_tab_ids()))
             .unwrap_or_default()
+    }
+
+    fn update_live_window_target(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        advance_revision: bool,
+    ) -> Result<u64, String> {
+        let live = self.presentation.coordinator(&target.window_id)?;
+        let mut live = live
+            .lock()
+            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+        live.target_display = Some(
+            self.window_state_persistence
+                .cached_target_display(&target.window_id, target.display_id)
+                .unwrap_or(DisplayTargetRecord {
+                    id: target.display_id,
+                    fingerprint: None,
+                }),
+        );
+        live.placement = Some(GameWindowPlacementRecord {
+            normal_bounds: target.bounds.clone(),
+            saved_work_area: target.work_area.clone(),
+            presentation: target.presentation.clone(),
+        });
+        if advance_revision {
+            live.revision = self.presentation.next_revision();
+        }
+        Ok(live.revision)
+    }
+
+    fn set_live_window_persisted_name(
+        &self,
+        window_id: &str,
+        name: Option<String>,
+    ) -> Result<(), String> {
+        let Some(live) = self.presentation.existing(window_id) else {
+            return Ok(());
+        };
+        live.lock()
+            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?
+            .persisted_name = name;
+        Ok(())
     }
 }

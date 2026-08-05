@@ -423,6 +423,9 @@ pub fn run() {
                                 }),
                             );
                         }
+                        runtime.wait_for_final_window_state_flush(
+                            std::time::Duration::from_secs(2),
+                        );
                         core.shutdown();
                         app.exit(0);
                     });

@@ -17,10 +17,6 @@ import { Button } from "../../components/ui/button";
 import { IconTile, PageFrame, PageHeader, StatusCallout, Surface } from "../../components/ui/patterns";
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
-import {
-  getBrowserEngineStatusTitle,
-  getResolvedBrowserEngineLabel
-} from "../../app/browserEnginePresentation";
 import type { SidebarFilter } from "../../app/types";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -117,9 +113,13 @@ function DashboardRoute({
     () => getDashboardRoleItems({ busyRoleIds, roles, statusByRole }).slice(0, 6),
     [busyRoleIds, roles, statusByRole]
   );
+  const openWorkspaceIds = useMemo(
+    () => new Set(embeddedRuntime.tabs.filter((tab) => tab.type === "workspace").map((tab) => tab.sourceId)),
+    [embeddedRuntime.tabs]
+  );
   const workspaceItems = useMemo(
-    () => getDashboardWorkspaceItems({ busyWorkspaceIds, statusByRole, workspaces }).slice(0, 4),
-    [busyWorkspaceIds, statusByRole, workspaces]
+    () => getDashboardWorkspaceItems({ busyWorkspaceIds, openWorkspaceIds, workspaces }).slice(0, 4),
+    [busyWorkspaceIds, openWorkspaceIds, workspaces]
   );
   const macroItems = useMemo(
     () =>
@@ -472,7 +472,6 @@ function RoleLaunchRow({
   const actionLabel = getRoleActionLabel(item.action.kind, t);
   const actionIcon = getRoleActionIcon(item.action.kind);
   const coverImageUrl = item.role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
-  const status = item.status;
 
   function handleAction(): void {
     if (item.action.disabled) {
@@ -504,12 +503,7 @@ function RoleLaunchRow({
         </span>
       </div>
       <Badge className="h-[18px] justify-self-end px-1.5 text-micro" variant={getRoleBadgeVariant(item)}>
-        <span title={status ? getBrowserEngineStatusTitle(status, t) : undefined}>
-          {getRoleStatusLabel(item, t)}
-          {status?.resolvedEngine
-            ? ` · ${getResolvedBrowserEngineLabel(status.resolvedEngine, t)}`
-            : ""}
-        </span>
+        {getRoleStatusLabel(item, t)}
       </Badge>
       <Button
         aria-label={`${actionLabel}: ${item.role.name}`}
@@ -556,7 +550,7 @@ function WorkspaceLaunchRow({
       </div>
       <Badge
         className="h-[18px] justify-self-end px-1.5 text-micro"
-        variant={item.runningCount > 0 ? "success" : "muted"}
+        variant={item.isRunning ? "success" : "muted"}
       >
         {getWorkspaceStatusLabel(item, t)}
       </Badge>
@@ -641,8 +635,8 @@ function MacroRunRow({
 }
 
 function getWorkspaceStatusLabel(item: DashboardWorkspaceItem, t: Translator): string {
-  if (item.runningCount > 0) {
-    return t("dashboard.workspace.runningRoles").replace("{count}", String(item.runningCount));
+  if (item.isRunning) {
+    return t("dashboard.status.running");
   }
 
   return item.assignedCount > 0 ? t("dashboard.status.ready") : t("dashboard.status.notConfigured");

@@ -317,6 +317,10 @@ export const dispatch = (action: RuntimeTabAction): void => {
         || action.type === "stop"
         || (action.type === "windowControl" && action.control !== "close");
       if (!handlesReceipt || !receipt) return;
+      // Closing is committed when the live tab disappears. Native isolation and
+      // owner release continue in the background and cannot roll back or turn a
+      // completed close into a shell error.
+      if (action.type === "stop") return;
       try {
         handleSystemRuntimeReceipt(receipt);
         if (receipt.status === "degraded") {

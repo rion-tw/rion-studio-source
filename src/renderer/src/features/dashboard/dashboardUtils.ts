@@ -40,7 +40,7 @@ export interface DashboardRoleActionState {
 export interface DashboardWorkspaceItem {
   action: DashboardWorkspaceActionState;
   assignedCount: number;
-  runningCount: number;
+  isRunning: boolean;
   workspace: LaunchWorkspace;
 }
 
@@ -127,16 +127,15 @@ export function getDashboardRoleItems({
 function createWorkspaceActionState({
   assignedCount,
   busyWorkspaceIds,
-  runningCount,
+  isRunning,
   workspaceId
 }: {
   assignedCount: number;
   busyWorkspaceIds: ReadonlySet<string>;
-  runningCount: number;
+  isRunning: boolean;
   workspaceId: string;
 }): DashboardWorkspaceActionState {
   const isBusy = busyWorkspaceIds.has(workspaceId);
-  const isRunning = runningCount > 0;
 
   return {
     disabled: isBusy || (!isRunning && assignedCount === 0),
@@ -147,27 +146,27 @@ function createWorkspaceActionState({
 
 export function getDashboardWorkspaceItems({
   busyWorkspaceIds,
-  statusByRole,
+  openWorkspaceIds,
   workspaces
 }: {
   busyWorkspaceIds: ReadonlySet<string>;
-  statusByRole: Map<string, RoleStatus>;
+  openWorkspaceIds: ReadonlySet<string>;
   workspaces: LaunchWorkspace[];
 }): DashboardWorkspaceItem[] {
   return workspaces
     .map((workspace) => {
       const assignedRoleIds = workspace.slots.flatMap((slot) => (slot.roleId ? [slot.roleId] : []));
-      const runningCount = assignedRoleIds.filter((roleId) => statusByRole.has(roleId)).length;
+      const isRunning = openWorkspaceIds.has(workspace.id);
 
       return {
         action: createWorkspaceActionState({
           assignedCount: assignedRoleIds.length,
           busyWorkspaceIds,
-          runningCount,
+          isRunning,
           workspaceId: workspace.id
         }),
         assignedCount: assignedRoleIds.length,
-        runningCount,
+        isRunning,
         workspace
       };
     })

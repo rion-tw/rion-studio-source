@@ -486,18 +486,11 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::Resized(size) => {
-                            #[cfg(target_os = "macos")]
-                            if let Some(window) = app_handle.get_window(&label)
-                                && let Ok(fullscreen) = window.is_fullscreen()
-                            {
-                                state
-                                    .runtime
-                                    .prepare_runtime_window_fullscreen(&label, fullscreen);
-                            }
-                            state.runtime.schedule_resize_window(
-                                label.clone(),
+                            state.runtime.observe_resize_window(
+                                &label,
                                 size.width,
                                 size.height,
+                                None,
                             );
                             if label == "main" {
                                 let _ = request_display_topology(
@@ -510,6 +503,18 @@ pub fn run() {
                         }
                         tauri::WindowEvent::Moved(position) if label != "main" => {
                             state.runtime.move_window(&label, position.x, position.y);
+                        }
+                        tauri::WindowEvent::ScaleFactorChanged {
+                            scale_factor,
+                            new_inner_size,
+                            ..
+                        } if label != "main" => {
+                            state.runtime.observe_resize_window(
+                                &label,
+                                new_inner_size.width,
+                                new_inner_size.height,
+                                Some(scale_factor),
+                            );
                         }
                         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
                             if label == "main" => {

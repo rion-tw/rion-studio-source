@@ -116,6 +116,7 @@ static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
 static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -131,6 +132,7 @@ fn point_in_runtime_tab_control_row(
     screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
 }
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
+const WINDOW_RESIZE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(200);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str = concat!(

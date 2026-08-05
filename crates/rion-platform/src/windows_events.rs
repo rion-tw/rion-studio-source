@@ -1,6 +1,4 @@
-use std::process::Command;
-
-use crate::{Platform, PlatformError};
+use crate::{Platform, PlatformError, background_command};
 
 const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -10,7 +8,7 @@ pub fn query_windows_display_driver_events(
     if platform != Platform::Windows {
         return Ok(None);
     }
-    let output = Command::new("wevtutil")
+    let output = background_command("wevtutil")
         .args([
             "qe",
             "System",

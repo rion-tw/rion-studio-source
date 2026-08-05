@@ -34,7 +34,7 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain("StartupWindowState");
     expect(shell).toContain("reveal_once()");
     expect(shell).toContain("PageLoadEvent::Finished");
-    expect(shell).toContain("schedule_resize_window");
+    expect(shell).toContain("observe_resize_window");
     expect(shell).toContain("rion-runtime-focus-persist");
     expect(shell).toContain("show_startup_failure");
     expect(shell).toContain("did not become ready within 15 seconds");

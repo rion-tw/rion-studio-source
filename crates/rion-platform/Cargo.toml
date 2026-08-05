@@ -25,6 +25,7 @@ tempfile = "3.24.0"
 webview2-com = "=0.38.2"
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
+  "Win32_Graphics_Gdi",
   "Win32_Security",
   "Win32_Security_Authorization",
   "Win32_Security_Cryptography",

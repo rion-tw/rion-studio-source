@@ -14,6 +14,8 @@ fn invoke_core_sync(state: &CoreState, command: Value) -> Result<Value, CoreErro
 }
 
 async fn export_portable_data(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
     state: &CoreState,
     args: &[Value],
 ) -> Result<Value, CoreErrorPayload> {
@@ -22,11 +24,14 @@ async fn export_portable_data(
         .persist_all_game_window_placements()
         .map_err(|error| shell_error("TAURI_GAME_WINDOW_FLUSH_FAILED", error))?;
     let default_name = "rion-studio-export.json".to_owned();
-    let path = tauri::async_runtime::spawn_blocking(move || {
-        native_shell::save_file("Export Rion Studio JSON", &default_name, "json")
-    })
+    let path = native_shell::save_file(
+        app,
+        window,
+        "Export Rion Studio JSON",
+        &default_name,
+        "json",
+    )
     .await
-    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error.to_string()))?
     .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error))?;
     let Some(path) = path else {
         return Ok(Value::Null);
@@ -53,12 +58,13 @@ async fn export_portable_data(
     invoke_core_sync(state, command)
 }
 
-async fn preview_portable_import(state: &CoreState) -> Result<Value, CoreErrorPayload> {
-    let path = tauri::async_runtime::spawn_blocking(|| {
-        native_shell::pick_file("Import Rion Studio JSON", "json")
-    })
+async fn preview_portable_import(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    state: &CoreState,
+) -> Result<Value, CoreErrorPayload> {
+    let path = native_shell::pick_file(app, window, "Import Rion Studio JSON", "json")
     .await
-    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error.to_string()))?
     .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error))?;
     let Some(path) = path else {
         return Ok(Value::Null);
@@ -69,7 +75,11 @@ async fn preview_portable_import(state: &CoreState) -> Result<Value, CoreErrorPa
     )
 }
 
-async fn preview_chrome_profile_import(state: &CoreState) -> Result<Value, CoreErrorPayload> {
+async fn preview_chrome_profile_import(
+    app: &tauri::AppHandle,
+    window: &WebviewWindow,
+    state: &CoreState,
+) -> Result<Value, CoreErrorPayload> {
     let default_path = invoke_core_sync(state, json!({ "type": "chromeProfileDefaultPath" }))?
         .as_str()
         .map(PathBuf::from)
@@ -79,11 +89,9 @@ async fn preview_chrome_profile_import(state: &CoreState) -> Result<Value, CoreE
                 "The default Chrome User Data folder is unavailable.",
             )
         })?;
-    let selected = tauri::async_runtime::spawn_blocking(move || {
-        native_shell::pick_directory("Choose Chrome User Data", &default_path)
-    })
+    let selected =
+        native_shell::pick_directory(app, window, "Choose Chrome User Data", &default_path)
     .await
-    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error.to_string()))?
     .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error))?;
     let Some(path) = selected else {
         return Ok(Value::Null);
@@ -115,15 +123,14 @@ async fn export_diagnostics(
     window: &WebviewWindow,
     state: &CoreState,
 ) -> Result<Value, CoreErrorPayload> {
-    let path = tauri::async_runtime::spawn_blocking(|| {
-        native_shell::save_file(
-            "Export Rion Studio Diagnostics",
-            "Rion-Studio-Diagnostics.zip",
-            "zip",
-        )
-    })
+    let path = native_shell::save_file(
+        app,
+        window,
+        "Export Rion Studio Diagnostics",
+        "Rion-Studio-Diagnostics.zip",
+        "zip",
+    )
     .await
-    .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error.to_string()))?
     .map_err(|error| shell_error("SHELL_DIALOG_FAILED", error))?;
     let Some(path) = path else {
         return Ok(Value::Null);

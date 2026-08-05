@@ -202,6 +202,59 @@ fn native_resize_retry_is_bounded_and_stops_during_shutdown() {
 }
 
 #[test]
+fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
+    let snapshot = |sequence, width| RuntimeWindowResizeSnapshot {
+        content_metrics: logical_resize_metrics(width, 1_440, 2.0),
+        fullscreen: false,
+        maximized: false,
+        minimized: false,
+        physical_height: 1_440,
+        physical_width: width,
+        received_at: Instant::now(),
+        scale_factor: 2.0,
+        sequence,
+    };
+    let first = coalesce_pending_resize(None, snapshot(1, 2_560));
+    let second = coalesce_pending_resize(Some(first), snapshot(2, 2_800));
+    let latest = coalesce_pending_resize(Some(second), snapshot(3, 3_000));
+    assert_eq!(latest.snapshot.sequence, 3);
+    assert_eq!(latest.snapshot.physical_width, 3_000);
+    assert_eq!(latest.received_count, 3);
+    assert_eq!(latest.coalesced_count, 2);
+}
+
+#[test]
+fn live_resize_projects_the_active_tab_then_settles_every_tab() {
+    assert_eq!(
+        resize_projection_tab_ids(Some("active".to_owned()), None),
+        ["active"]
+    );
+    assert_eq!(
+        resize_projection_tab_ids(
+            Some("active".to_owned()),
+            Some(vec!["active".to_owned(), "hidden".to_owned()]),
+        ),
+        ["active", "hidden"]
+    );
+}
+
+#[test]
+fn resize_metrics_preserve_windows_two_hundred_percent_scaling() {
+    let metrics = logical_resize_metrics(3_756, 2_510, 2.0);
+    assert_eq!(metrics.width, 1_878.0);
+    assert_eq!(metrics.height, 1_255.0);
+    let content = resize_metrics_with_tab_strip(metrics, 44.0);
+    assert_eq!(content.top_inset, 44.0);
+    assert_eq!(content.height, 1_211.0);
+}
+
+#[test]
+fn unchanged_zoom_is_not_resubmitted_during_resize() {
+    assert!(!zoom_factor_changed(1.0, 1.000_01));
+    assert!(zoom_factor_changed(1.0, 1.01));
+}
+
+#[test]
 fn disconnected_webview_layout_is_recoverable_not_global_geometry_corruption() {
     for message in [
         "runtime error: failed to receive message from webview",

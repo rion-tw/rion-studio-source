@@ -192,11 +192,22 @@ unsafe extern "C" fn layout_callback(
         tauri::async_runtime::spawn_blocking(move || {
             loop {
                 layout_updates.requested.store(false, Ordering::Release);
-                if let Some(window) = app.get_window(&label)
-                    && let Ok(size) = window.inner_size()
-                    && let Some(state) = app.try_state::<crate::CoreState>()
-                {
-                    state.runtime.resize_window(&label, size.width, size.height);
+                if let Some(window) = app.get_window(&label) {
+                    let event_window = window.clone();
+                    let event_app = app.clone();
+                    let event_label = label.clone();
+                    let _ = window.run_on_main_thread(move || {
+                        if let Ok(size) = event_window.inner_size()
+                            && let Some(state) = event_app.try_state::<crate::CoreState>()
+                        {
+                            state.runtime.observe_resize_window(
+                                &event_label,
+                                size.width,
+                                size.height,
+                                None,
+                            );
+                        }
+                    });
                 }
                 if !continue_layout_updates(&layout_updates) {
                     break;

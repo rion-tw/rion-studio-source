@@ -1,44 +1,97 @@
 use std::{
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
-const DIALOG_TITLE_ENV: &str = "RION_STUDIO_DIALOG_TITLE";
-const DIALOG_DEFAULT_ENV: &str = "RION_STUDIO_DIALOG_DEFAULT";
+use rion_platform::background_command;
+use tauri::{AppHandle, WebviewWindow};
+use tauri_plugin_dialog::{DialogExt, FilePath};
+use tokio::sync::oneshot;
 
-pub fn pick_file(title: &str, extension: &str) -> Result<Option<PathBuf>, String> {
-    run_dialog(DialogRequest::OpenFile {
-        title,
-        extension: safe_extension(extension)?,
-    })
+pub async fn pick_file(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    title: &str,
+    extension: &str,
+) -> Result<Option<PathBuf>, String> {
+    let extension = safe_extension(extension)?;
+    let (sender, receiver) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title)
+        .add_filter(
+            format!("{} files", extension.to_ascii_uppercase()),
+            &[extension],
+        )
+        .pick_file(move |path| {
+            let _ = sender.send(path);
+        });
+    receive_dialog_path(receiver).await
 }
 
-pub fn pick_directory(title: &str, default_path: &Path) -> Result<Option<PathBuf>, String> {
-    run_dialog(DialogRequest::Directory {
-        title,
-        default_path,
-    })
+pub async fn pick_directory(
+    app: &AppHandle,
+    window: &WebviewWindow,
+    title: &str,
+    default_path: &Path,
+) -> Result<Option<PathBuf>, String> {
+    let (sender, receiver) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title)
+        .set_directory(default_path)
+        .pick_folder(move |path| {
+            let _ = sender.send(path);
+        });
+    receive_dialog_path(receiver).await
 }
 
-pub fn save_file(
+pub async fn save_file(
+    app: &AppHandle,
+    window: &WebviewWindow,
     title: &str,
     default_name: &str,
     extension: &str,
 ) -> Result<Option<PathBuf>, String> {
     let extension = safe_extension(extension)?;
-    let selected = run_dialog(DialogRequest::SaveFile {
-        title,
-        default_name,
-    })?;
+    let (sender, receiver) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_parent(window)
+        .set_title(title)
+        .set_file_name(default_name)
+        .add_filter(
+            format!("{} files", extension.to_ascii_uppercase()),
+            &[extension],
+        )
+        .save_file(move |path| {
+            let _ = sender.send(path);
+        });
+    let selected = receive_dialog_path(receiver).await?;
     Ok(selected.map(|path| ensure_extension(path, extension)))
+}
+
+async fn receive_dialog_path(
+    receiver: oneshot::Receiver<Option<FilePath>>,
+) -> Result<Option<PathBuf>, String> {
+    receiver
+        .await
+        .map_err(|_| "The native dialog closed without returning a result.".to_owned())?
+        .map(|path| path.into_path().map_err(|error| error.to_string()))
+        .transpose()
 }
 
 pub fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
-        Command::new("/usr/bin/open").arg("-R").arg(path).status()
+        background_command("/usr/bin/open")
+            .arg("-R")
+            .arg(path)
+            .status()
     } else {
-        Command::new("explorer.exe")
+        background_command("explorer.exe")
             .arg(format!("/select,{}", path.display()))
             .status()
     }
@@ -56,9 +109,9 @@ pub fn open_url(url: &str) -> Result<(), String> {
         return Err("Only HTTP and HTTPS URLs may be opened externally.".to_owned());
     }
     let status = if cfg!(target_os = "macos") {
-        Command::new("/usr/bin/open").arg(url).status()
+        background_command("/usr/bin/open").arg(url).status()
     } else {
-        Command::new("rundll32.exe")
+        background_command("rundll32.exe")
             .arg("url.dll,FileProtocolHandler")
             .arg(url)
             .status()
@@ -73,11 +126,11 @@ pub fn open_url(url: &str) -> Result<(), String> {
 
 pub fn copy_text(value: &str) -> Result<(), String> {
     let mut child = if cfg!(target_os = "macos") {
-        Command::new("/usr/bin/pbcopy")
+        background_command("/usr/bin/pbcopy")
             .stdin(Stdio::piped())
             .spawn()
     } else {
-        Command::new("powershell.exe")
+        background_command("powershell.exe")
             .args([
                 "-NoLogo",
                 "-NoProfile",
@@ -101,165 +154,6 @@ pub fn copy_text(value: &str) -> Result<(), String> {
     } else {
         Err("The operating system clipboard rejected the text.".to_owned())
     }
-}
-
-enum DialogRequest<'a> {
-    Directory {
-        title: &'a str,
-        default_path: &'a Path,
-    },
-    OpenFile {
-        title: &'a str,
-        extension: &'a str,
-    },
-    SaveFile {
-        title: &'a str,
-        default_name: &'a str,
-    },
-}
-
-fn run_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
-    if cfg!(target_os = "macos") {
-        run_macos_dialog(request)
-    } else {
-        run_windows_dialog(request)
-    }
-}
-
-fn run_macos_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
-    let (title, script, default_value) = match request {
-        DialogRequest::Directory {
-            title,
-            default_path,
-        } => (
-            title,
-            concat!(
-                "set promptText to system attribute \"RION_STUDIO_DIALOG_TITLE\"\n",
-                "set defaultPath to system attribute \"RION_STUDIO_DIALOG_DEFAULT\"\n",
-                "try\n",
-                "  set chosenPath to choose folder with prompt promptText default location (POSIX file defaultPath)\n",
-                "  return POSIX path of chosenPath\n",
-                "on error number -128\n",
-                "  return \"\"\n",
-                "end try"
-            ),
-            default_path.to_string_lossy().into_owned(),
-        ),
-        DialogRequest::OpenFile { title, extension } => (
-            title,
-            concat!(
-                "set promptText to system attribute \"RION_STUDIO_DIALOG_TITLE\"\n",
-                "set extensionName to system attribute \"RION_STUDIO_DIALOG_DEFAULT\"\n",
-                "try\n",
-                "  set chosenPath to choose file with prompt promptText of type {extensionName}\n",
-                "  return POSIX path of chosenPath\n",
-                "on error number -128\n",
-                "  return \"\"\n",
-                "end try"
-            ),
-            extension.to_owned(),
-        ),
-        DialogRequest::SaveFile {
-            title,
-            default_name,
-        } => (
-            title,
-            concat!(
-                "set promptText to system attribute \"RION_STUDIO_DIALOG_TITLE\"\n",
-                "set defaultName to system attribute \"RION_STUDIO_DIALOG_DEFAULT\"\n",
-                "try\n",
-                "  set chosenPath to choose file name with prompt promptText default name defaultName\n",
-                "  return POSIX path of chosenPath\n",
-                "on error number -128\n",
-                "  return \"\"\n",
-                "end try"
-            ),
-            default_name.to_owned(),
-        ),
-    };
-    run_capture(
-        Command::new("/usr/bin/osascript")
-            .arg("-e")
-            .arg(script)
-            .env(DIALOG_TITLE_ENV, title)
-            .env(DIALOG_DEFAULT_ENV, default_value),
-    )
-}
-
-fn run_windows_dialog(request: DialogRequest<'_>) -> Result<Option<PathBuf>, String> {
-    let (title, script, default_value) = match request {
-        DialogRequest::Directory {
-            title,
-            default_path,
-        } => (
-            title,
-            concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$d=New-Object System.Windows.Forms.FolderBrowserDialog;",
-                "$d.Description=$env:RION_STUDIO_DIALOG_TITLE;",
-                "$d.SelectedPath=$env:RION_STUDIO_DIALOG_DEFAULT;",
-                "if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)",
-                "{[Console]::Out.Write($d.SelectedPath)}"
-            ),
-            default_path.to_string_lossy().into_owned(),
-        ),
-        DialogRequest::OpenFile { title, extension } => (
-            title,
-            concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$d=New-Object System.Windows.Forms.OpenFileDialog;",
-                "$d.Title=$env:RION_STUDIO_DIALOG_TITLE;",
-                "$e=$env:RION_STUDIO_DIALOG_DEFAULT;",
-                "$d.Filter=\"$e files (*.$e)|*.$e|All files (*.*)|*.*\";",
-                "if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)",
-                "{[Console]::Out.Write($d.FileName)}"
-            ),
-            extension.to_owned(),
-        ),
-        DialogRequest::SaveFile {
-            title,
-            default_name,
-        } => (
-            title,
-            concat!(
-                "Add-Type -AssemblyName System.Windows.Forms;",
-                "$d=New-Object System.Windows.Forms.SaveFileDialog;",
-                "$d.Title=$env:RION_STUDIO_DIALOG_TITLE;",
-                "$d.FileName=$env:RION_STUDIO_DIALOG_DEFAULT;",
-                "if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)",
-                "{[Console]::Out.Write($d.FileName)}"
-            ),
-            default_name.to_owned(),
-        ),
-    };
-    run_capture(
-        Command::new("powershell.exe")
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-STA",
-                "-Command",
-            ])
-            .arg(script)
-            .env(DIALOG_TITLE_ENV, title)
-            .env(DIALOG_DEFAULT_ENV, default_value),
-    )
-}
-
-fn run_capture(command: &mut Command) -> Result<Option<PathBuf>, String> {
-    let output = command
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| error.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-    }
-    let value = String::from_utf8(output.stdout)
-        .map_err(|_| "The native dialog returned an invalid path.".to_owned())?;
-    let value = value.trim();
-    Ok((!value.is_empty()).then(|| PathBuf::from(value)))
 }
 
 fn safe_extension(extension: &str) -> Result<&str, String> {

@@ -18,14 +18,12 @@ impl NativeLayoutMutation {
                 next_size,
                 webview,
                 ..
-            } => {
-                webview
-                    .set_position(*next_position)
-                    .map_err(|error| error.to_string())?;
-                webview
-                    .set_size(*next_size)
-                    .map_err(|error| error.to_string())
-            }
+            } => webview
+                .set_bounds(tauri::Rect {
+                    position: (*next_position).into(),
+                    size: (*next_size).into(),
+                })
+                .map_err(|error| error.to_string()),
             Self::Zoom { next, webview, .. } => {
                 webview.set_zoom(*next).map_err(|error| error.to_string())
             }
@@ -49,6 +47,10 @@ fn native_layout_bounds_mutation(
         next_size: size,
         webview,
     }
+}
+
+fn zoom_factor_changed(previous: f64, next: f64) -> bool {
+    (previous - next).abs() > 0.000_1
 }
 
 impl SystemRuntimeExecutor {
@@ -138,6 +140,14 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab_inner(&self, tab_id: &str) -> RuntimeResult<()> {
+        self.layout_runtime_tab_inner_with_metrics(tab_id, None)
+    }
+
+    fn layout_runtime_tab_inner_with_metrics(
+        &self,
+        tab_id: &str,
+        metrics_override: Option<WindowContentMetrics>,
+    ) -> RuntimeResult<()> {
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (
             window,
@@ -218,11 +228,16 @@ impl SystemRuntimeExecutor {
             )
         };
         #[cfg(windows)]
-        let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
-        #[cfg(windows)]
-        let metrics = runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?;
+        let metrics = if let Some(metrics) = metrics_override {
+            metrics
+        } else {
+            let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
+            runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?
+        };
         #[cfg(not(windows))]
-        let metrics = runtime_window_content_metrics(&window)?;
+        let metrics = metrics_override
+            .map(Ok)
+            .unwrap_or_else(|| runtime_window_content_metrics(&window))?;
         let role_inputs = role_views
             .iter()
             .map(|(_, _, _, _, _, input)| input.clone())
@@ -269,11 +284,13 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
-        for (_, webview, _, effective_zoom, _) in &zoom_updates {
-            mutations.push(NativeLayoutMutation::Zoom {
-                next: *effective_zoom,
-                webview: webview.clone(),
-            });
+        for (_, webview, _, effective_zoom, previous_zoom) in &zoom_updates {
+            if zoom_factor_changed(*previous_zoom, *effective_zoom) {
+                mutations.push(NativeLayoutMutation::Zoom {
+                    next: *effective_zoom,
+                    webview: webview.clone(),
+                });
+            }
         }
         let popup_updates = {
             let state = self.state()?;
@@ -290,8 +307,10 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>()
         };
-        for (label, effective_zoom, _) in popup_updates {
-            if let Some(webview) = self.app.get_webview(&label) {
+        for (label, effective_zoom, previous_zoom) in popup_updates {
+            if zoom_factor_changed(previous_zoom, effective_zoom)
+                && let Some(webview) = self.app.get_webview(&label)
+            {
                 mutations.push(NativeLayoutMutation::Zoom {
                     next: effective_zoom,
                     webview,

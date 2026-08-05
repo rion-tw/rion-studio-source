@@ -135,10 +135,7 @@ fn reject_app_bound_cookie(encrypted_value: &[u8]) -> Result<(), PlatformError> 
 fn cached_mac_cookie_keys(encrypted_sample: &[u8]) -> Result<Vec<[u8; 16]>, PlatformError> {
     use pbkdf2::pbkdf2_hmac;
     use sha1::Sha1;
-    use std::{
-        process::Command,
-        sync::{Mutex, OnceLock},
-    };
+    use std::sync::{Mutex, OnceLock};
 
     type MacCookieKeyCache = OnceLock<Mutex<Vec<[u8; 16]>>>;
     static CHROME_KEYS: MacCookieKeyCache = OnceLock::new();
@@ -155,7 +152,7 @@ fn cached_mac_cookie_keys(encrypted_sample: &[u8]) -> Result<Vec<[u8; 16]>, Plat
     }
 
     for service in ["Chrome Safe Storage"] {
-        let result = Command::new("/usr/bin/security")
+        let result = crate::background_command("/usr/bin/security")
             .args(["find-generic-password", "-w", "-s", service])
             .output()
             .map_err(|error| PlatformError::Operation(error.to_string()))?;

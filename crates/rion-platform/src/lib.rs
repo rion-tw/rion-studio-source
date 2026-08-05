@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod background_command;
+pub use background_command::background_command;
 mod filesystem;
 pub use filesystem::{atomic_replace_file, restrict_directory_to_current_user};
 mod chrome_profile;

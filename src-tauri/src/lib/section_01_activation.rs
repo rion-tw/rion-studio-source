@@ -96,6 +96,14 @@ pub(crate) fn preview_and_commit_tab_selection(
     preview_and_commit_tab_selection_inner(app, state, tab_id, false)
 }
 
+pub(crate) fn stale_live_tab_action_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    (message.contains("runtime tab") || message.contains("tab presentation"))
+        && (message.contains("not found")
+            || message.contains("no longer")
+            || message.contains("closing"))
+}
+
 pub(crate) fn preview_and_commit_adjacent_tab_selection(
     app: &AppHandle,
     state: &CoreState,
@@ -127,9 +135,16 @@ fn preview_and_commit_tab_selection_inner(
     tab_id: &str,
     native_style_applied: bool,
 ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
-    let (window_id, provisional, resolved_tab_id, operation_id) = state
-        .runtime
-        .preview_tab_activation_background(tab_id, native_style_applied)?;
+    let (window_id, provisional, resolved_tab_id, operation_id) =
+        match state
+            .runtime
+            .preview_tab_activation_background(tab_id, native_style_applied)
+        {
+            Err(message) if stale_live_tab_action_error(&message) => {
+                return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
+            }
+            result => result?,
+        };
     if !provisional
         && let Err(message) =
             commit_previewed_tab_selection(
@@ -156,11 +171,7 @@ pub(crate) fn preview_and_schedule_native_tab_selection(
         .runtime
         .preview_tab_activation_background(tab_id, true)
     {
-        Err(message)
-            if matches!(
-                message.as_str(),
-                "Runtime tab was not found." | "The runtime tab is closing."
-            ) => return Ok(()),
+        Err(message) if stale_live_tab_action_error(&message) => return Ok(()),
         result => result?,
     };
     if !provisional {

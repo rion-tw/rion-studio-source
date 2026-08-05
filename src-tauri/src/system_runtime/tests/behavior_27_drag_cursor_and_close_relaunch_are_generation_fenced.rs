@@ -35,3 +35,27 @@ fn closing_workspace_fences_its_roles_but_not_unrelated_launcher_sources() {
     ));
     assert!(!tab_close_matches_launcher_source(&close, "role-c", "role"));
 }
+
+#[test]
+fn successful_native_destroy_retires_the_stable_tab_close_fence() {
+    let mut state = RuntimeState::default();
+    state.optimistic_closed_tabs.insert("tab-a".to_owned());
+    state.close_previews.insert(
+        "tab-a".to_owned(),
+        TabCloseTombstone {
+            revision: 11,
+            role_ids: vec!["role-a".to_owned()],
+            slot_owners: vec![("slot-a".to_owned(), "role-a".to_owned(), Some(3))],
+            source_id: "role-a".to_owned(),
+            tab_type: "role".to_owned(),
+            window_id: "window-a".to_owned(),
+        },
+    );
+
+    let tombstone = retire_completed_tab_close_fence(&mut state, "tab-a")
+        .expect("the completed close must own its tombstone");
+
+    assert_eq!(tombstone.window_id, "window-a");
+    assert!(!state.optimistic_closed_tabs.contains("tab-a"));
+    assert!(!state.close_previews.contains_key("tab-a"));
+}

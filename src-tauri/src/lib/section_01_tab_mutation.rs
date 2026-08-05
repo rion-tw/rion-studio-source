@@ -26,6 +26,11 @@ async fn execute_tab_mutation(
             .await
             .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()));
         }
+        RuntimeTabMutationAcceptance::Superseded => {
+            return Ok(state
+                .runtime
+                .superseded_tab_mutation_summary(mutation_kind, tab_id));
+        }
     };
     let lease = match state.runtime.await_tab_mutation_turn(operation).await {
         Ok(lease) => lease,
@@ -151,6 +156,11 @@ async fn execute_tab_stop(
             .await
             .map_err(|error| shell_error("TAB_MUTATION_RESULT_UNKNOWN", error.to_string()));
         }
+        RuntimeTabMutationAcceptance::Superseded => {
+            return Ok(state
+                .runtime
+                .superseded_tab_mutation_summary("stop", tab_id));
+        }
     };
     let lease = match state.runtime.await_tab_mutation_turn(operation).await {
         Ok(lease) => lease,
@@ -171,6 +181,15 @@ async fn execute_tab_stop(
 
     let intent = match state.runtime.preview_tab_close(tab_id) {
         Ok(intent) => intent,
+        Err(message) if stale_live_tab_action_error(&message) => {
+            return Ok(state.runtime.complete_tab_mutation(
+                &operation_id,
+                "tabStopSupersededBeforePreview",
+                RuntimeTabMutationTerminalStatus::Superseded,
+                None,
+                0,
+            ));
+        }
         Err(_) => {
             return Ok(state.runtime.complete_tab_mutation(
                 &operation_id,
@@ -192,6 +211,16 @@ async fn execute_tab_stop(
         Ok(_) => {}
         Err(error) => {
             let payload = error.payload();
+            if payload.code == "RUNTIME_TAB_NOT_FOUND" {
+                state.runtime.resolve_tab_close_preview(tab_id, true);
+                return Ok(state.runtime.complete_tab_mutation(
+                    &operation_id,
+                    "tabStopAlreadyAbsent",
+                    RuntimeTabMutationTerminalStatus::Superseded,
+                    None,
+                    0,
+                ));
+            }
             state.runtime.resolve_tab_close_preview(tab_id, false);
             let failure_code = if payload.code == "SYSTEM_SURFACE_RELEASE_UNVERIFIED" {
                 "SYSTEM_SURFACE_RELEASE_UNVERIFIED"

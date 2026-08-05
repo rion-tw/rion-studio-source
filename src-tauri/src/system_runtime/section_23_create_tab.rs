@@ -677,6 +677,7 @@ impl SystemRuntimeExecutor {
                     cleanup_error.get_or_insert(error);
                 }
             }
+            let mut completed_tombstone = None;
             if let Ok(mut state) = self.state.lock() {
                 let attempt_is_current = state
                     .launch_attempt_generations
@@ -690,6 +691,9 @@ impl SystemRuntimeExecutor {
                         .retain(|_, tab_id| tab_id != &created_tab_id);
                 }
                 if cleanup_error.is_none() && attempt_is_current {
+                    // Verified cleanup also completes a concurrent provisional close.
+                    completed_tombstone =
+                        retire_completed_tab_close_fence(&mut state, &created_tab_id);
                     state
                         .completed_failed_launch_cleanups
                         .insert((created_tab_id.clone(), attempt_generation.clone()));
@@ -727,6 +731,9 @@ impl SystemRuntimeExecutor {
                         },
                     );
                 }
+            }
+            if let Some(tombstone) = completed_tombstone.as_ref() {
+                self.record_tab_close_tombstone_resolution(&created_tab_id, tombstone, true);
             }
             if let Some(error) = cleanup_error {
                 self.health.mark_unhealthy();

@@ -189,6 +189,27 @@ fn tab_activation_component_status(
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn superseded_tab_activation_summary(
+        &self,
+        tab_id: &str,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        NativeOperationReceipt::with_status(
+            NativeOperationContext::new(
+                NativeOperationSubsystem::TabActivation,
+                "tab-activation-stale-callback",
+                Duration::ZERO,
+            )
+            .with_completion_scope(SystemRuntimeOperationCompletionScope::TabActivationConverged)
+            .with_lifecycle_epoch(self.lifecycle_epoch())
+            .with_revision(self.presentation.current_revision())
+            .with_tab(tab_id),
+            "tabActivationSuperseded",
+            NativeOperationStatus::Superseded,
+            None,
+        )
+        .summary()
+    }
+
     fn accept_tab_activation(
         &self,
         window_id: &str,

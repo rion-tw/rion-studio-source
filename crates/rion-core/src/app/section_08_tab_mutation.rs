@@ -219,14 +219,12 @@ impl AppCore {
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let tab = snapshot
-            .tabs
-            .iter()
-            .find(|tab| tab.id == request.tab_id)
-            .ok_or_else(|| CoreError::Domain {
-                code: "RUNTIME_TAB_NOT_FOUND",
-                message: "Runtime tab was not found.".to_owned(),
-            })?;
+        let Some(tab) = snapshot.tabs.iter().find(|tab| tab.id == request.tab_id) else {
+            // A window close and an AppKit/HTML tab-close callback can race after
+            // the live tab is already gone. Stop is idempotent: the absent Core
+            // record proves there is no remaining owner command to issue.
+            return Ok(snapshot);
+        };
         // LiveWindowTabState owns window membership while the native gesture is
         // active. A close may therefore carry the new live window before an
         // older, best-effort Core drag projection has caught up. The stable tab

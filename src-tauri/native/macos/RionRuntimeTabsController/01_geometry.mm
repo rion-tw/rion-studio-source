@@ -45,6 +45,14 @@ static CGFloat RionRuntimeTabsWidthWithExternalGhost(CGFloat tabsWidth,
   return tabsWidth + ghostWidth + (tabCount > 0 ? kRionTabSpacing : 0);
 }
 
+static CGFloat RionRuntimeTrailingControlOriginX(
+    CGFloat targetOriginX, NSRect visibleTabTailFrame,
+    BOOL followsVisibleTabTail) {
+  return followsVisibleTabTail
+      ? NSMaxX(visibleTabTailFrame) + kRionAddButtonSpacing
+      : targetOriginX;
+}
+
 static NSString *RionRuntimeTabDragPayload(NSString *sourceWindowID,
                                            NSString *tabIdentifier,
                                            NSString *sessionIdentifier,

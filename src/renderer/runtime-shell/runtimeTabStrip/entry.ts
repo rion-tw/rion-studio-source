@@ -252,7 +252,8 @@ function reconcileTabButtons(
 
 export function applyRuntimeTabOrder(tabIds: string[], animate: boolean): void {
   const previousRects = new Map(
-    Array.from(root.children).map((child) => [child, child.getBoundingClientRect()] as const)
+    [...Array.from(root.children), add]
+      .map((child) => [child, child.getBoundingClientRect()] as const)
   );
   const byId = new Map(tabElements().map((tab) => [tab.dataset.tabId, tab]));
   let insertionPoint: Element | null = root.firstElementChild;

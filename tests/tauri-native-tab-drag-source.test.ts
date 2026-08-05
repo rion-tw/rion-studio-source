@@ -47,7 +47,9 @@ describe("native tab drag latest-intent transaction", () => {
       '#[cfg(target_os = "macos")]\n    pub(crate) fn stamp_native_tab_drag_action('
     );
     expect(contract).not.toContain("with_topology_revision");
-    expect(activation).toContain("Arc, Mutex, OnceLock");
+    expect(activation).toContain(
+      '#[cfg(target_os = "macos")]\nuse std::sync::OnceLock;'
+    );
     expect(activation).not.toContain("tab_drag_projection_queue:");
   });
 

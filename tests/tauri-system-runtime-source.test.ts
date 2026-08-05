@@ -313,7 +313,7 @@ it("keeps tab interaction responsive while native launch verification is pending
       runtime.indexOf("fn create_tab("),
       runtime.indexOf("fn load_roles(")
     );
-    expect(createTab).toContain("reserve_native_tab(");
+    expect(createTab).toContain("reserve_native_tab_for_create(");
     expect(createTab).toContain("previous_surfaces");
     expect(createTab).toContain('"launch-reserved"');
     expect(createTab).toContain("remove_native_tab_reservation(");
@@ -325,7 +325,6 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("take_tab_launch_preview(");
     expect(createTab).toContain("selection.replace_tab_id(&preview.id, presentation_tab");
     expect(createTab).toContain("presentation.bind_surface(");
-    expect(createTab).toContain("replace_native_tab_reservation(");
     expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
     const macRoleSetup = runtime.slice(

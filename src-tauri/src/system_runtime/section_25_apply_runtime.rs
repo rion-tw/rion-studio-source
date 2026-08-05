@@ -355,13 +355,13 @@ impl SystemRuntimeExecutor {
                     &snapshot_tab.name,
                 );
             }
-            // Live presentation owns ordering. During restore, Core publishes owner-priority
-            // launch snapshots; keep the saved UI order fenced until every native create is
-            // terminal instead of projecting that transient launch order into the tab strip.
-            let authoritative_tab_ids = pending_restore
-                .map(|restore| restore.ordered_tab_ids.as_slice())
-                .unwrap_or(runtime_window.tab_ids.as_slice());
-            window.reorder_known_tabs(authoritative_tab_ids);
+            // Live presentation owns ordering. Core publishes owner-priority snapshots while
+            // restoring surfaces, so it may only supply metadata here. The saved restore fence
+            // is the one exception because it seeds the live topology before native creation is
+            // complete; after that fence retires, no Core projection may reorder the tab strip.
+            if let Some(restore) = pending_restore {
+                window.reorder_known_tabs(&restore.ordered_tab_ids);
+            }
             let local_ids = window.tab_ids();
             window
                 .aliases
@@ -511,21 +511,24 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|window| projected_native_tab_window_ids.contains(window.window_id.as_str()))
         {
-            let authoritative_tab_ids = pending_window_tab_restores
+            // Restore already seeded native chrome. Replaying partial owner snapshots causes
+            // visible AppKit/WebView2 width animations without changing the topology.
+            if pending_window_tab_restores.contains_key(&runtime_window.window_id) {
+                continue;
+            }
+            let visible_tab_ids = presentation_after
                 .get(&runtime_window.window_id)
-                .map(|restore| restore.ordered_tab_ids.as_slice())
-                .unwrap_or(runtime_window.tab_ids.as_slice());
-            let visible_tab_ids = authoritative_tab_ids
-                .iter()
+                .map(LiveWindowTabState::tab_ids)
+                .unwrap_or_default()
+                .into_iter()
                 .filter(|tab_id| {
                     live_windows.contains_key(tab_id.as_str())
                         && !optimistic_closed_tabs.contains(tab_id.as_str())
                         && snapshot
                             .tabs
                             .iter()
-                            .any(|tab| tab.id == tab_id.as_str() && !tab.hidden)
+                            .any(|tab| tab.id == *tab_id && !tab.hidden)
                 })
-                .cloned()
                 .collect::<Vec<_>>();
             self.reorder_native_tabs_for_projection(
                 &runtime_window.window_id,

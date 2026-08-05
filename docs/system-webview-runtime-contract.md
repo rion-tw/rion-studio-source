@@ -272,6 +272,12 @@ Runtime role ownership is never serialized. Core compares
 `(windowId, windowGeneration, revision)` and returns `superseded` for an older or
 duplicate write.
 
+An applied live snapshot fences that saved tab order for the lifetime of the
+window. Later Core owner, launch-phase, hidden-state, or active-first restore
+projections may refresh matching tab metadata, but they cannot replace either
+the live order or its SQLite order. The fence retires when the live window
+generation closes.
+
 A failed write leaves the newest snapshot dirty. Retries use 250 ms, 1 s, 5 s,
 then bounded exponential backoff up to 30 s. Failure never mutates
 `LiveWindowTabState` or native chrome. Snapshot construction reads only the
@@ -281,6 +287,13 @@ that final memory snapshot before teardown, continues closing without waiting,
 and retains the captured input so retries do not depend on a native window
 handle. Application exit makes one immediate dirty-snapshot enqueue and records
 any remaining revision without blocking shutdown.
+
+Saved-window restore seeds the complete `LiveWindowTabState` and native tab
+chrome in saved order before starting any role surface. Surface creation may
+still prioritize the saved active tab for first paint and role ownership, but
+that owner-priority sequence is never observable as tab-strip insertion order.
+Each later create replaces the matching reserved presentation item in place;
+there is no final corrective reorder after the window becomes visible.
 
 ## Display topology and tab dragging
 

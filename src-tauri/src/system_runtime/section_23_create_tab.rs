@@ -71,15 +71,18 @@ impl SystemRuntimeExecutor {
             .with_native_creation_lane(&target.window_id, || {
                 self.ensure_display_host(&target, &tab.name)
             })?;
-        let host_created = native_host_created
-            || launch_preview
-                .as_ref()
-                .is_some_and(|preview| preview.host_created);
         let (pending_window_restore, should_select) = self.restored_tab_selection_intent(
             &target.window_id,
             &tab.tab_id,
             launch_preview.as_ref(),
         );
+        let host_created = native_host_created
+            || launch_preview
+                .as_ref()
+                .is_some_and(|preview| preview.host_created)
+            || pending_window_restore
+                .as_ref()
+                .is_some_and(|restore| restore.host_created);
         let created_tab_id = tab.tab_id.clone();
         let reservation_revision = self.presentation.next_revision();
         {
@@ -208,27 +211,14 @@ impl SystemRuntimeExecutor {
                         .ok()
                         .and_then(|selection| selection.selected_tab_id.clone())
                 });
-        let native_reservation = if let Some(preview) = launch_preview.as_ref() {
-            self.replace_native_tab_reservation(
-                &target.window_id,
-                &preview.id,
-                &created_tab_id,
-                &tab.name,
-                tab_type,
-                tab.workspace_template.as_deref(),
-                active_tab_id.as_deref(),
-                reservation_revision,
-            )
-        } else {
-            self.reserve_native_tab(
-                &target.window_id,
-                &created_tab_id,
-                &tab.name,
-                tab_type,
-                tab.workspace_template.as_deref(),
-                reservation_revision,
-            )
-        };
+        let native_reservation = self.reserve_native_tab_for_create(
+            &tab,
+            tab_type,
+            reservation_revision,
+            active_tab_id.as_deref(),
+            launch_preview.as_ref(),
+            pending_window_restore.as_ref(),
+        );
         if native_reservation.is_ok() {
             self.mark_restored_native_tab_reserved(&target.window_id, &created_tab_id);
         }

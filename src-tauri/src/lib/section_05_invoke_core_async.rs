@@ -319,8 +319,8 @@ async fn restore_saved_game_windows(
         state
             .runtime
             .prepare_restored_window_tabs(
-                &saved.id,
-                saved.tabs.iter().map(|tab| tab.id.clone()).collect(),
+                &target,
+                &saved.tabs,
                 saved.active_tab_id.clone(),
             )
             .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;

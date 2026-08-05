@@ -39,6 +39,15 @@ impl AppCore {
                 active_tab_id: Some(snapshot.active_tab_id),
             },
         })?;
+        // A live-window snapshot is the durable output of the presentation authority. Keep its
+        // tab order fenced from later BrowserRuntime owner/progress projections for as long as
+        // that window remains live. Runtime snapshots may still refresh metadata and hidden
+        // state through `merge_pending_saved_tabs`, but they must never reorder the saved tabs.
+        if self.game_window_is_live(&window_id)? {
+            self.mark_pending_game_window_configuration(&window_id)?;
+        } else {
+            self.clear_pending_game_window_configuration(&window_id)?;
+        }
         revisions.insert(window_id.clone(), (window_generation, revision));
         serde_json::to_value(RuntimeWindowPersistenceReceiptRecord {
             window_id,

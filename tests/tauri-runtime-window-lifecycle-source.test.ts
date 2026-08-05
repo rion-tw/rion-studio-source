@@ -237,7 +237,15 @@ describe("runtime window lifecycle authority", () => {
   });
 
   it("restores surfaces in owner priority without changing saved tab order or active tab", async () => {
-    const [restore, create, contract, state, persistence, projection] = await Promise.all([
+    const [
+      restore,
+      create,
+      contract,
+      state,
+      persistence,
+      projection,
+      configuration
+    ] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/lib/section_05_invoke_core_async.rs",
@@ -279,15 +287,27 @@ describe("runtime window lifecycle authority", () => {
           import.meta.url
         ),
         "utf8"
+      ),
+      readFile(
+        new URL(
+          "../crates/rion-core/src/app/section_13_game_window_configuration.rs",
+          import.meta.url
+        ),
+        "utf8"
       )
     ]);
 
     expect(restore).toContain("prepare_restored_window_tabs");
+    expect(restore).toContain("&target");
+    expect(restore).toContain("&saved.tabs");
     expect(restore).toContain("finish_prepared_restored_window_tabs");
     expect(restore).not.toContain("CoreCommand::GameWindowUpdate");
     expect(restore).not.toContain("restore_workspace_conflict_metadata");
     expect(create).toContain("restored_tab_selection_intent");
     expect(create).toContain("reconcile_prepared_restored_window_tabs");
+    expect(contract).toContain("phase: TabPresentationPhase::Reserved");
+    expect(contract).toContain("self.reserve_native_tab(");
+    expect(contract).toContain("self.reorder_native_tabs(window_id, &visible_tab_ids)");
     expect(contract).toContain("live.reorder_known_tabs(&prepared.ordered_tab_ids)");
     expect(contract).toContain("mark_restored_native_tab_reserved");
     expect(contract).toContain("prepared.reserved_tab_ids.contains(tab_id)");
@@ -295,11 +315,20 @@ describe("runtime window lifecycle authority", () => {
     expect(contract).toContain("prepared.terminal_tab_ids.contains(tab_id)");
     expect(contract).toContain("prepared.successful_tab_ids.contains(tab_id)");
     expect(contract).toContain("live.select(active_tab_id, revision)");
-    expect(contract).toContain("self.reorder_native_tabs(window_id, &ordered)");
+    expect(contract.match(/self\.reorder_native_tabs\(/g)).toHaveLength(1);
     expect(persistence).toContain("self.pending_window_tab_restore(window_id).is_some()");
     expect(projection).toContain("state.pending_window_tab_restores.clone()");
-    expect(projection).toContain("restore.ordered_tab_ids.as_slice()");
+    expect(projection).not.toContain(
+      ".unwrap_or(runtime_window.tab_ids.as_slice())"
+    );
+    expect(projection).toContain(".map(LiveWindowTabState::tab_ids)");
+    expect(projection).toContain(
+      "pending_window_tab_restores.contains_key(&runtime_window.window_id)"
+    );
     expect(projection).toContain("restore.active_tab_id.clone()");
+    expect(configuration).toContain(
+      "self.mark_pending_game_window_configuration(&window_id)"
+    );
     expect(state).toContain("pending_window_tab_restores");
   });
 

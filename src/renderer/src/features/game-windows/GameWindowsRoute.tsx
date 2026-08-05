@@ -1,4 +1,6 @@
 import {
+  ArrowDown,
+  ArrowUp,
   Eye,
   EyeOff,
   Monitor,
@@ -27,16 +29,34 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from "../../components/ui/dropdown-menu";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useBusyIds } from "../../hooks/useBusyIds";
 import { useListSelection } from "../../hooks/useListSelection";
 import type { Translator } from "../../i18n";
+import { cn } from "../../lib/utils";
 
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
 const newWindowBusyKey = "window:new";
+
+type GameWindowListSortKey = "name" | "status" | "display" | "active" | "tabs";
+type GameWindowListSortDirection = "asc" | "desc";
+
+interface GameWindowListSortState {
+  direction: GameWindowListSortDirection;
+  key: GameWindowListSortKey;
+}
+
+const DEFAULT_GAME_WINDOW_LIST_SORT: GameWindowListSortState = {
+  direction: "asc",
+  key: "name"
+};
 
 interface GameWindowsRouteProps {
   displays: DisplayInfo[];
@@ -44,6 +64,46 @@ interface GameWindowsRouteProps {
   runtime: EmbeddedRuntimeState;
   t: Translator;
   onError: (error: unknown) => void;
+}
+
+function GameWindowSortHeader({
+  label,
+  onSort,
+  sort,
+  sortKey,
+  t
+}: {
+  label: string;
+  onSort: (key: GameWindowListSortKey) => void;
+  sort: GameWindowListSortState;
+  sortKey: GameWindowListSortKey;
+  t: Translator;
+}): JSX.Element {
+  const isActive = sort.key === sortKey;
+  const DirectionIcon = sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const directionLabel = t(sort.direction === "asc" ? "gameWindows.sortAscending" : "gameWindows.sortDescending");
+
+  return (
+    <th
+      className="px-4 py-1"
+      aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        className="-mx-1 inline-flex h-[var(--control-height)] max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+        type="button"
+        title={t("gameWindows.sortBy").replace("{column}", label)}
+        onClick={() => onSort(sortKey)}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        {isActive ? (
+          <>
+            <DirectionIcon aria-hidden="true" className="shrink-0" size={12} />
+            <span className="sr-only">{directionLabel}</span>
+          </>
+        ) : null}
+      </button>
+    </th>
+  );
 }
 
 export default function GameWindowsRoute({
@@ -57,8 +117,8 @@ export default function GameWindowsRoute({
   const { beginBusyMany, busyIds } = useBusyIds();
   const pageRef = useRef<HTMLElement | null>(null);
   const [gameWindowListScrollContainer, setGameWindowListScrollContainer] = useState<HTMLDivElement | null>(null);
+  const [sort, setSort] = useState<GameWindowListSortState>(DEFAULT_GAME_WINDOW_LIST_SORT);
   const displayById = useMemo(() => new Map(displays.map((display) => [display.id, display])), [displays]);
-  const gameWindowIds = useMemo(() => gameWindows.map((gameWindow) => gameWindow.id), [gameWindows]);
   const liveWindowById = useMemo(
     () => new Map(runtime.windows.map((window) => [window.windowId, window])),
     [runtime.windows]
@@ -67,6 +127,18 @@ export default function GameWindowsRoute({
     () => new Set(runtime.savedWindows?.filter((window) => window.state === "failed").map((window) => window.id)),
     [runtime.savedWindows]
   );
+  const stateLabelByWindowId = useMemo(
+    () => new Map(gameWindows.map((gameWindow) => [
+      gameWindow.id,
+      getGameWindowStateLabel(gameWindow, liveWindowById.get(gameWindow.id), failedWindowIds, runtime.recovery, t)
+    ])),
+    [failedWindowIds, gameWindows, liveWindowById, runtime.recovery, t]
+  );
+  const sortedGameWindows = useMemo(
+    () => sortGameWindows(gameWindows, sort, displayById, stateLabelByWindowId, t),
+    [displayById, gameWindows, sort, stateLabelByWindowId, t]
+  );
+  const gameWindowIds = useMemo(() => sortedGameWindows.map((gameWindow) => gameWindow.id), [sortedGameWindows]);
   const selection = useListSelection({
     orderedIds: gameWindowIds,
     scrollContainerRef: pageRef
@@ -130,6 +202,12 @@ export default function GameWindowsRoute({
     }));
   }
 
+  function handleSortChange(key: GameWindowListSortKey): void {
+    setSort((current) => current.key === key
+      ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: "asc" });
+  }
+
   async function remove(gameWindow: GameWindow): Promise<void> {
     const accepted = await confirm({
       title: t("gameWindows.delete.title").replace("{name}", gameWindow.name),
@@ -169,8 +247,14 @@ export default function GameWindowsRoute({
         title={t("gameWindows.title")}
         description={t("gameWindows.description")}
         actions={(
-          <Button className="page-header-control" disabled={!primaryDisplay || busyIds.has(newWindowBusyKey)} type="button" onClick={create}>
-            <Plus size={16} />
+          <Button
+            className="page-header-control gap-1.5 px-2.5"
+            disabled={!primaryDisplay || busyIds.has(newWindowBusyKey)}
+            type="button"
+            variant="outline"
+            onClick={create}
+          >
+            <Plus size={14} />
             {t("gameWindows.new")}
           </Button>
         )}
@@ -240,136 +324,184 @@ export default function GameWindowsRoute({
           onAction={primaryDisplay ? create : undefined}
         />
       ) : (
-        <Surface className="game-window-list-surface w-full overflow-hidden" variant="panel">
-          <div ref={setGameWindowListScrollContainer} className="relative overflow-x-auto">
-            <table className="game-window-list-table w-full min-w-[640px] table-fixed border-collapse text-left">
-              <caption className="sr-only">{t("gameWindows.title")}</caption>
-              <colgroup>
-                <col className="w-[31%]" />
-                <col className="w-[18%]" />
-                <col className="w-[25%]" />
-                <col className="w-[10%]" />
-                <col className="w-[16%]" />
-              </colgroup>
-              <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.window")}</th>
-                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.status")}</th>
-                  <th className="px-3 py-2.5 font-semibold" scope="col">{t("gameWindows.column.display")}</th>
-                  <th className="px-3 py-2.5 text-right font-semibold" scope="col">{t("gameWindows.column.tabs")}</th>
-                  <th className="px-3 py-2.5 text-right font-semibold" scope="col">{t("gameWindows.column.actions")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/45 text-body">
-                {gameWindows.map((gameWindow) => {
-                  const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
-                  const liveWindow = liveWindowById.get(gameWindow.id);
-                  const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
-                  const display = displayById.get(gameWindow.targetDisplay.id);
-                  const failed = failedWindowIds.has(gameWindow.id);
-                  const stateLabel = failed
-                    ? t("gameWindows.state.failed")
-                    : runtime.recovery
-                      ? t("gameWindows.state.restoring")
-                      : gameWindow.tabs.length === 0
-                        ? t("gameWindows.state.empty")
-                        : liveWindow?.visible
-                          ? t("gameWindows.state.open")
-                          : t("gameWindows.state.hidden");
-                  return (
-                    <tr
-                      key={gameWindow.id}
-                      ref={selection.registerItem(gameWindow.id)}
-                      className="group align-middle"
-                      data-selection-id={gameWindow.id}
-                      onClickCapture={(event) => selection.handleItemClick(event, gameWindow.id)}
-                    >
-                      <td className="px-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-foreground">{gameWindow.name}</p>
-                          {activeTab ? (
-                            <p className="mt-0.5 truncate text-control text-muted-foreground">
-                              {t("gameWindows.activeTab").replace("{name}", activeTab.name)}
-                            </p>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <Badge variant="secondary">{stateLabel}</Badge>
-                          <span className="truncate text-control text-muted-foreground">
-                            {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Select
-                          disabled={windowIsBusy}
-                          value={display ? String(display.id) : "unavailable"}
-                          onValueChange={(value) => changeDisplay(gameWindow, value)}
-                        >
-                          <SelectTrigger aria-label={t("gameWindows.targetDisplay")} className="w-full">
-                            <Monitor size={15} />
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {!display ? <SelectItem disabled value="unavailable">{t("gameWindows.displayUnavailable")}</SelectItem> : null}
-                            {displays.map((candidate) => (
-                              <SelectItem key={candidate.id} value={String(candidate.id)}>
-                                {candidate.label}{candidate.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-control text-muted-foreground">
-                        {t("gameWindows.tabCount").replace("{count}", String(gameWindow.tabs.length))}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            disabled={windowIsBusy}
-                            size="sm"
-                            type="button"
-                            onClick={() => void runWindow(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
-                          >
-                            <Eye size={15} />
-                            {t("gameWindows.show")}
-                          </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button aria-label={t("gameWindows.actions")} disabled={windowIsBusy} size="icon" type="button" variant="outline">
-                                <MoreHorizontal size={16} />
+        <div className="grid justify-items-start gap-2">
+          <Surface className="game-window-list-surface w-full overflow-hidden" variant="panel">
+            <div ref={setGameWindowListScrollContainer} className="relative overflow-auto">
+              <table className="game-window-list-table w-full min-w-[900px] border-collapse text-left">
+                <caption className="sr-only">{t("gameWindows.title")}</caption>
+                <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
+                  <tr>
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.window")}
+                      sort={sort}
+                      sortKey="name"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.status")}
+                      sort={sort}
+                      sortKey="status"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.display")}
+                      sort={sort}
+                      sortKey="display"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.active")}
+                      sort={sort}
+                      sortKey="active"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.tabs")}
+                      sort={sort}
+                      sortKey="tabs"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <th className="w-12 px-2 py-1" aria-label={t("gameWindows.column.actions")} scope="col" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/45 text-body">
+                  {sortedGameWindows.map((gameWindow) => {
+                    const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
+                    const liveWindow = liveWindowById.get(gameWindow.id);
+                    const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
+                    const display = displayById.get(gameWindow.targetDisplay.id);
+                    const displayLabel = getGameWindowDisplayLabel(gameWindow, displayById, t);
+                    const stateLabel = stateLabelByWindowId.get(gameWindow.id)!;
+                    return (
+                      <tr
+                        key={gameWindow.id}
+                        ref={selection.registerItem(gameWindow.id)}
+                        className={cn(
+                          "group align-middle transition-[background-color,box-shadow,opacity]",
+                          selection.isSelected(gameWindow.id) && "bg-activity/10"
+                        )}
+                        data-selection-id={gameWindow.id}
+                        onClickCapture={(event) => selection.handleItemClick(event, gameWindow.id)}
+                      >
+                        <td className="relative max-w-[280px] px-4 py-2 align-middle">
+                          <div className="min-w-0 pl-6">
+                            <div className="absolute inset-y-0 left-4 -ml-1.5 flex items-center">
+                              <Button
+                                aria-label={t("gameWindows.show")}
+                                className="h-5 w-5 shrink-0"
+                                disabled={windowIsBusy}
+                                size="icon"
+                                title={t("gameWindows.show")}
+                                type="button"
+                                variant="ghost"
+                                onClick={() => void runWindow(gameWindow.id, () => window.rionStudio.showGameWindow(gameWindow.id))}
+                              >
+                                <Eye size={10} />
                               </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                disabled={windowIsBusy || !liveWindow}
-                                onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
-                              >
-                                {t("gameWindows.hide")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                disabled={windowIsBusy || gameWindow.tabs.length === 0}
-                                onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
-                              >
-                                {t("gameWindows.stopAll")}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem className="text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
-                                <Trash2 className="mr-2" size={14} />
-                                {t("gameWindows.delete")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Surface>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-foreground">{gameWindow.name}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="max-w-[220px] px-4 py-2 align-middle">
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary">{stateLabel}</Badge>
+                            <span className="truncate text-control text-muted-foreground">
+                              {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="max-w-[260px] px-4 py-2 align-middle">
+                          <span className="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" title={displayLabel}>
+                            <Monitor aria-hidden="true" className="shrink-0" size={14} />
+                            <span className="truncate">{displayLabel}</span>
+                          </span>
+                        </td>
+                        <td className="max-w-[240px] px-4 py-2 align-middle text-muted-foreground">
+                          {activeTab ? <span className="block truncate">{activeTab.name}</span> : "—"}
+                        </td>
+                        <td className="px-4 py-2 align-middle text-muted-foreground">
+                          {t("gameWindows.tabCount").replace("{count}", String(gameWindow.tabs.length))}
+                        </td>
+                        <td className="relative w-12 p-0">
+                          <div className="absolute inset-0 grid place-items-center px-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  aria-label={t("gameWindows.actions")}
+                                  className="h-5 w-5"
+                                  disabled={windowIsBusy}
+                                  size="icon"
+                                  title={t("gameWindows.actions")}
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <MoreHorizontal size={10} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger disabled={windowIsBusy}>
+                                    <Monitor aria-hidden="true" className="shrink-0" size={14} />
+                                    {t("gameWindows.targetDisplay")}
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent>
+                                    <DropdownMenuRadioGroup
+                                      value={display ? String(display.id) : ""}
+                                      onValueChange={(value) => changeDisplay(gameWindow, value)}
+                                    >
+                                      {displays.map((candidate) => (
+                                        <DropdownMenuRadioItem key={candidate.id} value={String(candidate.id)}>
+                                          {candidate.label}{candidate.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}
+                                        </DropdownMenuRadioItem>
+                                      ))}
+                                    </DropdownMenuRadioGroup>
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                                <DropdownMenuItem
+                                  disabled={windowIsBusy || !liveWindow}
+                                  onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
+                                >
+                                  {t("gameWindows.hide")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                                  onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
+                                >
+                                  {t("gameWindows.stopAll")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
+                                  <Trash2 className="mr-2" size={14} />
+                                  {t("gameWindows.delete")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Surface>
+          <Button
+            className="gap-1.5 border-dashed bg-transparent px-2.5 text-muted-foreground shadow-none hover:text-foreground"
+            disabled={!primaryDisplay || busyIds.has(newWindowBusyKey)}
+            type="button"
+            variant="outline"
+            onClick={create}
+          >
+            <Plus aria-hidden="true" size={14} />
+            <span>{t("gameWindows.new")}</span>
+          </Button>
+        </div>
       )}
       <SelectionGroupOutlines
         container={gameWindowListScrollContainer}
@@ -447,4 +579,79 @@ function clampBounds(bounds: PixelBounds, area: PixelBounds): PixelBounds {
     width,
     height
   };
+}
+
+function getGameWindowStateLabel(
+  gameWindow: GameWindow,
+  liveWindow: { visible: boolean } | undefined,
+  failedWindowIds: ReadonlySet<string>,
+  recovery: EmbeddedRuntimeState["recovery"],
+  t: Translator
+): string {
+  if (failedWindowIds.has(gameWindow.id)) return t("gameWindows.state.failed");
+  if (recovery) return t("gameWindows.state.restoring");
+  if (gameWindow.tabs.length === 0) return t("gameWindows.state.empty");
+  return liveWindow?.visible ? t("gameWindows.state.open") : t("gameWindows.state.hidden");
+}
+
+function sortGameWindows(
+  gameWindows: readonly GameWindow[],
+  sort: GameWindowListSortState,
+  displayById: ReadonlyMap<number, DisplayInfo>,
+  stateLabelByWindowId: ReadonlyMap<string, string>,
+  t: Translator
+): GameWindow[] {
+  return gameWindows
+    .map((gameWindow, index) => ({ gameWindow, index }))
+    .sort((first, second) => {
+      const primary = compareGameWindows(first.gameWindow, second.gameWindow, sort.key, displayById, stateLabelByWindowId, t);
+      if (primary !== 0) {
+        return sort.direction === "asc" ? primary : -primary;
+      }
+
+      return compareText(first.gameWindow.name, second.gameWindow.name)
+        || first.gameWindow.createdAt.localeCompare(second.gameWindow.createdAt)
+        || first.index - second.index;
+    })
+    .map(({ gameWindow }) => gameWindow);
+}
+
+function compareGameWindows(
+  first: GameWindow,
+  second: GameWindow,
+  sortKey: GameWindowListSortKey,
+  displayById: ReadonlyMap<number, DisplayInfo>,
+  stateLabelByWindowId: ReadonlyMap<string, string>,
+  t: Translator
+): number {
+  switch (sortKey) {
+    case "name":
+      return compareText(first.name, second.name);
+    case "status":
+      return compareText(stateLabelByWindowId.get(first.id)!, stateLabelByWindowId.get(second.id)!);
+    case "display":
+      return compareText(getGameWindowDisplayLabel(first, displayById, t), getGameWindowDisplayLabel(second, displayById, t));
+    case "active":
+      return compareText(
+        first.tabs.find((tab) => tab.id === first.activeTabId)?.name ?? "",
+        second.tabs.find((tab) => tab.id === second.activeTabId)?.name ?? ""
+      );
+    case "tabs":
+      return first.tabs.length - second.tabs.length;
+  }
+}
+
+function getGameWindowDisplayLabel(
+  gameWindow: GameWindow,
+  displayById: ReadonlyMap<number, DisplayInfo>,
+  t: Translator
+): string {
+  const display = displayById.get(gameWindow.targetDisplay.id);
+  return display
+    ? `${display.label}${display.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}`
+    : t("gameWindows.displayUnavailable");
+}
+
+function compareText(first: string, second: string): number {
+  return first.localeCompare(second, undefined, { numeric: true, sensitivity: "base" });
 }

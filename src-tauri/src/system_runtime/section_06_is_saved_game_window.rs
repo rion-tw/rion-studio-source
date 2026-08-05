@@ -153,7 +153,6 @@ impl SystemRuntimeExecutor {
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
-            tab_activations: Arc::new(TabActivationCoordinator::default()),
             tab_drag_intents: Arc::new(TabDragIntentCoordinator::default()),
             tab_mutations: Arc::new(TabMutationCoordinator::default()),
             #[cfg(windows)]
@@ -499,38 +498,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
-        let window_id = self
-            .presentation
-            .tab_window(tab_id)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let changed = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|mut state| {
-                state.tabs.get(tab_id)?;
-                let changed = state.launch_phases.insert(tab_id.to_owned(), phase) != Some(phase);
-                Some(changed)
-            })
-            .unwrap_or(false);
-        if !window_id.is_empty()
-            && let Some(presentation) = self.presentation.existing(&window_id)
-            && let Ok(mut presentation) = presentation.lock()
-        {
-            presentation.update_phase(
-                tab_id,
-                match phase {
-                    LaunchPhase::Attaching => TabPresentationPhase::Attaching,
-                    LaunchPhase::Navigating => TabPresentationPhase::Loading,
-                    LaunchPhase::EssentialReady
-                    | LaunchPhase::OptionalHydrating
-                    | LaunchPhase::Ready => TabPresentationPhase::Ready,
-                    LaunchPhase::Degraded => TabPresentationPhase::Degraded,
-                },
-            );
-        }
+        let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
         if changed {
             self.record_runtime_stage(
                 format!("launch-phase:{tab_id}:{}", phase.as_str()),
@@ -622,12 +590,12 @@ impl SystemRuntimeExecutor {
 
     fn wait_for_optional_idle(&self) {
         loop {
-            let launch_busy = self.state.lock().ok().is_some_and(|state| {
-                state
-                    .launch_phases
-                    .values()
-                    .any(|phase| phase.blocks_optional_idle())
-            });
+            let launch_busy = self
+                .presentation
+                .statuses
+                .launch_phases()
+                .into_iter()
+                .any(LaunchPhase::blocks_optional_idle);
             if launch_busy {
                 std::thread::sleep(Duration::from_millis(50));
                 continue;

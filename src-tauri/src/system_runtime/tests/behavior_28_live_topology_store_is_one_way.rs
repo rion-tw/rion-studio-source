@@ -1,10 +1,9 @@
-fn topology_tab(id: &str) -> TabPresentation {
-    TabPresentation {
+fn topology_tab(id: &str) -> LiveTabRecord {
+    LiveTabRecord {
         audio_muted: false,
         closable: true,
         icon_data_url: None,
         id: id.to_owned(),
-        phase: TabPresentationPhase::Ready,
         persistable: true,
         role_ids: vec![format!("role-{id}")],
         role_slots: Vec::new(),
@@ -21,6 +20,8 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
     let store = LiveWindowTabStore::default();
     let receipt = store
         .commit(LiveTopologyCommitInput {
+            commit_id: "commit-cross-window".to_owned(),
+            source: "command",
             primary_window_id: "window-b".to_owned(),
             windows: vec![
                 LiveWindowTopologyCommit {
@@ -58,7 +59,9 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
 #[test]
 fn stale_live_topology_commit_is_superseded_without_mutating_memory() {
     let store = LiveWindowTabStore::default();
-    let commit = |sequence, tabs: Vec<TabPresentation>| LiveTopologyCommitInput {
+    let commit = |sequence, tabs: Vec<LiveTabRecord>| LiveTopologyCommitInput {
+        commit_id: format!("commit-{sequence}"),
+        source: "command",
         primary_window_id: "window-a".to_owned(),
         windows: vec![LiveWindowTopologyCommit {
             active_tab_id: tabs.first().map(|tab| tab.id.clone()),
@@ -85,10 +88,61 @@ fn stale_live_topology_commit_is_superseded_without_mutating_memory() {
 }
 
 #[test]
-fn native_projection_updates_cannot_change_live_topology() {
+fn stale_live_placement_is_superseded_without_rewriting_the_latest_geometry() {
     let store = LiveWindowTabStore::default();
-    store
-        .commit(LiveTopologyCommitInput {
+    let placement = |x| GameWindowPlacementRecord {
+        normal_bounds: StatePixelBoundsRecord {
+            x,
+            y: 20,
+            width: 960,
+            height: 640,
+        },
+        saved_work_area: StatePixelBoundsRecord {
+            x: 0,
+            y: 0,
+            width: 1440,
+            height: 900,
+        },
+        presentation: "normal".to_owned(),
+    };
+    let commit = |sequence, x| LiveWindowPlacementCommitInput {
+        placement: placement(x),
+        target_display: DisplayTargetRecord {
+            id: 1,
+            fingerprint: None,
+        },
+        ui_sequence: sequence,
+        window_generation: 3,
+        window_id: "window-a".to_owned(),
+    };
+
+    let latest = store.commit_placement(commit(8, 80)).unwrap();
+    let stale = store.commit_placement(commit(7, 10)).unwrap();
+
+    assert_eq!(latest.status, LiveTopologyCommitStatus::Applied);
+    assert_eq!(stale.status, LiveTopologyCommitStatus::Superseded);
+    assert_eq!(stale.revision, latest.revision);
+    let window = store.windows.lock().unwrap()["window-a"].clone();
+    assert_eq!(
+        window
+            .lock()
+            .unwrap()
+            .placement
+            .as_ref()
+            .unwrap()
+            .normal_bounds
+            .x,
+        80
+    );
+}
+
+#[test]
+fn native_projection_updates_cannot_change_live_topology() {
+    let registry = PresentationRegistry::default();
+    registry
+        .commit_live_topology(LiveTopologyCommitInput {
+            commit_id: "commit-projection-isolation".to_owned(),
+            source: "command",
             primary_window_id: "window-a".to_owned(),
             windows: vec![LiveWindowTopologyCommit {
                 active_tab_id: Some("tab-a".to_owned()),
@@ -100,16 +154,17 @@ fn native_projection_updates_cannot_change_live_topology() {
             }],
         })
         .unwrap();
-    let coordinator = store.windows.lock().unwrap()["window-a"].clone();
+    let coordinator = registry.live.windows.lock().unwrap()["window-a"].clone();
     let before = {
         let live = coordinator.lock().unwrap();
         (live.revision, live.all_tab_ids(), live.selected_tab_id.clone())
     };
     {
-        let mut state = coordinator.lock().unwrap();
-        state.projection.applied_revision = 999;
-        state.projection.applied_tab_id = Some("tab-b".to_owned());
-        state.projection.host_visibility = false;
+        let projection = registry.projection_coordinator("window-a").unwrap();
+        let mut projection = projection.lock().unwrap();
+        projection.applied_revision = 999;
+        projection.applied_tab_id = Some("tab-b".to_owned());
+        projection.host_visibility = false;
     }
     let after = {
         let live = coordinator.lock().unwrap();
@@ -117,4 +172,37 @@ fn native_projection_updates_cannot_change_live_topology() {
     };
 
     assert_eq!(after, before);
+}
+
+#[test]
+fn busy_native_projection_never_blocks_or_rolls_back_a_live_commit() {
+    let registry = PresentationRegistry::default();
+    let projection = registry.projection_coordinator("window-a").unwrap();
+    let projection_guard = projection.lock().unwrap();
+
+    let receipt = registry
+        .commit_live_topology(LiveTopologyCommitInput {
+            commit_id: "commit-while-projection-busy".to_owned(),
+            source: "appKit",
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some("tab-a".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![topology_tab("tab-a")],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        })
+        .unwrap();
+
+    assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
+    assert_eq!(
+        registry.tab_window("tab-a").unwrap().as_deref(),
+        Some("window-a")
+    );
+    assert!(registry.projection_membership_needs_follow());
+    drop(projection_guard);
+    assert!(registry.try_follow_live_projection_membership());
+    assert!(!registry.projection_membership_needs_follow());
 }

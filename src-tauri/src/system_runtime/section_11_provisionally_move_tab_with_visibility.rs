@@ -7,15 +7,21 @@ impl SystemRuntimeExecutor {
         live_drag: bool,
     ) -> Result<(), String> {
         let live_window_id = self.resolve_live_tab_window_id(tab_id).map_err(|error| error.message)?;
+        if live_window_id != target_window_id {
+            // A newer topology intent already chose another destination. Native
+            // projection work is stale and must never move the live tab back.
+            return Ok(());
+        }
         let (source_window_id, source_window, target_window, surfaces) = {
             let state = self
                 .state
                 .lock()
                 .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
-            let tab = state
-                .tabs
-                .get(tab_id)
-                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            let Some(tab) = state.tabs.get(tab_id) else {
+                // The visible tab may legitimately outlive its native resources
+                // while a surface is loading or after a late cleanup callback.
+                return Ok(());
+            };
             let source_window_id = state
                 .surface_registry
                 .values()
@@ -49,38 +55,10 @@ impl SystemRuntimeExecutor {
         if source_window_id == target_window_id {
             return Ok(());
         }
-        let presentation_precommitted = self
-            .presentation
-            .window_contains_tab(target_window_id, tab_id)
-            && !self
-                .presentation
-                .window_contains_tab(&source_window_id, tab_id);
-        let presentation_window_id = if presentation_precommitted {
-            target_window_id
-        } else {
-            source_window_id.as_str()
-        };
-        let tab_presentation = self
-            .presentation
-            .tab(presentation_window_id, tab_id)
-            .ok_or_else(|| "Runtime tab presentation was not found.".to_owned())?;
         let selected_tabs_before_move = self.presentation.selected_tabs();
-        let mut native_move = ProvisionalNativeTabMove {
-            relocated: false,
-            source_active_after_move: None,
-            source_active_before_move: selected_tabs_before_move.get(&source_window_id).cloned(),
-            tab: tab_presentation,
-            target_active_after_move: None,
-            target_active_before_move: selected_tabs_before_move.get(target_window_id).cloned(),
-        };
-        let tab_was_visible = if presentation_precommitted {
-            native_move.target_active_before_move.as_deref() == Some(tab_id)
-        } else {
-            native_move.source_active_before_move.as_deref() == Some(tab_id)
-        };
-        let source_window_was_visible = source_window
-            .is_visible()
-            .map_err(|error| error.to_string())?;
+        let tab_was_visible = selected_tabs_before_move
+            .get(target_window_id)
+            .is_some_and(|active_tab_id| active_tab_id == tab_id);
         let target_window_was_visible = target_window
             .is_visible()
             .map_err(|error| error.to_string())?;
@@ -89,41 +67,13 @@ impl SystemRuntimeExecutor {
         if hide_surfaces_before_reparent {
             for surface in &surfaces {
                 if let Err(error) = surface.hide() {
-                    let projection_notes = self.retain_live_destination_after_surface_error(
-                        tab_id,
-                        &source_window_id,
-                        target_window_id,
-                        &source_window,
-                        &target_window,
-                        &surfaces,
-                        0,
-                        false,
-                        &native_move,
-                        tab_was_visible,
-                        source_window_was_visible,
-                        target_window_was_visible,
-                    );
-                    return Err(self.surface_projection_error(error.to_string(), projection_notes));
+                    return Err(error.to_string());
                 }
             }
         }
-        for (index, surface) in surfaces.iter().enumerate() {
+        for surface in &surfaces {
             if let Err(error) = surface.reparent(&target_window) {
-                let projection_notes = self.retain_live_destination_after_surface_error(
-                    tab_id,
-                    &source_window_id,
-                    target_window_id,
-                    &source_window,
-                    &target_window,
-                    &surfaces,
-                    index + 1,
-                    false,
-                    &native_move,
-                    tab_was_visible,
-                    source_window_was_visible,
-                    target_window_was_visible,
-                );
-                return Err(self.surface_projection_error(error.to_string(), projection_notes));
+                return Err(error.to_string());
             }
         }
         #[cfg(windows)]
@@ -149,67 +99,19 @@ impl SystemRuntimeExecutor {
                     Err(&failure),
                     None,
                 );
-                let projection_notes = self.retain_live_destination_after_surface_error(
-                    tab_id,
-                    &source_window_id,
-                    target_window_id,
-                    &source_window,
-                    &target_window,
-                    &surfaces,
-                    surfaces.len(),
-                    false,
-                    &native_move,
-                    tab_was_visible,
-                    source_window_was_visible,
-                    target_window_was_visible,
-                );
-                return Err(self.surface_projection_error(failure.message, projection_notes));
+                return Err(failure.message);
             }
         }
         let (source_is_empty, moved_surfaces) = {
             let mut state = match self.state.lock() {
                 Ok(state) => state,
                 Err(_) => {
-                    let projection_notes = self.retain_live_destination_after_surface_error(
-                        tab_id,
-                        &source_window_id,
-                        target_window_id,
-                        &source_window,
-                        &target_window,
-                        &surfaces,
-                        surfaces.len(),
-                        false,
-                        &native_move,
-                        tab_was_visible,
-                        source_window_was_visible,
-                        target_window_was_visible,
-                    );
-                    return Err(self.surface_projection_error(
-                        "The System WebView runtime state lock was poisoned.".to_owned(),
-                        projection_notes,
-                    ));
+                    return Err("The System WebView runtime state lock was poisoned.".to_owned());
                 }
             };
             let Some(_tab) = state.tabs.get_mut(tab_id) else {
                 drop(state);
-                let projection_notes = self.retain_live_destination_after_surface_error(
-                    tab_id,
-                    &source_window_id,
-                    target_window_id,
-                    &source_window,
-                    &target_window,
-                    &surfaces,
-                    surfaces.len(),
-                    false,
-                    &native_move,
-                    tab_was_visible,
-                    source_window_was_visible,
-                    target_window_was_visible,
-                );
-                return Err(self.surface_projection_error(
-                    "Runtime tab was not found.".to_owned(),
-                    projection_notes,
-                ));
+                return Ok(());
             };
             for surface in state.surface_registry.values_mut() {
                 if surface.tab_id.as_deref() == Some(tab_id) {
@@ -236,72 +138,16 @@ impl SystemRuntimeExecutor {
                 surface,
             );
         }
-        let move_revision = self.presentation.next_revision();
-        if !presentation_precommitted
-            && let Err(message) = self.presentation.move_tab(
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                move_revision,
-            )
-        {
-            let projection_notes = self.retain_live_destination_after_surface_error(
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                &source_window,
-                &target_window,
-                &surfaces,
-                surfaces.len(),
-                true,
-                &native_move,
-                tab_was_visible,
-                source_window_was_visible,
-                target_window_was_visible,
-            );
-            return Err(self.surface_projection_error(message, projection_notes));
-        }
+        let move_revision = self
+            .presentation
+            .existing(target_window_id)
+            .and_then(|live| live.lock().ok().map(|live| live.revision))
+            .unwrap_or_else(|| self.presentation.current_revision());
         let selected_tabs_after_move = self.presentation.selected_tabs();
-        native_move.source_active_after_move =
-            selected_tabs_after_move.get(&source_window_id).cloned();
-        native_move.target_active_after_move =
-            selected_tabs_after_move.get(target_window_id).cloned();
-        #[cfg(any(windows, target_os = "macos"))]
-        let workspace_template = native_move.tab.workspace_template.as_deref();
-        #[cfg(not(any(windows, target_os = "macos")))]
-        let workspace_template: Option<&str> = None;
-        if !presentation_precommitted && let Err(error) = self.relocate_native_tab_reservation(
-            &source_window_id,
-            target_window_id,
-            tab_id,
-            &native_move.tab.title,
-            &native_move.tab.tab_type,
-            workspace_template,
-            native_move.source_active_after_move.as_deref(),
-            move_revision,
-        ) {
-            if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" {
-                self.health.mark_unhealthy();
-            }
-            let projection_notes = self.retain_live_destination_after_surface_error(
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                &source_window,
-                &target_window,
-                &surfaces,
-                surfaces.len(),
-                true,
-                &native_move,
-                tab_was_visible,
-                source_window_was_visible,
-                target_window_was_visible,
-            );
-            return Err(self.surface_projection_error(error.message, projection_notes));
-        }
-        native_move.relocated = !presentation_precommitted;
+        let source_active_after_move = selected_tabs_after_move.get(&source_window_id).cloned();
+        let target_active_after_move = selected_tabs_after_move.get(target_window_id).cloned();
         let source_presentation_result = if let Some(source_active_tab_id) =
-            native_move.source_active_after_move.as_deref()
+            source_active_after_move.as_deref()
         {
             self.request_tab_presentation(
                 source_active_tab_id,
@@ -318,29 +164,10 @@ impl SystemRuntimeExecutor {
             );
             Ok(())
         };
-        if let Err(message) = source_presentation_result {
-            if presentation_precommitted {
-                return Err(message);
-            }
-            let projection_notes = self.retain_live_destination_after_surface_error(
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                &source_window,
-                &target_window,
-                &surfaces,
-                surfaces.len(),
-                true,
-                &native_move,
-                tab_was_visible,
-                source_window_was_visible,
-                target_window_was_visible,
-            );
-            return Err(self.surface_projection_error(message, projection_notes));
-        }
+        source_presentation_result?;
         self.apply_native_active_style(
             target_window_id,
-            native_move.target_active_after_move.as_deref(),
+            target_active_after_move.as_deref(),
             move_revision,
             "provisional-move",
         );
@@ -364,31 +191,9 @@ impl SystemRuntimeExecutor {
             }
             Ok::<(), String>(())
         })();
-        if let Err(message) = reveal_result {
-            if presentation_precommitted {
-                return Err(message);
-            }
-            let projection_notes = self.retain_live_destination_after_surface_error(
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                &source_window,
-                &target_window,
-                &surfaces,
-                surfaces.len(),
-                true,
-                &native_move,
-                tab_was_visible,
-                source_window_was_visible,
-                target_window_was_visible,
-            );
-            return Err(self.surface_projection_error(message, projection_notes));
-        }
+        reveal_result?;
         if cfg!(target_os = "macos") && live_drag {
             self.schedule_live_tab_drag_layout(tab_id.to_owned());
-        }
-        if !presentation_precommitted && !live_drag {
-            self.publish_projection();
         }
         Ok(())
     }
@@ -414,32 +219,6 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Tab drag window was not found.".to_owned())?
             .show()
             .map_err(|error| error.to_string())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn retain_live_destination_after_surface_error(
-        &self,
-        _tab_id: &str,
-        _source_window_id: &str,
-        _target_window_id: &str,
-        _source_window: &Window,
-        _target_window: &Window,
-        _surfaces: &[Webview],
-        _reparent_attempted: usize,
-        _state_committed: bool,
-        _native_move: &ProvisionalNativeTabMove,
-        _tab_was_visible: bool,
-        _source_window_was_visible: bool,
-        _target_window_was_visible: bool,
-    ) -> Vec<String> {
-        // LiveWindowTabState already owns the destination. A partially applied
-        // native projection is retried toward that destination and can never
-        // move the tab or any surface back to its previous window.
-        Vec::new()
-    }
-
-    fn surface_projection_error(&self, original: String, _projection_notes: Vec<String>) -> String {
-        original
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {

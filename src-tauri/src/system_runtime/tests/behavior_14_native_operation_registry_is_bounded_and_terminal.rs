@@ -355,7 +355,7 @@ fn background_tab_presentation_timeout_is_superseded_without_user_error() {
 
     let receipt = registry.wait(&operation_id).unwrap();
     assert_eq!(receipt.status, NativeOperationStatus::Superseded);
-    assert_eq!(receipt.stage, "backgroundTabPresentationSuperseded");
+    assert_eq!(receipt.stage, "backgroundLiveTabRecordSuperseded");
     assert_eq!(receipt.failure_code, None);
 }
 

@@ -14,7 +14,7 @@ fn persisted_role_slots_from_effect(
 }
 
 impl SystemRuntimeExecutor {
-    fn live_game_window_tabs(live: &LiveWindowTabState) -> Vec<GameWindowTabRecord> {
+    fn live_game_window_tabs(live: &LiveWindowRecord) -> Vec<GameWindowTabRecord> {
         live.tabs
             .iter()
             .filter(|tab| tab.persistable)

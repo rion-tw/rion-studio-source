@@ -22,29 +22,18 @@ fn drag_cursor_lease_requires_the_exact_session_and_window_generation() {
 }
 
 #[test]
-fn closing_workspace_fences_its_roles_but_not_unrelated_launcher_sources() {
+fn closing_workspace_tombstone_fences_only_its_exact_owned_slot_generation() {
     let close = TabCloseTombstone {
         revision: 10,
-        role_ids: vec!["role-a".to_owned(), "role-b".to_owned()],
         slot_owners: vec![("slot-a".to_owned(), "role-a".to_owned(), Some(4))],
         source_id: "workspace-a".to_owned(),
         tab_type: "workspace".to_owned(),
         window_id: "window-a".to_owned(),
     };
 
-    assert!(tab_close_matches_launcher_source(
-        &close,
-        "workspace-a",
-        "workspace"
-    ));
-    assert!(tab_close_matches_launcher_source(&close, "role-a", "role"));
-    assert!(tab_close_matches_launcher_source(&close, "role-b", "role"));
-    assert!(!tab_close_matches_launcher_source(
-        &close,
-        "workspace-b",
-        "workspace"
-    ));
-    assert!(!tab_close_matches_launcher_source(&close, "role-c", "role"));
+    assert_eq!(close.slot_owners[0].0, "slot-a");
+    assert_eq!(close.slot_owners[0].1, "role-a");
+    assert_eq!(close.slot_owners[0].2, Some(4));
 }
 
 #[test]
@@ -55,7 +44,6 @@ fn successful_native_destroy_retires_the_stable_tab_close_fence() {
         "tab-a".to_owned(),
         TabCloseTombstone {
             revision: 11,
-            role_ids: vec!["role-a".to_owned()],
             slot_owners: vec![("slot-a".to_owned(), "role-a".to_owned(), Some(3))],
             source_id: "role-a".to_owned(),
             tab_type: "role".to_owned(),

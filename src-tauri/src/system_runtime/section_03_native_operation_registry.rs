@@ -34,7 +34,7 @@ fn native_operation_timeout_receipt(
     {
         return NativeOperationReceipt::with_status(
             operation.context,
-            "backgroundTabPresentationSuperseded",
+            "backgroundLiveTabRecordSuperseded",
             NativeOperationStatus::Superseded,
             None,
         );

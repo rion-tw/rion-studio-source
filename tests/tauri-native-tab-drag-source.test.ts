@@ -3,7 +3,7 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("native tab drag latest-intent transaction", () => {
-  it("serializes callbacks and fences stale native projections", async () => {
+  it("serializes callbacks while stale semantic events become superseded", async () => {
     const [runtime, macBridge, coordinator, contract, activation] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
@@ -28,7 +28,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macBridge).toContain("stamp_native_tab_drag_action(");
     expect(macBridge).toContain("coalesce_native_tab_drag_actions(");
     expect(macBridge).toContain("release_terminal_tab_drag_pointer_passthrough(");
-    expect(macBridge).toContain('error.code != "TAURI_TAB_DRAG_STALE"');
+    expect(macBridge).not.toContain("TAURI_TAB_DRAG_STALE");
     expect(runtime).toContain("struct TabDragIntentCoordinator");
     expect(runtime).toContain("release_tab_drag_pointer_passthrough(");
     expect(runtime).toContain("projection_is_superseded(");
@@ -44,6 +44,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(contract).toContain(
       '#[cfg(target_os = "macos")]\n    pub(crate) fn stamp_native_tab_drag_action('
     );
+    expect(contract).not.toContain("with_topology_revision");
     expect(activation).toContain("Arc, Mutex, OnceLock");
     expect(activation).not.toContain("tab_drag_projection_queue:");
   });
@@ -146,7 +147,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(contract).toContain("fn tab_drag_defers_native_mutations(is_windows: bool");
     expect(contract).toContain("is_windows");
     expect(handler).toContain("finish_deferred_tab_drag_session(");
-    expect(commit).toContain("self.presentation.move_tab(");
+    expect(commit).toContain("self.presentation.commit_live_topology(LiveTopologyCommitInput");
+    expect(commit).toContain("primary_window_id: target_window_id.to_owned()");
     expect(commit).toContain("schedule_native_tab_drag_chrome_retry(");
     expect(commit).toContain("schedule_tab_surface_move_retry(");
     expect(handler).toContain("Some(&ordered_tab_ids)");
@@ -155,7 +157,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(move).toContain("surface.show()");
     expect(move).toContain('cfg!(target_os = "macos") && live_drag');
     expect(move).toContain("schedule_live_tab_drag_layout(tab_id.to_owned())");
-    expect(handler).toContain("provisionally_move_tab_for_live_drag(");
+    expect(handler).not.toContain("provisionally_move_tab_for_live_drag(");
     expect(move).not.toContain("tab_drag_presentation_preview");
   });
 
@@ -185,8 +187,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).not.toContain("hideDragSurfaceForTabIdentifier");
     expect(macController).toContain("promotesExternalDragGhost");
     expect(handler).not.toContain("preview_parked_tab_drag_hover");
-    expect(handler).toContain("attach_tab_drag_session(");
-    expect(handler).toContain("!session.single_tab && matches!(session.phase");
+    expect(handler).toContain("process_tab_drag_motion(");
+    expect(handler).toContain("GameWindowTabDragPhase::Attached");
   });
 
   it("carries an exact terminal order across the macOS bridge", async () => {

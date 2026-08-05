@@ -231,7 +231,6 @@ impl AppCore {
                 )?,
                 source_id: workspace.id.clone(),
                 name: workspace.name.clone(),
-                window_id: target.window_id.clone(),
                 tab_type: "workspace".to_owned(),
                 workspace_id: Some(workspace.id.clone()),
                 role_slots: workspace

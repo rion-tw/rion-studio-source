@@ -16,7 +16,6 @@ impl AppCore {
             window_ids.clone(),
             window_ids,
             None,
-            None,
         )?)
         .map_err(|error| CoreError::Internal(error.to_string()))
     }

@@ -655,24 +655,20 @@ impl AppCore {
             CoreCommand::EmbeddedWindowRegister { target } => {
                 let window_id = target.window_id.clone();
                 serde_json::to_value(self.apply_embedded_runtime_command(
-                    vec![BrowserRuntimeCommand::RegisterWindow {
-                        window_id: window_id.clone(),
-                    }],
+                    Vec::new(),
                     Some(target),
                     vec![window_id.clone()],
                     vec![window_id],
                     None,
-                    None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
-            CoreCommand::EmbeddedWindowDelete { window_id } => {
+            CoreCommand::EmbeddedWindowDelete { window_id: _ } => {
                 serde_json::to_value(self.apply_embedded_runtime_command(
-                    vec![BrowserRuntimeCommand::RemoveWindow { window_id }],
+                    Vec::new(),
                     None,
                     Vec::new(),
                     Vec::new(),
-                    None,
                     None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))

@@ -182,36 +182,6 @@ async fn rion_runtime_tab_action(
         return Ok(Value::Null);
     }
     #[cfg(windows)]
-    if action.get("type").and_then(Value::as_str) == Some("tabActivationApplied") {
-        let acknowledgement = action
-            .get("acknowledgement")
-            .cloned()
-            .ok_or_else(|| {
-                shell_error(
-                    "TAURI_RUNTIME_TAB_ACTIVATION_ACK_INVALID",
-                    "The tab activation acknowledgement is required.",
-                )
-            })
-            .and_then(|value| {
-                serde_json::from_value::<rion_core::RuntimeTabActivationAcknowledgementRecord>(
-                    value,
-                )
-                .map_err(|error| {
-                    shell_error(
-                        "TAURI_RUNTIME_TAB_ACTIVATION_ACK_INVALID",
-                        error.to_string(),
-                    )
-                })
-            })?;
-        state
-            .runtime
-            .acknowledge_tab_activation_presentation(webview.label(), acknowledgement)
-            .map_err(|message| {
-                shell_error("TAURI_RUNTIME_TAB_ACTIVATION_ACK_INVALID", message)
-            })?;
-        return Ok(Value::Null);
-    }
-    #[cfg(windows)]
     if action.get("type").and_then(Value::as_str) == Some("presentationApplied") {
         let revision = action
             .get("revision")

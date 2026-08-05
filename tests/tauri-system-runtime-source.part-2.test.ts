@@ -76,7 +76,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsTabStrip).toContain("__rionUpdateRuntimeTabMetadataBatch");
     expect(windowsTabStrip).not.toContain("__rionApplyRuntimeTabState");
     expect(windowsTabStrip).not.toContain("display_inventory");
-    expect(windowsTabStrip).toContain("presented.phase.as_str()");
+    expect(windowsTabStrip).toContain(".presentation_phase(&tab.id)");
     const nativeMacTabs = runtime.slice(
       runtime.indexOf("fn sync_native_tab_metadata("),
       runtime.indexOf("fn sync_windows_tab_metadata(")
@@ -92,7 +92,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       applyRuntime.indexOf("synchronize_windows_reparented_surfaces(")
     );
     expect(applyRuntime.indexOf("synchronize_windows_reparented_surfaces(")).toBeLessThan(
-      applyRuntime.indexOf("let (obsolete_window_ids, moved_registry_surfaces)")
+      applyRuntime.indexOf("let moved_registry_surfaces")
     );
     expect(applyRuntime).not.toContain("move_tab_with_activation(");
     expect(applyRuntime).not.toContain("relocate_native_tab_reservation(");
@@ -100,12 +100,13 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).toContain("reorder_native_tabs_for_projection(");
     expect(applyRuntime).toContain("let projected_native_tab_window_ids = snapshot");
     expect(applyRuntime).not.toContain("resolved_runtime_window_selection(");
-    expect(applyRuntime).toContain("selection belongs exclusively to");
-    expect(applyRuntime).toContain("dispatch_native_presentation(");
+    expect(applyRuntime).toContain("presentation_after");
+    expect(applyRuntime).not.toContain("dispatch_native_presentation(");
+    expect(applyRuntime).toContain("request_window_contract_presentation(");
     expect(applyRuntime).toContain("NativePresentationFocus::WindowAndContent");
     expect(applyRuntime).toContain("schedule_tab_surface_move_retry(");
     expect(applyRuntime).not.toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
-    expect(applyRuntime).toContain("self.presentation.remove(&window_id)");
+    expect(applyRuntime).not.toContain("self.presentation.remove(&window_id)");
     expect(applyRuntime).not.toContain("visibility_mutations");
     expect(applyRuntime).not.toContain("webview.set_focus()");
     expect(applyRuntime).not.toContain("surface.show()");
@@ -141,7 +142,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(closeRuntimeWindow).toContain("allow_window_close_labels.remove(label)");
     expect(closeRuntimeWindow).toContain("window_closes.pending_operation_id(label)");
     expect(closeRuntimeWindow).toContain("accept_window_close_operation");
-    expect(closeRuntimeWindow).toContain('with_completion_scope(if native_expected');
+    expect(closeRuntimeWindow).toContain(
+      "with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)"
+    );
     expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Pending");
     expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Start");
     expect(closeRuntimeWindow).toContain("complete_window_destroyed");

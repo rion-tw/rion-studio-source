@@ -27,29 +27,41 @@ impl SystemRuntimeExecutor {
             revision,
             source_id,
             tab_type,
-            role_ids,
         ) = {
-            let presentation = self.presentation.coordinator(&window_id)?;
-            let revision = self.presentation.next_revision();
-            let mut window_state = presentation.lock().map_err(|_| {
+            let presentation = self
+                .presentation
+                .existing(&window_id)
+                .ok_or_else(|| "The live runtime window is no longer available.".to_owned())?;
+            let mut next = presentation.lock().map_err(|_| {
                 "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?;
-            let presentation_tab = window_state
+            })?.clone();
+            let presentation_tab = next
                 .tabs
                 .iter()
                 .find(|tab| tab.id == tab_id)
                 .cloned()
                 .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
-            let original_active_tab_id = window_state.selected_tab_id.clone();
-            let previous_surfaces = window_state.surfaces(original_active_tab_id.as_deref());
+            let original_active_tab_id = next.selected_tab_id.clone();
+            let previous_surfaces = self
+                .presentation
+                .surfaces(&window_id, original_active_tab_id.as_deref());
             let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
-                successor_tab_after_close(&window_state.tab_ids(), tab_id, |_| true)
+                successor_tab_after_close(&next.tab_ids(), tab_id, |_| true)
             } else {
                 original_active_tab_id.clone()
             };
-            window_state.remove_tab(tab_id, revision);
-            window_state.select(next_tab_id.clone(), revision);
-            let next_surfaces = window_state.surfaces(next_tab_id.as_deref());
+            next.remove_tab(tab_id, 0);
+            next.select(next_tab_id.clone(), 0);
+            let receipt = self
+                .presentation
+                .commit_live_window_record("command", &window_id, &next)?;
+            if receipt.status == LiveTopologyCommitStatus::Superseded {
+                return Err("The tab close was superseded by newer live topology.".to_owned());
+            }
+            let revision = receipt.revision;
+            let next_surfaces = self
+                .presentation
+                .surfaces(&window_id, next_tab_id.as_deref());
             let active_webview = next_surfaces.first().cloned();
             (
                 original_active_tab_id,
@@ -60,9 +72,9 @@ impl SystemRuntimeExecutor {
                 revision,
                 presentation_tab.source_id,
                 presentation_tab.tab_type,
-                presentation_tab.role_ids,
             )
         };
+        self.schedule_live_projection_membership_follow();
         let isolation_surfaces = {
             let mut state = self.state().map_err(|error| error.message)?;
             let isolation_surfaces = state
@@ -96,7 +108,6 @@ impl SystemRuntimeExecutor {
                 tab_id.to_owned(),
                 TabCloseTombstone {
                     revision,
-                    role_ids,
                     slot_owners,
                     source_id: source_id.clone(),
                     tab_type: tab_type.clone(),
@@ -107,7 +118,6 @@ impl SystemRuntimeExecutor {
         };
         let elapsed = started.elapsed();
         self.publish_launcher_presence();
-        self.apply_native_active_style(&window_id, next_tab_id.as_deref(), revision, "close");
         self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
         if let Some(window) = self.window_for_id(&window_id) {
             self.dispatch_native_presentation(
@@ -127,7 +137,7 @@ impl SystemRuntimeExecutor {
             );
         }
         self.request_preview_surface_isolation(isolation_surfaces);
-        // A window close flushes the complete pre-close LiveWindowTabState before
+        // A window close flushes the complete pre-close LiveWindowRecord before
         // BrowserWindowStop starts isolating its tabs. Those teardown tombstones
         // are not user tab mutations and must never overwrite that final snapshot
         // with one tab, then zero tabs, on the debounced persistence lane.
@@ -268,22 +278,17 @@ impl SystemRuntimeExecutor {
     /// role-owner runtime. Core tab/window membership is deliberately ignored.
     fn compose_live_runtime_snapshot(
         &self,
-        mut snapshot: BrowserRuntimeSnapshot,
+        roles: Vec<BrowserRuntimeRoleRecord>,
     ) -> Option<BrowserRuntimeSnapshot> {
         let mut live_windows = self.presentation.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
         live_windows.sort_by(|left, right| left.0.cmp(&right.0));
-        let owner_by_role = snapshot
-            .roles
+        let owner_by_role = roles
             .iter()
             .map(|role| (role.role_id.as_str(), role))
             .collect::<HashMap<_, _>>();
-        let mut core_tabs = snapshot
-            .tabs
-            .drain(..)
-            .map(|tab| (tab.id.clone(), tab))
-            .collect::<HashMap<_, _>>();
         let mut tabs = Vec::new();
         let mut windows = Vec::new();
+        let mut workspaces = Vec::new();
         for (window_id, live) in &live_windows {
             let tab_ids = live.all_tab_ids();
             windows.push(BrowserRuntimeWindowRecord {
@@ -294,79 +299,62 @@ impl SystemRuntimeExecutor {
                 tab_ids,
             });
             for tab in &live.tabs {
-                let previous_slots = core_tabs
-                    .get(&tab.id)
-                    .map(|tab| tab.slots.clone())
-                    .unwrap_or_default();
                 let slots = tab
                     .role_slots
                     .iter()
                     .map(|slot| {
-                        previous_slots
-                            .iter()
-                            .find(|existing| existing.slot_id == slot.slot_id)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                let owner = owner_by_role.get(slot.role_id.as_str());
-                                let owned_here = owner.is_some_and(|role| {
-                                    role.owner.tab_id == tab.id
-                                        && role.owner.slot_id == slot.slot_id
-                                });
-                                RuntimeRoleSlotRecord {
-                                    slot_id: slot.slot_id.clone(),
-                                    role_id: slot.role_id.clone(),
-                                    rect: slot.rect.clone(),
-                                    browser_zoom_percent: slot.browser_zoom_percent,
-                                    state: owner.map_or("available", |role| {
-                                        if owned_here {
-                                            role.state.as_str()
-                                        } else {
-                                            "blocked"
-                                        }
-                                    }).to_owned(),
-                                    owner: owner.map(|role| role.owner.clone()),
-                                }
-                            })
+                        let owner = owner_by_role.get(slot.role_id.as_str());
+                        let owned_here = owner.is_some_and(|role| {
+                            role.owner.tab_id == tab.id && role.owner.slot_id == slot.slot_id
+                        });
+                        RuntimeRoleSlotRecord {
+                            slot_id: slot.slot_id.clone(),
+                            role_id: slot.role_id.clone(),
+                            rect: slot.rect.clone(),
+                            browser_zoom_percent: slot.browser_zoom_percent,
+                            state: owner
+                                .map_or("available", |role| {
+                                    if owned_here {
+                                        role.state.as_str()
+                                    } else {
+                                        "blocked"
+                                    }
+                                })
+                                .to_owned(),
+                            owner: owner.map(|role| role.owner.clone()),
+                        }
                     })
-                    .collect();
-                let mut projected = core_tabs.remove(&tab.id).unwrap_or(BrowserRuntimeTabRecord {
+                    .collect::<Vec<_>>();
+                let projected = BrowserRuntimeTabRecord {
                     id: tab.id.clone(),
                     source_id: tab.source_id.clone(),
                     name: tab.title.clone(),
                     window_id: window_id.clone(),
                     tab_type: tab.tab_type.clone(),
                     workspace_id: (tab.tab_type == "workspace").then(|| tab.source_id.clone()),
-                    slots: Vec::new(),
-                    hidden: false,
-                });
-                projected.source_id = tab.source_id.clone();
-                projected.name = tab.title.clone();
-                projected.window_id = window_id.clone();
-                projected.tab_type = tab.tab_type.clone();
-                projected.workspace_id =
-                    (tab.tab_type == "workspace").then(|| tab.source_id.clone());
-                projected.slots = slots;
-                projected.hidden = live.tab_is_hidden(&tab.id);
+                    slots: slots.clone(),
+                    hidden: live.tab_is_hidden(&tab.id),
+                };
+                if tab.tab_type == "workspace" {
+                    workspaces.push(BrowserRuntimeWorkspaceRecord {
+                        workspace_id: tab.source_id.clone(),
+                        name: tab.title.clone(),
+                        runtime: "embedded".to_owned(),
+                        window_id: window_id.clone(),
+                        tab_id: tab.id.clone(),
+                        role_ids: tab.role_ids.clone(),
+                        state: projected_workspace_state(&slots).to_owned(),
+                    });
+                }
                 tabs.push(projected);
             }
         }
-        snapshot.workspaces.retain_mut(|workspace| {
-            let Some((window_id, tab)) = live_windows.iter().find_map(|(window_id, live)| {
-                live.tabs
-                    .iter()
-                    .find(|tab| tab.tab_type == "workspace" && tab.source_id == workspace.workspace_id)
-                    .map(|tab| (window_id, tab))
-            }) else {
-                return false;
-            };
-            workspace.window_id = window_id.clone();
-            workspace.tab_id = tab.id.clone();
-            workspace.role_ids = tab.role_ids.clone();
-            true
-        });
-        snapshot.windows = windows;
-        snapshot.tabs = tabs;
-        Some(snapshot)
+        Some(BrowserRuntimeSnapshot {
+            windows,
+            roles,
+            tabs,
+            workspaces,
+        })
     }
 
     pub fn restore_tab_audio_muted(&self, source_id: &str, muted: bool) -> Result<(), String> {
@@ -387,6 +375,22 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)
     }
 
+}
+
+fn projected_workspace_state(slots: &[RuntimeRoleSlotRecord]) -> &'static str {
+    if slots.iter().any(|slot| slot.state == "stopping") {
+        "stopping"
+    } else if slots.iter().all(|slot| slot.state == "running") {
+        "running"
+    } else if slots.iter().any(|slot| slot.state == "launching")
+        && slots
+            .iter()
+            .all(|slot| matches!(slot.state.as_str(), "launching" | "running"))
+    {
+        "launching"
+    } else {
+        "partial"
+    }
 }
 
 fn retire_completed_tab_close_fence(

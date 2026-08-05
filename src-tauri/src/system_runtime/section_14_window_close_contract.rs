@@ -150,11 +150,7 @@ impl SystemRuntimeExecutor {
             trigger,
             WINDOW_CLOSE_TIMEOUT,
         )
-        .with_completion_scope(if native_expected {
-            SystemRuntimeOperationCompletionScope::NativeDestroyed
-        } else {
-            SystemRuntimeOperationCompletionScope::StateCommit
-        })
+        .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_window(window_id)
         .with_lifecycle_epoch(self.lifecycle_epoch());
         if let Some((_, generation)) = host.as_ref() {
@@ -213,6 +209,49 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
+    pub(crate) fn commit_visible_window_close(
+        &self,
+        operation_id: &str,
+        window_id: &str,
+    ) -> RuntimeResult<(Vec<String>, SystemRuntimeOperationSummaryRecord)> {
+        let tab_ids = self.live_window_tab_ids(window_id).unwrap_or_default();
+        for tab_id in &tab_ids {
+            if let Err(message) = self.preview_tab_close(tab_id) {
+                eprintln!(
+                    "Late tab close intent was retired while closing its window: window={window_id} tab={tab_id} error={message}"
+                );
+            }
+        }
+        self.presentation.remove(window_id);
+
+        let native_window = {
+            let mut state = self.state()?;
+            let native_window = state.display_hosts.get(window_id).map(|host| host.window.clone());
+            if let Some(window) = native_window.as_ref() {
+                state
+                    .allow_window_close_labels
+                    .insert(window.label().to_owned());
+            }
+            native_window
+        };
+        if native_window.is_some() {
+            self.mark_window_close_native_submitted(operation_id)?;
+        }
+        if let Some(window) = native_window
+            && let Err(error) = window.close()
+        {
+            // The live close is already committed and cannot be rolled back.
+            // A retained host remains available to the cleanup follower, which
+            // will submit close again after exact role isolation.
+            eprintln!(
+                "Native Game Window close submission will be retried by cleanup: window={window_id} error={error}"
+            );
+        }
+        let receipt = self.complete_window_close_state_commit(operation_id);
+        self.publish_launcher_presence();
+        Ok((tab_ids, receipt))
+    }
+
     pub(crate) fn complete_window_close_state_commit(
         &self,
         operation_id: &str,
@@ -223,6 +262,39 @@ impl SystemRuntimeExecutor {
             NativeOperationStatus::Applied,
             None,
         )
+    }
+
+    pub(crate) fn current_window_close_summary(
+        &self,
+        operation_id: &str,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        if let Some(receipt) = self.operations.terminal(operation_id) {
+            return receipt.summary();
+        }
+        let context = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .window_closes
+                    .get(operation_id)
+                    .map(|transaction| transaction.context.clone())
+            })
+            .unwrap_or_else(|| {
+                NativeOperationContext::new(
+                    NativeOperationSubsystem::WindowLifecycle,
+                    "window-close-superseded",
+                    Duration::ZERO,
+                )
+            });
+        NativeOperationReceipt::with_status(
+            context,
+            "windowCloseAlreadyAccepted",
+            NativeOperationStatus::Superseded,
+            None,
+        )
+        .summary()
     }
 
     pub(crate) fn cancel_window_close_operation(

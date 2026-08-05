@@ -29,7 +29,6 @@ use activation::ActivationServer;
 use system_runtime::{
     RuntimeTabDragTerminalStatus, RuntimeTabMutationAcceptance,
     RuntimeTabMutationProjectionOutcome, RuntimeTabMutationTerminalStatus, SystemRuntimeExecutor,
-    TabActivationComponentStatus,
 };
 
 const CORE_EVENTS_EVENT: &str = "rion://core-events";
@@ -53,7 +52,9 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
         CoreEffectAction::EmbeddedDestroyRole { .. } => "embeddedDestroyRole",
         CoreEffectAction::EmbeddedClaimRoleSlot { .. } => "embeddedClaimRoleSlot",
         CoreEffectAction::EmbeddedDestroyTab { .. } => "embeddedDestroyTab",
-        CoreEffectAction::EmbeddedApplyRuntime { .. } => "embeddedApplyRuntime",
+        CoreEffectAction::EmbeddedFollowRoleOwnership { .. } => {
+            "embeddedFollowRoleOwnership"
+        }
         CoreEffectAction::OverlayOpenMacroPage { .. } => "overlayOpenMacroPage",
         CoreEffectAction::OverlayCopyCoordinate { .. } => "overlayCopyCoordinate",
         CoreEffectAction::BrowserAction { .. } => "browserAction",
@@ -114,7 +115,6 @@ pub(crate) fn preview_and_commit_adjacent_tab_selection(
             state,
             window_id,
             &target_tab_id,
-            None,
         )
     {
         eprintln!("Adjacent tab selection commit could not be scheduled: {message}");
@@ -147,7 +147,6 @@ fn preview_and_commit_tab_selection_inner(
                 state,
                 &window_id,
                 &resolved_tab_id,
-                None,
             )
     {
         eprintln!("Runtime tab selection commit could not be scheduled: {message}");
@@ -170,7 +169,7 @@ pub(crate) fn preview_and_schedule_native_tab_selection(
         result => result?,
     };
     if !provisional {
-        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id, None)?;
+        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)?;
     }
     monitor_background_tab_presentation(Arc::clone(&state.runtime), operation_id);
     Ok(())
@@ -197,17 +196,11 @@ pub(crate) fn commit_previewed_tab_selection(
     state: &CoreState,
     window_id: &str,
     tab_id: &str,
-    activation_operation_id: Option<&str>,
 ) -> Result<(), String> {
     state
         .runtime
         .tab_selection_revision(window_id, tab_id)
         .ok_or_else(|| "The previewed tab selection is no longer current.".to_owned())?;
-    if let Some(operation_id) = activation_operation_id {
-        state
-            .runtime
-            .finish_tab_activation_core(operation_id, TabActivationComponentStatus::Applied);
-    }
     state
         .runtime
         .schedule_live_window_state_persistence(window_id);
@@ -232,7 +225,6 @@ impl ApplicationExitGuard {
 #[derive(Clone)]
 enum GameWindowTabDragPhase {
     Previewing,
-    AwaitingDropIntent,
     Attached,
     Floating,
     Finishing,
@@ -270,7 +262,6 @@ struct GameWindowTabDragSession {
     tab_width: f64,
     target: EmbeddedLaunchTargetRecord,
     title: String,
-    topology_revision: u64,
     lifecycle_epoch: u64,
     window_anchor: Option<(f64, f64)>,
     window_was_moved: bool,

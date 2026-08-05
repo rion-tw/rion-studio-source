@@ -284,12 +284,11 @@
         {
             let mut state = coordinator.lock().unwrap();
             state.insert_tab(
-                TabPresentation {
+                LiveTabRecord {
                     audio_muted: false,
                     closable: true,
                     icon_data_url: None,
                     id: "provisional-a".to_owned(),
-                    phase: TabPresentationPhase::Reserved,
                     persistable: false,
                     role_ids: vec!["role-a".to_owned()],
                     role_slots: Vec::new(),
@@ -311,12 +310,11 @@
 
         coordinator.lock().unwrap().replace_tab_id(
             "provisional-a",
-            TabPresentation {
+            LiveTabRecord {
                 audio_muted: false,
                 closable: true,
                 icon_data_url: None,
                 id: "runtime-a".to_owned(),
-                phase: TabPresentationPhase::Attaching,
                 persistable: true,
                 role_ids: vec!["role-a".to_owned()],
                 role_slots: Vec::new(),
@@ -338,7 +336,7 @@
     fn launcher_presence_uses_presented_workspace_role_membership_until_removal() {
         let registry = PresentationRegistry::default();
         let coordinator = registry.coordinator("window-b").unwrap();
-        let mut workspace = presentation_tab("workspace-tab", TabPresentationPhase::Failed);
+        let mut workspace = presentation_tab("workspace-tab", TabRuntimePhase::Failed);
         workspace.source_id = "workspace-a".to_owned();
         workspace.tab_type = "workspace".to_owned();
         workspace.role_ids = vec!["role-a".to_owned(), "role-b".to_owned()];
@@ -375,7 +373,7 @@
             .lock()
             .unwrap()
             .insert_tab(
-                presentation_tab("reserved-role", TabPresentationPhase::Reserved),
+                presentation_tab("reserved-role", TabRuntimePhase::Reserved),
                 1,
                 true,
             );
@@ -385,7 +383,7 @@
             .lock()
             .unwrap()
             .insert_tab(
-                presentation_tab("ready-role", TabPresentationPhase::Ready),
+                presentation_tab("ready-role", TabRuntimePhase::Ready),
                 2,
                 true,
             );
@@ -464,13 +462,8 @@
             }
         ));
         assert!(!is_independent_tab_launch_effect(
-            &CoreEffectAction::EmbeddedApplyRuntime {
-                snapshot: BrowserRuntimeSnapshot {
-                    windows: Vec::new(),
-                    roles: Vec::new(),
-                    tabs: Vec::new(),
-                    workspaces: Vec::new(),
-                },
+            &CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles: Vec::new(),
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -540,12 +533,10 @@
     }
 
     #[test]
-    fn unhealthy_runtime_fails_closed_for_future_lifecycle_mutations() {
+    fn runtime_health_is_diagnostic_and_does_not_own_live_topology() {
         let health = RuntimeHealth::new();
-        assert!(health.require_healthy().is_ok());
         health.mark_unhealthy();
-        let error = health.require_healthy().unwrap_err();
-        assert_eq!(error.code, "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
+        assert!(!health.is_healthy());
     }
 
     #[test]

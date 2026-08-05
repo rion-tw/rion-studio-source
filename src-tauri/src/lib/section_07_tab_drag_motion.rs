@@ -110,18 +110,9 @@ fn attach_tab_drag_session(
                 &target_order,
             )
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        if let Err(message) = state
+        state
             .runtime
-            .provisionally_move_tab_for_live_drag(&session.tab_id, target_window_id)
-        {
-            eprintln!(
-                "Live tab destination retained while surface projection retries: tab={} target={} error={message}",
-                session.tab_id, target_window_id
-            );
-            state
-                .runtime
-                .schedule_tab_surface_move_retry(session.tab_id.clone(), target_window_id.to_owned());
-        }
+            .schedule_tab_surface_move_retry(session.tab_id.clone(), target_window_id.to_owned());
     }
     if !ownership_changed {
         (if let Some(ordered_tab_ids) = ordered_tab_ids {
@@ -167,19 +158,10 @@ fn float_tab_drag_session(
                 std::slice::from_ref(&session.tab_id),
             )
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        if let Err(message) = state
-            .runtime
-            .provisionally_move_tab_for_live_drag(&session.tab_id, &floating_window_id)
-        {
-            eprintln!(
-                "Detached live tab retained while surface projection retries: tab={} target={} error={message}",
-                session.tab_id, floating_window_id
-            );
-            state.runtime.schedule_tab_surface_move_retry(
-                session.tab_id.clone(),
-                floating_window_id.clone(),
-            );
-        }
+        state.runtime.schedule_tab_surface_move_retry(
+            session.tab_id.clone(),
+            floating_window_id.clone(),
+        );
     }
     let anchor = state
         .runtime

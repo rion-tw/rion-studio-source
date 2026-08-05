@@ -84,7 +84,6 @@ impl SystemRuntimeExecutor {
                 .as_ref()
                 .is_some_and(|restore| restore.host_created);
         let created_tab_id = tab.tab_id.clone();
-        let reservation_revision = self.presentation.next_revision();
         {
             let mut state = self.state()?;
             apply_prepared_role_slots_to_effect(&mut state, &mut tab)?;
@@ -129,9 +128,6 @@ impl SystemRuntimeExecutor {
                     workspace_template: tab.workspace_template.clone(),
                 },
             );
-            state
-                .launch_phases
-                .insert(created_tab_id.clone(), LaunchPhase::Attaching);
         }
         let presentation = self
             .presentation
@@ -139,21 +135,22 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        let (previous_tab_id, previous_surfaces) = {
+        let (previous_tab_id, previous_surfaces, reservation_revision) = {
             let mut selection = presentation.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The runtime tab presentation coordinator is unavailable.",
                 )
-            })?;
+            })?.clone();
             let previous_tab_id = selection.selected_tab_id.clone();
-            let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
-            let presentation_tab = TabPresentation {
+            let previous_surfaces = self
+                .presentation
+                .surfaces(&target.window_id, previous_tab_id.as_deref());
+            let presentation_tab = LiveTabRecord {
                 audio_muted: false,
                 closable: true,
                 icon_data_url: None,
                 id: created_tab_id.clone(),
-                phase: TabPresentationPhase::Attaching,
                 persistable: true,
                 role_ids: tab
                     .slots
@@ -168,23 +165,59 @@ impl SystemRuntimeExecutor {
                 workspace_template: tab.workspace_template.clone(),
             };
             if let Some(preview) = launch_preview.as_ref() {
-                selection.replace_tab_id(&preview.id, presentation_tab, reservation_revision);
+                selection.replace_tab_id(&preview.id, presentation_tab, 0);
                 if !should_select
                     && selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
                 {
-                    selection.select(previous_tab_id.clone(), reservation_revision);
+                    selection.select(previous_tab_id.clone(), 0);
                 }
             } else {
-                selection.insert_tab(presentation_tab, reservation_revision, should_select);
+                selection.insert_tab(presentation_tab, 0, should_select);
             }
             if let Some(restore) = pending_window_restore.as_ref() {
                 selection.reorder_known_tabs(&restore.ordered_tab_ids);
             }
             if should_select {
-                selection.select(Some(created_tab_id.clone()), reservation_revision);
+                selection.select(Some(created_tab_id.clone()), 0);
             }
-            (previous_tab_id, previous_surfaces)
+            let receipt = self
+                .presentation
+                .commit_live_window_record(
+                    if pending_window_restore.is_some() {
+                        "restore"
+                    } else {
+                        "command"
+                    },
+                    &target.window_id,
+                    &selection,
+                )
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?;
+            if receipt.status == LiveTopologyCommitStatus::Superseded {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_SUPERSEDED",
+                    "A newer live tab intent superseded native tab attachment.",
+                ));
+            }
+            if let Some(preview) = launch_preview.as_ref() {
+                if let Some(live) = self.presentation.existing(&target.window_id)
+                    && let Ok(mut live) = live.lock()
+                {
+                    live.aliases.insert(preview.id.clone(), created_tab_id.clone());
+                }
+                self.presentation.replace_tab_projection(
+                    &target.window_id,
+                    &preview.id,
+                    &created_tab_id,
+                );
+            }
+            (previous_tab_id, previous_surfaces, receipt.revision)
         };
+        self.schedule_live_projection_membership_follow();
+        self.presentation
+            .statuses
+            .set_launch_phase(&created_tab_id, LaunchPhase::Attaching);
         self.publish_launcher_presence();
         self.record_runtime_stage(
             format!("tab-reserved:{}:{}", target.window_id, created_tab_id),
@@ -450,20 +483,9 @@ impl SystemRuntimeExecutor {
                     .presentation
                     .existing(&target.window_id)
                     .and_then(|presentation| {
-                        presentation.lock().ok().map(|mut presentation| {
-                            let bound = presentation.bind_surface(
-                                &tab.tab_id,
-                                SurfacePresentationBinding {
-                                    generation,
-                                    instance_id: surface_instance_id.clone(),
-                                    webview: webview.clone(),
-                                },
-                            );
-                            (
-                                bound,
-                                presentation.selected_tab_id.as_deref()
-                                    == Some(tab.tab_id.as_str()),
-                            )
+                        presentation.lock().ok().map(|presentation| {
+                            presentation.selected_tab_id.as_deref()
+                                == Some(tab.tab_id.as_str())
                         })
                     })
                     .ok_or_else(|| {
@@ -472,7 +494,16 @@ impl SystemRuntimeExecutor {
                             "The runtime tab presentation disappeared before surface binding.",
                         )
                     })?;
-                if !selected.0 {
+                let bound = self.presentation.bind_surface(
+                    &target.window_id,
+                    &tab.tab_id,
+                    SurfacePresentationBinding {
+                        generation,
+                        instance_id: surface_instance_id.clone(),
+                        webview: webview.clone(),
+                    },
+                );
+                if !bound {
                     return Err(RuntimeError::new(
                         "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
                         "The runtime tab was removed before its native surface could bind.",
@@ -488,7 +519,7 @@ impl SystemRuntimeExecutor {
                     "completed",
                     launch_started,
                 );
-                if selected.1 {
+                if selected {
                     let _ = self.request_tab_presentation(
                         &tab.tab_id,
                         NativePresentationFocus::None,
@@ -635,11 +666,10 @@ impl SystemRuntimeExecutor {
                 state.launch_attempt_generations.get(&created_tab_id)
                     == Some(&attempt_generation)
             });
-            if attempt_was_current
-                && let Some(presentation) = self.presentation.existing(&target.window_id)
-                && let Ok(mut presentation) = presentation.lock()
-            {
-                presentation.update_phase(&created_tab_id, TabPresentationPhase::Failed);
+            if attempt_was_current {
+                self.presentation
+                    .statuses
+                    .set_presentation_phase(&created_tab_id, TabRuntimePhase::Failed);
             }
             let controlled_labels = created_surfaces
                 .iter()
@@ -687,7 +717,6 @@ impl SystemRuntimeExecutor {
                     == Some(&attempt_generation);
                 if attempt_is_current {
                     state.tabs.remove(&created_tab_id);
-                    state.launch_phases.remove(&created_tab_id);
                     state
                         .role_tabs
                         .retain(|_, tab_id| tab_id != &created_tab_id);
@@ -738,42 +767,12 @@ impl SystemRuntimeExecutor {
                 self.record_tab_close_tombstone_resolution(&created_tab_id, tombstone, true);
             }
             if let Some(error) = cleanup_error {
-                self.health.mark_unhealthy();
                 result = Err(error);
             }
-            let attempt_still_current = self.state.lock().ok().is_some_and(|state| {
-                state.launch_attempt_generations.get(&created_tab_id)
-                    == Some(&attempt_generation)
-            });
-            if launch_preview.is_none() && attempt_still_current {
-                let mut next_tab_id = None;
-                if let Some(presentation) = self.presentation.existing(&target.window_id)
-                    && let Ok(mut selection) = presentation.lock()
-                {
-                    let was_selected =
-                        selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str());
-                    let revision = self.presentation.next_revision();
-                    selection.remove_tab(&created_tab_id, revision);
-                    if was_selected {
-                        let successor = selection.tabs.last().map(|tab| tab.id.clone());
-                        selection.select(successor, revision);
-                    }
-                    next_tab_id = selection.selected_tab_id.clone();
-                }
-                if let Some(next_tab_id) = next_tab_id.as_deref() {
-                    let _ = self.request_tab_presentation(
-                        next_tab_id,
-                        NativePresentationFocus::None,
-                        "launch-failed",
-                    );
-                }
-                self.remove_native_tab_reservation(
-                    &target.window_id,
-                    &created_tab_id,
-                    next_tab_id.as_deref(),
-                );
-                self.remove_empty_display_host(&target.window_id, host_created);
-            }
+            // The live tab and its native chrome reservation intentionally remain.
+            // Surface failure is a runtime status/placeholder concern and can never
+            // compensate the already committed user-visible topology.
+            self.schedule_live_window_state_persistence(&target.window_id);
             self.publish_launcher_presence();
         } else {
             let remains_selected =

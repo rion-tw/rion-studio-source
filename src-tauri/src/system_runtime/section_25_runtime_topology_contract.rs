@@ -26,7 +26,7 @@ struct RuntimeHostProjectionUpdate {
 impl SystemRuntimeExecutor {
     fn apply_runtime(
         &self,
-        snapshot: BrowserRuntimeSnapshot,
+        roles: Vec<BrowserRuntimeRoleRecord>,
         target: Option<EmbeddedLaunchTargetRecord>,
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
@@ -50,7 +50,7 @@ impl SystemRuntimeExecutor {
             operation = operation.with_tab(tab_id);
         }
         let result = self.apply_runtime_inner(
-            snapshot,
+            roles,
             target,
             reveal_window_ids,
             focus_window_ids,

@@ -1,18 +1,17 @@
 impl SystemRuntimeExecutor {
     fn apply_runtime_inner(
         &self,
-        snapshot: BrowserRuntimeSnapshot,
+        roles: Vec<BrowserRuntimeRoleRecord>,
         target: Option<EmbeddedLaunchTargetRecord>,
         reveal_window_ids: &[String],
         focus_window_ids: &[String],
         focus_tab_id: Option<&str>,
         correlation: &RuntimeEffectCorrelation,
     ) -> RuntimeResult<()> {
-        // Core owns role lifecycle metadata, not the topology the user is
-        // currently manipulating. Any delayed ApplyRuntime effect is rebased on
-        // the one live topology before it can touch native chrome or surfaces.
+        // Core supplies only generation-fenced role ownership. The native
+        // follower always resolves window/tab topology from the live store.
         let snapshot = self
-            .compose_live_runtime_snapshot(snapshot)
+            .compose_live_runtime_snapshot(roles)
             .ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -255,7 +254,7 @@ impl SystemRuntimeExecutor {
             }
             let visible_tab_ids = presentation_after
                 .get(&runtime_window.window_id)
-                .map(LiveWindowTabState::tab_ids)
+                .map(LiveWindowRecord::tab_ids)
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|tab_id| {
@@ -347,8 +346,17 @@ impl SystemRuntimeExecutor {
                         ),
                         presentation: host.target.presentation.clone(),
                         reveal: reveal_window_ids.contains(window_id),
-                        retain_visibility: presentation_window
-                            .is_some_and(|presentation| presentation.projection.host_visibility),
+                        retain_visibility: self
+                            .presentation
+                            .projection_coordinator(window_id)
+                            .ok()
+                            .and_then(|projection| {
+                                projection
+                                    .lock()
+                                    .ok()
+                                    .map(|projection| projection.host_visibility)
+                            })
+                            .unwrap_or(active_tab.is_some()),
                         title,
                         window: host.window.clone(),
                         window_id: window_id.clone(),

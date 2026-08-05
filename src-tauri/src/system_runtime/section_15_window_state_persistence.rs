@@ -70,7 +70,7 @@ impl WindowStatePersistCoordinator {
     fn materialize_live_snapshot(
         &self,
         window_id: &str,
-        live: &LiveWindowTabState,
+        live: &LiveWindowRecord,
     ) -> Option<GameWindowRuntimeSnapshotCommitInputRecord> {
         let snapshots = self.snapshots.lock().ok()?;
         let mut input = snapshots.inputs.get(window_id)?.clone();
@@ -560,13 +560,12 @@ mod window_state_persistence_tests {
         .unwrap()
     }
 
-    fn live_tab(id: &str, source_id: &str) -> TabPresentation {
-        TabPresentation {
+    fn live_tab(id: &str, source_id: &str) -> LiveTabRecord {
+        LiveTabRecord {
             audio_muted: source_id == "role-b",
             closable: true,
             icon_data_url: None,
             id: id.to_owned(),
-            phase: TabPresentationPhase::Ready,
             persistable: true,
             role_ids: vec![source_id.to_owned()],
             role_slots: vec![GameWindowRoleSlotRecord {
@@ -600,16 +599,13 @@ mod window_state_persistence_tests {
     fn live_memory_snapshot_keeps_latest_ui_order_after_native_host_retires() {
         let coordinator = WindowStatePersistCoordinator::default();
         coordinator.seed(&[saved_window()]);
-        let live = LiveWindowTabState {
-            live: LiveWindowRecord {
-                revision: 19,
-                selected_tab_id: Some("tab-b".to_owned()),
-                tabs: vec![live_tab("tab-b", "role-b"), live_tab("tab-a", "role-a")],
-                window_generation: 4,
-                window_id: "window-a".to_owned(),
-                ..LiveWindowRecord::default()
-            },
-            ..LiveWindowTabState::default()
+        let live = LiveWindowRecord {
+            revision: 19,
+            selected_tab_id: Some("tab-b".to_owned()),
+            tabs: vec![live_tab("tab-b", "role-b"), live_tab("tab-a", "role-a")],
+            window_generation: 4,
+            window_id: "window-a".to_owned(),
+            ..LiveWindowRecord::default()
         };
 
         let snapshot = coordinator

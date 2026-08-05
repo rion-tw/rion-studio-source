@@ -85,7 +85,6 @@ pub use model::{
     RoleCreateRequest, RoleGameAssignmentRecord, RolePathsRecord, RoleUpdateInputRecord,
     RoleUpdateRequest, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, RuntimeRoleSlotInputRecord, RuntimeRoleSlotRecord,
-    RuntimeTabActivationAcknowledgementRecord, RuntimeTabActivationRequestRecord,
     RuntimeTabChromeAcknowledgementRecord, RuntimeTabChromeItemRecord,
     RuntimeTabChromeProjectionRecord, RuntimeTabChromeReadyRecord, RuntimeTabDragSessionRecord,
     RuntimeTabMoveResultRecord, RuntimeTabMutationRequestRecord,

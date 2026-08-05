@@ -159,17 +159,11 @@ use std::{
     }
 
     fn seed_running_role(core: &AppCore, role_id: &str) {
-        let window_id = format!("running-window-{role_id}");
-        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
-            window_id: window_id.clone(),
-        })
-        .unwrap();
         let tab_id = core
             .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
                 tab_id: Some(uuid::Uuid::new_v4().to_string()),
                 source_id: role_id.to_owned(),
                 name: "Running role".to_owned(),
-                window_id,
                 tab_type: "role".to_owned(),
                 workspace_id: None,
                 role_slots: test_role_slots(&[role_id]),

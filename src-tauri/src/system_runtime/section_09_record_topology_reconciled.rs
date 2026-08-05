@@ -562,7 +562,16 @@ impl SystemRuntimeExecutor {
             ));
             return operation_id;
         }
-        let Ok(presentation) = self.presentation.coordinator(&window_id) else {
+        let Ok(live) = self.presentation.coordinator(&window_id) else {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                operation,
+                "livePresentationCoordinator",
+                NativeOperationStatus::Failed,
+                Some("LIVE_PRESENTATION_COORDINATOR_UNAVAILABLE"),
+            ));
+            return operation_id;
+        };
+        let Ok(presentation) = self.presentation.projection_coordinator(&window_id) else {
             self.record_presentation_event(
                 LogLevel::Warn,
                 "native.presentation-completed",
@@ -593,7 +602,10 @@ impl SystemRuntimeExecutor {
         let next_surface_identities = presentation
             .lock()
             .ok()
-            .map(|state| state.surface_identities(tab_id.as_deref()))
+            .map(|mut state| {
+                state.host_visibility = tab_id.is_some();
+                state.surface_identities(tab_id.as_deref())
+            })
             .unwrap_or_default();
         let surface_labels = previous_surfaces
             .iter()
@@ -644,6 +656,7 @@ impl SystemRuntimeExecutor {
             surface_owners: Arc::clone(&self.presentation.surface_owners),
             shutdown_state: Arc::clone(&self.shutdown_state),
             application_lifecycle: Arc::clone(&self.application_lifecycle),
+            live,
             tab_id,
             trigger,
             window,

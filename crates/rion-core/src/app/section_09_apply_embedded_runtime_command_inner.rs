@@ -9,7 +9,6 @@ impl AppCore {
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
-            focus_active_window_id,
             parent_operation_id,
         } = transition;
         let next = {
@@ -23,16 +22,8 @@ impl AppCore {
             }
             result.snapshot
         };
-        let focus_tab_id = focus_tab_id.or_else(|| {
-            focus_active_window_id.and_then(|window_id| {
-                next.windows
-                    .iter()
-                    .find(|window| window.window_id == window_id)
-                    .and_then(|window| window.active_tab_id.clone())
-            })
-        });
-        let effect = CoreEffectAction::EmbeddedApplyRuntime {
-            snapshot: next.clone(),
+        let effect = CoreEffectAction::EmbeddedFollowRoleOwnership {
+            roles: next.roles.clone(),
             target: target.clone(),
             reveal_window_ids,
             focus_window_ids,
@@ -82,8 +73,8 @@ impl AppCore {
             .snapshot;
         let step = effect_step(
             "embedded-runtime-projection",
-            CoreEffectAction::EmbeddedApplyRuntime {
-                snapshot: snapshot.clone(),
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles: snapshot.roles.clone(),
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -113,64 +104,31 @@ impl AppCore {
 
     fn commit_embedded_runtime_snapshot_without_native_effect(
         &self,
-        removed_window_ids: &std::collections::HashSet<String>,
+        _removed_window_ids: &std::collections::HashSet<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let removed_window_ids = removed_window_ids
-            .iter()
-            .filter(|window_id| {
-                snapshot
-                    .windows
-                    .iter()
-                    .find(|window| &window.window_id == *window_id)
-                    .is_some_and(|window| window.tab_ids.is_empty())
-            })
-            .cloned()
-            .collect::<std::collections::HashSet<_>>();
         // Native isolation and the in-memory runtime transition are already
         // committed at this point. Publish that authoritative state before the
         // SQLite durability step so a slow or failed writer cannot leave the UI
         // indefinitely showing roles as `stopping` after their exact surfaces
         // are offline.
         self.emit_browser_statuses();
-        for window_id in &removed_window_ids {
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
-                window_id: window_id.clone(),
-            })?;
-        }
-        if removed_window_ids.is_empty() {
-            Ok(snapshot)
-        } else {
-            Ok(self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                .snapshot)
-        }
+        Ok(snapshot)
     }
 
     fn publish_embedded_runtime_snapshot_with_removed(
         &self,
-        removed_window_ids: &std::collections::HashSet<String>,
+        _removed_window_ids: &std::collections::HashSet<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
-        let removed_window_ids = removed_window_ids
-            .iter()
-            .filter(|window_id| {
-                snapshot
-                    .windows
-                    .iter()
-                    .find(|window| &window.window_id == *window_id)
-                    .is_some_and(|window| window.tab_ids.is_empty())
-            })
-            .cloned()
-            .collect::<std::collections::HashSet<_>>();
         self.run_effect_plan(vec![effect_step(
             "embedded-runtime-projection",
-            CoreEffectAction::EmbeddedApplyRuntime {
-                snapshot: snapshot.clone(),
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles: snapshot.roles.clone(),
                 target: None,
                 reveal_window_ids: Vec::new(),
                 focus_window_ids: Vec::new(),
@@ -179,39 +137,6 @@ impl AppCore {
             Duration::from_secs(15),
             None,
         )])?;
-        let mut cleaned = false;
-        for window_id in &removed_window_ids {
-            if snapshot
-                .windows
-                .iter()
-                .find(|window| &window.window_id == window_id)
-                .is_some_and(|window| window.tab_ids.is_empty())
-            {
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
-                    window_id: window_id.clone(),
-                })?;
-                cleaned = true;
-            }
-        }
-        if cleaned {
-            let cleaned_snapshot = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                .snapshot;
-            self.run_effect_plan(vec![effect_step(
-                "embedded-runtime-empty-window-cleanup",
-                CoreEffectAction::EmbeddedApplyRuntime {
-                    snapshot: cleaned_snapshot.clone(),
-                    target: None,
-                    reveal_window_ids: Vec::new(),
-                    focus_window_ids: Vec::new(),
-                    focus_tab_id: None,
-                },
-                Duration::from_secs(15),
-                None,
-            )])?;
-            self.emit_browser_statuses();
-            return Ok(cleaned_snapshot);
-        }
         self.emit_browser_statuses();
         Ok(snapshot)
     }

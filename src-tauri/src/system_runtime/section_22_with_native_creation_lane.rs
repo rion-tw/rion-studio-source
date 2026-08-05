@@ -37,12 +37,6 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<LaunchPreviewHandle> {
         let preview_started = Instant::now();
         self.mark_critical_activity();
-        if self.launcher_source_is_closing(source_id, tab_type) {
-            return Err(RuntimeError::new(
-                "SYSTEM_RUNTIME_TAB_CLOSING",
-                "The previous runtime tab is still completing native isolation.",
-            ));
-        }
         let source_key = launch_source_key(tab_type, source_id);
         let existing = {
             let state = self.state()?;
@@ -79,7 +73,6 @@ impl SystemRuntimeExecutor {
                 _ => "Loading…",
             })
             .unwrap_or("Loading…");
-        let revision = self.presentation.next_revision();
         let duplicate = {
             let mut state = self.state()?;
             if let Some(existing) = active_provisional_launch(&state, source_id, tab_type) {
@@ -115,17 +108,19 @@ impl SystemRuntimeExecutor {
                 ));
             }
         };
-        let (previous_tab_id, previous_surfaces) = match presentation.lock() {
-            Ok(mut selection) => {
+        let (previous_tab_id, previous_surfaces, revision) = match presentation.lock() {
+            Ok(selection) => {
+                let mut selection = selection.clone();
                 let previous_tab_id = selection.selected_tab_id.clone();
-                let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
+                let previous_surfaces = self
+                    .presentation
+                    .surfaces(&target.window_id, previous_tab_id.as_deref());
                 selection.insert_tab(
-                    TabPresentation {
+                    LiveTabRecord {
                         audio_muted: false,
                         closable: true,
                         icon_data_url: None,
                         id: provisional_id.clone(),
-                        phase: TabPresentationPhase::Reserved,
                         persistable: false,
                         role_ids: if tab_type == "role" {
                             vec![source_id.to_owned()]
@@ -139,10 +134,19 @@ impl SystemRuntimeExecutor {
                         #[cfg(any(windows, target_os = "macos"))]
                         workspace_template: None,
                     },
-                    revision,
+                    0,
                     true,
                 );
-                (previous_tab_id, previous_surfaces)
+                let receipt = self
+                    .presentation
+                    .commit_live_window_record("command", &target.window_id, &selection)
+                    .map_err(|message| {
+                        RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                    })?;
+                self.presentation
+                    .statuses
+                    .set_presentation_phase(&provisional_id, TabRuntimePhase::Reserved);
+                (previous_tab_id, previous_surfaces, receipt.revision)
             }
             Err(_) => {
                 self.cancel_tab_launch_preview(&launch_preview_id);
@@ -222,19 +226,11 @@ impl SystemRuntimeExecutor {
         let Some(provisional) = provisional else {
             return;
         };
-        let mut next_tab_id = None;
-        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
-            && let Ok(mut selection) = presentation.lock()
-        {
-            let was_selected =
-                selection.selected_tab_id.as_deref() == Some(provisional.id.as_str());
-            let revision = self.presentation.next_revision();
-            selection.remove_tab(&provisional.id, revision);
-            if was_selected {
-                next_tab_id = selection.tabs.last().map(|tab| tab.id.clone());
-                selection.select(next_tab_id.clone(), revision);
-            }
-        }
+        let next_tab_id = self
+            .presentation
+            .commit_live_tab_removal("command", &provisional.window_id, &provisional.id)
+            .ok()
+            .and_then(|(next_tab_id, _)| next_tab_id);
         self.publish_launcher_presence();
         self.remove_native_tab_reservation(
             &provisional.window_id,
@@ -260,11 +256,9 @@ impl SystemRuntimeExecutor {
         let Some(provisional) = provisional else {
             return;
         };
-        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
-            && let Ok(mut presentation) = presentation.lock()
-        {
-            presentation.update_phase(&provisional.id, TabPresentationPhase::Failed);
-        }
+        self.presentation
+            .statuses
+            .set_presentation_phase(&provisional.id, TabRuntimePhase::Failed);
     }
 
     pub(crate) fn retry_failed_tab_launch(
@@ -282,11 +276,9 @@ impl SystemRuntimeExecutor {
                 .clone();
             Some((handle, provisional))
         })?;
-        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
-            && let Ok(mut presentation) = presentation.lock()
-        {
-            presentation.update_phase(&provisional.id, TabPresentationPhase::Reserved);
-        }
+        self.presentation
+            .statuses
+            .set_presentation_phase(&provisional.id, TabRuntimePhase::Reserved);
         Some(handle)
     }
 
@@ -464,18 +456,14 @@ impl SystemRuntimeExecutor {
             Some((launch_preview_handle(provisional), provisional.clone()))
         });
         if let Some((handle, provisional)) = existing {
-            if let Some(presentation) = self.presentation.existing(&provisional.window_id)
-                && let Ok(mut presentation) = presentation.lock()
-            {
-                presentation.update_phase(
-                    &provisional.id,
-                    if failed {
-                        TabPresentationPhase::Failed
-                    } else {
-                        TabPresentationPhase::Reserved
-                    },
-                );
-            }
+            self.presentation.statuses.set_presentation_phase(
+                &provisional.id,
+                if failed {
+                    TabRuntimePhase::Failed
+                } else {
+                    TabRuntimePhase::Reserved
+                },
+            );
             return Some(handle);
         }
         if completion.launch_preview_id.is_some() {
@@ -497,7 +485,6 @@ impl SystemRuntimeExecutor {
                 return None;
             }
         };
-        let revision = self.presentation.next_revision();
         let presentation = match self.presentation.coordinator(&completion.window_id) {
             Ok(presentation) => presentation,
             Err(message) => {
@@ -506,27 +493,25 @@ impl SystemRuntimeExecutor {
             }
         };
         let phase = if failed {
-            TabPresentationPhase::Failed
+            TabRuntimePhase::Failed
         } else {
-            TabPresentationPhase::Reserved
+            TabRuntimePhase::Reserved
         };
-        let active_tab_id = match presentation.lock() {
-            Ok(mut presentation) => {
-                if presentation
+        let (active_tab_id, revision) = match presentation.lock() {
+            Ok(presentation) => {
+                let mut presentation = presentation.clone();
+                if !presentation
                     .tabs
                     .iter()
                     .any(|tab| tab.id == completion.tab_id)
                 {
-                    presentation.update_phase(&completion.tab_id, phase);
-                } else {
                     let should_select = presentation.selected_tab_id.is_none();
                     presentation.insert_tab(
-                        TabPresentation {
+                        LiveTabRecord {
                             audio_muted: false,
                             closable: true,
                             icon_data_url: None,
                             id: completion.tab_id.clone(),
-                            phase,
                             persistable: false,
                             role_ids: if completion.tab_type == "role" {
                                 vec![completion.source_id.clone()]
@@ -540,11 +525,22 @@ impl SystemRuntimeExecutor {
                             #[cfg(any(windows, target_os = "macos"))]
                             workspace_template: None,
                         },
-                        revision,
+                        0,
                         should_select,
                     );
                 }
-                presentation.selected_tab_id.clone()
+                let receipt = match self.presentation.commit_live_window_record(
+                    "command",
+                    &completion.window_id,
+                    &presentation,
+                ) {
+                    Ok(receipt) => receipt,
+                    Err(_) => return None,
+                };
+                self.presentation
+                    .statuses
+                    .set_presentation_phase(&completion.tab_id, phase);
+                (presentation.selected_tab_id.clone(), receipt.revision)
             }
             Err(_) => return None,
         };
@@ -679,19 +675,11 @@ impl SystemRuntimeExecutor {
             state.retryable_failed_launches.remove(&provisional.id);
             state.launch_attempt_generations.remove(&provisional.id);
         }
-        let mut next_tab_id = None;
-        if let Some(presentation) = self.presentation.existing(&provisional.window_id)
-            && let Ok(mut selection) = presentation.lock()
-        {
-            let was_selected =
-                selection.selected_tab_id.as_deref() == Some(provisional.id.as_str());
-            let revision = self.presentation.next_revision();
-            selection.remove_tab(&provisional.id, revision);
-            if was_selected {
-                next_tab_id = selection.tabs.last().map(|tab| tab.id.clone());
-                selection.select(next_tab_id.clone(), revision);
-            }
-        }
+        let next_tab_id = self
+            .presentation
+            .commit_live_tab_removal("command", &provisional.window_id, &provisional.id)
+            .ok()
+            .and_then(|(next_tab_id, _)| next_tab_id);
         self.publish_launcher_presence();
         self.remove_native_tab_reservation(
             &provisional.window_id,

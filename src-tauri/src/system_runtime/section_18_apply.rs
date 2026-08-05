@@ -84,15 +84,15 @@ impl SystemRuntimeExecutor {
                 }
                 Ok(None)
             }
-            CoreEffectAction::EmbeddedApplyRuntime {
-                snapshot,
+            CoreEffectAction::EmbeddedFollowRoleOwnership {
+                roles,
                 target,
                 reveal_window_ids,
                 focus_window_ids,
                 focus_tab_id,
             } => {
                 self.apply_runtime(
-                    snapshot,
+                    roles,
                     target,
                     &reveal_window_ids,
                     &focus_window_ids,

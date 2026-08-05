@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 10 defines the shared semantics for WKWebView on macOS and
+Contract version 11 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -56,10 +56,10 @@ shutdown result.
 | Navigation | Only a permitted main-frame HTTP(S) navigation or controlled reload can create an input-fence operation; the latest operation reaches page finish or is superseded, and automatic input resumes only after drain plus new-document proof | WKNavigation callbacks / WebView2 main-frame navigation callbacks |
 | Input | Epoch- and generation-fenced native submission with bounded cleanup | AppKit event delivery / WebView2 native input |
 | Presentation | Latest-only revisions coalesce tab surfaces and focus; a bounded per-window FIFO preserves non-idempotent visibility/fullscreen/maximized controls and returns native acknowledgement for the submitted native transaction | AppKit window and view APIs / Win32 and WebView2 controller APIs |
-| Tab activation | The live tab UI commits a latest-only revision immediately; focus work and native acknowledgement run asynchronously, and stale background presentation is `superseded`. Core has no active-tab command | AppKit tab controller and presentation / WebView2 controller presentation plus the local tab-strip WebView |
-| Tab mutation | AppKit or HTML commits the complete post-intent topology to `LiveWindowTabState` in one short memory transaction. Native surfaces retry toward it and SQLite consumes latest-only snapshots; neither can compensate the visible tabs | AppKit tab controller and lifecycle / Win32, WebView2 controllers, and the local tab-strip WebView |
+| Tab activation | The live tab UI commits a latest-only revision immediately; native active style, visibility, and focus only follow that revision. There is no activation receipt coordinator, chrome acknowledgement gate, or Core active-tab command | AppKit tab controller and presentation / WebView2 controller presentation plus the local tab-strip WebView |
+| Tab mutation | AppKit or HTML commits the complete post-intent topology to `LiveWindowTabStore` in one short memory transaction. Native surfaces retry toward it and SQLite consumes latest-only snapshots; neither can compensate the visible tabs | AppKit tab controller and lifecycle / Win32, WebView2 controllers, and the local tab-strip WebView |
 | Tab chrome projection | One complete, revisioned projection replaces native tab metadata, order, active state, ARIA state, toolbar, display, language, and theme | Idempotent AppKit projection and readback / instance-fenced Windows tab-strip hydration and acknowledgement |
-| Geometry and layout | Per-window serialized revision applies logical bounds, DPI conversion, child-surface layout, readback, and reverse-order compensation; asynchronous window modes declare native submission | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
+| Geometry and layout | User move/resize commits placement directly to the live store and queues latest-wins persistence without readback or compensation. Programmatic fullscreen/maximize and surface layout retain generation-fenced native transactions | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
 | Session | Bounded cookie and LocalStorage transfer with readback and rollback | WKWebsiteDataStore / WebView2 profile data |
@@ -68,9 +68,9 @@ shutdown result.
 | Performance and capability | Probe result carries evidence and policy mode, never inferred support | Platform runtime probe plus bounded foreground sampling |
 | Shutdown | Idempotent drain rejects new work, fences input, isolates all managed surfaces under one deadline, and reports incomplete release or unknown isolation | Shared lifecycle registry plus platform release callbacks |
 | Display topology | One revision-fenced snapshot drives remap, native movement, state commit, projection publication, and reverse-order compensation | NSScreen notifications and geometry / Win32 display notifications and geometry |
-| Window lifecycle | Close intent, native submission, exact window generation, release proof, and terminal receipt are one idempotent transaction | NSWindow lifecycle / Win32 window lifecycle |
+| Window lifecycle | The final live snapshot and visible close commit are immediate and idempotent. Exact role isolation and controller release follow in background without deciding whether the window may close | NSWindow lifecycle / Win32 window lifecycle |
 | Focus | One global intent lease owns focus across the main window and every runtime window; native observation confirms or supersedes it | AppKit activation and focus observation / Win32 foreground and focus observation |
-| Drag | Visible motion is immediate UI work. Every in-strip order change flows one way from AppKit/HTML into `LiveWindowTabState`, then into a debounced latest-wins SQLite snapshot; neither gesture adapter waits for Core, SQLite, persistence, native readback, or a receipt | AppKit live window/tab drag adapter / Windows tab-strip pointer adapter |
+| Drag | Visible motion is immediate UI work. Every in-strip order change flows one way from AppKit/HTML into `LiveWindowTabStore`, then into a debounced latest-wins SQLite snapshot; neither gesture adapter waits for Core, SQLite, persistence, native readback, or a receipt | AppKit live window/tab drag adapter / Windows tab-strip pointer adapter |
 | Recovery | One attempt fences generation and input, builds a provisional replacement, retires the old surface at an explicit destructive boundary, and reaches `inputReady` or `restartRequired` | WKWebView process termination / WebView2 process-failure callbacks |
 | Power | Sleep rejects new native work, interrupts old-epoch work, drains input and Core, persists recovery state, and wake restores the same epoch before accepting work | NSWorkspace sleep/wake notifications / `WM_POWERBROADCAST` message-only window |
 
@@ -93,23 +93,29 @@ readback from a replaced window or pre-sleep epoch is not current state.
 The presentation actor is the only normal path for runtime window show, hide,
 focus, restore, fullscreen, maximize, and role focus. It coalesces pending work
 per window and records a `superseded` receipt for every request it replaces.
-Tab topology commits only to `LiveWindowTabState`, then queues native
+Tab topology commits only to `LiveWindowTabStore`, then queues native
 presentation. Geometry and window-mode operations retain their own native
 receipts, but neither Core nor SQLite participates in a tab UI commit.
+
+`LiveWindowRecord` and `LiveTabRecord` contain topology and persistence demand
+only. Native bindings, desired/applied follower revisions, and host visibility
+live in `NativeTabProjectionStore`; loading, degraded, and provisional phases
+live in `TabRuntimeStatusStore`. These stores do not share a mutable record, so a
+native or status update cannot acquire topology write access by construction.
 
 Platform-specific code may perform the native calls inside the adapter or a
 bounded rollback transaction. It must not make an independent product decision
 about the active tab or visible role.
 
-Runtime window close is a generation-fenced transaction rather than an
-uncoordinated window callback. Repeated close requests share the same active
-operation; a late callback for a replaced window is superseded. Failure before
-native submission is `failed`. Failure after the exact native generation may
-have closed is `indeterminate`, and the affected ownership remains fenced until
-release is proven or the application restarts. `rion://window-lifecycle`
-publishes the same terminal receipt stored in diagnostics.
+Runtime window close captures the final immutable live snapshot, installs one
+tombstone per live tab, removes the live window, and submits native close before
+starting Core role cleanup. Repeated or late callbacks are silent
+`superseded`. A surface-isolation uncertainty may quarantine an exact role
+owner, but it cannot restore the window or any tab. `rion://window-lifecycle`
+therefore reports the visible state commit; background cleanup has its own
+generation-fenced diagnostics.
 
-The teardown scope is the exact tab-ID list read from `LiveWindowTabState` when
+The teardown scope is the exact tab-ID list read from `LiveWindowTabStore` when
 close is accepted. Core launch-time `windowId` metadata is never used to infer
 that scope: a tab detached into another live window survives closing its source,
 even while Core role bookkeeping is still settling. The explicit list flows
@@ -174,31 +180,30 @@ do not claim that a later operating-system animation has visually settled.
 `moveGameWindowTab`, `setGameWindowTabHidden`, `stopGameWindowTab`, and
 tab-strip minimize/fullscreen/maximize controls return terminal receipts
 directly. `moveGameWindowTabToNewWindow` returns the target window ID together
-with its terminal receipt. Unhiding a tab is activation convergence and returns
-the existing `tabActivation` receipt rather than creating a second mutation.
-`showGameWindowTab` uses the tab-activation transaction described below and does
-not wait for or claim page readiness.
+with its terminal receipt. Unhiding and `showGameWindowTab` commit the live
+selection immediately and queue visibility/focus as forward-only native work;
+they do not wait for or claim page readiness.
 
-## Tab activation convergence
+## One-way tab activation
 
 Tab pointer selection, tab-strip Ctrl+Tab, AppKit native selection, launcher
-selection, and `showGameWindowTab` first commit a new `LiveWindowTabState`
+selection, and `showGameWindowTab` first commit a new `LiveWindowTabStore`
 revision. The visible selection is complete at that boundary. Renderer-facing
-calls receive an `applied` `stateCommit` receipt after the background native
-presentation has been queued; AppKit menu callbacks return without waiting for
-any receipt.
+calls receive an immediate `applied` topology result after background native
+presentation has been queued; AppKit and HTML callbacks never wait for it.
 
-Content focus and native chrome acknowledgement run after that commit. Core has
-no active-tab projection or selection mutation. Presentation work is latest-only by window. A newer revision
-supersedes older work, and a late Core or native acknowledgement cannot repaint
-the old tab. Presentation timeouts remain in diagnostics as `superseded`; they do
-not become `NATIVE_OPERATION_INDETERMINATE` user errors. Same-tab activation may
-still enqueue idempotent native repair work, but it never delays the UI callback.
+Content focus and native active-style projection run after that commit. Core has
+no active-tab projection or selection mutation. Presentation work is latest-only
+by window. A newer revision supersedes older work, and a late native completion
+cannot repaint the old tab. There is no activation convergence timeout or
+renderer acknowledgement. Same-tab activation may still enqueue idempotent
+native repair work, but it never delays the UI callback or surfaces a shell
+error.
 
 ## Tab topology mutation transactions
 
 AppKit or the local HTML tab strip commits move, move-to-new-window, hide,
-reorder, selection, and close intents directly to `LiveWindowTabState`. Every
+reorder, selection, and close intents directly to `LiveWindowTabStore`. Every
 insert, replacement, removal, reorder, move, selection, audio, zoom, divider,
 and placement change advances a monotonic live revision. Cross-window moves
 lock both live windows in stable ID order and commit them together; there is no
@@ -284,9 +289,9 @@ SQLite order. The fence retires when the live window generation closes.
 
 A failed batch leaves every newest snapshot dirty. Retries use 250 ms, 1 s, 5 s,
 then bounded exponential backoff up to 30 s. Failure never mutates
-`LiveWindowTabState` or native chrome. Snapshot construction reads only the
+`LiveWindowTabStore` or native chrome. Snapshot construction reads only the
 already-committed in-memory live tab and runtime metadata; it does not query
-Core, SQLite, AppKit, or a WebView. `LiveWindowTabState` itself retains complete
+Core, SQLite, AppKit, or a WebView. `LiveWindowTabStore` itself retains complete
 persistable tab and role-slot metadata, so teardown never reconstructs topology
 from Core or a native host. Window close immediately enqueues that final live
 revision before teardown, continues closing without waiting, and retains the
@@ -301,7 +306,7 @@ cannot reject the save because its launch-time window association differs.
 Native title/menu refresh is a downstream projection: failure defers that
 refresh and never deletes or rolls back the saved Game Window.
 
-Saved-window restore seeds the complete `LiveWindowTabState` and native tab
+Saved-window restore seeds the complete `LiveWindowTabStore` and native tab
 chrome in saved order before starting any role surface. Surface creation may
 still prioritize the saved active tab for first paint and role ownership, but
 that owner-priority sequence is never observable as tab-strip insertion order.
@@ -320,9 +325,9 @@ order. Successful compensation is `failed`; incomplete compensation is
 cannot overwrite a newer topology. Both platforms are tested with explicit
 platform inputs even when only one native shell is locally available.
 
-A runtime tab drag has one stable tab identity, lifecycle fence, and terminal
-receipt from pointer-down to drop. Duplicate completion replays the first
-terminal receipt. A newer user gesture supersedes older background projection;
+A runtime tab drag has one stable tab identity and a lifecycle fence from
+pointer-down to drop. Gesture completion is not receipt- or deadline-gated;
+duplicate and late semantic events are silent `superseded`. A newer user gesture supersedes older background projection;
 old source order, Core order, persistence revision, or native readback cannot
 reject the final order currently visible in the UI. An accepted AppKit or HTML
 drop is never visually compensated by a later Core, surface-transfer, or SQLite
@@ -333,7 +338,7 @@ independently.
 On macOS, AppKit owns the held gesture and updates in-strip reorder previews and
 insertion indicators synchronously. Each changed preview reports its complete
 visible order; the native callback commits that order under one short
-`LiveWindowTabState` lock and schedules persistence without querying Core,
+`LiveWindowTabStore` lock and schedules persistence without querying Core,
 SQLite, WebViews, or native readback. The equivalent Windows HTML preview emits
 the same complete-order intent. Hover intents are coalesced and SQLite writes
 are debounced latest-wins, so intermediate orders may be skipped on disk but
@@ -363,7 +368,7 @@ mouse handling on every involved host, and reasserts a newer lease if another
 drag started during the native call.
 
 Activation, native tab-menu lookup, and close resolve a tab's window from
-`LiveWindowTabState`. A temporarily stale Core/surface owner can only schedule a
+`LiveWindowTabStore`. A temporarily stale Core/surface owner can only schedule a
 background surface move toward that live owner; it cannot move the live tab back
 to the runtime's older window. Native close commits the live tombstone in the
 AppKit callback turn before Core stop and controller release continue in the
@@ -505,12 +510,11 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 6. The subsystem, status, and
+Additive fields remain compatible within version 11. The subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
-Tauri, renderer, and tests. `projection` and `tabMutation` are contract
-subsystems, `tabTopologyConverged` is the tab-mutation completion scope, and the
-unreachable `focusObserved` scope is not part of version 6; focus continues to
-use `nativeAcknowledgement`. Changing a terminal status,
+Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic
+subsystems, but topology has no convergence receipt and no native/Core sink can
+complete or compensate a live UI commit. Changing a terminal status,
 completion scope, identity fence, popup/security policy, or ordering guarantee
 requires a contract-version bump and matching macOS and Windows behavior tests.
 macOS checks run locally where available; Windows native reachability and SDK

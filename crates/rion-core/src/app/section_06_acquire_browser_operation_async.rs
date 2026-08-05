@@ -598,7 +598,6 @@ impl AppCore {
                 tab_id: self.saved_game_window_tab_id(&target.window_id, "role", &role.id)?,
                 source_id: role.id.clone(),
                 name: role.name.clone(),
-                window_id: target.window_id.clone(),
                 tab_type: "role".to_owned(),
                 workspace_id: None,
                 role_slots: vec![RuntimeRoleSlotInputRecord {

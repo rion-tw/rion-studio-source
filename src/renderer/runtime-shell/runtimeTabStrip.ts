@@ -9,7 +9,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
 import type {
-  RuntimeTabActivationRequestRecord,
   RuntimeTabChromeProjectionRecord,
   RuntimeTabDragSessionRecord,
   SystemRuntimeOperationSummaryRecord
@@ -32,7 +31,6 @@ declare global {
       revision: number,
       mutation: () => void
     ) => void;
-    __rionApplyRuntimeTabActivation?: (request: RuntimeTabActivationRequestRecord) => void;
     __rionApplyRuntimeTabChromeProjection?: (
       projection: RuntimeTabChromeProjectionRecord
     ) => void;
@@ -43,7 +41,6 @@ declare global {
       mutation: () => void;
       revision: number;
     }>;
-    __rionPendingRuntimeTabActivations?: RuntimeTabActivationRequestRecord[];
     __rionPendingRuntimeTabs?: ProvisionalRuntimeTab[];
     __rionRemoveRuntimeTab?: (tabId: string, nextTabId?: string) => void;
     __rionReorderRuntimeTabs?: (tabIds: string[]) => void;
@@ -110,7 +107,6 @@ export const runtimeState = {
   renderRevision: 0,
   activeTabId: undefined as string | undefined,
   optimisticActiveTabId: undefined as string | undefined,
-  activationRevision: 0,
   chromeHydrated: false,
   projectionRevision: 0,
   rendererInstanceId: globalThis.crypto?.randomUUID?.()
@@ -309,9 +305,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
     action: committedAction
   })
     .then(async (receipt) => {
-      const handlesReceipt = action.type === "activate"
-        || action.type === "activateAdjacent"
-        || action.type === "hide"
+      const handlesReceipt = action.type === "hide"
         || action.type === "move"
         || action.type === "reorder"
         || action.type === "stop"
@@ -326,9 +320,7 @@ export const dispatch = (action: RuntimeTabAction): void => {
         if (receipt.status === "degraded") {
           await emit("rion://shell-error", {
             code: receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_DEGRADED",
-            message: action.type === "activate" || action.type === "activateAdjacent"
-              ? "The tab content changed, but its native tab state could not be fully confirmed."
-              : "The native window operation completed with reduced guarantees."
+            message: "The native window operation completed with reduced guarantees."
           });
         }
       } catch (error) {

@@ -174,22 +174,15 @@ impl SystemRuntimeExecutor {
                 state.role_tabs.insert(role.role.id.clone(), tab_id.to_owned());
             }
             self.set_role_input_surface(&role.role.id, native_generation, true, true)?;
-            let bound = self
-                .presentation
-                .existing(&window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|mut presentation| {
-                        presentation.bind_surface(
-                            tab_id,
-                            SurfacePresentationBinding {
-                                generation: native_generation,
-                                instance_id: instance_id.clone(),
-                                webview: webview.clone(),
-                            },
-                        )
-                    })
-                })
-                .unwrap_or(false);
+            let bound = self.presentation.bind_surface(
+                &window_id,
+                tab_id,
+                SurfacePresentationBinding {
+                    generation: native_generation,
+                    instance_id: instance_id.clone(),
+                    webview: webview.clone(),
+                },
+            );
             if !bound {
                 return Err(RuntimeError::new(
                     "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",

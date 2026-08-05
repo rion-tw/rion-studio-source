@@ -342,6 +342,21 @@ NS_ASSUME_NONNULL_BEGIN
   _dragHoverBeforeIdentifier = [beforeIdentifier copy];
   NSPoint point = RionTopLeftScreenPoint(screenPoint);
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  NSMutableArray<NSString *> *orderedTabIDs =
+      [NSMutableArray arrayWithCapacity:_tabItems.count + 1];
+  for (RionRuntimeTabItemView *orderedItem in _tabItems) {
+    if (orderedItem.tabIdentifier.length > 0) {
+      [orderedTabIDs addObject:orderedItem.tabIdentifier];
+    }
+  }
+  if (![orderedTabIDs containsObject:tabIdentifier]) {
+    NSUInteger insertionIndex = orderedTabIDs.count;
+    if (beforeIdentifier.length > 0) {
+      NSUInteger candidate = [orderedTabIDs indexOfObject:beforeIdentifier];
+      if (candidate != NSNotFound) insertionIndex = candidate;
+    }
+    [orderedTabIDs insertObject:tabIdentifier atIndex:insertionIndex];
+  }
   NSMutableDictionary<NSString *, id> *action = [@{
     @"type" : @"tabDragHover",
     @"sessionId" : sessionID,
@@ -351,7 +366,8 @@ NS_ASSUME_NONNULL_BEGIN
     @"screenX" : @(point.x),
     @"screenY" : @(point.y),
     @"tabWidth" : @(item ? item.preferredWidth : kRionTabMinimumWidth),
-    @"tabHeight" : @(kRionTabHeight)
+    @"tabHeight" : @(kRionTabHeight),
+    @"orderedTabIds" : orderedTabIDs
   } mutableCopy];
   if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
   _actionHandler(action);

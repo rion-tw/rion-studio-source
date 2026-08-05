@@ -134,6 +134,19 @@ unsafe extern "C" fn action_callback(
             }
             return;
         }
+        if action_type == "stop"
+            && let (Some(tab_id), Some(state)) = (
+                tab_id.as_deref(),
+                context.app.try_state::<crate::CoreState>(),
+            )
+        {
+            // AppKit already removed the visible tab. Commit its tombstone to the live
+            // topology in this callback turn; Core stop and surface release continue on the
+            // background action lane and cannot restore the visible tab.
+            if let Err(error) = state.runtime.preview_tab_close(tab_id) {
+                eprintln!("Live AppKit tab close intent will retry in background: tab={tab_id} error={error}");
+            }
+        }
         dispatch_action(
             context.app.clone(),
             context.window_label.clone(),
@@ -287,6 +300,19 @@ fn dispatch_action(app: AppHandle, window_label: String, mut action: NativeTabAc
         );
         action.event_sequence = stamp.event_sequence;
         action.intent_generation = stamp.intent_generation;
+        if action.action_type == "tabDragHover"
+            && let (Some(window_id), Some(ordered_tab_ids)) = (
+                action.target_window_id.as_deref(),
+                action.ordered_tab_ids.as_deref(),
+            )
+            && let Err(error) = state
+                .runtime
+                .commit_live_tab_order_intent(window_id, ordered_tab_ids)
+        {
+            eprintln!(
+                "Live AppKit tab order intent was retired: window={window_id} error={error}"
+            );
+        }
         let sender = state.macos_tab_drag_actions.get_or_init(|| {
             let (sender, mut receiver) =
                 tokio::sync::mpsc::unbounded_channel::<QueuedNativeTabAction>();

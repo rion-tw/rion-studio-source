@@ -22,6 +22,7 @@ impl SystemRuntimeExecutor {
         &self,
         tab_id: &str,
     ) -> Result<(Window, bool), String> {
+        let live_window_id = self.presentation.tab_window(tab_id)?;
         let state = self
             .state
             .try_lock()
@@ -30,9 +31,10 @@ impl SystemRuntimeExecutor {
             .tabs
             .get(tab_id)
             .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+        let window_id = live_window_id.as_deref().unwrap_or(&tab.window_id);
         let window = state
             .display_hosts
-            .get(&tab.window_id)
+            .get(window_id)
             .map(|host| host.window.clone())
             .ok_or_else(|| "Runtime tab window was not found.".to_owned())?;
         Ok((window, tab.audio_muted))
@@ -486,47 +488,14 @@ impl SystemRuntimeExecutor {
             state.revision = revision;
             ordered
         };
-        if project_native_order {
-            self.reorder_native_tabs(window_id, &ordered)
-                .map_err(|error| error.message)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn preview_tab_drag_order_exact(
-        &self,
-        window_id: &str,
-        ordered_tab_ids: &[String],
-        project_native_order: bool,
-    ) -> Result<(), String> {
-        let coordinator = self
-            .presentation
-            .existing(window_id)
-            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-        let ordered = {
-            let mut state = coordinator
-                .lock()
-                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            let previous = state.tab_ids();
-            if previous.len() != ordered_tab_ids.len()
-                || previous
-                    .iter()
-                    .collect::<HashSet<_>>()
-                    != ordered_tab_ids.iter().collect::<HashSet<_>>()
-            {
-                return Err("Frozen tab drag topology does not match the presentation window.".to_owned());
-            }
-            if previous == ordered_tab_ids {
-                return Ok(());
-            }
-            let revision = self.presentation.next_revision();
-            state.reorder_known_tabs(ordered_tab_ids);
-            state.revision = revision;
-            ordered_tab_ids.to_vec()
-        };
-        if project_native_order {
-            self.reorder_native_tabs(window_id, &ordered)
-                .map_err(|error| error.message)?;
+        self.schedule_live_window_state_persistence(window_id);
+        if project_native_order
+            && let Err(error) = self.reorder_native_tabs(window_id, &ordered)
+        {
+            eprintln!(
+                "Native tab order projection will reconcile from live topology: window={window_id} error={}",
+                error.message
+            );
         }
         Ok(())
     }

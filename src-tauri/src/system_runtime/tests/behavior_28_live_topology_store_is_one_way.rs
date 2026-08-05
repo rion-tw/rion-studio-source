@@ -208,23 +208,8 @@ fn busy_native_projection_never_blocks_or_rolls_back_a_live_commit() {
 }
 
 #[test]
-fn live_window_snapshot_releases_its_mutex_before_the_following_commit() {
+fn missing_live_window_is_seeded_without_holding_its_mutex_through_commit() {
     let registry = Arc::new(PresentationRegistry::default());
-    registry
-        .commit_live_topology(LiveTopologyCommitInput {
-            commit_id: "commit-before-launch-preview".to_owned(),
-            source: "command",
-            primary_window_id: "window-a".to_owned(),
-            windows: vec![LiveWindowTopologyCommit {
-                active_tab_id: Some("tab-a".to_owned()),
-                hidden_tab_ids: HashSet::new(),
-                tabs: vec![topology_tab("tab-a")],
-                ui_sequence: 1,
-                window_generation: 1,
-                window_id: "window-a".to_owned(),
-            }],
-        })
-        .unwrap();
 
     let (completed, completion) = mpsc::channel();
     let worker_registry = Arc::clone(&registry);
@@ -248,6 +233,6 @@ fn live_window_snapshot_releases_its_mutex_before_the_following_commit() {
             .snapshot_live_window("window-a")
             .unwrap()
             .all_tab_ids(),
-        ["tab-a", "provisional-tab"]
+        ["provisional-tab"]
     );
 }

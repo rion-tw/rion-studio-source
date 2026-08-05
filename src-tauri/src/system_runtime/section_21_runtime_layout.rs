@@ -436,12 +436,21 @@ impl SystemRuntimeExecutor {
         target: &EmbeddedLaunchTargetRecord,
         _title: &str,
     ) -> RuntimeResult<(Window, bool)> {
-        if let Some(window) = self
+        if let Some((window, generation)) = self
             .state()?
             .display_hosts
             .get(&target.window_id)
-            .map(|host| host.window.clone())
+            .map(|host| (host.window.clone(), host.generation))
         {
+            // A native host can outlive a removed live record while close cleanup
+            // retires its surfaces. Reusing that host must first re-establish the
+            // matching live generation so launch and placement intents never see
+            // a native-only window.
+            self.presentation
+                .set_window_generation(&target.window_id, generation)
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?;
             self.update_live_window_target(target, false)
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)

@@ -160,24 +160,6 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleStop(roleId: string): Promise<void> {
-    const finishBusy = beginBusy(roleId);
-    if (!finishBusy) {
-      return;
-    }
-
-    const reportError = beginErrorOperation();
-
-    try {
-      await window.rionStudio.stopRole(roleId);
-      setStatuses((current) => current.filter((status) => status.roleId !== roleId));
-    } catch (stopError) {
-      reportError(stopError);
-    } finally {
-      finishBusy();
-    }
-  }
-
   async function handleDeleteMany(selectedRoles: Role[]): Promise<boolean> {
     if (selectedRoles.length === 0) {
       return false;
@@ -382,7 +364,6 @@ export function useRoleWorkflow({
     handleDeleteMany,
     handleLaunch,
     handleReorder,
-    handleStop,
     isReorderingRoles,
     isSaving,
     listScrollTopRef,

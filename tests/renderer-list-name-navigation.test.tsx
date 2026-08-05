@@ -55,7 +55,6 @@ describe("list editor navigation", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 
@@ -101,7 +100,6 @@ describe("list editor navigation", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 
@@ -140,7 +138,6 @@ describe("list editor navigation", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 
@@ -157,6 +154,7 @@ describe("list editor navigation", () => {
     "does not show the %s engine label on a running role card",
     (resolvedEngine) => {
       const item = role();
+      const onLaunch = vi.fn();
 
       render(
         <RolesView
@@ -182,16 +180,16 @@ describe("list editor navigation", () => {
           onEdit={vi.fn()}
           onError={vi.fn()}
           onFilterChange={vi.fn()}
-          onLaunch={vi.fn()}
+          onLaunch={onLaunch}
           onNewRole={vi.fn()}
           onQueryChange={vi.fn()}
           onReorder={vi.fn()}
-          onStop={vi.fn()}
         />
       );
 
       expect(screen.queryByText(`browserEngine.actual.${resolvedEngine}`)).toBeNull();
-      expect(screen.getByRole("button", { name: "role.stop" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "role.launch" }));
+      expect(onLaunch).toHaveBeenCalledWith(item.id);
     }
   );
 
@@ -223,7 +221,6 @@ describe("list editor navigation", () => {
         onLaunchWorkspace={vi.fn()}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={vi.fn()}
-        onStopWorkspace={vi.fn()}
       />
     );
 
@@ -236,6 +233,53 @@ describe("list editor navigation", () => {
 
     expect(onEditWorkspace).toHaveBeenCalledOnce();
     expect(onEditWorkspace).toHaveBeenCalledWith(item);
+  });
+
+  it("uses open to focus an already running workspace instead of stopping it", () => {
+    const assignedRole = role();
+    const item = {
+      ...workspace(),
+      slots: [{ id: "slot-1", roleId: assignedRole.id, rect: { x: 0, y: 0, width: 1, height: 1 } }]
+    };
+    const onLaunchWorkspace = vi.fn();
+
+    render(
+      <LaunchWorkspacesView
+        busyWorkspaceIds={new Set()}
+        games={[]}
+        isReordering={false}
+        query=""
+        roles={[assignedRole]}
+        runtimeTabs={[{
+          id: "tab-1",
+          type: "workspace",
+          sourceId: item.id,
+          name: item.name,
+          windowId: "window-1",
+          roleIds: [assignedRole.id],
+          slots: [],
+          hidden: false,
+          active: true,
+          audible: false,
+          audioMuted: false
+        }]}
+        scrollPositionRef={{ current: 0 }}
+        t={t}
+        workspaces={[item]}
+        onCopyWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
+        onEditWorkspace={vi.fn()}
+        onLaunchWorkspace={onLaunchWorkspace}
+        onQueryChange={vi.fn()}
+        onReorderWorkspaces={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "workspaces.stop" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "workspaces.launch" }));
+    expect(onLaunchWorkspace).toHaveBeenCalledWith(item);
   });
 
   it("opens a workspace action menu from the card contextmenu event", async () => {
@@ -260,7 +304,6 @@ describe("list editor navigation", () => {
         onLaunchWorkspace={vi.fn()}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={vi.fn()}
-        onStopWorkspace={vi.fn()}
       />
     );
 
@@ -303,7 +346,6 @@ describe("list editor navigation", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={onReorder}
-        onStop={vi.fn()}
       />
     );
     const source = screen.getAllByRole("button", { name: "role.actionsAndReorder" })[0];
@@ -339,7 +381,6 @@ describe("list editor navigation", () => {
         onLaunchWorkspace={vi.fn()}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={onReorderWorkspaces}
-        onStopWorkspace={vi.fn()}
       />
     );
     const source = screen.getAllByRole("button", { name: "workspaces.actionsAndReorder" })[2];

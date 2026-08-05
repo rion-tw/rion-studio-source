@@ -29,12 +29,9 @@ export interface DashboardRoleItem {
   status?: RoleStatus;
 }
 
-type DashboardRoleActionKind = "launch" | "stop";
-
 export interface DashboardRoleActionState {
   disabled: boolean;
   isBusy: boolean;
-  kind: DashboardRoleActionKind;
 }
 
 export interface DashboardWorkspaceItem {
@@ -44,12 +41,9 @@ export interface DashboardWorkspaceItem {
   workspace: LaunchWorkspace;
 }
 
-type DashboardWorkspaceActionKind = "launch" | "stop";
-
 export interface DashboardWorkspaceActionState {
   disabled: boolean;
   isBusy: boolean;
-  kind: DashboardWorkspaceActionKind;
 }
 
 export interface DashboardMacroItem {
@@ -139,8 +133,7 @@ function createWorkspaceActionState({
 
   return {
     disabled: isBusy || (!isRunning && assignedCount === 0),
-    isBusy,
-    kind: isRunning ? "stop" : "launch"
+    isBusy
   };
 }
 
@@ -280,12 +273,9 @@ function createRoleActionState({
 }): DashboardRoleActionState {
   const isStatusBusy = status?.state === "launching" || status?.state === "stopping";
   const isBusy = busyRoleIds.has(role.id) || isStatusBusy;
-  const kind: DashboardRoleActionKind = status ? "stop" : "launch";
-
   return {
     disabled: isBusy,
-    isBusy,
-    kind
+    isBusy
   };
 }
 

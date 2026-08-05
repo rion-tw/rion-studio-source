@@ -8,7 +8,6 @@ import {
   Play,
   Plus,
   Search,
-  Square,
   Trash2,
   Upload
 } from "lucide-react";
@@ -94,7 +93,6 @@ interface RolesViewProps {
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
   onReorder: (orderedIds: string[]) => void;
-  onStop: (roleId: string) => void;
 }
 
 function RolesView({
@@ -120,8 +118,7 @@ function RolesView({
   onLaunch,
   onNewRole,
   onQueryChange,
-  onReorder,
-  onStop
+  onReorder
 }: RolesViewProps): JSX.Element {
   const [gameFilterId, setGameFilterId] = useState("all");
   const [chromeImportOpen, setChromeImportOpen] = useState(false);
@@ -290,7 +287,6 @@ function RolesView({
                 onEdit={() => onEdit(role)}
                 onLaunch={() => onLaunch(role.id)}
                 onReorderPointerDown={(event) => roleDrag.start(event, role.id)}
-                onStop={() => onStop(role.id)}
                 onSelectionClick={(event) => selection.handleItemClick(event, role.id)}
               />
             );
@@ -339,7 +335,6 @@ interface RoleCardProps {
   onEdit: () => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onLaunch: () => void;
-  onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   role: Role;
   status?: RoleStatus;
@@ -360,7 +355,6 @@ function RoleCard({
   onEdit,
   onReorderPointerDown,
   onLaunch,
-  onStop,
   onSelectionClick,
   role,
   status,
@@ -371,7 +365,7 @@ function RoleCard({
   const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
   const canUsePrimaryOverlayAction = true;
   const hasBottomAction = false;
-  const primaryActionLabel = isActive ? t("role.stop") : t("role.launch");
+  const primaryActionLabel = t("role.launch");
   const cardStyle = createRoleCardStyle({
     color: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
     hasCoverImage: true,
@@ -441,13 +435,11 @@ function RoleCard({
             variant="media"
             title={primaryActionLabel}
             aria-label={primaryActionLabel}
-            onClick={isActive ? onStop : onLaunch}
+            onClick={onLaunch}
             disabled={isBusy}
           >
             {isBusy ? (
               <Loader2 className="spin" size={30} />
-            ) : isActive ? (
-              <Square size={30} fill="currentColor" />
             ) : (
               <Play className="ml-0.5" size={34} fill="currentColor" />
             )}

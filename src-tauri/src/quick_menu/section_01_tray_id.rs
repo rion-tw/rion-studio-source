@@ -17,7 +17,6 @@ use tauri::{
 const TRAY_ID: &str = "rion-quick-menu";
 const ROLE_PREFIX: &str = "launch-role:";
 const WORKSPACE_PREFIX: &str = "launch-workspace:";
-const STOP_WORKSPACE_PREFIX: &str = "stop-workspace:";
 const SHOW_DISPLAY_PREFIX: &str = "show-display:";
 const RESTORE_WINDOW_PREFIX: &str = "restore-window:";
 
@@ -383,20 +382,19 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
                     .iter()
                     .any(|role_id| !role_ids.contains(*role_id));
                 let busy = matches!(state, Some("launching" | "stopping"));
-                // Opening/stopping presentation is owned by the live tab store.
-                // A delayed Core workspace status may describe role lifecycle,
-                // but it must never turn a visible tab into an "open" or "closed"
-                // menu action.
+                // Tab presentation is owned by the live tab store. A delayed Core
+                // workspace status may describe role lifecycle, but it must not
+                // change the open action for a visible tab.
                 let running = open_workspace_ids.contains(id);
-                let (prefix, marker) = if running {
-                    (STOP_WORKSPACE_PREFIX, "✓ ")
+                let marker = if running {
+                    "✓ "
                 } else if busy {
-                    (WORKSPACE_PREFIX, "… ")
+                    "… "
                 } else {
-                    (WORKSPACE_PREFIX, "")
+                    ""
                 };
                 workspace_items.push(item(
-                    format!("{prefix}{id}"),
+                    format!("{WORKSPACE_PREFIX}{id}"),
                     format!("{marker}{name}"),
                     legal_accepted
                         && (running || (!busy && !assigned_role_ids.is_empty() && !missing_role)),
@@ -594,7 +592,6 @@ fn is_quick_menu_action(id: &str) -> bool {
     ) || [
         SHOW_DISPLAY_PREFIX,
         RESTORE_WINDOW_PREFIX,
-        STOP_WORKSPACE_PREFIX,
         ROLE_PREFIX,
         WORKSPACE_PREFIX,
     ]

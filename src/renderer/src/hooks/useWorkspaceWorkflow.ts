@@ -242,25 +242,6 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleStopWorkspace(workspace: LaunchWorkspace): Promise<void> {
-    const finishBusy = beginBusy(workspace.id);
-    if (!finishBusy) {
-      return;
-    }
-
-    const reportError = beginErrorOperation();
-
-    try {
-      await window.rionStudio.stopLaunchWorkspace(workspace.id);
-      const workspaceRoleIds = new Set(workspace.slots.map((slot) => slot.roleId).filter(Boolean));
-      setStatuses((current) => current.filter((status) => !workspaceRoleIds.has(status.roleId)));
-    } catch (stopError) {
-      reportError(stopError);
-    } finally {
-      finishBusy();
-    }
-  }
-
   return {
     busyWorkspaceIds,
     handleCopyWorkspace,
@@ -268,7 +249,6 @@ export function useWorkspaceWorkflow({
     handleDeleteWorkspaces,
     handleLaunchWorkspace,
     handleReorderWorkspaces,
-    handleStopWorkspace,
     isReorderingWorkspaces,
     isSavingWorkspace,
     listScrollTopRef,

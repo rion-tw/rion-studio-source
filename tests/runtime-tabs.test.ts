@@ -32,7 +32,7 @@ describe("runtime tab shell-neutral contracts", () => {
       tabHeight: 30
     })).toBe(true);
     expect(isRuntimeTabAction({ type: "tabDragMove", sessionId: "drag-1", screenX: 120, screenY: 220 })).toBe(true);
-    expect(isRuntimeTabAction({ type: "tabDragHover", sessionId: "drag-1", windowId: "window-22", screenX: 120, screenY: 220, tabWidth: 160, tabHeight: 28, beforeTabId: "tab-2" })).toBe(true);
+    expect(isRuntimeTabAction({ type: "tabDragHover", sessionId: "drag-1", windowId: "window-22", screenX: 120, screenY: 220, tabWidth: 160, tabHeight: 28, orderedTabIds: ["tab-1", "tab-2"], beforeTabId: "tab-2" })).toBe(true);
     expect(isRuntimeTabAction({ type: "tabDragDrop", sessionId: "drag-1", windowId: "window-22", screenX: 120, screenY: 220, orderedTabIds: ["tab-1", "tab-2"], beforeTabId: "tab-2" })).toBe(true);
     expect(isRuntimeTabAction({ type: "tabDragEnd", sessionId: "drag-1", cancelled: false, screenX: 120, screenY: 220 })).toBe(true);
     expect(isRuntimeTabAction({ type: "tabDragSourceEnd", sessionId: "drag-1", cancelled: false, dropAccepted: true, screenX: 120, screenY: 220 })).toBe(true);
@@ -61,7 +61,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "tabDragDrop", sessionId: "drag-1", windowId: "window-22", screenX: 0, screenY: 0, orderedTabIds: [""] })).toBe(false);
     expect(isRuntimeTabAction({ type: "tabDragDrop", sessionId: "drag-1", windowId: "window-22", screenX: 0, screenY: 0, orderedTabIds: Array.from({ length: 257 }, (_, index) => `tab-${index}`) })).toBe(false);
     expect(isRuntimeTabAction({ type: "tabDragDrop", sessionId: "drag-1", windowId: "window-22", screenX: 0, screenY: 0, orderedTabIds: ["tab-1"], unexpected: true })).toBe(false);
-    expect(isRuntimeTabAction({ type: "tabDragHover", sessionId: "drag-1", windowId: "window-22", screenX: 0, screenY: 0, tabWidth: 160, tabHeight: 28, orderedTabIds: ["tab-1"] })).toBe(false);
+    expect(isRuntimeTabAction({ type: "tabDragHover", sessionId: "drag-1", windowId: "window-22", screenX: 0, screenY: 0, tabWidth: 160, tabHeight: 28 })).toBe(false);
     expect(isRuntimeTabAction({ type: "tabDragEnd", sessionId: "drag-1", cancelled: "no" })).toBe(false);
     expect(isRuntimeTabAction({ type: "tabDragSourceEnd", sessionId: "drag-1", cancelled: false, dropAccepted: "yes", screenX: 0, screenY: 0 })).toBe(false);
     expect(isRuntimeTabAction({ type: "openLauncher", itemId: "role-1" })).toBe(false);

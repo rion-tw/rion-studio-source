@@ -2,13 +2,13 @@ fn drag_drop_ordered_tab_ids(action: &Value) -> Result<Vec<String>, CoreErrorPay
     let tab_ids = action["orderedTabIds"].as_array().ok_or_else(|| {
         shell_error(
             "TAURI_TAB_DRAG_INVALID",
-            "Drop topology order is required.",
+            "Tab drag topology order is required.",
         )
     })?;
     if tab_ids.is_empty() || tab_ids.len() > 256 {
         return Err(shell_error(
             "TAURI_TAB_DRAG_INVALID",
-            "Drop topology order must contain between one and 256 tabs.",
+            "Tab drag topology order must contain between one and 256 tabs.",
         ));
     }
     let mut seen = HashSet::new();
@@ -21,7 +21,7 @@ fn drag_drop_ordered_tab_ids(action: &Value) -> Result<Vec<String>, CoreErrorPay
                 .ok_or_else(|| {
                     shell_error(
                         "TAURI_TAB_DRAG_INVALID",
-                        "Drop topology contains an invalid tab identifier.",
+                        "Tab drag topology contains an invalid tab identifier.",
                     )
                 })
         })
@@ -29,7 +29,7 @@ fn drag_drop_ordered_tab_ids(action: &Value) -> Result<Vec<String>, CoreErrorPay
     if !ordered_tab_ids.iter().all(|tab_id| seen.insert(*tab_id)) {
         return Err(shell_error(
             "TAURI_TAB_DRAG_INVALID",
-            "Drop topology contains duplicate tab identifiers.",
+            "Tab drag topology contains duplicate tab identifiers.",
         ));
     }
     Ok(ordered_tab_ids.into_iter().map(str::to_owned).collect())

@@ -44,6 +44,34 @@ pub(crate) async fn handle_game_window_tab_drag(
         )
     })
     .transpose()?;
+    let hover_ordered_tab_ids = if action_type == "tabDragHover" {
+        let target_window_id = action["windowId"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_TAB_DRAG_INVALID",
+                    "Hover target window ID is required.",
+                )
+            })?;
+        let ordered_tab_ids = drag_drop_ordered_tab_ids(action)?;
+        #[cfg(target_os = "macos")]
+        let _ = target_window_id;
+        #[cfg(not(target_os = "macos"))]
+        {
+            if let Err(error) = state
+                .runtime
+                .commit_live_tab_order_intent(target_window_id, &ordered_tab_ids)
+            {
+                eprintln!(
+                    "Live HTML tab order intent was retired: window={target_window_id} error={error}"
+                );
+            }
+        }
+        Some(ordered_tab_ids)
+    } else {
+        None
+    };
     let _lane = state.tab_drag_lane.lock().await;
     if action_type != "tabDragStart"
         && let Some(terminal) = tab_drag_terminal(state, session_id)?
@@ -350,7 +378,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                     session_id,
                     Some(target_window_id),
                     action["beforeTabId"].as_str(),
-                    None,
+                    hover_ordered_tab_ids.as_deref(),
                 )
             {
                 return finish_failed_tab_drag(app, state, session_id, error).map(Some);

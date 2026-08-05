@@ -164,6 +164,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("RionRuntimeTransparentDragImage()");
     expect(macController).toContain('@"type" : @"tabDragMove"');
     expect(macController).toContain("handleHoverWithTabIdentifier");
+    expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
     expect(macController).toContain("_dragHoverSessionIdentifier");
     expect(macController).not.toContain("RionRuntimeWindowSnapshot");
     expect(macController).not.toContain("detachedWindowPreview");
@@ -188,5 +189,33 @@ describe("native tab drag latest-intent transaction", () => {
     expect(bridge).toContain("orderedTabIDsJSON.UTF8String");
     expect(rustBridge).toContain("ordered_tab_ids_json");
     expect(rustBridge).toContain('action["orderedTabIds"]');
+  });
+
+  it("commits live in-window order before background drag projection", async () => {
+    const [macBridge, handler, liveCommit, windowsDrag] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/runtime_tabs_macos/section_02_labels.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_10_live_tab_drag_commit.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src/renderer/runtime-shell/runtimeTabStrip/drag.ts", import.meta.url),
+        "utf8"
+      )
+    ]);
+
+    expect(macBridge).toContain('action.action_type == "tabDragHover"');
+    expect(macBridge).toContain("commit_live_tab_order_intent(window_id, ordered_tab_ids)");
+    expect(handler).toContain("commit_live_tab_order_intent(target_window_id, &ordered_tab_ids)");
+    expect(windowsDrag).toContain("orderedTabIds: logicalRuntimeTabOrder()");
+    expect(liveCommit).toContain("commit_live_tab_order_intent(target_window_id, ordered_tab_ids)");
+    expect(liveCommit).not.toContain("preview_tab_drag_order_exact(target_window_id, ordered_tab_ids, true)");
   });
 });

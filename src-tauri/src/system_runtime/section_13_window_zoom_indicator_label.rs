@@ -284,37 +284,18 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    fn reconcile_presentation_tab_owner(
+    fn resolve_live_presentation_tab_owner(
         &self,
         tab_id: &str,
-        target_window_id: &str,
-    ) -> Result<(), String> {
+        runtime_window_id: &str,
+    ) -> Result<String, String> {
         let mut owner = self.presentation.tab_window(tab_id)?;
         if owner.is_none()
-            && self.repair_missing_tab_presentation(tab_id, target_window_id)?
+            && self.repair_missing_tab_presentation(tab_id, runtime_window_id)?
         {
             owner = self.presentation.tab_window(tab_id)?;
         }
-        let Some(source_window_id) = owner else {
-            return Err("Runtime tab is no longer available for activation.".to_owned());
-        };
-        if source_window_id == target_window_id {
-            return Ok(());
-        }
-        let revision = self.presentation.next_revision();
-        self.presentation.move_tab_with_activation(
-            tab_id,
-            &source_window_id,
-            target_window_id,
-            revision,
-            false,
-        )?;
-        self.record_topology_reconciled(tab_id, &source_window_id, target_window_id, revision);
-        if self.window_for_id(&source_window_id).is_some() {
-            self.reconcile_window_presentation(&source_window_id, "topology-self-healed")
-                .map_err(|error| error.message)?;
-        }
-        Ok(())
+        owner.ok_or_else(|| "Runtime tab is no longer available for activation.".to_owned())
     }
 
     fn request_provisional_tab_activation(
@@ -547,7 +528,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<(String, u64, String), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
-        let (window_id, window) = {
+        let runtime_window_id = {
             let state = self.state().map_err(|error| error.message)?;
             if state.optimistic_closed_tabs.contains(tab_id) {
                 return Err("The runtime tab is closing.".to_owned());
@@ -556,16 +537,21 @@ impl SystemRuntimeExecutor {
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-            let window_id = tab.window_id.clone();
-            let window = state
-                .display_hosts
-                .get(&window_id)
-                .ok_or_else(|| "Runtime display host was not found.".to_owned())?
-                .window
-                .clone();
-            (window_id, window)
+            tab.window_id.clone()
         };
-        self.reconcile_presentation_tab_owner(tab_id, &window_id)?;
+        let window_id =
+            self.resolve_live_presentation_tab_owner(tab_id, &runtime_window_id)?;
+        let window = self
+            .window_for_id(&window_id)
+            .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
+        if runtime_window_id != window_id
+            && let Some(runtime) = self
+                .self_weak
+                .get()
+                .and_then(std::sync::Weak::upgrade)
+        {
+            runtime.schedule_tab_surface_move_retry(tab_id.to_owned(), window_id.clone());
+        }
         let (
             previous_tab_id,
             previous_surfaces,
@@ -633,73 +619,6 @@ impl SystemRuntimeExecutor {
             presentation_operation_id
         };
         Ok((window_id, revision, operation_id))
-    }
-
-    fn reconcile_window_presentation(
-        &self,
-        window_id: &str,
-        trigger: &'static str,
-    ) -> RuntimeResult<()> {
-        let coordinator = self
-            .presentation
-            .coordinator(window_id)
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
-        let (tab_id, revision) = {
-            let selection = coordinator.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?;
-            (selection.selected_tab_id.clone(), selection.revision)
-        };
-        if revision == 0 {
-            return Ok(());
-        }
-        let window = {
-            let state = self.state()?;
-            state
-                .display_hosts
-                .get(window_id)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
-                        "Runtime display host was not found.",
-                    )
-                })?
-                .window
-                .clone()
-        };
-        let (next_surfaces, active_webview) = {
-            let presentation = coordinator.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?;
-            let next_surfaces = presentation.surfaces(tab_id.as_deref());
-            let active_webview = next_surfaces.first().cloned();
-            (next_surfaces, active_webview)
-        };
-        self.apply_native_active_style(window_id, tab_id.as_deref(), revision, trigger);
-        self.dispatch_native_presentation(
-            window_id.to_owned(),
-            tab_id,
-            revision,
-            trigger,
-            Instant::now(),
-            window,
-            None,
-            Vec::new(),
-            next_surfaces,
-            active_webview,
-            None,
-            NativePresentationFocus::None,
-            None,
-        );
-        Ok(())
     }
 
     pub(crate) fn preview_adjacent_tab_activation(

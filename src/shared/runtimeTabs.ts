@@ -48,6 +48,7 @@ export type RuntimeTabAction =
       screenY: number;
       tabWidth: number;
       tabHeight: number;
+      orderedTabIds: string[];
       beforeTabId?: string;
     }
   | {
@@ -175,7 +176,7 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       typeof action.windowId === "string" && action.windowId.length > 0 &&
       typeof action.screenX === "number" && Number.isFinite(action.screenX) &&
       typeof action.screenY === "number" && Number.isFinite(action.screenY) &&
-      (action.type !== "tabDragDrop" || isBoundedTabOrder(action.orderedTabIds)) &&
+      isBoundedTabOrder(action.orderedTabIds) &&
       (action.type !== "tabDragHover" || (
         typeof action.tabWidth === "number" && Number.isFinite(action.tabWidth) &&
         action.tabWidth > 0 &&
@@ -187,7 +188,7 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       Object.keys(action).every((key) =>
         (action.type === "tabDragDrop"
           ? ["type", "sessionId", "windowId", "screenX", "screenY", "beforeTabId", "orderedTabIds"]
-          : ["type", "sessionId", "windowId", "screenX", "screenY", "tabWidth", "tabHeight", "beforeTabId"]
+          : ["type", "sessionId", "windowId", "screenX", "screenY", "tabWidth", "tabHeight", "beforeTabId", "orderedTabIds"]
         ).includes(key)
       );
   }

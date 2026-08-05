@@ -240,6 +240,7 @@ export function scheduleDragHover(
     screenY: event.screenY,
     tabWidth: Math.max(1, bounds?.width || payload.tabWidth),
     tabHeight: Math.max(1, bounds?.height || payload.tabHeight),
+    orderedTabIds: logicalRuntimeTabOrder(),
     ...(beforeTabId && beforeTabId !== payload.tabId ? { beforeTabId } : {})
   });
 }

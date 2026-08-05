@@ -1,6 +1,19 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<RuntimeTabCloseIntent, String> {
         let started = Instant::now();
+        if let Some(tombstone) = self
+            .state
+            .lock()
+            .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?
+            .close_previews
+            .get(tab_id)
+            .cloned()
+        {
+            return Ok(RuntimeTabCloseIntent {
+                source_id: tombstone.source_id,
+                tab_type: tombstone.tab_type,
+            });
+        }
         let (
             window,
             window_id,
@@ -14,19 +27,12 @@ impl SystemRuntimeExecutor {
             source_id,
             tab_type,
         ) = {
-            let (window_id, window, isolation_surfaces) = {
+            let (runtime_window_id, isolation_surfaces) = {
                 let state = self.state().map_err(|error| error.message)?;
                 let tab = state
                     .tabs
                     .get(tab_id)
                     .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-                let window_id = tab.window_id.clone();
-                let window = state
-                    .display_hosts
-                    .get(&window_id)
-                    .ok_or_else(|| "Runtime display host was not found.".to_owned())?
-                    .window
-                    .clone();
                 let isolation_surfaces = state
                     .surface_registry
                     .values()
@@ -37,8 +43,15 @@ impl SystemRuntimeExecutor {
                     })
                     .cloned()
                     .collect::<Vec<_>>();
-                (window_id, window, isolation_surfaces)
+                (tab.window_id.clone(), isolation_surfaces)
             };
+            let window_id = self
+                .presentation
+                .tab_window(tab_id)?
+                .unwrap_or(runtime_window_id);
+            let window = self
+                .window_for_id(&window_id)
+                .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
             let (
                 original_active_tab_id,
                 previous_surfaces,

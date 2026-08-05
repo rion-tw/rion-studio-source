@@ -1,4 +1,85 @@
 impl SystemRuntimeExecutor {
+    /// Accepts the complete order reported by the visible tab strip. This is the hot-path
+    /// commit between AppKit/HTML gesture handling and latest-wins persistence: it only locks
+    /// LiveWindowTabState briefly and never calls Core, SQLite, or a native readback.
+    pub(crate) fn commit_live_tab_order_intent(
+        &self,
+        window_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<bool, String> {
+        let Some(coordinator) = self.presentation.existing(window_id) else {
+            return Ok(false);
+        };
+        let changed = {
+            let mut state = coordinator
+                .lock()
+                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            let previous = state.tab_ids();
+            if previous.len() != ordered_tab_ids.len()
+                || previous.iter().collect::<HashSet<_>>()
+                    != ordered_tab_ids.iter().collect::<HashSet<_>>()
+            {
+                // During a cross-window hover AppKit may already show the dragged tab while
+                // ownership is still transferring. That intent belongs to the terminal move,
+                // so it is not an error and must not mutate either window's live topology yet.
+                return Ok(false);
+            }
+            if previous == ordered_tab_ids {
+                false
+            } else {
+                let revision = self.presentation.next_revision();
+                state.reorder_known_tabs(ordered_tab_ids);
+                state.revision = revision;
+                true
+            }
+        };
+        if changed {
+            self.schedule_live_window_state_persistence(window_id);
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn preview_tab_drag_order_exact(
+        &self,
+        window_id: &str,
+        ordered_tab_ids: &[String],
+        project_native_order: bool,
+    ) -> Result<(), String> {
+        let coordinator = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+        let ordered = {
+            let mut state = coordinator
+                .lock()
+                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
+            let previous = state.tab_ids();
+            if previous.len() != ordered_tab_ids.len()
+                || previous.iter().collect::<HashSet<_>>()
+                    != ordered_tab_ids.iter().collect::<HashSet<_>>()
+            {
+                return Err("Live tab order does not match the presentation window.".to_owned());
+            }
+            if previous == ordered_tab_ids {
+                return Ok(());
+            }
+            let revision = self.presentation.next_revision();
+            state.reorder_known_tabs(ordered_tab_ids);
+            state.revision = revision;
+            ordered_tab_ids.to_vec()
+        };
+        self.schedule_live_window_state_persistence(window_id);
+        if project_native_order
+            && let Err(error) = self.reorder_native_tabs(window_id, &ordered)
+        {
+            eprintln!(
+                "Native tab order projection will reconcile from live topology: window={window_id} error={}",
+                error.message
+            );
+        }
+        Ok(())
+    }
+
     pub(crate) fn commit_live_tab_drag_destination(
         &self,
         _source_window_id: &str,
@@ -10,13 +91,14 @@ impl SystemRuntimeExecutor {
             return Ok(());
         };
         if actual_source_window_id == target_window_id {
-            self.preview_tab_drag_order_exact(target_window_id, ordered_tab_ids, true)?;
+            if !self.commit_live_tab_order_intent(target_window_id, ordered_tab_ids)? {
+                return Err("Live tab order changed before the drag completed.".to_owned());
+            }
             let _ = self.request_tab_presentation(
                 tab_id,
                 NativePresentationFocus::None,
                 "tab-drag-live-commit",
             );
-            self.schedule_live_window_state_persistence(target_window_id);
             return Ok(());
         }
         let tab = self

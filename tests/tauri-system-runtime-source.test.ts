@@ -214,7 +214,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(pointerActivation).not.toContain("NativePresentationFocus::WindowAndContent");
     const launcherActivation = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_launcher_tab_activation_background("),
-      runtime.indexOf("fn reconcile_presentation_tab_owner(")
+      runtime.indexOf("fn resolve_live_presentation_tab_owner(")
     );
     expect(launcherActivation).toContain("NativePresentationFocus::WindowAndContent");
     expect(launcherActivation).toContain("Some(true)");
@@ -456,7 +456,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macController).not.toContain("canvasPoint.x - item.grabRatio.x");
     expect(macController).toContain("surface.layer.presentationLayer");
     expect(runtime).toContain("project_native_order: bool");
-    expect(runtime).toContain("if project_native_order {");
+    expect(runtime).toContain("if project_native_order\n            && let Err(error)");
     expect(macController).toContain("_tabIconCacheKeys");
     expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
     expect(macController).toContain("NSEventMaskFlagsChanged");
@@ -566,6 +566,9 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       scopedTabAction.indexOf("let snapshot = snapshot(&state.core)?")
     );
     expect(macBridge).toContain("crate::execute_tab_stop(&state, tab_id).await");
+    expect(macBridge).toContain("state.runtime.preview_tab_close(tab_id)");
+    expect(runtime).toContain("resolve_live_presentation_tab_owner(tab_id, &runtime_window_id)");
+    expect(runtime).not.toContain("reconcile_presentation_tab_owner(tab_id, &window_id)");
   });
 
 it("keeps failed destructive close quarantined instead of rolling presentation back", async () => {

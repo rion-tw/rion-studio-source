@@ -273,6 +273,32 @@ impl PresentationRegistry {
     fn launcher_presence(&self) -> Result<RuntimeLauncherPresence, String> {
         let mut windows = self.snapshot_states()?.into_iter().collect::<Vec<_>>();
         windows.sort_by(|left, right| left.0.cmp(&right.0));
+        let launcher_windows = windows
+            .iter()
+            .filter_map(|(window_id, window)| {
+                if window.tabs.is_empty() {
+                    return None;
+                }
+                let title = window.persisted_name.clone().or_else(|| {
+                    window
+                        .selected_tab_id
+                        .as_deref()
+                        .and_then(|active_tab_id| {
+                            window
+                                .tabs
+                                .iter()
+                                .find(|tab| tab.id == active_tab_id)
+                        })
+                        .or_else(|| window.tabs.first())
+                        .map(|tab| tab.title.clone())
+                });
+                Some(RuntimeLauncherPresenceWindow {
+                    persisted: window.persisted_name.is_some(),
+                    title: title.unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned()),
+                    window_id: window_id.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
         let mut tabs = windows
             .into_iter()
             .flat_map(|(_, window)| {
@@ -288,7 +314,10 @@ impl PresentationRegistry {
             })
             .collect::<Vec<_>>();
         tabs.sort_by(|left, right| left.tab_id.cmp(&right.tab_id));
-        Ok(RuntimeLauncherPresence { tabs })
+        Ok(RuntimeLauncherPresence {
+            tabs,
+            windows: launcher_windows,
+        })
     }
 
     fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
@@ -374,6 +403,7 @@ struct RuntimeState {
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
+    native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
     retiring_window_cleanup_failed: HashSet<String>,
     retiring_window_tabs: HashMap<String, HashSet<String>>,

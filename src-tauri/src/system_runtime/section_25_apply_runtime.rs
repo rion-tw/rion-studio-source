@@ -45,25 +45,24 @@ impl SystemRuntimeExecutor {
         // into AppCore while a core effect is awaiting it. Restore callers already omit focus
         // requests. Saved names come from the local runtime cache so this effect never calls Core.
         let game_window_names = self.state()?.saved_window_names.clone();
-        let (live_windows, optimistic_closed_tabs, pending_window_tab_restores) = {
+        let (native_tab_hosts, optimistic_closed_tabs, pending_window_tab_restores) = {
             let state = self.state()?;
+            let mut native_tab_hosts = state.native_tab_hosts.clone();
+            for surface in state.surface_registry.values() {
+                if let Some(tab_id) = surface.tab_id.as_ref() {
+                    native_tab_hosts
+                        .entry(tab_id.clone())
+                        .or_insert_with(|| surface.window_id.clone());
+                }
+            }
             (
-                state
-                    .surface_registry
-                    .values()
-                    .filter_map(|surface| {
-                        surface
-                            .tab_id
-                            .as_ref()
-                            .map(|tab_id| (tab_id.clone(), surface.window_id.clone()))
-                    })
-                    .collect::<HashMap<_, _>>(),
+                native_tab_hosts,
                 state.optimistic_closed_tabs.clone(),
                 state.pending_window_tab_restores.clone(),
             )
         };
         let host_plan =
-            resolve_runtime_tab_host_plan(&snapshot, &live_windows, focus_window_ids, focus_tab_id);
+            resolve_runtime_tab_host_plan(&snapshot, &native_tab_hosts, focus_window_ids, focus_tab_id);
         let tab_updates = {
             let state = self.state()?;
             host_plan
@@ -91,7 +90,7 @@ impl SystemRuntimeExecutor {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
                         #[cfg(windows)]
-                        source_window_id: live_windows.get(&plan.tab_id)?.clone(),
+                        source_window_id: native_tab_hosts.get(&plan.tab_id)?.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
                     })
@@ -179,6 +178,9 @@ impl SystemRuntimeExecutor {
                 if update.moved && !projected_tab_ids.contains(&update.tab_id) {
                     continue;
                 }
+                state
+                    .native_tab_hosts
+                    .insert(update.tab_id.clone(), update.window_id.clone());
                 for surface in state.surface_registry.values_mut() {
                     if surface.tab_id.as_deref() == Some(update.tab_id.as_str()) {
                         surface.window_id = update.window_id.clone();
@@ -211,7 +213,7 @@ impl SystemRuntimeExecutor {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })?;
         for snapshot_tab in snapshot.tabs.iter().filter(|tab| {
-            live_windows.contains_key(&tab.id) && !optimistic_closed_tabs.contains(&tab.id)
+            native_tab_hosts.contains_key(&tab.id) && !optimistic_closed_tabs.contains(&tab.id)
         }) {
             let active_tab_id = presentation_after
                 .get(&snapshot_tab.window_id)
@@ -244,7 +246,7 @@ impl SystemRuntimeExecutor {
             .tabs
             .iter()
             .filter(|tab| {
-                live_windows.contains_key(&tab.id)
+                native_tab_hosts.contains_key(&tab.id)
                     && !optimistic_closed_tabs.contains(&tab.id)
             })
             .map(|tab| tab.window_id.as_str())
@@ -265,7 +267,7 @@ impl SystemRuntimeExecutor {
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|tab_id| {
-                    live_windows.contains_key(tab_id.as_str())
+                    native_tab_hosts.contains_key(tab_id.as_str())
                         && !optimistic_closed_tabs.contains(tab_id.as_str())
                         && snapshot
                             .tabs

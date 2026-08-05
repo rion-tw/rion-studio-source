@@ -11,9 +11,29 @@ use std::{
 };
 
 use rion_core::{CoreCommand, RuntimeWindowPreferencesRecord};
+use dispatch2::DispatchQueue;
 use tauri::{AppHandle, Manager, Window};
 
 const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
+const APPKIT_TRACKING_DISPATCH_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub(crate) fn run_on_appkit_tracking_main<T>(
+    task: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+{
+    if unsafe { rion_runtime_tabs_is_main_thread() } {
+        return Ok(task());
+    }
+    let (sender, receiver) = mpsc::sync_channel(1);
+    DispatchQueue::main().exec_async(move || {
+        let _ = sender.send(task());
+    });
+    receiver
+        .recv_timeout(APPKIT_TRACKING_DISPATCH_TIMEOUT)
+        .map_err(|_| "The AppKit tracking-loop mutation did not complete in time.".to_owned())
+}
 
 #[repr(C)]
 struct NativeTabInput {
@@ -60,6 +80,11 @@ unsafe extern "C" {
     fn rion_runtime_tabs_prepare_fullscreen(controller: *mut c_void, fullscreen: bool);
     fn rion_runtime_tabs_set_fullscreen_policy(controller: *mut c_void, always_show: bool);
     fn rion_runtime_tabs_is_main_thread() -> bool;
+    fn rion_runtime_tabs_set_window_interaction(
+        window: *mut c_void,
+        pointer_passthrough: bool,
+        focus_window: bool,
+    ) -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
@@ -125,6 +150,23 @@ unsafe extern "C" {
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_shortcut_self_test() -> bool;
+}
+
+pub(crate) fn set_appkit_window_interaction(
+    window: &Window,
+    pointer_passthrough: bool,
+    focus_window: bool,
+) -> Result<(), String> {
+    let raw_window = window.ns_window().map_err(|error| error.to_string())? as usize;
+    run_on_appkit_tracking_main(move || unsafe {
+        rion_runtime_tabs_set_window_interaction(
+            raw_window as *mut c_void,
+            pointer_passthrough,
+            focus_window,
+        )
+    })?
+    .then_some(())
+    .ok_or_else(|| "The AppKit window interaction state could not be applied.".to_owned())
 }
 
 pub fn install_safe_tao_event_dispatch() -> Result<(), String> {
@@ -432,8 +474,7 @@ impl MacRuntimeTabsController {
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
         let window_id = c_string(window_id);
-        let app = inner.app.clone();
-        app.run_on_main_thread(move || unsafe {
+        run_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_ensure(
                 inner.raw,
                 tab_id.as_ptr(),
@@ -445,7 +486,6 @@ impl MacRuntimeTabsController {
                 window_id.as_ptr(),
             );
         })
-        .map_err(|error| error.to_string())
     }
 
     pub fn reserve(
@@ -497,8 +537,7 @@ impl MacRuntimeTabsController {
         let inner = Arc::clone(&self.inner);
         let tab_id = c_string(tab_id);
         let active_tab_id = active_tab_id.map(c_string);
-        let app = inner.app.clone();
-        app.run_on_main_thread(move || unsafe {
+        run_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_remove(
                 inner.raw,
                 tab_id.as_ptr(),
@@ -507,7 +546,6 @@ impl MacRuntimeTabsController {
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
             );
         })
-        .map_err(|error| error.to_string())
     }
 
     pub fn reorder(&self, tab_ids: &[String]) -> Result<(), String> {
@@ -515,11 +553,9 @@ impl MacRuntimeTabsController {
         let tab_ids = serde_json::to_string(tab_ids)
             .map(|value| c_string(&value))
             .map_err(|error| error.to_string())?;
-        let app = inner.app.clone();
-        app.run_on_main_thread(move || unsafe {
+        run_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
         })
-        .map_err(|error| error.to_string())
     }
 
     pub(crate) fn reorder_fenced(

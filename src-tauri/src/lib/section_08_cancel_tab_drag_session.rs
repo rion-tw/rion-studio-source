@@ -238,7 +238,7 @@ fn finish_cancelled_tab_drag_gesture(
     release_tab_drag_window_motion_suppression(state, session, None);
     if let Err(message) = state
         .runtime
-        .make_provisional_game_window_interactive(&session.current_window_id)
+        .make_provisional_game_window_interactive(&session.current_window_id, &session.id)
     {
         eprintln!("Cancelled tab drag interactivity repair remains pending: {message}");
     }

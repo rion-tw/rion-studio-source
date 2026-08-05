@@ -75,7 +75,23 @@ impl SystemRuntimeExecutor {
                     tab_id,
                     &ordered,
                 )?;
-                self.schedule_tab_surface_move_retry(tab_id.to_owned(), target.window_id.clone());
+                if let Err(error) = self.provisionally_move_tab_with_visibility_inner(
+                    tab_id,
+                    &target.window_id,
+                    true,
+                    false,
+                ) {
+                    eprintln!(
+                        "Live tab surface move will retry without rolling back topology: tab={tab_id} target={} error={error}",
+                        target.window_id
+                    );
+                    self.schedule_tab_surface_move_retry(
+                        tab_id.to_owned(),
+                        target.window_id.clone(),
+                    );
+                } else if source_window_id != target.window_id {
+                    self.discard_provisional_game_window(&source_window_id);
+                }
                 Ok(())
             }
             "hide" => self.commit_live_tab_hide_intent(tab_id),
@@ -481,12 +497,47 @@ impl SystemRuntimeExecutor {
         let revision = receipt.revision;
         self.schedule_live_projection_membership_follow();
         let selected_after = self.presentation.selected_tabs();
-        self.schedule_native_tab_drag_chrome_retry(
-            actual_source_window_id.clone(),
-            target_window_id.to_owned(),
-            tab.clone(),
-            selected_after.get(&actual_source_window_id).cloned(),
+        #[cfg(any(windows, target_os = "macos"))]
+        let workspace_template = tab.workspace_template.as_deref();
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let workspace_template: Option<&str> = None;
+        if let Err(error) = self.relocate_native_tab_reservation(
+            &actual_source_window_id,
+            target_window_id,
+            tab_id,
+            &tab.title,
+            &tab.tab_type,
+            workspace_template,
+            selected_after
+                .get(&actual_source_window_id)
+                .map(String::as_str),
             revision,
+        ) {
+            eprintln!(
+                "Live tab chrome projection will retry after drag commit: tab={tab_id} source={actual_source_window_id} target={target_window_id} error={}",
+                error.message
+            );
+            self.schedule_native_tab_drag_chrome_retry(
+                actual_source_window_id.clone(),
+                target_window_id.to_owned(),
+                tab.clone(),
+                selected_after.get(&actual_source_window_id).cloned(),
+                revision,
+            );
+        }
+        self.apply_native_active_style(
+            &actual_source_window_id,
+            selected_after
+                .get(&actual_source_window_id)
+                .map(String::as_str),
+            revision,
+            "tab-drag-live-source",
+        );
+        self.apply_native_active_style(
+            target_window_id,
+            selected_after.get(target_window_id).map(String::as_str),
+            revision,
+            "tab-drag-live-target",
         );
         self.publish_launcher_presence();
         for affected_window_id in &receipt.window_ids {
@@ -587,7 +638,7 @@ impl SystemRuntimeExecutor {
                     {
                         return;
                     }
-                    let physical_source_window_id = runtime.tab_window_id(&tab_id);
+                    let physical_source_window_id = runtime.native_tab_host_id(&tab_id);
                     if physical_source_window_id.as_deref() == Some(target_window_id.as_str()) {
                         return;
                     }

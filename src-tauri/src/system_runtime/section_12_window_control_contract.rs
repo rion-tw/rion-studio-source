@@ -1,4 +1,29 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn focus_live_runtime_window(&self, window_id: &str) -> Result<(), String> {
+        if self.live_window_tab_ids(window_id)?.is_empty() {
+            return Ok(());
+        }
+        let window = {
+            let mut state = self.state().map_err(|error| error.message)?;
+            state.tab_drag_cursor_leases.remove(window_id);
+            state
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "Runtime display host was not found.".to_owned())?
+        };
+        set_tab_drag_window_interaction(&window, false, true)?;
+        self.request_window_contract_presentation(
+            window_id,
+            Some(true),
+            NativePresentationFocus::WindowAndContent,
+            None,
+            "quick-menu-live-window",
+        )
+        .map(|_| ())
+        .map_err(|error| error.message)
+    }
+
     pub fn hide_runtime_window(
         &self,
         window_id: &str,

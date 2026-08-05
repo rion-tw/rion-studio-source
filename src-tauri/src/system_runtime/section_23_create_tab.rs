@@ -176,6 +176,10 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
+        let restored_audio_muted = self
+            .presentation
+            .tab(&target.window_id, &created_tab_id)
+            .is_some_and(|tab| tab.audio_muted);
         let mut state = self.state()?;
         if committed_window_id.as_deref() != Some(target.window_id.as_str())
             || state.optimistic_closed_tabs.contains(&created_tab_id)
@@ -196,8 +200,14 @@ impl SystemRuntimeExecutor {
             .launch_attempt_generations
             .insert(created_tab_id.clone(), attempt_generation.clone());
         state
+            .native_tab_hosts
+            .insert(created_tab_id.clone(), target.window_id.clone());
+        state
             .tabs
-            .insert(created_tab_id.clone(), runtime_tab_from_effect(&tab));
+            .insert(
+                created_tab_id.clone(),
+                runtime_tab_from_effect(&tab, restored_audio_muted),
+            );
         drop(state);
         self.schedule_live_projection_membership_follow();
         self.presentation
@@ -702,6 +712,7 @@ impl SystemRuntimeExecutor {
                     == Some(&attempt_generation);
                 if attempt_is_current {
                     state.tabs.remove(&created_tab_id);
+                    state.native_tab_hosts.remove(&created_tab_id);
                     state
                         .role_tabs
                         .retain(|_, tab_id| tab_id != &created_tab_id);

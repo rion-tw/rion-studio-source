@@ -593,16 +593,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
            endedAtPoint:(NSPoint)screenPoint
               operation:(NSDragOperation)operation {
   (void)session;
+  (void)operation;
   [self clearDragPreviewYLock];
   _activeDraggingSession = nil;
   _lastDragMoveDispatchTime = 0;
   NSEvent *event = NSApp.currentEvent;
   BOOL cancelledWithEscape =
       event.type == NSEventTypeKeyDown && event.keyCode == 53;
-  if (operation != NSDragOperationNone) {
+  if (self.tabDropHandled) {
+    self.tabDropHandled = NO;
     self.dragSessionID = @"";
     return;
   }
+  self.tabDropHandled = NO;
   [self.tabsController endTabDrag:self
                       screenPoint:screenPoint
                         cancelled:cancelledWithEscape];

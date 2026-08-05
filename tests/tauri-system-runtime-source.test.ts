@@ -263,7 +263,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
     expect(runtime).toContain("tab.selection-coalesced");
     expect(runtime).toContain("apply_native_presentation_batch(");
-    expect(runtime).toContain("request.window.run_on_main_thread");
+    expect(runtime).toContain("run_on_appkit_tracking_main(task)");
+    expect(runtime).toContain(".run_on_main_thread(task)");
     expect(runtime).toContain("mainQueueWaitMs");
     expect(runtime).toContain("mainThreadMs");
     expect(runtime).toContain('"noOp": outcome.no_op');
@@ -612,6 +613,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     );
     expect(move).toContain("state.surface_registry.values_mut()");
     expect(move).toContain("surface.window_id = target_window_id.to_owned()");
+    expect(move).toMatch(/state\s*\.native_tab_hosts/u);
     expect(move).not.toContain("surface.window_id = source_window_id.to_owned()");
     const popup = runtime.slice(
       runtime.indexOf("fn register_popup("),

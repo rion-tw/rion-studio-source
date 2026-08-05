@@ -267,14 +267,6 @@ struct GameWindowTabDragSession {
     window_was_moved: bool,
 }
 
-#[derive(Clone)]
-#[derive(Debug, PartialEq, Eq)]
-enum RuntimeRestoreTabMatch {
-    Missing,
-    InTarget { hidden: bool, id: String },
-    Conflict { window_id: String },
-}
-
 struct RestoreProgressGuard<'a> {
     active: bool,
     state: &'a CoreState,

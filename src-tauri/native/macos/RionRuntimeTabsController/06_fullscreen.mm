@@ -620,6 +620,7 @@ NS_ASSUME_NONNULL_BEGIN
   [self resetTabDragInsertionState];
   NSString *sessionID = NSUUID.UUID.UUIDString;
   item.dragSessionID = sessionID;
+  item.tabDropHandled = NO;
   [self setActiveTabIdentifier:item.tabIdentifier];
   NSPoint screenPoint =
       RionTopLeftScreenPoint([item.window convertPointToScreen:event.locationInWindow]);

@@ -162,6 +162,20 @@ bool rion_runtime_tabs_is_main_thread(void) {
   return [NSThread isMainThread];
 }
 
+bool rion_runtime_tabs_set_window_interaction(
+    void * _Nullable rawWindow, bool pointerPassthrough, bool focusWindow) {
+  @autoreleasepool {
+    if (!rawWindow || !NSThread.isMainThread) return false;
+    NSWindow *window = (__bridge NSWindow *)rawWindow;
+    window.ignoresMouseEvents = pointerPassthrough;
+    if (!pointerPassthrough && focusWindow) {
+      [NSApp activateIgnoringOtherApps:YES];
+      [window makeKeyAndOrderFront:nil];
+    }
+    return window.ignoresMouseEvents == pointerPassthrough;
+  }
+}
+
 void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable rawController, bool locked) {
   if (rawController) {
@@ -659,6 +673,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @interface RionRuntimeTabItemView : NSControl <NSDraggingSource>
 
 @property(nonatomic) BOOL activeTab;
+@property(nonatomic) BOOL tabDropHandled;
 @property(nonatomic, copy) NSString *dragSessionID;
 @property(nonatomic, copy) NSString *sourceWindowID;
 @property(nonatomic, weak) RionRuntimeSurfaceView *surfaceView;

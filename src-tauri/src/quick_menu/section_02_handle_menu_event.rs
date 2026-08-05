@@ -7,13 +7,43 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
         }
         _ if id.starts_with(SHOW_DISPLAY_PREFIX) => {
             let window_id = id.trim_start_matches(SHOW_DISPLAY_PREFIX).to_owned();
-            let core = Arc::clone(core);
+            let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = core
-                    .invoke_async(CoreCommand::EmbeddedWindowsShow {
-                        window_id: Some(window_id),
-                    })
-                    .await;
+                let Some(state) = app.try_state::<crate::CoreState>() else {
+                    return;
+                };
+                let is_live = state
+                    .runtime
+                    .live_window_tab_ids(&window_id)
+                    .is_ok_and(|tab_ids| !tab_ids.is_empty());
+                if is_live {
+                    let runtime = Arc::clone(&state.runtime);
+                    let mut failure = None;
+                    for attempt in 0_u64..8 {
+                        match runtime.focus_live_runtime_window(&window_id) {
+                            Ok(()) => return,
+                            Err(error) => failure = Some(error),
+                        }
+                        tokio::time::sleep(Duration::from_millis(
+                            25_u64.saturating_mul(1_u64 << attempt.min(5)),
+                        ))
+                        .await;
+                    }
+                    eprintln!(
+                        "Quick Menu live window focus remains pending: window={window_id} error={}",
+                        failure.unwrap_or_else(|| "native host unavailable".to_owned())
+                    );
+                    return;
+                }
+                let Some(window) = app.get_webview_window("main") else {
+                    return;
+                };
+                let _ = crate::restore_saved_game_windows(
+                    &state,
+                    &window,
+                    &[serde_json::json!({ "scope": "window", "windowId": window_id })],
+                )
+                .await;
             });
         }
         _ if id.starts_with(RESTORE_WINDOW_PREFIX) => {
@@ -191,6 +221,7 @@ struct Labels {
     review_terms: &'static str,
     roles: &'static str,
     stop_all: &'static str,
+    temporary_window: &'static str,
     windows: &'static str,
     workspaces: &'static str,
 }
@@ -206,6 +237,7 @@ fn labels(language: &str) -> Labels {
             review_terms: "啟動前請先檢閱條款",
             roles: "角色",
             stop_all: "停止所有執行中的角色",
+            temporary_window: "臨時視窗",
             windows: "視窗",
             workspaces: "工作區",
         },
@@ -218,6 +250,7 @@ fn labels(language: &str) -> Labels {
             review_terms: "启动前请先查看条款",
             roles: "角色",
             stop_all: "停止所有运行中的角色",
+            temporary_window: "临时窗口",
             windows: "窗口",
             workspaces: "工作区",
         },
@@ -230,6 +263,7 @@ fn labels(language: &str) -> Labels {
             review_terms: "起動前に利用規約を確認",
             roles: "ロール",
             stop_all: "実行中のロールをすべて停止",
+            temporary_window: "一時ウインドウ",
             windows: "ウインドウ",
             workspaces: "ワークスペース",
         },
@@ -242,6 +276,7 @@ fn labels(language: &str) -> Labels {
             review_terms: "Review terms before launching",
             roles: "Roles",
             stop_all: "Stop All Running Roles",
+            temporary_window: "Temporary Window",
             windows: "Windows",
             workspaces: "Workspaces",
         },

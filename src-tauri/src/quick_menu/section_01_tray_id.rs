@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 use rion_core::{AppCore, CoreCommand};
@@ -84,6 +85,7 @@ struct MenuModel {
     role_statuses: serde_json::Value,
     roles: serde_json::Value,
     running_window_ids: Vec<String>,
+    transient_windows: Vec<(String, String)>,
     open_workspace_ids: Vec<String>,
     workspace_statuses: serde_json::Value,
     workspaces: serde_json::Value,
@@ -224,14 +226,25 @@ impl MenuModel {
         let presence = runtime.launcher_presence_snapshot()?;
         let mut open_workspace_ids = presence
             .tabs
-            .into_iter()
+            .iter()
             .filter(|tab| tab.tab_type == "workspace")
-            .map(|tab| tab.source_id)
+            .map(|tab| tab.source_id.clone())
             .collect::<Vec<_>>();
         open_workspace_ids.sort();
         open_workspace_ids.dedup();
-        let mut running_window_ids = runtime.live_window_ids()?;
+        let mut running_window_ids = presence
+            .windows
+            .iter()
+            .map(|window| window.window_id.clone())
+            .collect::<Vec<_>>();
         running_window_ids.sort();
+        let mut transient_windows = presence
+            .windows
+            .into_iter()
+            .filter(|window| !window.persisted)
+            .map(|window| (window.window_id, window.title))
+            .collect::<Vec<_>>();
+        transient_windows.sort_by(|left, right| left.0.cmp(&right.0));
         Ok(Self {
             game_windows,
             language,
@@ -239,6 +252,7 @@ impl MenuModel {
             role_statuses,
             roles,
             running_window_ids,
+            transient_windows,
             open_workspace_ids,
             workspace_statuses,
             workspaces,
@@ -253,6 +267,7 @@ impl MenuModel {
             "roleStatuses": self.role_statuses,
             "roles": self.roles,
             "runningWindowIds": self.running_window_ids,
+            "transientWindows": self.transient_windows,
             "openWorkspaceIds": self.open_workspace_ids,
             "workspaceStatuses": self.workspace_statuses,
             "workspaces": self.workspaces,
@@ -408,6 +423,13 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
             ),
             format!("{}{name}", if running { "✓ " } else { "" }),
             running || legal_accepted,
+        ));
+    }
+    for (window_id, title) in &model.transient_windows {
+        window_items.push(item(
+            format!("{SHOW_DISPLAY_PREFIX}{window_id}"),
+            format!("✓ {title} · {}", labels.temporary_window),
+            true,
         ));
     }
     if window_items.is_empty() {

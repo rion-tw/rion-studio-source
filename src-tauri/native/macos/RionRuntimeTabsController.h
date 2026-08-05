@@ -116,6 +116,8 @@ void rion_runtime_tabs_prepare_fullscreen(
 void rion_runtime_tabs_set_fullscreen_policy(
     void * _Nullable controller, bool alwaysShow);
 bool rion_runtime_tabs_is_main_thread(void);
+bool rion_runtime_tabs_set_window_interaction(
+    void * _Nullable window, bool pointerPassthrough, bool focusWindow);
 void rion_runtime_tabs_set_reveal_locked(
     void * _Nullable controller, bool locked);
 void rion_runtime_tabs_set_window_name(

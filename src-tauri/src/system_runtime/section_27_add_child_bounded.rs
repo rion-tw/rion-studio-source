@@ -571,7 +571,7 @@ impl SystemRuntimeExecutor {
                     .ok()
                     .and_then(|state| state.close_previews.get(tab_id).map(|item| item.window_id.clone()))
             })
-            .or_else(|| self.tab_window_id(tab_id));
+            .or_else(|| self.native_tab_host_id(tab_id));
         let Some(window_id) = window_id else {
             return Ok(());
         };
@@ -728,6 +728,7 @@ impl SystemRuntimeExecutor {
                 state.recovering_roles.remove(&released.role_id);
             }
             state.tabs.remove(tab_id);
+            state.native_tab_hosts.remove(tab_id);
             self.presentation.statuses.remove(tab_id);
             // A successful native destroy is the authoritative close boundary,
             // including when it came from BrowserWindowStop rather than the

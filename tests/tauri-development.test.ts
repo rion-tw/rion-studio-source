@@ -38,8 +38,13 @@ describe("Tauri development and release commands", () => {
     expect(tauriConfig.app.security.devCsp).toContain("script-src 'self' 'unsafe-inline'");
     expect(tauriConfig.app.security.devCsp).toContain("ws://127.0.0.1:5173");
     expect(viteSource).toContain('host: "127.0.0.1"');
-    expect(viteSource).toContain("manualChunks");
-    expect(viteSource).toContain('return "vendor"');
+    expect(viteSource).toContain("rolldownOptions");
+    expect(viteSource).toContain("codeSplitting");
+    expect(viteSource).toContain("/node_modules/");
+    expect(viteSource).toContain('name: "vendor"');
+    expect(viteSource).toContain("import.meta.dirname");
+    expect(viteSource).not.toContain("__dirname");
+    expect(viteSource).not.toContain("manualChunks");
     expect(launcher).toContain("environmentWithCargoExecutable");
     expect(launcher).toContain("assertDevRendererPortAvailable");
     expect(launcher.indexOf("await assertDevRendererPortAvailable()"))

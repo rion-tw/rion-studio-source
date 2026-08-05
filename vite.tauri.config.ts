@@ -10,18 +10,16 @@ export default defineConfig({
   build: {
     emptyOutDir: true,
     outDir: "../../out/renderer",
-    rollupOptions: {
+    rolldownOptions: {
       input: {
-        main: resolve(__dirname, "src/renderer/index.html"),
-        runtimeDivider: resolve(__dirname, "src/renderer/runtime-divider.html"),
-        runtimeRolePlaceholder: resolve(__dirname, "src/renderer/runtime-role-placeholder.html"),
-        runtimeTabs: resolve(__dirname, "src/renderer/runtime-tabs.html")
+        main: resolve(import.meta.dirname, "src/renderer/index.html"),
+        runtimeDivider: resolve(import.meta.dirname, "src/renderer/runtime-divider.html"),
+        runtimeRolePlaceholder: resolve(import.meta.dirname, "src/renderer/runtime-role-placeholder.html"),
+        runtimeTabs: resolve(import.meta.dirname, "src/renderer/runtime-tabs.html")
       },
       output: {
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            return "vendor";
-          }
+        codeSplitting: {
+          groups: [{ test: /node_modules/, name: "vendor" }]
         }
       }
     },
@@ -29,8 +27,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@renderer": resolve(__dirname, "src/renderer/src"),
-      "@shared": resolve(__dirname, "src/shared")
+      "@renderer": resolve(import.meta.dirname, "src/renderer/src"),
+      "@shared": resolve(import.meta.dirname, "src/shared")
     }
   },
   server: {

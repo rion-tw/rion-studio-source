@@ -1,7 +1,7 @@
 import {
   LayoutDashboard,
   Loader2,
-  PanelTopOpen,
+  AppWindow,
   Plus,
   Search
 } from "lucide-react";
@@ -324,7 +324,7 @@ function WorkspaceCard({
             {isBusy ? (
               <Loader2 className="spin" size={30} />
             ) : (
-              <PanelTopOpen size={34} />
+              <AppWindow size={34} />
             )}
           </Button>
         </div>

@@ -232,6 +232,7 @@ fn native_surface_mutation_is_current(
     }
 }
 
+#[cfg(test)]
 fn native_presentation_changed(
     previous_tab_id: &Option<String>,
     next_tab_id: &Option<String>,

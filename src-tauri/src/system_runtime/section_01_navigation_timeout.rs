@@ -16,7 +16,7 @@ use crate::native_projection::RevisionedJsonProjection;
 
 use rion_core::{
     AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
-    BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord,
+    BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord, BrowserRuntimeTabRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
@@ -33,7 +33,8 @@ use rion_core::{
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroInputDiagnosticsRecord, MacroInputEpochRecord, RuntimeTabMutationRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
-    RuntimeRestoreWindowRecord, SessionCookieRecord, SessionTransferPayloadRecord, StateGameRecord,
+    RuntimeRestoreWindowRecord, RuntimeRoleSlotRecord, SessionCookieRecord,
+    SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,

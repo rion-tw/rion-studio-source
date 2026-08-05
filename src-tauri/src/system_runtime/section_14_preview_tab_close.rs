@@ -264,93 +264,115 @@ impl SystemRuntimeExecutor {
             })
     }
 
-    /// Overlays Core metadata with the already-committed live topology. Core
-    /// snapshots are allowed to lag, but they can never move, reorder, reveal,
-    /// hide, or select an open-window tab on their way back through a native
-    /// effect or renderer projection.
-    fn snapshot_with_live_tab_topology(
+    /// Builds the renderer compatibility DTO from the live topology and the
+    /// role-owner runtime. Core tab/window membership is deliberately ignored.
+    fn compose_live_runtime_snapshot(
         &self,
         mut snapshot: BrowserRuntimeSnapshot,
     ) -> Option<BrowserRuntimeSnapshot> {
-        // Fail closed when the live authority cannot be read. Returning the raw
-        // Core snapshot here would let a delayed projection become a second UI
-        // authority precisely when the presentation registry is unhealthy.
-        let live_windows = self.presentation.snapshot_states().ok()?;
-        let optimistic_closed_tabs = self
-            .state
-            .lock()
-            .map(|state| state.optimistic_closed_tabs.clone())
-            .unwrap_or_default();
-        let live_owners = live_windows
+        let mut live_windows = self.presentation.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
+        live_windows.sort_by(|left, right| left.0.cmp(&right.0));
+        let owner_by_role = snapshot
+            .roles
             .iter()
-            .flat_map(|(window_id, live)| {
-                live.all_tab_ids()
-                    .into_iter()
-                    .map(|tab_id| (tab_id, window_id.clone()))
-            })
+            .map(|role| (role.role_id.as_str(), role))
             .collect::<HashMap<_, _>>();
-        for tab in &mut snapshot.tabs {
-            if let Some(window_id) = live_owners.get(&tab.id) {
-                tab.window_id = window_id.clone();
-                tab.hidden = live_windows
-                    .get(window_id)
-                    .is_some_and(|live| live.tab_is_hidden(&tab.id));
-            } else if optimistic_closed_tabs.contains(&tab.id) {
-                tab.hidden = true;
-            }
-        }
-        let snapshot_tab_ids = snapshot
+        let mut core_tabs = snapshot
             .tabs
-            .iter()
-            .map(|tab| tab.id.clone())
-            .collect::<HashSet<_>>();
-        for window_id in live_windows.keys().chain(snapshot.tabs.iter().map(|tab| &tab.window_id)) {
-            if !snapshot
-                .windows
-                .iter()
-                .any(|window| window.window_id == *window_id)
-            {
-                snapshot.windows.push(BrowserRuntimeWindowRecord {
-                    window_id: window_id.clone(),
-                    active_tab_id: None,
-                    tab_ids: Vec::new(),
-                });
-            }
-        }
-        for window in &mut snapshot.windows {
-            let core_order = window.tab_ids.clone();
-            if let Some(live) = live_windows.get(&window.window_id) {
-                let mut ordered = live
-                    .all_tab_ids()
-                    .into_iter()
-                    .filter(|tab_id| {
-                        snapshot_tab_ids.contains(tab_id)
-                            && !optimistic_closed_tabs.contains(tab_id)
+            .drain(..)
+            .map(|tab| (tab.id.clone(), tab))
+            .collect::<HashMap<_, _>>();
+        let mut owner_by_tab = HashMap::new();
+        let mut tabs = Vec::new();
+        let mut windows = Vec::new();
+        for (window_id, live) in &live_windows {
+            let tab_ids = live.all_tab_ids();
+            windows.push(BrowserRuntimeWindowRecord {
+                window_id: window_id.clone(),
+                active_tab_id: live.selected_tab_id.clone().filter(|tab_id| {
+                    tab_ids.contains(tab_id) && !live.tab_is_hidden(tab_id)
+                }),
+                tab_ids,
+            });
+            for tab in &live.tabs {
+                owner_by_tab.insert(tab.id.clone(), window_id.clone());
+                let previous_slots = core_tabs
+                    .get(&tab.id)
+                    .map(|tab| tab.slots.clone())
+                    .unwrap_or_default();
+                let slots = tab
+                    .role_slots
+                    .iter()
+                    .map(|slot| {
+                        previous_slots
+                            .iter()
+                            .find(|existing| existing.slot_id == slot.slot_id)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let owner = owner_by_role.get(slot.role_id.as_str());
+                                let owned_here = owner.is_some_and(|role| {
+                                    role.owner.tab_id == tab.id
+                                        && role.owner.slot_id == slot.slot_id
+                                });
+                                RuntimeRoleSlotRecord {
+                                    slot_id: slot.slot_id.clone(),
+                                    role_id: slot.role_id.clone(),
+                                    rect: slot.rect.clone(),
+                                    browser_zoom_percent: slot.browser_zoom_percent,
+                                    state: owner.map_or("available", |role| {
+                                        if owned_here {
+                                            role.state.as_str()
+                                        } else {
+                                            "blocked"
+                                        }
+                                    }).to_owned(),
+                                    owner: owner.map(|role| role.owner.clone()),
+                                }
+                            })
                     })
-                    .collect::<Vec<_>>();
-                let mut seen = ordered.iter().cloned().collect::<HashSet<_>>();
-                ordered.extend(core_order.into_iter().filter(|tab_id| {
-                    seen.insert(tab_id.clone())
-                        && !live_owners.contains_key(tab_id)
-                        && !optimistic_closed_tabs.contains(tab_id)
-                }));
-                window.tab_ids = ordered;
-                window.active_tab_id = live.selected_tab_id.clone().filter(|tab_id| {
-                    !live.tab_is_hidden(tab_id)
-                        && window.tab_ids.contains(tab_id)
-                        && !optimistic_closed_tabs.contains(tab_id)
+                    .collect();
+                let mut projected = core_tabs.remove(&tab.id).unwrap_or(BrowserRuntimeTabRecord {
+                    id: tab.id.clone(),
+                    source_id: tab.source_id.clone(),
+                    name: tab.title.clone(),
+                    window_id: window_id.clone(),
+                    tab_type: tab.tab_type.clone(),
+                    workspace_id: (tab.tab_type == "workspace").then(|| tab.source_id.clone()),
+                    slots: Vec::new(),
+                    hidden: false,
                 });
-            } else {
-                window.tab_ids.retain(|tab_id| {
-                    !live_owners.contains_key(tab_id)
-                        && !optimistic_closed_tabs.contains(tab_id)
-                });
-                window.active_tab_id = window
-                    .active_tab_id
-                    .take()
-                    .filter(|tab_id| window.tab_ids.contains(tab_id));
+                projected.source_id = tab.source_id.clone();
+                projected.name = tab.title.clone();
+                projected.window_id = window_id.clone();
+                projected.tab_type = tab.tab_type.clone();
+                projected.workspace_id =
+                    (tab.tab_type == "workspace").then(|| tab.source_id.clone());
+                projected.slots = slots;
+                projected.hidden = live.tab_is_hidden(&tab.id);
+                tabs.push(projected);
             }
         }
+        for role in &mut snapshot.roles {
+            if let Some(window_id) = owner_by_tab.get(&role.owner.tab_id) {
+                role.owner.window_id = window_id.clone();
+            }
+        }
+        snapshot.workspaces.retain_mut(|workspace| {
+            let Some((window_id, tab)) = live_windows.iter().find_map(|(window_id, live)| {
+                live.tabs
+                    .iter()
+                    .find(|tab| tab.tab_type == "workspace" && tab.source_id == workspace.workspace_id)
+                    .map(|tab| (window_id, tab))
+            }) else {
+                return false;
+            };
+            workspace.window_id = window_id.clone();
+            workspace.tab_id = tab.id.clone();
+            workspace.role_ids = tab.role_ids.clone();
+            true
+        });
+        snapshot.windows = windows;
+        snapshot.tabs = tabs;
         Some(snapshot)
     }
 

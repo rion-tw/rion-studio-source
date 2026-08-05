@@ -516,6 +516,7 @@ impl LiveWindowTabState {
         }
     }
 
+    #[cfg(test)]
     fn update_metadata(
         &mut self,
         tab_id: &str,

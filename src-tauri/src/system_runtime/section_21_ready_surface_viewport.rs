@@ -1,4 +1,6 @@
+#[cfg(target_os = "macos")]
 const READY_SURFACE_VIEWPORT_REFRESH_DELAY: Duration = Duration::from_millis(120);
+#[cfg(target_os = "macos")]
 const READY_SURFACE_VIEWPORT_REFRESH_SCRIPT: &str = r#"
 (() => {
   window.dispatchEvent(new Event("resize"));

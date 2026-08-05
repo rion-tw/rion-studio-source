@@ -187,6 +187,20 @@ fn emit_presentation_statuses(shared: &Arc<Shared>) {
     }
 }
 
+fn macro_run_lock(shared: &Arc<Shared>, macro_id: &str) -> CoreResult<Arc<Mutex<()>>> {
+    let mut locks = shared
+        .macro_run_locks
+        .lock()
+        .map_err(|_| CoreError::Internal("macro run lock registry poisoned".to_owned()))?;
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(macro_id).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(macro_id.to_owned(), Arc::downgrade(&lock));
+    Ok(lock)
+}
+
 fn cancel_control(control: &InvocationControl) {
     let _wake = control.wake.0.lock().ok();
     control.cancelled.store(true, Ordering::Release);

@@ -21,9 +21,9 @@ impl MacroRuntime {
                 next_id: AtomicU64::new(1),
                 pending: Mutex::new(HashMap::new()),
                 last_presentation_status_emit: Mutex::new(None),
+                macro_run_locks: Mutex::new(HashMap::new()),
                 shutting_down: AtomicBool::new(false),
                 input_sequence_role_locks: Mutex::new(HashMap::new()),
-                toggle_serial: Mutex::new(()),
                 waiter,
             }),
         }
@@ -54,17 +54,20 @@ impl MacroRuntime {
     }
 
     pub fn start(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
+        let run_lock = macro_run_lock(&self.shared, &request.macro_id)?;
+        let _run = run_lock
+            .lock()
+            .map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
         self.start_internal(request, false)
             .map(|(statuses, _)| statuses)
     }
 
     pub fn toggle(&self, request: MacroStartRequest) -> CoreResult<Vec<MacroRunStatus>> {
         validate_shortcut_source(&request)?;
-        let _toggle = self
-            .shared
-            .toggle_serial
+        let run_lock = macro_run_lock(&self.shared, &request.macro_id)?;
+        let _run = run_lock
             .lock()
-            .map_err(|_| CoreError::Internal("macro toggle lock poisoned".to_owned()))?;
+            .map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
         let macro_id = request.macro_id.clone();
         let running = !self
             .controls_matching(|control| {
@@ -75,7 +78,7 @@ impl MacroRuntime {
             })?
             .is_empty();
         if running {
-            self.stop_macro(&macro_id)?;
+            self.stop_macro_run_chain(&macro_id)?;
             return Ok(Vec::new());
         }
         self.start_internal(request, false)
@@ -235,6 +238,14 @@ impl MacroRuntime {
     }
 
     pub fn stop_macro(&self, macro_id: &str) -> CoreResult<()> {
+        let run_lock = macro_run_lock(&self.shared, macro_id)?;
+        let _run = run_lock
+            .lock()
+            .map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
+        self.stop_macro_run_chain(macro_id)
+    }
+
+    fn stop_macro_run_chain(&self, macro_id: &str) -> CoreResult<()> {
         let controls = self.controls_matching(|control| {
             control
                 .macro_ids

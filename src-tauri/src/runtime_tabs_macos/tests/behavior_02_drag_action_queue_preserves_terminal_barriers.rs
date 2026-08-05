@@ -35,9 +35,9 @@ fn drag_action_queue_coalesces_all_transient_samples_for_the_same_session() {
 }
 
 #[test]
-fn drag_action_queue_never_coalesces_terminal_or_start_barriers() {
-    for action in ["tabDragStart", "tabDragDrop", "tabDragEnd", "tabDragCancel"] {
-        assert!(!coalesce_native_tab_drag_actions(
+fn drag_action_queue_lets_terminals_replace_pending_motion() {
+    for action in ["tabDragDrop", "tabDragEnd", "tabDragCancel"] {
+        assert!(coalesce_native_tab_drag_actions(
             "tabDragMove",
             Some("session-a"),
             action,
@@ -50,4 +50,10 @@ fn drag_action_queue_never_coalesces_terminal_or_start_barriers() {
             Some("session-a"),
         ));
     }
+    assert!(!coalesce_native_tab_drag_actions(
+        "tabDragMove",
+        Some("session-a"),
+        "tabDragStart",
+        Some("session-a"),
+    ));
 }

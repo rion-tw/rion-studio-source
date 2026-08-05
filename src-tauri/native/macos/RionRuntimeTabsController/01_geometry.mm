@@ -15,7 +15,7 @@
 static const CGFloat kRionTitlebarHeight = 40.0;
 static const CGFloat kRionTabHeight = 28.0;
 static const CGFloat kRionTabMinimumWidth = 144.0;
-static const CGFloat kRionTabMaximumWidth = 280.0;
+static const CGFloat kRionTabMaximumWidth = 320.0;
 static const CGFloat kRionTabSpacing = 6.0;
 static const CGFloat kRionTabLeadingPadding = 10.0;
 static const CGFloat kRionTabIconSize = 16.0;

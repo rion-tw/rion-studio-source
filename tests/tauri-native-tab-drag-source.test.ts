@@ -27,8 +27,10 @@ describe("native tab drag latest-intent transaction", () => {
     );
     expect(macBridge).toContain("stamp_native_tab_drag_action(");
     expect(macBridge).toContain("coalesce_native_tab_drag_actions(");
+    expect(macBridge).toContain("release_terminal_tab_drag_pointer_passthrough(");
     expect(macBridge).toContain('error.code != "TAURI_TAB_DRAG_STALE"');
     expect(runtime).toContain("struct TabDragIntentCoordinator");
+    expect(runtime).toContain("release_tab_drag_pointer_passthrough(");
     expect(runtime).toContain("projection_is_superseded(");
     expect(runtime).toContain("reorder_native_tabs_for_projection(");
     const stampCfg = coordinator.indexOf('#[cfg(any(target_os = "macos", test))]');
@@ -54,6 +56,13 @@ describe("native tab drag latest-intent transaction", () => {
 
     expect(macController).toContain("BOOL reorderedLocalTab");
     expect(macController).toContain("showExternalDragGhostForTabIdentifier:");
+    expect(macController).toContain("_dragSurfacePositionTabIdentifier");
+    expect(macController).toContain("sourceTabWidth:(CGFloat)sourceTabWidth");
+    expect(macController).toContain("[_clusterContent addSubview:surface");
+    expect(macController).toContain("surface.superview != _tabCanvas");
+    expect(macController).toContain("[self.tabsController hideInsertionIndicator]");
+    expect(macController).toContain("BOOL needsLayout = _dragSurfaceOverlayActive");
+    expect(macController).toContain("_dragSurfaceOverlayActive = NO;");
     expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
     expect(macController).toContain("if (_tabItems.count < 2) return YES;");
@@ -173,6 +182,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("promotesExternalDragGhost");
     expect(handler).not.toContain("preview_parked_tab_drag_hover");
     expect(handler).toContain("attach_tab_drag_session(");
+    expect(handler).toContain("!session.single_tab && matches!(session.phase");
   });
 
   it("carries an exact terminal order across the macOS bridge", async () => {

@@ -303,9 +303,10 @@ export function runtimeTabDragPayload(
 export function clampRatio(value: number): number {
   return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
-
 export function tabElements(): HTMLButtonElement[] {
-  return Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
+  const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
+  const dragSurface = runtimeState.dragVisualState?.surface;
+  return dragSurface?.isConnected && !tabs.includes(dragSurface) ? [...tabs, dragSurface] : tabs;
 }
 
 function visibleWidthWithoutScrollControls(): number {

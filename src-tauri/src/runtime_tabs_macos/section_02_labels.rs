@@ -276,10 +276,45 @@ fn coalesce_native_tab_drag_actions(
     next_type: &str,
     next_session_id: Option<&str>,
 ) -> bool {
-    matches!(current_type, "tabDragMove" | "tabDragHover")
-        && matches!(next_type, "tabDragMove" | "tabDragHover")
-        && current_session_id.is_some()
-        && current_session_id == next_session_id
+    let same_session = current_session_id.is_some() && current_session_id == next_session_id;
+    same_session
+        && matches!(current_type, "tabDragMove" | "tabDragHover")
+        && matches!(
+            next_type,
+            "tabDragMove" | "tabDragHover" | "tabDragDrop" | "tabDragEnd" | "tabDragCancel"
+        )
+}
+
+fn release_terminal_tab_drag_pointer_passthrough(
+    state: &crate::CoreState,
+    session_id: Option<&str>,
+    target_window_id: Option<&str>,
+) {
+    let mut window_ids = target_window_id.map(str::to_owned).into_iter().collect::<Vec<_>>();
+    if let Some(session_id) = session_id
+        && let Some(session) = state
+            .tab_drag
+            .lock()
+            .ok()
+            .and_then(|current| current.as_ref().filter(|session| session.id == session_id).cloned())
+    {
+        for window_id in [
+            session.source_window_id,
+            session.current_window_id,
+            session.provisional_window_id,
+        ] {
+            if !window_ids.contains(&window_id) {
+                window_ids.push(window_id);
+            }
+        }
+    }
+    for window_id in window_ids {
+        if let Err(error) = state.runtime.release_tab_drag_pointer_passthrough(&window_id) {
+            eprintln!(
+                "Runtime tab drag pointer passthrough could not be released: window={window_id} error={error}"
+            );
+        }
+    }
 }
 
 fn dispatch_action(app: AppHandle, window_label: String, mut action: NativeTabAction) {
@@ -291,6 +326,16 @@ fn dispatch_action(app: AppHandle, window_label: String, mut action: NativeTabAc
             );
             return;
         };
+        if matches!(
+            action.action_type.as_str(),
+            "tabDragDrop" | "tabDragEnd" | "tabDragCancel"
+        ) {
+            release_terminal_tab_drag_pointer_passthrough(
+                &state,
+                action.session_id.as_deref(),
+                action.target_window_id.as_deref(),
+            );
+        }
         let stamp = state.runtime.stamp_native_tab_drag_action(
             &action.action_type,
             action.session_id.as_deref(),

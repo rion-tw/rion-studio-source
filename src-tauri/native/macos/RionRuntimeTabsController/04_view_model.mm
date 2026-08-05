@@ -74,7 +74,8 @@ NS_ASSUME_NONNULL_BEGIN
     [self.tabsController positionDragSurfaceForTabIdentifier:parts[1]
                                                      atPoint:point
                                                       inView:self
-                                                  grabRatioX:grabRatioX];
+                                                  grabRatioX:grabRatioX
+                                               sourceTabWidth:sourceTabWidth];
     NSString *identifier =
         [self.tabsController stableTabIdentifierBeforePoint:point
                                                      inView:self
@@ -94,7 +95,7 @@ NS_ASSUME_NONNULL_BEGIN
       [self.tabsController showExternalDragGhostForTabIdentifier:parts[1]
                                                 beforeIdentifier:identifier
                                                             width:sourceTabWidth];
-      [self.tabsController updateInsertionIndicatorBeforeIdentifier:identifier];
+      [self.tabsController hideInsertionIndicator];
     }
     NSPoint screenPoint =
         [self.window convertPointToScreen:sender.draggingLocation];
@@ -200,6 +201,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
   CGFloat _dragSurfaceCanvasX;
+  NSString *_dragSurfacePositionTabIdentifier;
   BOOL _dragSurfaceOverlayActive;
   BOOL _dragSurfaceVisible;
   CGFloat _dragScrollRootX;

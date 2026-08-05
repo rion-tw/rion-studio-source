@@ -264,6 +264,20 @@ function dragSession(
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+  it("keeps a single local tab fixed while its detach gesture remains active", () => {
+    _setTabGeometry();
+    const tab = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
+    const transfer = dragTransfer();
+
+    dispatchDrag(tab, "dragstart", transfer, 40);
+    dispatchDrag(document.querySelector("#tabs")!, "dragover", transfer, 500);
+
+    expect(document.querySelector(".drag-slot")).toBeNull();
+    expect(tab.classList.contains("drag-surface")).toBe(false);
+    expect(tab.parentElement?.id).toBe("tabs");
+    dispatchDrag(tab, "dragend", transfer, 500);
+  });
+
   it("keeps the newest drag intent when an older projection and terminal arrive late", async () => {
     window.__rionApplyRuntimeTabState?.(_stateWithTabs());
     _setTabGeometry();

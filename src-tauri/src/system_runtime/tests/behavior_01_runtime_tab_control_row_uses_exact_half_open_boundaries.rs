@@ -327,7 +327,7 @@ use super::*;
         state.update_phase("tab-b", TabPresentationPhase::Failed);
         state.select(Some("tab-b".to_owned()), 4);
         assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
-        assert!(state.host_visibility);
+        assert!(state.projection.host_visibility);
     }
 
     #[test]

@@ -14,6 +14,7 @@ include!("system_runtime/section_03_native_presentation_queue.rs");
 include!("system_runtime/section_03_start.rs");
 include!("system_runtime/section_04_native_creation_gate.rs");
 include!("system_runtime/section_04_next_revision.rs");
+include!("system_runtime/section_04_live_window_tab_store.rs");
 include!("system_runtime/section_04_focus_broker.rs");
 include!("system_runtime/section_04_main_window_actor.rs");
 include!("system_runtime/section_04_window_close_ledger.rs");

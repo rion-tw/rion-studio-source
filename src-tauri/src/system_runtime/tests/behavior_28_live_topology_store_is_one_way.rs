@@ -1,0 +1,120 @@
+fn topology_tab(id: &str) -> TabPresentation {
+    TabPresentation {
+        audio_muted: false,
+        closable: true,
+        icon_data_url: None,
+        id: id.to_owned(),
+        phase: TabPresentationPhase::Ready,
+        persistable: true,
+        role_ids: vec![format!("role-{id}")],
+        role_slots: Vec::new(),
+        source_id: format!("source-{id}"),
+        tab_type: "role".to_owned(),
+        title: id.to_owned(),
+        #[cfg(any(windows, target_os = "macos"))]
+        workspace_template: None,
+    }
+}
+
+#[test]
+fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
+    let store = LiveWindowTabStore::default();
+    let receipt = store
+        .commit(LiveTopologyCommitInput {
+            primary_window_id: "window-b".to_owned(),
+            windows: vec![
+                LiveWindowTopologyCommit {
+                    active_tab_id: Some("tab-a".to_owned()),
+                    hidden_tab_ids: HashSet::new(),
+                    tabs: vec![topology_tab("tab-a"), topology_tab("tab-b")],
+                    ui_sequence: 1,
+                    window_generation: 4,
+                    window_id: "window-a".to_owned(),
+                },
+                LiveWindowTopologyCommit {
+                    active_tab_id: Some("missing".to_owned()),
+                    hidden_tab_ids: HashSet::new(),
+                    tabs: vec![topology_tab("tab-b"), topology_tab("tab-c")],
+                    ui_sequence: 1,
+                    window_generation: 8,
+                    window_id: "window-b".to_owned(),
+                },
+            ],
+        })
+        .unwrap();
+
+    assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
+    assert_eq!(receipt.window_ids, ["window-a", "window-b"]);
+    let windows = store.windows.lock().unwrap();
+    let window_a = windows["window-a"].lock().unwrap();
+    let window_b = windows["window-b"].lock().unwrap();
+    assert_eq!(window_a.all_tab_ids(), ["tab-a"]);
+    assert_eq!(window_b.all_tab_ids(), ["tab-b", "tab-c"]);
+    assert_eq!(window_b.selected_tab_id.as_deref(), Some("tab-b"));
+    assert_eq!(window_a.revision, window_b.revision);
+    assert_eq!(window_a.revision, receipt.revision);
+}
+
+#[test]
+fn stale_live_topology_commit_is_superseded_without_mutating_memory() {
+    let store = LiveWindowTabStore::default();
+    let commit = |sequence, tabs: Vec<TabPresentation>| LiveTopologyCommitInput {
+        primary_window_id: "window-a".to_owned(),
+        windows: vec![LiveWindowTopologyCommit {
+            active_tab_id: tabs.first().map(|tab| tab.id.clone()),
+            hidden_tab_ids: HashSet::new(),
+            tabs,
+            ui_sequence: sequence,
+            window_generation: 3,
+            window_id: "window-a".to_owned(),
+        }],
+    };
+    let applied = store
+        .commit(commit(7, vec![topology_tab("tab-a"), topology_tab("tab-b")]))
+        .unwrap();
+    let stale = store
+        .commit(commit(6, vec![topology_tab("tab-b")]))
+        .unwrap();
+
+    assert_eq!(stale.status, LiveTopologyCommitStatus::Superseded);
+    assert_eq!(stale.revision, applied.revision);
+    let windows = store.windows.lock().unwrap();
+    let window = windows["window-a"].lock().unwrap();
+    assert_eq!(window.all_tab_ids(), ["tab-a", "tab-b"]);
+    assert_eq!(window.ui_sequence, 7);
+}
+
+#[test]
+fn native_projection_updates_cannot_change_live_topology() {
+    let store = LiveWindowTabStore::default();
+    store
+        .commit(LiveTopologyCommitInput {
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some("tab-a".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![topology_tab("tab-a"), topology_tab("tab-b")],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        })
+        .unwrap();
+    let coordinator = store.windows.lock().unwrap()["window-a"].clone();
+    let before = {
+        let live = coordinator.lock().unwrap();
+        (live.revision, live.all_tab_ids(), live.selected_tab_id.clone())
+    };
+    {
+        let mut state = coordinator.lock().unwrap();
+        state.projection.applied_revision = 999;
+        state.projection.applied_tab_id = Some("tab-b".to_owned());
+        state.projection.host_visibility = false;
+    }
+    let after = {
+        let live = coordinator.lock().unwrap();
+        (live.revision, live.all_tab_ids(), live.selected_tab_id.clone())
+    };
+
+    assert_eq!(after, before);
+}

@@ -184,8 +184,8 @@ impl SystemRuntimeExecutor {
         let Some(coordinator) = self.presentation.existing(window_id) else {
             return Ok(false);
         };
-        let changed = {
-            let mut state = coordinator
+        let mut next = {
+            let state = coordinator
                 .lock()
                 .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
             let previous = state.tab_ids();
@@ -199,16 +199,27 @@ impl SystemRuntimeExecutor {
                 return Ok(false);
             }
             if previous == ordered_tab_ids {
-                false
-            } else {
-                let revision = self.presentation.next_revision();
-                state.reorder_known_tabs(ordered_tab_ids);
-                state.revision = revision;
-                true
+                return Ok(true);
             }
+            state.clone()
         };
-        if changed {
-            self.schedule_live_window_state_persistence(window_id);
+        next.reorder_known_tabs(ordered_tab_ids);
+        let receipt = self.presentation.live.commit(LiveTopologyCommitInput {
+            primary_window_id: window_id.to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: next.selected_tab_id.clone(),
+                hidden_tab_ids: next.hidden_tab_ids.clone(),
+                tabs: next.tabs.clone(),
+                ui_sequence: next.ui_sequence.saturating_add(1).max(1),
+                window_generation: next.window_generation,
+                window_id: window_id.to_owned(),
+            }],
+        })?;
+        if receipt.status == LiveTopologyCommitStatus::Superseded {
+            return Ok(false);
+        }
+        for affected_window_id in &receipt.window_ids {
+            self.schedule_live_window_state_persistence(affected_window_id);
         }
         Ok(true)
     }
@@ -219,32 +230,10 @@ impl SystemRuntimeExecutor {
         ordered_tab_ids: &[String],
         project_native_order: bool,
     ) -> Result<(), String> {
-        let coordinator = self
-            .presentation
-            .existing(window_id)
-            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-        let ordered = {
-            let mut state = coordinator
-                .lock()
-                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            let previous = state.tab_ids();
-            if previous.len() != ordered_tab_ids.len()
-                || previous.iter().collect::<HashSet<_>>()
-                    != ordered_tab_ids.iter().collect::<HashSet<_>>()
-            {
-                return Err("Live tab order does not match the presentation window.".to_owned());
-            }
-            if previous == ordered_tab_ids {
-                return Ok(());
-            }
-            let revision = self.presentation.next_revision();
-            state.reorder_known_tabs(ordered_tab_ids);
-            state.revision = revision;
-            ordered_tab_ids.to_vec()
-        };
-        self.schedule_live_window_state_persistence(window_id);
-        if project_native_order
-            && let Err(error) = self.reorder_native_tabs(window_id, &ordered)
+        let committed = self.commit_live_tab_order_intent(window_id, ordered_tab_ids)?;
+        if committed
+            && project_native_order
+            && let Err(error) = self.reorder_native_tabs(window_id, ordered_tab_ids)
         {
             eprintln!(
                 "Native tab order projection will reconcile from live topology: window={window_id} error={}",
@@ -266,7 +255,7 @@ impl SystemRuntimeExecutor {
         };
         if actual_source_window_id == target_window_id {
             if !self.commit_live_tab_order_intent(target_window_id, ordered_tab_ids)? {
-                return Err("Live tab order changed before the drag completed.".to_owned());
+                return Ok(());
             }
             let _ = self.request_tab_presentation(
                 tab_id,
@@ -275,18 +264,80 @@ impl SystemRuntimeExecutor {
             );
             return Ok(());
         }
-        let tab = self
+        let source_coordinator = self
             .presentation
-            .tab(&actual_source_window_id, tab_id)
-            .ok_or_else(|| "Dragged tab presentation changed during the final commit.".to_owned())?;
-        let revision = self.presentation.next_revision();
-        self.presentation.move_tab(
-            tab_id,
-            &actual_source_window_id,
-            target_window_id,
-            revision,
-        )?;
-        self.preview_tab_drag_order_exact(target_window_id, ordered_tab_ids, false)?;
+            .existing(&actual_source_window_id)
+            .ok_or_else(|| "The live drag source is unavailable.".to_owned())?;
+        let target_coordinator = self.presentation.coordinator(target_window_id)?;
+        let (mut source, mut target) = {
+            let source = source_coordinator
+                .lock()
+                .map_err(|_| "The live drag source is unavailable.".to_owned())?
+                .clone();
+            let target = target_coordinator
+                .lock()
+                .map_err(|_| "The live drag destination is unavailable.".to_owned())?
+                .clone();
+            (source, target)
+        };
+        let source_ids_before = source.tab_ids();
+        let Some(index) = source.tabs.iter().position(|tab| tab.id == tab_id) else {
+            return Ok(());
+        };
+        let tab = source.tabs.remove(index);
+        let source_was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
+        let source_successor = source_was_selected
+            .then(|| successor_tab_after_close(&source_ids_before, tab_id, |_| true))
+            .flatten();
+        source.hidden_tab_ids.remove(tab_id);
+        source.aliases.retain(|alias, target| alias != tab_id && target != tab_id);
+        if source_was_selected {
+            source.selected_tab_id = source_successor;
+        }
+        target.tabs.retain(|candidate| candidate.id != tab_id);
+        target.hidden_tab_ids.remove(tab_id);
+        target.tabs.push(tab.clone());
+        target.reorder_known_tabs(ordered_tab_ids);
+        if source_was_selected || target.selected_tab_id.is_none() {
+            target.selected_tab_id = Some(tab_id.to_owned());
+        }
+        let receipt = self.presentation.live.commit(LiveTopologyCommitInput {
+            primary_window_id: target_window_id.to_owned(),
+            windows: vec![
+                LiveWindowTopologyCommit {
+                    active_tab_id: source.selected_tab_id.clone(),
+                    hidden_tab_ids: source.hidden_tab_ids.clone(),
+                    tabs: source.tabs.clone(),
+                    ui_sequence: source.ui_sequence.saturating_add(1).max(1),
+                    window_generation: source.window_generation,
+                    window_id: actual_source_window_id.clone(),
+                },
+                LiveWindowTopologyCommit {
+                    active_tab_id: target.selected_tab_id.clone(),
+                    hidden_tab_ids: target.hidden_tab_ids.clone(),
+                    tabs: target.tabs.clone(),
+                    ui_sequence: target.ui_sequence.saturating_add(1).max(1),
+                    window_generation: target.window_generation,
+                    window_id: target_window_id.to_owned(),
+                },
+            ],
+        })?;
+        if receipt.status == LiveTopologyCommitStatus::Superseded {
+            return Ok(());
+        }
+        let revision = receipt.revision;
+        if let Some(target) = self.presentation.existing(target_window_id)
+            && let Ok(target) = target.lock()
+            && let Some(bindings) = target.projection.surface_bindings.get(tab_id)
+        {
+            for binding in bindings {
+                let _ = self.presentation.assign_surface_owner(
+                    binding.webview.label(),
+                    &binding.instance_id,
+                    target_window_id,
+                );
+            }
+        }
         let selected_after = self.presentation.selected_tabs();
         #[cfg(any(windows, target_os = "macos"))]
         let workspace_template = tab.workspace_template.as_deref();
@@ -331,8 +382,9 @@ impl SystemRuntimeExecutor {
             "tab-drag-live-target",
         );
         self.publish_launcher_presence();
-        self.schedule_live_window_state_persistence(&actual_source_window_id);
-        self.schedule_live_window_state_persistence(target_window_id);
+        for affected_window_id in &receipt.window_ids {
+            self.schedule_live_window_state_persistence(affected_window_id);
+        }
         Ok(())
     }
 

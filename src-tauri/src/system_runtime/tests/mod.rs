@@ -27,3 +27,4 @@ include!("behavior_24_tab_stop_tombstone_identity.rs");
 include!("behavior_25_provisional_launch_attempts_are_identity_fenced.rs");
 include!("behavior_26_tab_drag_intent_is_latest.rs");
 include!("behavior_27_drag_cursor_and_close_relaunch_are_generation_fenced.rs");
+include!("behavior_28_live_topology_store_is_one_way.rs");

@@ -55,8 +55,8 @@ impl NativeWindowActor {
                             continue;
                         };
                         if let Ok(mut coordinator) = request.coordinator.lock() {
-                            coordinator.scheduled = false;
-                            coordinator.in_flight = true;
+                            coordinator.projection.scheduled = false;
+                            coordinator.projection.in_flight = true;
                         }
                         Some(NativePresentationBatch {
                             first_requested_at: state
@@ -80,8 +80,8 @@ impl NativeWindowActor {
                         if let Ok(mut state) = lock.lock() {
                             state.requests.finish();
                             if let Ok(mut coordinator) = batch.request.coordinator.lock() {
-                                coordinator.in_flight = false;
-                                coordinator.scheduled = !state.requests.is_empty();
+                                coordinator.projection.in_flight = false;
+                                coordinator.projection.scheduled = !state.requests.is_empty();
                             }
                             changed.notify_one();
                         }
@@ -135,11 +135,11 @@ impl NativeWindowActor {
                     state.requests.finish();
                     let has_pending = !state.requests.is_empty();
                     if let Ok(mut coordinator) = batch.request.coordinator.lock() {
-                        coordinator.in_flight = false;
-                        coordinator.scheduled = has_pending;
+                        coordinator.projection.in_flight = false;
+                        coordinator.projection.scheduled = has_pending;
                         if outcome.presentation_applied {
-                            coordinator.applied_revision = batch.request.revision;
-                            coordinator.applied_tab_id = batch.request.tab_id.clone();
+                            coordinator.projection.applied_revision = batch.request.revision;
+                            coordinator.projection.applied_tab_id = batch.request.tab_id.clone();
                         }
                     }
                     changed.notify_one();
@@ -224,7 +224,7 @@ impl NativeWindowActor {
             state.burst_request_count = state.burst_request_count.saturating_add(1);
         }
         if let Ok(mut coordinator) = coordinator.lock() {
-            coordinator.scheduled = true;
+            coordinator.projection.scheduled = true;
         }
         if let Some(superseded) = superseded {
             superseded.operations.complete(NativeOperationReceipt::with_status(
@@ -363,20 +363,48 @@ struct SurfacePresentationBinding {
 }
 
 #[derive(Clone, Default)]
-struct LiveWindowTabState {
+struct LiveWindowRecord {
     aliases: HashMap<String, String>,
+    hidden_tab_ids: HashSet<String>,
+    revision: u64,
+    selected_tab_id: Option<String>,
+    tabs: Vec<TabPresentation>,
+    ui_sequence: u64,
+    window_generation: u64,
+    window_id: String,
+}
+
+#[derive(Clone, Default)]
+struct NativeTabProjectionState {
     applied_tab_id: Option<String>,
     applied_revision: u64,
     host_visibility: bool,
-    hidden_tab_ids: HashSet<String>,
     in_flight: bool,
-    revision: u64,
     scheduled: bool,
-    selected_tab_id: Option<String>,
     surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>,
-    tabs: Vec<TabPresentation>,
-    window_generation: u64,
-    window_id: String,
+}
+
+/// Compatibility facade while topology consumers migrate to `LiveWindowTabStore`.
+/// Only `live` is authoritative application state. Native work may update
+/// `projection`, but it must never compensate or rewrite `live`.
+#[derive(Clone, Default)]
+struct LiveWindowTabState {
+    live: LiveWindowRecord,
+    projection: NativeTabProjectionState,
+}
+
+impl std::ops::Deref for LiveWindowTabState {
+    type Target = LiveWindowRecord;
+
+    fn deref(&self) -> &Self::Target {
+        &self.live
+    }
+}
+
+impl std::ops::DerefMut for LiveWindowTabState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.live
+    }
 }
 
 impl LiveWindowTabState {
@@ -435,14 +463,15 @@ impl LiveWindowTabState {
         if let Some(index) = self.tabs.iter().position(|item| item.id == provisional_id) {
             self.aliases
                 .insert(provisional_id.to_owned(), tab.id.clone());
-            let previous_bindings = self.surface_bindings.remove(provisional_id);
+            let previous_bindings = self.projection.surface_bindings.remove(provisional_id);
             let replacement_id = tab.id.clone();
             self.tabs[index] = tab;
             if hidden_provisional {
                 self.hidden_tab_ids.insert(replacement_id.clone());
             }
             if let Some(bindings) = previous_bindings {
-                self.surface_bindings
+                self.projection
+                    .surface_bindings
                     .insert(replacement_id.clone(), bindings);
             }
             if selected_provisional {
@@ -459,7 +488,7 @@ impl LiveWindowTabState {
     fn remove_tab(&mut self, tab_id: &str, revision: u64) -> bool {
         let existed = self.tabs.iter().any(|tab| tab.id == tab_id);
         self.tabs.retain(|tab| tab.id != tab_id);
-        self.surface_bindings.remove(tab_id);
+        self.projection.surface_bindings.remove(tab_id);
         self.hidden_tab_ids.remove(tab_id);
         self.aliases
             .retain(|alias, target| alias != tab_id && target != tab_id);
@@ -477,7 +506,7 @@ impl LiveWindowTabState {
             self.hidden_tab_ids.remove(tab_id);
         }
         self.revision = revision;
-        self.host_visibility = tab_id.is_some();
+        self.projection.host_visibility = tab_id.is_some();
         self.selected_tab_id = tab_id;
     }
 
@@ -537,7 +566,11 @@ impl LiveWindowTabState {
         if !self.contains_tab(tab_id) {
             return false;
         }
-        let bindings = self.surface_bindings.entry(tab_id.to_owned()).or_default();
+        let bindings = self
+            .projection
+            .surface_bindings
+            .entry(tab_id.to_owned())
+            .or_default();
         if let Some(existing) = bindings
             .iter_mut()
             .find(|existing| existing.instance_id == binding.instance_id)
@@ -551,7 +584,7 @@ impl LiveWindowTabState {
 
     fn unbind_surface(&mut self, instance_id: &str) -> bool {
         let mut removed = false;
-        self.surface_bindings.retain(|_, bindings| {
+        self.projection.surface_bindings.retain(|_, bindings| {
             let previous_len = bindings.len();
             bindings.retain(|binding| binding.instance_id != instance_id);
             removed |= previous_len != bindings.len();
@@ -562,7 +595,7 @@ impl LiveWindowTabState {
 
     fn surfaces(&self, tab_id: Option<&str>) -> Vec<Webview> {
         tab_id
-            .and_then(|tab_id| self.surface_bindings.get(tab_id))
+            .and_then(|tab_id| self.projection.surface_bindings.get(tab_id))
             .map(|bindings| {
                 bindings
                     .iter()
@@ -575,7 +608,7 @@ impl LiveWindowTabState {
 
     fn surface_identities(&self, tab_id: Option<&str>) -> HashSet<(String, u64)> {
         tab_id
-            .and_then(|tab_id| self.surface_bindings.get(tab_id))
+            .and_then(|tab_id| self.projection.surface_bindings.get(tab_id))
             .map(|bindings| {
                 bindings
                     .iter()

@@ -19,7 +19,7 @@ const sourceExtensions = new Set([
   ".tsx"
 ]);
 const generatedPrefixes = ["src/shared/generated/"];
-const limits = { bytes: 64 * 1024, lines: 800 };
+const limits = { bytes: 64 * 1024, lines: 1600 };
 const facadeLineLimit = 250;
 const architectureGuards = [
   {

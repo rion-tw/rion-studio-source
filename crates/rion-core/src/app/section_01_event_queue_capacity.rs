@@ -71,62 +71,6 @@ const CHROME_PROFILE_IMPORT_EFFECT_TIMEOUT: Duration = Duration::from_secs(60);
 const CHROME_PROFILE_IMPORT_AUTH_RETRY_DELAYS: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(750)];
 
-fn validate_runtime_game_window_snapshot(
-    snapshot: &crate::model::BrowserRuntimeSnapshot,
-    input: &GameWindowSaveRuntimeInputRecord,
-) -> CoreResult<()> {
-    let runtime_window = snapshot
-        .windows
-        .iter()
-        .find(|window| window.window_id == input.window_id)
-        .ok_or_else(|| CoreError::Domain {
-            code: "RUNTIME_WINDOW_NOT_FOUND",
-            message: "Runtime window was not found.".to_owned(),
-        })?;
-    let input_tab_ids = input
-        .tabs
-        .iter()
-        .map(|tab| tab.id.as_str())
-        .collect::<Vec<_>>();
-    let runtime_tab_ids = runtime_window
-        .tab_ids
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-    if input_tab_ids != runtime_tab_ids
-        || input.active_tab_id.as_ref() != runtime_window.active_tab_id.as_ref()
-        || input.tabs.iter().any(|input_tab| {
-            snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.id == input_tab.id)
-                .is_none_or(|runtime_tab| {
-                    runtime_tab.window_id != input.window_id
-                        || runtime_tab.tab_type != input_tab.tab_type
-                        || runtime_tab.source_id != input_tab.source_id
-                        || runtime_tab.name != input_tab.name
-                        || runtime_tab
-                            .slots
-                            .iter()
-                            .map(|slot| slot.role_id.as_str())
-                            .collect::<Vec<_>>()
-                            != input_tab
-                                .role_slots
-                                .iter()
-                                .map(|slot| slot.role_id.as_str())
-                                .collect::<Vec<_>>()
-                        || runtime_tab.hidden != input_tab.hidden
-                })
-        })
-    {
-        return Err(CoreError::Domain {
-            code: "GAME_WINDOW_RUNTIME_SNAPSHOT_CHANGED",
-            message: "The runtime window changed while it was being saved.".to_owned(),
-        });
-    }
-    Ok(())
-}
-
 fn acquire_instance_lock(user_data_dir: &std::path::Path) -> CoreResult<File> {
     fs::create_dir_all(user_data_dir).map_err(|error| {
         CoreError::StateDatabase(format!(

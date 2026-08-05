@@ -678,9 +678,6 @@ impl AppCore {
         &self,
         input: GameWindowSaveRuntimeInputRecord,
     ) -> CoreResult<Value> {
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let _runtime_sequence = self.embedded_runtime_sequence.acquire()?;
-
         if let Some(existing) = self
             .read_typed_state_collection::<StateGameWindowRecord>("gameWindows")?
             .into_iter()
@@ -690,13 +687,10 @@ impl AppCore {
                 .map_err(|error| CoreError::Internal(error.to_string()));
         }
 
-        let snapshot = self
-            .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-            .snapshot();
-        validate_runtime_game_window_snapshot(&snapshot, &input)?;
-
+        // The shell constructs this record from LiveWindowTabState, which owns
+        // open-window topology. Core validates the persisted domain record in
+        // StateMutation; its role-ownership snapshot is intentionally not a
+        // prerequisite for saving a newly detached live window.
         self.mutate_state(StateMutation::GameWindowSaveRuntime(input))
     }
 

@@ -16,7 +16,7 @@ use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
     default_macro_settings, default_runtime_window_preferences, delete_game, delete_game_window,
-    delete_game_window_if_unchanged, delete_macro, delete_macros, delete_workspace,
+        delete_macro, delete_macros, delete_workspace,
     macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
     reorder_game_windows, reorder_roles,
     reorder_workspaces, reset_builtin_game, save_runtime_game_window, update_game,
@@ -152,10 +152,6 @@ pub(crate) enum StateMutation {
     GameWindowDelete {
         id: String,
     },
-    GameWindowDeleteIfUnchanged {
-        id: String,
-        updated_at: String,
-    },
     MacroCreate(MacroCreateInputRecord),
     MacroUpdate {
         id: String,
@@ -203,8 +199,7 @@ impl StateMutation {
             | Self::GameWindowRuntimeSnapshotBatch { .. }
             | Self::GameWindowsDisplayRemap { .. }
             | Self::GameWindowReorder { .. }
-            | Self::GameWindowDelete { .. }
-            | Self::GameWindowDeleteIfUnchanged { .. } => vec![GameWindows],
+            | Self::GameWindowDelete { .. } => vec![GameWindows],
             Self::MacroCreate(_)
             | Self::MacroUpdate { .. }
             | Self::MacroDelete { .. }

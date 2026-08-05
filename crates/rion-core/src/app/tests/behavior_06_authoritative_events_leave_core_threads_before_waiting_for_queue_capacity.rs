@@ -438,65 +438,51 @@
     }
 
     #[test]
-    fn runtime_game_window_save_rejects_a_changed_snapshot() {
-        let snapshot = serde_json::from_value(json!({
-            "windows": [{
-                "windowId": "window-1",
-                "activeTabId": "tab-1",
-                "tabIds": ["tab-1"]
-            }],
-            "tabs": [{
-                "id": "tab-1",
-                "sourceId": "role-1",
-                "name": "Role 1",
-                "windowId": "window-1",
-                "tabType": "role",
-                "slots": [{
-                    "slotId": "role:role-1",
-                    "roleId": "role-1",
-                    "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
-                    "browserZoomPercent": 100.0,
-                    "state": "available"
+    fn runtime_game_window_save_accepts_a_detached_live_window_without_a_core_shell() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let game_id = first_game_id(&core);
+            let role_id = create_role(&core, &game_id, 1);
+            let window_id = uuid::Uuid::new_v4().to_string();
+            let tab_id = uuid::Uuid::new_v4().to_string();
+            let input: GameWindowSaveRuntimeInputRecord = serde_json::from_value(json!({
+                "windowId": window_id,
+                "name": format!("Detached Live Window {platform}"),
+                "targetDisplay": { "id": 1 },
+                "placement": {
+                    "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "normal"
+                },
+                "tabs": [{
+                    "id": tab_id,
+                    "tabType": "role",
+                    "sourceId": role_id,
+                    "name": "Detached Role",
+                    "roleSlots": [{
+                        "slotId": format!("role:{role_id}"),
+                        "roleId": role_id,
+                        "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                        "browserZoomPercent": 100.0
+                    }],
+                    "hidden": false,
+                    "audioMuted": true
                 }],
-                "hidden": false
-            }],
-            "roles": [],
-            "workspaces": []
-        }))
-        .unwrap();
-        let mut input: GameWindowSaveRuntimeInputRecord = serde_json::from_value(json!({
-            "windowId": "window-1",
-            "name": "Game Window 1",
-            "targetDisplay": { "id": 1 },
-            "placement": {
-                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                "presentation": "normal"
-            },
-            "tabs": [{
-                "id": "tab-1",
-                "tabType": "role",
-                "sourceId": "role-1",
-                "name": "Role 1",
-                "roleSlots": [{
-                    "slotId": "role:role-1",
-                    "roleId": "role-1",
-                    "rect": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
-                    "browserZoomPercent": 100.0
-                }],
-                "hidden": false,
-                "audioMuted": true,
-            }],
-            "activeTabId": "tab-1"
-        }))
-        .unwrap();
+                "activeTabId": tab_id
+            }))
+            .unwrap();
 
-        validate_runtime_game_window_snapshot(&snapshot, &input).unwrap();
-        input.tabs[0].hidden = true;
-        assert_eq!(
-            validate_runtime_game_window_snapshot(&snapshot, &input)
-                .unwrap_err()
-                .code(),
-            "GAME_WINDOW_RUNTIME_SNAPSHOT_CHANGED"
-        );
+            let before = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            assert!(before["windows"].as_array().unwrap().is_empty(), "{platform}");
+
+            let saved = core
+                .invoke(CoreCommand::GameWindowSaveRuntime { input })
+                .unwrap();
+            assert_eq!(saved["id"], window_id, "{platform}");
+            assert_eq!(saved["activeTabId"], tab_id, "{platform}");
+            assert_eq!(saved["tabs"][0]["sourceId"], role_id, "{platform}");
+
+            let after = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            assert!(after["windows"].as_array().unwrap().is_empty(), "{platform}");
+        }
     }

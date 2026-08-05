@@ -352,25 +352,13 @@ fn save_runtime_game_window(app: &AppHandle, state: &crate::CoreState, window_id
                 })?;
             let windows = saved_game_windows(&core)?;
             if let Err(message) = runtime.refresh_saved_game_windows(&windows) {
-                let compensation = core
-                    .invoke_async(CoreCommand::GameWindowDeleteIfUnchanged {
-                        id: saved.id.clone(),
-                        updated_at: saved.updated_at.clone(),
-                    })
-                    .await;
-                let authoritative = saved_game_windows(&core);
-                if let Ok(authoritative) = &authoritative {
-                    let _ = runtime.refresh_saved_game_windows(authoritative);
-                }
-                if let Err(error) = compensation {
-                    return Err(crate::shell_error(
-                        "TAURI_GAME_WINDOW_SAVE_ROLLBACK_FAILED",
-                        format!(
-                            "Native title update failed ({message}); saved-window rollback also failed: {error}"
-                        ),
-                    ));
-                }
-                return Err(crate::shell_error("SHELL_WINDOW_FAILED", message));
+                // The SQLite save is authoritative and must never be deleted
+                // because a downstream native-title projection failed. Menu
+                // refresh will retry from the saved definition independently.
+                eprintln!(
+                    "Saved Game Window native metadata refresh was deferred: window={} error={message}",
+                    saved.id
+                );
             }
             Ok(())
         }

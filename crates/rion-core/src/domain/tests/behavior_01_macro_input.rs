@@ -226,18 +226,6 @@ use serde_json::json;
         );
         assert_eq!(windows.len(), 1);
 
-        assert!(!delete_game_window_if_unchanged(
-            &mut windows,
-            &saved.id,
-            "stale-update"
-        ));
-        assert_eq!(windows.len(), 1);
-        assert!(delete_game_window_if_unchanged(
-            &mut windows,
-            &saved.id,
-            &saved.updated_at
-        ));
-        assert!(windows.is_empty());
     }
 
     #[test]

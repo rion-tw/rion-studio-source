@@ -294,6 +294,13 @@ captured input so retries do not depend on a native window handle. Application
 exit makes one immediate dirty-revision enqueue and records any remaining
 revision without blocking shutdown.
 
+“Save as New Game Window” captures the same complete live-window record and
+writes it directly through domain validation to SQLite. A detached transient
+window is not required to exist in Core's role-ownership snapshot, and Core
+cannot reject the save because its launch-time window association differs.
+Native title/menu refresh is a downstream projection: failure defers that
+refresh and never deletes or rolls back the saved Game Window.
+
 Saved-window restore seeds the complete `LiveWindowTabState` and native tab
 chrome in saved order before starting any role surface. Surface creation may
 still prioritize the saved active tab for first paint and role ownership, but

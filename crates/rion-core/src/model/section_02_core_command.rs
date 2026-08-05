@@ -155,11 +155,6 @@ pub enum CoreCommand {
     GameWindowDelete {
         id: String,
     },
-    GameWindowDeleteIfUnchanged {
-        id: String,
-        #[ts(rename = "updatedAt")]
-        updated_at: String,
-    },
     MacrosList,
     MacroGet {
         id: String,

@@ -431,7 +431,7 @@ impl SystemRuntimeExecutor {
                 }
                 let live = state.tabs.get(&presented.id);
                 let role_ids = core_tab
-                    .map(|tab| tab.role_ids.clone())
+                    .map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()).collect())
                     .unwrap_or_else(|| presented.role_ids.clone());
                 let icon_data_url = presented.icon_data_url.clone().or_else(|| {
                     role_ids

@@ -1,4 +1,16 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn release_tab_drag_pointer_passthrough(
+        &self,
+        window_id: &str,
+    ) -> Result<(), String> {
+        let Some(window) = self.window_for_id(window_id) else {
+            return Ok(());
+        };
+        window
+            .set_ignore_cursor_events(false)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn prepare_provisional_game_window(
         &self,
         target: &EmbeddedLaunchTargetRecord,

@@ -564,7 +564,7 @@ fn process_tab_drag_motion(
         })
         .map(str::to_owned)
         .or_else(|| {
-            matches!(session.phase, GameWindowTabDragPhase::Attached)
+            (!session.single_tab && matches!(session.phase, GameWindowTabDragPhase::Attached))
                 .then(|| session.current_window_id.clone())
                 .filter(|window_id| {
                     state

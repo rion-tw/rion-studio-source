@@ -118,7 +118,7 @@ button {
   display: flex;
   height: 28px;
   min-width: 144px;
-  max-width: 280px;
+  max-width: 320px;
   align-items: center;
   gap: var(--space-1-5);
   overflow: visible;
@@ -159,7 +159,7 @@ button {
 }
 
 .tab.drag-surface {
-  position: absolute;
+  position: fixed;
   z-index: var(--layer-selection);
   margin: 0;
   opacity: 1;

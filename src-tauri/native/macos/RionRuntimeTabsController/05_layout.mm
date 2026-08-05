@@ -636,7 +636,6 @@ NS_ASSUME_NONNULL_BEGIN
   _tabCanvas.frame = NSMakeRect(0, 0, MAX(tabsWidth, viewportWidth), kRionTabHeight);
 
   CGFloat x = 0;
-  RionRuntimeSurfaceView *dragSurface = nil;
   for (NSUInteger index = 0; index < _tabItems.count; ++index) {
     RionRuntimeTabItemView *item = _tabItems[index];
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
@@ -648,17 +647,23 @@ NS_ASSUME_NONNULL_BEGIN
     }
     BOOL lifted = _dragSurfaceOverlayActive &&
         [_dragPlaceholderTabIdentifier isEqualToString:item.tabIdentifier];
-    surface.frame = lifted
-        ? NSMakeRect(_dragSurfaceCanvasX, 0, width, kRionTabHeight)
-        : NSMakeRect(x, 0, width, kRionTabHeight);
-    if (lifted) dragSurface = surface;
+    NSRect canvasFrame = NSMakeRect(lifted ? _dragSurfaceCanvasX : x, 0,
+                                    width, kRionTabHeight);
+    if (lifted) {
+      NSRect overlayFrame = [_clusterContent convertRect:canvasFrame
+                                                fromView:_tabCanvas];
+      [_clusterContent addSubview:surface
+                       positioned:NSWindowAbove
+                       relativeTo:nil];
+      surface.frame = overlayFrame;
+    } else {
+      [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+      surface.frame = canvasFrame;
+    }
     [surface layoutSubtreeIfNeeded];
     item.frame = surface.bounds;
     [item layoutSubtreeIfNeeded];
     x += width + kRionTabSpacing;
-  }
-  if (dragSurface) {
-    [_tabCanvas addSubview:dragSurface positioned:NSWindowAbove relativeTo:nil];
   }
   CGFloat tabsEndX = scrollViewX + viewportWidth;
   if (overflowing) {

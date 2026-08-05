@@ -37,7 +37,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
                                     atPoint:(NSPoint)point
                                      inView:(NSView *)view
-                                 grabRatioX:(CGFloat)grabRatioX;
+                                 grabRatioX:(CGFloat)grabRatioX
+                              sourceTabWidth:(CGFloat)sourceTabWidth;
 - (void)positionAddSurfaceAfterVisibleDragTail;
 - (void)resetTabDragInsertionState;
 - (void)hideInsertionIndicator;

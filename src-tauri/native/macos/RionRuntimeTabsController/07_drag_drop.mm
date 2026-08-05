@@ -98,10 +98,9 @@ NS_ASSUME_NONNULL_BEGIN
                 beforeIdentifier:(nullable NSString *)beforeIdentifier {
   RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
   if (!draggedItem) return NO;
-  // A local single-tab drag is already represented by its lifted surface. It
-  // does not need an ordering mutation, but it is still a local preview. If we
-  // report NO here, the root view mistakes it for a cross-window hover and
-  // allocates a second ghost-width slot plus an insertion indicator.
+  // A local single-tab drag keeps its surface fixed because no ordering change
+  // exists. It is still a local preview: returning NO would make the root view
+  // allocate a cross-window ghost-width slot and insertion indicator.
   if (_tabItems.count < 2) return YES;
   NSMutableArray<NSString *> *order =
       [NSMutableArray arrayWithCapacity:_tabItems.count];
@@ -124,22 +123,38 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)positionDragSurfaceForTabIdentifier:(NSString *)tabIdentifier
                                     atPoint:(NSPoint)point
                                      inView:(NSView *)view
-                                 grabRatioX:(CGFloat)grabRatioX {
+                                 grabRatioX:(CGFloat)grabRatioX
+                              sourceTabWidth:(CGFloat)sourceTabWidth {
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   RionRuntimeSurfaceView *surface = item.surfaceView;
+  CGFloat width = item
+      ? item.preferredWidth
+      : MIN(kRionTabMaximumWidth, MAX(kRionTabMinimumWidth, sourceTabWidth));
+  NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
+  _dragSurfaceCanvasX = canvasPoint.x - grabRatioX * width;
+  _dragSurfacePositionTabIdentifier = [tabIdentifier copy];
   if (!item || !surface) return;
   if (![_dragPlaceholderTabIdentifier isEqualToString:tabIdentifier]) {
     [self setDragPlaceholderIdentifier:tabIdentifier];
   }
-  NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
-  _dragSurfaceCanvasX =
-      canvasPoint.x - grabRatioX * item.preferredWidth;
+  if (_tabItems.count < 2) {
+    BOOL needsLayout = _dragSurfaceOverlayActive ||
+        surface.superview != _tabCanvas;
+    _dragSurfaceOverlayActive = NO;
+    _dragSurfaceVisible = YES;
+    surface.alphaValue = 1.0;
+    if (needsLayout) [self layoutTitlebarContent];
+    return;
+  }
   _dragSurfaceOverlayActive = YES;
   _dragSurfaceVisible = YES;
   surface.alphaValue = 1.0;
-  surface.frame = NSMakeRect(_dragSurfaceCanvasX, 0, item.preferredWidth,
-                             kRionTabHeight);
-  [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+  NSRect canvasFrame = NSMakeRect(_dragSurfaceCanvasX, 0, width,
+                                  kRionTabHeight);
+  NSRect overlayFrame = [_clusterContent convertRect:canvasFrame
+                                            fromView:_tabCanvas];
+  [_clusterContent addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+  surface.frame = overlayFrame;
   [self positionAddSurfaceAfterVisibleDragTail];
 }
 
@@ -152,14 +167,12 @@ NS_ASSUME_NONNULL_BEGIN
   for (NSUInteger index = 0; index < _tabSurfaces.count; ++index) {
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
     if (surface.hidden || surface.alphaValue <= 0.01) continue;
-    BOOL lifted = [_dragPlaceholderTabIdentifier
-        isEqualToString:_tabItems[index].tabIdentifier];
     CALayer *presentationLayer = (CALayer *)surface.layer.presentationLayer;
-    NSRect canvasFrame = lifted || !presentationLayer
+    NSRect surfaceFrame = !presentationLayer
         ? surface.frame
         : NSRectFromCGRect(presentationLayer.frame);
-    NSRect rootFrame = [_accessoryController.view convertRect:canvasFrame
-                                                     fromView:_tabCanvas];
+    NSRect rootFrame = [_accessoryController.view convertRect:surfaceFrame
+                                                     fromView:surface.superview];
     visibleTailX = MAX(visibleTailX, NSMaxX(rootFrame));
   }
   if (visibleTailX == -CGFLOAT_MAX) return;
@@ -245,6 +258,7 @@ NS_ASSUME_NONNULL_BEGIN
     _dragSurfaceVisible = YES;
   }
   if (identifier.length == 0) {
+    _dragSurfacePositionTabIdentifier = nil;
     [self layoutTitlebarContent];
   }
   [self updateDragPlaceholderAppearance];

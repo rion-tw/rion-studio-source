@@ -10,7 +10,7 @@ import { applyRuntimeTabOrder, ensureTabVisible, scheduleScrollControlsUpdate, t
 
 import type { RuntimeTabDragPayload } from "./entry";
 
-import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, add, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, dragIntentOrders, localDropSessions, logicalRuntimeTabOrder, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, scrollRightButton, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, add, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, dragIntentOrders, localDropSessions, logicalRuntimeTabOrder, pinsSingleLocalDrag, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, scrollRightButton, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 export function resolveStableDragInsertion(
   payload: RuntimeTabDragPayload | undefined,
@@ -176,6 +176,11 @@ export function previewDragPosition(
   }
   const visual = runtimeState.dragVisualState;
   if (!visual) return;
+  if (pinsSingleLocalDrag()) {
+    visual.suspended = false;
+    visual.slot.remove();
+    return;
+  }
   const previousRects = new Map(
     [...Array.from(root.children), add]
       .map((child) => [child, child.getBoundingClientRect()] as const)
@@ -189,7 +194,6 @@ export function previewDragPosition(
   if (insertionChanged) {
     if (beforeTab) root.insertBefore(visual.slot, beforeTab);
     else root.append(visual.slot);
-    if (visual.surface) visual.slot.after(visual.surface);
     visual.beforeTabId = nextBeforeTabId;
     animateReorderedTabs(previousRects);
   }

@@ -451,7 +451,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macController).toContain("cancelled:cancelledWithEscape");
     expect(macController).toContain("RionRuntimeTabDragPayload(");
     expect(macController).toContain("RionRuntimeTabDragPayloadParts(");
-    expect(macController).toContain("canvasPoint.x - grabRatioX * item.preferredWidth");
+    expect(macController).toContain("canvasPoint.x - grabRatioX * width");
     expect(macController).not.toContain("canvasPoint.x - item.grabRatio.x");
     expect(macController).toContain("surface.layer.presentationLayer");
     expect(runtime).toContain("project_native_order: bool");

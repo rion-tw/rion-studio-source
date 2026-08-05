@@ -175,6 +175,12 @@ export type PendingRuntimeTabOrder = {
   projectionRevision?: number;
 };
 
+export function pinsSingleLocalDrag(): boolean {
+  const visual = runtimeState.dragVisualState;
+  return visual?.originOrder.length === 1
+    && visual.originOrder[0] === visual.tabId;
+}
+
 export function logicalRuntimeTabOrder(): string[] {
   const seen = new Set<string>();
   return Array.from(root.children).flatMap((child) => {
@@ -557,6 +563,7 @@ function installDragImage(
   if (!dataTransfer || typeof dataTransfer.setDragImage !== "function") return;
   const proxy = button.cloneNode(true) as HTMLButtonElement;
   proxy.removeAttribute("id");
+  proxy.removeAttribute("data-tab-id");
   proxy.className = "tab active drag-proxy";
   proxy.ariaHidden = "true";
   proxy.draggable = false;
@@ -598,7 +605,6 @@ function beginDragVisual(
   const originOrder = tabElements().map((tab) => tab.dataset.tabId).filter(Boolean) as string[];
   const nextTabId = nextTabElement(button)?.dataset.tabId;
   const slot = createDragSlot(payload);
-  root.insertBefore(slot, button);
   runtimeState.dragVisualState = {
     ...(nextTabId ? { beforeTabId: nextTabId } : {}),
     grabRatioX: payload.grabRatioX,
@@ -612,7 +618,10 @@ function beginDragVisual(
     tabWidth: payload.tabWidth
   };
   dragIntentOrders.set(payload.sessionId, { finalOrder: originOrder, originOrder });
-  adoptDragSurface(button);
+  if (!pinsSingleLocalDrag()) {
+    root.insertBefore(slot, button);
+    adoptDragSurface(button);
+  }
 }
 
 export function adoptDragSurface(button: HTMLButtonElement): void {
@@ -620,7 +629,7 @@ export function adoptDragSurface(button: HTMLButtonElement): void {
   if (!visual || button.dataset.tabId !== visual.tabId) return;
   if (visual.surface && visual.surface !== button) clearDragSurfaceStyles(visual.surface);
   visual.surface = button;
-  visual.slot.after(button);
+  document.body.append(button);
   button.classList.add("drag-surface");
   button.classList.remove("drag-placeholder", "drag-surface-suspended", "dragging");
   button.setAttribute("aria-grabbed", "true");
@@ -653,10 +662,9 @@ export function positionDragSurface(clientX: number): void {
   const visual = runtimeState.dragVisualState;
   if (!visual?.surface || !Number.isFinite(clientX)) return;
   const rootBounds = root.getBoundingClientRect();
-  const left = clientX - rootBounds.left + root.scrollLeft
-    - visual.grabRatioX * visual.tabWidth;
+  const left = clientX - visual.grabRatioX * visual.tabWidth;
   visual.surface.style.left = `${left}px`;
-  visual.surface.style.top = "0px";
+  visual.surface.style.top = `${rootBounds.top}px`;
   positionAddAfterVisibleDragTail();
 }
 

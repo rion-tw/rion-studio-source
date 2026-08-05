@@ -308,6 +308,8 @@ NS_ASSUME_NONNULL_BEGIN
   if (existingIndex == NSNotFound) {
     BOOL promotesExternalDragGhost =
         [_externalDragGhostTabIdentifier isEqualToString:tabIdentifier];
+    BOOL hasCurrentDragPosition =
+        [_dragSurfacePositionTabIdentifier isEqualToString:tabIdentifier];
     NSUInteger insertionIndex = _tabItems.count;
     CGFloat promotedCanvasX = _tabSurfaces.count > 0
         ? NSMaxX(_tabSurfaces.lastObject.frame) + kRionTabSpacing
@@ -363,8 +365,8 @@ NS_ASSUME_NONNULL_BEGIN
     _tabItemsByIdentifier[tabIdentifier] = item;
     if (promotesExternalDragGhost) {
       _dragPlaceholderTabIdentifier = [tabIdentifier copy];
-      _dragSurfaceCanvasX = promotedCanvasX;
-      _dragSurfaceOverlayActive = YES;
+      if (!hasCurrentDragPosition) _dragSurfaceCanvasX = promotedCanvasX;
+      _dragSurfaceOverlayActive = _tabItems.count >= 2;
       _dragSurfaceVisible = YES;
       surface.alphaValue = 1.0;
     }

@@ -52,9 +52,9 @@ struct Shared {
     next_id: AtomicU64,
     pending: Mutex<HashMap<String, mpsc::SyncSender<BrowserActionResult>>>,
     last_presentation_status_emit: Mutex<Option<Instant>>,
+    macro_run_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     shutting_down: AtomicBool,
     input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
-    toggle_serial: Mutex<()>,
     waiter: Waiter,
 }
 

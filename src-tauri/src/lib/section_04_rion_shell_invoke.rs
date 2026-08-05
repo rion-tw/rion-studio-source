@@ -351,9 +351,7 @@ async fn rion_shell_invoke(
         }
         "reorderGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            let source_window_id = state.runtime.live_tab_window_id(&tab_id).ok_or_else(|| {
-                shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "The runtime tab was not found.")
-            })?;
+            let source_window_id = state.runtime.live_tab_window_id(&tab_id);
             let before_tab_id = match args.get(1) {
                 None => None,
                 Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
@@ -371,8 +369,9 @@ async fn rion_shell_invoke(
                 ));
             }
             if let Some(before_tab_id) = before_tab_id.as_deref()
+                && let Some(source_window_id) = source_window_id.as_deref()
                 && state.runtime.live_tab_window_id(before_tab_id).as_deref()
-                    != Some(source_window_id.as_str())
+                    != Some(source_window_id)
             {
                 return Err(shell_error(
                     "TAURI_SHELL_INPUT_INVALID",

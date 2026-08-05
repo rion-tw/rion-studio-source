@@ -310,12 +310,14 @@ async fn rion_runtime_tab_action(
                     "runtime tab ID is required",
                 )
             })?;
-        let live_window_id = state.runtime.live_tab_window_id(tab_id).ok_or_else(|| {
-            shell_error(
-                "TAURI_RUNTIME_TAB_ACTION_FAILED",
-                "runtime tab was not found in the live topology",
-            )
-        })?;
+        let Some(live_window_id) = state.runtime.live_tab_window_id(tab_id) else {
+            let receipt = state
+                .runtime
+                .superseded_tab_mutation_summary(action_type, tab_id);
+            return serde_json::to_value(receipt).map_err(|error| {
+                shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+            });
+        };
         if action_type != "move" && live_window_id != window_id {
             return Err(shell_error(
                 "TAURI_RUNTIME_TAB_ACTION_FAILED",

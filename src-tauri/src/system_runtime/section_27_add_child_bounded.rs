@@ -584,6 +584,7 @@ impl SystemRuntimeExecutor {
             self.advance_role_input_fence_local(role_id)?;
             self.discard_role_navigation_input_fences(role_id, "workspace-closed");
         }
+        let mut completed_tombstone = None;
         let result = (|| -> RuntimeResult<()> {
             // A workspace's game surfaces are independent native controllers. Isolate
             // them concurrently so one wedged role cannot serialize every sibling.
@@ -708,6 +709,16 @@ impl SystemRuntimeExecutor {
             }
             state.tabs.remove(tab_id);
             state.launch_phases.remove(tab_id);
+            // A successful native destroy is the authoritative close boundary,
+            // including when it came from BrowserWindowStop rather than the
+            // per-tab command. Retire the live tombstone in the same state commit
+            // so reopening a saved tab with its stable ID cannot observe a stale
+            // `closing` fence between locks.
+            completed_tombstone = retire_completed_tab_close_fence(&mut state, tab_id);
+            state.close_coordinator.closing_tabs.remove(tab_id);
+            role_ids.iter().for_each(|role_id| {
+                state.close_coordinator.closing_roles.remove(role_id);
+            });
             Ok(())
         })();
         if let Ok(mut state) = self.state.lock() {
@@ -717,6 +728,9 @@ impl SystemRuntimeExecutor {
             });
         }
         if result.is_ok() {
+            if let Some(tombstone) = completed_tombstone.as_ref() {
+                self.record_tab_close_tombstone_resolution(tab_id, tombstone, true);
+            }
             self.publish_launcher_presence();
             self.remove_empty_display_host(&window_id, true);
         }

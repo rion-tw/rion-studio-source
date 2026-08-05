@@ -250,31 +250,44 @@ impl SystemRuntimeExecutor {
             None
         };
         if let Some(tombstone) = tombstone {
-            let owner_generations = tombstone
-                .slot_owners
-                .iter()
-                .filter(|(_, _, generation)| generation.is_some())
-                .count();
-            self.record_presentation_event(
-                if succeeded { LogLevel::Debug } else { LogLevel::Warn },
-                "tab.close-tombstone-resolved",
-                if succeeded {
-                    "The live tab tombstone completed after role isolation."
-                } else {
-                    "The live tab tombstone retained fenced role ownership after isolation could not be confirmed."
-                },
-                &tombstone.window_id,
-                Some(tab_id),
-                tombstone.revision,
-                if owner_generations == 0 {
-                    "no-owned-slots"
-                } else {
-                    "generation-fenced-slots"
-                },
-                0,
-            );
+            self.record_tab_close_tombstone_resolution(tab_id, &tombstone, succeeded);
         }
         self.publish_projection();
+    }
+
+    fn record_tab_close_tombstone_resolution(
+        &self,
+        tab_id: &str,
+        tombstone: &TabCloseTombstone,
+        succeeded: bool,
+    ) {
+        let owner_generations = tombstone
+            .slot_owners
+            .iter()
+            .filter(|(_, _, generation)| generation.is_some())
+            .count();
+        self.record_presentation_event(
+            if succeeded {
+                LogLevel::Debug
+            } else {
+                LogLevel::Warn
+            },
+            "tab.close-tombstone-resolved",
+            if succeeded {
+                "The live tab tombstone completed after role isolation."
+            } else {
+                "The live tab tombstone retained fenced role ownership after isolation could not be confirmed."
+            },
+            &tombstone.window_id,
+            Some(tab_id),
+            tombstone.revision,
+            if owner_generations == 0 {
+                "no-owned-slots"
+            } else {
+                "generation-fenced-slots"
+            },
+            0,
+        );
     }
 
     pub(crate) fn tab_selection_revision(&self, window_id: &str, tab_id: &str) -> Option<u64> {
@@ -404,6 +417,14 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)
     }
 
+}
+
+fn retire_completed_tab_close_fence(
+    state: &mut RuntimeState,
+    tab_id: &str,
+) -> Option<TabCloseTombstone> {
+    state.optimistic_closed_tabs.remove(tab_id);
+    state.close_previews.remove(tab_id)
 }
 
 impl SystemRuntimeExecutor {

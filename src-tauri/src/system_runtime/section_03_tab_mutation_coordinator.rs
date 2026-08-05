@@ -37,19 +37,17 @@ impl TabMutationLane {
 fn classify_active_tab_stop(
     active_operation_id: Option<&str>,
     mutation_kind: &str,
-) -> RuntimeResult<Option<RuntimeTabMutationAcceptance>> {
-    let Some(operation_id) = active_operation_id else {
-        return Ok(None);
-    };
+) -> Option<RuntimeTabMutationAcceptance> {
+    let operation_id = active_operation_id?;
     if mutation_kind == "stop" {
-        return Ok(Some(RuntimeTabMutationAcceptance::ExistingStop(
+        return Some(RuntimeTabMutationAcceptance::ExistingStop(
             operation_id.to_owned(),
-        )));
+        ));
     }
-    Err(RuntimeError::new(
-        "TAB_MUTATION_CLOSING",
-        "The runtime tab is already closing.",
-    ))
+    // The close gesture already removed this tab from the live topology. Any
+    // queued reorder/hide/move callback belongs to the older UI revision and is
+    // therefore a harmless no-op, not a user-visible lifecycle failure.
+    Some(RuntimeTabMutationAcceptance::Superseded)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +80,7 @@ pub(crate) struct RuntimeTabMutationOperation {
 pub(crate) enum RuntimeTabMutationAcceptance {
     Accepted(Box<RuntimeTabMutationOperation>),
     ExistingStop(String),
+    Superseded,
 }
 
 impl Drop for RuntimeTabMutationOperation {
@@ -146,24 +145,23 @@ impl SystemRuntimeExecutor {
                 )
             })?
             .clone();
-        if let Some(acceptance) =
-            classify_active_tab_stop(active_stop.as_deref(), mutation_kind)?
-        {
+        if let Some(acceptance) = classify_active_tab_stop(active_stop.as_deref(), mutation_kind) {
             return Ok(acceptance);
         }
-        let source_window_id = self
+        let Some(source_window_id) = self
             .presentation
             .tab_window(tab_id)
             .map_err(RuntimeError::tauri)?
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_TAB_NOT_FOUND",
-                    "The runtime tab was not found.",
-                )
-            })?;
-        let source_snapshot = self
-            .tab_drag_window_snapshot(&source_window_id)
-            .map_err(RuntimeError::tauri)?;
+        else {
+            return Ok(RuntimeTabMutationAcceptance::Superseded);
+        };
+        let source_snapshot = match self.tab_drag_window_snapshot(&source_window_id) {
+            Ok(snapshot) => snapshot,
+            Err(message) if message.contains("was not found") => {
+                return Ok(RuntimeTabMutationAcceptance::Superseded);
+            }
+            Err(message) => return Err(RuntimeError::tauri(message)),
+        };
         let target_snapshot = target_window_id
             .filter(|window_id| *window_id != source_window_id)
             .and_then(|window_id| self.tab_drag_window_snapshot(window_id).ok());
@@ -202,9 +200,7 @@ impl SystemRuntimeExecutor {
                 "The tab mutation stop state is unavailable.",
             )
         })?;
-        if let Some(acceptance) =
-            classify_active_tab_stop(active_stop.as_deref(), mutation_kind)?
-        {
+        if let Some(acceptance) = classify_active_tab_stop(active_stop.as_deref(), mutation_kind) {
             return Ok(acceptance);
         }
         if !lane.try_enqueue() {
@@ -328,6 +324,36 @@ impl SystemRuntimeExecutor {
         // relaunch into `The runtime tab is closing`.
         self.clear_terminal_tab_stop(&summary);
         summary
+    }
+
+    pub(crate) fn superseded_tab_mutation_summary(
+        &self,
+        mutation_kind: &str,
+        tab_id: &str,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        let trigger = match mutation_kind {
+            "move" => "tab-mutation-move-stale",
+            "moveToNewWindow" => "tab-mutation-move-to-new-window-stale",
+            "hide" => "tab-mutation-hide-stale",
+            "reorder" => "tab-mutation-reorder-stale",
+            "stop" => "tab-mutation-stop-stale",
+            _ => "tab-mutation-stale",
+        };
+        NativeOperationReceipt::with_status(
+            NativeOperationContext::new(
+                NativeOperationSubsystem::TabMutation,
+                trigger,
+                Duration::ZERO,
+            )
+            .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
+            .with_lifecycle_epoch(self.lifecycle_epoch())
+            .with_revision(self.presentation.current_revision())
+            .with_tab(tab_id),
+            "tabMutationSuperseded",
+            NativeOperationStatus::Superseded,
+            None,
+        )
+        .summary()
     }
 
     fn wait_or_fallback_tab_mutation_receipt(

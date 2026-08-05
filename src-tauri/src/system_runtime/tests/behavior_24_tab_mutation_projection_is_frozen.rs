@@ -61,10 +61,9 @@ fn stop_projection_removes_the_tab_and_uses_the_macos_successor_fallback() {
 }
 
 #[test]
-fn active_stop_is_joined_and_blocks_later_topology_mutations() {
+fn active_stop_is_joined_and_supersedes_later_topology_mutations() {
     for platform in ["macos", "windows"] {
-        let joined = classify_active_tab_stop(Some("native-stop-1"), "stop")
-            .expect("duplicate stop should be accepted");
+        let joined = classify_active_tab_stop(Some("native-stop-1"), "stop");
         assert!(
             matches!(
                 joined,
@@ -73,13 +72,15 @@ fn active_stop_is_joined_and_blocks_later_topology_mutations() {
             ),
             "{platform}"
         );
-        let blocked = match classify_active_tab_stop(Some("native-stop-1"), "move") {
-            Err(error) => error,
-            Ok(_) => panic!("move must be rejected after stop acceptance"),
-        };
-        assert_eq!(blocked.code, "TAB_MUTATION_CLOSING", "{platform}");
         assert!(
-            classify_active_tab_stop(None, "hide").unwrap().is_none(),
+            matches!(
+                classify_active_tab_stop(Some("native-stop-1"), "move"),
+                Some(RuntimeTabMutationAcceptance::Superseded)
+            ),
+            "{platform}"
+        );
+        assert!(
+            classify_active_tab_stop(None, "hide").is_none(),
             "{platform}"
         );
     }

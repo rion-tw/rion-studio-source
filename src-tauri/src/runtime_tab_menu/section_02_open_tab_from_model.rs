@@ -556,10 +556,12 @@ pub async fn handle_scoped_action(
             .map_err(|error| format!("{}: {}", error.code, error.message))
             .and_then(crate::runtime_operation_receipt_result);
     }
-    let live_window_id = state
-        .runtime
-        .live_tab_window_id(tab_id)
-        .ok_or_else(|| "runtime tab is outside this tab-strip WebView's window".to_owned())?;
+    let Some(live_window_id) = state.runtime.live_tab_window_id(tab_id) else {
+        // AppKit/WebView2 can deliver an already-queued click after the live tab
+        // was removed. The visible topology has committed, so the callback is
+        // complete and must not surface a "tab not found" error.
+        return Ok(());
+    };
     if action_type != "move" && live_window_id != window_id {
         return Err("runtime tab is outside this tab-strip WebView's window".to_owned());
     }

@@ -201,7 +201,7 @@ impl SystemRuntimeExecutor {
         &self,
         snapshot: BrowserRuntimeSnapshot,
     ) -> Option<BrowserRuntimeSnapshot> {
-        self.snapshot_with_live_tab_topology(snapshot)
+        self.compose_live_runtime_snapshot(snapshot)
     }
 
     pub fn begin_auto_restore(&self) -> bool {
@@ -247,7 +247,7 @@ impl SystemRuntimeExecutor {
         let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
             return;
         };
-        let Some(snapshot) = self.snapshot_with_live_tab_topology(snapshot) else {
+        let Some(snapshot) = self.compose_live_runtime_snapshot(snapshot) else {
             return;
         };
         // Renderer projection and native tab metadata may lag presentation, but neither path

@@ -12,7 +12,7 @@ impl SystemRuntimeExecutor {
         // currently manipulating. Any delayed ApplyRuntime effect is rebased on
         // the one live topology before it can touch native chrome or surfaces.
         let snapshot = self
-            .snapshot_with_live_tab_topology(snapshot)
+            .compose_live_runtime_snapshot(snapshot)
             .ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -20,7 +20,6 @@ impl SystemRuntimeExecutor {
                 )
             })?;
         let parent_operation_id = correlation.parent_operation_id.as_deref();
-        let presentation_revision = correlation.presentation_revision;
         let ensured_target_host = if let Some(target) = target.as_ref() {
             let title = snapshot
                 .windows
@@ -40,11 +39,6 @@ impl SystemRuntimeExecutor {
         // into AppCore while a core effect is awaiting it. Restore callers already omit focus
         // requests. Saved names come from the local runtime cache so this effect never calls Core.
         let game_window_names = self.state()?.saved_window_names.clone();
-        let desired_windows = snapshot
-            .windows
-            .iter()
-            .map(|window| window.window_id.as_str())
-            .collect::<HashSet<_>>();
         let (live_windows, optimistic_closed_tabs, pending_window_tab_restores) = {
             let state = self.state()?;
             (
@@ -57,9 +51,6 @@ impl SystemRuntimeExecutor {
                 state.pending_window_tab_restores.clone(),
             )
         };
-        let presentation_before = self.presentation.snapshot_states().map_err(|message| {
-            RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-        })?;
         let host_plan =
             resolve_runtime_tab_host_plan(&snapshot, &live_windows, focus_window_ids, focus_tab_id);
         let tab_updates = {
@@ -166,7 +157,7 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let (obsolete_window_ids, moved_registry_surfaces) = {
+        let moved_registry_surfaces = {
             let mut state = self.state()?;
             if let Some(target) = target.as_ref()
                 && let Some(host) = state.display_hosts.get_mut(&target.window_id)
@@ -186,7 +177,7 @@ impl SystemRuntimeExecutor {
                     }
                 }
             }
-            let moved_registry_surfaces = state
+            state
                 .surface_registry
                 .values()
                 .filter(|surface| {
@@ -197,14 +188,7 @@ impl SystemRuntimeExecutor {
                     })
                 })
                 .cloned()
-                .collect::<Vec<_>>();
-            let obsolete_window_ids = state
-                .display_hosts
-                .keys()
-                .filter(|window_id| !desired_windows.contains(window_id.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            (obsolete_window_ids, moved_registry_surfaces)
+                .collect::<Vec<_>>()
         };
         for surface in &moved_registry_surfaces {
             self.record_surface_event(
@@ -213,62 +197,6 @@ impl SystemRuntimeExecutor {
                 "Native surface ownership moved to another window.",
                 surface,
             );
-        }
-
-        let topology_revision = self.presentation.next_revision();
-        for runtime_window in &snapshot.windows {
-            let pending_restore = pending_window_tab_restores.get(&runtime_window.window_id);
-            let presentation = self
-                .presentation
-                .coordinator(&runtime_window.window_id)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            let mut window = presentation.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?;
-            for snapshot_tab in snapshot
-                .tabs
-                .iter()
-                .filter(|tab| {
-                    tab.window_id == runtime_window.window_id
-                        && !optimistic_closed_tabs.contains(&tab.id)
-                })
-            {
-                window.update_metadata(
-                    &snapshot_tab.id,
-                    &snapshot_tab.source_id,
-                    &snapshot_tab.tab_type,
-                    &snapshot_tab
-                        .slots
-                        .iter()
-                        .map(|slot| slot.role_id.clone())
-                        .collect::<Vec<_>>(),
-                    &snapshot_tab.name,
-                );
-            }
-            // Live presentation owns ordering. Core may only supply role-owner metadata here.
-            // The saved restore record is the one initialization input because it seeds live
-            // topology before native creation; it is not a later Core projection or readback.
-            if let Some(restore) = pending_restore {
-                window.reorder_known_tabs(&restore.ordered_tab_ids);
-            }
-            let local_ids = window.tab_ids();
-            window
-                .aliases
-                .retain(|_, target| local_ids.contains(target));
-            // Core may seed a saved window exactly once while restore owns the
-            // initialization fence. After that, selection belongs exclusively to
-            // LiveWindowTabState and no ApplyRuntime response may change it.
-            let restore_selection = pending_restore
-                .and_then(|restore| restore.active_tab_id.clone())
-                .filter(|tab_id| window.contains_tab(tab_id));
-            if pending_restore.is_some() && window.selected_tab_id != restore_selection {
-                window.select(restore_selection, topology_revision);
-            }
         }
 
         let presentation_after = self.presentation.snapshot_states().map_err(|message| {
@@ -378,63 +306,6 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let transition_window_ids = presentation_before
-            .keys()
-            .chain(presentation_after.keys())
-            .cloned()
-            .collect::<HashSet<_>>();
-        for window_id in transition_window_ids {
-            let previous = presentation_before
-                .get(&window_id)
-                .cloned()
-                .unwrap_or_default();
-            let next = presentation_after
-                .get(&window_id)
-                .cloned()
-                .unwrap_or_default();
-            let previous_surfaces = previous.surfaces(previous.selected_tab_id.as_deref());
-            let next_surfaces = next.surfaces(next.selected_tab_id.as_deref());
-            if !native_presentation_changed(
-                &previous.selected_tab_id,
-                &next.selected_tab_id,
-                &presentation_surface_labels(&previous_surfaces),
-                &presentation_surface_labels(&next_surfaces),
-            ) {
-                continue;
-            }
-            let Some(window) = self.window_for_id(&window_id) else {
-                continue;
-            };
-            let focus = if focus_tab_id == next.selected_tab_id.as_deref()
-                && previous.revision <= presentation_revision
-            {
-                NativePresentationFocus::WindowAndContent
-            } else {
-                NativePresentationFocus::None
-            };
-            self.apply_native_active_style(
-                &window_id,
-                next.selected_tab_id.as_deref(),
-                next.revision,
-                "topology-reconciled",
-            );
-            self.dispatch_native_presentation(
-                window_id,
-                next.selected_tab_id.clone(),
-                next.revision,
-                "topology-reconciled",
-                Instant::now(),
-                window,
-                previous.live.selected_tab_id,
-                previous_surfaces,
-                next_surfaces.clone(),
-                next_surfaces.first().cloned(),
-                None,
-                focus,
-                None,
-            );
-        }
-
         if let Some((window_id, created)) = &ensured_target_host
             && *created
             && let Some(window) = self.window_for_id(window_id)
@@ -507,29 +378,6 @@ impl SystemRuntimeExecutor {
                 NativeWindowMode::from_presentation(&update.presentation),
                 "apply-runtime-host",
             )?;
-        }
-        let obsolete_hosts = {
-            let mut state = self.state()?;
-            obsolete_window_ids
-                .into_iter()
-                .filter(|window_id| {
-                    !self
-                        .tab_drag_intents
-                        .projection_is_superseded(parent_operation_id, window_id)
-                })
-                .filter_map(|window_id| {
-                    let host = state.display_hosts.remove(&window_id)?;
-                    state
-                        .allow_window_close_labels
-                        .insert(host.window.label().to_owned());
-                    Some((window_id, host))
-                })
-                .collect::<Vec<_>>()
-        };
-        for (window_id, host) in obsolete_hosts {
-            self.presentation.remove(&window_id);
-            self.unregister_runtime_launcher_window(&window_id);
-            let _ = host.window.close();
         }
         Ok(())
     }

@@ -176,7 +176,7 @@ use super::*;
     }
 
     #[test]
-    fn role_and_workspace_submenus_preserve_busy_missing_and_stop_rules() {
+    fn role_and_workspace_submenus_keep_open_actions_for_running_items() {
         let entries = menu_spec(&populated_model("en", true), QuickMenuPlatform::Windows);
         let roles = submenu(&entries, "Roles");
         let workspaces = submenu(&entries, "Workspaces");
@@ -192,7 +192,7 @@ use super::*;
             false,
         );
         assert_item(
-            root_item(workspaces, "stop-workspace:workspace-running").unwrap(),
+            root_item(workspaces, "launch-workspace:workspace-running").unwrap(),
             "✓ Running Workspace",
             true,
         );
@@ -226,7 +226,7 @@ use super::*;
         assert_item(
             root_item(
                 submenu(&entries, "Workspaces"),
-                "stop-workspace:workspace-running",
+                "launch-workspace:workspace-running",
             )
             .unwrap(),
             "✓ Running Workspace",
@@ -326,7 +326,6 @@ use super::*;
             "quit-app",
             "launch-role:role:with:colons",
             "launch-workspace:workspace/opaque",
-            "stop-workspace:workspace/opaque",
             "show-display:window/opaque",
             "restore-window:window/opaque",
         ] {

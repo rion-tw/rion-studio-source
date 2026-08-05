@@ -548,8 +548,6 @@ export function App(): JSX.Element {
                     onNewRole={navigateToNewRole}
                     onStartMacro={(macroId) => void macroWorkflow.handleStartMacro(macroId)}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
-                    onStopRole={(roleId) => void roleWorkflow.handleStop(roleId)}
-                    onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />
@@ -583,7 +581,6 @@ export function App(): JSX.Element {
                     onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
-                    onStop={(roleId) => void roleWorkflow.handleStop(roleId)}
                     isReordering={roleWorkflow.isReorderingRoles}
                   />
                 ) : (
@@ -614,7 +611,6 @@ export function App(): JSX.Element {
                     onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
                     onQueryChange={workspaceWorkflow.setQuery}
                     onReorderWorkspaces={(orderedIds) => void workspaceWorkflow.handleReorderWorkspaces(orderedIds)}
-                    onStopWorkspace={(workspace) => void workspaceWorkflow.handleStopWorkspace(workspace)}
                     isReordering={workspaceWorkflow.isReorderingWorkspaces}
                   />
                 ) : (

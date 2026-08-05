@@ -87,8 +87,6 @@ describe("Game Window recovery dashboard", () => {
         onRestoreSavedGameWindows={onRestore}
         onStartMacro={vi.fn()}
         onStopMacro={vi.fn()}
-        onStopRole={vi.fn()}
-        onStopWorkspace={vi.fn()}
       />
     );
 

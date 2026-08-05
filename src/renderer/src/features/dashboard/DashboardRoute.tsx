@@ -69,8 +69,6 @@ interface DashboardRouteProps {
   onNewRole: () => void;
   onStartMacro: (macroId: string) => void;
   onStopMacro: (macroId: string) => void;
-  onStopRole: (roleId: string) => void;
-  onStopWorkspace: (workspace: LaunchWorkspace) => void;
 }
 
 function DashboardRoute({
@@ -101,9 +99,7 @@ function DashboardRoute({
   onNewMacro,
   onNewRole,
   onStartMacro,
-  onStopMacro,
-  onStopRole,
-  onStopWorkspace
+  onStopMacro
 }: DashboardRouteProps): JSX.Element {
   const summary = useMemo(
     () => createDashboardSummary({ macroStatuses, macros, roleStatuses, roles, workspaces }),
@@ -252,7 +248,6 @@ function DashboardRoute({
                     item={item}
                     t={t}
                     onLaunch={() => onLaunchRole(item.role.id)}
-                    onStop={() => onStopRole(item.role.id)}
                   />
                 ))}
                 <CreateItemRow label={t("roles.newRole")} onClick={onNewRole} />
@@ -283,7 +278,6 @@ function DashboardRoute({
                   item={item}
                   t={t}
                   onLaunch={() => onLaunchWorkspace(item.workspace)}
-                  onStop={() => onStopWorkspace(item.workspace)}
                 />
               ))}
               <CreateItemRow label={t("workspaces.newWorkspace")} onClick={onCreateWorkspace} />
@@ -461,25 +455,17 @@ function PanelEmpty({ actionLabel, description, icon: Icon, onAction, title }: P
 function RoleLaunchRow({
   item,
   onLaunch,
-  onStop,
   t
 }: {
   item: DashboardRoleItem;
   onLaunch: () => void;
-  onStop: () => void;
   t: Translator;
 }): JSX.Element {
-  const actionLabel = getRoleActionLabel(item.action.kind, t);
-  const actionIcon = getRoleActionIcon(item.action.kind);
+  const actionLabel = t("role.launch");
   const coverImageUrl = item.role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
 
   function handleAction(): void {
     if (item.action.disabled) {
-      return;
-    }
-
-    if (item.action.kind === "stop") {
-      onStop();
       return;
     }
 
@@ -509,12 +495,12 @@ function RoleLaunchRow({
         aria-label={`${actionLabel}: ${item.role.name}`}
         className="w-[76px] gap-1.5 px-2"
         type="button"
-        variant={item.action.kind === "stop" ? "destructive" : "secondary"}
+        variant="secondary"
         size="sm"
         onClick={handleAction}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : actionIcon}
+        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : <Play aria-hidden="true" size={14} />}
         {actionLabel}
       </Button>
     </div>
@@ -524,16 +510,13 @@ function RoleLaunchRow({
 function WorkspaceLaunchRow({
   item,
   onLaunch,
-  onStop,
   t
 }: {
   item: DashboardWorkspaceItem;
   onLaunch: () => void;
-  onStop: () => void;
   t: Translator;
 }): JSX.Element {
-  const isStop = item.action.kind === "stop";
-  const actionLabel = isStop ? t("workspaces.stopShort") : t("workspaces.launchShort");
+  const actionLabel = t("workspaces.launchShort");
 
   return (
     <div className="grid min-w-0 grid-cols-[30px_minmax(0,1fr)_auto_72px] items-center gap-2 rounded-md border border-border/35 bg-background/18 px-2.5 py-2 transition-colors hover:border-border/55 hover:bg-background/25">
@@ -558,15 +541,13 @@ function WorkspaceLaunchRow({
         aria-label={`${actionLabel}: ${item.workspace.name}`}
         className="w-[72px] gap-1.5 px-2"
         type="button"
-        variant={isStop ? "destructive" : "secondary"}
+        variant="secondary"
         size="sm"
-        onClick={isStop ? onStop : onLaunch}
+        onClick={onLaunch}
         disabled={item.action.disabled}
       >
         {item.action.isBusy ? (
           <Loader2 aria-hidden="true" className="spin" size={14} />
-        ) : isStop ? (
-          <Square aria-hidden="true" size={14} />
         ) : (
           <Play aria-hidden="true" size={14} />
         )}
@@ -710,24 +691,6 @@ function getRoleBadgeVariant(item: DashboardRoleItem): "destructive" | "muted" |
   }
 
   return "muted";
-}
-
-function getRoleActionLabel(kind: DashboardRoleItem["action"]["kind"], t: Translator): string {
-  switch (kind) {
-    case "launch":
-      return t("role.launch");
-    case "stop":
-      return t("role.stop");
-  }
-}
-
-function getRoleActionIcon(kind: DashboardRoleItem["action"]["kind"]): JSX.Element {
-  switch (kind) {
-    case "launch":
-      return <Play aria-hidden="true" size={14} />;
-    case "stop":
-      return <Square aria-hidden="true" size={14} />;
-  }
 }
 
 function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | undefined {

@@ -69,7 +69,6 @@ describe("create controls at the end of lists", () => {
         onNewRole={onNewRole}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 
@@ -110,7 +109,6 @@ describe("create controls at the end of lists", () => {
           onNewRole={vi.fn()}
           onQueryChange={vi.fn()}
           onReorder={vi.fn()}
-          onStop={vi.fn()}
         />
       </ConfirmationProvider>
     );
@@ -142,7 +140,6 @@ describe("create controls at the end of lists", () => {
         onLaunchWorkspace={vi.fn()}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={vi.fn()}
-        onStopWorkspace={vi.fn()}
       />
     );
 

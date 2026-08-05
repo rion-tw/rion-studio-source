@@ -116,7 +116,6 @@ describe("list select filters", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 

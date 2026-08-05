@@ -83,9 +83,6 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                 }
             });
         }
-        _ if id.starts_with(STOP_WORKSPACE_PREFIX) => {
-            stop_workspace(core, id.trim_start_matches(STOP_WORKSPACE_PREFIX));
-        }
         _ if id.starts_with(ROLE_PREFIX) || id.starts_with(WORKSPACE_PREFIX) => {
             if !legal_is_accepted(core) {
                 show_main_window(app);
@@ -103,6 +100,23 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let Some(state) = app.try_state::<crate::CoreState>() else {
                 return;
             };
+            let tab_type = if workspace { "workspace" } else { "role" };
+            if let Some(tab_id) = state
+                .runtime
+                .presented_tab_for_launcher_source(&source_id, tab_type)
+            {
+                if let Err(message) = crate::preview_and_schedule_launcher_tab_selection(app, &state, &tab_id)
+                {
+                    crate::reveal_shell_error(
+                        app,
+                        rion_core::CoreErrorPayload {
+                            code: "TAURI_RUNTIME_TAB_ACTIVATION_FAILED".to_owned(),
+                            message,
+                        },
+                    );
+                }
+                return;
+            }
             let Some(main_window) = app.get_webview_window("main") else {
                 return;
             };
@@ -192,19 +206,6 @@ fn status_state<'a>(statuses: &'a serde_json::Value, key: &str, id: &str) -> Opt
             .then(|| status["state"].as_str())
             .flatten()
     })
-}
-
-fn stop_workspace(core: &Arc<AppCore>, workspace_id: &str) {
-    if workspace_id.is_empty() {
-        return;
-    }
-    let core = Arc::clone(core);
-    let workspace_id = workspace_id.to_owned();
-    tauri::async_runtime::spawn(async move {
-        let _ = core
-            .invoke_async(CoreCommand::BrowserWorkspaceStop { workspace_id })
-            .await;
-    });
 }
 
 fn show_main_window(app: &AppHandle) {

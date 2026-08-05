@@ -151,12 +151,11 @@ describe("bulk selection UI", () => {
         onNewRole={vi.fn()}
         onQueryChange={vi.fn()}
         onReorder={vi.fn()}
-        onStop={vi.fn()}
       />
     );
 
     const card = getSelectionItem("role-1");
-    const launchButton = screen.getAllByRole("button", { name: "Launch" })[0];
+    const launchButton = screen.getAllByRole("button", { name: "Open" })[0];
     const primaryActionLayer = launchButton.closest<HTMLElement>("[data-role-primary-action-layer]");
     expect(primaryActionLayer?.className).toContain("z-[var(--layer-popover)]");
     expect(primaryActionLayer?.className).not.toContain("z-[var(--layer-selection)]");
@@ -199,7 +198,6 @@ describe("bulk selection UI", () => {
         onLaunchWorkspace={vi.fn()}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={vi.fn()}
-        onStopWorkspace={vi.fn()}
       />
     );
 

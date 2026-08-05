@@ -18,16 +18,30 @@ const t: Translator = (key) => en[key] ?? key;
 afterEach(cleanup);
 
 describe("Dashboard workspace state", () => {
+  it("opens an existing role instead of exposing a stop action", () => {
+    const role = createRole();
+    const onLaunchRole = vi.fn();
+
+    renderDashboard({
+      embeddedRuntime: createRuntime([createRuntimeTab({ sourceId: role.id, type: "role" })]),
+      onLaunchRole,
+      role,
+      status: { roleId: role.id, state: "running" }
+    });
+
+    expect(screen.queryByRole("button", { name: "Stop: Role One" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open: Role One" }));
+    expect(onLaunchRole).toHaveBeenCalledWith(role.id);
+  });
+
   it("keeps a workspace launchable when its role is open in a separate role tab", () => {
     const role = createRole();
     const workspace = createWorkspace(role.id);
     const onLaunchWorkspace = vi.fn();
-    const onStopWorkspace = vi.fn();
 
     renderDashboard({
       embeddedRuntime: createRuntime([createRuntimeTab({ sourceId: role.id, type: "role" })]),
       onLaunchWorkspace,
-      onStopWorkspace,
       role,
       status: { roleId: role.id, state: "running" },
       workspace
@@ -35,38 +49,34 @@ describe("Dashboard workspace state", () => {
 
     expect(screen.getByText("Ready")).toBeTruthy();
     expect(screen.queryByText("1 active")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Stop: Workspace One" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open: Workspace One" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Launch: Workspace One" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open: Workspace One" }));
 
     expect(onLaunchWorkspace).toHaveBeenCalledWith(workspace);
-    expect(onStopWorkspace).not.toHaveBeenCalled();
   });
 
-  it("shows stop only when the workspace itself has a runtime tab", () => {
+  it("opens the existing workspace tab instead of exposing a stop action", () => {
     const role = createRole();
     const workspace = createWorkspace(role.id);
     const onLaunchWorkspace = vi.fn();
-    const onStopWorkspace = vi.fn();
 
     renderDashboard({
       embeddedRuntime: createRuntime([
         createRuntimeTab({ roleIds: [role.id], sourceId: workspace.id, type: "workspace" })
       ]),
       onLaunchWorkspace,
-      onStopWorkspace,
       role,
       status: { roleId: role.id, state: "running" },
       workspace
     });
 
     expect(screen.getAllByText("Running")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Launch: Workspace One" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop: Workspace One" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop: Workspace One" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open: Workspace One" }));
 
-    expect(onStopWorkspace).toHaveBeenCalledWith(workspace);
-    expect(onLaunchWorkspace).not.toHaveBeenCalled();
+    expect(onLaunchWorkspace).toHaveBeenCalledWith(workspace);
   });
 
   it.each([
@@ -89,15 +99,15 @@ describe("Dashboard workspace state", () => {
 
 function renderDashboard({
   embeddedRuntime,
+  onLaunchRole = vi.fn(),
   onLaunchWorkspace = vi.fn(),
-  onStopWorkspace = vi.fn(),
   role,
   status,
   workspace
 }: {
   embeddedRuntime: EmbeddedRuntimeState;
+  onLaunchRole?: (roleId: string) => void;
   onLaunchWorkspace?: (workspace: LaunchWorkspace) => void;
-  onStopWorkspace?: (workspace: LaunchWorkspace) => void;
   role: Role;
   status?: RoleStatus;
   workspace?: LaunchWorkspace;
@@ -120,7 +130,7 @@ function renderDashboard({
       workspaces={workspace ? [workspace] : []}
       onCreateWorkspace={vi.fn()}
       onDiscardSavedGameWindows={vi.fn()}
-      onLaunchRole={vi.fn()}
+      onLaunchRole={onLaunchRole}
       onLaunchWorkspace={onLaunchWorkspace}
       onNavigateGames={vi.fn()}
       onNavigateGameWindows={vi.fn()}
@@ -132,8 +142,6 @@ function renderDashboard({
       onRestoreSavedGameWindows={vi.fn()}
       onStartMacro={vi.fn()}
       onStopMacro={vi.fn()}
-      onStopRole={vi.fn()}
-      onStopWorkspace={onStopWorkspace}
     />
   );
 }

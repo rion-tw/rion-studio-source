@@ -3,8 +3,7 @@ import {
   Loader2,
   Play,
   Plus,
-  Search,
-  Square
+  Search
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -18,7 +17,6 @@ import {
 } from "react";
 
 import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
 import {
   ContextMenu,
@@ -49,7 +47,7 @@ import {
   getWorkspaceSlotCoverUrl,
   getWorkspaceSplits
 } from "./workspaceLayoutUtils";
-import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
+import { workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 import { WorkspaceActionMenu, WorkspaceContextMenuContent } from "./WorkspaceActionMenu";
@@ -72,7 +70,6 @@ interface LaunchWorkspacesViewProps {
   onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
   onQueryChange: (query: string) => void;
   onReorderWorkspaces: (orderedIds: string[]) => void;
-  onStopWorkspace: (workspace: LaunchWorkspace) => void;
 }
 
 function LaunchWorkspacesView({
@@ -92,8 +89,7 @@ function LaunchWorkspacesView({
   onEditWorkspace,
   onLaunchWorkspace,
   onQueryChange,
-  onReorderWorkspaces,
-  onStopWorkspace
+  onReorderWorkspaces
 }: LaunchWorkspacesViewProps): JSX.Element {
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
@@ -230,7 +226,6 @@ function LaunchWorkspacesView({
               onEdit={() => onEditWorkspace(workspace)}
               onLaunch={() => onLaunchWorkspace(workspace)}
               onReorderPointerDown={(event) => workspaceDrag.start(event, workspace.id)}
-              onStop={() => onStopWorkspace(workspace)}
               onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
             />
           ))}
@@ -254,7 +249,6 @@ interface WorkspaceCardProps {
   onEdit: () => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onLaunch: () => void;
-  onStop: () => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   roleById: Map<string, Role>;
   isRunning: boolean;
@@ -275,7 +269,6 @@ function WorkspaceCard({
   onEdit,
   onReorderPointerDown,
   onLaunch,
-  onStop,
   onSelectionClick,
   roleById,
   isRunning,
@@ -285,9 +278,7 @@ function WorkspaceCard({
 }: WorkspaceCardProps): JSX.Element {
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const isBusy = busyWorkspaceIds.has(workspace.id);
-  const LayoutIcon = workspaceTemplateIcons[workspace.template];
-  const layoutTitle = t(workspaceTemplateLabelKeys[workspace.template]);
-  const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
+  const primaryActionLabel = t("workspaces.launch");
 
   return (
     <ContextMenu>
@@ -328,12 +319,10 @@ function WorkspaceCard({
             title={primaryActionLabel}
             type="button"
             variant="media"
-            onClick={isRunning ? onStop : onLaunch}
+            onClick={onLaunch}
           >
             {isBusy ? (
               <Loader2 className="spin" size={30} />
-            ) : isRunning ? (
-              <Square size={30} fill="currentColor" />
             ) : (
               <Play className="ml-0.5" size={34} fill="currentColor" />
             )}
@@ -356,18 +345,6 @@ function WorkspaceCard({
 
       <div className="glass-divider border-t p-3.5">
         <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
-
-        <div className="mt-2 flex min-w-0 items-center gap-1.5">
-          <Badge
-            aria-label={layoutTitle}
-            className="min-w-0 max-w-[45%] gap-1.5"
-            title={layoutTitle}
-            variant="secondary"
-          >
-            <LayoutIcon className="shrink-0" size={12} aria-hidden="true" />
-            <span className="min-w-0 truncate">{layoutTitle}</span>
-          </Badge>
-        </div>
       </div>
         </Card>
       </ContextMenuTrigger>

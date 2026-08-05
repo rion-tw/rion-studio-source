@@ -12,6 +12,7 @@ fn tab_drag_cursor_lease_matches(
     lease.session_id == session_id && lease.window_generation == window_generation
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn tab_drag_cursor_release_allowed(
     lease: Option<&TabDragCursorLease>,
     session_id: &str,

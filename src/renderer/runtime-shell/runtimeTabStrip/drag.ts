@@ -1,12 +1,9 @@
 // Focused implementation extracted from runtimeTabStrip.ts.
 import { invoke } from "@tauri-apps/api/core";
-import { emit } from "@tauri-apps/api/event";
 
 import type { RuntimeTabDragSessionRecord, SystemRuntimeOperationSummaryRecord } from "../../../shared/generated";
 
-import { handleSystemRuntimeReceipt } from "../../src/app/systemRuntimeReceipt";
-
-import { applyRuntimeTabOrder, ensureTabVisible, scheduleScrollControlsUpdate, tabElements } from "./entry";
+import { ensureTabVisible, scheduleScrollControlsUpdate, tabElements } from "./entry";
 
 import type { RuntimeTabDragPayload } from "./entry";
 
@@ -362,15 +359,6 @@ function handleRuntimeTabDragReceipt(
     || receipt.status === "indeterminate") {
     cancelledDragSessions.add(sessionId);
   }
-  try {
-    handleSystemRuntimeReceipt(receipt);
-  } catch (error) {
-    const issue = error as { code?: string; message?: string };
-    void emit("rion://shell-error", {
-      code: issue.code ?? receipt.failureCode ?? "SYSTEM_TAB_DRAG_FAILED",
-      message: issue.message ?? "The native tab drag could not be committed."
-    });
-  }
   completeTerminalDragAction(sessionId);
 }
 
@@ -379,15 +367,6 @@ export function handleRuntimeTabDragSession(session: RuntimeTabDragSessionRecord
   if (session.status === "cancelled" || session.status === "failed"
     || session.status === "indeterminate") {
     cancelledDragSessions.add(session.sessionId);
-  }
-  if (session.status === "failed" || session.status === "indeterminate") {
-    const code = session.failureCode ?? "SYSTEM_TAB_DRAG_FAILED";
-    void emit("rion://shell-error", {
-      code,
-      message: session.status === "indeterminate"
-        ? `The native tab drag could not be confirmed (${code}). Restart Rion Studio before trying again.`
-        : `The native tab drag failed (${code}).`
-    });
   }
   completeTerminalDragAction(session.sessionId);
 }
@@ -399,30 +378,13 @@ function completeTerminalDragAction(sessionId: string): void {
     dragIntentOrders.delete(sessionId);
     return;
   }
-  const intent = dragIntentOrders.get(sessionId);
-  const cancelled = cancelledDragSessions.has(sessionId);
   if (runtimeState.dragVisualState?.sessionId === sessionId) {
     clearDragVisual({
-      mode: cancelled ? "restore" : "settle",
+      mode: "settle",
       sessionId
     });
   }
   localDropSessions.delete(sessionId);
   runtimeState.latestDragIntentSessionId = undefined;
-  const pending = runtimeState.pendingRuntimeTabOrder?.ownerSessionId === sessionId
-    ? runtimeState.pendingRuntimeTabOrder
-    : undefined;
-  if (pending) runtimeState.pendingRuntimeTabOrder = undefined;
-  if (cancelled) {
-    if (intent?.originOrder.length) applyRuntimeTabOrder(intent.originOrder, true);
-    if (pending) applyRuntimeTabOrder(pending.order, true);
-  } else if (pending) {
-    const finalOrder = intent?.finalOrder ?? logicalRuntimeTabOrder();
-    if (ordersEqual(pending.order, finalOrder)) applyRuntimeTabOrder(pending.order, true);
-  }
   dragIntentOrders.delete(sessionId);
-}
-
-function ordersEqual(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((tabId, index) => tabId === right[index]);
 }

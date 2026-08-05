@@ -570,7 +570,6 @@ export function installRuntimeTabStrip(): void {
 
   window.__rionReorderRuntimeTabs = (tabIds) => {
     if (deferRuntimeTabOrder(tabIds)) return;
-    runtimeState.pendingRuntimeTabOrder = undefined;
     applyRuntimeTabOrder(tabIds, true);
   };
 

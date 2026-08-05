@@ -228,10 +228,21 @@ async fn rion_runtime_tab_action(
             .map_err(|message| shell_error("TAURI_RUNTIME_CHROME_ACK_INVALID", message))?;
         return Ok(Value::Null);
     }
+    let is_tab_drag = action
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|action_type| action_type.starts_with("tabDrag"));
     match handle_game_window_tab_drag(&app, &state, &window_id, &action).await {
         Ok(Some(response)) => return Ok(response),
         Ok(None) => {}
         Err(error) => {
+            if is_tab_drag {
+                eprintln!(
+                    "Runtime tab drag follower will reconcile from live HTML state: code={} message={}",
+                    error.code, error.message
+                );
+                return Ok(serde_json::json!({ "status": "superseded" }));
+            }
             reveal_shell_error(
                 &app,
                 CoreErrorPayload {

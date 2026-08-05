@@ -260,6 +260,25 @@ impl NativeWindowActor {
         state.applied_revision >= revision
     }
 
+    fn record_externally_applied_presentation(
+        &self,
+        revision: u64,
+        tab_id: Option<String>,
+        surface_identities: HashSet<(String, u64)>,
+        surfaces: Vec<Webview>,
+    ) {
+        let (lock, changed) = &*self.queue;
+        if let Ok(mut state) = lock.lock() {
+            state.record_externally_applied_presentation(
+                revision,
+                tab_id,
+                surface_identities,
+                surfaces,
+            );
+            changed.notify_all();
+        }
+    }
+
     fn stop(&self) {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
@@ -275,6 +294,24 @@ impl NativeWindowActor {
             }
             changed.notify_all();
         }
+    }
+}
+
+impl NativeWindowActorState {
+    fn record_externally_applied_presentation(
+        &mut self,
+        revision: u64,
+        tab_id: Option<String>,
+        surface_identities: HashSet<(String, u64)>,
+        surfaces: Vec<Webview>,
+    ) {
+        if self.stopped || revision < self.applied_revision {
+            return;
+        }
+        self.applied_revision = revision;
+        self.applied_tab_id = tab_id;
+        self.applied_surface_identities = surface_identities;
+        self.applied_surfaces = surfaces;
     }
 }
 

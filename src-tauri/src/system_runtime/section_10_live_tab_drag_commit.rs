@@ -511,6 +511,7 @@ impl SystemRuntimeExecutor {
             selected_after
                 .get(&actual_source_window_id)
                 .map(String::as_str),
+            ordered_tab_ids,
             revision,
         ) {
             eprintln!(
@@ -574,6 +575,13 @@ impl SystemRuntimeExecutor {
                     let workspace_template = tab.workspace_template.as_deref();
                     #[cfg(not(any(windows, target_os = "macos")))]
                     let workspace_template: Option<&str> = None;
+                    let Some(target_ordered_tab_ids) = runtime
+                        .presentation
+                        .existing(&target_window_id)
+                        .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    else {
+                        return;
+                    };
                     match runtime.relocate_native_tab_reservation(
                         &source_window_id,
                         &target_window_id,
@@ -582,9 +590,18 @@ impl SystemRuntimeExecutor {
                         &tab.tab_type,
                         workspace_template,
                         source_active_tab_id.as_deref(),
+                        &target_ordered_tab_ids,
                         revision,
                     ) {
                         Ok(()) => {
+                            let target_order_is_current = runtime
+                                .presentation
+                                .existing(&target_window_id)
+                                .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                                .is_some_and(|live_order| live_order == target_ordered_tab_ids);
+                            if !target_order_is_current {
+                                continue;
+                            }
                             runtime.apply_native_active_style(
                                 &source_window_id,
                                 source_active_tab_id.as_deref(),

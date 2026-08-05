@@ -232,6 +232,19 @@ fn native_surface_mutation_is_current(
     }
 }
 
+fn native_presentation_intent_is_current(
+    live_revision: u64,
+    live_tab_id: &Option<String>,
+    projection_surface_identities: &HashSet<(String, u64)>,
+    request_revision: u64,
+    request_tab_id: &Option<String>,
+    request_surface_identities: &HashSet<(String, u64)>,
+) -> bool {
+    live_revision == request_revision
+        && live_tab_id == request_tab_id
+        && projection_surface_identities == request_surface_identities
+}
+
 #[cfg(test)]
 fn native_presentation_changed(
     previous_tab_id: &Option<String>,
@@ -354,14 +367,26 @@ fn apply_native_presentation_batch(
             request.focus,
         ),
     );
-    let live_desired = request.live.lock().ok().is_some_and(|live| {
-        live.revision == request.revision && live.selected_tab_id == request.tab_id
-    });
-    let projection_desired = request.coordinator.lock().ok().is_some_and(|projection| {
+    let live_intent = request
+        .live
+        .lock()
+        .ok()
+        .map(|live| (live.revision, live.selected_tab_id.clone()));
+    let projection_surface_identities = request.coordinator.lock().ok().map(|projection| {
         projection.surface_identities(request.tab_id.as_deref())
-            == request.next_surface_identities
     });
-    let still_desired = live_desired && projection_desired;
+    let still_desired = live_intent
+        .zip(projection_surface_identities)
+        .is_some_and(|((live_revision, live_tab_id), projection_surface_identities)| {
+            native_presentation_intent_is_current(
+                live_revision,
+                &live_tab_id,
+                &projection_surface_identities,
+                request.revision,
+                &request.tab_id,
+                &request.next_surface_identities,
+            )
+        });
     if (!still_desired && !ordered_window_control) || !mutation_plan.requires_ui_thread {
         let applied = still_desired || ordered_window_control;
         return NativePresentationOutcome {
@@ -398,6 +423,7 @@ fn apply_native_presentation_batch(
     let revision = request.revision;
     let tab_id = request.tab_id.clone();
     let next_surfaces = request.next_surfaces.clone();
+    let next_surface_identities = request.next_surface_identities.clone();
     let surface_owner_revisions = request.surface_owner_revisions.clone();
     let surface_owners = Arc::clone(&request.surface_owners);
     let active_webview = request.active_webview.clone();
@@ -411,12 +437,27 @@ fn apply_native_presentation_batch(
     let task = move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let presentation_current = live.lock().ok().is_some_and(|live| {
-            live.revision == revision && live.selected_tab_id == tab_id
-        }) && coordinator.lock().ok().is_some_and(|projection| {
+        let live_intent = live
+            .lock()
+            .ok()
+            .map(|live| (live.revision, live.selected_tab_id.clone()));
+        let projection_surface_identities = coordinator.lock().ok().map(|projection| {
             projection.surface_identities(tab_id.as_deref())
-                == presentation_owner_identities(&next_surfaces, &surface_owner_revisions)
         });
+        let presentation_current = live_intent
+            .zip(projection_surface_identities)
+            .is_some_and(
+                |((live_revision, live_tab_id), projection_surface_identities)| {
+                native_presentation_intent_is_current(
+                    live_revision,
+                    &live_tab_id,
+                    &projection_surface_identities,
+                    revision,
+                    &tab_id,
+                    &next_surface_identities,
+                )
+            },
+            );
         if !presentation_current && !ordered_window_control {
             let _ = sender.send(NativePresentationOutcome {
                 applied: false,

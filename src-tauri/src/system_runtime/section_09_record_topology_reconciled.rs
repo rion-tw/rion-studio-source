@@ -304,9 +304,15 @@ impl SystemRuntimeExecutor {
         tab_type: &str,
         workspace_template: Option<&str>,
         source_active_tab_id: Option<&str>,
+        target_ordered_tab_ids: &[String],
         revision: u64,
     ) -> RuntimeResult<()> {
         self.try_ensure_native_tab(target_window_id, tab_id, name, tab_type, workspace_template)?;
+        // Native keyboard cycling follows the chrome controller's own tab array. A
+        // cross-window drag can promote the preview at a different index than the
+        // committed live topology, so make the authoritative order part of the same
+        // retryable projection as the reservation transfer.
+        self.reorder_native_tabs(target_window_id, target_ordered_tab_ids)?;
         // The target chrome represents the committed live topology. If source
         // removal fails, retain the target and retry removal forward; never
         // compensate by recreating the obsolete source topology.

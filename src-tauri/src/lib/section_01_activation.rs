@@ -2,12 +2,15 @@ use std::{
     collections::{HashSet, VecDeque},
     path::PathBuf,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
 };
+
+#[cfg(target_os = "macos")]
+use std::sync::OnceLock;
 
 use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,

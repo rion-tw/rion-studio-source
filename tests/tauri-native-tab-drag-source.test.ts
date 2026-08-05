@@ -138,7 +138,7 @@ describe("native tab drag latest-intent transaction", () => {
   });
 
   it("commits topology before the immediate forward-only macOS surface follower", async () => {
-    const [handler, motion, move, commit, nativeChrome, contract] = await Promise.all([
+    const [handler, motion, move, commit, actor, nativeChrome, contract] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs",
@@ -165,6 +165,10 @@ describe("native tab drag latest-intent transaction", () => {
           "../src-tauri/src/system_runtime/section_10_live_tab_drag_commit.rs",
           import.meta.url
         ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_03_start.rs", import.meta.url),
         "utf8"
       ),
       readFile(
@@ -197,6 +201,8 @@ describe("native tab drag latest-intent transaction", () => {
     );
     expect(commit).toContain("let Some(target_ordered_tab_ids) = runtime");
     expect(commit).toContain("if !target_order_is_current");
+    expect(actor).toContain("for surface in &state.applied_surfaces");
+    expect(actor).toContain("request.surface_owner_revisions");
     expect(motion).toContain(".commit_live_tab_drag_destination(");
     expect(motion).toContain(".provisionally_move_tab_for_live_drag(");
     expect(motion.indexOf(".commit_live_tab_drag_destination(")).toBeLessThan(

@@ -281,10 +281,7 @@ impl SystemRuntimeExecutor {
                     .closing_roles
                     .insert(role_id.to_owned())
             {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_ALREADY_CLOSING",
-                    "The runtime role is already closing.",
-                ));
+                return Ok(());
             }
         }
         self.advance_role_input_fence_local(role_id)?;
@@ -303,6 +300,20 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let released = self.release_marked_role_surfaces(role_id, expected_tab_id)?;
         self.commit_released_role(&released)?;
+        if self
+            .presentation
+            .tab_window(&released.tab_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?
+            .is_none()
+        {
+            // The visible source tab is already gone, so there is no source slot
+            // where a placeholder may be created. The owner release still has to
+            // reach placeholders in newer tabs that asked for the same role while
+            // native isolation was finishing.
+            return self.refresh_role_placeholders(role_id, None);
+        }
         self.create_available_placeholder(&released)?;
         self.refresh_role_placeholders(role_id, None)
     }
@@ -741,7 +752,10 @@ impl SystemRuntimeExecutor {
                 self.record_tab_close_tombstone_resolution(tab_id, tombstone, true);
             }
             self.publish_launcher_presence();
-            self.remove_empty_display_host(&window_id, true);
+            self.complete_retiring_window_tab(&window_id, tab_id, false);
+        } else {
+            self.retire_quarantined_tab_after_close(tab_id);
+            self.complete_retiring_window_tab(&window_id, tab_id, true);
         }
         result
     }

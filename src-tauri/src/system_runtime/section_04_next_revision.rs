@@ -374,6 +374,9 @@ struct RuntimeState {
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, (u32, u32)>,
+    quarantined_window_hosts: HashSet<String>,
+    retiring_window_cleanup_failed: HashSet<String>,
+    retiring_window_tabs: HashMap<String, HashSet<String>>,
     window_closes: WindowCloseLedger,
     overlay_capabilities: HashMap<String, String>,
     overlay_ready_webviews: HashSet<String>,
@@ -660,6 +663,7 @@ pub struct SystemRuntimeExecutor {
     #[cfg(windows)]
     tab_chrome_projections: Arc<TabChromeProjectionCoordinator>,
     prewarm_state: AtomicU8,
+    retiring_tab_senders: OnceLock<Vec<mpsc::Sender<(String, String)>>>,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
     runtime_projection: RevisionedJsonProjection,

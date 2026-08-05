@@ -257,6 +257,60 @@ describe("runtime window lifecycle authority", () => {
     expect(coreClose).toContain("live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)");
   });
 
+  it("keeps the native parent alive until every closing tab has isolated", async () => {
+    const [closeContract, layout, closeFollower, create] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_14_window_close_contract.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_21_runtime_layout.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_27_add_child_bounded.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_23_create_tab.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const visibleClose = closeContract.slice(
+      closeContract.indexOf("pub(crate) fn commit_visible_window_close"),
+      closeContract.indexOf("pub(crate) fn complete_window_close_state_commit")
+    );
+
+    expect(visibleClose).toContain("window.hide()");
+    expect(visibleClose).not.toContain("window.close()");
+    expect(visibleClose).toContain("retiring_window_tabs");
+    expect(visibleClose).toContain("cancel_provisional_tab_launch(tab_id)");
+    expect(visibleClose).toContain(
+      "schedule_retiring_window_tab_cleanup(window_id, &tab_ids)"
+    );
+    expect(layout).toContain("complete_retiring_window_tab");
+    expect(layout).toContain("retiring_window_cleanup_failed");
+    expect(closeFollower).toContain("complete_retiring_window_tab(&window_id, tab_id, false)");
+    expect(closeFollower).toContain("retire_quarantined_tab_after_close(tab_id)");
+    expect(closeFollower).toContain("return self.refresh_role_placeholders(role_id, None)");
+    expect(create.indexOf("commit_live_window_record(")).toBeLessThan(
+      create.indexOf("runtime_tab_from_effect(&tab)")
+    );
+    expect(create).toContain("state.close_previews.contains_key(&created_tab_id)");
+  });
+
   it("fences cancelled create effects and retires a create that loses its Core acknowledgement race", async () => {
     const [executor, admission, core] = await Promise.all([
       readFile(

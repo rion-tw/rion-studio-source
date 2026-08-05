@@ -603,6 +603,17 @@ impl SystemRuntimeExecutor {
             return;
         }
         let host = self.state.lock().ok().and_then(|mut state| {
+            if state.quarantined_window_hosts.contains(window_id) {
+                return None;
+            }
+            if state
+                .retiring_window_tabs
+                .get(window_id)
+                .is_some_and(|tab_ids| !tab_ids.is_empty())
+            {
+                return None;
+            }
+            state.retiring_window_tabs.remove(window_id);
             let host = state.display_hosts.remove(window_id)?;
             state
                 .allow_window_close_labels
@@ -613,6 +624,49 @@ impl SystemRuntimeExecutor {
             self.unregister_runtime_launcher_window(window_id);
             let _ = host.window.close();
         }
+    }
+
+    fn complete_retiring_window_tab(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        cleanup_failed: bool,
+    ) {
+        let retirement = self.state.lock().ok().and_then(|mut state| {
+            let Some(tab_ids) = state.retiring_window_tabs.get_mut(window_id) else {
+                if cleanup_failed {
+                    state
+                        .quarantined_window_hosts
+                        .insert(window_id.to_owned());
+                }
+                return None;
+            };
+            tab_ids.remove(tab_id);
+            let all_tabs_terminal = tab_ids.is_empty();
+            if cleanup_failed {
+                state
+                    .retiring_window_cleanup_failed
+                    .insert(window_id.to_owned());
+            }
+            if !all_tabs_terminal {
+                return Some(false);
+            }
+            state.retiring_window_tabs.remove(window_id);
+            let failed = state.retiring_window_cleanup_failed.remove(window_id);
+            if failed {
+                state
+                    .quarantined_window_hosts
+                    .insert(window_id.to_owned());
+            }
+            Some(failed)
+        });
+        match retirement {
+            Some(true) => return,
+            Some(false) => {}
+            None if cleanup_failed => return,
+            None => {}
+        }
+        self.remove_empty_display_host(window_id, true);
     }
 
 }

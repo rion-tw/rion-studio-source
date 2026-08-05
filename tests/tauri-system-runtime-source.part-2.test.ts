@@ -149,7 +149,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(closeRuntimeWindow).toContain("RuntimeWindowCloseRequest::Start");
     expect(closeRuntimeWindow).toContain("complete_window_destroyed");
     expect(closeRuntimeWindow).toContain("window_close_failure_status");
-    expect(closeRuntimeWindow).not.toContain(".hide()");
+    expect(closeRuntimeWindow).toContain("window.hide()");
+    expect(closeRuntimeWindow).toContain("retiring_window_tabs");
+    expect(closeRuntimeWindow).not.toContain("window.close()");
     expect(shell).toContain("match state.runtime.begin_window_close_requested(&label)");
     expect(shell).toContain("process_game_window_close_requested(");
     expect(shell).toContain("CoreCommand::BrowserWindowStop");

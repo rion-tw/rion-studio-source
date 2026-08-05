@@ -31,9 +31,7 @@ pub fn unprotect_session_transfer(
 fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
     use aes_gcm::{Aes256Gcm, KeyInit, aead::OsRng};
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use std::process::Command;
-
-    let existing = Command::new("/usr/bin/security")
+    let existing = crate::background_command("/usr/bin/security")
         .args([
             "find-generic-password",
             "-w",
@@ -52,7 +50,7 @@ fn mac_keychain_key() -> Result<[u8; 32], PlatformError> {
     } else {
         let key = Aes256Gcm::generate_key(&mut OsRng);
         let encoded = STANDARD.encode(key);
-        let added = Command::new("/usr/bin/security")
+        let added = crate::background_command("/usr/bin/security")
             .args([
                 "add-generic-password",
                 "-U",

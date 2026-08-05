@@ -146,7 +146,7 @@ struct RoleBounds {
     y: f64,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct WindowContentMetrics {
     height: f64,
     top_inset: f64,
@@ -314,37 +314,12 @@ fn runtime_window_content_metrics(window: &Window) -> RuntimeResult<WindowConten
 fn logical_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
     #[cfg(target_os = "macos")]
     {
-        unsafe extern "C" {
-            fn rion_wk_window_content_layout_metrics(
-                window: *mut std::ffi::c_void,
-                width: *mut f64,
-                height: *mut f64,
-                top_inset: *mut f64,
-            ) -> bool;
-        }
         let window = window.clone();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         window
             .clone()
             .run_on_main_thread(move || {
-                let result = window.ns_window().ok().and_then(|native| {
-                    let mut width = 0.0;
-                    let mut height = 0.0;
-                    let mut top_inset = 0.0;
-                    unsafe {
-                        rion_wk_window_content_layout_metrics(
-                            native,
-                            &mut width,
-                            &mut height,
-                            &mut top_inset,
-                        )
-                    }
-                    .then_some(WindowContentMetrics {
-                        height,
-                        top_inset,
-                        width,
-                    })
-                });
+                let result = macos_window_content_metrics_now(&window);
                 let _ = sender.send(result);
             })
             .map_err(RuntimeError::tauri)?;
@@ -376,6 +351,72 @@ fn logical_window_content_metrics(window: &Window) -> RuntimeResult<WindowConten
             width: (physical.width as f64 / scale_factor).max(1.0),
         })
     }
+}
+
+fn snapshot_window_content_metrics(
+    window: &Window,
+    physical_width: u32,
+    physical_height: u32,
+    scale_factor: f64,
+) -> Option<WindowContentMetrics> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (physical_width, physical_height, scale_factor);
+        macos_window_content_metrics_now(window)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        Some(logical_resize_metrics(
+            physical_width,
+            physical_height,
+            scale_factor,
+        ))
+    }
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn logical_resize_metrics(
+    physical_width: u32,
+    physical_height: u32,
+    scale_factor: f64,
+) -> WindowContentMetrics {
+    let scale_factor = normalized_scale_factor(scale_factor);
+    WindowContentMetrics {
+        height: (physical_height as f64 / scale_factor).max(1.0),
+        top_inset: 0.0,
+        width: (physical_width as f64 / scale_factor).max(1.0),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_window_content_metrics_now(window: &Window) -> Option<WindowContentMetrics> {
+    unsafe extern "C" {
+        fn rion_wk_window_content_layout_metrics(
+            window: *mut std::ffi::c_void,
+            width: *mut f64,
+            height: *mut f64,
+            top_inset: *mut f64,
+        ) -> bool;
+    }
+    window.ns_window().ok().and_then(|native| {
+        let mut width = 0.0;
+        let mut height = 0.0;
+        let mut top_inset = 0.0;
+        unsafe {
+            rion_wk_window_content_layout_metrics(
+                native,
+                &mut width,
+                &mut height,
+                &mut top_inset,
+            )
+        }
+        .then_some(WindowContentMetrics {
+            height,
+            top_inset,
+            width,
+        })
+    })
 }
 
 fn runtime_label(prefix: &str, id: &str) -> String {

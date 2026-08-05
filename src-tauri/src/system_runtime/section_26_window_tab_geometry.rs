@@ -2,6 +2,15 @@ impl SystemRuntimeExecutor {
     #[cfg(windows)]
     fn windows_tab_strip_height(&self, window: &Window, toolbar_revealed: bool) -> f64 {
         let fullscreen = window.is_fullscreen().unwrap_or(false);
+        self.windows_tab_strip_height_for_state(fullscreen, toolbar_revealed)
+    }
+
+    #[cfg(windows)]
+    fn windows_tab_strip_height_for_state(
+        &self,
+        fullscreen: bool,
+        toolbar_revealed: bool,
+    ) -> f64 {
         let always_show = self
             .core
             .invoke(CoreCommand::RuntimeWindowPreferencesGet)

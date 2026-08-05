@@ -1,5 +1,5 @@
 use std::{
-    process::{Command, Stdio},
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
@@ -7,7 +7,7 @@ use std::{
 use serde::Serialize;
 use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 
-use crate::{Platform, PlatformError};
+use crate::{Platform, PlatformError, background_command};
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const WINDOWS_CLOSE_SCRIPT: &str = r#"Add-Type -TypeDefinition @'
@@ -70,7 +70,7 @@ pub fn collect_system_host_diagnostics() -> SystemHostDiagnostics {
 
 pub fn request_graceful_chrome_quit(platform: Platform) -> Result<(), PlatformError> {
     let (program, arguments) = graceful_chrome_quit_command(platform);
-    let mut child = Command::new(program)
+    let mut child = background_command(program)
         .args(arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

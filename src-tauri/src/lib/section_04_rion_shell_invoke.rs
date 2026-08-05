@@ -457,8 +457,8 @@ async fn rion_shell_invoke(
             )
             .await
         }
-        "exportPortableData" => export_portable_data(&state, &args).await,
-        "previewPortableImport" => preview_portable_import(&state).await,
+        "exportPortableData" => export_portable_data(&app, &window, &state, &args).await,
+        "previewPortableImport" => preview_portable_import(&app, &window, &state).await,
         "applyPortableImport" => {
             let input = args.first().cloned().ok_or_else(|| {
                 shell_error(
@@ -492,7 +492,9 @@ async fn rion_shell_invoke(
             }
             Ok(result)
         }
-        "previewChromeProfileImport" => preview_chrome_profile_import(&state).await,
+        "previewChromeProfileImport" => {
+            preview_chrome_profile_import(&app, &window, &state).await
+        }
         "revealLogs" => reveal_logs(&state).await,
         "collectBrowserPerformanceDiagnostics" => {
             let runtime = Arc::clone(&state.runtime);

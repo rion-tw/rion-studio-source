@@ -435,7 +435,7 @@ struct RuntimeState {
     pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     pending_window_placement_writes: HashMap<String, u64>,
-    pending_window_resizes: HashMap<String, (u32, u32)>,
+    pending_window_resizes: HashMap<String, PendingWindowResize>,
     native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
     retiring_window_cleanup_failed: HashSet<String>,

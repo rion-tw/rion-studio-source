@@ -5,7 +5,7 @@ import {
   LayoutDashboard,
   Loader2,
   MonitorUp,
-  PanelTopOpen,
+  AppWindow,
   Play,
   Square,
   RotateCcw,
@@ -504,7 +504,7 @@ function RoleLaunchRow({
         {item.action.isBusy ? (
           <Loader2 aria-hidden="true" className="spin" size={14} />
         ) : (
-          <PanelTopOpen aria-hidden="true" size={14} />
+          <AppWindow aria-hidden="true" size={14} />
         )}
         {actionLabel}
       </Button>
@@ -554,7 +554,7 @@ function WorkspaceLaunchRow({
         {item.action.isBusy ? (
           <Loader2 aria-hidden="true" className="spin" size={14} />
         ) : (
-          <PanelTopOpen aria-hidden="true" size={14} />
+          <AppWindow aria-hidden="true" size={14} />
         )}
         {actionLabel}
       </Button>

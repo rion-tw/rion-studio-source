@@ -4,7 +4,7 @@ import {
   Globe2,
   Loader2,
   MoreHorizontal,
-  PanelTopOpen,
+  AppWindow,
   Pencil,
   Plus,
   Search,
@@ -441,7 +441,7 @@ function RoleCard({
             {isBusy ? (
               <Loader2 className="spin" size={30} />
             ) : (
-              <PanelTopOpen size={34} />
+              <AppWindow size={34} />
             )}
           </Button>
         </div>

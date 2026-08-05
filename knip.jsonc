@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "entry": [
     "src/renderer/runtime-shell/runtimeDivider.ts",
     "src/renderer/runtime-shell/runtimeTabStrip.ts",
@@ -25,5 +25,10 @@
     "@tauri-apps/cli",
     // Loaded from CSS through @import, outside Knip's JavaScript dependency graph.
     "tailwindcss"
-  ]
+  ],
+  "rules": {
+    // Knip 6 reports the existing intentional exports and shared types as warnings.
+    "exports": "warn",
+    "types": "warn"
+  }
 }

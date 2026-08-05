@@ -189,7 +189,7 @@ describe("list editor navigation", () => {
 
       expect(screen.queryByText(`browserEngine.actual.${resolvedEngine}`)).toBeNull();
       const openButton = screen.getByRole("button", { name: "role.launch" });
-      expect(openButton.querySelector(".lucide-panel-top-open")).toBeTruthy();
+      expect(openButton.querySelector(".lucide-app-window")).toBeTruthy();
       expect(openButton.querySelector(".lucide-play")).toBeNull();
       fireEvent.click(openButton);
       expect(onLaunch).toHaveBeenCalledWith(item.id);
@@ -282,7 +282,7 @@ describe("list editor navigation", () => {
 
     expect(screen.queryByRole("button", { name: "workspaces.stop" })).toBeNull();
     const openButton = screen.getByRole("button", { name: "workspaces.launch" });
-    expect(openButton.querySelector(".lucide-panel-top-open")).toBeTruthy();
+    expect(openButton.querySelector(".lucide-app-window")).toBeTruthy();
     expect(openButton.querySelector(".lucide-play")).toBeNull();
     fireEvent.click(openButton);
     expect(onLaunchWorkspace).toHaveBeenCalledWith(item);

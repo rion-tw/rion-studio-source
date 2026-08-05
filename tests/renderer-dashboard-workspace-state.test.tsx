@@ -31,7 +31,7 @@ describe("Dashboard workspace state", () => {
 
     expect(screen.queryByRole("button", { name: "Stop: Role One" })).toBeNull();
     const openButton = screen.getByRole("button", { name: "Open: Role One" });
-    expect(openButton.querySelector(".lucide-panel-top-open")).toBeTruthy();
+    expect(openButton.querySelector(".lucide-app-window")).toBeTruthy();
     expect(openButton.querySelector(".lucide-play")).toBeNull();
     fireEvent.click(openButton);
     expect(onLaunchRole).toHaveBeenCalledWith(role.id);
@@ -55,7 +55,7 @@ describe("Dashboard workspace state", () => {
     expect(screen.queryByRole("button", { name: "Open: Workspace One" })).toBeTruthy();
 
     const openButton = screen.getByRole("button", { name: "Open: Workspace One" });
-    expect(openButton.querySelector(".lucide-panel-top-open")).toBeTruthy();
+    expect(openButton.querySelector(".lucide-app-window")).toBeTruthy();
     expect(openButton.querySelector(".lucide-play")).toBeNull();
     fireEvent.click(openButton);
 

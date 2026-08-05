@@ -86,7 +86,10 @@ Review the complete, versioned documents before use:
 - [Third-Party Software Notices](docs/legal/THIRD_PARTY_NOTICES.md)
 - [All supported languages](docs/legal/README.md)
 
-## Contributing
+## Support And Feedback
 
-Developer notes, local commands, runtime data details, and packaging notes live in
-[`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
+The [public distribution repository](https://github.com/rion-tw/rion-studio) is
+the download and product-support home for Rion Studio. Use
+[GitHub Issues](https://github.com/rion-tw/rion-studio/issues) for product bug
+reports and feature requests. Source-code pull requests are not accepted; see
+[SUPPORT.md](SUPPORT.md) and [SECURITY.md](SECURITY.md) for the appropriate channels.

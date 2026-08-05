@@ -416,15 +416,39 @@ describe("Tauri-only release workflows", () => {
     const uploadIndex = workflow.indexOf("gh release upload");
     const verifyIndex = workflow.indexOf("cmp release-assets/SHA256SUMS.txt");
     const publishIndex = workflow.indexOf("gh release edit");
+    const documentationIndex = workflow.indexOf("Sync public documentation from the released source");
+    const summaryIndex = workflow.indexOf("Record public release summary");
 
     expect(draftIndex).toBeGreaterThan(-1);
     expect(uploadIndex).toBeGreaterThan(draftIndex);
     expect(verifyIndex).toBeGreaterThan(uploadIndex);
     expect(publishIndex).toBeGreaterThan(verifyIndex);
+    expect(documentationIndex).toBeGreaterThan(publishIndex);
+    expect(summaryIndex).toBeGreaterThan(documentationIndex);
     expect(workflow).toContain("contents: write");
     expect(workflow).toContain("RION_RELEASE_APP_PRIVATE_KEY");
     expect(workflow).toContain("--verify-checksums");
+    expect(workflow).toContain("group: public-release-rion-studio");
+    expect(workflow).toContain("node scripts/syncPublicRepositoryDocs.mjs");
+    expect(workflow).toContain('--repository "${PUBLIC_RELEASE_REPOSITORY}"');
+    expect(workflow).toContain('--tag "${TAG}"');
+    expect(workflow).toContain("GH_TOKEN: ${{ steps.public-token.outputs.token }}");
     expect(workflow).not.toContain("--clobber");
+  });
+
+  it("updates public documents atomically and verifies the resulting managed tree", async () => {
+    const script = await readWorkflow("scripts/syncPublicRepositoryDocs.mjs");
+
+    expect(script).toContain('api.request("releases/latest")');
+    expect(script).toContain('api.request("git/blobs"');
+    expect(script).toContain('api.request("git/trees"');
+    expect(script).toContain('api.request("git/commits"');
+    expect(script).toContain('body: { sha: createdCommit.sha, force: false }');
+    expect(script).toContain("assertPublicDocumentsMatch(desiredEntries, updated.tree)");
+    expect(script).toContain('sourcePath: "docs/public-repository/CONTRIBUTING.md"');
+    expect(script).toContain('targetPath: ".github/CONTRIBUTING.md"');
+    expect(script).not.toContain("releases/**");
+    expect(script).not.toContain("ISSUE_TEMPLATE");
   });
 
   it("restores latest only after validating the canonical artifact set", async () => {

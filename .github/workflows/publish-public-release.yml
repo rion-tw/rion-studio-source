@@ -26,7 +26,9 @@ env:
   PUBLIC_RELEASE_REPOSITORY: rion-tw/rion-studio
 
 concurrency:
-  group: public-release-${{ inputs.tag }}
+  # Serialize every writer to the public repository so the final documentation
+  # commit always has a current, fast-forward-only main branch parent.
+  group: public-release-rion-studio
   cancel-in-progress: false
 
 jobs:
@@ -235,6 +237,17 @@ jobs:
           --latest
           --notes-file public-release-marker.md
           --verify-tag
+
+      - name: Sync public documentation from the released source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.public-token.outputs.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          node scripts/syncPublicRepositoryDocs.mjs \
+            --repository "${PUBLIC_RELEASE_REPOSITORY}" \
+            --tag "${TAG}"
 
       - name: Record public release summary
         shell: bash

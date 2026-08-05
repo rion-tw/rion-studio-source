@@ -59,7 +59,9 @@ Rion Studio は独立した汎用ランチャー兼、人が監督する補助�
 - [公正利用規則](legal/fair-use.ja.md)
 - [第三者ソフトウェア通知](legal/THIRD_PARTY_NOTICES.md)
 
-## コントリビューション
+## サポートとフィードバック
 
-開発者向けノート、ローカルコマンド、runtime data の詳細、packaging notes は
-[`../.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md) にあります。
+[公開配布リポジトリ](https://github.com/rion-tw/rion-studio)は Rion Studio のダウンロードおよび製品サポート窓口です。
+製品の不具合報告や機能要望には
+[GitHub Issues](https://github.com/rion-tw/rion-studio/issues) を使用してください。ソースコードの Pull Request は受け付けていません。
+適切な連絡先については [`../SUPPORT.md`](../SUPPORT.md) と [`../SECURITY.md`](../SECURITY.md) を参照してください。

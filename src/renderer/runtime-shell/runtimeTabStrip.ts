@@ -657,6 +657,41 @@ export function positionDragSurface(clientX: number): void {
     - visual.grabRatioX * visual.tabWidth;
   visual.surface.style.left = `${left}px`;
   visual.surface.style.top = "0px";
+  positionAddAfterVisibleDragTail();
+}
+
+function positionAddAfterVisibleDragTail(): void {
+  if (!runtimeState.dragVisualState || !scrollRightButton.hidden) {
+    resetAddAfterDrag();
+    return;
+  }
+  const visibleTabs = tabElements().filter(
+    (tab) => !tab.classList.contains("drag-surface-suspended")
+  );
+  if (visibleTabs.length === 0) return;
+  const pendingFrame = reorderAnimationFrameByElement.get(add);
+  if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame);
+  reorderAnimationFrameByElement.delete(add);
+  add.style.transition = "none";
+  add.style.transform = "";
+  const rootBounds = root.getBoundingClientRect();
+  const layoutLeft = add.getBoundingClientRect().left;
+  const spacing = Math.max(0, layoutLeft - rootBounds.right);
+  const visibleTail = Math.max(
+    ...visibleTabs.map((tab) => tab.getBoundingClientRect().right)
+  );
+  const deltaX = visibleTail + spacing - layoutLeft;
+  add.style.transform = Math.abs(deltaX) >= 0.5
+    ? `translateX(${deltaX}px)`
+    : "";
+}
+
+function resetAddAfterDrag(): void {
+  const pendingFrame = reorderAnimationFrameByElement.get(add);
+  if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame);
+  reorderAnimationFrameByElement.delete(add);
+  add.style.removeProperty("transition");
+  add.style.removeProperty("transform");
 }
 
 export function suspendDragVisual(): void {
@@ -665,6 +700,7 @@ export function suspendDragVisual(): void {
   visual.suspended = true;
   visual.surface?.classList.add("drag-surface-suspended");
   visual.slot.remove();
+  resetAddAfterDrag();
 }
 
 export function clearDragVisual(options: {
@@ -693,6 +729,7 @@ export function clearDragVisual(options: {
   visual.slot.remove();
   runtimeState.dragVisualState = undefined;
   runtimeState.dragInsertionState = undefined;
+  resetAddAfterDrag();
   if (options.mode === "restore" && visual.originOrder.length > 0) {
     applyRuntimeTabOrder(visual.originOrder, true);
   }

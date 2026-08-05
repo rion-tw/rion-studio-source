@@ -117,6 +117,7 @@ NS_ASSUME_NONNULL_BEGIN
   }
   [order insertObject:tabIdentifier atIndex:insertionIndex];
   [self reorderTabIdentifiers:order];
+  [self positionAddSurfaceAfterVisibleDragTail];
   return YES;
 }
 
@@ -139,6 +140,33 @@ NS_ASSUME_NONNULL_BEGIN
   surface.frame = NSMakeRect(_dragSurfaceCanvasX, 0, item.preferredWidth,
                              kRionTabHeight);
   [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+  [self positionAddSurfaceAfterVisibleDragTail];
+}
+
+- (void)positionAddSurfaceAfterVisibleDragTail {
+  if (!_dragSurfaceOverlayActive || !_dragSurfaceVisible ||
+      !_scrollRightSurface.hidden) {
+    return;
+  }
+  CGFloat visibleTailX = -CGFLOAT_MAX;
+  for (NSUInteger index = 0; index < _tabSurfaces.count; ++index) {
+    RionRuntimeSurfaceView *surface = _tabSurfaces[index];
+    if (surface.hidden || surface.alphaValue <= 0.01) continue;
+    BOOL lifted = [_dragPlaceholderTabIdentifier
+        isEqualToString:_tabItems[index].tabIdentifier];
+    CALayer *presentationLayer = (CALayer *)surface.layer.presentationLayer;
+    NSRect canvasFrame = lifted || !presentationLayer
+        ? surface.frame
+        : NSRectFromCGRect(presentationLayer.frame);
+    NSRect rootFrame = [_accessoryController.view convertRect:canvasFrame
+                                                     fromView:_tabCanvas];
+    visibleTailX = MAX(visibleTailX, NSMaxX(rootFrame));
+  }
+  if (visibleTailX == -CGFLOAT_MAX) return;
+  [_addSurface.layer removeAllAnimations];
+  _addSurface.frame = NSMakeRect(
+      visibleTailX + kRionAddButtonSpacing, _addSurface.frame.origin.y,
+      _addSurface.frame.size.width, _addSurface.frame.size.height);
 }
 
 - (void)resetTabDragInsertionState {

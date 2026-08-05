@@ -507,9 +507,11 @@ NS_ASSUME_NONNULL_BEGIN
   }
   [_tabItems setArray:orderedItems];
   [_tabSurfaces setArray:orderedSurfaces];
+  [_addSurface.layer removeAllAnimations];
   [self layoutTitlebarContent];
   [self updateDragPlaceholderAppearance];
   if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) return;
+  NSRect targetAddFrame = _addSurface.frame;
   NSMutableArray<NSValue *> *targetFrames =
       [NSMutableArray arrayWithCapacity:_tabSurfaces.count];
   BOOL hasMovement = NO;
@@ -525,11 +527,38 @@ NS_ASSUME_NONNULL_BEGIN
       hasMovement = YES;
     }
   }
+  BOOL animateAddSurface = NO;
+  NSUInteger lastIndex = _tabItems.count - 1;
+  RionRuntimeTabItemView *lastItem = _tabItems[lastIndex];
+  NSValue *previousLastFrame = previousFrames[lastItem.tabIdentifier];
+  NSRect targetLastFrame = targetFrames[lastIndex].rectValue;
+  BOOL lastItemLifted = [_dragPlaceholderTabIdentifier
+      isEqualToString:lastItem.tabIdentifier];
+  BOOL followsLastTabPresentation = _scrollRightSurface.hidden &&
+      !lastItemLifted && previousLastFrame &&
+      fabs(previousLastFrame.rectValue.origin.x - targetLastFrame.origin.x) >=
+          0.5;
+  if (followsLastTabPresentation) {
+    NSRect previousLastRootFrame = [_accessoryController.view
+        convertRect:previousLastFrame.rectValue
+          fromView:_tabCanvas];
+    CGFloat addOriginX = RionRuntimeTrailingControlOriginX(
+        targetAddFrame.origin.x, previousLastRootFrame, YES);
+    _addSurface.frame = NSMakeRect(addOriginX, targetAddFrame.origin.y,
+                                   targetAddFrame.size.width,
+                                   targetAddFrame.size.height);
+    animateAddSurface =
+        fabs(addOriginX - targetAddFrame.origin.x) >= 0.5;
+    hasMovement = hasMovement || animateAddSurface;
+  }
   if (!hasMovement) return;
   [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
     context.duration = 0.12;
     for (NSUInteger index = 0; index < self->_tabSurfaces.count; ++index) {
       self->_tabSurfaces[index].animator.frame = targetFrames[index].rectValue;
+    }
+    if (animateAddSurface) {
+      self->_addSurface.animator.frame = targetAddFrame;
     }
   } completionHandler:nil];
 }

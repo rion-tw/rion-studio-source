@@ -217,6 +217,44 @@ async function flushPostedDragAction(): Promise<void> {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
+it("keeps the add control after the lifted visible tab during a drag", async () => {
+    window.__rionApplyRuntimeTabState?.(stateWithTabs());
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>("#tabs .tab"));
+    const draggedTab = tabs.at(-1)!;
+    const root = document.querySelector<HTMLDivElement>("#tabs")!;
+    const add = document.querySelector<HTMLButtonElement>("#add")!;
+    Object.defineProperty(root, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(0, 0, 600, 28)
+    });
+    Object.defineProperty(add, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(608, 0, 28, 28)
+    });
+    Object.defineProperty(draggedTab, "getBoundingClientRect", {
+      configurable: true,
+      value: () => new DOMRect(Number.parseFloat(draggedTab.style.left), 0, 140, 28)
+    });
+    const runtimeModule = await import("../src/renderer/runtime-shell/runtimeTabStrip");
+    runtimeModule.runtimeState.dragVisualState = {
+      grabRatioX: 0.5,
+      originOrder: tabs.map((tab) => tab.dataset.tabId!),
+      sessionId: "visible-tail",
+      slot: document.createElement("div"),
+      surface: draggedTab,
+      suspended: false,
+      tabHeight: 28,
+      tabId: draggedTab.dataset.tabId!,
+      tabWidth: 140
+    };
+
+    runtimeModule.positionDragSurface(900);
+    expect(draggedTab.style.left).toBe("830px");
+    expect(add.style.transform).toBe("translateX(370px)");
+    runtimeModule.clearDragVisual({ mode: "restore" });
+    expect(add.style.transform).toBe("");
+  });
+
 it("maps a vertical wheel and drag-edge movement into horizontal scrolling", async () => {
     const geometry = installScrollGeometry(200, 590);
     window.__rionApplyRuntimeTabState?.(stateWithTabs());

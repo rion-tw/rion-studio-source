@@ -10,7 +10,7 @@ import { applyRuntimeTabOrder, ensureTabVisible, scheduleScrollControlsUpdate, t
 
 import type { RuntimeTabDragPayload } from "./entry";
 
-import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, dragIntentOrders, localDropSessions, logicalRuntimeTabOrder, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { TAB_REORDER_HYSTERESIS_MAX, TAB_REORDER_HYSTERESIS_MIN, TAB_REORDER_HYSTERESIS_RATIO, add, adoptDragSurface, cancelledDragSessions, clearDragVisual, createDragSlot, dispatch, dragActionQueue, dragIntentOrders, localDropSessions, logicalRuntimeTabOrder, positionDragSurface, reorderAnimationFrameByElement, root, runtimeState, scrollRightButton, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 export function resolveStableDragInsertion(
   payload: RuntimeTabDragPayload | undefined,
@@ -177,7 +177,8 @@ export function previewDragPosition(
   const visual = runtimeState.dragVisualState;
   if (!visual) return;
   const previousRects = new Map(
-    Array.from(root.children).map((child) => [child, child.getBoundingClientRect()] as const)
+    [...Array.from(root.children), add]
+      .map((child) => [child, child.getBoundingClientRect()] as const)
   );
   const local = tabElements().find((tab) => tab.dataset.tabId === payload.tabId);
   const nextBeforeTabId = beforeTab?.dataset.tabId;
@@ -202,24 +203,43 @@ export function previewDragPosition(
 export function animateReorderedTabs(previousRects: Map<Element, DOMRect>): void {
   if (typeof matchMedia === "function"
     && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  for (const child of Array.from(root.children) as HTMLElement[]) {
+  const layoutChildren = Array.from(root.children) as HTMLElement[];
+  for (const child of layoutChildren) {
     if (child.classList.contains("drag-surface")) continue;
     const previous = previousRects.get(child);
     if (!previous) continue;
     const next = child.getBoundingClientRect();
     const deltaX = previous.left - next.left;
-    if (Math.abs(deltaX) < 0.5) continue;
-    const pendingFrame = reorderAnimationFrameByElement.get(child);
-    if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame);
-    child.style.transition = "none";
-    child.style.transform = `translateX(${deltaX}px)`;
-    const frame = requestAnimationFrame(() => {
-      reorderAnimationFrameByElement.delete(child);
-      child.style.transition = "transform 120ms ease-out";
-      child.style.transform = "";
-    });
-    reorderAnimationFrameByElement.set(child, frame);
+    animateHorizontalReorder(child, deltaX);
   }
+
+  const lastLayoutChild = [...layoutChildren].reverse().find(
+    (child) => !child.classList.contains("drag-surface")
+  );
+  const previousLast = lastLayoutChild
+    ? previousRects.get(lastLayoutChild)
+    : undefined;
+  const nextLast = lastLayoutChild?.getBoundingClientRect();
+  const previousAdd = previousRects.get(add);
+  const nextAdd = add.getBoundingClientRect();
+  const addDeltaX = scrollRightButton.hidden && previousLast && nextLast
+    ? previousLast.left - nextLast.left
+    : previousAdd ? previousAdd.left - nextAdd.left : 0;
+  animateHorizontalReorder(add, addDeltaX);
+}
+
+function animateHorizontalReorder(element: HTMLElement, deltaX: number): void {
+  if (Math.abs(deltaX) < 0.5) return;
+  const pendingFrame = reorderAnimationFrameByElement.get(element);
+  if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame);
+  element.style.transition = "none";
+  element.style.transform = `translateX(${deltaX}px)`;
+  const frame = requestAnimationFrame(() => {
+    reorderAnimationFrameByElement.delete(element);
+    element.style.transition = "transform 120ms ease-out";
+    element.style.transform = "";
+  });
+  reorderAnimationFrameByElement.set(element, frame);
 }
 
 export function scheduleDragHover(

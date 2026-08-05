@@ -1,5 +1,5 @@
 // Focused implementation extracted from MacrosRoute.tsx.
-import { ArrowDown, ArrowUp, CircleAlert, Copy, Loader2, MoreHorizontal, Pause, Pencil, Play, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleAlert, Copy, type LucideIcon, Loader2, MoreHorizontal, Pause, Pencil, Play, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 
 import { type CSSProperties, type JSX, useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -10,6 +10,8 @@ import { RoleRunDot } from "../../components/RoleRunDot";
 import { Badge } from "../../components/ui/badge";
 
 import { Button } from "../../components/ui/button";
+
+import { ContextMenuContent, ContextMenuItem } from "../../components/ui/context-menu";
 
 import { Surface } from "../../components/ui/patterns";
 
@@ -282,6 +284,16 @@ interface MacroActionMenuPosition {
   top: number;
 }
 
+interface MacroAction {
+  Icon: LucideIcon;
+  id: "copy" | "delete" | "edit" | "setEnabled";
+  isDestructive?: boolean;
+  isDisabled: boolean;
+  label: string;
+  onSelect: () => void;
+  showLoading?: boolean;
+}
+
 export function MacroActionMenu({
   busyMacroIds,
   isActive,
@@ -297,6 +309,16 @@ export function MacroActionMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const isMutationBusy = busyMacroIds.has(macro.id);
+  const actions = createMacroActions({
+    isActive,
+    isMutationBusy,
+    macro,
+    onCopy,
+    onDelete,
+    onEdit,
+    onSetEnabled,
+    t
+  });
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -389,24 +411,9 @@ export function MacroActionMenu({
     };
   }, [isOpen]);
 
-  function handleEdit(): void {
+  function run(action: () => void): void {
     setIsOpen(false);
-    onEdit();
-  }
-
-  function handleCopy(): void {
-    setIsOpen(false);
-    onCopy();
-  }
-
-  function handleDelete(): void {
-    setIsOpen(false);
-    onDelete();
-  }
-
-  function handleSetEnabled(): void {
-    setIsOpen(false);
-    onSetEnabled?.(!macro.enabled);
+    action();
   }
 
   const menuStyle: CSSProperties | undefined = menuPosition
@@ -428,48 +435,24 @@ export function MacroActionMenu({
             role="menu"
             style={menuStyle}
           >
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground"
-              type="button"
-              role="menuitem"
-              onClick={handleEdit}
-              disabled={isActive}
-            >
-              <Pencil size={14} />
-              <span>{t("macros.edit")}</span>
-            </button>
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              type="button"
-              role="menuitem"
-              onClick={handleCopy}
-              disabled={isMutationBusy}
-            >
-              <Copy size={14} />
-              <span>{t("macros.copy")}</span>
-            </button>
-            {onSetEnabled ? (
+            {actions.map(({ Icon, id, isDestructive, isDisabled, label, onSelect, showLoading }) => (
               <button
-                className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                key={id}
+                className={cn(
+                  "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
+                  isDestructive
+                    ? "text-destructive hover:bg-destructive/10"
+                    : "text-foreground hover:bg-accent/45 hover:text-accent-foreground"
+                )}
                 type="button"
                 role="menuitem"
-                onClick={handleSetEnabled}
-                disabled={isMutationBusy}
+                onClick={() => run(onSelect)}
+                disabled={isDisabled}
               >
-                {macro.enabled ? <ToggleLeft size={14} /> : <ToggleRight size={14} />}
-                <span>{t(macro.enabled ? "macros.disable" : "macros.enable")}</span>
+                <Icon className={showLoading ? "spin" : undefined} size={14} />
+                <span>{label}</span>
               </button>
-            ) : null}
-            <button
-              className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-              type="button"
-              role="menuitem"
-              onClick={handleDelete}
-              disabled={isMutationBusy}
-            >
-              {isMutationBusy ? <Loader2 className="spin" size={14} /> : <Trash2 size={14} />}
-              <span>{t("macros.delete")}</span>
-            </button>
+            ))}
           </Surface>,
           document.body
         )
@@ -494,4 +477,76 @@ export function MacroActionMenu({
       {menu}
     </div>
   );
+}
+
+export function MacroContextMenuContent({
+  busyMacroIds,
+  isActive,
+  macro,
+  onCopy,
+  onDelete,
+  onEdit,
+  onSetEnabled,
+  t
+}: MacroActionMenuProps): JSX.Element {
+  const actions = createMacroActions({
+    isActive,
+    isMutationBusy: busyMacroIds.has(macro.id),
+    macro,
+    onCopy,
+    onDelete,
+    onEdit,
+    onSetEnabled,
+    t
+  });
+
+  return (
+    <ContextMenuContent>
+      {actions.map(({ Icon, id, isDestructive, isDisabled, label, onSelect, showLoading }) => (
+        <ContextMenuItem
+          key={id}
+          className={cn("gap-1.5", isDestructive && "text-destructive")}
+          disabled={isDisabled}
+          onSelect={onSelect}
+        >
+          <Icon className={showLoading ? "spin" : undefined} size={14} />
+          <span>{label}</span>
+        </ContextMenuItem>
+      ))}
+    </ContextMenuContent>
+  );
+}
+
+function createMacroActions({
+  isActive,
+  isMutationBusy,
+  macro,
+  onCopy,
+  onDelete,
+  onEdit,
+  onSetEnabled,
+  t
+}: Omit<MacroActionMenuProps, "busyMacroIds"> & { isMutationBusy: boolean }): MacroAction[] {
+  return [
+    { Icon: Pencil, id: "edit", isDisabled: isActive, label: t("macros.edit"), onSelect: onEdit },
+    { Icon: Copy, id: "copy", isDisabled: isMutationBusy, label: t("macros.copy"), onSelect: onCopy },
+    ...(onSetEnabled
+      ? [{
+          Icon: macro.enabled ? ToggleLeft : ToggleRight,
+          id: "setEnabled" as const,
+          isDisabled: isMutationBusy,
+          label: t(macro.enabled ? "macros.disable" : "macros.enable"),
+          onSelect: () => onSetEnabled(!macro.enabled)
+        }]
+      : []),
+    {
+      Icon: isMutationBusy ? Loader2 : Trash2,
+      id: "delete",
+      isDestructive: true,
+      isDisabled: isMutationBusy,
+      label: t("macros.delete"),
+      onSelect: onDelete,
+      showLoading: isMutationBusy
+    }
+  ];
 }

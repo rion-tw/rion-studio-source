@@ -62,6 +62,29 @@ describe("Game Window management", () => {
     expect(within(table).getByText("Mina")).toBeTruthy();
   });
 
+  it("opens a game window action menu from the row contextmenu event", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+
+    const secondWindow = { ...emptyGameWindow, id: "window-2", name: "Social window" };
+    renderRoute({ gameWindows: [gameWindow, secondWindow] });
+
+    const selectedRow = screen.getByText("Raid window").closest("tr");
+    const row = screen.getByText("Social window").closest("tr");
+    if (!selectedRow || !row) throw new Error("Expected game window rows.");
+
+    fireEvent.click(selectedRow);
+    expect(screen.getByText("1 selected")).toBeTruthy();
+
+    expect(fireEvent.contextMenu(row, { clientX: 240, clientY: 160 })).toBe(false);
+    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Target display" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Delete window" })).toBeTruthy();
+  });
+
   it("sorts window rows from each data column like the macro list", async () => {
     const user = userEvent.setup();
     Object.defineProperty(window, "rionStudio", {

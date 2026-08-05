@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -85,6 +85,11 @@ describe("games cover UI", () => {
     await user.click(coveredCardQueries.getByRole("button", { name: "Game actions" }));
     await user.click(coveredCardQueries.getByRole("menuitem", { name: "Edit" }));
     expect(onEdit).toHaveBeenCalledWith(covered);
+
+    onNewRole.mockClear();
+    expect(fireEvent.contextMenu(coveredCard as HTMLElement, { clientX: 240, clientY: 160 })).toBe(false);
+    await user.click(screen.getByRole("menuitem", { name: "Add role" }));
+    expect(onNewRole).toHaveBeenCalledWith("covered");
   });
 
   it("uploads and removes a custom game cover in the editor", async () => {

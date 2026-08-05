@@ -124,6 +124,11 @@ async fn launch_role_from_shell(
     let requested_window_id = target.window_id.clone();
     let launch_preview =
         begin_shell_launch_presentation(app, state, &target, &role_id, "role").await?;
+    if launch_preview.is_none() {
+        let window_id = launched_source_window_id(&state.runtime, &role_id, "role")
+            .unwrap_or(requested_window_id);
+        return Ok(json!({ "windowId": window_id, "status": Value::Null }));
+    }
     let statuses = match Arc::clone(&state.core)
         .invoke_async(CoreCommand::BrowserRoleLaunch {
             role_id: role_id.clone(),
@@ -166,6 +171,15 @@ async fn launch_workspace_from_shell(
     let requested_window_id = target.window_id.clone();
     let launch_preview =
         begin_shell_launch_presentation(app, state, &target, &workspace_id, "workspace").await?;
+    if launch_preview.is_none() {
+        let window_id = launched_source_window_id(&state.runtime, &workspace_id, "workspace")
+            .unwrap_or(requested_window_id);
+        return Ok(json!({
+            "kind": "launched",
+            "windowId": window_id,
+            "statuses": []
+        }));
+    }
     let statuses = match Arc::clone(&state.core)
         .invoke_async(CoreCommand::BrowserWorkspaceLaunch {
             workspace_id: workspace_id.clone(),

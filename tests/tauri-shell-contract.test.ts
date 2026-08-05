@@ -104,7 +104,24 @@ describe("Tauri shell contract guard", () => {
     expect(quickMenu).toContain("QuickMenuPlatform::Macos");
     expect(quickMenu).not.toContain("MenuEntry::Header");
     expect(quickMenu).not.toContain(".on_menu_event(");
-    expect(quickMenuMac).toContain("muda::{ContextMenu");
+    expect(quickMenuMac).toContain("muda::{CheckMenuItem, ContextMenu");
+    expect(quickMenu).toContain("MenuEntry::CheckItem");
+    expect(quickMenu).toContain("CheckMenuItemBuilder::with_id");
+    expect(quickMenu).toContain("state.last_fingerprint = None;");
+    expect(quickMenuMac).toContain("CheckMenuItem::with_id");
+    expect(shell.match(/if launch_preview\.is_none\(\)/g)).toHaveLength(2);
+    const roleLaunch = shell.slice(
+      shell.indexOf("async fn launch_role_from_shell("),
+      shell.indexOf("async fn launch_workspace_from_shell(")
+    );
+    expect(roleLaunch.indexOf("if launch_preview.is_none()"))
+      .toBeLessThan(roleLaunch.indexOf(".invoke_async(CoreCommand::BrowserRoleLaunch"));
+    const workspaceLaunch = shell.slice(
+      shell.indexOf("async fn launch_workspace_from_shell("),
+      shell.indexOf("async fn prepare_shell_invoke(")
+    );
+    expect(workspaceLaunch.indexOf("if launch_preview.is_none()"))
+      .toBeLessThan(workspaceLaunch.indexOf(".invoke_async(CoreCommand::BrowserWorkspaceLaunch"));
     expect(quickMenuMac).toContain("DOCK_MENU: RefCell<Option<Submenu>>");
     expect(quickMenuMac).not.toContain("rion_dock_menu_promote_section_header");
     expect(nativeDockMenu).toContain("applicationDockMenu:");

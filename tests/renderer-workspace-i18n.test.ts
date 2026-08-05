@@ -43,4 +43,20 @@ describe("workspace help translations", () => {
     expect(zhCN["workspaces.help.runtimeResource"]).toContain("原生后台节流");
     expect(ja["workspaces.help.runtimeResource"]).toContain("ネイティブのバックグラウンドスロットリング");
   });
+
+  it.each([
+    [en, "Quick open", "Opening", "Ready to open", "Opening the workspace"],
+    [zhTW, "快速開啟", "開啟中", "可開啟", "開啟工作區"],
+    [zhCN, "快速打开", "打开中", "可打开", "打开工作区"],
+    [ja, "クイックオープン", "開いています", "開く準備完了", "ワークスペースを開く"]
+  ])(
+    "uses open terminology for role and workspace presentation",
+    (dictionary, quickOpen, opening, readyToOpen, workspaceHelpTitle) => {
+      expect(dictionary["dashboard.quickRoles.title"]).toBe(quickOpen);
+      expect(dictionary["dashboard.role.opening"]).toBe(opening);
+      expect(dictionary["dashboard.role.ready"]).toBe(readyToOpen);
+      expect(dictionary["dashboard.workspace.ready"]).toBe(readyToOpen);
+      expect(dictionary["workspaces.help.launchTitle"]).toBe(workspaceHelpTitle);
+    }
+  );
 });

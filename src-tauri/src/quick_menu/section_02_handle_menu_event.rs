@@ -1,4 +1,22 @@
 fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
+    if [
+        SHOW_DISPLAY_PREFIX,
+        RESTORE_WINDOW_PREFIX,
+        ROLE_PREFIX,
+        WORKSPACE_PREFIX,
+    ]
+    .iter()
+    .any(|prefix| id.starts_with(prefix))
+        && let Some(state) = app.try_state::<crate::CoreState>()
+        && let Err(error) = state.quick_menu_refresh.request_forced(
+            app.clone(),
+            Arc::clone(&state.core),
+            Arc::clone(&state.runtime),
+        )
+    {
+        eprintln!("Quick Menu checked-state refresh failed: {error}");
+    }
+
     match id {
         "open-app" | "review-terms" => show_main_window(app),
         "restore-windows" => {

@@ -11,7 +11,7 @@ impl SystemRuntimeExecutor {
             && let Some(tab) = state.tabs.get(tab_id)
         {
             operation.tab_id = Some(tab_id.clone());
-            operation.window_id = Some(tab.window_id.clone());
+            operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
             operation.surface_generation = tab.roles.get(role_id).map(|role| role.generation);
         }
         let result = self.apply_role_audio_muted(role_id, muted);

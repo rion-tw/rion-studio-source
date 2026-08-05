@@ -22,7 +22,10 @@ impl SystemRuntimeExecutor {
         &self,
         tab_id: &str,
     ) -> Result<(Window, bool), String> {
-        let live_window_id = self.presentation.tab_window(tab_id)?;
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer in live topology.".to_owned())?;
         let state = self
             .state
             .try_lock()
@@ -31,10 +34,9 @@ impl SystemRuntimeExecutor {
             .tabs
             .get(tab_id)
             .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-        let window_id = live_window_id.as_deref().unwrap_or(&tab.window_id);
         let window = state
             .display_hosts
-            .get(window_id)
+            .get(&window_id)
             .map(|host| host.window.clone())
             .ok_or_else(|| "Runtime tab window was not found.".to_owned())?;
         Ok((window, tab.audio_muted))
@@ -147,18 +149,19 @@ impl SystemRuntimeExecutor {
 
     #[cfg(windows)]
     pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
-        self.state.lock().ok().and_then(|state| {
+        let tab_id = self.state.lock().ok().and_then(|state| {
             let popup_role_id = state.popup_roles.get(webview_label);
-            state.tabs.values().find_map(|tab| {
+            state.tabs.iter().find_map(|(tab_id, tab)| {
                 let owns_webview = popup_role_id
                     .is_some_and(|role_id| tab.roles.contains_key(role_id))
                     || tab
                         .roles
                         .values()
                         .any(|surface| surface.webview.label() == webview_label);
-                owns_webview.then(|| tab.window_id.clone())
+                owns_webview.then(|| tab_id.clone())
             })
-        })
+        })?;
+        self.presentation.tab_window(&tab_id).ok().flatten()
     }
 
     #[cfg(target_os = "macos")]
@@ -199,7 +202,7 @@ impl SystemRuntimeExecutor {
         modifier_codes: Vec<String>,
         target_tab_id: &str,
     ) -> Result<Option<String>, String> {
-        let (window_id, tab_id, role_id) = {
+        let (tab_id, role_id) = {
             let state = self
                 .state
                 .lock()
@@ -210,7 +213,7 @@ impl SystemRuntimeExecutor {
                 .find_map(|(tab_id, tab)| {
                     tab.roles.iter().find_map(|(role_id, surface)| {
                         (surface.webview.label() == webview_label)
-                            .then(|| (tab.window_id.clone(), tab_id.clone(), role_id.clone()))
+                            .then(|| (tab_id.clone(), role_id.clone()))
                     })
                 })
                 .ok_or_else(|| "The shortcut source WebView was not found.".to_owned())?
@@ -218,6 +221,10 @@ impl SystemRuntimeExecutor {
         if tab_id == target_tab_id {
             return Ok(None);
         }
+        let window_id = self
+            .presentation
+            .tab_window(&tab_id)?
+            .ok_or_else(|| "The shortcut source tab is no longer live.".to_owned())?;
         self.begin_shortcut_modifier_handoff(RuntimeShortcutModifierHandoff {
             modifier_codes,
             source_role_id: Some(role_id),
@@ -394,24 +401,11 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn tab_window_id(&self, tab_id: &str) -> Option<String> {
-        self.state
-            .lock()
-            .ok()
-            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()))
+        self.presentation.tab_window(tab_id).ok().flatten()
     }
 
     pub(crate) fn window_tab_count(&self, window_id: &str) -> usize {
-        self.state
-            .lock()
-            .ok()
-            .map(|state| {
-                state
-                    .tabs
-                    .values()
-                    .filter(|tab| tab.window_id == window_id)
-                    .count()
-            })
-            .unwrap_or_default()
+        self.live_tab_ids_for_window(window_id).len()
     }
 
     pub(crate) fn begin_tab_drag_window_motion(&self, window_id: &str) {

@@ -47,19 +47,7 @@ impl SystemRuntimeExecutor {
 
     fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
         self.require_runtime_accepting()?;
-        let window_id = {
-            let state = self.state()?;
-            state
-                .tabs
-                .get(tab_id)
-                .map(|tab| tab.window_id.clone())
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "TAURI_RUNTIME_TAB_NOT_FOUND",
-                        "Runtime tab was not found while applying native layout.",
-                    )
-                })?
-        };
+        let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (revision, lane) = self.native_window_mutations.issue(&window_id)?;
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Geometry,
@@ -176,14 +164,7 @@ impl SystemRuntimeExecutor {
 
         let snapshot = native_window_geometry_snapshot(&window)?;
         let tab_ids = if scope == GeometryMutationScope::WindowAndLayout {
-            let state = self.state()?;
-            state
-                .tabs
-                .iter()
-                .filter_map(|(tab_id, tab)| {
-                    (tab.window_id == target.window_id).then_some(tab_id.clone())
-                })
-                .collect::<Vec<_>>()
+            self.live_tab_ids_for_window(&target.window_id)
         } else {
             Vec::new()
         };

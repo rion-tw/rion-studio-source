@@ -91,7 +91,6 @@ impl<'de> Deserialize<'de> for RuntimeRoleSlotInputRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserRuntimeRoleOwnerRecord {
-    pub window_id: String,
     pub tab_id: String,
     pub slot_id: String,
     #[ts(type = "number")]

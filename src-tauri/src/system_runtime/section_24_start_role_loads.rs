@@ -34,6 +34,18 @@ impl SystemRuntimeExecutor {
                         "The role is closing or quarantined and cannot navigate to the game.",
                     ));
                 }
+                let tab_id = self
+                    .state()?
+                    .role_tabs
+                    .get(&role.role_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                            "Runtime role was not found.",
+                        )
+                    })?;
+                let window_id = self.resolve_live_tab_window_id(&tab_id)?;
                 let (
                     surface,
                     navigation,
@@ -41,17 +53,9 @@ impl SystemRuntimeExecutor {
                     base_zoom_factor,
                     effective_zoom,
                     surface_generation,
-                    tab_id,
-                    window_id,
                 ) = {
                     let state = self.state()?;
-                    let tab_id = state.role_tabs.get(&role.role_id).ok_or_else(|| {
-                        RuntimeError::new(
-                            "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                            "Runtime role was not found.",
-                        )
-                    })?;
-                    let surface = state.tabs[tab_id].roles.get(&role.role_id).ok_or_else(|| {
+                    let surface = state.tabs[&tab_id].roles.get(&role.role_id).ok_or_else(|| {
                         RuntimeError::new(
                             "TAURI_RUNTIME_ROLE_NOT_FOUND",
                             "Runtime role was not found.",
@@ -64,7 +68,7 @@ impl SystemRuntimeExecutor {
                     };
                     let window_zoom_factor = state
                         .display_hosts
-                        .get(&state.tabs[tab_id].window_id)
+                        .get(&window_id)
                         .map(|host| host.zoom_factor)
                         .unwrap_or(1.0);
                     (
@@ -74,8 +78,6 @@ impl SystemRuntimeExecutor {
                         base_zoom_factor,
                         effective_zoom_factor(base_zoom_factor, window_zoom_factor),
                         surface.generation,
-                        tab_id.clone(),
-                        state.tabs[tab_id].window_id.clone(),
                     )
                 };
                 let url = checked_web_url(&role.url)?;
@@ -329,15 +331,21 @@ impl SystemRuntimeExecutor {
     }
 
     fn focus_role(&self, role_id: &str, zoom_factor: Option<f64>) -> RuntimeResult<()> {
-        let (tab_id, webview, window_zoom_factor) = {
-            let state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+        let tab_id = self
+            .state()?
+            .role_tabs
+            .get(role_id)
+            .cloned()
+            .ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
                     "Runtime role was not found.",
                 )
             })?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
+        let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+        let (tab_id, webview, window_zoom_factor) = {
+            let state = self.state()?;
+            let tab = state.tabs.get(&tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
             let role = tab.roles.get(role_id).ok_or_else(|| {
@@ -346,7 +354,7 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found.",
                 )
             })?;
-            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",

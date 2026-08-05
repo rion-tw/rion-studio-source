@@ -203,14 +203,20 @@ impl SystemRuntimeExecutor {
         .with_role(&role_id)
         .with_surface_generation(generation);
         let result = (|| {
-            let (tab_id, window_id, effective_zoom) = {
-                let mut state = self.state()?;
-                let tab_id = state.role_tabs.get(&role_id).cloned().ok_or_else(|| {
+            let tab_id = self
+                .state()?
+                .role_tabs
+                .get(&role_id)
+                .cloned()
+                .ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_ROLE_NOT_FOUND",
                         "Runtime role was not found while registering its popup.",
                     )
                 })?;
+            let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+            let (tab_id, window_id, effective_zoom) = {
+                let mut state = self.state()?;
                 let tab = state.tabs.get(&tab_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_TAB_NOT_FOUND",
@@ -227,7 +233,6 @@ impl SystemRuntimeExecutor {
                             "Runtime role surface was not found while registering its popup.",
                         )
                     })?;
-                let window_id = tab.window_id.clone();
                 let window_zoom = state
                     .display_hosts
                     .get(&window_id)
@@ -284,18 +289,19 @@ impl SystemRuntimeExecutor {
     ) {
         let role_id = transaction.role_id.clone();
         let lifecycle_epoch = transaction.context.lifecycle_epoch.unwrap_or_default();
-        let transaction_is_current = self.state.lock().ok().is_some_and(|state| {
-            state.role_tabs.get(&role_id).is_some_and(|tab_id| {
-                state.tabs.get(tab_id).is_some_and(|tab| {
-                    tab.roles.get(&role_id).is_some_and(|surface| {
-                        surface_recovery_target_is_current(
-                            &tab.window_id,
-                            &transaction.window_id,
-                            surface.generation,
-                            transaction.surface_generation,
-                        )
-                    })
-                })
+        let current_owner = self.state.lock().ok().and_then(|state| {
+            let tab_id = state.role_tabs.get(&role_id)?.clone();
+            let generation = state.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
+            Some((tab_id, generation))
+        });
+        let transaction_is_current = current_owner.is_some_and(|(tab_id, generation)| {
+            self.presentation.tab_window(&tab_id).ok().flatten().is_some_and(|window_id| {
+                surface_recovery_target_is_current(
+                    &window_id,
+                    &transaction.window_id,
+                    generation,
+                    transaction.surface_generation,
+                )
             })
         });
         if !transaction_is_current {

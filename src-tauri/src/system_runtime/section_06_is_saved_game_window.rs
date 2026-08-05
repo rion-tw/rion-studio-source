@@ -499,16 +499,22 @@ impl SystemRuntimeExecutor {
     }
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
-        let (window_id, changed) = self
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let changed = self
             .state
             .lock()
             .ok()
             .and_then(|mut state| {
-                let window_id = state.tabs.get(tab_id)?.window_id.clone();
+                state.tabs.get(tab_id)?;
                 let changed = state.launch_phases.insert(tab_id.to_owned(), phase) != Some(phase);
-                Some((window_id, changed))
+                Some(changed)
             })
-            .unwrap_or((String::new(), false));
+            .unwrap_or(false);
         if !window_id.is_empty()
             && let Some(presentation) = self.presentation.existing(&window_id)
             && let Ok(mut presentation) = presentation.lock()

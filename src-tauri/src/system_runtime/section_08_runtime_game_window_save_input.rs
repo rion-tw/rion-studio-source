@@ -143,8 +143,14 @@ impl SystemRuntimeExecutor {
     ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
         let ownership = self.state().ok().and_then(|state| {
             let tab_id = state.role_tabs.get(role_id)?.clone();
-            let window_id = state.tabs.get(&tab_id)?.window_id.clone();
-            Some((tab_id, window_id))
+            state.tabs.get(&tab_id)?;
+            Some(tab_id)
+        }).and_then(|tab_id| {
+            self.presentation
+                .tab_window(&tab_id)
+                .ok()
+                .flatten()
+                .map(|window_id| (tab_id, window_id))
         });
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Security,

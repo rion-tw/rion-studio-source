@@ -48,7 +48,24 @@ impl SystemRuntimeExecutor {
             self.surface_recoveries
                 .release_terminal_key_for_retry(&role_id, generation);
         }
-        let claim = {
+        let Some((tab_id, surface_generation)) = self.state.lock().ok().and_then(|state| {
+            let tab_id = state.role_tabs.get(&role_id)?.clone();
+            let generation = state.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
+            Some((tab_id, generation))
+        }) else {
+            return false;
+        };
+        if !surface_generation_is_current(surface_generation, generation) {
+            return false;
+        }
+        let Some(window_id) = self.presentation.tab_window(&tab_id).ok().flatten() else {
+            return false;
+        };
+        if let Some(record) = self.surface_recoveries.existing(&role_id, generation) {
+            self.emit_surface_recovery_attempt(&record);
+            return true;
+        }
+        let allowed = {
             let Ok(mut state) = self.state.lock() else {
                 return false;
             };
@@ -57,24 +74,14 @@ impl SystemRuntimeExecutor {
             {
                 return false;
             }
-            let Some(tab_id) = state.role_tabs.get(&role_id).cloned() else {
+            if state.role_tabs.get(&role_id) != Some(&tab_id)
+                || state
+                    .tabs
+                    .get(&tab_id)
+                    .and_then(|tab| tab.roles.get(&role_id))
+                    .is_none_or(|surface| surface.generation != surface_generation)
+            {
                 return false;
-            };
-            let Some((surface_generation, window_id)) = state.tabs.get(&tab_id).and_then(|tab| {
-                tab.roles
-                    .get(&role_id)
-                    .map(|surface| (surface.generation, tab.window_id.clone()))
-            })
-            else {
-                return false;
-            };
-            if !surface_generation_is_current(surface_generation, generation) {
-                return false;
-            }
-            if let Some(record) = self.surface_recoveries.existing(&role_id, generation) {
-                drop(state);
-                self.emit_surface_recovery_attempt(&record);
-                return true;
             }
             if !claim_surface_recovery(
                 surface_generation,
@@ -92,9 +99,8 @@ impl SystemRuntimeExecutor {
                     attempts: 0,
                     window_started: now,
                 });
-            (window_id, budget.claim(now))
+            budget.claim(now)
         };
-        let (window_id, allowed) = claim;
         let mut context = NativeOperationContext::new(
             NativeOperationSubsystem::Recovery,
             "surfaceProcessFailure",

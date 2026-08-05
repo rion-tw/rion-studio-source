@@ -115,13 +115,7 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .filter_map(|target| {
                     let host = state.display_hosts.get(&target.window_id)?;
-                    let tab_ids = state
-                        .tabs
-                        .iter()
-                        .filter_map(|(tab_id, tab)| {
-                            (tab.window_id == target.window_id).then_some(tab_id.clone())
-                        })
-                        .collect::<Vec<_>>();
+                    let tab_ids = self.live_tab_ids_for_window(&target.window_id);
                     Some((
                         host.generation,
                         host.target.clone(),
@@ -186,13 +180,7 @@ impl SystemRuntimeExecutor {
                     *generation = host.generation;
                     *previous_target = host.target.clone();
                     *window = host.window.clone();
-                    *tab_ids = state
-                        .tabs
-                        .iter()
-                        .filter_map(|(tab_id, tab)| {
-                            (tab.window_id == target.window_id).then_some(tab_id.clone())
-                        })
-                        .collect();
+                    *tab_ids = self.live_tab_ids_for_window(&target.window_id);
                     true
                 },
             )

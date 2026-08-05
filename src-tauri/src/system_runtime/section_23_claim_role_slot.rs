@@ -22,6 +22,7 @@ impl SystemRuntimeExecutor {
                     "The claimed role slot has no matching runtime owner.",
                 )
             })?;
+        let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (window, window_id, selected, window_zoom_factor, previous_owner_generation) = {
             let state = self.state()?;
             if state.role_tabs.contains_key(&role.role.id)
@@ -48,7 +49,7 @@ impl SystemRuntimeExecutor {
                     "The target role slot changed before native attachment.",
                 ));
             }
-            let host = state.display_hosts.get(&runtime_tab.window_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
@@ -56,7 +57,7 @@ impl SystemRuntimeExecutor {
             })?;
             let selected = self
                 .presentation
-                .existing(&runtime_tab.window_id)
+                .existing(&window_id)
                 .and_then(|presentation| {
                     presentation.lock().ok().map(|presentation| {
                         presentation.selected_tab_id.as_deref() == Some(tab_id)
@@ -65,7 +66,7 @@ impl SystemRuntimeExecutor {
                 .unwrap_or(false);
             (
                 host.window.clone(),
-                runtime_tab.window_id.clone(),
+                window_id.clone(),
                 selected,
                 host.zoom_factor,
                 runtime_slot.owner_generation,
@@ -258,7 +259,6 @@ impl SystemRuntimeExecutor {
                 generation: slot.owner_generation.unwrap_or(0),
                 slot_id: slot.slot_id.clone(),
                 tab_id,
-                window_id: tab.window_id.clone(),
             }
         };
         self.refresh_role_placeholders(role_id, Some(owner))
@@ -269,6 +269,17 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         owner: Option<BrowserRuntimeRoleOwnerRecord>,
     ) -> RuntimeResult<()> {
+        let live_windows = self
+            .presentation
+            .snapshot_states()
+            .map_err(|message| RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message))?
+            .into_iter()
+            .flat_map(|(window_id, live)| {
+                live.all_tab_ids()
+                    .into_iter()
+                    .map(move |tab_id| (tab_id, window_id.clone()))
+            })
+            .collect::<HashMap<_, _>>();
         let placeholders = {
             let state = self.state()?;
             state
@@ -277,10 +288,11 @@ impl SystemRuntimeExecutor {
                 .filter_map(|(tab_id, tab)| {
                     let slot = tab.slots.values().find(|slot| slot.role.id == role_id)?;
                     let placeholder = slot.placeholder.as_ref()?;
-                    let window = state.display_hosts.get(&tab.window_id)?.window.clone();
+                    let window_id = live_windows.get(tab_id)?.clone();
+                    let window = state.display_hosts.get(&window_id)?.window.clone();
                     Some((
                         tab_id.clone(),
-                        tab.window_id.clone(),
+                        window_id,
                         window,
                         EmbeddedRoleSlotEffectRecord {
                             owner: owner.clone(),

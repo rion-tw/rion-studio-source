@@ -44,12 +44,7 @@ impl SystemRuntimeExecutor {
             let state = self.state().map_err(|error| error.message)?;
             ordered_tab_ids
                 .iter()
-                .filter(|tab_id| {
-                    state
-                        .tabs
-                        .get(*tab_id)
-                        .is_some_and(|tab| tab.window_id == window_id)
-                })
+                .filter(|tab_id| state.tabs.contains_key(*tab_id))
                 .cloned()
                 .collect::<HashSet<_>>()
         };
@@ -189,10 +184,7 @@ impl SystemRuntimeExecutor {
                     .ordered_tab_ids
                     .iter()
                     .filter(|tab_id| {
-                        !state
-                            .tabs
-                            .get(*tab_id)
-                            .is_some_and(|tab| tab.window_id == window_id)
+                        !state.tabs.contains_key(*tab_id)
                     })
                     .cloned()
                     .collect::<Vec<_>>()

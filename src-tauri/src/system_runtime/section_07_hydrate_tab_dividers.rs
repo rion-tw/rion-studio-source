@@ -1,5 +1,6 @@
 impl SystemRuntimeExecutor {
     fn hydrate_tab_dividers(&self, tab_id: &str) -> RuntimeResult<()> {
+        let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (window_id, window, gap, role_inputs) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
@@ -14,14 +15,14 @@ impl SystemRuntimeExecutor {
             if state.close_coordinator.closing_tabs.contains(tab_id) {
                 return Ok(());
             }
-            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "The runtime display host closed before optional dividers were attached.",
                 )
             })?;
             (
-                tab.window_id.clone(),
+                window_id.clone(),
                 host.window.clone(),
                 tab.workspace_appearance.gap,
                 tab.slots
@@ -39,7 +40,7 @@ impl SystemRuntimeExecutor {
                 state
                     .tabs
                     .get(tab_id)
-                    .is_some_and(|tab| tab.window_id == window_id && tab.dividers.is_empty())
+                    .is_some_and(|tab| tab.dividers.is_empty())
                     && !state.close_coordinator.closing_tabs.contains(tab_id)
             });
             if !still_current {
@@ -125,7 +126,6 @@ impl SystemRuntimeExecutor {
         }
         let inserted = if let Ok(mut state) = self.state.lock()
             && let Some(tab) = state.tabs.get_mut(tab_id)
-            && tab.window_id == window_id
             && tab.dividers.is_empty()
         {
             tab.dividers = std::mem::take(&mut created);

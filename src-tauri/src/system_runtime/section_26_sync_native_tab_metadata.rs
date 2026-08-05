@@ -52,10 +52,10 @@ impl SystemRuntimeExecutor {
                     .filter(|tab| !tab.hidden && !state.optimistic_closed_tabs.contains(&tab.id))
                     .filter_map(|tab| {
                         let live = state.tabs.get(&tab.id)?;
-                        let presented = self.presentation.tab(&live.window_id, &tab.id)?;
+                        let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
                         let controller = state
                             .display_hosts
-                            .get(&live.window_id)?
+                            .get(&tab.window_id)?
                             .tabs_controller
                             .clone();
                         let names = tab
@@ -88,7 +88,7 @@ impl SystemRuntimeExecutor {
                             !presented.closable,
                             crate::runtime_tabs_macos::MacRuntimeTabState {
                                 active: selected_tabs
-                                    .get(&live.window_id)
+                                    .get(&tab.window_id)
                                     .is_some_and(|selected| selected == &tab.id),
                                 audio_muted: live.audio_muted,
                                 audible: runtime_tab_is_audible(&state, live),

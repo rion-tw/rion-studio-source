@@ -95,10 +95,8 @@ export function createBrowserRuntimeState() {
     return runtimeWindow;
   };
   const nextOwner = (tabId: string, slotId: string): BrowserRuntimeRoleOwnerRecord => {
-    const tab = tabs.get(tabId);
-    if (!tab) throw operationError("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.");
+    if (!tabs.has(tabId)) throw operationError("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.");
     return {
-      windowId: tab.windowId,
       tabId,
       slotId,
       generation: ++nextOwnerGeneration

@@ -21,6 +21,10 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .find(|divider| divider.webview.label() == webview_label)
                 .ok_or_else(|| "runtime divider was not found".to_owned())?;
+            let window_id = self
+                .presentation
+                .tab_window(tab_id)?
+                .ok_or_else(|| "Runtime divider tab is no longer live.".to_owned())?;
             if payload.phase == "end" {
                 let active = tab.active_divider_resize.take();
                 let role_ids = active.map(|value| value.role_ids).unwrap_or_default();
@@ -47,7 +51,7 @@ impl SystemRuntimeExecutor {
                     .values()
                     .map(runtime_role_slot_input)
                     .collect::<Vec<_>>(),
-                tab.window_id.clone(),
+                window_id,
                 previous,
                 tab.active_divider_resize.clone(),
             );
@@ -235,14 +239,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn persist_runtime_tab_role_views(&self, tab_id: &str) -> Result<(), String> {
-        let window_id = {
-            let state = self.state().map_err(|error| error.message)?;
-            let tab = state
-                .tabs
-                .get(tab_id)
-                .ok_or_else(|| "Runtime tab was not found while saving its layout.".to_owned())?;
-            tab.window_id.clone()
-        };
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer live while saving its layout.".to_owned())?;
         self.touch_live_window_state(&window_id)?;
         self.schedule_live_window_state_persistence(&window_id);
         Ok(())
@@ -602,6 +602,10 @@ impl SystemRuntimeExecutor {
         else {
             return Ok(false);
         };
+        let live_tab_ids = self
+            .live_tab_ids_for_window(window_id)
+            .into_iter()
+            .collect::<HashSet<_>>();
         let (surfaces, visible_role_ids) = {
             let state = self.state().map_err(|error| error.message)?;
             let Some(active_tab) = state.tabs.get(&tab_id) else {
@@ -610,9 +614,9 @@ impl SystemRuntimeExecutor {
             let visible_role_ids = active_tab.roles.keys().cloned().collect::<HashSet<_>>();
             let surfaces = state
                 .tabs
-                .values()
-                .filter(|tab| tab.window_id == *window_id)
-                .flat_map(|tab| {
+                .iter()
+                .filter(|(tab_id, _)| live_tab_ids.contains(*tab_id))
+                .flat_map(|(_, tab)| {
                     tab.roles.iter().map(|(role_id, surface)| {
                         (
                             role_id.clone(),
@@ -633,7 +637,7 @@ impl SystemRuntimeExecutor {
                 .filter_map(|(label, role_id)| {
                     let tab_id = state.role_tabs.get(role_id)?;
                     let tab = state.tabs.get(tab_id)?;
-                    if tab.window_id != *window_id {
+                    if !live_tab_ids.contains(tab_id) {
                         return None;
                     }
                     let base = tab.roles.get(role_id)?.zoom_factor;

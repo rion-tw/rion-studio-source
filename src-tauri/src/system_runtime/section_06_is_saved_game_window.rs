@@ -158,6 +158,7 @@ impl SystemRuntimeExecutor {
             #[cfg(windows)]
             tab_chrome_projections: Arc::new(TabChromeProjectionCoordinator::default()),
             prewarm_state: AtomicU8::new(0),
+            retiring_tab_senders: OnceLock::new(),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
             runtime_projection: RevisionedJsonProjection::default(),
@@ -225,6 +226,38 @@ impl SystemRuntimeExecutor {
         self.close_effect_senders
             .set(close_senders)
             .map_err(|_| "The close System WebView executor was already started.".to_owned())?;
+
+        let mut retiring_tab_senders = Vec::with_capacity(CLOSE_EFFECT_SHARD_COUNT);
+        for index in 0..CLOSE_EFFECT_SHARD_COUNT {
+            let (sender, receiver) = mpsc::channel::<(String, String)>();
+            retiring_tab_senders.push(sender);
+            let runtime = Arc::downgrade(self);
+            std::thread::Builder::new()
+                .name(format!("rion-live-tab-close-{index}"))
+                .spawn(move || {
+                    while let Ok((window_id, tab_id)) = receiver.recv() {
+                        let Some(runtime) = runtime.upgrade() else {
+                            return;
+                        };
+                        let runtime_tab_exists = runtime
+                            .state
+                            .lock()
+                            .is_ok_and(|state| state.tabs.contains_key(&tab_id));
+                        if !runtime_tab_exists {
+                            runtime.complete_retiring_window_tab(&window_id, &tab_id, false);
+                        } else if let Err(error) = runtime.destroy_tab(&tab_id) {
+                            eprintln!(
+                                "Live tab native cleanup was quarantined: tab={tab_id} error={}",
+                                error.message
+                            );
+                        }
+                    }
+                })
+                .map_err(|error| error.to_string())?;
+        }
+        self.retiring_tab_senders
+            .set(retiring_tab_senders)
+            .map_err(|_| "The live tab close executor was already started.".to_owned())?;
 
         // Launch work is bounded separately. Navigation completion is handed to Tokio and no
         // longer occupies one of these workers for the 40 second page-load timeout.

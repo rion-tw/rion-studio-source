@@ -34,6 +34,9 @@ impl SystemRuntimeExecutor {
 
     fn current_window_close_in_progress(&self, window_id: &str) -> bool {
         self.state.lock().ok().is_some_and(|state| {
+            if state.retiring_window_tabs.contains_key(window_id) {
+                return true;
+            }
             let Some(generation) = state
                 .display_hosts
                 .get(window_id)
@@ -57,24 +60,32 @@ impl SystemRuntimeExecutor {
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?
             .window_closes
             .operation_id_for_window(window_id);
-        let Some(operation_id) = operation_id else {
-            return Ok(());
-        };
-        let receipt = self.wait_window_close_operation(&operation_id);
-        if matches!(
-            receipt.status,
-            SystemRuntimeOperationStatus::Applied
-                | SystemRuntimeOperationStatus::Superseded
-                | SystemRuntimeOperationStatus::Cancelled
-                | SystemRuntimeOperationStatus::Degraded
-        ) {
-            Ok(())
-        } else {
-            Err(format!(
-                "The previous native window generation did not finish closing ({}).",
-                receipt.status.as_str()
-            ))
+        if let Some(operation_id) = operation_id {
+            let receipt = self.wait_window_close_operation(&operation_id);
+            if !matches!(
+                receipt.status,
+                SystemRuntimeOperationStatus::Applied
+                    | SystemRuntimeOperationStatus::Superseded
+                    | SystemRuntimeOperationStatus::Cancelled
+                    | SystemRuntimeOperationStatus::Degraded
+            ) {
+                return Err(format!(
+                    "The previous native window generation did not finish closing ({}).",
+                    receipt.status.as_str()
+                ));
+            }
         }
+        let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
+        while self.current_window_close_in_progress(window_id) {
+            if Instant::now() >= deadline {
+                return Err(
+                    "The previous native window generation is still releasing its role surfaces."
+                        .to_owned(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
     }
 
     pub(crate) fn begin_window_close_requested(
@@ -216,6 +227,9 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<(Vec<String>, SystemRuntimeOperationSummaryRecord)> {
         let tab_ids = self.live_window_tab_ids(window_id).unwrap_or_default();
         for tab_id in &tab_ids {
+            if self.cancel_provisional_tab_launch(tab_id) {
+                continue;
+            }
             if let Err(message) = self.preview_tab_close(tab_id) {
                 eprintln!(
                     "Late tab close intent was retired while closing its window: window={window_id} tab={tab_id} error={message}"
@@ -227,29 +241,49 @@ impl SystemRuntimeExecutor {
         let native_window = {
             let mut state = self.state()?;
             let native_window = state.display_hosts.get(window_id).map(|host| host.window.clone());
-            if let Some(window) = native_window.as_ref() {
+            if native_window.is_some() && !tab_ids.is_empty() {
+                state.quarantined_window_hosts.remove(window_id);
+                state.retiring_window_cleanup_failed.remove(window_id);
                 state
-                    .allow_window_close_labels
-                    .insert(window.label().to_owned());
+                    .retiring_window_tabs
+                    .insert(window_id.to_owned(), tab_ids.iter().cloned().collect());
             }
             native_window
         };
         if native_window.is_some() {
             self.mark_window_close_native_submitted(operation_id)?;
         }
-        if let Some(window) = native_window
-            && let Err(error) = window.close()
-        {
-            // The live close is already committed and cannot be rolled back.
-            // A retained host remains available to the cleanup follower, which
-            // will submit close again after exact role isolation.
-            eprintln!(
-                "Native Game Window close submission will be retried by cleanup: window={window_id} error={error}"
-            );
+        if let Some(window) = native_window {
+            if tab_ids.is_empty() {
+                self.remove_empty_display_host(window_id, true);
+            } else if let Err(error) = window.hide() {
+                // The live close has committed and cannot be rolled back. Keep the
+                // native parent alive so its child WebViews can still finish blank
+                // isolation; cleanup will destroy the exact host afterward.
+                eprintln!(
+                    "Native Game Window could not hide before cleanup: window={window_id} error={error}"
+                );
+            }
         }
+        self.schedule_retiring_window_tab_cleanup(window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
         self.publish_launcher_presence();
         Ok((tab_ids, receipt))
+    }
+
+    fn schedule_retiring_window_tab_cleanup(&self, window_id: &str, tab_ids: &[String]) {
+        let Some(senders) = self.retiring_tab_senders.get() else {
+            eprintln!("Live tab close executor was unavailable during window retirement.");
+            return;
+        };
+        for tab_id in tab_ids {
+            let index = close_effect_shard_index(tab_id, senders.len());
+            if let Err(error) = senders[index].send((window_id.to_owned(), tab_id.clone())) {
+                eprintln!(
+                    "Live tab native cleanup could not be queued: tab={tab_id} error={error}"
+                );
+            }
+        }
     }
 
     pub(crate) fn complete_window_close_state_commit(

@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 type RoleSlotIdentity = {
   blocked: boolean;
+  unavailable?: boolean;
   ownerGeneration?: number;
   ownerTabName?: string;
   roleId: string;
@@ -15,10 +16,10 @@ declare global {
 }
 
 const translations = {
-  en: { blocked: "This role is open in “{tab}”.", unknownTab: "another tab", available: "This role is currently stopped.", claim: "Stop there and open here", open: "Open here", busy: "Opening…", failed: "Could not open the role. Try again." },
-  "zh-TW": { blocked: "這個角色目前在「{tab}」分頁。", unknownTab: "另一個", available: "這個角色目前已停止。", claim: "停止原位置並在這裡開啟", open: "在這裡開啟", busy: "正在開啟…", failed: "無法開啟角色，請再試一次。" },
-  "zh-CN": { blocked: "这个角色目前在“{tab}”标签页。", unknownTab: "另一个", available: "这个角色目前已停止。", claim: "停止原位置并在这里打开", open: "在这里打开", busy: "正在打开…", failed: "无法打开角色，请重试。" },
-  ja: { blocked: "このロールは「{tab}」タブで開いています。", unknownTab: "別の", available: "このロールは停止しています。", claim: "元の場所で停止してここで開く", open: "ここで開く", busy: "開いています…", failed: "ロールを開けませんでした。もう一度お試しください。" }
+  en: { blocked: "This role is open in “{tab}”.", unknownTab: "another tab", available: "This role is currently stopped.", unavailable: "The previous game page is still shutting down.", claim: "Stop there and open here", open: "Open here", busy: "Opening…", failed: "Could not open the role. Try again." },
+  "zh-TW": { blocked: "這個角色目前在「{tab}」分頁。", unknownTab: "另一個", available: "這個角色目前已停止。", unavailable: "上一個遊戲頁面仍在停止中。", claim: "停止原位置並在這裡開啟", open: "在這裡開啟", busy: "正在開啟…", failed: "無法開啟角色，請再試一次。" },
+  "zh-CN": { blocked: "这个角色目前在“{tab}”标签页。", unknownTab: "另一个", available: "这个角色目前已停止。", unavailable: "上一个游戏页面仍在停止中。", claim: "停止原位置并在这里打开", open: "在这里打开", busy: "正在打开…", failed: "无法打开角色，请重试。" },
+  ja: { blocked: "このロールは「{tab}」タブで開いています。", unknownTab: "別の", available: "このロールは停止しています。", unavailable: "以前のゲームページはまだ停止処理中です。", claim: "元の場所で停止してここで開く", open: "ここで開く", busy: "開いています…", failed: "ロールを開けませんでした。もう一度お試しください。" }
 } as const;
 
 const locale = navigator.language === "zh-TW" || navigator.language === "zh-CN" || navigator.language === "ja"
@@ -35,10 +36,13 @@ if (!identity) {
   document.body.replaceChildren();
 } else {
   roleName.textContent = identity.roleName;
-  message.textContent = identity.blocked
+  message.textContent = identity.unavailable
+    ? text.unavailable
+    : identity.blocked
     ? text.blocked.replace("{tab}", identity.ownerTabName ?? text.unknownTab)
     : text.available;
   claim.textContent = identity.blocked ? text.claim : text.open;
+  claim.disabled = identity.unavailable === true;
   claim.addEventListener("click", async () => {
     claim.disabled = true;
     claim.textContent = text.busy;

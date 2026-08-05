@@ -47,6 +47,7 @@ impl SystemRuntimeExecutor {
         });
         let identity = RuntimeRolePlaceholderIdentity {
             blocked: slot.owner.is_some(),
+            unavailable: slot.state == "stopping",
             owner_generation: slot.owner.as_ref().map(|owner| owner.generation),
             owner_tab_name,
             role_id: slot.role.id.clone(),
@@ -171,6 +172,12 @@ impl SystemRuntimeExecutor {
             return Err(RuntimeError::new(
                 "SYSTEM_ROLE_PLACEHOLDER_STALE",
                 "The role placeholder changed before the action was submitted.",
+            ));
+        }
+        if action.unavailable {
+            return Err(RuntimeError::new(
+                "SYSTEM_ROLE_PLACEHOLDER_UNAVAILABLE",
+                "The previous native role surface is still isolated from new launches.",
             ));
         }
         let slot_current = state.tabs.get(&action.tab_id).is_some_and(|tab| {

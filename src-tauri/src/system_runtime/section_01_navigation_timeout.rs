@@ -638,6 +638,8 @@ struct RuntimeRoleSlot {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RuntimeRolePlaceholderIdentity {
     pub(crate) blocked: bool,
+    #[serde(default)]
+    pub(crate) unavailable: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) owner_generation: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

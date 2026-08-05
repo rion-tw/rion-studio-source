@@ -21,7 +21,7 @@ impl SystemRuntimeExecutor {
                 "The native create effect belongs to a window generation that is closing.",
             ));
         }
-        {
+        let unavailable_role_ids = {
             let state = self.state()?;
             if state.tabs.contains_key(&tab.tab_id) {
                 return Err(RuntimeError::new(
@@ -29,26 +29,9 @@ impl SystemRuntimeExecutor {
                     "The System WebView tab already exists.",
                 ));
             }
-            if tab.roles.iter().any(|role| {
-                state
-                    .close_coordinator
-                    .closing_roles
-                    .contains(&role.role.id)
-                    || state
-                        .close_coordinator
-                        .quarantined_roles
-                        .contains(&role.role.id)
-                    || state.surface_registry.values().any(|surface| {
-                        surface.role_id.as_deref() == Some(role.role.id.as_str())
-                            && surface.phase.blocks_role_relaunch()
-                    })
-            }) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                    "A closing or quarantined native surface still owns this role. Restart Rion Studio before reopening it.",
-                ));
-            }
-        }
+            unavailable_role_ids_for_create(&state, &tab)
+        };
+        retain_available_roles_for_create(&mut tab, &unavailable_role_ids);
         // Surface creation uses the observer's last confirmed LocalStorage snapshot. A live
         // JavaScript refresh can take up to thirty seconds on an unresponsive source page and
         // must never delay tab reservation or native controller attachment.
@@ -71,6 +54,20 @@ impl SystemRuntimeExecutor {
             .with_native_creation_lane(&target.window_id, || {
                 self.ensure_display_host(&target, &tab.name)
             })?;
+        if launch_preview.as_ref().is_some_and(|preview| {
+            self.presentation
+                .tab_window(&preview.id)
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some(target.window_id.as_str())
+        }) {
+            self.remove_empty_display_host(&target.window_id, native_host_created);
+            return Err(RuntimeError::new(
+                "LAUNCH_CANCELLED",
+                "The provisional runtime tab closed before native attachment began.",
+            ));
+        }
         let (pending_window_restore, should_select) = self.restored_tab_selection_intent(
             &target.window_id,
             &tab.tab_id,
@@ -87,47 +84,6 @@ impl SystemRuntimeExecutor {
         {
             let mut state = self.state()?;
             apply_prepared_role_slots_to_effect(&mut state, &mut tab)?;
-            state
-                .completed_failed_launch_cleanups
-                .retain(|(tab_id, _)| tab_id != &created_tab_id);
-            state.retryable_failed_launches.remove(&created_tab_id);
-            state
-                .launch_attempt_generations
-                .insert(created_tab_id.clone(), attempt_generation.clone());
-            state.tabs.insert(
-                created_tab_id.clone(),
-                RuntimeTab {
-                    active_divider_resize: None,
-                    audio_muted: false,
-                    dividers: Vec::new(),
-                    roles: HashMap::new(),
-                    slots: tab
-                        .slots
-                        .iter()
-                        .map(|slot| {
-                            (
-                                slot.slot_id.clone(),
-                                RuntimeRoleSlot {
-                                    owner_generation: slot
-                                        .owner
-                                        .as_ref()
-                                        .map(|owner| owner.generation),
-                                    placeholder: None,
-                                    rect: slot.rect.clone(),
-                                    role: slot.role.clone(),
-                                    slot_id: slot.slot_id.clone(),
-                                    zoom_factor: slot.zoom_factor.clamp(0.25, 3.0),
-                                    zoom_mode: slot.zoom_mode.clone(),
-                                },
-                            )
-                        })
-                        .collect(),
-                    workspace_id: tab.workspace_id.clone(),
-                    workspace_appearance: tab.workspace_appearance.clone(),
-                    #[cfg(any(windows, target_os = "macos"))]
-                    workspace_template: tab.workspace_template.clone(),
-                },
-            );
         }
         let presentation = self
             .presentation
@@ -214,6 +170,35 @@ impl SystemRuntimeExecutor {
             }
             (previous_tab_id, previous_surfaces, receipt.revision)
         };
+        let committed_window_id = self
+            .presentation
+            .tab_window(&created_tab_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        let mut state = self.state()?;
+        if committed_window_id.as_deref() != Some(target.window_id.as_str())
+            || state.optimistic_closed_tabs.contains(&created_tab_id)
+            || state.close_previews.contains_key(&created_tab_id)
+        {
+            drop(state);
+            self.remove_empty_display_host(&target.window_id, host_created);
+            return Err(RuntimeError::new(
+                "LAUNCH_CANCELLED",
+                "The runtime tab closed before native attachment began.",
+            ));
+        }
+        state
+            .completed_failed_launch_cleanups
+            .retain(|(tab_id, _)| tab_id != &created_tab_id);
+        state.retryable_failed_launches.remove(&created_tab_id);
+        state
+            .launch_attempt_generations
+            .insert(created_tab_id.clone(), attempt_generation.clone());
+        state
+            .tabs
+            .insert(created_tab_id.clone(), runtime_tab_from_effect(&tab));
+        drop(state);
         self.schedule_live_projection_membership_follow();
         self.presentation
             .statuses

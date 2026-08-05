@@ -78,4 +78,18 @@ describe("runtime role placeholder", () => {
     );
     expect(document.querySelector("#claim")?.textContent).toBe("Open here");
   });
+
+  it("keeps an unverified previous surface unavailable", async () => {
+    globalThis.__rionRoleSlotIdentity = {
+      ...identity,
+      unavailable: true
+    };
+    await import("../src/renderer/runtime-shell/runtimeRolePlaceholder");
+
+    expect(document.querySelector("#message")?.textContent).toBe(
+      "The previous game page is still shutting down."
+    );
+    expect(document.querySelector<HTMLButtonElement>("#claim")?.disabled).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });

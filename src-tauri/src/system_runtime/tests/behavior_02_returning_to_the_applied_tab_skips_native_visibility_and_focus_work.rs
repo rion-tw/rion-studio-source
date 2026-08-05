@@ -182,7 +182,7 @@
     }
 
     #[test]
-    fn externally_reparented_surface_reseeds_the_target_actor_once() {
+    fn externally_reparented_surface_preserves_covered_target_surfaces() {
         let mut state = NativeWindowActorState {
             applied_revision: 12,
             applied_surface_identities: HashSet::from([("surface-a".to_owned(), 3)]),
@@ -207,7 +207,7 @@
         assert_eq!(state.applied_tab_id.as_deref(), Some("tab-b"));
         assert_eq!(
             state.applied_surface_identities,
-            HashSet::from([("surface-b".to_owned(), 4)])
+            HashSet::from([("surface-a".to_owned(), 3), ("surface-b".to_owned(), 4)])
         );
     }
 

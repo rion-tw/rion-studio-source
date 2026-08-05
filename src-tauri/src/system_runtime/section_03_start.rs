@@ -151,7 +151,7 @@ impl NativeWindowActor {
         Ok(Arc::new(Self { queue }))
     }
 
-    fn dispatch(&self, request: NativePresentationRequest) -> Result<(), String> {
+    fn dispatch(&self, mut request: NativePresentationRequest) -> Result<(), String> {
         let (lock, changed) = &*self.queue;
         let mut state = match lock.lock() {
             Ok(state) => state,
@@ -173,6 +173,20 @@ impl NativeWindowActor {
                 Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
             ));
             return Ok(());
+        }
+        // The actor can know about covered surfaces that the live selected-tab
+        // snapshot cannot see after an external AppKit reparent. Fence those
+        // surfaces too, otherwise the next selection would correctly target a
+        // tab but skip hiding the covered destination presentation.
+        if let Ok(surface_owners) = request.surface_owners.lock() {
+            for surface in &state.applied_surfaces {
+                if let Some(owner) = surface_owners.get(surface.label()) {
+                    request
+                        .surface_owner_revisions
+                        .entry(surface.label().to_owned())
+                        .or_insert(owner.revision);
+                }
+            }
         }
         if state.applied_revision == 0
             && !state.requests.in_flight
@@ -310,8 +324,28 @@ impl NativeWindowActorState {
         }
         self.applied_revision = revision;
         self.applied_tab_id = tab_id;
-        self.applied_surface_identities = surface_identities;
-        self.applied_surfaces = surfaces;
+        // A live AppKit reparent reveals the moved tab but does not perform the
+        // presentation actor's normal hide pass for the tab that was already
+        // visible in the destination. Preserve both sets so the next selection
+        // hides every surface that is actually visible, including the covered
+        // destination tab.
+        let replaced_instance_ids = surface_identities
+            .iter()
+            .map(|(instance_id, _)| instance_id.clone())
+            .collect::<HashSet<_>>();
+        self.applied_surface_identities
+            .retain(|(instance_id, _)| !replaced_instance_ids.contains(instance_id));
+        self.applied_surface_identities.extend(surface_identities);
+        let mut retained_labels = self
+            .applied_surfaces
+            .iter()
+            .map(|surface| surface.label().to_owned())
+            .collect::<HashSet<_>>();
+        self.applied_surfaces.extend(
+            surfaces
+                .into_iter()
+                .filter(|surface| retained_labels.insert(surface.label().to_owned())),
+        );
     }
 }
 

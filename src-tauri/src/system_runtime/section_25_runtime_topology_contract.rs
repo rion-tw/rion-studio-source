@@ -13,7 +13,6 @@ struct RuntimeTabProjectionUpdate {
 }
 
 struct RuntimeHostProjectionUpdate {
-    active_tab_id: Option<String>,
     focus_window: bool,
     presentation: String,
     reveal: bool,

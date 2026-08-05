@@ -44,14 +44,9 @@ impl SystemRuntimeExecutor {
     ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
         self.require_runtime_accepting()
             .map_err(|error| error.message)?;
-        let selected_tab_id = self
-            .presentation
-            .existing(window_id)
-            .and_then(|state| state.lock().ok()?.selected_tab_id.clone());
         let (revision, operation_id) = self
             .request_window_contract_presentation(
                 window_id,
-                selected_tab_id.as_deref(),
                 visibility,
                 NativePresentationFocus::None,
                 mode,

@@ -44,6 +44,11 @@ const architectureGuards = [
     pattern: /match\s+presentation\.lock\(\)/u
   },
   {
+    name: "background window projection topology writeback",
+    paths: /^src-tauri\/src\/system_runtime\/section_13_window_zoom_indicator_label\.rs$/u,
+    pattern: /fn request_window_contract_presentation[\s\S]{0,1600}commit_live_selection/u
+  },
+  {
     name: "Core window topology command",
     pattern: /BrowserRuntimeCommand::(?:RegisterWindow|RemoveWindow)/u
   },

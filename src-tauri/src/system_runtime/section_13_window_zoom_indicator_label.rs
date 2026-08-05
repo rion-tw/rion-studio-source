@@ -434,7 +434,6 @@ impl SystemRuntimeExecutor {
     fn request_window_contract_presentation(
         &self,
         window_id: &str,
-        tab_id: Option<&str>,
         window_visibility: Option<bool>,
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
@@ -455,38 +454,39 @@ impl SystemRuntimeExecutor {
                 .window
                 .clone()
         };
-        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview, revision) = {
-            let (before, _, committed_revision) = self
+        let (active_tab_id, active_surfaces, active_webview, revision) = {
+            let live = self.presentation.existing(window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The native window no longer belongs to live topology.",
+                )
+            })?;
+            let live = live.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The live runtime window state is unavailable.",
+                )
+            })?;
+            let active_tab_id = live.selected_tab_id.clone();
+            let revision = live.revision;
+            drop(live);
+            let active_surfaces = self
                 .presentation
-                .commit_live_selection("command", window_id, tab_id)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            let previous_tab_id = before.selected_tab_id;
-            let previous_surfaces = self
-                .presentation
-                .surfaces(window_id, previous_tab_id.as_deref());
-            let next_surfaces = self.presentation.surfaces(window_id, tab_id);
-            let active_webview = next_surfaces.first().cloned();
-            (
-                previous_tab_id,
-                previous_surfaces,
-                next_surfaces,
-                active_webview,
-                committed_revision,
-            )
+                .surfaces(window_id, active_tab_id.as_deref());
+            let active_webview = active_surfaces.first().cloned();
+            (active_tab_id, active_surfaces, active_webview, revision)
         };
-        self.apply_native_active_style(window_id, tab_id, revision, trigger);
+        self.apply_native_active_style(window_id, active_tab_id.as_deref(), revision, trigger);
         let operation_id = self.dispatch_native_presentation(
             window_id.to_owned(),
-            tab_id.map(str::to_owned),
+            active_tab_id.clone(),
             revision,
             trigger,
             Instant::now(),
             window,
-            previous_tab_id,
-            previous_surfaces,
-            next_surfaces,
+            active_tab_id,
+            active_surfaces.clone(),
+            active_surfaces,
             active_webview,
             window_visibility,
             focus,

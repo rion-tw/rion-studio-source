@@ -95,7 +95,7 @@ impl PresentationRegistry {
             .lock()
             .map_err(|_| "The live runtime tab state is unavailable.".to_owned())?;
         state.window_id = window_id.to_owned();
-        state.window_generation = generation;
+        state.window_generation = state.window_generation.max(generation);
         Ok(())
     }
 

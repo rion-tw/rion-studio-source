@@ -8,8 +8,30 @@ impl SystemRuntimeExecutor {
         focus_tab_id: Option<&str>,
         correlation: &RuntimeEffectCorrelation,
     ) -> RuntimeResult<()> {
-        // Core supplies only generation-fenced role ownership. The native
-        // follower always resolves window/tab topology from the live store.
+        let parent_operation_id = correlation.parent_operation_id.as_deref();
+        let ensured_target_host = if let Some(target) = target.as_ref() {
+            let title = self
+                .presentation
+                .existing(&target.window_id)
+                .and_then(|live| {
+                    live.lock().ok().and_then(|live| {
+                        let active_tab_id = live.selected_tab_id.as_deref()?;
+                        live.tabs
+                            .iter()
+                            .find(|tab| tab.id == active_tab_id)
+                            .map(|tab| tab.title.clone())
+                    })
+                })
+                .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned());
+            let (_, created) = self.ensure_display_host(target, &title)?;
+            Some((target.window_id.clone(), created))
+        } else {
+            None
+        };
+        // Core supplies only generation-fenced role ownership. Seed an explicit
+        // target host first, then compose the follower input from the live store.
+        // Taking this snapshot before host creation omitted brand-new windows and
+        // caused the follower to present a native-only host with no live record.
         let snapshot = self
             .compose_live_runtime_snapshot(roles)
             .ok_or_else(|| {
@@ -18,21 +40,6 @@ impl SystemRuntimeExecutor {
                     "The live tab topology could not be read; the Core projection was ignored.",
                 )
             })?;
-        let parent_operation_id = correlation.parent_operation_id.as_deref();
-        let ensured_target_host = if let Some(target) = target.as_ref() {
-            let title = snapshot
-                .windows
-                .iter()
-                .find(|window| window.window_id == target.window_id)
-                .and_then(|window| window.active_tab_id.as_deref())
-                .and_then(|tab_id| snapshot.tabs.iter().find(|tab| tab.id == tab_id))
-                .map(|tab| tab.name.as_str())
-                .unwrap_or(RION_STUDIO_APP_NAME);
-            let (_, created) = self.ensure_display_host(target, title)?;
-            Some((target.window_id.clone(), created))
-        } else {
-            None
-        };
 
         // apply_runtime is a native topology projection and must not synchronously call back
         // into AppCore while a core effect is awaiting it. Restore callers already omit focus
@@ -326,6 +333,7 @@ impl SystemRuntimeExecutor {
             state
                 .display_hosts
                 .values()
+                .filter(|host| presentation_windows.contains_key(&host.target.window_id))
                 .map(|host| {
                     let window_id = &host.target.window_id;
                     let presentation_window = presentation_windows.get(window_id);
@@ -339,7 +347,6 @@ impl SystemRuntimeExecutor {
                         game_window_names.get(window_id).map(String::as_str),
                     ));
                     RuntimeHostProjectionUpdate {
-                        active_tab_id: active_tab.map(str::to_owned),
                         focus_window: runtime_host_should_receive_window_focus(
                             focus_window_ids.contains(window_id),
                             active_tab.is_some(),
@@ -376,7 +383,6 @@ impl SystemRuntimeExecutor {
             );
             self.request_window_contract_presentation(
                 &update.window_id,
-                update.active_tab_id.as_deref(),
                 Some(visible),
                 if update.focus_window {
                     NativePresentationFocus::WindowAndContent

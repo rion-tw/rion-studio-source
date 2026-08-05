@@ -169,7 +169,10 @@ describe("Game Window management", () => {
 
     const actionsButton = screen.getByRole("button", { name: "Game window actions" });
     await user.click(actionsButton);
-    await user.click(screen.getByRole("menuitem", { name: "Target display" }));
+    const targetDisplayMenuItem = screen.getByRole("menuitem", { name: "Target display" });
+    expect(targetDisplayMenuItem.className).toContain("items-center");
+    expect(targetDisplayMenuItem.querySelector("span")?.className).toContain("truncate");
+    await user.click(targetDisplayMenuItem);
 
     const selectedDisplay = await screen.findByRole("menuitemradio", { name: "Studio Display · Primary" });
     expect(selectedDisplay.getAttribute("aria-checked")).toBe("true");

@@ -58,7 +58,7 @@ export const DropdownMenuSubTrigger = forwardRef<
     )}
     {...props}
   >
-    <span className="min-w-0 flex-1 truncate">{children}</span>
+    <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</span>
     <ChevronRight aria-hidden="true" className="absolute right-2 size-3.5" />
   </DropdownMenuPrimitive.SubTrigger>
 ));

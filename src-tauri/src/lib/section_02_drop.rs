@@ -522,9 +522,26 @@ async fn process_game_window_close_requested(
         return;
     }
 
+    let live_tab_ids = match runtime.live_window_tab_ids(&window_id) {
+        Ok(tab_ids) => tab_ids,
+        Err(message) => {
+            let receipt = runtime.fail_window_close_operation(
+                &operation_id,
+                "windowCloseLiveScopeFailed",
+                "SYSTEM_WINDOW_CLOSE_LIVE_SCOPE_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
+            reveal_shell_error(
+                &app,
+                shell_error("SYSTEM_WINDOW_CLOSE_LIVE_SCOPE_FAILED", message),
+            );
+            return;
+        }
+    };
     let result = core
         .invoke_async(CoreCommand::BrowserWindowStop {
             window_id: window_id.clone(),
+            tab_ids: live_tab_ids,
         })
         .await;
     if let Err(error) = result {
@@ -557,7 +574,7 @@ async fn execute_game_window_close_transaction(
     app: &AppHandle,
     state: &CoreState,
     window_id: String,
-    command: CoreCommand,
+    delete: bool,
     trigger: &'static str,
 ) -> Result<Value, CoreErrorPayload> {
     let operation = state
@@ -591,6 +608,23 @@ async fn execute_game_window_close_transaction(
             return serde_json::to_value(receipt)
                 .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()));
         }
+        let live_tab_ids = state
+            .runtime
+            .live_window_tab_ids(&window_id)
+            .map_err(|message| {
+                shell_error("SYSTEM_WINDOW_CLOSE_LIVE_SCOPE_FAILED", message)
+            })?;
+        let command = if delete {
+            CoreCommand::BrowserWindowDelete {
+                window_id: window_id.clone(),
+                tab_ids: live_tab_ids,
+            }
+        } else {
+            CoreCommand::BrowserWindowStop {
+                window_id: window_id.clone(),
+                tab_ids: live_tab_ids,
+            }
+        };
         if let Err(error) = Arc::clone(&state.core).invoke_async(command).await {
             let receipt = state.runtime.fail_window_close_operation(
                 &operation.operation_id,

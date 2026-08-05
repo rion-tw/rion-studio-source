@@ -134,6 +134,9 @@ pub enum CoreCommand {
     GameWindowRuntimeSnapshotCommit {
         input: GameWindowRuntimeSnapshotCommitInputRecord,
     },
+    GameWindowRuntimeSnapshotBatchCommit {
+        input: GameWindowRuntimeSnapshotBatchCommitInputRecord,
+    },
     GameWindowUpdate {
         id: String,
         input: GameWindowUpdateInputRecord,
@@ -438,71 +441,6 @@ pub enum CoreCommand {
         #[ts(optional, rename = "windowId")]
         window_id: Option<String>,
     },
-    EmbeddedTabActivate {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-    },
-    EmbeddedTabActivateConditional {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        #[ts(rename = "windowId")]
-        window_id: String,
-        #[ts(type = "number", rename = "selectionRevision")]
-        selection_revision: u64,
-    },
-    EmbeddedTabActivateAdjacent {
-        #[ts(rename = "windowId")]
-        window_id: String,
-        #[ts(type = "\"next\" | \"previous\"")]
-        direction: String,
-    },
-    EmbeddedTabHide {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-    },
-    EmbeddedTabReorder {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "beforeTabId")]
-        before_tab_id: Option<String>,
-    },
-    EmbeddedTabMove {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        target: EmbeddedLaunchTargetRecord,
-    },
-    EmbeddedTabMoveOrdered {
-        #[ts(rename = "tabId")]
-        tab_id: String,
-        target: EmbeddedLaunchTargetRecord,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "beforeTabId")]
-        before_tab_id: Option<String>,
-    },
-    EmbeddedTabMutation {
-        request: RuntimeTabMutationRequestRecord,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        target: Option<EmbeddedLaunchTargetRecord>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, rename = "beforeTabId")]
-        before_tab_id: Option<String>,
-    },
-    EmbeddedTabDragTopologyCommit {
-        request: RuntimeTabMutationRequestRecord,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
-        target: Option<EmbeddedLaunchTargetRecord>,
-        #[ts(rename = "sourceBeforeTabIds")]
-        source_before_tab_ids: Vec<String>,
-        #[ts(rename = "sourceAfterTabIds")]
-        source_after_tab_ids: Vec<String>,
-        #[ts(rename = "targetBeforeTabIds")]
-        target_before_tab_ids: Vec<String>,
-        #[ts(rename = "targetAfterTabIds")]
-        target_after_tab_ids: Vec<String>,
-    },
     EmbeddedTabStop {
         request: RuntimeTabMutationRequestRecord,
         #[ts(rename = "sourceId")]
@@ -552,10 +490,14 @@ pub enum CoreCommand {
     BrowserWindowStop {
         #[ts(rename = "windowId")]
         window_id: String,
+        #[ts(rename = "tabIds")]
+        tab_ids: Vec<String>,
     },
     BrowserWindowDelete {
         #[ts(rename = "windowId")]
         window_id: String,
+        #[ts(rename = "tabIds")]
+        tab_ids: Vec<String>,
     },
     BrowserStatuses,
     BrowserWorkspaceStatuses,

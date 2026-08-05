@@ -1,58 +1,5 @@
 use super::*;
 
-    fn conflict_plan(
-        window_id: &str,
-        window_index: usize,
-        source_id: &str,
-    ) -> WorkspaceConflictRollbackPlan {
-        let bounds = StatePixelBoundsRecord {
-            x: 0,
-            y: 0,
-            width: 960,
-            height: 640,
-        };
-        WorkspaceConflictRollbackPlan {
-            active: false,
-            audio_muted: false,
-            before_tab_id: None,
-            hidden: false,
-            role_zoom_factor: None,
-            role_views: Vec::new(),
-            source_id: source_id.to_owned(),
-            tab_id: format!("tab-{source_id}"),
-            tab_type: "role".to_owned(),
-            target: EmbeddedLaunchTargetRecord {
-                window_id: window_id.to_owned(),
-                display_id: 1,
-                scale_factor: 1.0,
-                work_area: bounds.clone(),
-                bounds,
-                presentation: "normal".to_owned(),
-            },
-            window_index,
-        }
-    }
-
-    #[test]
-    fn workspace_conflict_rollback_rebuilds_each_window_in_reverse_tab_order() {
-        let mut plans = vec![
-            conflict_plan("window-a", 2, "c"),
-            conflict_plan("window-a", 0, "a"),
-            conflict_plan("window-a", 1, "b"),
-        ];
-
-        sort_workspace_conflict_rollback_plans(&mut plans);
-
-        assert_eq!(
-            plans
-                .iter()
-                .rev()
-                .map(|plan| plan.source_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["c", "b", "a"]
-        );
-    }
-
     #[test]
     fn platform_name_matches_the_build_target() {
         #[cfg(target_os = "macos")]

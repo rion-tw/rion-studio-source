@@ -16,23 +16,18 @@ fn embedded_launch_effects(
         .iter()
         .map(|role| (role.role.id.clone(), role.resolved_engine))
         .collect::<std::collections::HashMap<_, _>>();
-    let mut create_step = effect_step(
+    let create_step = effect_step(
         tab_id,
         CoreEffectAction::EmbeddedCreateTab { tab: Box::new(tab) },
         // Native creation owns its own bounded callbacks and verified cleanup. Keep the Core
         // deadline above a multi-role Windows setup so the actor never abandons a still-running
         // create transaction and races it with destroy compensation.
         Duration::from_secs(120),
-        Some(CoreEffectAction::EmbeddedDestroyTab {
-            tab_id: tab_id.to_owned(),
-            attempt_generation: Some(attempt_generation),
-            next_active_tab_id: None,
-        }),
+        None,
     );
-    // A failed create transaction performs and verifies its own cleanup. Register native
-    // destroy only after the create acknowledgement commits, so a provisional or never-created
-    // tab cannot be destroyed by operation compensation.
-    create_step.effect.compensate_on_rejected_result = false;
+    // The live tab is visible before role navigation finishes. Later launch
+    // failure retains that tab as a retryable presentation; it may never issue
+    // a topology compensation that removes the user's tab.
     let mut steps = vec![create_step];
     steps.push(effect_step(
         tab_id,
@@ -132,36 +127,6 @@ fn embedded_launch_result(role_id: &str, launched_at: String) -> EmbeddedLaunchR
         launched_at,
         runtime_mode: "embedded".to_owned(),
     }
-}
-
-fn next_active_tab_after_removal(
-    snapshot: &crate::model::BrowserRuntimeSnapshot,
-    removed_tab_id: &str,
-) -> Option<String> {
-    let window_id = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.id == removed_tab_id)?
-        .window_id
-        .clone();
-    let ordered = &snapshot
-        .windows
-        .iter()
-        .find(|window| window.window_id == window_id)?
-        .tab_ids;
-    let removed_index = ordered.iter().position(|tab_id| tab_id == removed_tab_id)?;
-    ordered
-        .iter()
-        .skip(removed_index + 1)
-        .chain(ordered[..removed_index].iter().rev())
-        .find(|tab_id| {
-            snapshot
-                .tabs
-                .iter()
-                .find(|tab| &tab.id == *tab_id)
-                .is_some_and(|tab| !tab.hidden)
-        })
-        .cloned()
 }
 
 fn route_browser_action_events(

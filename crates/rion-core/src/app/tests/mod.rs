@@ -27,10 +27,7 @@ include!("behavior_05_failed_embedded_stop_keeps_the_close_intent_and_stopping_p
 include!(
     "behavior_06_authoritative_events_leave_core_threads_before_waiting_for_queue_capacity.rs"
 );
-include!("behavior_07_conditional_tab_activation_noops_after_cross_window_move.rs");
 include!("behavior_08_display_remap_transaction_is_atomic.rs");
-include!("behavior_09_pending_game_window_configuration.rs");
-include!("behavior_10_frozen_tab_drag_topology.rs");
 include!("behavior_11_shared_workspace_role_slot_claim.rs");
 include!("behavior_12_runtime_window_snapshot_revision.rs");
 include!("behavior_13_tab_stop_uses_stable_identity.rs");

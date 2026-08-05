@@ -311,7 +311,7 @@ async fn rion_shell_invoke(
                 &app,
                 &state,
                 window_id.clone(),
-                CoreCommand::BrowserWindowStop { window_id },
+                false,
                 "renderer-stop-window",
             )
             .await
@@ -322,7 +322,7 @@ async fn rion_shell_invoke(
                 &app,
                 &state,
                 window_id.clone(),
-                CoreCommand::BrowserWindowDelete { window_id },
+                true,
                 "renderer-delete-window",
             )
             .await
@@ -431,8 +431,17 @@ async fn rion_shell_invoke(
         "discardSavedGameWindows" => discard_saved_game_windows(&state, &args),
         "stopEmbeddedRuntimeWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
+            let tab_ids = state
+                .runtime
+                .live_window_tab_ids(&window_id)
+                .map_err(|message| {
+                    shell_error("SYSTEM_WINDOW_CLOSE_LIVE_SCOPE_FAILED", message)
+                })?;
             Arc::clone(&state.core)
-                .invoke_async(CoreCommand::BrowserWindowStop { window_id })
+                .invoke_async(CoreCommand::BrowserWindowStop {
+                    window_id,
+                    tab_ids,
+                })
                 .await
                 .map_err(error_payload)
         }

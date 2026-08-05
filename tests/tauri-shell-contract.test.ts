@@ -169,12 +169,10 @@ describe("Tauri shell contract guard", () => {
     expect(roleCapability).not.toContain("local-storage-sync");
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');
     expect(shell).toContain('"reorderGameWindowTab"');
-    expect(shell).toContain("struct WorkspaceConflictRollbackPlan");
-    expect(shell).toContain("rollback_workspace_conflicts(");
-    expect(shell).toContain("restore_workspace_conflict_metadata(");
-    expect(shell).toContain("TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED");
-    expect(shell).toContain("rollback_workspace_conflicts(state, &plans[..index])");
-    expect(shell).toContain("rollback_workspace_conflicts(state, &plans)");
+    expect(shell).not.toContain("WorkspaceConflictRollbackPlan");
+    expect(shell).not.toContain("rollback_workspace_conflicts(");
+    expect(shell).not.toContain("restore_workspace_conflict_metadata(");
+    expect(shell).not.toContain("TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED");
     expect(shell).not.toContain('"consumePendingWorkspaceLaunchRequest"');
   });
 

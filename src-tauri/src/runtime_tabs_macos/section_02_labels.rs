@@ -290,9 +290,11 @@ fn release_terminal_tab_drag_pointer_passthrough(
     session_id: Option<&str>,
     target_window_id: Option<&str>,
 ) {
+    let Some(session_id) = session_id else {
+        return;
+    };
     let mut window_ids = target_window_id.map(str::to_owned).into_iter().collect::<Vec<_>>();
-    if let Some(session_id) = session_id
-        && let Some(session) = state
+    if let Some(session) = state
             .tab_drag
             .lock()
             .ok()
@@ -309,7 +311,10 @@ fn release_terminal_tab_drag_pointer_passthrough(
         }
     }
     for window_id in window_ids {
-        if let Err(error) = state.runtime.release_tab_drag_pointer_passthrough(&window_id) {
+        if let Err(error) = state
+            .runtime
+            .release_tab_drag_pointer_passthrough(&window_id, session_id)
+        {
             eprintln!(
                 "Runtime tab drag pointer passthrough could not be released: window={window_id} error={error}"
             );

@@ -121,15 +121,18 @@ impl SystemRuntimeExecutor {
                 let previous_surfaces = selection.surfaces(previous_tab_id.as_deref());
                 selection.insert_tab(
                     TabPresentation {
+                        audio_muted: false,
                         closable: true,
                         icon_data_url: None,
                         id: provisional_id.clone(),
                         phase: TabPresentationPhase::Reserved,
+                        persistable: false,
                         role_ids: if tab_type == "role" {
                             vec![source_id.to_owned()]
                         } else {
                             Vec::new()
                         },
+                        role_slots: Vec::new(),
                         source_id: source_id.to_owned(),
                         tab_type: tab_type.to_owned(),
                         title: placeholder_name.to_owned(),
@@ -519,15 +522,18 @@ impl SystemRuntimeExecutor {
                     let should_select = presentation.selected_tab_id.is_none();
                     presentation.insert_tab(
                         TabPresentation {
+                            audio_muted: false,
                             closable: true,
                             icon_data_url: None,
                             id: completion.tab_id.clone(),
                             phase,
+                            persistable: false,
                             role_ids: if completion.tab_type == "role" {
                                 vec![completion.source_id.clone()]
                             } else {
                                 Vec::new()
                             },
+                            role_slots: Vec::new(),
                             source_id: completion.source_id.clone(),
                             tab_type: completion.tab_type.clone(),
                             title: completion.title.clone(),

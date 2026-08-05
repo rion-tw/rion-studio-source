@@ -548,12 +548,6 @@ impl AppCore {
                     message: "The role is already launching or stopping.".to_owned(),
                 });
             }
-            let tab_id = runtime_role.owner.tab_id.clone();
-            self.apply_embedded_tab_selection_without_native_effect(
-                BrowserRuntimeCommand::ActivateTab {
-                    tab_id: tab_id.clone(),
-                },
-            )?;
             self.run_effect_plan(vec![effect_step(
                 role_id,
                 CoreEffectAction::EmbeddedFocusRole {
@@ -573,14 +567,9 @@ impl AppCore {
                 ),
             ]));
         }
-        if let Some(runtime_tab) = snapshot.tabs.iter().find(|tab| {
+        if snapshot.tabs.iter().any(|tab| {
             tab.tab_type == "role" && tab.source_id == role_id
         }) {
-            self.apply_embedded_tab_selection_without_native_effect(
-                BrowserRuntimeCommand::ActivateTab {
-                    tab_id: runtime_tab.id.clone(),
-                },
-            )?;
             return Ok(EmbeddedRoleLaunchStart::Completed(Vec::new()));
         }
         if snapshot
@@ -631,10 +620,6 @@ impl AppCore {
             state: "launching".to_owned(),
             launched_at: None,
         })?;
-        self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
-            tab_id: tab_id.clone(),
-        })?;
-
         let role_slot = EmbeddedRoleSlotEffectRecord {
             slot_id: format!("role:{}", role.id),
             role: role.clone(),

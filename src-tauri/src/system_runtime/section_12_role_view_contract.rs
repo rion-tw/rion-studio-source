@@ -20,32 +20,6 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn restore_tab_role_views(
-        &self,
-        tab_id: &str,
-        role_views: &[GameWindowRoleViewRecord],
-    ) -> Result<(), String> {
-        let role_slots = {
-            let state = self.state().map_err(|error| error.message)?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
-                "Runtime tab was not found while restoring its layout.".to_owned()
-            })?;
-            role_views
-                .iter()
-                .filter_map(|view| {
-                    let slot = tab.slots.values().find(|slot| slot.role.id == view.role_id)?;
-                    Some(GameWindowRoleSlotRecord {
-                        slot_id: slot.slot_id.clone(),
-                        role_id: view.role_id.clone(),
-                        rect: view.rect.clone(),
-                        browser_zoom_percent: Some(view.browser_zoom_percent),
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-        self.restore_tab_role_slots(tab_id, &role_slots)
-    }
-
     pub fn restore_tab_role_slots(
         &self,
         tab_id: &str,

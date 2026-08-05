@@ -285,11 +285,14 @@
             let mut state = coordinator.lock().unwrap();
             state.insert_tab(
                 TabPresentation {
+                    audio_muted: false,
                     closable: true,
                     icon_data_url: None,
                     id: "provisional-a".to_owned(),
                     phase: TabPresentationPhase::Reserved,
+                    persistable: false,
                     role_ids: vec!["role-a".to_owned()],
+                    role_slots: Vec::new(),
                     source_id: "role-a".to_owned(),
                     tab_type: "role".to_owned(),
                     title: "Loading".to_owned(),
@@ -309,11 +312,14 @@
         coordinator.lock().unwrap().replace_tab_id(
             "provisional-a",
             TabPresentation {
+                audio_muted: false,
                 closable: true,
                 icon_data_url: None,
                 id: "runtime-a".to_owned(),
                 phase: TabPresentationPhase::Attaching,
+                persistable: true,
                 role_ids: vec!["role-a".to_owned()],
+                role_slots: Vec::new(),
                 source_id: "role-a".to_owned(),
                 tab_type: "role".to_owned(),
                 title: "Role A".to_owned(),
@@ -630,25 +636,6 @@
             "surface-b",
             "surface-a"
         ));
-    }
-
-    #[test]
-    fn provisional_move_surfaces_incomplete_compensation() {
-        let original = "second surface hide failed".to_owned();
-        assert_eq!(
-            provisional_move_failure_message(original.clone(), &[]),
-            original
-        );
-        let message = provisional_move_failure_message(
-            "reparent failed".to_owned(),
-            &[
-                "reparent role-b: denied".to_owned(),
-                "layout: stale".to_owned(),
-            ],
-        );
-        assert!(message.starts_with("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED"));
-        assert!(message.contains("reparent role-b: denied"));
-        assert!(message.contains("Restart Rion Studio"));
     }
 
     #[test]

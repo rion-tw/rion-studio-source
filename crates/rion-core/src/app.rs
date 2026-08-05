@@ -4,7 +4,6 @@
 
 include!("app/section_01_event_queue_capacity.rs");
 include!("app/section_02_invoke.rs");
-include!("app/section_02_embedded_tab_mutation_invoke.rs");
 include!("app/section_03_portable_apply.rs");
 include!("app/section_04_show_embedded_windows.rs");
 include!("app/section_03_invoke_async.rs");

@@ -88,7 +88,7 @@ describe("runtime tab shell-neutral contracts", () => {
       systemRuntimeSource.match(
         /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+let workspace_template/g
       )
-    ).toHaveLength(6);
+    ).toHaveLength(5);
     expect(systemRuntimeSource).toContain(
       '"workspaceTemplate": presented\n                                    .workspace_template\n                                    .or_else(|| live.workspace_template.clone())'
     );

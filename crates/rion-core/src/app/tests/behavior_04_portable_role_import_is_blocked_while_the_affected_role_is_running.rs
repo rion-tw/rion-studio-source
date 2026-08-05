@@ -101,35 +101,6 @@
                 .iter()
                 .any(|status| { status["roleId"] == role_id && status["state"] == "running" })
         );
-        let tab_id = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap()["tabs"][0]["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let (hide, _, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedTabHide {
-                tab_id: tab_id.clone(),
-            },
-            None,
-        );
-        assert!(hide.is_ok());
-        let activation_events = core.subscribe().unwrap();
-        let (activate, activate_actions, _) = drive_async_command(
-            Arc::clone(&core),
-            CoreCommand::EmbeddedTabActivate { tab_id },
-            None,
-        );
-        assert!(activate.is_ok());
-        assert!(activate_actions.is_empty());
-        let activation_events = std::iter::from_fn(|| activation_events.try_recv().ok())
-            .flatten()
-            .collect::<Vec<_>>();
-        assert!(
-            activation_events
-                .iter()
-                .all(|event| !matches!(event, CoreEvent::BrowserStatuses { .. }))
-        );
-
         let (stop, stop_actions) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop {

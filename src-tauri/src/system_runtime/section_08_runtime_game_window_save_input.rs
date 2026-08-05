@@ -56,31 +56,6 @@ impl SystemRuntimeExecutor {
         Ok((host.window.clone(), host.target.clone()))
     }
 
-    pub(crate) fn runtime_tab_role_views(
-        &self,
-        tab_id: &str,
-    ) -> Result<Vec<GameWindowRoleViewRecord>, String> {
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        let tab = state
-            .tabs
-            .get(tab_id)
-            .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-        let mut views = tab
-            .roles
-            .iter()
-            .map(|(role_id, surface)| GameWindowRoleViewRecord {
-                role_id: role_id.clone(),
-                rect: surface.rect.clone(),
-                browser_zoom_percent: (surface.zoom_factor * 100.0).clamp(25.0, 500.0),
-            })
-            .collect::<Vec<_>>();
-        views.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-        Ok(views)
-    }
-
     fn record_runtime_stage(&self, stage: impl Into<String>, status: &str, started: Instant) {
         self.record_runtime_stage_with_error(stage, status, started, None, None);
     }

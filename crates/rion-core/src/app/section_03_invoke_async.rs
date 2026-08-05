@@ -238,16 +238,20 @@ impl AppCore {
                         .map_err(|error| CoreError::Internal(error.to_string()))
                 })
             }
-            CoreCommand::BrowserWindowStop { window_id } => {
+            CoreCommand::BrowserWindowStop { window_id, tab_ids } => {
                 let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || core.stop_embedded_window(&window_id, false))
+                tokio::task::spawn_blocking(move || {
+                    core.stop_embedded_window(&window_id, false, &tab_ids)
+                })
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "stopped": true }))
             }
-            CoreCommand::BrowserWindowDelete { window_id } => {
+            CoreCommand::BrowserWindowDelete { window_id, tab_ids } => {
                 let core = Arc::clone(self);
-                tokio::task::spawn_blocking(move || core.stop_embedded_window(&window_id, true))
+                tokio::task::spawn_blocking(move || {
+                    core.stop_embedded_window(&window_id, true, &tab_ids)
+                })
                     .await
                     .map_err(|error| CoreError::Internal(error.to_string()))??;
                 Ok(json!({ "deleted": true }))

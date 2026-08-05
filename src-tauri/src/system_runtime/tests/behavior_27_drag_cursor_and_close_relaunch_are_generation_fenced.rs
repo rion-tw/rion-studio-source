@@ -8,6 +8,17 @@ fn drag_cursor_lease_requires_the_exact_session_and_window_generation() {
     assert!(tab_drag_cursor_lease_matches(&lease, "drag-new", 7));
     assert!(!tab_drag_cursor_lease_matches(&lease, "drag-old", 7));
     assert!(!tab_drag_cursor_lease_matches(&lease, "drag-new", 8));
+    assert!(tab_drag_cursor_release_allowed(None, "drag-new", 7));
+    assert!(tab_drag_cursor_release_allowed(
+        Some(&lease),
+        "drag-new",
+        7
+    ));
+    assert!(!tab_drag_cursor_release_allowed(
+        Some(&lease),
+        "drag-old",
+        7
+    ));
 }
 
 #[test]

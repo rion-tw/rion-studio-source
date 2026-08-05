@@ -64,11 +64,6 @@ struct CompletedGameWindowTabDrag {
     session: RuntimeTabDragSessionRecord,
 }
 
-struct TabDragRollbackFailure {
-    error: CoreErrorPayload,
-    error_count: usize,
-}
-
 fn tab_drag_active_phase(phase: &GameWindowTabDragPhase) -> &'static str {
     match phase {
         GameWindowTabDragPhase::Previewing => "accepted",
@@ -361,7 +356,7 @@ fn finish_failed_tab_drag_session(
             state,
             session,
             "tab.drag-cleanup-superseded",
-            "An older drag failure skipped rollback because a newer user intent owns the tab.",
+            "An older drag failure only released gesture resources because a newer intent owns the tab.",
         );
         release_tab_drag_window_motion_suppression(state, session, None);
         let receipt = complete_tab_drag_terminal(
@@ -375,20 +370,7 @@ fn finish_failed_tab_drag_session(
         )?;
         return serialize_tab_drag_response(&receipt);
     }
-    let live_destination_committed = state
-        .runtime
-        .live_tab_window_id(&session.tab_id)
-        .is_some_and(|window_id| {
-            window_id == session.current_window_id
-                && (window_id != session.source_window_id
-                    || session.drop_ordered_tab_ids.as_ref().is_some_and(|ordered| {
-                        state
-                            .runtime
-                            .tab_drag_window_snapshot(&window_id)
-                            .is_ok_and(|snapshot| snapshot.tab_ids == *ordered)
-                    }))
-        });
-    if live_destination_committed {
+    if state.runtime.live_tab_window_id(&session.tab_id).is_some() {
         record_tab_drag_lifecycle(
             state,
             session,
@@ -407,23 +389,15 @@ fn finish_failed_tab_drag_session(
         )?;
         return serialize_tab_drag_response(&receipt);
     }
-    let rollback = cancel_tab_drag_session(state, session);
-    let (status, failure_code, rollback_error_count) = match rollback {
-        Ok(()) => (RuntimeTabDragTerminalStatus::Failed, error.code.clone(), 0),
-        Err(cleanup) => (
-            RuntimeTabDragTerminalStatus::Indeterminate,
-            cleanup.error.code,
-            cleanup.error_count,
-        ),
-    };
+    finish_cancelled_tab_drag_gesture(state, session);
     let receipt = complete_tab_drag_terminal(
         app,
         state,
         session,
-        "tabDragRolledBack",
-        status,
-        Some(&failure_code),
-        rollback_error_count,
+        "tabDragSupersededAfterTabRetired",
+        RuntimeTabDragTerminalStatus::Superseded,
+        Some(&error.code),
+        0,
     )?;
     serialize_tab_drag_response(&receipt)
 }
@@ -434,23 +408,15 @@ fn finish_cancelled_tab_drag(
     mut session: GameWindowTabDragSession,
 ) -> Result<Value, CoreErrorPayload> {
     session.phase = GameWindowTabDragPhase::Cancelled;
-    let rollback = cancel_tab_drag_session(state, &session);
-    let (status, failure_code, rollback_error_count) = match rollback {
-        Ok(()) => (RuntimeTabDragTerminalStatus::Cancelled, None, 0),
-        Err(cleanup) => (
-            RuntimeTabDragTerminalStatus::Indeterminate,
-            Some(cleanup.error.code),
-            cleanup.error_count,
-        ),
-    };
+    finish_cancelled_tab_drag_gesture(state, &session);
     let receipt = complete_tab_drag_terminal(
         app,
         state,
         &session,
         "tabDragCancelled",
-        status,
-        failure_code.as_deref(),
-        rollback_error_count,
+        RuntimeTabDragTerminalStatus::Cancelled,
+        None,
+        0,
     )?;
     serialize_tab_drag_response(&receipt)
 }

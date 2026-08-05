@@ -29,136 +29,48 @@ fn commit_live_window_tabs(
     .unwrap()
 }
 
-#[test]
-fn selecting_live_tabs_requires_the_live_snapshot_to_persist_selection() {
-    for platform in ["darwin", "win32"] {
-        let (_directory, core) = core_for_platform(platform);
-        let window_id = core
-            .invoke(command(json!({
-                "type": "gameWindowCreate",
-                "input": {
-                    "name": "Mixed live and dormant",
-                    "targetDisplay": { "id": 1 },
-                    "placement": {
-                        "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                        "presentation": "normal"
-                    }
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let dormant_a = uuid::Uuid::new_v4().to_string();
-        let dormant_b = uuid::Uuid::new_v4().to_string();
-        core.invoke(command(json!({
-            "type": "gameWindowUpdate",
-            "id": window_id,
-            "input": {
-                "tabs": [{
-                    "id": dormant_a,
-                    "tabType": "role",
-                    "sourceId": "dormant-a",
-                    "name": "Dormant A",
-                    "roleIds": ["dormant-a"],
-                    "hidden": false,
-                    "audioMuted": true,
-                    "roleViews": []
-                }, {
-                    "id": dormant_b,
-                    "tabType": "role",
-                    "sourceId": "dormant-b",
-                    "name": "Dormant B",
-                    "roleIds": ["dormant-b"],
-                    "hidden": false,
-                    "audioMuted": false,
-                    "roleViews": []
-                }],
-                "activeTabId": dormant_a
-            }
-        })))
-        .unwrap();
-        let create_live_tab = |source_id: &str| {
-            core.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                tab_id: None,
-                source_id: source_id.to_owned(),
-                name: source_id.to_owned(),
-                window_id: window_id.clone(),
-                tab_type: "role".to_owned(),
-                workspace_id: None,
-                role_slots: test_role_slots(&[source_id]),
-            })
-            .unwrap()
-        };
-        let live_c = create_live_tab("live-c").created_tab_id.unwrap();
-        let created_d = create_live_tab("live-d");
-        let live_d = created_d.created_tab_id.unwrap();
-        core.sync_game_windows_from_runtime(&created_d.snapshot, &HashSet::new())
-            .unwrap();
-
-        let before_selection = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
-            .unwrap();
-        let active_before_selection = before_selection["activeTabId"].clone();
-        for selected in [&live_c, &live_d, &live_c] {
-            core.invoke(CoreCommand::EmbeddedTabActivate {
-                tab_id: selected.clone(),
-            })
-            .unwrap();
-        }
-
-        let before_live_commit = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
-            .unwrap();
-        assert_eq!(
-            before_live_commit["activeTabId"], active_before_selection,
-            "Core activation must not write the UI snapshot on {platform}"
-        );
-        let mut live_tabs = before_live_commit["tabs"].as_array().unwrap().clone();
-        for tab in &mut live_tabs {
-            if matches!(
-                tab["id"].as_str(),
-                Some(id) if id == live_c || id == live_d
-            ) {
-                tab["hidden"] = json!(false);
+fn create_saved_window(core: &Arc<AppCore>, name: &str) -> String {
+    core.invoke(command(json!({
+        "type": "gameWindowCreate",
+        "input": {
+            "name": name,
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
             }
         }
-        assert_eq!(
-            commit_live_window_tabs(
-                &core,
-                &window_id,
-                1,
-                1,
-                "Mixed live and dormant",
-                live_tabs,
-                Some(&live_c),
-            )["status"],
-            "applied",
-            "{platform}"
-        );
-        let window = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
-            .unwrap();
-        assert_eq!(
-            window["tabs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tab| tab["sourceId"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            ["dormant-a", "dormant-b", "live-c", "live-d"],
-            "{platform}"
-        );
-        assert_eq!(window["activeTabId"], live_c, "{platform}");
-        core.shutdown();
-    }
+    })))
+    .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+fn runtime_window_snapshot_input(
+    window_id: &str,
+    window_generation: u64,
+    revision: u64,
+    name: &str,
+    x: i32,
+) -> Value {
+    json!({
+        "snapshot": {
+            "windowId": window_id,
+            "windowGeneration": window_generation,
+            "revision": revision,
+            "tabs": [],
+            "activeTabId": null
+        },
+        "name": name,
+        "targetDisplay": { "id": 1 },
+        "placement": {
+            "normalBounds": { "x": x, "y": 0, "width": 960, "height": 640 },
+            "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+            "presentation": "normal"
+        }
+    })
 }
 
 #[test]
@@ -219,90 +131,71 @@ fn runtime_window_snapshot_commit_is_latest_revision_wins() {
 }
 
 #[test]
-fn live_window_snapshot_order_is_not_overwritten_by_late_runtime_projection() {
-    for platform in ["darwin", "win32"] {
-        let (_directory, core) = core_for_platform(platform);
-        let window_id = core
-            .invoke(command(json!({
-                "type": "gameWindowCreate",
-                "input": {
-                    "name": "Ordered runtime",
-                    "targetDisplay": { "id": 1 },
-                    "placement": {
-                        "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                        "presentation": "normal"
-                    }
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let mut runtime_snapshot = None;
-        for source_id in ["role-a", "role-b", "role-c"] {
-            let created = core
-                .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                    tab_id: None,
-                    source_id: source_id.to_owned(),
-                    name: source_id.to_owned(),
-                    window_id: window_id.clone(),
-                    tab_type: "role".to_owned(),
-                    workspace_id: None,
-                    role_slots: test_role_slots(&[source_id]),
-                })
-                .unwrap();
-            runtime_snapshot = Some(created.snapshot);
-        }
-        let runtime_snapshot = runtime_snapshot.unwrap();
-        core.sync_game_windows_from_runtime(&runtime_snapshot, &HashSet::new())
-            .unwrap();
-        let saved = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
-            .unwrap();
-        let saved_tabs = saved["tabs"].as_array().unwrap();
-        let live_order = vec![
-            saved_tabs[1].clone(),
-            saved_tabs[2].clone(),
-            saved_tabs[0].clone(),
-        ];
-        let live_active_tab_id = live_order[2]["id"].as_str().unwrap().to_owned();
+fn runtime_window_snapshot_batch_is_atomic_and_latest_revision_wins_per_window() {
+    let (_directory, core) = core();
+    let window_a = create_saved_window(&core, "A0");
+    let window_b = create_saved_window(&core, "B0");
+    let batch = |inputs: Vec<Value>| {
+        core.invoke(command(json!({
+            "type": "gameWindowRuntimeSnapshotBatchCommit",
+            "input": { "inputs": inputs }
+        })))
+    };
 
-        assert_eq!(
-            commit_live_window_tabs(
-                &core,
-                &window_id,
-                3,
-                9,
-                "Ordered runtime",
-                live_order,
-                Some(&live_active_tab_id),
-            )["status"],
-            "applied",
-            "{platform}"
-        );
-        core.sync_game_windows_from_runtime(&runtime_snapshot, &HashSet::new())
-            .unwrap();
+    let first = batch(vec![
+        runtime_window_snapshot_input(&window_a, 8, 4, "A4", 40),
+        runtime_window_snapshot_input(&window_b, 3, 2, "B2", 20),
+    ])
+    .unwrap();
+    assert_eq!(first["receipts"][0]["status"], "applied");
+    assert_eq!(first["receipts"][1]["status"], "applied");
 
-        let after_late_projection = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
-            .unwrap();
-        assert_eq!(
-            after_late_projection["tabs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tab| tab["sourceId"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            ["role-b", "role-c", "role-a"],
-            "late Core owner projection must not replace live UI order on {platform}"
-        );
-        core.shutdown();
-    }
+    let mixed = batch(vec![
+        runtime_window_snapshot_input(&window_a, 8, 3, "A stale", 30),
+        runtime_window_snapshot_input(&window_b, 3, 3, "B3", 30),
+    ])
+    .unwrap();
+    assert_eq!(mixed["receipts"][0]["status"], "superseded");
+    assert_eq!(mixed["receipts"][1]["status"], "applied");
+    assert_eq!(
+        core.invoke(CoreCommand::GameWindowGet {
+            id: window_a.clone(),
+        })
+        .unwrap()["name"],
+        "A4"
+    );
+    assert_eq!(
+        core.invoke(CoreCommand::GameWindowGet {
+            id: window_b.clone(),
+        })
+        .unwrap()["name"],
+        "B3"
+    );
+
+    let failed = batch(vec![
+        runtime_window_snapshot_input(&window_a, 8, 5, "A5", 50),
+        runtime_window_snapshot_input(
+            "00000000-0000-4000-8000-000000000000",
+            1,
+            1,
+            "Missing",
+            0,
+        ),
+    ]);
+    assert!(failed.is_err());
+    let saved_a = core
+        .invoke(CoreCommand::GameWindowGet {
+            id: window_a.clone(),
+        })
+        .unwrap();
+    assert_eq!(saved_a["name"], "A4");
+    assert_eq!(saved_a["placement"]["normalBounds"]["x"], 40);
+
+    let retry = batch(vec![runtime_window_snapshot_input(
+        &window_a, 8, 5, "A5", 50,
+    )])
+    .unwrap();
+    assert_eq!(retry["receipts"][0]["status"], "applied");
 }
 
 #[test]
@@ -350,6 +243,33 @@ fn typed_tab_stop_leaves_saved_topology_to_the_live_snapshot_commit() {
             .unwrap()
             .snapshot;
         let tab = runtime.tabs.first().unwrap();
+        let persisted_tab = json!({
+            "id": tab.id,
+            "tabType": tab.tab_type,
+            "sourceId": tab.source_id,
+            "name": tab.name,
+            "roleSlots": tab.slots.iter().map(|slot| json!({
+                "slotId": slot.slot_id,
+                "roleId": slot.role_id,
+                "rect": slot.rect,
+                "browserZoomPercent": slot.browser_zoom_percent,
+            })).collect::<Vec<_>>(),
+            "hidden": false,
+            "audioMuted": false,
+        });
+        assert_eq!(
+            commit_live_window_tabs(
+                &core,
+                &window_id,
+                1,
+                1,
+                "Saved runtime",
+                vec![persisted_tab],
+                Some(&tab.id),
+            )["status"],
+            "applied",
+            "{platform}"
+        );
         let operation_id = format!("native-saved-tab-stop-{platform}");
         drive_async_command_with(
             Arc::clone(&core),
@@ -378,7 +298,7 @@ fn typed_tab_stop_leaves_saved_topology_to_the_live_snapshot_commit() {
             commit_live_window_tabs(
                 &core,
                 &window_id,
-                1,
+                2,
                 1,
                 "Saved runtime",
                 Vec::new(),

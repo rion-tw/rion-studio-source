@@ -269,11 +269,14 @@ use super::*;
 
     fn presentation_tab(id: &str, phase: TabPresentationPhase) -> TabPresentation {
         TabPresentation {
+            audio_muted: false,
             closable: true,
             icon_data_url: None,
             id: id.to_owned(),
             phase,
+            persistable: true,
             role_ids: vec![format!("role-{id}")],
+            role_slots: Vec::new(),
             source_id: format!("source-{id}"),
             tab_type: "role".to_owned(),
             title: format!("Tab {id}"),

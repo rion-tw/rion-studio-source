@@ -1,4 +1,4 @@
-//! Authoritative browser runtime windows, tabs, roles, visibility, and transitions.
+//! Role ownership runtime and its tab/slot identity projection.
 //!
 //! Implementation sections are included at compile time and share one private module namespace.
 

@@ -296,12 +296,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     );
     expect(macPrewarm).not.toContain("WebviewWindowBuilder");
     expect(macPrewarm).toContain('"runtime-prewarm", "skipped"');
-    const activateCommand = core.slice(
-      core.indexOf("CoreCommand::EmbeddedTabActivate { tab_id }"),
-      core.indexOf("CoreCommand::EmbeddedTabHide { tab_id }")
-    );
-    expect(activateCommand).toContain("apply_embedded_tab_selection_without_native_effect");
-    expect(activateCommand).not.toContain("apply_embedded_runtime_command(");
+    expect(core).not.toContain("CoreCommand::EmbeddedTabActivate");
+    expect(core).not.toContain("CoreCommand::EmbeddedTabHide");
+    expect(core).not.toContain("apply_embedded_tab_selection_without_native_effect");
     const roleLaunch = core.slice(
       core.indexOf("fn launch_embedded_role("),
       core.indexOf("fn launch_embedded_workspace(")
@@ -350,9 +347,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(overlays).toContain("MACRO_OVERLAY_REFRESH_SOURCE");
     expect(overlays).not.toContain("evaluate_webview");
     expect(overlays).not.toContain("thread::sleep");
-    expect(shell).toContain("TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150)");
-    expect(shell).toContain("tokio::sync::watch::channel(request)");
+    expect(shell).not.toContain("TAB_SELECTION_COMMIT_DEBOUNCE");
+    expect(shell).not.toContain("TabSelectionCommitCoordinator");
     expect(shell).toContain("preview_and_commit_tab_selection");
+    expect(shell).toContain("schedule_live_window_state_persistence(window_id)");
     expect(shell).toContain("runtime.preview_tab_launch(&target, &source_id, tab_type)");
     expect(shell).toContain("tauri::async_runtime::spawn_blocking(move ||");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
@@ -600,12 +598,12 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
       expect(runtime).toContain(`ManagedSurfaceKind::${kind}`);
     }
     const move = runtime.slice(
-      runtime.indexOf("pub fn provisionally_move_tab("),
-      runtime.indexOf("pub fn cancel_provisional_tab_move(")
+      runtime.indexOf("fn provisionally_move_tab_with_visibility_inner("),
+      runtime.indexOf("fn schedule_live_tab_drag_layout(")
     );
     expect(move).toContain("state.surface_registry.values_mut()");
     expect(move).toContain("surface.window_id = target_window_id.to_owned()");
-    expect(move).toContain("surface.window_id = source_window_id.to_owned()");
+    expect(move).not.toContain("surface.window_id = source_window_id.to_owned()");
     const popup = runtime.slice(
       runtime.indexOf("fn register_popup("),
       runtime.indexOf("fn schedule_surface_recovery(")
@@ -614,7 +612,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     expect(popup).toContain("register_managed_surface(");
   });
 
-it("rolls back every provisional move stage and surfaces compensation errors", async () => {
+it("retains the live destination when native surface projection fails", async () => {
     const [runtime, move] = await Promise.all([readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
       "utf8"
@@ -638,22 +636,12 @@ it("rolls back every provisional move stage and surfaces compensation errors", a
     expect(revealPhase).toBeGreaterThan(nativeRelocation);
     expect(move).toContain("native_move.relocated = !presentation_precommitted");
     expect(move).toContain('"provisional-move"');
-    expect(move).toContain("rollback_provisional_tab_move(");
-    expect(move).toContain("provisional_move_error(");
-
-    const rollback = runtime.slice(
-      runtime.indexOf("fn rollback_provisional_tab_move("),
-      runtime.indexOf("fn provisional_move_error(")
-    );
-    expect(rollback).toContain("errors.push");
-    expect(rollback).toContain("if native_move.relocated");
-    expect(rollback).toContain("self.relocate_native_tab_reservation(");
-    expect(rollback).toContain('"native tab rollback: {}"');
-    expect(rollback).toContain('"provisional-rollback"');
-    expect(rollback).toContain("synchronize_windows_reparented_surfaces(");
-    expect(rollback).toContain('"tab.reparent-sync-rolled-back"');
-    expect(rollback).not.toMatch(/let _ = surface\.(hide|show|reparent)/);
-    expect(runtime).toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
+    expect(move).toContain("retain_live_destination_after_surface_error(");
+    expect(move).toContain("surface_projection_error(");
+    expect(move).not.toContain("rollback_provisional_tab_move(");
+    expect(move).not.toContain("provisional_move_error(");
+    expect(move).not.toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
+    expect(runtime).not.toContain('"provisional-rollback"');
   });
 
 it("acknowledges close isolation before coalesced restore persistence", async () => {

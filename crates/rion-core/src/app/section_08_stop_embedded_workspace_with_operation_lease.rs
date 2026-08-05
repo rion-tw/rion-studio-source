@@ -6,7 +6,6 @@ struct EmbeddedRuntimeTransition {
     focus_tab_id: Option<String>,
     focus_active_window_id: Option<String>,
     parent_operation_id: Option<String>,
-    persist_runtime_topology: bool,
 }
 
 impl AppCore {
@@ -81,34 +80,25 @@ impl AppCore {
                         launched_at: role.launched_at.clone(),
                     })?;
                 }
-                let next_active_tab_id = next_active_tab_after_removal(&snapshot, &tab_id);
-                self.invoke_browser_runtime(BrowserRuntimeCommand::HideTab {
-                    tab_id: tab_id.clone(),
-                })?;
-                if let Some(next_tab_id) = next_active_tab_id.as_ref() {
-                    self.invoke_browser_runtime(BrowserRuntimeCommand::ActivateTab {
-                        tab_id: next_tab_id.clone(),
-                    })?;
-                }
                 self.embedded_closing_tabs
                     .lock()
                     .map_err(|_| {
                         CoreError::Internal("embedded closing tab lock poisoned".to_owned())
                     })?
                     .insert(tab_id.clone());
-                (owned_roles, tab_id, next_active_tab_id)
+                (owned_roles, tab_id)
             };
 
             // Keep durability behind native isolation. The final runtime commit
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
-            let (owned_roles, tab_id, next_active_tab_id) = prepared;
+            let (owned_roles, tab_id) = prepared;
             self.run_embedded_runtime_effect(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {
                     tab_id: tab_id.clone(),
                     attempt_generation: None,
-                    next_active_tab_id,
+                    next_active_tab_id: None,
                 },
                 None,
                 parent_operation_id,
@@ -170,21 +160,30 @@ impl AppCore {
         }
     }
 
-    fn stop_embedded_window(&self, window_id: &str, delete: bool) -> CoreResult<()> {
-        let stop_result = self.stop_embedded_window_runtime(window_id, delete);
-        if stop_result.is_ok() {
-            self.clear_pending_game_window_configuration(window_id)?;
-        }
-        stop_result
+    fn stop_embedded_window(
+        &self,
+        window_id: &str,
+        delete: bool,
+        live_tab_ids: &[String],
+    ) -> CoreResult<()> {
+        self.stop_embedded_window_runtime(window_id, delete, live_tab_ids)
     }
 
-    fn stop_embedded_window_runtime(&self, window_id: &str, delete: bool) -> CoreResult<()> {
+    fn stop_embedded_window_runtime(
+        &self,
+        window_id: &str,
+        delete: bool,
+        live_tab_ids: &[String],
+    ) -> CoreResult<()> {
+        let tab_is_in_close_scope = |tab: &crate::model::BrowserRuntimeTabRecord| {
+            live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)
+        };
         let pending_role_ids = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
             .tabs
             .iter()
-            .filter(|tab| tab.window_id == window_id)
+            .filter(|tab| tab_is_in_close_scope(tab))
             .flat_map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()))
             .collect::<Vec<_>>();
         self.cancel_embedded_operations(&pending_role_ids)?;
@@ -199,7 +198,7 @@ impl AppCore {
             let mut sources = snapshot
                 .tabs
                 .iter()
-                .filter(|tab| tab.window_id == window_id)
+                .filter(|tab| tab_is_in_close_scope(tab))
                 .map(|tab| (tab.tab_type.clone(), tab.source_id.clone()))
                 .collect::<Vec<_>>();
             sources.sort();
@@ -227,13 +226,18 @@ impl AppCore {
         // now-empty runtime window closes its native host while the persisted Game
         // Window remains available to be shown again.
         let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let runtime_window_exists = self
+        let empty_runtime_window_ids = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
             .windows
             .iter()
-            .any(|window| window.window_id == window_id);
-        if runtime_window_exists {
+            .filter(|window| window.tab_ids.is_empty())
+            .map(|window| window.window_id.clone())
+            .collect::<Vec<_>>();
+        if empty_runtime_window_ids
+            .iter()
+            .any(|candidate| candidate == window_id)
+        {
             let _sequence = self.embedded_runtime_sequence.acquire()?;
             self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
                 commands: vec![BrowserRuntimeCommand::RemoveWindow {
@@ -245,7 +249,19 @@ impl AppCore {
                 focus_tab_id: None,
                 focus_active_window_id: None,
                 parent_operation_id: None,
-                persist_runtime_topology: false,
+            })?;
+        }
+        for stale_window_id in empty_runtime_window_ids
+            .into_iter()
+            .filter(|candidate| candidate != window_id)
+        {
+            // A tab can be physically moved by LiveWindowTabState while Core's
+            // role bookkeeping still carries its launch-time window ID. Once
+            // the last such tab stops, retire that empty Core-only shell as a
+            // metadata sink. Native window lifecycle is owned by the live
+            // adapter and must not receive a compensating ApplyRuntime effect.
+            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
+                window_id: stale_window_id,
             })?;
         }
 

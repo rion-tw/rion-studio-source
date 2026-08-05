@@ -1,306 +1,14 @@
-#[test]
-    fn moving_the_last_tab_to_a_transient_window_preserves_saved_window_settings() {
-        for platform in ["darwin", "win32"] {
-            let (_directory, core) = core_for_platform(platform);
-            let create_window = |name: &str| {
-                core.invoke(command(json!({
-                    "type": "gameWindowCreate",
-                    "input": {
-                        "name": name,
-                        "targetDisplay": { "id": 1 },
-                        "placement": {
-                            "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                            "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                            "presentation": "normal"
-                        }
-                    }
-                })))
-                .unwrap()["id"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned()
-            };
-            let source_id = create_window("Source");
-            let target_id = create_window("Target");
-            let dormant_tab_ids = [
-                uuid::Uuid::new_v4().to_string(),
-                uuid::Uuid::new_v4().to_string(),
-                uuid::Uuid::new_v4().to_string(),
-            ];
-            core.invoke(command(json!({
-                "type": "gameWindowUpdate",
-                "id": target_id,
-                "input": {
-                    "tabs": [{
-                        "id": dormant_tab_ids[0],
-                        "tabType": "role",
-                        "sourceId": "saved-role-a",
-                        "name": "Saved A",
-                        "roleIds": ["saved-role-a"],
-                        "hidden": false,
-                        "audioMuted": true,
-                        "roleViews": []
-                    }, {
-                        "id": dormant_tab_ids[2],
-                        "tabType": "role",
-                        "sourceId": "role-source",
-                        "name": "Saved duplicate",
-                        "roleIds": ["role-source"],
-                        "hidden": false,
-                        "audioMuted": false,
-                        "roleViews": []
-                    }, {
-                        "id": dormant_tab_ids[1],
-                        "tabType": "role",
-                        "sourceId": "saved-role-b",
-                        "name": "Saved B",
-                        "roleIds": ["saved-role-b"],
-                        "hidden": false,
-                        "audioMuted": false,
-                        "roleViews": []
-                    }],
-                    "activeTabId": dormant_tab_ids[0]
-                }
-            })))
-            .unwrap();
-            let launch_target = |window_id: &str| EmbeddedLaunchTargetRecord {
-                window_id: window_id.to_owned(),
-                display_id: 1,
-                scale_factor: 1.0,
-                work_area: StatePixelBoundsRecord {
-                    x: 0,
-                    y: 0,
-                    width: 1440,
-                    height: 900,
-                },
-                bounds: StatePixelBoundsRecord {
-                    x: 0,
-                    y: 0,
-                    width: 960,
-                    height: 640,
-                },
-                presentation: "normal".to_owned(),
-            };
-            let created = core
-                .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                    tab_id: None,
-                    source_id: "role-source".to_owned(),
-                    name: "Role".to_owned(),
-                    window_id: source_id.clone(),
-                    tab_type: "role".to_owned(),
-                    workspace_id: None,
-                    role_slots: test_role_slots(&["role-source"]),
-                })
-                .unwrap();
-            let tab_id = created.created_tab_id.unwrap();
-            core.sync_game_windows_from_runtime(
-                &created.snapshot,
-                &std::collections::HashSet::new(),
-            )
-            .unwrap();
-
-            let parent_operation_id = format!("native-tabMutation-{platform}");
-            drive_async_command_with(
-                Arc::clone(&core),
-                embedded_tab_move_mutation_command(
-                    &parent_operation_id,
-                    &tab_id,
-                    &source_id,
-                    launch_target(&target_id),
-                ),
-                |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
-            )
-            .0
-            .unwrap();
-
-            let windows_before_commit = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            let source_before_commit = windows_before_commit
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["id"] == source_id)
-                .unwrap();
-            let mut moved_tab = source_before_commit["tabs"][0].clone();
-            moved_tab["hidden"] = json!(false);
-            assert_eq!(
-                source_before_commit["tabs"].as_array().unwrap().len(),
-                1,
-                "Core move must not write the UI snapshot on {platform}"
-            );
-            let target_before_commit = windows_before_commit
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["id"] == target_id)
-                .unwrap();
-            let target_tabs = vec![
-                target_before_commit["tabs"][0].clone(),
-                moved_tab,
-                target_before_commit["tabs"][2].clone(),
-            ];
-            assert_eq!(
-                commit_live_window_tabs(
-                    &core,
-                    &source_id,
-                    1,
-                    1,
-                    "Source",
-                    Vec::new(),
-                    None,
-                )["status"],
-                "applied",
-                "{platform}"
-            );
-            assert_eq!(
-                commit_live_window_tabs(
-                    &core,
-                    &target_id,
-                    1,
-                    1,
-                    "Target",
-                    target_tabs,
-                    Some(&tab_id),
-                )["status"],
-                "applied",
-                "{platform}"
-            );
-
-            let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
-            let source = windows
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["id"] == source_id)
-                .unwrap();
-            assert!(source["tabs"].as_array().unwrap().is_empty(), "{platform}");
-            let target = windows
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["id"] == target_id)
-                .unwrap();
-            let target_sources = target["tabs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|tab| tab["sourceId"].as_str().unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(
-                target_sources,
-                ["saved-role-a", "role-source", "saved-role-b"],
-                "{platform}"
-            );
-            assert_eq!(target["tabs"][1]["id"], tab_id, "{platform}");
-            assert_eq!(target["activeTabId"], tab_id, "{platform}");
-            let runtime = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
-            assert!(
-                runtime["windows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|window| { window["windowId"].as_str() != Some(source_id.as_str()) })
-            );
-
-            let projected_id = uuid::Uuid::new_v4().to_string();
-            let projected = drive_async_command(
-                Arc::clone(&core),
-                CoreCommand::EmbeddedTabMove {
-                    tab_id: tab_id.clone(),
-                    target: launch_target(&projected_id),
-                },
-                // Behavior-layer tab moves no longer emit a native effect, so an
-                // unrelated result cannot reject or compensate this Core sink.
-                Some("other"),
-            )
-            .0;
-            assert!(projected.is_ok(), "{platform}");
-            assert_eq!(
-                core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap()["tabs"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|tab| tab["id"] == tab_id)
-                    .unwrap()["windowId"],
-                projected_id,
-                "{platform}"
-            );
-            let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
-            assert!(
-                windows
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|window| window["id"] == target_id),
-                "{platform}"
-            );
-
-            let torn_out_id = uuid::Uuid::new_v4().to_string();
-            drive_async_command(
-                Arc::clone(&core),
-                CoreCommand::EmbeddedTabMove {
-                    tab_id: tab_id.clone(),
-                    target: launch_target(&torn_out_id),
-                },
-                None,
-            )
-            .0
-            .unwrap();
-            let target_before_final_commit = core
-                .invoke(CoreCommand::GameWindowGet {
-                    id: target_id.clone(),
-                })
-                .unwrap();
-            let final_target_tabs = target_before_final_commit["tabs"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|tab| tab["id"].as_str() != Some(tab_id.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            assert_eq!(
-                commit_live_window_tabs(
-                    &core,
-                    &target_id,
-                    1,
-                    2,
-                    "Target",
-                    final_target_tabs,
-                    Some(&dormant_tab_ids[0]),
-                )["status"],
-                "applied",
-                "{platform}"
-            );
-            let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
-            assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
-            let saved_target = windows
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|window| window["id"] == target_id)
-                .unwrap();
-            assert_eq!(
-                saved_target["tabs"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|tab| tab["sourceId"].as_str().unwrap())
-                    .collect::<Vec<_>>(),
-                ["saved-role-a", "saved-role-b"],
-                "{platform}"
-            );
-            assert!(
-                windows
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|window| window["id"].as_str() != Some(torn_out_id.as_str())),
-                "{platform}"
-            );
-            core.shutdown();
-        }
+    fn runtime_tab_ids_for_window(core: &AppCore, window_id: &str) -> Vec<String> {
+        core.invoke(CoreCommand::BrowserRuntimeSnapshot)
+            .unwrap()["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|tab| tab["windowId"].as_str() == Some(window_id))
+            .filter_map(|tab| tab["id"].as_str().map(str::to_owned))
+            .collect()
     }
+
     #[test]
     fn window_scoped_stop_and_delete_finish_from_one_authoritative_snapshot() {
         for platform in ["darwin", "win32"] {
@@ -391,6 +99,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: stopped_window_id.clone(),
+                    tab_ids: runtime_tab_ids_for_window(&core, &stopped_window_id),
                 },
                 None,
             )
@@ -433,11 +142,7 @@
                 .iter()
                 .filter_map(|tab| tab["sourceId"].as_str())
                 .collect::<HashSet<_>>();
-            assert_eq!(
-                stopped_sources,
-                HashSet::from([role_id.as_str(), workspace_id.as_str()]),
-                "{platform}"
-            );
+            assert!(stopped_sources.is_empty(), "{platform}");
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
@@ -467,6 +172,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: stopped_window_id.clone(),
+                    tab_ids: runtime_tab_ids_for_window(&core, &stopped_window_id),
                 },
                 None,
             )
@@ -481,7 +187,7 @@
                 .unwrap();
             assert_eq!(
                 stopped_again["tabs"].as_array().unwrap().len(),
-                2,
+                0,
                 "{platform}"
             );
             let deleted_window_id = create_window("Delete together");
@@ -498,6 +204,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowDelete {
                     window_id: deleted_window_id.clone(),
+                    tab_ids: runtime_tab_ids_for_window(&core, &deleted_window_id),
                 },
                 None,
             )
@@ -526,6 +233,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: failed_window_id.clone(),
+                    tab_ids: runtime_tab_ids_for_window(&core, &failed_window_id),
                 },
                 Some("embeddedDestroyTab"),
             )
@@ -540,7 +248,7 @@
                 .unwrap();
             assert_eq!(
                 failed_window["tabs"].as_array().unwrap().len(),
-                1,
+                0,
                 "{platform}"
             );
             core.shutdown();
@@ -548,72 +256,77 @@
     }
 
     #[test]
-    fn runtime_game_window_projection_preserves_metadata_committed_while_waiting_for_the_guard() {
-        let (_directory, core) = core();
-        let window_id = core
-            .invoke(command(json!({
-                "type": "gameWindowCreate",
-                "input": {
-                    "name": "Original",
-                    "targetDisplay": { "id": 1 },
-                    "placement": {
-                        "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
-                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
-                        "presentation": "normal"
-                    }
-                }
-            })))
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
-            window_id: window_id.clone(),
-        })
-        .unwrap();
-        let snapshot = core
-            .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                tab_id: None,
-                source_id: "projection-role".to_owned(),
-                name: "Projected role".to_owned(),
+    fn live_tab_scope_prevents_a_stale_core_window_from_stopping_a_detached_tab() {
+        for platform in ["darwin", "win32"] {
+            let (_directory, core) = core_for_platform(platform);
+            let game_id = first_game_id(&core);
+            let source_role_id = create_role(&core, &game_id, 1);
+            let detached_role_id = create_role(&core, &game_id, 2);
+            let window_id = "source-window".to_owned();
+            let target = EmbeddedLaunchTargetRecord {
                 window_id: window_id.clone(),
-                tab_type: "role".to_owned(),
-                workspace_id: None,
-                role_slots: test_role_slots(&["projection-role"]),
-            })
-            .unwrap()
-            .snapshot;
-
-        let guard = core.state_mutation_guard().unwrap();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let projection_core = Arc::clone(&core);
-        let projection = thread::spawn(move || {
-            started_tx.send(()).unwrap();
-            projection_core.sync_game_windows_from_runtime(&snapshot, &HashSet::new())
-        });
-        started_rx.recv().unwrap();
-        thread::sleep(Duration::from_millis(50));
-        core.with_runtime(|runtime| {
-            runtime.state.mutate(StateMutation::GameWindowUpdate {
-                id: window_id.clone(),
-                input: crate::model::GameWindowUpdateInputRecord {
-                    name: Some("Concurrent edit".to_owned()),
-                    ..Default::default()
+                display_id: 1,
+                scale_factor: 1.0,
+                work_area: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1440,
+                    height: 900,
                 },
-            })
-        })
-        .unwrap();
-        drop(guard);
-        projection.join().unwrap().unwrap();
+                bounds: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 960,
+                    height: 640,
+                },
+                presentation: "normal".to_owned(),
+            };
+            for role_id in [&source_role_id, &detached_role_id] {
+                drive_accepted_launch_to_completion(
+                    Arc::clone(&core),
+                    CoreCommand::BrowserRoleLaunch {
+                        role_id: role_id.clone(),
+                        target: target.clone(),
+                        launch_preview_id: None,
+                        zoom_factor: None,
+                    },
+                );
+            }
+            let before = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            let source_tab_id = before["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tab| tab["sourceId"] == source_role_id)
+                .unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
 
-        let persisted = core
-            .invoke(CoreCommand::GameWindowGet {
-                id: window_id.clone(),
-            })
+            drive_async_command(
+                Arc::clone(&core),
+                CoreCommand::BrowserWindowStop {
+                    window_id,
+                    tab_ids: vec![source_tab_id],
+                },
+                None,
+            )
+            .0
             .unwrap();
-        assert_eq!(persisted["name"], "Concurrent edit");
-        assert_eq!(persisted["tabs"][0]["sourceId"], "projection-role");
-        core.shutdown();
+
+            let after = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            assert_eq!(after["tabs"].as_array().unwrap().len(), 1, "{platform}");
+            assert_eq!(
+                after["tabs"][0]["sourceId"], detached_role_id,
+                "{platform}"
+            );
+            assert_eq!(after["roles"].as_array().unwrap().len(), 1, "{platform}");
+            assert_eq!(
+                after["roles"][0]["roleId"], detached_role_id,
+                "{platform}"
+            );
+            core.shutdown();
+        }
     }
 
     #[test]

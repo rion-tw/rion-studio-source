@@ -198,10 +198,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                 .runtime
                 .launch_target_for_window_id(source_window_id)
                 .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
-            let source_snapshot = state
-                .runtime
-                .tab_drag_window_snapshot(source_window_id)
-                .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
             let single_tab = state.runtime.window_tab_count(source_window_id) == 1;
             let provisional_window_id = if single_tab {
                 source_window_id.to_owned()
@@ -236,8 +232,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     topology_revision,
                 )
                 .map_err(|error| shell_error(error.code, error.message))?;
-            let mut snapshots = HashMap::new();
-            snapshots.insert(source_window_id.to_owned(), source_snapshot);
             {
                 let mut active_drag = state.tab_drag.lock().map_err(|_| {
                     shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
@@ -257,7 +251,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     latest_move_revision: 0,
                     latest_screen_x: screen_x,
                     latest_screen_y: screen_y,
-                    native_changes_applied: !deferred_native_commit,
                     operation_id: operation.operation_id.clone(),
                     original_target: source.clone(),
                     phase: if deferred_native_commit {
@@ -268,9 +261,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                     processed_move_revision: 0,
                     provisional_window_id: provisional_window_id.clone(),
                     single_tab,
-                    snapshots,
                     source_window_id: source_window_id.to_owned(),
-                    source_window_generation: operation.window_generation,
                     source_cancelled: false,
                     source_drop_accepted: false,
                     source_end_received: false,
@@ -430,7 +421,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                     return finish_failed_tab_drag_session(app, state, &mut session, error)
                         .map(Some);
                 }
-                return finish_visible_tab_drag_and_schedule_projection(app, state, &session)
+                return finish_visible_tab_drag(app, state, &session)
                     .map(Some);
             }
         }
@@ -459,7 +450,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                         return finish_failed_tab_drag_session(app, state, &mut session, error)
                             .map(Some);
                     }
-                    return finish_visible_tab_drag_and_schedule_projection(app, state, &session)
+                    return finish_visible_tab_drag(app, state, &session)
                         .map(Some);
                 }
             }
@@ -609,42 +600,67 @@ fn attach_tab_drag_session(
     if target_window_id == session.provisional_window_id && !session.single_tab {
         return Ok(());
     }
-    if !session.snapshots.contains_key(target_window_id) {
-        let snapshot = state
-            .runtime
-            .tab_drag_window_snapshot(target_window_id)
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        session
-            .snapshots
-            .insert(target_window_id.to_owned(), snapshot);
-    }
     state
         .runtime
         .begin_tab_drag_window_motion(target_window_id);
     let previous_window_id = session.current_window_id.clone();
     let ownership_changed = previous_window_id != target_window_id;
     if ownership_changed {
+        let target_order = if let Some(ordered_tab_ids) = ordered_tab_ids {
+            ordered_tab_ids.to_vec()
+        } else {
+            let mut target_order = state
+                .runtime
+                .tab_drag_window_snapshot(target_window_id)
+                .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?
+                .tab_ids;
+            target_order.retain(|tab_id| tab_id != &session.tab_id);
+            let insertion = before_tab_id
+                .and_then(|before| target_order.iter().position(|tab_id| tab_id == before))
+                .unwrap_or(target_order.len());
+            target_order.insert(insertion, session.tab_id.clone());
+            target_order
+        };
         state
             .runtime
-            .provisionally_move_tab_for_live_drag(&session.tab_id, target_window_id)
+            .commit_live_tab_drag_destination(
+                &previous_window_id,
+                target_window_id,
+                &session.tab_id,
+                &target_order,
+            )
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        restore_left_tab_drag_window(state, session, &previous_window_id)?;
+        if let Err(message) = state
+            .runtime
+            .provisionally_move_tab_for_live_drag(&session.tab_id, target_window_id)
+        {
+            eprintln!(
+                "Live tab destination retained while surface projection retries: tab={} target={} error={message}",
+                session.tab_id, target_window_id
+            );
+            state.runtime.schedule_tab_surface_move_retry(
+                session.tab_id.clone(),
+                target_window_id.to_owned(),
+            );
+        }
     }
-    (if let Some(ordered_tab_ids) = ordered_tab_ids {
+    if !ownership_changed {
+        (if let Some(ordered_tab_ids) = ordered_tab_ids {
         state.runtime.preview_tab_drag_order_exact(
             target_window_id,
             ordered_tab_ids,
-            ownership_changed,
+            false,
         )
     } else {
         state.runtime.preview_tab_drag_order(
             target_window_id,
             &session.tab_id,
             before_tab_id.filter(|before| *before != session.tab_id),
-            ownership_changed,
+            false,
         )
     })
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    }
     session.current_window_id = target_window_id.to_owned();
     session.hover_window_id = None;
     session.phase = GameWindowTabDragPhase::Attached;
@@ -667,9 +683,26 @@ fn float_tab_drag_session(
     if previous_window_id != floating_window_id {
         state
             .runtime
-            .provisionally_move_tab_for_live_drag(&session.tab_id, &floating_window_id)
+            .commit_live_tab_drag_destination(
+                &previous_window_id,
+                &floating_window_id,
+                &session.tab_id,
+                std::slice::from_ref(&session.tab_id),
+            )
             .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
-        restore_left_tab_drag_window(state, session, &previous_window_id)?;
+        if let Err(message) = state
+            .runtime
+            .provisionally_move_tab_for_live_drag(&session.tab_id, &floating_window_id)
+        {
+            eprintln!(
+                "Detached live tab retained while surface projection retries: tab={} target={} error={message}",
+                session.tab_id, floating_window_id
+            );
+            state.runtime.schedule_tab_surface_move_retry(
+                session.tab_id.clone(),
+                floating_window_id.clone(),
+            );
+        }
     }
     let anchor = state
         .runtime
@@ -722,23 +755,6 @@ fn float_tab_drag_session(
     session.target = target;
     session.window_anchor = Some(anchor);
     session.window_was_moved |= session.single_tab;
-    Ok(())
-}
-
-fn restore_left_tab_drag_window(
-    state: &CoreState,
-    session: &GameWindowTabDragSession,
-    window_id: &str,
-) -> Result<(), CoreErrorPayload> {
-    if window_id == session.provisional_window_id || window_id == session.source_window_id {
-        return Ok(());
-    }
-    if let Some(snapshot) = session.snapshots.get(window_id) {
-        state
-            .runtime
-            .restore_tab_drag_window_snapshot(snapshot)
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_ROLLBACK_FAILED", message))?;
-    }
     Ok(())
 }
 

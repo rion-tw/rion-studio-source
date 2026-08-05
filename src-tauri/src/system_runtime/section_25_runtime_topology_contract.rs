@@ -6,6 +6,7 @@ struct RuntimeEffectCorrelation {
 struct RuntimeTabProjectionUpdate {
     window_id: String,
     moved: bool,
+    #[cfg(windows)]
     source_window_id: String,
     surfaces: Vec<Webview>,
     tab_id: String,

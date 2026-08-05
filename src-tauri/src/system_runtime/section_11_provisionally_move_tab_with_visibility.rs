@@ -83,7 +83,7 @@ impl SystemRuntimeExecutor {
         if hide_surfaces_before_reparent {
             for surface in &surfaces {
                 if let Err(error) = surface.hide() {
-                    let rollback_errors = self.rollback_provisional_tab_move(
+                    let projection_notes = self.retain_live_destination_after_surface_error(
                         tab_id,
                         &source_window_id,
                         target_window_id,
@@ -97,13 +97,13 @@ impl SystemRuntimeExecutor {
                         source_window_was_visible,
                         target_window_was_visible,
                     );
-                    return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+                    return Err(self.surface_projection_error(error.to_string(), projection_notes));
                 }
             }
         }
         for (index, surface) in surfaces.iter().enumerate() {
             if let Err(error) = surface.reparent(&target_window) {
-                let rollback_errors = self.rollback_provisional_tab_move(
+                let projection_notes = self.retain_live_destination_after_surface_error(
                     tab_id,
                     &source_window_id,
                     target_window_id,
@@ -117,7 +117,7 @@ impl SystemRuntimeExecutor {
                     source_window_was_visible,
                     target_window_was_visible,
                 );
-                return Err(self.provisional_move_error(error.to_string(), rollback_errors));
+                return Err(self.surface_projection_error(error.to_string(), projection_notes));
             }
         }
         #[cfg(windows)]
@@ -143,7 +143,7 @@ impl SystemRuntimeExecutor {
                     Err(&failure),
                     None,
                 );
-                let rollback_errors = self.rollback_provisional_tab_move(
+                let projection_notes = self.retain_live_destination_after_surface_error(
                     tab_id,
                     &source_window_id,
                     target_window_id,
@@ -157,14 +157,14 @@ impl SystemRuntimeExecutor {
                     source_window_was_visible,
                     target_window_was_visible,
                 );
-                return Err(self.provisional_move_error(failure.message, rollback_errors));
+                return Err(self.surface_projection_error(failure.message, projection_notes));
             }
         }
         let (source_is_empty, moved_surfaces) = {
             let mut state = match self.state.lock() {
                 Ok(state) => state,
                 Err(_) => {
-                    let rollback_errors = self.rollback_provisional_tab_move(
+                    let projection_notes = self.retain_live_destination_after_surface_error(
                         tab_id,
                         &source_window_id,
                         target_window_id,
@@ -178,15 +178,15 @@ impl SystemRuntimeExecutor {
                         source_window_was_visible,
                         target_window_was_visible,
                     );
-                    return Err(self.provisional_move_error(
+                    return Err(self.surface_projection_error(
                         "The System WebView runtime state lock was poisoned.".to_owned(),
-                        rollback_errors,
+                        projection_notes,
                     ));
                 }
             };
             let Some(tab) = state.tabs.get_mut(tab_id) else {
                 drop(state);
-                let rollback_errors = self.rollback_provisional_tab_move(
+                let projection_notes = self.retain_live_destination_after_surface_error(
                     tab_id,
                     &source_window_id,
                     target_window_id,
@@ -200,14 +200,14 @@ impl SystemRuntimeExecutor {
                     source_window_was_visible,
                     target_window_was_visible,
                 );
-                return Err(self.provisional_move_error(
+                return Err(self.surface_projection_error(
                     "Runtime tab was not found.".to_owned(),
-                    rollback_errors,
+                    projection_notes,
                 ));
             };
             if tab.window_id != source_window_id {
                 drop(state);
-                let rollback_errors = self.rollback_provisional_tab_move(
+                let projection_notes = self.retain_live_destination_after_surface_error(
                     tab_id,
                     &source_window_id,
                     target_window_id,
@@ -221,9 +221,9 @@ impl SystemRuntimeExecutor {
                     source_window_was_visible,
                     target_window_was_visible,
                 );
-                return Err(self.provisional_move_error(
+                return Err(self.surface_projection_error(
                     "Runtime tab moved before the provisional transaction committed.".to_owned(),
-                    rollback_errors,
+                    projection_notes,
                 ));
             }
             tab.window_id = target_window_id.to_owned();
@@ -261,7 +261,7 @@ impl SystemRuntimeExecutor {
                 move_revision,
             )
         {
-            let rollback_errors = self.rollback_provisional_tab_move(
+            let projection_notes = self.retain_live_destination_after_surface_error(
                 tab_id,
                 &source_window_id,
                 target_window_id,
@@ -275,7 +275,7 @@ impl SystemRuntimeExecutor {
                 source_window_was_visible,
                 target_window_was_visible,
             );
-            return Err(self.provisional_move_error(message, rollback_errors));
+            return Err(self.surface_projection_error(message, projection_notes));
         }
         let selected_tabs_after_move = self.presentation.selected_tabs();
         native_move.source_active_after_move =
@@ -294,13 +294,12 @@ impl SystemRuntimeExecutor {
             &native_move.tab.tab_type,
             workspace_template,
             native_move.source_active_after_move.as_deref(),
-            native_move.target_active_before_move.as_deref(),
             move_revision,
         ) {
             if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" {
                 self.health.mark_unhealthy();
             }
-            let rollback_errors = self.rollback_provisional_tab_move(
+            let projection_notes = self.retain_live_destination_after_surface_error(
                 tab_id,
                 &source_window_id,
                 target_window_id,
@@ -314,7 +313,7 @@ impl SystemRuntimeExecutor {
                 source_window_was_visible,
                 target_window_was_visible,
             );
-            return Err(self.provisional_move_error(error.message, rollback_errors));
+            return Err(self.surface_projection_error(error.message, projection_notes));
         }
         native_move.relocated = !presentation_precommitted;
         let source_presentation_result = if let Some(source_active_tab_id) =
@@ -339,7 +338,7 @@ impl SystemRuntimeExecutor {
             if presentation_precommitted {
                 return Err(message);
             }
-            let rollback_errors = self.rollback_provisional_tab_move(
+            let projection_notes = self.retain_live_destination_after_surface_error(
                 tab_id,
                 &source_window_id,
                 target_window_id,
@@ -353,7 +352,7 @@ impl SystemRuntimeExecutor {
                 source_window_was_visible,
                 target_window_was_visible,
             );
-            return Err(self.provisional_move_error(message, rollback_errors));
+            return Err(self.surface_projection_error(message, projection_notes));
         }
         self.apply_native_active_style(
             target_window_id,
@@ -385,7 +384,7 @@ impl SystemRuntimeExecutor {
             if presentation_precommitted {
                 return Err(message);
             }
-            let rollback_errors = self.rollback_provisional_tab_move(
+            let projection_notes = self.retain_live_destination_after_surface_error(
                 tab_id,
                 &source_window_id,
                 target_window_id,
@@ -399,7 +398,7 @@ impl SystemRuntimeExecutor {
                 source_window_was_visible,
                 target_window_was_visible,
             );
-            return Err(self.provisional_move_error(message, rollback_errors));
+            return Err(self.surface_projection_error(message, projection_notes));
         }
         if cfg!(target_os = "macos") && live_drag {
             self.schedule_live_tab_drag_layout(tab_id.to_owned());
@@ -434,202 +433,29 @@ impl SystemRuntimeExecutor {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn rollback_provisional_tab_move(
+    fn retain_live_destination_after_surface_error(
         &self,
-        tab_id: &str,
-        source_window_id: &str,
-        target_window_id: &str,
-        source_window: &Window,
-        target_window: &Window,
-        surfaces: &[Webview],
-        reparent_attempted: usize,
-        state_committed: bool,
-        native_move: &ProvisionalNativeTabMove,
-        tab_was_visible: bool,
-        source_window_was_visible: bool,
-        target_window_was_visible: bool,
+        _tab_id: &str,
+        _source_window_id: &str,
+        _target_window_id: &str,
+        _source_window: &Window,
+        _target_window: &Window,
+        _surfaces: &[Webview],
+        _reparent_attempted: usize,
+        _state_committed: bool,
+        _native_move: &ProvisionalNativeTabMove,
+        _tab_was_visible: bool,
+        _source_window_was_visible: bool,
+        _target_window_was_visible: bool,
     ) -> Vec<String> {
-        let mut errors = Vec::new();
-        let mut rolled_back_surfaces = Vec::new();
-        if reparent_attempted > 0 {
-            for surface in surfaces {
-                if let Err(error) = surface.hide() {
-                    errors.push(format!("hide {}: {error}", surface.label()));
-                }
-            }
-            for surface in surfaces.iter().take(reparent_attempted).rev() {
-                if let Err(error) = surface.reparent(source_window) {
-                    errors.push(format!("reparent {}: {error}", surface.label()));
-                }
-            }
-            #[cfg(windows)]
-            {
-                let rollback_surfaces = &surfaces[..reparent_attempted.min(surfaces.len())];
-                match synchronize_windows_reparented_surfaces(rollback_surfaces, source_window) {
-                    Ok(outcome) => self.record_windows_reparent_sync_event(
-                        "tab.reparent-sync-rolled-back",
-                        "WebView2 surfaces synchronized with their source Game Window during rollback.",
-                        tab_id,
-                        target_window_id,
-                        source_window_id,
-                        "provisional-rollback",
-                        Ok(&outcome),
-                        Some(errors.len()),
-                    ),
-                    Err(failure) => {
-                        errors.push(format!("reparent sync: {}", failure.message));
-                        self.record_windows_reparent_sync_event(
-                            "tab.reparent-sync-rolled-back",
-                            "WebView2 surfaces did not fully synchronize with their source Game Window during rollback.",
-                            tab_id,
-                            target_window_id,
-                            source_window_id,
-                            "provisional-rollback",
-                            Err(&failure),
-                            Some(errors.len()),
-                        );
-                    }
-                }
-            }
-        }
-        if state_committed {
-            let rollback_revision = self.presentation.next_revision();
-            if self
-                .presentation
-                .window_contains_tab(target_window_id, tab_id)
-            {
-                if let Err(error) = self.presentation.move_tab(
-                    tab_id,
-                    target_window_id,
-                    source_window_id,
-                    rollback_revision,
-                ) {
-                    errors.push(format!("presentation rollback: {error}"));
-                }
-            } else if !self
-                .presentation
-                .window_contains_tab(source_window_id, tab_id)
-            {
-                errors.push("presentation tab disappeared during rollback".to_owned());
-            }
-            match self.state.lock() {
-                Ok(mut state) => match state.tabs.get_mut(tab_id) {
-                    Some(tab) if tab.window_id == target_window_id => {
-                        tab.window_id = source_window_id.to_owned();
-                        for surface in state.surface_registry.values_mut() {
-                            if surface.tab_id.as_deref() == Some(tab_id) {
-                                surface.window_id = source_window_id.to_owned();
-                                rolled_back_surfaces.push(surface.clone());
-                            }
-                        }
-                    }
-                    Some(_) => errors.push("runtime tab host changed during rollback".to_owned()),
-                    None => errors.push("runtime tab disappeared during rollback".to_owned()),
-                },
-                Err(_) => errors.push("runtime state lock was poisoned during rollback".to_owned()),
-            }
-            for surface in &rolled_back_surfaces {
-                self.record_surface_event(
-                    LogLevel::Warn,
-                    "surface.move-rolled-back",
-                    "Native surface ownership move was rolled back.",
-                    surface,
-                );
-            }
-            if native_move.relocated {
-                #[cfg(any(windows, target_os = "macos"))]
-                let workspace_template = native_move.tab.workspace_template.as_deref();
-                #[cfg(not(any(windows, target_os = "macos")))]
-                let workspace_template: Option<&str> = None;
-                match self.relocate_native_tab_reservation(
-                    target_window_id,
-                    source_window_id,
-                    tab_id,
-                    &native_move.tab.title,
-                    &native_move.tab.tab_type,
-                    workspace_template,
-                    native_move.target_active_before_move.as_deref(),
-                    native_move.source_active_after_move.as_deref(),
-                    rollback_revision,
-                ) {
-                    Ok(()) => self.apply_native_active_style(
-                        source_window_id,
-                        native_move.source_active_before_move.as_deref(),
-                        rollback_revision,
-                        "provisional-rollback",
-                    ),
-                    Err(error) => errors.push(format!("native tab rollback: {}", error.message)),
-                }
-            }
-            if let Err(error) = self.layout_runtime_tab(tab_id) {
-                errors.push(format!("layout: {}", error.message));
-            }
-        }
-        if tab_was_visible {
-            for surface in surfaces {
-                if let Err(error) = surface.show() {
-                    errors.push(format!("show {}: {error}", surface.label()));
-                }
-            }
-        }
-        let source_visibility = if source_window_was_visible {
-            source_window.show()
-        } else {
-            source_window.hide()
-        };
-        if let Err(error) = source_visibility {
-            errors.push(format!("source window visibility: {error}"));
-        }
-        let target_visibility = if target_window_was_visible {
-            target_window.show()
-        } else {
-            target_window.hide()
-        };
-        if let Err(error) = target_visibility {
-            errors.push(format!("target window visibility: {error}"));
-        }
-        self.publish_projection();
-        errors
+        // LiveWindowTabState already owns the destination. A partially applied
+        // native projection is retried toward that destination and can never
+        // move the tab or any surface back to its previous window.
+        Vec::new()
     }
 
-    fn provisional_move_error(&self, original: String, rollback_errors: Vec<String>) -> String {
-        if rollback_errors.is_empty() {
-            return original;
-        }
-        self.health.mark_unhealthy();
-        provisional_move_failure_message(original, &rollback_errors)
-    }
-
-    pub fn cancel_provisional_tab_move(
-        &self,
-        tab_id: &str,
-        source_window_id: &str,
-        provisional_window_id: &str,
-    ) -> Result<(), String> {
-        let current_window_id = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| state.tabs.get(tab_id).map(|tab| tab.window_id.clone()));
-        let rollback = if current_window_id
-            .as_deref()
-            .is_some_and(|window_id| window_id != source_window_id)
-        {
-            self.provisionally_move_tab(tab_id, source_window_id)
-        } else {
-            Ok(())
-        };
-        if let Some(source) = self.window_for_id(source_window_id) {
-            let _ = source.show();
-            let _ = self.focus_runtime_window_direct(
-                source_window_id,
-                &source,
-                "cancelProvisionalTabMove",
-            );
-        }
-        self.discard_provisional_game_window(provisional_window_id);
-        self.publish_projection();
-        rollback
+    fn surface_projection_error(&self, original: String, _projection_notes: Vec<String>) -> String {
+        original
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {

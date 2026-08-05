@@ -210,6 +210,8 @@ impl AppCore {
             CoreCommand::GameWindowSaveRuntime { input } => self.save_runtime_game_window(input),
             CoreCommand::GameWindowRuntimeSnapshotCommit { input } =>
                 self.commit_runtime_window_snapshot(input),
+            CoreCommand::GameWindowRuntimeSnapshotBatchCommit { input } =>
+                self.commit_runtime_window_snapshot_batch(input),
             CoreCommand::GameWindowUpdate { id, input } => {
                 self.mutate_state(StateMutation::GameWindowUpdate { id, input })
             }
@@ -680,75 +682,6 @@ impl AppCore {
             }
             CoreCommand::EmbeddedWindowsShow { window_id } => {
                 self.show_embedded_windows(window_id)
-            }
-            CoreCommand::EmbeddedTabActivate { tab_id } => {
-                serde_json::to_value(self.apply_embedded_tab_selection_without_native_effect(
-                    BrowserRuntimeCommand::ActivateTab { tab_id },
-                )?)
-                .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::EmbeddedTabActivateConditional {
-                tab_id,
-                window_id,
-                selection_revision,
-            } => self.conditional_embedded_tab_activation(tab_id, window_id, selection_revision),
-            CoreCommand::EmbeddedTabActivateAdjacent {
-                window_id,
-                direction,
-            } => serde_json::to_value(self.apply_embedded_tab_selection_without_native_effect(
-                BrowserRuntimeCommand::ActivateAdjacentTab {
-                    window_id: window_id.clone(),
-                    direction,
-                },
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::EmbeddedTabHide { tab_id } => {
-                serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
-                    vec![BrowserRuntimeCommand::HideTab {
-                        tab_id: tab_id.clone(),
-                    }],
-                )?)
-                .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::EmbeddedTabReorder {
-                tab_id,
-                before_tab_id,
-            } => serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
-                vec![BrowserRuntimeCommand::ReorderTab {
-                    tab_id,
-                    before_tab_id,
-                }],
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            CoreCommand::EmbeddedTabMove { tab_id, target } => {
-                serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
-                    vec![BrowserRuntimeCommand::MoveTab {
-                        tab_id: tab_id.clone(),
-                        window_id: target.window_id.clone(),
-                    }],
-                )?)
-                .map_err(|error| CoreError::Internal(error.to_string()))
-            }
-            CoreCommand::EmbeddedTabMoveOrdered {
-                tab_id,
-                target,
-                before_tab_id,
-            } => serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
-                vec![
-                    BrowserRuntimeCommand::MoveTab {
-                        tab_id: tab_id.clone(),
-                        window_id: target.window_id.clone(),
-                    },
-                    BrowserRuntimeCommand::ReorderTab {
-                        tab_id: tab_id.clone(),
-                        before_tab_id,
-                    },
-                ],
-            )?)
-            .map_err(|error| CoreError::Internal(error.to_string())),
-            command @ (CoreCommand::EmbeddedTabMutation { .. }
-            | CoreCommand::EmbeddedTabDragTopologyCommit { .. }) => {
-                self.invoke_embedded_tab_mutation_command(command)
             }
             CoreCommand::BrowserStatuses => serde_json::to_value(self.browser_statuses()?)
                 .map_err(|error| CoreError::Internal(error.to_string())),

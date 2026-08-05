@@ -1,9 +1,9 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     path::PathBuf,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     time::Duration,
@@ -13,11 +13,11 @@ use rion_core::{
     AppCore, AppCoreOptions, BrowserRuntimeSnapshot, CoreCommand, CoreEffectAction,
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
-    GameWindowPlacementRecord, GameWindowRoleViewRecord, GameWindowTabRecord,
+    GameWindowPlacementRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
     StateCollection, StateGameWindowRecord,
     StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
-    RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord, RuntimeTabMutationRequestRecord,
+    RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord,
 };
 use serde_json::{Value, json};
 use tauri::{
@@ -27,7 +27,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use activation::ActivationServer;
 use system_runtime::{
-    RuntimeTabDragTerminalStatus, RuntimeTabDragWindowSnapshot, RuntimeTabMutationAcceptance,
+    RuntimeTabDragTerminalStatus, RuntimeTabMutationAcceptance,
     RuntimeTabMutationProjectionOutcome, RuntimeTabMutationTerminalStatus, SystemRuntimeExecutor,
     TabActivationComponentStatus,
 };
@@ -74,14 +74,9 @@ struct CoreState {
     runtime_launcher_refresh: runtime_tab_menu::RefreshCoordinator,
     launch_intents: runtime_tab_menu::LaunchIntentDispatcher,
     runtime: Arc<SystemRuntimeExecutor>,
-    tab_selection_commit: TabSelectionCommitCoordinator,
     tab_drag: Mutex<Option<GameWindowTabDragSession>>,
     tab_drag_finished: Mutex<VecDeque<CompletedGameWindowTabDrag>>,
     tab_drag_lane: tokio::sync::Mutex<()>,
-    tab_drag_projection_queue:
-        OnceLock<tokio::sync::mpsc::UnboundedSender<QueuedTabDragProjection>>,
-    tab_mutation_sink_queue:
-        OnceLock<tokio::sync::mpsc::UnboundedSender<QueuedTabMutationSink>>,
     #[cfg(target_os = "macos")]
     macos_tab_drag_actions:
         OnceLock<tokio::sync::mpsc::UnboundedSender<runtime_tabs_macos::QueuedNativeTabAction>>,
@@ -204,20 +199,15 @@ pub(crate) fn commit_previewed_tab_selection(
     tab_id: &str,
     activation_operation_id: Option<&str>,
 ) -> Result<(), String> {
-    let selection_revision = state
+    state
         .runtime
         .tab_selection_revision(window_id, tab_id)
         .ok_or_else(|| "The previewed tab selection is no longer current.".to_owned())?;
-    state
-        .tab_selection_commit
-        .request(TabSelectionCommitRequest {
-            activation_operation_id: activation_operation_id.map(str::to_owned),
-            core: Arc::clone(&state.core),
-            runtime: Arc::clone(&state.runtime),
-            tab_id: tab_id.to_owned(),
-            window_id: window_id.to_owned(),
-            selection_revision,
-        })?;
+    if let Some(operation_id) = activation_operation_id {
+        state
+            .runtime
+            .finish_tab_activation_core(operation_id, TabActivationComponentStatus::Applied);
+    }
     state
         .runtime
         .schedule_live_window_state_persistence(window_id);
@@ -265,16 +255,13 @@ struct GameWindowTabDragSession {
     latest_move_revision: u64,
     latest_screen_x: f64,
     latest_screen_y: f64,
-    native_changes_applied: bool,
     operation_id: String,
     original_target: EmbeddedLaunchTargetRecord,
     phase: GameWindowTabDragPhase,
     processed_move_revision: u64,
     provisional_window_id: String,
     single_tab: bool,
-    snapshots: HashMap<String, RuntimeTabDragWindowSnapshot>,
     source_window_id: String,
-    source_window_generation: u64,
     source_cancelled: bool,
     source_drop_accepted: bool,
     source_end_received: bool,
@@ -290,358 +277,6 @@ struct GameWindowTabDragSession {
 }
 
 #[derive(Clone)]
-struct WorkspaceConflictRollbackPlan {
-    active: bool,
-    audio_muted: bool,
-    before_tab_id: Option<String>,
-    hidden: bool,
-    role_zoom_factor: Option<f64>,
-    role_views: Vec<GameWindowRoleViewRecord>,
-    source_id: String,
-    tab_id: String,
-    tab_type: String,
-    target: EmbeddedLaunchTargetRecord,
-    window_index: usize,
-}
-
-struct SavedWindowTakeover {
-    original_target_tab_ids: HashSet<String>,
-    plans: Vec<WorkspaceConflictRollbackPlan>,
-    recovery_records: Vec<StateGameWindowRecord>,
-    target_window_id: String,
-}
-
-fn sort_workspace_conflict_rollback_plans(plans: &mut [WorkspaceConflictRollbackPlan]) {
-    plans.sort_by(|left, right| {
-        left.target
-            .window_id
-            .cmp(&right.target.window_id)
-            .then(left.window_index.cmp(&right.window_index))
-    });
-}
-
-async fn stop_workspace_conflict(
-    state: &CoreState,
-    plan: &WorkspaceConflictRollbackPlan,
-) -> Result<(), CoreErrorPayload> {
-    let command = if plan.tab_type == "workspace" {
-        CoreCommand::BrowserWorkspaceStop {
-            workspace_id: plan.source_id.clone(),
-        }
-    } else {
-        CoreCommand::BrowserRoleStop {
-            role_id: plan.source_id.clone(),
-        }
-    };
-    Arc::clone(&state.core)
-        .invoke_async(command)
-        .await
-        .map(|_| ())
-        .map_err(error_payload)
-}
-
-async fn rollback_workspace_conflicts(
-    state: &CoreState,
-    plans: &[WorkspaceConflictRollbackPlan],
-) -> Vec<String> {
-    let mut errors = Vec::new();
-    let mut restored_tab_ids = HashMap::new();
-    for plan in plans.iter().rev() {
-        let launch = if plan.tab_type == "workspace" {
-            CoreCommand::BrowserWorkspaceLaunch {
-                workspace_id: plan.source_id.clone(),
-                target: plan.target.clone(),
-                launch_preview_id: None,
-                restore_role_slots: None,
-            }
-        } else {
-            CoreCommand::BrowserRoleLaunch {
-                role_id: plan.source_id.clone(),
-                target: plan.target.clone(),
-                launch_preview_id: None,
-                zoom_factor: plan.role_zoom_factor,
-            }
-        };
-        if let Err(error) = Arc::clone(&state.core).invoke_async(launch).await {
-            errors.push(format!("launch {}: {error}", plan.source_id));
-            continue;
-        }
-        let restored_tab_id = browser_runtime_snapshot(state)
-            .ok()
-            .and_then(|snapshot| {
-                snapshot
-                    .tabs
-                    .into_iter()
-                    .find(|tab| {
-                        tab.window_id == plan.target.window_id
-                            && tab.tab_type == plan.tab_type
-                            && tab.source_id == plan.source_id
-                    })
-                    .map(|tab| tab.id)
-            })
-            .unwrap_or_else(|| plan.tab_id.clone());
-        restored_tab_ids.insert(plan.tab_id.clone(), restored_tab_id.clone());
-        let before_tab_id = plan.before_tab_id.as_ref().map(|before_tab_id| {
-            restored_tab_ids
-                .get(before_tab_id)
-                .cloned()
-                .unwrap_or_else(|| before_tab_id.clone())
-        });
-        if let Err(error) = Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedTabReorder {
-                tab_id: restored_tab_id.clone(),
-                before_tab_id,
-            })
-            .await
-        {
-            errors.push(format!("reorder {}: {error}", plan.tab_id));
-        }
-        if plan.hidden
-            && let Err(error) = Arc::clone(&state.core)
-                .invoke_async(CoreCommand::EmbeddedTabHide {
-                    tab_id: restored_tab_id.clone(),
-                })
-                .await
-        {
-            errors.push(format!("hide {}: {error}", plan.tab_id));
-        }
-        if plan.audio_muted
-            && let Err(error) = state.runtime.set_tab_audio_muted(&restored_tab_id, true)
-        {
-            errors.push(format!("mute {}: {error}", plan.tab_id));
-        }
-        if let Err(error) = state
-            .runtime
-            .restore_tab_role_views(&restored_tab_id, &plan.role_views)
-        {
-            errors.push(format!("layout {}: {error}", plan.tab_id));
-        }
-    }
-    for plan in plans.iter().filter(|plan| plan.active && !plan.hidden) {
-        let tab_id = restored_tab_ids
-            .get(&plan.tab_id)
-            .cloned()
-            .unwrap_or_else(|| plan.tab_id.clone());
-        if let Err(error) = Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedTabActivate { tab_id })
-            .await
-        {
-            errors.push(format!("activate {}: {error}", plan.tab_id));
-        }
-    }
-    errors
-}
-
-fn restore_workspace_conflict_metadata(
-    state: &CoreState,
-    records: &[StateGameWindowRecord],
-) -> Vec<String> {
-    records
-        .iter()
-        .filter_map(|record| {
-            state
-                .core
-                .invoke(CoreCommand::GameWindowUpdate {
-                    id: record.id.clone(),
-                    input: GameWindowUpdateInputRecord {
-                        name: Some(record.name.clone()),
-                        target_display: Some(record.target_display.clone()),
-                        placement: Some(record.placement.clone()),
-                        tabs: Some(record.tabs.clone()),
-                        active_tab_id: Some(record.active_tab_id.clone()),
-                    },
-                })
-                .err()
-                .map(|error| format!("persist {}: {error}", record.id))
-        })
-        .collect()
-}
-
-fn workspace_conflict_transaction_error(
-    state: &CoreState,
-    original: CoreErrorPayload,
-    mut rollback_errors: Vec<String>,
-    recovery_records: &[StateGameWindowRecord],
-) -> CoreErrorPayload {
-    if rollback_errors.is_empty() {
-        return original;
-    }
-    rollback_errors.extend(restore_workspace_conflict_metadata(state, recovery_records));
-    state.runtime.mark_unhealthy_after_failed_compensation();
-    shell_error(
-        "TAURI_WORKSPACE_CONFLICT_ROLLBACK_FAILED",
-        format!(
-            "{} ({}) Conflict restoration also failed: {}. Restart Rion Studio to recover safely.",
-            original.message,
-            original.code,
-            rollback_errors.join("; ")
-        ),
-    )
-}
-
-async fn begin_saved_window_takeover(
-    state: &CoreState,
-    saved: &StateGameWindowRecord,
-    game_windows: &[StateGameWindowRecord],
-) -> Result<SavedWindowTakeover, CoreErrorPayload> {
-    let snapshot = browser_runtime_snapshot(state)?;
-    let desired_sources = saved
-        .tabs
-        .iter()
-        .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
-        .collect::<HashSet<_>>();
-    let original_target_tab_ids = snapshot
-        .tabs
-        .iter()
-        .filter(|tab| tab.window_id == saved.id)
-        .map(|tab| tab.id.clone())
-        .collect::<HashSet<_>>();
-    let conflicting_tabs = snapshot
-        .tabs
-        .iter()
-        .filter(|tab| {
-            tab.window_id != saved.id
-                && desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut affected_window_ids = HashSet::from([saved.id.clone()]);
-    let mut plans = Vec::with_capacity(conflicting_tabs.len());
-    for tab in conflicting_tabs {
-        let runtime_window = snapshot
-            .windows
-            .iter()
-            .find(|window| window.window_id == tab.window_id)
-            .ok_or_else(|| {
-                shell_error(
-                    "TAURI_RUNTIME_SNAPSHOT_INVALID",
-                    "A conflicting runtime tab has no runtime window.",
-                )
-            })?;
-        let window_index = runtime_window
-            .tab_ids
-            .iter()
-            .position(|tab_id| tab_id == &tab.id)
-            .ok_or_else(|| {
-                shell_error(
-                    "TAURI_RUNTIME_SNAPSHOT_INVALID",
-                    "A conflicting runtime tab is missing from its window order.",
-                )
-            })?;
-        let role_views = state
-            .runtime
-            .runtime_tab_role_views(&tab.id)
-            .map_err(|error| shell_error("TAURI_RUNTIME_ROLE_NOT_FOUND", error))?;
-        affected_window_ids.insert(tab.window_id.clone());
-        plans.push(WorkspaceConflictRollbackPlan {
-            active: runtime_window.active_tab_id.as_deref() == Some(tab.id.as_str()),
-            audio_muted: state
-                .runtime
-                .tab_audio_muted(&tab.id)
-                .map_err(|error| shell_error("TAURI_RUNTIME_AUDIO_FAILED", error))?,
-            before_tab_id: runtime_window.tab_ids.get(window_index + 1).cloned(),
-            hidden: tab.hidden,
-            role_zoom_factor: (tab.tab_type == "role")
-                .then(|| {
-                    role_views
-                        .first()
-                        .map(|view| view.browser_zoom_percent / 100.0)
-                })
-                .flatten(),
-            role_views,
-            source_id: tab.source_id,
-            tab_id: tab.id,
-            tab_type: tab.tab_type,
-            target: state
-                .runtime
-                .launch_target_for_window_id(&tab.window_id)
-                .map_err(|error| shell_error("TAURI_RUNTIME_DISPLAY_NOT_FOUND", error))?,
-            window_index,
-        });
-    }
-    sort_workspace_conflict_rollback_plans(&mut plans);
-    let recovery_records = game_windows
-        .iter()
-        .filter(|window| affected_window_ids.contains(&window.id))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    for index in 0..plans.len() {
-        if let Err(error) = stop_workspace_conflict(state, &plans[index]).await {
-            let mut rollback_errors = restore_workspace_conflict_metadata(state, &recovery_records);
-            rollback_errors.extend(rollback_workspace_conflicts(state, &plans[..index]).await);
-            return Err(workspace_conflict_transaction_error(
-                state,
-                error,
-                rollback_errors,
-                &recovery_records,
-            ));
-        }
-    }
-    let persistence_errors = restore_workspace_conflict_metadata(state, &recovery_records);
-    if !persistence_errors.is_empty() {
-        let mut rollback_errors = persistence_errors;
-        rollback_errors.extend(rollback_workspace_conflicts(state, &plans).await);
-        return Err(workspace_conflict_transaction_error(
-            state,
-            shell_error(
-                "TAURI_GAME_WINDOW_TAKEOVER_PERSIST_FAILED",
-                "Saved Game Window configurations could not be preserved during takeover.",
-            ),
-            rollback_errors,
-            &recovery_records,
-        ));
-    }
-    Ok(SavedWindowTakeover {
-        original_target_tab_ids,
-        plans,
-        recovery_records,
-        target_window_id: saved.id.clone(),
-    })
-}
-
-async fn rollback_saved_window_takeover(
-    state: &CoreState,
-    takeover: &SavedWindowTakeover,
-) -> Vec<String> {
-    let mut errors = Vec::new();
-    if let Ok(snapshot) = browser_runtime_snapshot(state) {
-        let launched_target_tabs = snapshot
-            .tabs
-            .iter()
-            .filter(|tab| {
-                tab.window_id == takeover.target_window_id
-                    && !takeover.original_target_tab_ids.contains(&tab.id)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for tab in launched_target_tabs.into_iter().rev() {
-            let command = if tab.tab_type == "workspace" {
-                CoreCommand::BrowserWorkspaceStop {
-                    workspace_id: tab.source_id.clone(),
-                }
-            } else {
-                CoreCommand::BrowserRoleStop {
-                    role_id: tab.source_id.clone(),
-                }
-            };
-            if let Err(error) = Arc::clone(&state.core).invoke_async(command).await {
-                errors.push(format!("stop takeover tab {}: {error}", tab.id));
-            }
-        }
-    }
-    errors.extend(restore_workspace_conflict_metadata(
-        state,
-        &takeover.recovery_records,
-    ));
-    errors.extend(rollback_workspace_conflicts(state, &takeover.plans).await);
-    errors.extend(restore_workspace_conflict_metadata(
-        state,
-        &takeover.recovery_records,
-    ));
-    errors
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum RuntimeRestoreTabMatch {
     Missing,

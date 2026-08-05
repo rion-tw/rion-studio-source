@@ -442,6 +442,10 @@ impl SystemRuntimeExecutor {
             .get(&target.window_id)
             .map(|host| host.window.clone())
         {
+            self.update_live_window_target(target, false)
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?;
             self.register_runtime_launcher_window(&target.window_id);
             return Ok((window, false));
         }
@@ -552,6 +556,14 @@ impl SystemRuntimeExecutor {
         drop(state);
         self.presentation
             .set_window_generation(&target.window_id, window_generation)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        self.update_live_window_target(target, false)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        self.set_live_window_persisted_name(&target.window_id, saved_name)
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;

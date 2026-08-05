@@ -438,7 +438,16 @@ impl SystemRuntimeExecutor {
                 .map(|host| host.window.label().to_owned())
         });
         if persist_final_placement && label.is_some() {
-            if let Err(error) = self.touch_live_window_state(window_id) {
+            let target = self.state.lock().ok().and_then(|state| {
+                state
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| host.target.clone())
+            });
+            let result = target
+                .ok_or_else(|| "Live Game Window drag target was retired.".to_owned())
+                .and_then(|target| self.update_live_window_target(&target, true));
+            if let Err(error) = result {
                 eprintln!(
                     "Live Game Window drag placement snapshot could not be queued: window={window_id} error={error}"
                 );

@@ -366,9 +366,12 @@ struct SurfacePresentationBinding {
 struct LiveWindowRecord {
     aliases: HashMap<String, String>,
     hidden_tab_ids: HashSet<String>,
+    persisted_name: Option<String>,
+    placement: Option<GameWindowPlacementRecord>,
     revision: u64,
     selected_tab_id: Option<String>,
     tabs: Vec<TabPresentation>,
+    target_display: Option<DisplayTargetRecord>,
     ui_sequence: u64,
     window_generation: u64,
     window_id: String,
@@ -533,15 +536,20 @@ impl LiveWindowTabState {
         }
     }
 
-    fn update_persistence_metadata(
-        &mut self,
-        tab_id: &str,
-        role_slots: Vec<GameWindowRoleSlotRecord>,
-        audio_muted: bool,
-    ) {
+    fn update_audio_muted(&mut self, tab_id: &str, audio_muted: bool) {
         if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            tab.role_slots = role_slots;
             tab.audio_muted = audio_muted;
+        }
+    }
+
+    fn update_role_zoom(&mut self, tab_id: &str, role_id: &str, percent: f64) {
+        if let Some(slot) = self
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.id == tab_id)
+            .and_then(|tab| tab.role_slots.iter_mut().find(|slot| slot.role_id == role_id))
+        {
+            slot.browser_zoom_percent = Some(percent.clamp(25.0, 500.0));
         }
     }
 

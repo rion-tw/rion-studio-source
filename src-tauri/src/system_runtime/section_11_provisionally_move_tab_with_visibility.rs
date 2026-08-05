@@ -558,6 +558,11 @@ impl SystemRuntimeExecutor {
             }
             return Ok(self.operations.complete(receipt).summary());
         }
+        if let Some(live) = self.presentation.existing(&window_id)
+            && let Ok(mut live) = live.lock()
+        {
+            live.update_audio_muted(tab_id, muted);
+        }
         self.publish_projection();
         if let Err(error) = self.touch_live_window_state(&window_id) {
             eprintln!("Live tab audio revision could not advance: window={window_id} error={error}");

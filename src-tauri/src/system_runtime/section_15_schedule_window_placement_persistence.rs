@@ -56,12 +56,7 @@ impl SystemRuntimeExecutor {
                         break;
                     }
                     if let Some(window_id) = runtime.window_id_for_label(&worker_label) {
-                        match runtime.touch_live_window_state(&window_id) {
-                            Ok(_) => runtime.schedule_live_window_state_persistence(&window_id),
-                            Err(error) => eprintln!(
-                                "Live Game Window placement snapshot could not be queued: window={window_id} error={error}"
-                            ),
-                        }
+                        runtime.schedule_live_window_state_persistence(&window_id);
                     }
                     break;
                 }
@@ -72,12 +67,7 @@ impl SystemRuntimeExecutor {
                 state.pending_window_placement_writes.remove(&label);
             }
             if let Some(window_id) = self.window_id_for_label(&label) {
-                match self.touch_live_window_state(&window_id) {
-                    Ok(_) => self.schedule_live_window_state_persistence(&window_id),
-                    Err(error) => eprintln!(
-                        "Live Game Window placement snapshot could not be queued: window={window_id} error={error}"
-                    ),
-                }
+                self.schedule_live_window_state_persistence(&window_id);
             }
         }
     }
@@ -582,6 +572,11 @@ impl SystemRuntimeExecutor {
             .or_else(|| webviews.first())
         {
             show_zoom_indicator(source, &format!("{percent}%"));
+        }
+        if let Some(live) = self.presentation.existing(&window_id)
+            && let Ok(mut live) = live.lock()
+        {
+            live.update_role_zoom(&tab_id, &role_id, percent as f64);
         }
         if let Err(error) = self.touch_live_window_state(&window_id) {
             eprintln!("Live role zoom revision could not advance: window={window_id} error={error}");

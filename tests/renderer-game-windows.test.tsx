@@ -52,13 +52,40 @@ describe("Game Window management", () => {
     renderRoute();
 
     const table = screen.getByRole("table", { name: "Game Windows" });
-    expect(within(table).getByRole("columnheader", { name: "Window" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: /^Window/ })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Status" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Target display" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Active" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Tabs" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Actions" })).toBeTruthy();
     expect(within(table).getByText("Raid window")).toBeTruthy();
-    expect(within(table).getByText("Active: Mina")).toBeTruthy();
+    expect(within(table).getByText("Mina")).toBeTruthy();
+  });
+
+  it("sorts window rows from each data column like the macro list", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+    const alphaWindow = { ...emptyGameWindow, id: "window-2", name: "Alpha window" };
+    const zuluWindow = { ...emptyGameWindow, id: "window-3", name: "Zulu window" };
+
+    renderRoute({ gameWindows: [gameWindow, zuluWindow, alphaWindow] });
+
+    const table = screen.getByRole("table", { name: "Game Windows" });
+    expect(within(table).getByTitle("Sort by Window")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Status")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Target display")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Active")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Tabs")).toBeTruthy();
+    expect(windowRowIds(table)).toEqual(["window-2", "window-1", "window-3"]);
+
+    const nameSort = within(table).getByTitle("Sort by Window");
+    await user.click(nameSort);
+
+    expect(nameSort.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+    expect(windowRowIds(table)).toEqual(["window-3", "window-1", "window-2"]);
   });
 
   it("applies the shared bulk selection UI to game window rows", async () => {
@@ -106,7 +133,7 @@ describe("Game Window management", () => {
     expect(screen.queryByRole("toolbar")).toBeNull();
   });
 
-  it("keeps window management in the list and delegates tab management to the shown window", async () => {
+  it("keeps window management in the list and changes displays from the action submenu", async () => {
     const user = userEvent.setup();
     const showGameWindow = vi.fn(() => Promise.resolve());
     const hideGameWindow = vi.fn(() => Promise.resolve());
@@ -131,13 +158,22 @@ describe("Game Window management", () => {
     expect(screen.getByText("Raid window")).toBeTruthy();
     expect(screen.getByText("Hidden")).toBeTruthy();
     expect(screen.getByText("1 tabs")).toBeTruthy();
-    expect(screen.getByText("Active: Mina")).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: "Target display" })).toBeTruthy();
+    expect(screen.getByText("Mina")).toBeTruthy();
+    expect(screen.getByText("Studio Display · Primary")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Target display" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename or change display" })).toBeNull();
 
-    await user.click(screen.getByRole("combobox", { name: "Target display" }));
-    await user.click(screen.getByRole("option", { name: "Side Display" }));
+    const showButton = screen.getByRole("button", { name: "Show" });
+    expect(showButton.textContent).toBe("");
+
+    const actionsButton = screen.getByRole("button", { name: "Game window actions" });
+    await user.click(actionsButton);
+    await user.click(screen.getByRole("menuitem", { name: "Target display" }));
+
+    const selectedDisplay = await screen.findByRole("menuitemradio", { name: "Studio Display · Primary" });
+    expect(selectedDisplay.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Side Display" }));
 
     await waitFor(() => expect(updateGameWindow).toHaveBeenCalledWith("window-1", {
       targetDisplay: expect.objectContaining({ id: 8 }),
@@ -146,9 +182,9 @@ describe("Game Window management", () => {
         savedWorkArea: secondaryDisplay.workArea
       })
     }));
+    expect(screen.queryByRole("toolbar")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Show" }));
-    const actionsButton = screen.getByRole("button", { name: "Game window actions" });
+    await user.click(showButton);
     await waitFor(() => expect(actionsButton).toHaveProperty("disabled", false));
     await user.click(actionsButton);
     await user.click(screen.getByRole("menuitem", { name: "Hide window" }));
@@ -162,6 +198,28 @@ describe("Game Window management", () => {
     expect(screen.queryByRole("button", { name: "Mute tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hide tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop tab" })).toBeNull();
+  });
+
+  it("shows unavailable targets as text while still offering connected displays in the action submenu", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        updateGameWindow: vi.fn(() => Promise.resolve(gameWindow))
+      }
+    });
+
+    renderRoute({ gameWindows: [{ ...gameWindow, targetDisplay: { id: 99 } }] });
+
+    expect(screen.getByText("Display unavailable")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Target display" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Target display" }));
+
+    expect((await screen.findByRole("menuitemradio", { name: "Studio Display · Primary" }))
+      .getAttribute("aria-checked")).toBe("false");
   });
 
   it("creates a default window from the list without opening a window editor", async () => {
@@ -282,6 +340,13 @@ function renderRoute({
       <GameWindowsRoute displays={displays} gameWindows={gameWindows} runtime={runtimeState} t={t} onError={vi.fn()} />
     </ConfirmationProvider>
   );
+}
+
+function windowRowIds(table: HTMLElement): Array<string | null> {
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => row.getAttribute("data-selection-id"));
 }
 
 const display = {

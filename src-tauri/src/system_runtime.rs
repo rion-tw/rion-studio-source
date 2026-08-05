@@ -69,6 +69,7 @@ include!("system_runtime/section_21_runtime_layout.rs");
 include!("system_runtime/section_21_ready_surface_viewport.rs");
 include!("system_runtime/section_22_with_native_creation_lane.rs");
 include!("system_runtime/section_22_role_placeholder.rs");
+include!("system_runtime/section_22_native_tab_reservation.rs");
 include!("system_runtime/section_23_create_tab.rs");
 include!("system_runtime/section_23_claim_role_slot.rs");
 include!("system_runtime/section_24_start_role_loads.rs");

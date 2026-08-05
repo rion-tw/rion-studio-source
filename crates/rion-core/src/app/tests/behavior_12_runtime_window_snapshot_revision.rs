@@ -219,6 +219,93 @@ fn runtime_window_snapshot_commit_is_latest_revision_wins() {
 }
 
 #[test]
+fn live_window_snapshot_order_is_not_overwritten_by_late_runtime_projection() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform(platform);
+        let window_id = core
+            .invoke(command(json!({
+                "type": "gameWindowCreate",
+                "input": {
+                    "name": "Ordered runtime",
+                    "targetDisplay": { "id": 1 },
+                    "placement": {
+                        "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                        "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                        "presentation": "normal"
+                    }
+                }
+            })))
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut runtime_snapshot = None;
+        for source_id in ["role-a", "role-b", "role-c"] {
+            let created = core
+                .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                    tab_id: None,
+                    source_id: source_id.to_owned(),
+                    name: source_id.to_owned(),
+                    window_id: window_id.clone(),
+                    tab_type: "role".to_owned(),
+                    workspace_id: None,
+                    role_slots: test_role_slots(&[source_id]),
+                })
+                .unwrap();
+            runtime_snapshot = Some(created.snapshot);
+        }
+        let runtime_snapshot = runtime_snapshot.unwrap();
+        core.sync_game_windows_from_runtime(&runtime_snapshot, &HashSet::new())
+            .unwrap();
+        let saved = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap();
+        let saved_tabs = saved["tabs"].as_array().unwrap();
+        let live_order = vec![
+            saved_tabs[1].clone(),
+            saved_tabs[2].clone(),
+            saved_tabs[0].clone(),
+        ];
+        let live_active_tab_id = live_order[2]["id"].as_str().unwrap().to_owned();
+
+        assert_eq!(
+            commit_live_window_tabs(
+                &core,
+                &window_id,
+                3,
+                9,
+                "Ordered runtime",
+                live_order,
+                Some(&live_active_tab_id),
+            )["status"],
+            "applied",
+            "{platform}"
+        );
+        core.sync_game_windows_from_runtime(&runtime_snapshot, &HashSet::new())
+            .unwrap();
+
+        let after_late_projection = core
+            .invoke(CoreCommand::GameWindowGet {
+                id: window_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(
+            after_late_projection["tabs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tab| tab["sourceId"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["role-b", "role-c", "role-a"],
+            "late Core owner projection must not replace live UI order on {platform}"
+        );
+        core.shutdown();
+    }
+}
+
+#[test]
 fn typed_tab_stop_leaves_saved_topology_to_the_live_snapshot_commit() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) = core_for_platform(platform);

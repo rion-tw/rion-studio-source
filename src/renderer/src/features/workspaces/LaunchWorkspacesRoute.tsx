@@ -1,14 +1,10 @@
 import {
-  Copy,
   LayoutDashboard,
   Loader2,
-  MoreHorizontal,
-  Pencil,
   Play,
   Plus,
   Search,
-  Square,
-  Trash2
+  Square
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -17,16 +13,18 @@ import {
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type RefCallback,
-  useEffect,
   useMemo,
-  useRef,
-  useState
+  useRef
 } from "react";
 
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardTitle } from "../../components/ui/card";
-import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
+import {
+  ContextMenu,
+  ContextMenuTrigger
+} from "../../components/ui/context-menu";
+import { PageFrame, PageHeader } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { CreateItemCard } from "../../components/CreateListItem";
 import {
@@ -54,6 +52,7 @@ import {
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
+import { WorkspaceActionMenu, WorkspaceContextMenuContent } from "./WorkspaceActionMenu";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
@@ -291,17 +290,19 @@ function WorkspaceCard({
   const primaryActionLabel = isRunning ? t("workspaces.stop") : t("workspaces.launch");
 
   return (
-    <Card
-      ref={selectionRef}
-      className={cn(
-        "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
-        isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
-      )}
-      data-selection-id={workspace.id}
-      data-workspace-reorder-id={workspace.id}
-      onClickCapture={onSelectionClick}
-    >
+    <ContextMenu>
+      <ContextMenuTrigger asChild disabled={isDragging}>
+        <Card
+          ref={selectionRef}
+          className={cn(
+            "group relative overflow-visible glass-panel-strong transition-[box-shadow,opacity] duration-150",
+            isDragging && "opacity-45",
+            isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
+          )}
+          data-selection-id={workspace.id}
+          data-workspace-reorder-id={workspace.id}
+          onClickCapture={onSelectionClick}
+        >
       <SelectionCardOverlay isSelected={isSelected} />
       <div className="relative overflow-hidden rounded-t-lg">
         <WorkspaceLayoutPreview
@@ -368,7 +369,16 @@ function WorkspaceCard({
           </Badge>
         </div>
       </div>
-    </Card>
+        </Card>
+      </ContextMenuTrigger>
+      <WorkspaceContextMenuContent
+        isBusy={isBusy}
+        t={t}
+        onCopy={onCopy}
+        onDelete={onDelete}
+        onEdit={onEdit}
+      />
+    </ContextMenu>
   );
 }
 
@@ -650,136 +660,6 @@ function createPreviewFlexStyle(weight: number): CSSProperties {
     flexBasis: 0,
     flexGrow: Math.max(weight, 0.001)
   };
-}
-
-interface WorkspaceActionMenuProps {
-  canReorder: boolean;
-  isDragging: boolean;
-  isBusy: boolean;
-  onCopy: () => void;
-  onDelete: () => void;
-  onEdit: () => void;
-  onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
-  t: Translator;
-}
-
-function WorkspaceActionMenu({
-  canReorder,
-  isBusy,
-  isDragging,
-  onCopy,
-  onDelete,
-  onReorderPointerDown,
-  onEdit,
-  t
-}: WorkspaceActionMenuProps): JSX.Element {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (isDragging) {
-      setIsOpen(false);
-    }
-  }, [isDragging]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent): void {
-      if (menuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsOpen(false);
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div ref={menuRef} className="relative shrink-0">
-      <Button
-        className={cn(
-          "h-7 w-7 touch-none",
-          canReorder && "cursor-grab active:cursor-grabbing",
-          isDragging && "cursor-grabbing"
-        )}
-        type="button"
-        variant="secondary"
-        size="icon"
-        title={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
-        aria-label={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((current) => !current)}
-        onPointerDown={canReorder ? onReorderPointerDown : undefined}
-      >
-        <MoreHorizontal size={14} />
-      </Button>
-
-      {isOpen ? (
-        <Surface
-          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-32 overflow-hidden text-popover-foreground"
-          padding="xs"
-          variant="popover"
-          role="menu"
-        >
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setIsOpen(false);
-              onEdit();
-            }}
-          >
-            <Pencil size={14} />
-            <span>{t("workspaces.edit")}</span>
-          </button>
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setIsOpen(false);
-              onCopy();
-            }}
-            disabled={isBusy}
-          >
-            <Copy size={14} />
-            <span>{t("workspaces.copy")}</span>
-          </button>
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setIsOpen(false);
-              onDelete();
-            }}
-            disabled={isBusy}
-          >
-            <Trash2 size={14} />
-            <span>{t("workspaces.delete")}</span>
-          </button>
-        </Surface>
-      ) : null}
-    </div>
-  );
 }
 
 export default LaunchWorkspacesView;

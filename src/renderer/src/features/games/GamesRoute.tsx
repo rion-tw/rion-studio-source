@@ -21,9 +21,16 @@ import { SearchField } from "../../components/SearchField";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from "../../components/ui/context-menu";
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 import { useListSelection } from "../../hooks/useListSelection";
+import { cn } from "../../lib/utils";
 import type { Game } from "../../../../shared/types";
 
 interface GamesRouteProps {
@@ -99,58 +106,68 @@ function GamesRoute({
             const iconUrl = getGameIconUrl(game);
             const coverUrl = getGameCoverUrl(game);
             return (
-              <Card
-                key={game.id}
-                ref={selection.registerItem(game.id)}
-                className="group relative overflow-hidden transition-[box-shadow,background-color]"
-                data-selection-id={game.id}
-                onClickCapture={(event) => selection.handleItemClick(event, game.id)}
-              >
-                <SelectionCardOverlay isSelected={selection.isSelected(game.id)} />
-                <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
-                  <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15 [contain:paint]">
-                    {coverUrl ? (
-                      <img
-                        className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
-                        src={coverUrl}
-                        alt=""
-                        decoding="async"
-                        draggable={false}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 grid place-items-center">
-                        {iconUrl ? (
-                          <img className="size-16 rounded-lg object-cover opacity-85 shadow-lg ring-1 ring-on-media/25" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" />
+              <ContextMenu key={game.id}>
+                <ContextMenuTrigger asChild>
+                  <Card
+                    ref={selection.registerItem(game.id)}
+                    className="group relative overflow-hidden transition-[box-shadow,background-color]"
+                    data-selection-id={game.id}
+                    onClickCapture={(event) => selection.handleItemClick(event, game.id)}
+                  >
+                    <SelectionCardOverlay isSelected={selection.isSelected(game.id)} />
+                    <button className="block w-full min-w-0 text-left" type="button" onClick={() => onEdit(game)}>
+                      <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-primary/15 via-muted/80 to-accent/15 [contain:paint]">
+                        {coverUrl ? (
+                          <img
+                            className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.015]"
+                            src={coverUrl}
+                            alt=""
+                            decoding="async"
+                            draggable={false}
+                            loading="lazy"
+                          />
                         ) : (
-                          <Gamepad2 className="text-muted-foreground/65" size={42} />
+                          <div className="absolute inset-0 grid place-items-center">
+                            {iconUrl ? (
+                              <img className="size-16 rounded-lg object-cover opacity-85 shadow-lg ring-1 ring-on-media/25" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" />
+                            ) : (
+                              <Gamepad2 className="text-muted-foreground/65" size={42} />
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                  <div className="flex min-w-0 items-center gap-3 px-4 py-4">
-                    <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
-                      {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" /> : <Gamepad2 size={20} />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h2 className="truncate text-sm font-semibold">{game.name}</h2>
-                        {game.source === "custom" ? <Badge variant="muted">{t("games.custom")}</Badge> : null}
+                      <div className="flex min-w-0 items-center gap-3 px-4 py-4">
+                        <div className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                          {iconUrl ? <img className="size-full object-cover" src={iconUrl} alt="" decoding="async" draggable={false} loading="lazy" /> : <Gamepad2 size={20} />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h2 className="truncate text-sm font-semibold">{game.name}</h2>
+                            {game.source === "custom" ? <Badge variant="muted">{t("games.custom")}</Badge> : null}
+                          </div>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">{game.defaultLaunchUrl}</p>
+                    </button>
+                    <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                      <GameActionMenu
+                        game={game}
+                        t={t}
+                        onDelete={() => onDelete(game)}
+                        onEdit={() => onEdit(game)}
+                        onNewRole={() => onNewRole(game.id)}
+                      />
                     </div>
-                  </div>
-                </button>
-                <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-                  <GameActionMenu
-                    game={game}
-                    t={t}
-                    onDelete={() => onDelete(game)}
-                    onEdit={() => onEdit(game)}
-                    onNewRole={() => onNewRole(game.id)}
-                  />
-                </div>
-              </Card>
+                  </Card>
+                </ContextMenuTrigger>
+                <GameContextMenuContent
+                  game={game}
+                  t={t}
+                  onDelete={() => onDelete(game)}
+                  onEdit={() => onEdit(game)}
+                  onNewRole={() => onNewRole(game.id)}
+                />
+              </ContextMenu>
             );
           })}
           <CreateItemCard label={t("games.new")} onClick={onNewGame} />
@@ -201,6 +218,7 @@ function GameActionMenu({
     action();
   }
 
+  const actions = createGameActions(game, t, onDelete, onEdit, onNewRole);
   const itemClassName = "flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50";
 
   return (
@@ -225,29 +243,75 @@ function GameActionMenu({
           variant="popover"
           role="menu"
         >
-          <button className={itemClassName} type="button" role="menuitem" onClick={() => run(onNewRole)}>
-            <Users size={14} />
-            <span>{t("games.addRole")}</span>
-          </button>
-          <button className={itemClassName} type="button" role="menuitem" onClick={() => run(onEdit)}>
-            <Pencil size={14} />
-            <span>{t("common.edit")}</span>
-          </button>
-          {game.source === "custom" ? (
+          {actions.map(({ Icon, id, isDestructive, label, onSelect }) => (
             <button
-              className={`${itemClassName} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+              key={id}
+              className={cn(itemClassName, isDestructive && "text-destructive hover:bg-destructive/10 hover:text-destructive")}
               type="button"
               role="menuitem"
-              onClick={() => run(onDelete)}
+              onClick={() => run(onSelect)}
             >
-              <Trash2 size={14} />
-              <span>{t("confirm.delete")}</span>
+              <Icon size={14} />
+              <span>{label}</span>
             </button>
-          ) : null}
+          ))}
         </Surface>
       ) : null}
     </div>
   );
+}
+
+function GameContextMenuContent({
+  game,
+  t,
+  onDelete,
+  onEdit,
+  onNewRole
+}: {
+  game: Game;
+  t: Translator;
+  onDelete: () => void;
+  onEdit: () => void;
+  onNewRole: () => void;
+}): JSX.Element {
+  const actions = createGameActions(game, t, onDelete, onEdit, onNewRole);
+
+  return (
+    <ContextMenuContent className="min-w-44">
+      {actions.map(({ Icon, id, isDestructive, label, onSelect }) => (
+        <ContextMenuItem
+          key={id}
+          className={cn("gap-2", isDestructive && "text-destructive")}
+          onSelect={onSelect}
+        >
+          <Icon size={14} />
+          <span>{label}</span>
+        </ContextMenuItem>
+      ))}
+    </ContextMenuContent>
+  );
+}
+
+function createGameActions(
+  game: Game,
+  t: Translator,
+  onDelete: () => void,
+  onEdit: () => void,
+  onNewRole: () => void
+): Array<{
+  Icon: typeof Users;
+  id: "addRole" | "delete" | "edit";
+  isDestructive?: boolean;
+  label: string;
+  onSelect: () => void;
+}> {
+  return [
+    { Icon: Users, id: "addRole", label: t("games.addRole"), onSelect: onNewRole },
+    { Icon: Pencil, id: "edit", label: t("common.edit"), onSelect: onEdit },
+    ...(game.source === "custom"
+      ? [{ Icon: Trash2, id: "delete" as const, isDestructive: true, label: t("confirm.delete"), onSelect: onDelete }]
+      : [])
+  ];
 }
 
 export default GamesRoute;

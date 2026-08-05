@@ -27,6 +27,13 @@ import {
 
 import { Button } from "../../components/ui/button";
 import { Card, CardTitle } from "../../components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger
+} from "../../components/ui/context-menu";
 import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { CreateItemCard } from "../../components/CreateListItem";
@@ -373,18 +380,20 @@ function RoleCard({
   const gameIconUrl = getGameIconUrl(game);
 
   return (
-    <Card
-      ref={selectionRef}
-      className={cn(
-        "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150 [contain:paint]",
-        isDragging && "opacity-45",
-        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
-      )}
-      data-selection-id={role.id}
-      data-role-reorder-id={role.id}
-      style={cardStyle}
-      onClickCapture={onSelectionClick}
-    >
+    <ContextMenu>
+      <ContextMenuTrigger asChild disabled={isDragging}>
+        <Card
+          ref={selectionRef}
+          className={cn(
+            "role-cover-card group relative aspect-[4/5] overflow-hidden transition-[box-shadow,opacity] duration-150 [contain:paint]",
+            isDragging && "opacity-45",
+            isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
+          )}
+          data-selection-id={role.id}
+          data-role-reorder-id={role.id}
+          style={cardStyle}
+          onClickCapture={onSelectionClick}
+        >
       <img
         alt=""
         aria-hidden="true"
@@ -482,7 +491,17 @@ function RoleCard({
           </div>
         </div>
       </div>
-    </Card>
+        </Card>
+      </ContextMenuTrigger>
+      <RoleContextMenuContent
+        isBusy={isBusy}
+        t={t}
+        onCopy={onCopy}
+        onClearBrowserData={onClearBrowserData}
+        onDelete={onDelete}
+        onEdit={onEdit}
+      />
+    </ContextMenu>
   );
 }
 
@@ -640,6 +659,37 @@ function RoleActionMenu({
         </Surface>
       ) : null}
     </div>
+  );
+}
+
+function RoleContextMenuContent({
+  isBusy,
+  t,
+  onCopy,
+  onClearBrowserData,
+  onDelete,
+  onEdit
+}: Omit<RoleActionMenuProps, "canReorder" | "isDragging" | "isOnCover" | "onReorderPointerDown">): JSX.Element {
+  return (
+    <ContextMenuContent className="min-w-44">
+      <ContextMenuItem className="gap-1.5" onSelect={onEdit}>
+        <Pencil size={14} />
+        <span>{t("role.edit")}</span>
+      </ContextMenuItem>
+      <ContextMenuItem className="gap-1.5" disabled={isBusy} onSelect={onCopy}>
+        <Copy size={14} />
+        <span>{t("role.copy")}</span>
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem className="gap-1.5 text-destructive" disabled={isBusy} onSelect={onClearBrowserData}>
+        <Eraser size={14} />
+        <span>{t("role.clearSavedData")}</span>
+      </ContextMenuItem>
+      <ContextMenuItem className="gap-1.5 text-destructive" disabled={isBusy} onSelect={onDelete}>
+        <Trash2 size={14} />
+        <span>{t("role.delete")}</span>
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 }
 

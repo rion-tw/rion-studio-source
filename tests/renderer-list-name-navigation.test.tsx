@@ -111,6 +111,48 @@ describe("list editor navigation", () => {
     expect(onClearBrowserData).toHaveBeenCalledWith(item);
   });
 
+  it("opens a role action menu from the card contextmenu event", async () => {
+    const item = role();
+    const onEdit = vi.fn();
+    const { container } = render(
+      <RolesView
+        activeFilter="all"
+        busyRoleIds={new Set()}
+        filteredRoles={[item]}
+        games={[]}
+        isReordering={false}
+        language="en"
+        roleStats={{ total: 1, running: 0, stopped: 1 }}
+        roles={[item]}
+        scrollPositionRef={{ current: 0 }}
+        query=""
+        statusByRole={new Map()}
+        t={t}
+        onClearQuery={vi.fn()}
+        onClearBrowserData={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteMany={vi.fn().mockResolvedValue(false)}
+        onEdit={onEdit}
+        onError={vi.fn()}
+        onFilterChange={vi.fn()}
+        onLaunch={vi.fn()}
+        onNewRole={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorder={vi.fn()}
+        onStop={vi.fn()}
+      />
+    );
+
+    const card = container.querySelector<HTMLElement>("[data-role-reorder-id]");
+    if (!card) throw new Error("Expected role card.");
+
+    expect(fireEvent.contextMenu(card, { clientX: 160, clientY: 120 })).toBe(false);
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: "role.edit" }));
+
+    expect(onEdit).toHaveBeenCalledWith(item);
+  });
+
   it.each(["wkwebview", "webview2"] as const)(
     "does not show the %s engine label on a running role card",
     (resolvedEngine) => {
@@ -193,6 +235,41 @@ describe("list editor navigation", () => {
     await user.click(screen.getByRole("menuitem", { name: "workspaces.edit" }));
 
     expect(onEditWorkspace).toHaveBeenCalledOnce();
+    expect(onEditWorkspace).toHaveBeenCalledWith(item);
+  });
+
+  it("opens a workspace action menu from the card contextmenu event", async () => {
+    const item = workspace();
+    const onEditWorkspace = vi.fn();
+    const { container } = render(
+      <LaunchWorkspacesView
+        busyWorkspaceIds={new Set()}
+        games={[]}
+        isReordering={false}
+        query=""
+        roles={[]}
+        runtimeTabs={[]}
+        scrollPositionRef={{ current: 0 }}
+        t={t}
+        workspaces={[item]}
+        onCopyWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
+        onEditWorkspace={onEditWorkspace}
+        onLaunchWorkspace={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorderWorkspaces={vi.fn()}
+        onStopWorkspace={vi.fn()}
+      />
+    );
+
+    const card = container.querySelector<HTMLElement>("[data-workspace-reorder-id]");
+    if (!card) throw new Error("Expected workspace card.");
+
+    expect(fireEvent.contextMenu(card, { clientX: 160, clientY: 120 })).toBe(false);
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: "workspaces.edit" }));
+
     expect(onEditWorkspace).toHaveBeenCalledWith(item);
   });
 

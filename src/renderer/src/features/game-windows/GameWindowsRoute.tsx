@@ -27,6 +27,17 @@ import { SelectionActionBar, SelectionGroupOutlines, SelectionMarquee } from "..
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuRadioGroup,
+  ContextMenuRadioItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger
+} from "../../components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -385,16 +396,17 @@ export default function GameWindowsRoute({
                     const displayLabel = getGameWindowDisplayLabel(gameWindow, displayById, t);
                     const stateLabel = stateLabelByWindowId.get(gameWindow.id)!;
                     return (
-                      <tr
-                        key={gameWindow.id}
-                        ref={selection.registerItem(gameWindow.id)}
-                        className={cn(
-                          "group align-middle transition-[background-color,box-shadow,opacity]",
-                          selection.isSelected(gameWindow.id) && "bg-activity/10"
-                        )}
-                        data-selection-id={gameWindow.id}
-                        onClickCapture={(event) => selection.handleItemClick(event, gameWindow.id)}
-                      >
+                      <ContextMenu key={gameWindow.id}>
+                        <ContextMenuTrigger asChild>
+                          <tr
+                            ref={selection.registerItem(gameWindow.id)}
+                            className={cn(
+                              "group align-middle transition-[background-color,box-shadow,opacity]",
+                              selection.isSelected(gameWindow.id) && "bg-activity/10"
+                            )}
+                            data-selection-id={gameWindow.id}
+                            onClickCapture={(event) => selection.handleItemClick(event, gameWindow.id)}
+                          >
                         <td className="relative max-w-[280px] px-4 py-2 align-middle">
                           <div className="min-w-0 pl-6">
                             <div className="absolute inset-y-0 left-4 -ml-1.5 flex items-center">
@@ -495,7 +507,49 @@ export default function GameWindowsRoute({
                             </DropdownMenu>
                           </div>
                         </td>
-                      </tr>
+                          </tr>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent className="min-w-44">
+                          <ContextMenuSub>
+                            <ContextMenuSubTrigger disabled={windowIsBusy}>
+                              <Monitor aria-hidden="true" className="shrink-0" size={14} />
+                              {t("gameWindows.targetDisplay")}
+                            </ContextMenuSubTrigger>
+                            <ContextMenuSubContent>
+                              <ContextMenuRadioGroup
+                                value={display ? String(display.id) : ""}
+                                onValueChange={(value) => changeDisplay(gameWindow, value)}
+                              >
+                                {displays.map((candidate) => (
+                                  <ContextMenuRadioItem key={candidate.id} value={String(candidate.id)}>
+                                    {candidate.label}{candidate.isPrimary ? ` · ${t("gameWindows.primaryDisplay")}` : ""}
+                                  </ContextMenuRadioItem>
+                                ))}
+                              </ContextMenuRadioGroup>
+                            </ContextMenuSubContent>
+                          </ContextMenuSub>
+                          <ContextMenuItem className="gap-2" disabled={windowIsBusy} onSelect={() => setRenameTarget(gameWindow)}>
+                            <Pencil size={14} />
+                            {t("gameWindows.rename")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={windowIsBusy || !liveWindow}
+                            onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
+                          >
+                            {t("gameWindows.hide")}
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={windowIsBusy || gameWindow.tabs.length === 0}
+                            onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.stopGameWindow(gameWindow.id))}
+                          >
+                            {t("gameWindows.stopAll")}
+                          </ContextMenuItem>
+                          <ContextMenuItem className="gap-2 text-destructive" disabled={windowIsBusy} onSelect={() => void remove(gameWindow)}>
+                            <Trash2 size={14} />
+                            {t("gameWindows.delete")}
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                     );
                   })}
                 </tbody>

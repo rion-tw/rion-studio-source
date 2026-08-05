@@ -12,6 +12,8 @@ import { Badge } from "../../components/ui/badge";
 
 import { Button } from "../../components/ui/button";
 
+import { ContextMenu, ContextMenuTrigger } from "../../components/ui/context-menu";
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 
 import { PageFrame, PageHeader, Surface } from "../../components/ui/patterns";
@@ -30,7 +32,7 @@ import { getMacroListItems, type MacroListSortKey, type MacroListSortState } fro
 
 import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, summarizeMacroSteps } from "./macroUtils";
 
-import { MacroActionMenu, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
+import { MacroActionMenu, MacroContextMenuContent, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
 const ALL_ROLES_SELECT_VALUE = "__all_roles__";
 const MACRO_LIST_INDICATOR_CLASS = "inline-flex h-5 items-center gap-1.5 whitespace-nowrap text-muted-foreground";
@@ -454,20 +456,21 @@ function MacrosRoute({
                         : undefined;
 
                   return (
-                    <tr
-                      key={macro.id}
-                      ref={selection.registerItem(macro.id)}
-                      className={cn(
-                        "group align-middle transition-[background-color,box-shadow,opacity]",
-                        rowTone,
-                        !macro.enabled && "opacity-[0.55]"
-                      )}
-                      data-macro-active={isActive ? "true" : undefined}
-                      data-macro-disabled={!macro.enabled ? "true" : undefined}
-                      data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
-                      data-selection-id={macro.id}
-                      onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
-                    >
+                    <ContextMenu key={macro.id}>
+                      <ContextMenuTrigger asChild>
+                        <tr
+                          ref={selection.registerItem(macro.id)}
+                          className={cn(
+                            "group align-middle transition-[background-color,box-shadow,opacity]",
+                            rowTone,
+                            !macro.enabled && "opacity-[0.55]"
+                          )}
+                          data-macro-active={isActive ? "true" : undefined}
+                          data-macro-disabled={!macro.enabled ? "true" : undefined}
+                          data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
+                          data-selection-id={macro.id}
+                          onClickCapture={(event) => selection.handleItemClick(event, macro.id)}
+                        >
                     <td className="relative max-w-[240px] px-4 py-2 align-middle">
                       <div className="min-w-0 pl-6" data-macro-name-control>
                         <div className="absolute inset-y-0 left-4 -ml-1.5 flex items-center" data-macro-run-control>
@@ -547,7 +550,21 @@ function MacrosRoute({
                         />
                       </div>
                     </td>
-                    </tr>
+                        </tr>
+                      </ContextMenuTrigger>
+                      <MacroContextMenuContent
+                        busyMacroIds={busyMacroIds}
+                        macro={macro}
+                        isActive={isActive}
+                        onCopy={() => onCopyMacro(macro)}
+                        onDelete={() => onDeleteMacro(macro)}
+                        onEdit={() => onEditMacro(macro)}
+                        onSetEnabled={onSetMacroEnabled
+                          ? (enabled) => onSetMacroEnabled(macro, enabled)
+                          : undefined}
+                        t={t}
+                      />
+                    </ContextMenu>
                   );
                 })}
                 </tbody>

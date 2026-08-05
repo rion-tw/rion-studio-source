@@ -18,6 +18,7 @@ import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
 import { useFirstRunOnboarding } from "./hooks/useFirstRunOnboarding";
 import { useGameWorkflow } from "./hooks/useGameWorkflow";
 import { useMacroWorkflow } from "./hooks/useMacroWorkflow";
+import { useNativeContextMenuSuppression } from "./hooks/useNativeContextMenuSuppression";
 import { usePreferences } from "./hooks/usePreferences";
 import { useRoleWorkflow } from "./hooks/useRoleWorkflow";
 import { useWorkspaceWorkflow } from "./hooks/useWorkspaceWorkflow";
@@ -58,6 +59,7 @@ export function App(): JSX.Element {
     enabled: hasBridge,
     onError: data.setError
   });
+  useNativeContextMenuSuppression();
   useEffect(() => {
     if (!hasBridge) return;
     const onError = (event: ErrorEvent) => window.rionStudio.reportRendererLog({

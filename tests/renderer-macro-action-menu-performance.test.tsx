@@ -17,6 +17,7 @@ afterEach(() => {
 describe("macro action menu performance", () => {
   it("keeps the Studio run button enabled when the optional overlay is unavailable", () => {
     const onStartMacro = vi.fn();
+    const onEditMacro = vi.fn();
     render(
       <MacrosRoute
         busyMacroIds={new Set()}
@@ -43,7 +44,7 @@ describe("macro action menu performance", () => {
         onCopyMacro={vi.fn()}
         onDeleteMacro={vi.fn()}
         onDeleteMacros={vi.fn().mockResolvedValue(false)}
-        onEditMacro={vi.fn()}
+        onEditMacro={onEditMacro}
         onNewMacro={vi.fn()}
         onQueryChange={vi.fn()}
         onRoleFilterChange={vi.fn()}
@@ -57,6 +58,12 @@ describe("macro action menu performance", () => {
     expect(run.hasAttribute("disabled")).toBe(false);
     fireEvent.click(run);
     expect(onStartMacro).toHaveBeenCalledWith(macro.id);
+
+    const row = screen.getByText(macro.name).closest("tr");
+    if (!row) throw new Error("Expected macro row.");
+    expect(fireEvent.contextMenu(row, { clientX: 240, clientY: 160 })).toBe(false);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(onEditMacro).toHaveBeenCalledWith(macro);
   });
 
   it("coalesces captured scroll and resize positioning into one passive frame", () => {

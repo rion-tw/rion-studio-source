@@ -42,7 +42,10 @@ pub fn create(app: &AppHandle) -> Result<QuickMenu, String> {
                     ..
                 }
             ) {
-                show_main_window(tray.app_handle());
+                crate::activate_last_focused_window_or_main(
+                    tray.app_handle(),
+                    "tray-activation",
+                );
             }
         });
     if let Some(icon) = app.default_window_icon().cloned() {

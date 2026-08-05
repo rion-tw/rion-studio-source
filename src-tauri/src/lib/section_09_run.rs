@@ -543,29 +543,7 @@ pub fn run() {
                 }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
-                    let last_focused = app_handle
-                        .try_state::<CoreState>()
-                        .and_then(|state| {
-                            state
-                                .core
-                                .invoke(CoreCommand::RuntimeRestoreSessionGet)
-                                .ok()
-                                .and_then(|value| {
-                                    value["lastFocusedWindowId"].as_str().map(str::to_owned)
-                                })
-                                .map(|window_id| (Arc::clone(&state.core), window_id))
-                        });
-                    if let Some((core, window_id)) = last_focused {
-                        tauri::async_runtime::spawn(async move {
-                            let _ = core
-                                .invoke_async(CoreCommand::EmbeddedWindowsShow {
-                                    window_id: Some(window_id),
-                                })
-                                .await;
-                        });
-                    } else {
-                        request_main_window_show(app_handle, true, "application-reopen");
-                    }
+                    activate_last_focused_window_or_main(app_handle, "application-reopen");
                 }
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app_handle.try_state::<CoreState>() {

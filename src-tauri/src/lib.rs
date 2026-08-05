@@ -22,6 +22,7 @@ include!("lib/section_01_runtime_operation_receipt.rs");
 include!("lib/section_01_tab_mutation.rs");
 include!("lib/section_01_update_install.rs");
 include!("lib/section_02_drop.rs");
+include!("lib/section_02_application_activation.rs");
 include!("lib/section_03_display_topology.rs");
 include!("lib/section_03_rion_overlay_request.rs");
 include!("lib/section_04_rion_shell_invoke.rs");

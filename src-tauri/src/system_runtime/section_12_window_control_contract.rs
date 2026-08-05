@@ -1,7 +1,16 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn focus_live_runtime_window(&self, window_id: &str) -> Result<(), String> {
+        self.activate_live_runtime_window(window_id, "quick-menu-live-window")
+            .map(|_| ())
+    }
+
+    pub(crate) fn activate_live_runtime_window(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+    ) -> Result<bool, String> {
         if self.live_window_tab_ids(window_id)?.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         let window = {
             let mut state = self.state().map_err(|error| error.message)?;
@@ -18,9 +27,9 @@ impl SystemRuntimeExecutor {
             Some(true),
             NativePresentationFocus::WindowAndContent,
             None,
-            "quick-menu-live-window",
+            trigger,
         )
-        .map(|_| ())
+        .map(|_| true)
         .map_err(|error| error.message)
     }
 

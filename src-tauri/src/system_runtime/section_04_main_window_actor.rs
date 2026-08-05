@@ -417,7 +417,16 @@ fn apply_main_window_command(
     let mut native_failed = false;
     let mut focus_superseded = false;
     match command {
-        MainWindowCommand::Hide => native_failed |= window.hide().is_err(),
+        MainWindowCommand::Hide => {
+            #[cfg(windows)]
+            {
+                native_failed |= window.minimize().is_err();
+            }
+            #[cfg(not(windows))]
+            {
+                native_failed |= window.hide().is_err();
+            }
+        }
         MainWindowCommand::Show { focus } => {
             #[cfg(target_os = "macos")]
             {
@@ -507,8 +516,23 @@ fn main_window_readback_matches(
     before: &MainWindowSemanticState,
     after: &MainWindowSemanticState,
 ) -> bool {
+    main_window_readback_matches_for_platform(command, before, after, cfg!(windows))
+}
+
+fn main_window_readback_matches_for_platform(
+    command: MainWindowCommand,
+    before: &MainWindowSemanticState,
+    after: &MainWindowSemanticState,
+    is_windows: bool,
+) -> bool {
     match command {
-        MainWindowCommand::Hide => !after.visible,
+        MainWindowCommand::Hide => {
+            if is_windows {
+                after.minimized
+            } else {
+                !after.visible
+            }
+        }
         MainWindowCommand::Show { focus } => after.visible && (!focus || after.focused),
         MainWindowCommand::StartDragging => true,
         MainWindowCommand::ToggleFullscreen => after.fullscreen != before.fullscreen,

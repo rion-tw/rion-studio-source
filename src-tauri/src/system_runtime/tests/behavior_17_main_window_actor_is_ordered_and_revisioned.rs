@@ -35,6 +35,18 @@ fn main_window_semantic_state(
     }
 }
 
+fn minimized_main_window_semantic_state(
+    visible: bool,
+    focused: bool,
+    maximized: bool,
+    fullscreen: bool,
+) -> MainWindowSemanticState {
+    MainWindowSemanticState {
+        minimized: true,
+        ..main_window_semantic_state(visible, focused, maximized, fullscreen)
+    }
+}
+
 #[test]
 fn main_window_projection_reuses_an_identical_envelope_and_revisions_changes() {
     let projection = MainWindowStateProjection::new(23);
@@ -108,32 +120,45 @@ fn main_window_queue_is_bounded_fifo_and_rejects_work_after_stop() {
 
 #[test]
 fn main_window_readback_guarantees_match_on_macos_and_windows() {
-    for platform in ["macos", "windows"] {
+    for (platform, is_windows) in [("macos", false), ("windows", true)] {
         let before = main_window_semantic_state(true, false, false, false);
-        assert!(main_window_readback_matches(
+        let hidden = main_window_semantic_state(false, false, false, false);
+        let minimized = minimized_main_window_semantic_state(true, false, false, false);
+        assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::Hide,
             &before,
-            &main_window_semantic_state(false, false, false, false),
+            if is_windows { &minimized } else { &hidden },
+            is_windows,
         ), "{platform}");
-        assert!(!main_window_readback_matches(
+        assert!(!main_window_readback_matches_for_platform(
+            MainWindowCommand::Hide,
+            &before,
+            if is_windows { &hidden } else { &minimized },
+            is_windows,
+        ), "{platform}");
+        assert!(!main_window_readback_matches_for_platform(
             MainWindowCommand::Show { focus: true },
             &before,
             &main_window_semantic_state(true, false, false, false),
+            is_windows,
         ), "{platform}");
-        assert!(main_window_readback_matches(
+        assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::Show { focus: true },
             &before,
             &main_window_semantic_state(true, true, false, false),
+            is_windows,
         ), "{platform}");
-        assert!(main_window_readback_matches(
+        assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::ToggleMaximized,
             &before,
             &main_window_semantic_state(true, false, true, false),
+            is_windows,
         ), "{platform}");
-        assert!(main_window_readback_matches(
+        assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::ToggleFullscreen,
             &before,
             &main_window_semantic_state(true, false, false, true),
+            is_windows,
         ), "{platform}");
         assert_eq!(
             MainWindowCommand::StartDragging.completion_scope(),

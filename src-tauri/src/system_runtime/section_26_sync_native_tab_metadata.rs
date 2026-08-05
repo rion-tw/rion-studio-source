@@ -196,8 +196,8 @@ impl SystemRuntimeExecutor {
                     })
                     .filter_map(|tab| {
                         let live = state.tabs.get(&tab.id)?;
-                        let presented = self.presentation.tab(&live.window_id, &tab.id)?;
-                        let tab_strip = state.display_hosts.get(&live.window_id)?.tab_strip.clone();
+                        let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
+                        let tab_strip = state.display_hosts.get(&tab.window_id)?.tab_strip.clone();
                         let names = tab
                             .slots
                             .iter()

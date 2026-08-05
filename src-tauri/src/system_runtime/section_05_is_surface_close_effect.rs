@@ -354,12 +354,14 @@ fn apply_native_presentation_batch(
             request.focus,
         ),
     );
-    let still_desired = request.coordinator.lock().ok().is_some_and(|selection| {
-        selection.revision == request.revision
-            && selection.selected_tab_id == request.tab_id
-            && selection.surface_identities(request.tab_id.as_deref())
-                == request.next_surface_identities
+    let live_desired = request.live.lock().ok().is_some_and(|live| {
+        live.revision == request.revision && live.selected_tab_id == request.tab_id
     });
+    let projection_desired = request.coordinator.lock().ok().is_some_and(|projection| {
+        projection.surface_identities(request.tab_id.as_deref())
+            == request.next_surface_identities
+    });
+    let still_desired = live_desired && projection_desired;
     if (!still_desired && !ordered_window_control) || !mutation_plan.requires_ui_thread {
         let applied = still_desired || ordered_window_control;
         return NativePresentationOutcome {
@@ -391,6 +393,7 @@ fn apply_native_presentation_batch(
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let coordinator = Arc::clone(&request.coordinator);
+    let live = Arc::clone(&request.live);
     let requested_at = request.requested_at;
     let revision = request.revision;
     let tab_id = request.tab_id.clone();
@@ -408,8 +411,11 @@ fn apply_native_presentation_batch(
     let scheduling = request.window.run_on_main_thread(move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        let presentation_current = coordinator.lock().ok().is_some_and(|selection| {
-            selection.revision == revision && selection.selected_tab_id == tab_id
+        let presentation_current = live.lock().ok().is_some_and(|live| {
+            live.revision == revision && live.selected_tab_id == tab_id
+        }) && coordinator.lock().ok().is_some_and(|projection| {
+            projection.surface_identities(tab_id.as_deref())
+                == presentation_owner_identities(&next_surfaces, &surface_owner_revisions)
         });
         if !presentation_current && !ordered_window_control {
             let _ = sender.send(NativePresentationOutcome {

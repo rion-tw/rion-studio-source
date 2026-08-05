@@ -81,8 +81,7 @@ impl SystemRuntimeExecutor {
                                     .map(|value| (*value).to_owned())
                             })
                         });
-                        let _presentation_identity =
-                            (presented.source_id.as_str(), presented.phase.as_str());
+                        let _presentation_identity = presented.source_id.as_str();
                         Some((
                             controller,
                             !presented.closable,
@@ -220,6 +219,10 @@ impl SystemRuntimeExecutor {
                                 .and_then(|slot| icons.get(slot.role_id.as_str()))
                                 .cloned()
                         });
+                        let phase = self
+                            .presentation
+                            .statuses
+                            .presentation_phase(&tab.id);
                         Some((
                             tab_strip,
                             json!({
@@ -230,7 +233,7 @@ impl SystemRuntimeExecutor {
                                     .workspace_template
                                     .or_else(|| live.workspace_template.clone()),
                                 "sourceId": presented.source_id,
-                                "phase": presented.phase.as_str(),
+                                "phase": phase.as_str(),
                                 "tooltip": tooltip,
                                 "iconDataUrl": icon_data_url,
                                 "audible": runtime_tab_is_audible(&state, live),

@@ -246,7 +246,7 @@ impl SystemRuntimeExecutor {
             .into_keys()
             .collect::<Vec<_>>();
         state.audible_webviews.clear();
-        state.launch_phases.clear();
+        self.presentation.statuses.clear();
         state.overlay_capabilities.clear();
         state.overlay_ready_webviews.clear();
         state.role_tabs.clear();

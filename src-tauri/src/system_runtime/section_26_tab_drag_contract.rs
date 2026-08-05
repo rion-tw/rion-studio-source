@@ -29,7 +29,6 @@ impl SystemRuntimeExecutor {
         source_window_id: &str,
         source_tab_id: &str,
         lifecycle_epoch: u64,
-        topology_revision: u64,
     ) -> RuntimeResult<RuntimeTabDragOperation> {
         self.require_runtime_accepting()?;
         let window_generation = self
@@ -46,15 +45,14 @@ impl SystemRuntimeExecutor {
         let context = NativeOperationContext::new(
             NativeOperationSubsystem::Drag,
             "runtime-tab-drag",
-            TAB_DRAG_OPERATION_TIMEOUT,
+            TAB_DRAG_DIAGNOSTIC_RETENTION,
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::DragCommitted)
         .with_session_id(session_id)
         .with_window(source_window_id)
         .with_window_generation(window_generation)
         .with_tab(source_tab_id)
-        .with_lifecycle_epoch(lifecycle_epoch)
-        .with_topology_revision(topology_revision);
+        .with_lifecycle_epoch(lifecycle_epoch);
         self.operations.register(context.clone()).map_err(|code| {
             RuntimeError::new(
                 code,

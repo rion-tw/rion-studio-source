@@ -21,6 +21,67 @@ const sourceExtensions = new Set([
 const generatedPrefixes = ["src/shared/generated/"];
 const limits = { bytes: 64 * 1024, lines: 800 };
 const facadeLineLimit = 250;
+const architectureGuards = [
+  {
+    name: "legacy full runtime projection effect",
+    pattern: /EmbeddedApplyRuntime/u
+  },
+  {
+    name: "Core-to-live topology overlay",
+    pattern: /snapshot_with_live_tab_topology/u
+  },
+  {
+    name: "receipt-gated drag deadline",
+    pattern: /TAB_DRAG_OPERATION_TIMEOUT|AwaitingDropIntent/u
+  },
+  {
+    name: "receipt-gated tab activation convergence",
+    pattern: /TabActivationCoordinator|tabActivationConverged|__rionApplyRuntimeTabActivation/u
+  },
+  {
+    name: "Core window topology command",
+    pattern: /BrowserRuntimeCommand::(?:RegisterWindow|RemoveWindow)/u
+  },
+  {
+    name: "user-visible tab convergence failure",
+    pattern: /Runtime tab mutation did not converge/u
+  },
+  {
+    name: "process-wide native runtime failure gate",
+    paths: /^src-tauri\/src\//u,
+    pattern: /SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY/u
+  },
+  {
+    name: "close-fenced launcher delay",
+    paths: /^src-tauri\/src\//u,
+    pattern: /launcher_source_is_closing|SYSTEM_RUNTIME_TAB_CLOSING/u
+  },
+  {
+    name: "native surface follower writing live topology",
+    paths: /^src-tauri\/src\/system_runtime\/section_11_provisionally_move_tab_with_visibility\.rs$/u,
+    pattern: /presentation\.(?:move_tab|commit_live_topology|commit_live_window_record|commit_live_selection|commit_live_tab_removal)/u
+  },
+  {
+    name: "stale tab callback surfaced by the UI shell",
+    paths: /^(?:src-tauri\/src\/(?:runtime_tabs_macos|runtime_tab_menu)|src\/renderer\/runtime-shell)/u,
+    pattern: /Runtime tab (?:was not found|is closing)/iu
+  },
+  {
+    name: "RuntimeTab host ownership",
+    paths: /^src-tauri\/src\/system_runtime\/section_02_windows_surface_identity_matches\.rs$/u,
+    pattern: /struct RuntimeTab \{[^}]{0,5000}\n\s*(?:pub\([^)]*\)\s+)?window_id:/u
+  },
+  {
+    name: "combined live topology and native projection state",
+    paths: /^src-tauri\/src\/system_runtime\//u,
+    pattern: /struct LiveWindowTabState/u
+  },
+  {
+    name: "runtime loading state inside LiveTabRecord",
+    paths: /^src-tauri\/src\/system_runtime\/section_03_start\.rs$/u,
+    pattern: /struct LiveTabRecord \{[^}]{0,2000}\n\s*phase:/u
+  }
+];
 
 const { stdout } = await execute("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
   cwd: process.cwd(),
@@ -45,9 +106,10 @@ for (const path of trackedFiles) {
     if (error?.code === "ENOENT") continue;
     throw error;
   }
+  const sourceText = source.toString("utf8");
   const lineCount = source.length === 0
     ? 0
-    : source.toString("utf8").split(/\r?\n/u).length - (source.at(-1) === 10 ? 1 : 0);
+    : sourceText.split(/\r?\n/u).length - (source.at(-1) === 10 ? 1 : 0);
   if (lineCount > limits.lines || source.length > limits.bytes) {
     failures.push(
       `${path}: ${lineCount} lines, ${source.length} bytes ` +
@@ -56,6 +118,12 @@ for (const path of trackedFiles) {
   }
   if (isFacade(path) && lineCount > facadeLineLimit) {
     failures.push(`${path}: facade has ${lineCount} lines (limit: ${facadeLineLimit})`);
+  }
+  for (const guard of architectureGuards) {
+    if (path !== "scripts/checkSourceHygiene.mjs" &&
+        (!guard.paths || guard.paths.test(path)) && guard.pattern.test(sourceText)) {
+      failures.push(`${path}: reintroduces ${guard.name}`);
+    }
   }
 }
 

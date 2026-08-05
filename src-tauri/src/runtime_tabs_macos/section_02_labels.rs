@@ -493,7 +493,6 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         }
         if let Err(error) =
             crate::handle_game_window_tab_drag(&app, &state, &source_window_id, &action).await
-            && error.code != "TAURI_TAB_DRAG_STALE"
         {
             eprintln!(
                 "Native tab drag follower will reconcile from live UI state: code={} message={}",
@@ -559,12 +558,11 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         } else {
             crate::execute_tab_mutation(&state, &action_type, tab_id, target, before_tab_id).await
         };
-        let result = result.and_then(|receipt| {
-            crate::runtime_operation_receipt_result(receipt)
-                .map_err(|code| crate::shell_error(&code, "Runtime tab mutation did not converge."))
-        });
         if let Err(error) = result {
-            crate::reveal_shell_error(&app, error);
+            eprintln!(
+                "Native tab intent could not commit to the live store: action={action_type} tab={tab_id} code={} error={}",
+                error.code, error.message
+            );
         }
         return;
     }

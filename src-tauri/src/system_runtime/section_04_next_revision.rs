@@ -55,7 +55,7 @@ impl PresentationRegistry {
             .unwrap_or_default()
     }
 
-    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<LiveWindowTabState>>, String> {
+    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<LiveWindowRecord>>, String> {
         let mut windows = self
             .live
             .windows
@@ -65,14 +65,27 @@ impl PresentationRegistry {
             windows
                 .entry(window_id.to_owned())
                 .or_insert_with(|| {
-                    Arc::new(Mutex::new(LiveWindowTabState {
-                        live: LiveWindowRecord {
-                            window_id: window_id.to_owned(),
-                            ..LiveWindowRecord::default()
-                        },
-                        ..LiveWindowTabState::default()
+                    Arc::new(Mutex::new(LiveWindowRecord {
+                        window_id: window_id.to_owned(),
+                        ..LiveWindowRecord::default()
                     }))
                 }),
+        ))
+    }
+
+    fn projection_coordinator(
+        &self,
+        window_id: &str,
+    ) -> Result<Arc<Mutex<NativeTabProjectionState>>, String> {
+        let mut windows = self
+            .projection
+            .windows
+            .lock()
+            .map_err(|_| "The native tab projection registry is unavailable.".to_owned())?;
+        Ok(Arc::clone(
+            windows
+                .entry(window_id.to_owned())
+                .or_insert_with(|| Arc::new(Mutex::new(NativeTabProjectionState::default()))),
         ))
     }
 
@@ -86,7 +99,7 @@ impl PresentationRegistry {
         Ok(())
     }
 
-    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<LiveWindowTabState>>> {
+    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<LiveWindowRecord>>> {
         self.live
             .windows
             .lock()
@@ -131,13 +144,53 @@ impl PresentationRegistry {
             .unwrap_or(false)
     }
 
-    fn tab(&self, window_id: &str, tab_id: &str) -> Option<TabPresentation> {
+    fn tab(&self, window_id: &str, tab_id: &str) -> Option<LiveTabRecord> {
         self.existing(window_id).and_then(|state| {
             state
                 .lock()
                 .ok()
                 .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
         })
+    }
+
+    fn surfaces(&self, window_id: &str, tab_id: Option<&str>) -> Vec<Webview> {
+        self.projection_coordinator(window_id)
+            .ok()
+            .and_then(|projection| {
+                projection
+                    .lock()
+                    .ok()
+                    .map(|projection| projection.surfaces(tab_id))
+            })
+            .unwrap_or_default()
+    }
+
+    fn bind_surface(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        binding: SurfacePresentationBinding,
+    ) -> bool {
+        if !self.window_contains_tab(window_id, tab_id) {
+            return false;
+        }
+        self.projection_coordinator(window_id)
+            .ok()
+            .and_then(|projection| {
+                projection.lock().ok().map(|mut projection| {
+                    projection.bind_surface(tab_id, binding);
+                })
+            })
+            .is_some()
+    }
+
+    fn replace_tab_projection(&self, window_id: &str, provisional_id: &str, tab_id: &str) {
+        if let Ok(projection) = self.projection_coordinator(window_id)
+            && let Ok(mut projection) = projection.lock()
+        {
+            projection.replace_tab_id(provisional_id, tab_id);
+        }
+        self.statuses.replace_tab_id(provisional_id, tab_id);
     }
 
     fn tab_window(&self, tab_id: &str) -> Result<Option<String>, String> {
@@ -167,7 +220,7 @@ impl PresentationRegistry {
         Ok(owner)
     }
 
-    fn snapshot_states(&self) -> Result<HashMap<String, LiveWindowTabState>, String> {
+    fn snapshot_states(&self) -> Result<HashMap<String, LiveWindowRecord>, String> {
         let windows = self
             .live
             .windows
@@ -205,7 +258,7 @@ impl PresentationRegistry {
         let mut windows = self.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
         windows.sort_by(|left, right| left.0.cmp(&right.0));
         windows.into_iter().find_map(|(_, window)| {
-            window.live.tabs.into_iter().find_map(|tab| {
+            window.tabs.into_iter().find_map(|tab| {
                 let matches = if tab_type == "workspace" {
                     tab.tab_type == "workspace" && tab.source_id == source_id
                 } else {
@@ -224,7 +277,6 @@ impl PresentationRegistry {
             .into_iter()
             .flat_map(|(_, window)| {
                 window
-                    .live
                     .tabs
                     .into_iter()
                     .map(|tab| RuntimeLauncherPresenceTab {
@@ -252,114 +304,6 @@ impl PresentationRegistry {
         Ok(actor)
     }
 
-    fn move_tab(
-        &self,
-        tab_id: &str,
-        source_window_id: &str,
-        target_window_id: &str,
-        revision: u64,
-    ) -> Result<(), String> {
-        self.move_tab_with_activation(tab_id, source_window_id, target_window_id, revision, true)
-    }
-
-    fn move_tab_with_activation(
-        &self,
-        tab_id: &str,
-        source_window_id: &str,
-        target_window_id: &str,
-        revision: u64,
-        activate_target_if_selected: bool,
-    ) -> Result<(), String> {
-        if source_window_id == target_window_id {
-            return Ok(());
-        }
-        let source = self
-            .existing(source_window_id)
-            .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
-        let target = self.coordinator(target_window_id)?;
-        // Acquire every fallible live-state guard before changing either window.
-        // A stable window-id order prevents opposite-direction moves from
-        // deadlocking. Once the mutation starts there is no rollback path: the
-        // destination becomes the sole live topology and native surfaces only
-        // project that decision forward.
-        let mut surface_owners = self
-            .surface_owners
-            .lock()
-            .map_err(|_| "The native surface ownership registry is unavailable.".to_owned())?;
-        let (mut source, mut target) = if source_window_id < target_window_id {
-            let source = source
-                .lock()
-                .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
-            let target = target
-                .lock()
-                .map_err(|_| "The target presentation state is unavailable.".to_owned())?;
-            (source, target)
-        } else {
-            let target = target
-                .lock()
-                .map_err(|_| "The target presentation state is unavailable.".to_owned())?;
-            let source = source
-                .lock()
-                .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
-            (source, target)
-        };
-        let index = source
-            .tabs
-            .iter()
-            .position(|tab| tab.id == tab_id)
-            .ok_or_else(|| "The moving presentation tab was not found.".to_owned())?;
-        let was_selected = source.selected_tab_id.as_deref() == Some(tab_id);
-        let successor = was_selected
-            .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
-            .flatten();
-        let tab = source.tabs.remove(index);
-        let bindings = source
-            .projection
-            .surface_bindings
-            .remove(tab_id)
-            .unwrap_or_default();
-        let was_hidden = source.hidden_tab_ids.remove(tab_id);
-        source
-            .aliases
-            .retain(|alias, target| alias != tab_id && target != tab_id);
-        if was_selected {
-            source.select(successor, revision);
-        } else {
-            source.revision = revision;
-        }
-        if !target.contains_tab(tab_id) {
-            target.tabs.push(tab);
-        }
-        target.revision = revision;
-        if !bindings.is_empty() {
-            target
-                .projection
-                .surface_bindings
-                .insert(tab_id.to_owned(), bindings.clone());
-        }
-        if was_hidden {
-            target.hidden_tab_ids.insert(tab_id.to_owned());
-        }
-        if was_selected && activate_target_if_selected {
-            target.select(Some(tab_id.to_owned()), revision);
-        }
-        let owner_revision = self
-            .next_surface_owner_revision
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
-        for binding in bindings {
-            surface_owners.insert(
-                binding.webview.label().to_owned(),
-                SurfacePresentationOwner {
-                    instance_id: binding.instance_id,
-                    revision: owner_revision,
-                    window_id: target_window_id.to_owned(),
-                },
-            );
-        }
-        Ok(())
-    }
-
     fn unbind_surface(&self, instance_id: &str, surface_label: &str) {
         if let Ok(mut owners) = self.surface_owners.lock()
             && owners
@@ -369,15 +313,15 @@ impl PresentationRegistry {
             owners.remove(surface_label);
         }
         let windows = self
-            .live
+            .projection
             .windows
             .lock()
             .ok()
             .map(|windows| windows.values().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
         for window in windows {
-            if let Ok(mut window) = window.lock()
-                && window.unbind_surface(instance_id)
+            if let Ok(mut projection) = window.lock()
+                && projection.unbind_surface(instance_id)
             {
                 break;
             }
@@ -385,9 +329,17 @@ impl PresentationRegistry {
     }
 
     fn remove(&self, window_id: &str) {
+        let removed_tab_ids = self
+            .existing(window_id)
+            .and_then(|window| window.lock().ok().map(|window| window.all_tab_ids()))
+            .unwrap_or_default();
         if let Ok(mut windows) = self.live.windows.lock() {
             windows.remove(window_id);
         }
+        if let Ok(mut windows) = self.projection.windows.lock() {
+            windows.remove(window_id);
+        }
+        self.statuses.remove_many(&removed_tab_ids);
         if let Ok(mut actors) = self.actors.lock()
             && let Some(actor) = actors.remove(window_id)
         {
@@ -407,7 +359,6 @@ struct RuntimeState {
     close_coordinator: CloseCoordinator,
     controlled_navigation_webviews: HashMap<String, u32>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
-    launch_phases: HashMap<String, LaunchPhase>,
     launch_attempt_generations: HashMap<String, String>,
     main_frame_navigation_input_fences: HashMap<String, MainFrameNavigationInputFence>,
     role_input_fences: HashMap<String, RoleInputFence>,
@@ -463,7 +414,6 @@ struct PendingWindowTabRestore {
 #[derive(Clone)]
 struct TabCloseTombstone {
     revision: u64,
-    role_ids: Vec<String>,
     slot_owners: Vec<(String, String, Option<u64>)>,
     source_id: String,
     tab_type: String,
@@ -705,7 +655,6 @@ pub struct SystemRuntimeExecutor {
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
-    tab_activations: Arc<TabActivationCoordinator>,
     tab_drag_intents: Arc<TabDragIntentCoordinator>,
     tab_mutations: Arc<TabMutationCoordinator>,
     #[cfg(windows)]
@@ -738,16 +687,6 @@ impl RuntimeHealth {
         self.0.store(false, Ordering::Release);
     }
 
-    fn require_healthy(&self) -> RuntimeResult<()> {
-        if self.is_healthy() {
-            Ok(())
-        } else {
-            Err(RuntimeError::new(
-                "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
-                "The System WebView runtime is unhealthy. Restart Rion Studio before creating another native surface.",
-            ))
-        }
-    }
 }
 
 enum SystemRuntimeWork {

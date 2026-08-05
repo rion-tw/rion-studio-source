@@ -84,22 +84,15 @@ impl SystemRuntimeExecutor {
             webview.hide().map_err(RuntimeError::tauri)?;
         }
         let surface_instance_id = next_surface_instance_id(webview.label());
-        let bound = self
-            .presentation
-            .existing(window_id)
-            .and_then(|presentation| {
-                presentation.lock().ok().map(|mut presentation| {
-                    presentation.bind_surface(
-                        tab_id,
-                        SurfacePresentationBinding {
-                            generation: identity.owner_generation.unwrap_or(0),
-                            instance_id: surface_instance_id.clone(),
-                            webview: webview.clone(),
-                        },
-                    )
-                })
-            })
-            .unwrap_or(false);
+        let bound = self.presentation.bind_surface(
+            window_id,
+            tab_id,
+            SurfacePresentationBinding {
+                generation: identity.owner_generation.unwrap_or(0),
+                instance_id: surface_instance_id.clone(),
+                webview: webview.clone(),
+            },
+        );
         if !bound {
             let _ = webview.close();
             return Err(RuntimeError::new(

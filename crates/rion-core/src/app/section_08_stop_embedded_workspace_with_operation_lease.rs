@@ -4,7 +4,6 @@ struct EmbeddedRuntimeTransition {
     reveal_window_ids: Vec<String>,
     focus_window_ids: Vec<String>,
     focus_tab_id: Option<String>,
-    focus_active_window_id: Option<String>,
     parent_operation_id: Option<String>,
 }
 
@@ -218,51 +217,6 @@ impl AppCore {
                     None,
                 )?;
             }
-        }
-
-        // Native isolation above deliberately runs without either global runtime
-        // sequence. Reacquire the window sequence only for the short final close
-        // commit so a slow surface cannot stall unrelated windows. Removing the
-        // now-empty runtime window closes its native host while the persisted Game
-        // Window remains available to be shown again.
-        let _window_sequence = self.embedded_window_sequence.acquire()?;
-        let empty_runtime_window_ids = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
-            .windows
-            .iter()
-            .filter(|window| window.tab_ids.is_empty())
-            .map(|window| window.window_id.clone())
-            .collect::<Vec<_>>();
-        if empty_runtime_window_ids
-            .iter()
-            .any(|candidate| candidate == window_id)
-        {
-            let _sequence = self.embedded_runtime_sequence.acquire()?;
-            self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
-                commands: vec![BrowserRuntimeCommand::RemoveWindow {
-                    window_id: window_id.to_owned(),
-                }],
-                target: None,
-                reveal_window_ids: Vec::new(),
-                focus_window_ids: Vec::new(),
-                focus_tab_id: None,
-                focus_active_window_id: None,
-                parent_operation_id: None,
-            })?;
-        }
-        for stale_window_id in empty_runtime_window_ids
-            .into_iter()
-            .filter(|candidate| candidate != window_id)
-        {
-            // A tab can be physically moved by LiveWindowTabState while Core's
-            // role bookkeeping still carries its launch-time window ID. Once
-            // the last such tab stops, retire that empty Core-only shell as a
-            // metadata sink. Native window lifecycle is owned by the live
-            // adapter and must not receive a compensating ApplyRuntime effect.
-            self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveWindow {
-                window_id: stale_window_id,
-            })?;
         }
 
         if !delete {

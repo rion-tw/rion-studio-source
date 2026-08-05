@@ -221,8 +221,9 @@ describe("runtime window lifecycle authority", () => {
     expect(close).toContain("current_window_close_in_progress");
     expect(tabClose).toContain("if !self.current_window_close_in_progress(&window_id)");
     expect(persistence).toContain("if self.current_window_close_in_progress(window_id)");
-    expect(saveInput).toContain("The live presentation is the complete tab snapshot");
     expect(saveInput).toContain("Self::live_game_window_tabs(&live_window)");
+    expect(saveInput).toContain("let target_display = live_window");
+    expect(saveInput).toContain("let placement = live_window");
     expect(saveInput).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
     expect(saveInput).not.toContain("current_monitor()");
     expect(saveInput).not.toContain("snapshot.tabs.iter().any(|tab| tab.id == *tab_id)");
@@ -248,7 +249,9 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(closeContract).toContain("pub(crate) fn live_window_tab_ids(");
-    expect(shellClose).toContain("runtime.live_window_tab_ids(&window_id)");
+    expect(shellClose).toContain("runtime.commit_visible_window_close(");
+    expect(closeContract).toContain("let tab_ids = self.live_window_tab_ids(window_id)");
+    expect(closeContract).toContain("self.presentation.remove(window_id)");
     expect(shellClose).toContain("tab_ids: live_tab_ids");
     expect(coreClose).toContain("live_tab_ids: &[String]");
     expect(coreClose).toContain("live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)");
@@ -286,7 +289,7 @@ describe("runtime window lifecycle authority", () => {
     expect(admission).toContain('"tab.stale-create-retired"');
   });
 
-  it("queues relaunch behind both active tombstones and fenced closing tabs", async () => {
+  it("accepts relaunch immediately while old native ownership remains generation-fenced", async () => {
     const [menu, preview, state] = await Promise.all([
       readFile(
         new URL(
@@ -311,12 +314,9 @@ describe("runtime window lifecycle authority", () => {
       )
     ]);
 
-    expect(menu).toContain("defer_launch_until_close_settles");
-    expect(menu).toContain('message == "The runtime tab is closing."');
-    expect(preview).toContain('"SYSTEM_RUNTIME_TAB_CLOSING"');
-    expect(state).toContain("launcher_source_is_closing");
-    expect(state).toContain("close_previews");
-    expect(state).toContain("optimistic_close_matches_launcher_source");
+    expect(menu).not.toContain("defer_launch_until_close_settles");
+    expect(preview).not.toContain('"SYSTEM_RUNTIME_TAB_CLOSING"');
+    expect(state).not.toContain("launcher_source_is_closing");
     expect(state).toContain("optimistic_closed_tabs");
   });
 
@@ -454,27 +454,29 @@ describe("runtime window lifecycle authority", () => {
     expect(restore).not.toContain("restore_workspace_conflict_metadata");
     expect(create).toContain("restored_tab_selection_intent");
     expect(create).toContain("reconcile_prepared_restored_window_tabs");
-    expect(contract).toContain("phase: TabPresentationPhase::Reserved");
+    expect(contract).toContain(".set_presentation_phase(&tab.id, TabRuntimePhase::Reserved)");
     expect(contract).toContain("self.reserve_native_tab(");
-    expect(contract).toContain("self.reorder_native_tabs(window_id, &visible_tab_ids)");
-    expect(contract).toContain("live.reorder_known_tabs(&prepared.ordered_tab_ids)");
+    expect(contract).toContain("self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids)");
+    expect(contract).toContain("self.presentation.commit_live_topology(LiveTopologyCommitInput");
+    expect(contract).not.toContain("live.reorder_known_tabs(&prepared.ordered_tab_ids)");
     expect(contract).toContain("mark_restored_native_tab_reserved");
     expect(contract).toContain("prepared.reserved_tab_ids.contains(tab_id)");
     expect(contract).toContain("mark_restored_tab_creation_terminal");
     expect(contract).toContain("prepared.terminal_tab_ids.contains(tab_id)");
     expect(contract).toContain("prepared.successful_tab_ids.contains(tab_id)");
-    expect(contract).toContain("live.select(active_tab_id, revision)");
-    expect(contract.match(/self\.reorder_native_tabs\(/g)).toHaveLength(1);
+    expect(contract).toContain("active_tab_id\n                    .clone()");
+    expect(contract).not.toContain("self.reorder_native_tabs(");
     expect(persistence).toContain("self.pending_window_tab_restore(window_id).is_some()");
     expect(projection).toContain("state.pending_window_tab_restores.clone()");
     expect(projection).not.toContain(
       ".unwrap_or(runtime_window.tab_ids.as_slice())"
     );
-    expect(projection).toContain(".map(LiveWindowTabState::tab_ids)");
+    expect(projection).toContain(".map(LiveWindowRecord::tab_ids)");
     expect(projection).toContain(
       "pending_window_tab_restores.contains_key(&runtime_window.window_id)"
     );
-    expect(projection).toContain("restore.active_tab_id.clone()");
+    expect(projection).not.toContain("restore.active_tab_id.clone()");
+    expect(contract).toContain("active_tab_id\n                    .clone()");
     expect(configuration).toContain("GameWindowRuntimeSnapshotBatch");
     expect(configuration).not.toContain("pending_game_window_configurations");
     expect(state).toContain("pending_window_tab_restores");
@@ -509,10 +511,11 @@ describe("runtime window lifecycle authority", () => {
     expect(restore).toContain("wait_for_window_close_before_reopen");
     expect(activation).not.toContain("repair_missing_tab_presentation");
     expect(activation).toContain(".tab_window(tab_id)?");
-    expect(applyRuntime).toContain(".snapshot_with_live_tab_topology(snapshot)");
+    expect(applyRuntime).toContain(".compose_live_runtime_snapshot(roles)");
     expect(applyRuntime).not.toContain("move_tab_with_activation(");
-    expect(applyRuntime).toContain("selection belongs exclusively to");
-    expect(liveSnapshot).toContain("fn snapshot_with_live_tab_topology(");
+    expect(applyRuntime).toContain("Core supplies only generation-fenced role ownership");
+    expect(liveSnapshot).toContain("fn compose_live_runtime_snapshot(");
+    expect(liveSnapshot).toContain("roles: Vec<BrowserRuntimeRoleRecord>");
     expect(liveSnapshot).toContain("live.all_tab_ids()");
   });
 

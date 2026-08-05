@@ -445,20 +445,22 @@ struct CloseCoordinator {
 struct LiveWindowTabStore {
     commit_gate: Mutex<()>,
     next_revision: AtomicU64,
-    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowTabState>>>>,
+    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowRecord>>>>,
 }
 
 #[derive(Clone)]
 struct LiveWindowTopologyCommit {
     active_tab_id: Option<String>,
     hidden_tab_ids: HashSet<String>,
-    tabs: Vec<TabPresentation>,
+    tabs: Vec<LiveTabRecord>,
     ui_sequence: u64,
     window_generation: u64,
     window_id: String,
 }
 
 struct LiveTopologyCommitInput {
+    commit_id: String,
+    source: &'static str,
     primary_window_id: String,
     windows: Vec<LiveWindowTopologyCommit>,
 }
@@ -475,6 +477,19 @@ struct LiveTopologyCommitReceipt {
     window_ids: Vec<String>,
 }
 
+struct LiveWindowPlacementCommitInput {
+    placement: GameWindowPlacementRecord,
+    target_display: DisplayTargetRecord,
+    ui_sequence: u64,
+    window_generation: u64,
+    window_id: String,
+}
+
+struct LiveWindowPlacementCommitReceipt {
+    revision: u64,
+    status: LiveTopologyCommitStatus,
+}
+
 #[derive(Default)]
 struct PresentationRegistry {
     actors: Mutex<HashMap<String, Arc<NativeWindowActor>>>,
@@ -483,11 +498,10 @@ struct PresentationRegistry {
     #[cfg(windows)]
     tab_chrome_acknowledgements: Mutex<HashMap<String, u64>>,
     #[cfg(windows)]
-    tab_activation_acknowledgements:
-        Mutex<HashMap<String, RuntimeTabActivationAcknowledgementRecord>>,
-    #[cfg(windows)]
     tab_chrome_changed: Condvar,
     live: LiveWindowTabStore,
+    projection: NativeTabProjectionStore,
+    statuses: TabRuntimeStatusStore,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -638,7 +652,7 @@ impl NativePresentationAdapter for TauriNativePresentationAdapter {
 
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
-    coordinator: Arc<Mutex<LiveWindowTabState>>,
+    coordinator: Arc<Mutex<NativeTabProjectionState>>,
     core: Arc<AppCore>,
     focus: NativePresentationFocus,
     focus_broker: Arc<NativeFocusBroker>,
@@ -656,6 +670,7 @@ struct NativePresentationRequest {
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     shutdown_state: Arc<AtomicU8>,
     application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
+    live: Arc<Mutex<LiveWindowRecord>>,
     tab_id: Option<String>,
     trigger: &'static str,
     window: Window,

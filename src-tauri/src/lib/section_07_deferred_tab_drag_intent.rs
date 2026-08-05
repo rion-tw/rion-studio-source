@@ -51,10 +51,6 @@ fn record_deferred_tab_drag_drop_intent(
     if !session_is_active {
         return Ok(false);
     }
-    let target = state
-        .runtime
-        .tab_drag_window_snapshot(target_window_id)
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
     let mut current = state
         .tab_drag
         .lock()
@@ -65,37 +61,13 @@ fn record_deferred_tab_drag_drop_intent(
     else {
         return Ok(false);
     };
-    if let Some(before_tab_id) = before_tab_id
-        && !target.tab_ids.iter().any(|tab_id| tab_id == before_tab_id)
-    {
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_INVALID",
-            "The drop insertion tab is outside the target Game Window.",
-        ));
-    }
-    let mut expected_tab_ids = target.tab_ids.clone();
-    if target_window_id != session.source_window_id {
-        expected_tab_ids.push(session.tab_id.clone());
-    }
-    if !tab_drag_exact_order_matches(&expected_tab_ids, &ordered_tab_ids) {
-        return Err(shell_error(
-            "TAURI_TAB_DRAG_INVALID",
-            "Drop topology does not match the frozen Game Window tabs.",
-        ));
-    }
     session.drop_window_id = Some(target_window_id.to_owned());
     session.drop_before_tab_id = before_tab_id
         .filter(|before_tab_id| *before_tab_id != session.tab_id)
         .map(str::to_owned);
     session.drop_ordered_tab_ids = Some(ordered_tab_ids);
-    session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
+    session.phase = GameWindowTabDragPhase::Previewing;
     Ok(session.source_end_received && session.source_drop_accepted)
-}
-
-fn tab_drag_exact_order_matches(expected: &[String], observed: &[String]) -> bool {
-    expected.len() == observed.len()
-        && expected.iter().collect::<HashSet<_>>() == observed.iter().collect::<HashSet<_>>()
-        && observed.iter().all(|tab_id| !tab_id.is_empty())
 }
 
 fn record_deferred_tab_drag_source_end(
@@ -123,7 +95,7 @@ fn record_deferred_tab_drag_source_end(
         session.drop_window_id.is_some(),
     );
     if !ready {
-        session.phase = GameWindowTabDragPhase::AwaitingDropIntent;
+        session.phase = GameWindowTabDragPhase::Previewing;
     }
     Ok(ready)
 }

@@ -32,7 +32,7 @@
         assert!(
             actions
                 .iter()
-                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. })),
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedFollowRoleOwnership { .. })),
             "close isolation must not queue behind a projection effect: {actions:?}"
         );
         let snapshot = core
@@ -338,8 +338,8 @@
             )));
             assert!(actions.iter().all(|action| !matches!(
                 action,
-                CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                    if snapshot.roles.iter().any(|role| role.state == "running")
+                CoreEffectAction::EmbeddedFollowRoleOwnership { roles, .. }
+                    if roles.iter().any(|role| role.state == "running")
             )));
             let running_snapshot = core
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
@@ -369,7 +369,7 @@
             assert!(
                 stop_actions
                     .iter()
-                    .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+                    .all(|action| !matches!(action, CoreEffectAction::EmbeddedFollowRoleOwnership { .. }))
             );
             let stopped_snapshot = core
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)

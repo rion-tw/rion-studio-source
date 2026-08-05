@@ -267,13 +267,12 @@ use super::*;
         assert!(!actor.wait_until_applied(8, Duration::from_millis(1)));
     }
 
-    fn presentation_tab(id: &str, phase: TabPresentationPhase) -> TabPresentation {
-        TabPresentation {
+    fn presentation_tab(id: &str, _phase: TabRuntimePhase) -> LiveTabRecord {
+        LiveTabRecord {
             audio_muted: false,
             closable: true,
             icon_data_url: None,
             id: id.to_owned(),
-            phase,
             persistable: true,
             role_ids: vec![format!("role-{id}")],
             role_slots: Vec::new(),
@@ -287,14 +286,15 @@ use super::*;
 
     #[test]
     fn presentation_selection_is_independent_from_launch_phase_and_core_metadata() {
-        let mut state = LiveWindowTabState::default();
+        let mut state = LiveWindowRecord::default();
+        let statuses = TabRuntimeStatusStore::default();
         state.insert_tab(
-            presentation_tab("tab-a", TabPresentationPhase::Ready),
+            presentation_tab("tab-a", TabRuntimePhase::Ready),
             1,
             true,
         );
         state.insert_tab(
-            presentation_tab("preview-b", TabPresentationPhase::Reserved),
+            presentation_tab("preview-b", TabRuntimePhase::Reserved),
             2,
             true,
         );
@@ -306,7 +306,7 @@ use super::*;
             &["role-a".to_owned()],
             "Updated A",
         );
-        state.update_phase("preview-b", TabPresentationPhase::Loading);
+        statuses.set_presentation_phase("preview-b", TabRuntimePhase::Loading);
         state.reorder_known_tabs(&["tab-a".to_owned()]);
 
         assert_eq!(state.selected_tab_id.as_deref(), Some("preview-b"));
@@ -315,7 +315,7 @@ use super::*;
 
         state.replace_tab_id(
             "preview-b",
-            presentation_tab("tab-b", TabPresentationPhase::Attaching),
+            presentation_tab("tab-b", TabRuntimePhase::Attaching),
             3,
         );
         assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
@@ -324,22 +324,26 @@ use super::*;
             Some("tab-b")
         );
 
-        state.update_phase("tab-b", TabPresentationPhase::Failed);
+        statuses.replace_tab_id("preview-b", "tab-b");
+        statuses.set_presentation_phase("tab-b", TabRuntimePhase::Failed);
         state.select(Some("tab-b".to_owned()), 4);
         assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
-        assert!(state.projection.host_visibility);
+        assert_eq!(
+            statuses.tabs.lock().unwrap()["tab-b"].presentation_phase,
+            TabRuntimePhase::Failed
+        );
     }
 
     #[test]
     fn live_hidden_state_controls_visible_order_and_selection_without_core() {
-        let mut state = LiveWindowTabState::default();
+        let mut state = LiveWindowRecord::default();
         state.insert_tab(
-            presentation_tab("tab-a", TabPresentationPhase::Ready),
+            presentation_tab("tab-a", TabRuntimePhase::Ready),
             1,
             true,
         );
         state.insert_tab(
-            presentation_tab("tab-b", TabPresentationPhase::Ready),
+            presentation_tab("tab-b", TabRuntimePhase::Ready),
             2,
             false,
         );
@@ -362,12 +366,12 @@ use super::*;
         {
             let mut source = source.lock().unwrap();
             source.insert_tab(
-                presentation_tab("tab-a", TabPresentationPhase::Ready),
+                presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
                 false,
             );
             source.insert_tab(
-                presentation_tab("tab-b", TabPresentationPhase::Loading),
+                presentation_tab("tab-b", TabRuntimePhase::Loading),
                 2,
                 true,
             );
@@ -395,17 +399,17 @@ use super::*;
         {
             let mut source = source.lock().unwrap();
             source.insert_tab(
-                presentation_tab("tab-a", TabPresentationPhase::Ready),
+                presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
                 false,
             );
             source.insert_tab(
-                presentation_tab("tab-b", TabPresentationPhase::Ready),
+                presentation_tab("tab-b", TabRuntimePhase::Ready),
                 2,
                 true,
             );
             source.insert_tab(
-                presentation_tab("tab-c", TabPresentationPhase::Ready),
+                presentation_tab("tab-c", TabRuntimePhase::Ready),
                 3,
                 false,
             );
@@ -432,7 +436,7 @@ use super::*;
                 [(1, "tab-a", false), (2, "tab-b", true), (3, "tab-c", false)]
             {
                 source.insert_tab(
-                    presentation_tab(tab_id, TabPresentationPhase::Ready),
+                    presentation_tab(tab_id, TabRuntimePhase::Ready),
                     revision,
                     selected,
                 );
@@ -444,7 +448,7 @@ use super::*;
             .lock()
             .unwrap()
             .insert_tab(
-                presentation_tab("tab-d", TabPresentationPhase::Ready),
+                presentation_tab("tab-d", TabRuntimePhase::Ready),
                 4,
                 true,
             );
@@ -485,19 +489,19 @@ use super::*;
         {
             let mut source = source.lock().unwrap();
             source.insert_tab(
-                presentation_tab("tab-a", TabPresentationPhase::Ready),
+                presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
                 false,
             );
             source.insert_tab(
-                presentation_tab("tab-b", TabPresentationPhase::Ready),
+                presentation_tab("tab-b", TabRuntimePhase::Ready),
                 2,
                 true,
             );
         }
         let target = registry.coordinator("window-b").unwrap();
         target.lock().unwrap().insert_tab(
-            presentation_tab("tab-c", TabPresentationPhase::Ready),
+            presentation_tab("tab-c", TabRuntimePhase::Ready),
             3,
             true,
         );
@@ -532,7 +536,7 @@ use super::*;
                 .lock()
                 .unwrap()
                 .insert_tab(
-                    presentation_tab("tab-a", TabPresentationPhase::Ready),
+                    presentation_tab("tab-a", TabRuntimePhase::Ready),
                     1,
                     false,
                 );

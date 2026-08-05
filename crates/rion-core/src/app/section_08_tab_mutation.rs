@@ -6,7 +6,6 @@ impl AppCore {
         reveal_window_ids: Vec<String>,
         focus_window_ids: Vec<String>,
         focus_tab_id: Option<String>,
-        focus_active_window_id: Option<String>,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
@@ -16,7 +15,6 @@ impl AppCore {
             reveal_window_ids,
             focus_window_ids,
             focus_tab_id,
-            focus_active_window_id,
             parent_operation_id: None,
         })
     }

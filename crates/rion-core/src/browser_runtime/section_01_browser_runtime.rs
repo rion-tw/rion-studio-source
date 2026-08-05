@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
@@ -7,7 +7,7 @@ use crate::{
     model::{
         BrowserRuntimeCommand, BrowserRuntimeResult, BrowserRuntimeRoleOwnerRecord,
         BrowserRuntimeRoleRecord, BrowserRuntimeSnapshot, BrowserRuntimeTabRecord,
-        BrowserRuntimeWindowRecord, BrowserRuntimeWorkspaceRecord, RuntimeRoleSlotRecord,
+        BrowserRuntimeWorkspaceRecord, RuntimeRoleSlotRecord,
     },
 };
 
@@ -27,15 +27,10 @@ impl RoleOwnershipRuntime {
         let mut created_tab_id = None;
         match command {
             BrowserRuntimeCommand::Snapshot => {}
-            // Compatibility commands retained while callers migrate. Core no
-            // longer owns a window registry, so both operations are idempotent.
-            BrowserRuntimeCommand::RegisterWindow { .. }
-            | BrowserRuntimeCommand::RemoveWindow { .. } => {}
             BrowserRuntimeCommand::CreateTab {
                 tab_id,
                 source_id,
                 name,
-                window_id,
                 tab_type,
                 workspace_id,
                 role_slots,
@@ -58,7 +53,7 @@ impl RoleOwnershipRuntime {
                     id: id.clone(),
                     source_id,
                     name,
-                    window_id: window_id.clone(),
+                    window_id: String::new(),
                     tab_type,
                     workspace_id,
                     slots: role_slots
@@ -336,23 +331,6 @@ impl RoleOwnershipRuntime {
         roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
         let mut tabs = self.launch_plans.values().cloned().collect::<Vec<_>>();
         tabs.sort_by(|left, right| left.id.cmp(&right.id));
-        // Compatibility DTO only. Ordering and active selection are intentionally
-        // absent; Tauri composes those fields from LiveWindowTabStore.
-        let mut by_window = BTreeMap::<String, Vec<String>>::new();
-        for tab in &tabs {
-            by_window
-                .entry(tab.window_id.clone())
-                .or_default()
-                .push(tab.id.clone());
-        }
-        let windows = by_window
-            .into_iter()
-            .map(|(window_id, tab_ids)| BrowserRuntimeWindowRecord {
-                window_id,
-                active_tab_id: None,
-                tab_ids,
-            })
-            .collect::<Vec<_>>();
         let mut workspaces = tabs
             .iter()
             .filter(|tab| tab.tab_type == "workspace")
@@ -360,7 +338,7 @@ impl RoleOwnershipRuntime {
                 workspace_id: tab.source_id.clone(),
                 name: tab.name.clone(),
                 runtime: "embedded".to_owned(),
-                window_id: tab.window_id.clone(),
+                window_id: String::new(),
                 tab_id: tab.id.clone(),
                 role_ids: tab.slots.iter().map(|slot| slot.role_id.clone()).collect(),
                 state: workspace_state(&tab.slots).to_owned(),
@@ -368,7 +346,7 @@ impl RoleOwnershipRuntime {
             .collect::<Vec<_>>();
         workspaces.sort_by(|left, right| left.workspace_id.cmp(&right.workspace_id));
         BrowserRuntimeSnapshot {
-            windows,
+            windows: Vec::new(),
             roles,
             tabs,
             workspaces,

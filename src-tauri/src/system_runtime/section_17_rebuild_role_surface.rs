@@ -441,23 +441,12 @@ impl SystemRuntimeExecutor {
         drop(state);
         self.require_application_lifecycle_epoch(lifecycle_epoch)?;
         self.set_role_input_surface(role_id, generation, false, false)?;
-        let surface_bound = self
+        let selected = self
             .presentation
             .existing(&window_id)
             .and_then(|presentation| {
-                presentation.lock().ok().map(|mut presentation| {
-                    let bound = presentation.bind_surface(
-                        &tab_id,
-                        SurfacePresentationBinding {
-                            generation,
-                            instance_id: replacement_instance_id.clone(),
-                            webview: replacement_webview.clone(),
-                        },
-                    );
-                    (
-                        bound,
-                        presentation.selected_tab_id.as_deref() == Some(tab_id.as_str()),
-                    )
+                presentation.lock().ok().map(|presentation| {
+                    presentation.selected_tab_id.as_deref() == Some(tab_id.as_str())
                 })
             })
             .ok_or_else(|| {
@@ -466,7 +455,16 @@ impl SystemRuntimeExecutor {
                     "The runtime tab presentation disappeared before recovery could bind its replacement surface.",
                 )
             })?;
-        if !surface_bound.0 {
+        let surface_bound = self.presentation.bind_surface(
+            &window_id,
+            &tab_id,
+            SurfacePresentationBinding {
+                generation,
+                instance_id: replacement_instance_id.clone(),
+                webview: replacement_webview.clone(),
+            },
+        );
+        if !surface_bound {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(RuntimeError::new(
                 "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
@@ -482,7 +480,7 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        if surface_bound.1 {
+        if selected {
             let _ = self.request_tab_presentation(
                 &tab_id,
                 NativePresentationFocus::None,

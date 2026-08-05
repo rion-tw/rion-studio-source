@@ -479,14 +479,6 @@ pub enum CoreEvent {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum BrowserRuntimeCommand {
     Snapshot,
-    RegisterWindow {
-        #[ts(rename = "windowId")]
-        window_id: String,
-    },
-    RemoveWindow {
-        #[ts(rename = "windowId")]
-        window_id: String,
-    },
     CreateTab {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "tabId")]
@@ -494,8 +486,6 @@ pub enum BrowserRuntimeCommand {
         #[ts(rename = "sourceId")]
         source_id: String,
         name: String,
-        #[ts(rename = "windowId")]
-        window_id: String,
         #[serde(rename = "tabType")]
         #[ts(rename = "tabType", type = "\"role\" | \"workspace\"")]
         tab_type: String,

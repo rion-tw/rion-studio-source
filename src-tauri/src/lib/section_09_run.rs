@@ -143,7 +143,7 @@ pub fn run() {
                                         let action_name = core_effect_action_name(&effect.action);
                                         let persist_runtime = matches!(
                                                 &effect.action,
-                                            rion_core::CoreEffectAction::EmbeddedApplyRuntime { .. }
+                                            rion_core::CoreEffectAction::EmbeddedFollowRoleOwnership { .. }
                                                 | rion_core::CoreEffectAction::EmbeddedDestroyRole { .. }
                                                 | rion_core::CoreEffectAction::EmbeddedDestroyTab { .. }
                                         );

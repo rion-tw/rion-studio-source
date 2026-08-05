@@ -14,7 +14,6 @@ impl SystemRuntimeExecutor {
         size: LogicalSize<f64>,
         lifecycle_id: &str,
     ) -> RuntimeResult<Webview> {
-        self.health.require_healthy()?;
         let restore_parent = self.prepare_surface_parent_for_creation(window, lifecycle_id)?;
         let stage = format!("native-webview-create:{lifecycle_id}");
         let started = Instant::now();
@@ -134,7 +133,6 @@ impl SystemRuntimeExecutor {
         lifecycle_id: &str,
         create: impl FnOnce() -> tauri::Result<Window> + Send + 'static,
     ) -> RuntimeResult<Window> {
-        self.health.require_healthy()?;
         let stage = format!("native-window-create:{lifecycle_id}");
         let started = Instant::now();
         self.record_runtime_stage(&stage, "started", started);
@@ -562,17 +560,15 @@ impl SystemRuntimeExecutor {
                     .ok()
                     .and_then(|state| state.close_previews.get(tab_id).map(|item| item.window_id.clone()))
             })
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_TAB_NOT_FOUND",
-                    "Runtime tab cleanup identity was not found.",
-                )
-            })?;
+            .or_else(|| self.tab_window_id(tab_id));
+        let Some(window_id) = window_id else {
+            return Ok(());
+        };
         let (role_ids, window_id) = {
             let state = self.state()?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
-                RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-            })?;
+            let Some(tab) = state.tabs.get(tab_id) else {
+                return Ok(());
+            };
             (tab.roles.keys().cloned().collect::<Vec<_>>(), window_id)
         };
         {
@@ -582,10 +578,7 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .any(|role_id| state.close_coordinator.closing_roles.contains(role_id))
             {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_ALREADY_CLOSING",
-                    "The runtime tab or one of its roles is already closing.",
-                ));
+                return Ok(());
             }
             state
                 .close_coordinator
@@ -724,7 +717,7 @@ impl SystemRuntimeExecutor {
                 state.recovering_roles.remove(&released.role_id);
             }
             state.tabs.remove(tab_id);
-            state.launch_phases.remove(tab_id);
+            self.presentation.statuses.remove(tab_id);
             // A successful native destroy is the authoritative close boundary,
             // including when it came from BrowserWindowStop rather than the
             // per-tab command. Retire the live tombstone in the same state commit

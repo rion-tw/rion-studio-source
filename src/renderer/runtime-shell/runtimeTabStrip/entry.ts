@@ -7,10 +7,7 @@ import { applicationShortcutForKeyEvent } from "../../../shared/applicationShort
 
 import type { RuntimeTabStripState } from "../../../shared/runtimeTabs";
 
-import type {
-  RuntimeTabActivationAcknowledgementRecord,
-  RuntimeTabChromeProjectionRecord
-} from "../../../shared/generated";
+import type { RuntimeTabChromeProjectionRecord } from "../../../shared/generated";
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
@@ -176,10 +173,6 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
       ? "superseded"
       : undefined
   );
-
-  const activations = window.__rionPendingRuntimeTabActivations ?? [];
-  window.__rionPendingRuntimeTabActivations = [];
-  for (const request of activations) window.__rionApplyRuntimeTabActivation?.(request);
 
   const mutations = window.__rionPendingRuntimeTabChromeMutations ?? [];
   window.__rionPendingRuntimeTabChromeMutations = [];
@@ -470,38 +463,6 @@ function cancelActiveTabDrag(): void {
 }
 
 export function installRuntimeTabStrip(): void {
-  window.__rionApplyRuntimeTabActivation = (request) => {
-    if (!window.__rionRuntimeTabChromeReady || !runtimeState.chromeHydrated) {
-      window.__rionPendingRuntimeTabActivations ??= [];
-      window.__rionPendingRuntimeTabActivations.push(request);
-      return;
-    }
-    const stale = request.revision < runtimeState.activationRevision;
-    if (!stale) {
-      runtimeState.activationRevision = request.revision;
-      if (request.mode === "reconcile") applyRuntimeTabOrder(request.orderedTabIds, false);
-      optimisticallyActivateTab(request.targetTabId);
-    }
-    const activeTabs = tabElements().filter((tab) =>
-      tab.classList.contains("active") && tab.getAttribute("aria-selected") === "true"
-    );
-    const observedActiveTabId = activeTabs.length === 1
-      ? activeTabs[0]?.dataset.tabId
-      : undefined;
-    const acknowledgement: RuntimeTabActivationAcknowledgementRecord = {
-      operationId: request.operationId,
-      revision: request.revision,
-      targetTabId: request.targetTabId,
-      ...(observedActiveTabId ? { observedActiveTabId } : {}),
-      status: stale
-        ? "superseded"
-        : observedActiveTabId === request.targetTabId ? "applied" : "failed"
-    };
-    void invoke("rion_runtime_tab_action", {
-      action: { type: "tabActivationApplied", acknowledgement }
-    }).catch(() => undefined);
-  };
-
   window.__rionApplyRuntimeTabChromeMutation = (revision, mutation) => {
     if (!window.__rionRuntimeTabChromeReady || !runtimeState.chromeHydrated) {
       window.__rionPendingRuntimeTabChromeMutations ??= [];

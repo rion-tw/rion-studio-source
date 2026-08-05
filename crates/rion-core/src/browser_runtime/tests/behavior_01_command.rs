@@ -10,7 +10,7 @@ fn tracks_role_ownership_without_accepting_live_topology_commands() {
     let mut runtime = RoleOwnershipRuntime::default();
     let created = runtime
         .invoke(command(json!({
-            "type":"createTab","sourceId":"w1","name":"Party","windowId":"window-1",
+            "type":"createTab","sourceId":"w1","name":"Party",
             "tabType":"workspace","workspaceId":"w1","roleSlots":["r1","r2"]
         })))
         .unwrap();
@@ -32,7 +32,7 @@ fn tracks_role_ownership_without_accepting_live_topology_commands() {
 
     let snapshot = runtime.snapshot();
     assert_eq!(snapshot.workspaces[0].state, "running");
-    assert_eq!(snapshot.workspaces[0].window_id, "window-1");
+    assert!(snapshot.workspaces[0].window_id.is_empty());
     for removed_topology_command in [
         json!({"type":"activateTab","tabId":tab_id}),
         json!({"type":"hideTab","tabId":tab_id}),
@@ -48,7 +48,7 @@ fn duplicate_workspace_roles_project_blocked_slots_and_invalid_transitions_fail(
     let mut runtime = RoleOwnershipRuntime::default();
     let first = runtime
         .invoke(command(json!({
-            "type":"createTab","sourceId":"w1","name":"One","windowId":"window-1",
+            "type":"createTab","sourceId":"w1","name":"One",
             "tabType":"workspace","workspaceId":"w1","roleSlots":["r1","r2"]
         })))
         .unwrap()
@@ -62,7 +62,7 @@ fn duplicate_workspace_roles_project_blocked_slots_and_invalid_transitions_fail(
         .unwrap();
     let second = runtime
         .invoke(command(json!({
-            "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
+            "type":"createTab","sourceId":"w2","name":"Two",
             "tabType":"workspace","workspaceId":"w2","roleSlots":["r1"]
         })))
         .unwrap();
@@ -95,7 +95,7 @@ fn role_slot_claims_move_one_owner_and_reject_stale_or_repeated_generations() {
     let mut runtime = RoleOwnershipRuntime::default();
     let source_tab_id = runtime
         .invoke(command(json!({
-            "type":"createTab","sourceId":"w1","name":"One","windowId":"window-1",
+            "type":"createTab","sourceId":"w1","name":"One",
             "tabType":"workspace","workspaceId":"w1","roleSlots":["r1"]
         })))
         .unwrap()
@@ -109,7 +109,7 @@ fn role_slot_claims_move_one_owner_and_reject_stale_or_repeated_generations() {
         .unwrap();
     let target_tab_id = runtime
         .invoke(command(json!({
-            "type":"createTab","sourceId":"w2","name":"Two","windowId":"window-2",
+            "type":"createTab","sourceId":"w2","name":"Two",
             "tabType":"workspace","workspaceId":"w2","roleSlots":["r1"]
         })))
         .unwrap()
@@ -180,14 +180,13 @@ fn compatibility_projection_has_no_active_or_user_order_authority() {
         runtime
             .invoke(command(json!({
                 "type":"createTab","tabId":tab_id,"sourceId":role_id,"name":role_id,
-                "windowId":"window-1","tabType":"role","roleSlots":[role_id]
+                "tabType":"role","roleSlots":[role_id]
             })))
             .unwrap();
     }
     let snapshot = runtime.snapshot();
     let identity_order = [second, third, first];
-    assert_eq!(snapshot.windows[0].active_tab_id, None);
-    assert_eq!(snapshot.windows[0].tab_ids, identity_order);
+    assert!(snapshot.windows.is_empty());
     assert_eq!(
         snapshot
             .tabs

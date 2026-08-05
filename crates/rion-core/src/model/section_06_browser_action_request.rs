@@ -195,8 +195,8 @@ pub enum CoreEffectAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         next_active_tab_id: Option<String>,
     },
-    EmbeddedApplyRuntime {
-        snapshot: BrowserRuntimeSnapshot,
+    EmbeddedFollowRoleOwnership {
+        roles: Vec<BrowserRuntimeRoleRecord>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         target: Option<EmbeddedLaunchTargetRecord>,

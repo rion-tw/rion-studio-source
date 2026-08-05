@@ -19,15 +19,23 @@ async fn finish_deferred_tab_drag_session(
         return finish_cancelled_tab_drag(app, state, session);
     }
     if session.source_drop_accepted && session.drop_window_id.is_none() {
-        return finish_failed_tab_drag_session(
+        record_tab_drag_lifecycle(
+            state,
+            &session,
+            "tab.drag-drop-superseded",
+            "The source ended before a matching HTML drop intent arrived.",
+        );
+        release_tab_drag_window_motion_suppression(state, &session, None);
+        let receipt = complete_tab_drag_terminal(
             app,
             state,
-            &mut session,
-            shell_error(
-                "TAURI_TAB_DRAG_STALE",
-                "The accepted drop target did not report its destination.",
-            ),
-        );
+            &session,
+            "tabDragDropSuperseded",
+            RuntimeTabDragTerminalStatus::Superseded,
+            None,
+            0,
+        )?;
+        return serialize_tab_drag_response(&receipt);
     }
     session.phase = GameWindowTabDragPhase::Finishing;
     if let Some(error) = tab_drag_fence_error(state, &session) {
@@ -85,7 +93,6 @@ fn record_tab_drag_lifecycle(
         "eventSequence": session.last_event_sequence,
         "intentGeneration": session.intent_generation,
         "hoverWindowId": session.hover_window_id,
-        "projectionRevision": session.topology_revision,
         "sessionId": session.id,
         "singleTab": session.single_tab,
         "sourceWindowId": session.source_window_id,
@@ -220,15 +227,7 @@ fn schedule_windows_tab_drag_intent_timeout(app: &AppHandle, session_id: &str) {
         eprintln!(
             "Runtime tab drag {session_id} cancelled because its accepted WebView2 drop intent was not delivered."
         );
-        let _ = finish_failed_tab_drag(
-            &app,
-            &state,
-            &session_id,
-            shell_error(
-                "TAURI_TAB_DRAG_STALE",
-                "The accepted WebView2 drop intent was not delivered before its deadline.",
-            ),
-        );
+        let _ = finish_superseded_tab_drag(&app, &state, &session_id);
     });
 }
 
@@ -329,7 +328,12 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     let source_window_id = state
         .runtime
         .live_tab_window_id(tab_id)
-        .ok_or_else(|| shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
+        .ok_or_else(|| {
+            shell_error(
+                "TAURI_RUNTIME_TAB_MOVE_SUPERSEDED",
+                "The drag intent was superseded because the tab is no longer live.",
+            )
+        })?;
     let source = state
         .runtime
         .launch_target_for_window_id(&source_window_id)

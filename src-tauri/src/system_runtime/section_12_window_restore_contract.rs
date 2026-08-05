@@ -74,52 +74,59 @@ impl SystemRuntimeExecutor {
                 },
             );
         }
-        let revision = self.presentation.next_revision();
-        let presentation = self
+        let live_tabs = tabs
+            .iter()
+            .map(|tab| LiveTabRecord {
+                audio_muted: tab.audio_muted,
+                closable: true,
+                icon_data_url: None,
+                id: tab.id.clone(),
+                persistable: true,
+                role_ids: tab
+                    .role_slots
+                    .iter()
+                    .map(|slot| slot.role_id.clone())
+                    .collect(),
+                role_slots: tab.role_slots.clone(),
+                source_id: tab.source_id.clone(),
+                tab_type: tab.tab_type.clone(),
+                title: tab.name.clone(),
+                #[cfg(any(windows, target_os = "macos"))]
+                workspace_template: None,
+            })
+            .collect::<Vec<_>>();
+        let hidden_tab_ids = tabs
+            .iter()
+            .filter(|tab| tab.hidden)
+            .map(|tab| tab.id.clone())
+            .collect::<HashSet<_>>();
+        let generation = self
             .presentation
-            .coordinator(window_id)
-            .map_err(|message| message.to_owned())?;
-        {
-            let mut live = presentation.lock().map_err(|_| {
-                "The restored tab presentation state is unavailable.".to_owned()
-            })?;
-            for tab in tabs {
-                live.insert_tab(
-                    TabPresentation {
-                        audio_muted: tab.audio_muted,
-                        closable: true,
-                        icon_data_url: None,
-                        id: tab.id.clone(),
-                        phase: TabPresentationPhase::Reserved,
-                        persistable: true,
-                        role_ids: tab
-                            .role_slots
-                            .iter()
-                            .map(|slot| slot.role_id.clone())
-                            .collect(),
-                        role_slots: tab.role_slots.clone(),
-                        source_id: tab.source_id.clone(),
-                        tab_type: tab.tab_type.clone(),
-                        title: tab.name.clone(),
-                        #[cfg(any(windows, target_os = "macos"))]
-                        workspace_template: None,
-                    },
-                    revision,
-                    false,
-                );
-                if tab.hidden {
-                    live.set_tab_hidden(&tab.id, true, revision);
-                }
-            }
-            live.reorder_known_tabs(&ordered_tab_ids);
-            live.select(
-                active_tab_id
+            .existing(window_id)
+            .and_then(|live| live.lock().ok().map(|live| live.window_generation))
+            .unwrap_or_default();
+        let receipt = self.presentation.commit_live_topology(LiveTopologyCommitInput {
+            commit_id: uuid::Uuid::new_v4().to_string(),
+            source: "restore",
+            primary_window_id: window_id.to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: active_tab_id
                     .clone()
                     .or_else(|| visible_tab_ids.first().cloned()),
-                revision,
-            );
+                hidden_tab_ids,
+                tabs: live_tabs,
+                ui_sequence: 1,
+                window_generation: generation,
+                window_id: window_id.to_owned(),
+            }],
+        })?;
+        let revision = receipt.revision;
+        self.schedule_live_projection_membership_follow();
+        for tab in tabs {
+            self.presentation
+                .statuses
+                .set_presentation_phase(&tab.id, TabRuntimePhase::Reserved);
         }
-        let mut created_native_tab_ids = Vec::<String>::new();
         for tab in tabs.iter().filter(|tab| !tab.hidden) {
             if let Err(error) = self.reserve_native_tab(
                 window_id,
@@ -129,33 +136,18 @@ impl SystemRuntimeExecutor {
                 None,
                 revision,
             ) {
-                for reserved_tab_id in created_native_tab_ids.iter().rev() {
-                    let _ = self.try_remove_native_tab_reservation(
-                        window_id,
-                        reserved_tab_id,
-                        active_tab_id.as_deref(),
-                    );
-                }
-                if let Ok(mut live) = presentation.lock() {
-                    for tab_id in &ordered_tab_ids {
-                        live.remove_tab(tab_id, revision);
-                    }
-                }
-                if let Ok(mut state) = self.state.lock() {
-                    state.pending_window_tab_restores.remove(window_id);
-                }
-                self.remove_empty_display_host(window_id, host_created);
-                return Err(error.message);
+                self.presentation
+                    .statuses
+                    .set_presentation_phase(&tab.id, TabRuntimePhase::Failed);
+                eprintln!(
+                    "Restored tab chrome remains pending while live topology is retained: window={window_id} tab={} error={}",
+                    tab.id, error.message
+                );
+                continue;
             }
-            created_native_tab_ids.push(tab.id.clone());
             self.mark_restored_native_tab_reserved(window_id, &tab.id);
         }
-        if let Err(error) = self.reorder_native_tabs(window_id, &visible_tab_ids) {
-            eprintln!(
-                "Saved Game Window tab chrome could not be seeded in order: window={window_id} error={}",
-                error.message
-            );
-        }
+        self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids);
         self.apply_native_active_style(
             window_id,
             active_tab_id.as_deref().or_else(|| ordered_tab_ids.first().map(String::as_str)),
@@ -193,32 +185,14 @@ impl SystemRuntimeExecutor {
         if orphaned_tab_ids.is_empty() {
             return;
         }
-        let revision = self.presentation.next_revision();
-        let mut active_tab_id = None;
-        if let Some(presentation) = self.presentation.existing(window_id)
-            && let Ok(mut live) = presentation.lock()
-        {
-            for tab_id in &orphaned_tab_ids {
-                live.remove_tab(tab_id, revision);
-            }
-            if live
-                .selected_tab_id
-                .as_ref()
-                .is_none_or(|selected| !live.contains_tab(selected))
-            {
-                let successor = live.tabs.first().map(|tab| tab.id.clone());
-                live.select(successor, revision);
-            }
-            active_tab_id = live.selected_tab_id.clone();
+        for tab_id in &orphaned_tab_ids {
+            self.presentation
+                .statuses
+                .set_presentation_phase(tab_id, TabRuntimePhase::Failed);
         }
-        for tab_id in orphaned_tab_ids.iter().rev() {
-            let _ = self.try_remove_native_tab_reservation(
-                window_id,
-                tab_id,
-                active_tab_id.as_deref(),
-            );
-        }
-        self.remove_empty_display_host(window_id, prepared.host_created);
+        // Restore cleanup owns only native resources. The one-pass restored live
+        // topology remains intact so failed surfaces can hydrate into placeholders
+        // and retry without a visible reorder or tab deletion.
         self.publish_launcher_presence();
     }
 

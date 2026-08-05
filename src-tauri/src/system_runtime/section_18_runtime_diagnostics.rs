@@ -315,17 +315,16 @@ impl SystemRuntimeExecutor {
                 record.display_host_count = Some(runtime_diagnostic_count(state.display_hosts.len()));
                 record.tab_count = Some(runtime_diagnostic_count(state.tabs.len()));
                 record.role_count = Some(runtime_diagnostic_count(role_surfaces.len()));
+                let launch_phases = self.presentation.statuses.launch_phases();
                 record.launching_tab_count = Some(runtime_diagnostic_count(
-                    state
-                        .launch_phases
-                        .values()
+                    launch_phases
+                        .iter()
                         .filter(|phase| !matches!(phase, LaunchPhase::Ready | LaunchPhase::Degraded))
                         .count(),
                 ));
                 record.degraded_tab_count = Some(runtime_diagnostic_count(
-                    state
-                        .launch_phases
-                        .values()
+                    launch_phases
+                        .iter()
                         .filter(|phase| matches!(phase, LaunchPhase::Degraded))
                         .count(),
                 ));

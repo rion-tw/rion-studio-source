@@ -1,5 +1,4 @@
 const FINISHED_TAB_DRAG_LIMIT: usize = 128;
-const TAB_DRAG_SESSION_TIMEOUT: Duration = Duration::from_secs(120);
 
 fn accept_ordered_tab_drag_event(
     state: &CoreState,
@@ -68,7 +67,6 @@ fn tab_drag_active_phase(phase: &GameWindowTabDragPhase) -> &'static str {
     match phase {
         GameWindowTabDragPhase::Previewing => "accepted",
         GameWindowTabDragPhase::Attached | GameWindowTabDragPhase::Floating => "dragging",
-        GameWindowTabDragPhase::AwaitingDropIntent => "dropping",
         GameWindowTabDragPhase::Finishing => "settling",
         GameWindowTabDragPhase::Cancelled => "cancelled",
     }
@@ -81,7 +79,6 @@ fn tab_drag_active_record(session: &GameWindowTabDragSession) -> RuntimeTabDragS
         source_window_id: session.source_window_id.clone(),
         source_tab_id: session.tab_id.clone(),
         lifecycle_epoch: session.lifecycle_epoch,
-        topology_revision: session.topology_revision,
         phase: tab_drag_active_phase(&session.phase).to_owned(),
         status: "active".to_owned(),
         started_at: session.accepted_at.clone(),
@@ -106,7 +103,6 @@ fn tab_drag_terminal_record(
         source_window_id: session.source_window_id.clone(),
         source_tab_id: session.tab_id.clone(),
         lifecycle_epoch: session.lifecycle_epoch,
-        topology_revision: session.topology_revision,
         phase: phase.to_owned(),
         status: status.to_owned(),
         started_at: session.accepted_at.clone(),
@@ -120,33 +116,6 @@ fn emit_tab_drag_active(app: &AppHandle, session: &GameWindowTabDragSession) {
         "rion://runtime-tab-drag-session",
         tab_drag_active_record(session),
     );
-}
-
-fn schedule_tab_drag_session_timeout(app: &AppHandle, session_id: &str) {
-    let app = app.clone();
-    let session_id = session_id.to_owned();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(TAB_DRAG_SESSION_TIMEOUT).await;
-        let state = app.state::<CoreState>();
-        let _lane = state.tab_drag_lane.lock().await;
-        let still_active = state
-            .tab_drag
-            .lock()
-            .ok()
-            .and_then(|session| session.as_ref().map(|session| session.id == session_id))
-            .unwrap_or(false);
-        if still_active {
-            let _ = finish_failed_tab_drag(
-                &app,
-                &state,
-                &session_id,
-                shell_error(
-                    "NATIVE_OPERATION_DEADLINE_EXCEEDED",
-                    "The tab drag did not reach a terminal action before its deadline.",
-                ),
-            );
-        }
-    });
 }
 
 fn cancel_stale_tab_drag_after_lifecycle(app: &AppHandle, state: &CoreState) {

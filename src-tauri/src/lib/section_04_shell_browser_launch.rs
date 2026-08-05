@@ -3,16 +3,17 @@ fn preview_and_schedule_launcher_tab_selection(
     state: &CoreState,
     tab_id: &str,
 ) -> Result<(), String> {
-    let (window_id, provisional, resolved_tab_id, operation_id) = state
-        .runtime
-        .preview_launcher_tab_activation_background(tab_id)?;
+    let (window_id, provisional, resolved_tab_id, operation_id) =
+        match state.runtime.preview_launcher_tab_activation_background(tab_id) {
+            Err(message) if stale_live_tab_action_error(&message) => return Ok(()),
+            result => result?,
+        };
     if !provisional {
         commit_previewed_tab_selection(
             app,
             state,
             &window_id,
             &resolved_tab_id,
-            None,
         )?;
     }
     monitor_background_tab_presentation(Arc::clone(&state.runtime), operation_id);
@@ -26,15 +27,6 @@ async fn begin_shell_launch_presentation(
     source_id: &str,
     tab_type: &'static str,
 ) -> Result<Option<crate::system_runtime::LaunchPreviewHandle>, CoreErrorPayload> {
-    for _ in 0..400 {
-        if !state
-            .runtime
-            .launcher_source_is_closing(source_id, tab_type)
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
     if let Some(tab_id) = state
         .runtime
         .presented_tab_for_launcher_source(source_id, tab_type)

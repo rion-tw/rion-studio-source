@@ -68,7 +68,7 @@
         assert!(
             launch_actions
                 .iter()
-                .all(|action| !matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+                .all(|action| !matches!(action, CoreEffectAction::EmbeddedFollowRoleOwnership { .. }))
         );
         assert!(launch_actions.iter().any(|action| matches!(
             action,
@@ -79,8 +79,8 @@
         )));
         assert!(launch_actions.iter().all(|action| !matches!(
             action,
-            CoreEffectAction::EmbeddedApplyRuntime { snapshot, .. }
-                if snapshot.roles.iter().any(|role| role.state == "running")
+            CoreEffectAction::EmbeddedFollowRoleOwnership { roles, .. }
+                if roles.iter().any(|role| role.state == "running")
         )));
         let running_snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
@@ -120,7 +120,7 @@
             .unwrap();
         let projection_index = stop_actions
             .iter()
-            .position(|action| matches!(action, CoreEffectAction::EmbeddedApplyRuntime { .. }))
+            .position(|action| matches!(action, CoreEffectAction::EmbeddedFollowRoleOwnership { .. }))
             .unwrap();
         assert!(destroy_index < projection_index);
         let stopped_snapshot = core

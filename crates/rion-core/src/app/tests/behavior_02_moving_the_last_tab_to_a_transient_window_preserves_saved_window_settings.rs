@@ -1,10 +1,14 @@
-    fn runtime_tab_ids_for_window(core: &AppCore, window_id: &str) -> Vec<String> {
+    fn runtime_tab_ids_for_sources(core: &AppCore, source_ids: &[&str]) -> Vec<String> {
         core.invoke(CoreCommand::BrowserRuntimeSnapshot)
             .unwrap()["tabs"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|tab| tab["windowId"].as_str() == Some(window_id))
+            .filter(|tab| {
+                tab["sourceId"]
+                    .as_str()
+                    .is_some_and(|source_id| source_ids.contains(&source_id))
+            })
             .filter_map(|tab| tab["id"].as_str().map(str::to_owned))
             .collect()
     }
@@ -99,7 +103,10 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: stopped_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_window(&core, &stopped_window_id),
+                    tab_ids: runtime_tab_ids_for_sources(
+                        &core,
+                        &[role_id.as_str(), workspace_id.as_str()],
+                    ),
                 },
                 None,
             )
@@ -113,22 +120,7 @@
                 runtime["workspaces"].as_array().unwrap().is_empty(),
                 "{platform}"
             );
-            assert!(
-                runtime["windows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|window| window["windowId"] != stopped_window_id),
-                "{platform}"
-            );
-            assert!(
-                runtime["windows"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|window| window["windowId"] == other_window_id),
-                "{platform}"
-            );
+            assert!(runtime["windows"].as_array().unwrap().is_empty(), "{platform}");
             let stopped_windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             let stopped_window = stopped_windows
                 .as_array()
@@ -157,14 +149,20 @@
                 browser_workspace_launch(workspace_id.clone(), target(&stopped_window_id)),
             );
             let reopened = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
-            let reopened_window = reopened["windows"]
+            let reopened_tabs = reopened["tabs"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .find(|window| window["windowId"] == stopped_window_id)
-                .unwrap();
+                .filter(|tab| {
+                    matches!(
+                        tab["sourceId"].as_str(),
+                        Some(source_id)
+                            if source_id == role_id || source_id == workspace_id
+                    )
+                })
+                .count();
             assert_eq!(
-                reopened_window["tabIds"].as_array().unwrap().len(),
+                reopened_tabs,
                 2,
                 "{platform}"
             );
@@ -172,7 +170,10 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: stopped_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_window(&core, &stopped_window_id),
+                    tab_ids: runtime_tab_ids_for_sources(
+                        &core,
+                        &[role_id.as_str(), workspace_id.as_str()],
+                    ),
                 },
                 None,
             )
@@ -194,7 +195,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
-                    role_id: deleted_role_id,
+                    role_id: deleted_role_id.clone(),
                     target: target(&deleted_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
@@ -204,7 +205,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowDelete {
                     window_id: deleted_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_window(&core, &deleted_window_id),
+                    tab_ids: runtime_tab_ids_for_sources(&core, &[deleted_role_id.as_str()]),
                 },
                 None,
             )
@@ -223,7 +224,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
-                    role_id: failed_role_id,
+                    role_id: failed_role_id.clone(),
                     target: target(&failed_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
@@ -233,7 +234,7 @@
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
                     window_id: failed_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_window(&core, &failed_window_id),
+                    tab_ids: runtime_tab_ids_for_sources(&core, &[failed_role_id.as_str()]),
                 },
                 Some("embeddedDestroyTab"),
             )

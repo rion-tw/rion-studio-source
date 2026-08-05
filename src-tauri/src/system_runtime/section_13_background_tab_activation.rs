@@ -14,12 +14,11 @@ impl SystemRuntimeExecutor {
             "pointer"
         };
         if let Some((window_id, operation_id)) = self
-            .request_provisional_tab_presentation_with_transaction(
+            .request_provisional_tab_presentation(
                 &resolved_tab_id,
                 NativePresentationFocus::ContentOnly,
                 trigger,
                 None,
-                false,
             )?
         {
             return Ok((window_id, true, resolved_tab_id, operation_id));
@@ -60,12 +59,11 @@ impl SystemRuntimeExecutor {
             (current + 1) % candidates.len()
         };
         let target_id = candidates[target_index].clone();
-        let provisional = self.request_provisional_tab_presentation_with_transaction(
+        let provisional = self.request_provisional_tab_presentation(
             &target_id,
             NativePresentationFocus::ContentOnly,
             "shortcut",
             None,
-            false,
         )?;
         let (provisional, operation_id) = if let Some((_, operation_id)) = provisional {
             (true, operation_id)

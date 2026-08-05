@@ -11,25 +11,14 @@ impl SystemRuntimeExecutor {
         })? else {
             return Ok(());
         };
-        let mut next_tab_id = None;
-        if let Some(presentation) = self.presentation.existing(&window_id)
-            && let Ok(mut presentation) = presentation.lock()
-            && presentation.contains_tab(tab_id)
-        {
-            let was_selected = presentation.selected_tab_id.as_deref() == Some(tab_id);
-            let revision = self.presentation.next_revision();
-            presentation.remove_tab(tab_id, revision);
-            if was_selected {
-                next_tab_id = presentation.tabs.last().map(|tab| tab.id.clone());
-                presentation.select(next_tab_id.clone(), revision);
-            }
-        }
-        self.remove_native_tab_reservation(&window_id, tab_id, next_tab_id.as_deref());
         self.destroy_tab(tab_id)?;
+        self.presentation
+            .statuses
+            .set_presentation_phase(tab_id, TabRuntimePhase::Failed);
         self.record_presentation_event(
             LogLevel::Debug,
             "tab.stale-create-retired",
-            "A cancelled native create effect was isolated before it could become an orphan tab.",
+            "A cancelled native create effect was isolated while its live tab remained available for retry.",
             &window_id,
             Some(tab_id),
             self.presentation.current_revision(),

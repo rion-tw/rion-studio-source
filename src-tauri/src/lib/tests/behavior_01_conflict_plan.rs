@@ -115,7 +115,7 @@ use super::*;
     }
 
     #[test]
-    fn game_window_native_compensation_restores_every_mutable_field() {
+    fn game_window_record_mapping_preserves_every_mutable_field() {
         let record = serde_json::from_value::<StateGameWindowRecord>(json!({
             "id": "window-1",
             "name": "Before",
@@ -171,21 +171,6 @@ use super::*;
     }
 
     #[test]
-    fn game_window_create_rollback_error_preserves_window_and_both_failures() {
-        let error = game_window_create_rollback_error(
-            "window-created",
-            &shell_error("SHELL_WINDOW_FAILED", "native create failed"),
-            "metadata cleanup failed",
-        );
-
-        assert_eq!(error.code, "SHELL_GAME_WINDOW_ROLLBACK_FAILED");
-        assert!(error.message.contains("window-created"));
-        assert!(error.message.contains("SHELL_WINDOW_FAILED"));
-        assert!(error.message.contains("native create failed"));
-        assert!(error.message.contains("metadata cleanup failed"));
-    }
-
-    #[test]
     fn tab_drag_anchor_preserves_left_middle_and_right_grab_points() {
         let source = StatePixelBoundsRecord {
             x: 40,
@@ -227,7 +212,7 @@ use super::*;
     }
 
     #[test]
-    fn tab_drag_latest_sample_wins_and_terminal_order_is_frozen_exactly() {
+    fn tab_drag_latest_sample_and_committed_order_are_compared_directly() {
         assert_eq!(
             latest_tab_drag_sample((3, 100.0, 200.0), (4, -40.0, 88.0)),
             (4, -40.0, 88.0)
@@ -241,12 +226,6 @@ use super::*;
         let reordered = vec!["b".to_owned(), "a".to_owned(), "c".to_owned()];
         assert!(!tab_drag_order_changed(&original, &original));
         assert!(tab_drag_order_changed(&original, &reordered));
-        assert!(tab_drag_exact_order_matches(&original, &reordered));
-        assert!(!tab_drag_exact_order_matches(
-            &original,
-            &["a".to_owned(), "a".to_owned(), "c".to_owned()]
-        ));
-        assert!(!tab_drag_exact_order_matches(&original, &["a".to_owned(), "b".to_owned()]));
     }
 
     #[test]

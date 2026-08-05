@@ -1,4 +1,25 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn superseded_tab_activation_summary(
+        &self,
+        tab_id: &str,
+    ) -> SystemRuntimeOperationSummaryRecord {
+        NativeOperationReceipt::with_status(
+            NativeOperationContext::new(
+                NativeOperationSubsystem::TabActivation,
+                "tab-activation-stale-callback",
+                Duration::ZERO,
+            )
+            .with_completion_scope(SystemRuntimeOperationCompletionScope::TopologyCommitted)
+            .with_lifecycle_epoch(self.lifecycle_epoch())
+            .with_revision(self.presentation.current_revision())
+            .with_tab(tab_id),
+            "tabActivationSuperseded",
+            NativeOperationStatus::Superseded,
+            None,
+        )
+        .summary()
+    }
+
     fn window_zoom_indicator_label(&self, zoom_factor: f64) -> String {
         let percent = (zoom_factor * 100.0).round() as u32;
         let language = self
@@ -201,7 +222,7 @@ impl SystemRuntimeExecutor {
         &self,
         snapshot: BrowserRuntimeSnapshot,
     ) -> Option<BrowserRuntimeSnapshot> {
-        self.compose_live_runtime_snapshot(snapshot)
+        self.compose_live_runtime_snapshot(snapshot.roles)
     }
 
     pub fn begin_auto_restore(&self) -> bool {
@@ -247,12 +268,12 @@ impl SystemRuntimeExecutor {
         let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
             return;
         };
-        let Some(snapshot) = self.compose_live_runtime_snapshot(snapshot) else {
+        let Some(snapshot) = self.compose_live_runtime_snapshot(snapshot.roles) else {
             return;
         };
         // Renderer projection and native tab metadata may lag presentation, but neither path
         // owns topology or selection. Insert/replace/remove/select are committed directly by
-        // LiveWindowTabState and therefore never wait for Core or a game page.
+        // LiveWindowRecord and therefore never wait for Core or a game page.
         #[cfg(target_os = "macos")]
         self.sync_native_tab_metadata(&snapshot);
         #[cfg(windows)]
@@ -277,12 +298,11 @@ impl SystemRuntimeExecutor {
             .resolve_tab_alias(tab_id)
             .unwrap_or_else(|| tab_id.to_owned());
         if let Some((window_id, operation_id)) = self
-            .request_provisional_tab_presentation_with_transaction(
+            .request_provisional_tab_presentation(
                 &resolved_tab_id,
                 NativePresentationFocus::WindowAndContent,
                 "launcher-external",
                 Some(true),
-                false,
             )?
         {
             return Ok((window_id, true, resolved_tab_id, operation_id));
@@ -314,22 +334,15 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         window_visibility: Option<bool>,
     ) -> Result<Option<(String, String)>, String> {
-        self.request_provisional_tab_presentation_with_transaction(
-            tab_id,
-            focus,
-            trigger,
-            window_visibility,
-            true,
-        )
+        self.request_provisional_tab_presentation(tab_id, focus, trigger, window_visibility)
     }
 
-    fn request_provisional_tab_presentation_with_transaction(
+    fn request_provisional_tab_presentation(
         &self,
         tab_id: &str,
         focus: NativePresentationFocus,
         trigger: &'static str,
         window_visibility: Option<bool>,
-        transactional: bool,
     ) -> Result<Option<(String, String)>, String> {
         let requested_at = Instant::now();
         let (window_id, window) = {
@@ -351,36 +364,30 @@ impl SystemRuntimeExecutor {
                 .clone();
             (window_id, window)
         };
-        let (previous_tab_id, previous_surfaces, ordered_tab_ids, revision) = {
-            let presentation = self.presentation.coordinator(&window_id)?;
-            let revision = self.presentation.next_revision();
-            let mut window_state = presentation.lock().map_err(|_| {
-                "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?;
-            if !window_state.contains_tab(tab_id) {
+        let (previous_tab_id, previous_surfaces, revision) = {
+            if !self.presentation.window_contains_tab(&window_id, tab_id) {
                 return Ok(None);
             }
-            let previous_tab_id = window_state.selected_tab_id.clone();
-            let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
-            window_state.select(Some(tab_id.to_owned()), revision);
-            (
-                previous_tab_id,
-                previous_surfaces,
-                window_state.tab_ids(),
-                revision,
-            )
+            let (before, _after, revision) = self.presentation.commit_live_selection(
+                "command",
+                &window_id,
+                Some(tab_id),
+            )?;
+            let previous_tab_id = before.selected_tab_id;
+            let previous_surfaces = self
+                .presentation
+                .surfaces(&window_id, previous_tab_id.as_deref());
+            (previous_tab_id, previous_surfaces, revision)
         };
-        let activation = transactional
-            .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, false))
-            .transpose()?;
-        if let Some(activation) = activation.as_ref() {
-            self.operations.mark_in_flight(&activation.operation_id);
-            self.apply_tab_activation_chrome(activation, ordered_tab_ids);
-        }
-        if !transactional && matches!(trigger, "native-pointer" | "shortcut") {
+        if trigger == "native-pointer" {
             self.remember_native_active_style(&window_id, Some(tab_id));
-        } else if !transactional && trigger != "surface-attached" {
-            self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
+        } else if trigger != "surface-attached" {
+            self.schedule_native_active_style(
+                window_id.clone(),
+                Some(tab_id.to_owned()),
+                revision,
+                trigger,
+            );
         }
         let presentation_operation_id = self.dispatch_native_presentation(
             window_id.clone(),
@@ -397,16 +404,7 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
-        let operation_id = if let Some(activation) = activation {
-            self.track_tab_activation_presentation(
-                activation.operation_id.clone(),
-                presentation_operation_id,
-            );
-            activation.operation_id
-        } else {
-            presentation_operation_id
-        };
-        Ok(Some((window_id, operation_id)))
+        Ok(Some((window_id, presentation_operation_id)))
     }
 
     fn request_tab_presentation(
@@ -425,12 +423,11 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         window_visibility: Option<bool>,
     ) -> Result<(String, u64, String), String> {
-        self.request_tab_presentation_with_window_visibility_and_transaction(
+        self.request_tab_presentation_with_window_visibility(
             tab_id,
             focus,
             trigger,
             window_visibility,
-            true,
         )
     }
 
@@ -458,38 +455,25 @@ impl SystemRuntimeExecutor {
                 .window
                 .clone()
         };
-        let coordinator = self
-            .presentation
-            .coordinator(window_id)
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
-        let revision = self.presentation.next_revision();
-        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview) = {
-            let mut state = coordinator.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?;
-            if let Some(tab_id) = tab_id
-                && !state.contains_tab(tab_id)
-            {
-                return Err(RuntimeError::new(
-                    "TAURI_RUNTIME_TAB_NOT_FOUND",
-                    "Runtime tab was not found in the presentation state.",
-                ));
-            }
-            let previous_tab_id = state.selected_tab_id.clone();
-            let previous_surfaces = state.surfaces(previous_tab_id.as_deref());
-            state.select(tab_id.map(str::to_owned), revision);
-            let next_surfaces = state.surfaces(tab_id);
+        let (previous_tab_id, previous_surfaces, next_surfaces, active_webview, revision) = {
+            let (before, _, committed_revision) = self
+                .presentation
+                .commit_live_selection("command", window_id, tab_id)
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?;
+            let previous_tab_id = before.selected_tab_id;
+            let previous_surfaces = self
+                .presentation
+                .surfaces(window_id, previous_tab_id.as_deref());
+            let next_surfaces = self.presentation.surfaces(window_id, tab_id);
             let active_webview = next_surfaces.first().cloned();
             (
                 previous_tab_id,
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
+                committed_revision,
             )
         };
         self.apply_native_active_style(window_id, tab_id, revision, trigger);
@@ -518,23 +502,6 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
         window_visibility: Option<bool>,
     ) -> Result<(String, u64, String), String> {
-        self.request_tab_presentation_with_window_visibility_and_transaction(
-            tab_id,
-            focus,
-            trigger,
-            window_visibility,
-            false,
-        )
-    }
-
-    fn request_tab_presentation_with_window_visibility_and_transaction(
-        &self,
-        tab_id: &str,
-        focus: NativePresentationFocus,
-        trigger: &'static str,
-        window_visibility: Option<bool>,
-        transactional: bool,
-    ) -> Result<(String, u64, String), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
         let window_id = self.resolve_live_presentation_tab_owner(tab_id)?;
@@ -551,73 +518,61 @@ impl SystemRuntimeExecutor {
             was_hidden,
             tab_presentation,
         ) = {
-            let presentation = self.presentation.coordinator(&window_id)?;
-            let revision = self.presentation.next_revision();
-            let mut window_state = presentation.lock().map_err(|_| {
-                "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?;
-            if !window_state.contains_tab(tab_id) {
-                return Err("Runtime tab was not found in the presentation state.".to_owned());
-            }
-            let previous_tab_id = window_state.selected_tab_id.clone();
-            let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
-            let next_surfaces = window_state.surfaces(Some(tab_id));
+            let (before, after, revision) = self.presentation.commit_live_selection(
+                if matches!(trigger, "native-pointer" | "shortcut") {
+                    if cfg!(target_os = "macos") {
+                        "appKit"
+                    } else {
+                        "html"
+                    }
+                } else {
+                    "command"
+                },
+                &window_id,
+                Some(tab_id),
+            )?;
+            let previous_tab_id = before.selected_tab_id.clone();
+            let previous_surfaces = self
+                .presentation
+                .surfaces(&window_id, previous_tab_id.as_deref());
+            let next_surfaces = self.presentation.surfaces(&window_id, Some(tab_id));
             let active_webview = next_surfaces.first().cloned();
-            let was_hidden = window_state.tab_is_hidden(tab_id);
-            let tab_presentation = window_state
+            let was_hidden = before.tab_is_hidden(tab_id);
+            let tab_presentation = before
                 .tabs
                 .iter()
                 .find(|tab| tab.id == tab_id)
                 .cloned()
                 .ok_or_else(|| "Runtime tab presentation metadata was not found.".to_owned())?;
-            window_state.select(Some(tab_id.to_owned()), revision);
             (
                 previous_tab_id,
                 previous_surfaces,
                 next_surfaces,
                 active_webview,
-                window_state.tab_ids(),
+                after.tab_ids(),
                 revision,
                 was_hidden,
                 tab_presentation,
             )
         };
         if was_hidden {
-            #[cfg(any(windows, target_os = "macos"))]
-            let workspace_template = tab_presentation.workspace_template.as_deref();
-            #[cfg(not(any(windows, target_os = "macos")))]
-            let workspace_template: Option<&str> = None;
-            if let Err(error) = self.try_ensure_native_tab(
-                &window_id,
-                tab_id,
-                &tab_presentation.title,
-                &tab_presentation.tab_type,
-                workspace_template,
-            ) {
-                eprintln!(
-                    "Unhidden native tab chrome remains pending without live rollback: tab={tab_id} window={window_id} error={}",
-                    error.message
-                );
-            }
-            if let Err(error) = self.reorder_native_tabs(&window_id, &ordered_tab_ids) {
-                eprintln!(
-                    "Unhidden native tab order remains pending without live rollback: tab={tab_id} window={window_id} error={}",
-                    error.message
-                );
-            }
+            self.schedule_native_tab_unhide_projection(
+                window_id.clone(),
+                tab_presentation,
+                ordered_tab_ids.clone(),
+                revision,
+            );
             self.schedule_live_window_state_persistence(&window_id);
         }
-        let activation = transactional
-            .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, true))
-            .transpose()?;
-        if let Some(activation) = activation.as_ref() {
-            self.operations.mark_in_flight(&activation.operation_id);
-            self.apply_tab_activation_chrome(activation, ordered_tab_ids);
-        }
-        if !transactional && matches!(trigger, "native-pointer" | "shortcut") {
+        if trigger == "native-pointer" {
             self.remember_native_active_style(&window_id, Some(tab_id));
-        } else if !transactional && trigger != "surface-attached" {
-            self.apply_native_active_style(&window_id, Some(tab_id), revision, trigger);
+        } else if trigger != "surface-attached" && !was_hidden {
+            self.schedule_native_active_style(
+                window_id.clone(),
+                Some(tab_id.to_owned()),
+                revision,
+                trigger,
+            );
         }
         let presentation_operation_id = self.dispatch_native_presentation(
             window_id.clone(),
@@ -634,16 +589,7 @@ impl SystemRuntimeExecutor {
             focus,
             None,
         );
-        let operation_id = if let Some(activation) = activation {
-            self.track_tab_activation_presentation(
-                activation.operation_id.clone(),
-                presentation_operation_id,
-            );
-            activation.operation_id
-        } else {
-            presentation_operation_id
-        };
-        Ok((window_id, revision, operation_id))
+        Ok((window_id, revision, presentation_operation_id))
     }
 
     pub(crate) fn preview_adjacent_tab_activation(

@@ -78,19 +78,8 @@ impl SystemRuntimeExecutor {
                 .presentation
                 .existing(&window_id)
                 .and_then(|presentation| {
-                    presentation.lock().ok().map(|mut presentation| {
-                        let bound = presentation.bind_surface(
-                            tab_id,
-                            SurfacePresentationBinding {
-                                generation: 0,
-                                instance_id: surface_instance_id.clone(),
-                                webview: webview.clone(),
-                            },
-                        );
-                        (
-                            bound,
-                            presentation.selected_tab_id.as_deref() == Some(tab_id),
-                        )
+                    presentation.lock().ok().map(|presentation| {
+                        presentation.selected_tab_id.as_deref() == Some(tab_id)
                     })
                 })
                 .ok_or_else(|| {
@@ -99,7 +88,16 @@ impl SystemRuntimeExecutor {
                         "The runtime tab presentation disappeared before its divider could bind.",
                     )
                 })?;
-            if !selected.0 {
+            let bound = self.presentation.bind_surface(
+                &window_id,
+                tab_id,
+                SurfacePresentationBinding {
+                    generation: 0,
+                    instance_id: surface_instance_id.clone(),
+                    webview: webview.clone(),
+                },
+            );
+            if !bound {
                 let _ = self.close_managed_surface_and_wait(
                     &surface_instance_id,
                     &format!("{tab_id}:divider:{index}"),
@@ -114,7 +112,7 @@ impl SystemRuntimeExecutor {
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
-            if !selected.1 {
+            if !selected {
                 let _ = webview.hide();
             }
             created.push(RuntimeDivider {
@@ -181,8 +179,7 @@ impl SystemRuntimeExecutor {
                     transaction.context.lifecycle_epoch.unwrap_or_default();
                 let lifecycle_current = self
                     .application_lifecycle_epoch_matches(expected_lifecycle_epoch);
-                if self.health.is_healthy()
-                    && lifecycle_current
+                if lifecycle_current
                     && RuntimeShutdownState::from_raw(
                         self.shutdown_state.load(Ordering::Acquire),
                     ) == RuntimeShutdownState::Accepting
@@ -205,13 +202,13 @@ impl SystemRuntimeExecutor {
                                 false,
                             )
                         } else {
-                        (
-                            "surfaceRecoveryRuntimeUnavailable",
-                            "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY",
-                            "The System WebView runtime rejected recovery after a stalled native lifecycle. Restart Rion Studio to recover safely.",
-                            true,
-                        )
-                    };
+                            (
+                                "surfaceRecoveryShutdownCancelled",
+                                "SYSTEM_RUNTIME_SHUTTING_DOWN",
+                                "Surface recovery was cancelled because application shutdown started.",
+                                false,
+                            )
+                        };
                     let role_id = transaction.role_id.clone();
                     let generation = transaction.surface_generation;
                     let parent_operation_id =
@@ -316,22 +313,9 @@ impl SystemRuntimeExecutor {
         let started = Instant::now();
         let scope = native_effect_scope(&effect);
         eprintln!("System WebView effect: {action_name} started (effect={effect_id}, {scope}).");
-        let result = if self.health.is_healthy() || is_surface_close_effect(&effect.action) {
-            // Close remains available for quarantined surfaces even if another native
-            // lifecycle operation marked the general runtime unhealthy.
-            self.execute(effect, presentation_revision)
-        } else {
-            CoreEffectResult {
-                effect_id: effect.effect_id,
-                operation_id: effect.operation_id,
-                ok: false,
-                value_json: None,
-                error: Some(rion_core::CoreErrorPayload {
-                    code: "SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY".to_owned(),
-                    message: "The System WebView runtime stopped accepting native lifecycle operations after a stalled callback. Restart Rion Studio to recover safely.".to_owned(),
-                }),
-            }
-        };
+        // Failures quarantine only the exact role/surface generation. An
+        // unrelated native error must never turn into a process-wide launch gate.
+        let result = self.execute(effect, presentation_revision);
         if close_effect {
             let succeeded = result.ok;
             let error_payload = result.error.clone();

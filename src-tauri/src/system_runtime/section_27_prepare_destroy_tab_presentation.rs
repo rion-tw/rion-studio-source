@@ -78,17 +78,18 @@ impl SystemRuntimeExecutor {
                     ))
                 }
                 ClosePreflightPlan::HideWindow => {
-                    let revision = self.presentation.next_revision();
+                    let revision = self.presentation.current_revision();
                     let (previous_tab_id, previous_surfaces) = {
-                        let mut state = presentation.lock().map_err(|_| {
+                        let state = presentation.lock().map_err(|_| {
                             RuntimeError::new(
                                 "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                                 "The runtime tab presentation coordinator is unavailable.",
                             )
                         })?;
                         let previous_tab_id = state.selected_tab_id.clone();
-                        let previous_surfaces = state.surfaces(previous_tab_id.as_deref());
-                        state.select(None, revision);
+                        let previous_surfaces = self
+                            .presentation
+                            .surfaces(&window_id, previous_tab_id.as_deref());
                         (previous_tab_id, previous_surfaces)
                     };
                     self.apply_native_active_style(

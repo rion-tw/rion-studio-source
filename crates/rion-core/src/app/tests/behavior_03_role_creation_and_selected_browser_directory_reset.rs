@@ -588,7 +588,7 @@
     fn portable_game_window_import_is_blocked_while_a_role_is_running() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
-        let game_window = core
+        let _game_window = core
             .invoke(command(json!({
                 "type": "gameWindowCreate",
                 "input": {
@@ -602,7 +602,6 @@
                 }
             })))
             .unwrap();
-        let window_id = game_window["id"].as_str().unwrap().to_owned();
         let selection = crate::model::PortableDataSelectionRecord {
             games: true,
             roles: true,
@@ -623,16 +622,11 @@
                 file_path: "/tmp/rion-game-window-running-import.json".to_owned(),
             })
             .unwrap();
-        core.invoke_browser_runtime(BrowserRuntimeCommand::RegisterWindow {
-            window_id: window_id.clone(),
-        })
-        .unwrap();
         let tab_id = core
             .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
                 tab_id: Some(uuid::Uuid::new_v4().to_string()),
                 source_id: role_id.clone(),
                 name: "Role 1".to_owned(),
-                window_id,
                 tab_type: "role".to_owned(),
                 workspace_id: None,
                 role_slots: test_role_slots(&[&role_id]),

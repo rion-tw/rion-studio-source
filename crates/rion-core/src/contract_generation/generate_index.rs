@@ -78,8 +78,6 @@ fn export_bindings_index() {
                 "export type { SystemRuntimeOperationStatus } from \"./SystemRuntimeOperationStatus\";\n",
                 "export type { SystemRuntimeOperationSubsystem } from \"./SystemRuntimeOperationSubsystem\";\n",
                 "export type { SystemRuntimeOperationSummaryRecord } from \"./SystemRuntimeOperationSummaryRecord\";\n",
-                "export type { RuntimeTabActivationRequestRecord } from \"./RuntimeTabActivationRequestRecord\";\n",
-                "export type { RuntimeTabActivationAcknowledgementRecord } from \"./RuntimeTabActivationAcknowledgementRecord\";\n",
                 "export type { RuntimeTabMutationRequestRecord } from \"./RuntimeTabMutationRequestRecord\";\n",
                 "export type { RuntimeTabMoveResultRecord } from \"./RuntimeTabMoveResultRecord\";\n",
                 "export type { RuntimeTabChromeItemRecord } from \"./RuntimeTabChromeItemRecord\";\n",

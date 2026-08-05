@@ -67,8 +67,6 @@ export type { SystemRuntimeOperationCompletionScope } from "./SystemRuntimeOpera
 export type { SystemRuntimeOperationStatus } from "./SystemRuntimeOperationStatus";
 export type { SystemRuntimeOperationSubsystem } from "./SystemRuntimeOperationSubsystem";
 export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperationSummaryRecord";
-export type { RuntimeTabActivationRequestRecord } from "./RuntimeTabActivationRequestRecord";
-export type { RuntimeTabActivationAcknowledgementRecord } from "./RuntimeTabActivationAcknowledgementRecord";
 export type { RuntimeTabMutationRequestRecord } from "./RuntimeTabMutationRequestRecord";
 export type { RuntimeTabMoveResultRecord } from "./RuntimeTabMoveResultRecord";
 export type { RuntimeTabChromeItemRecord } from "./RuntimeTabChromeItemRecord";

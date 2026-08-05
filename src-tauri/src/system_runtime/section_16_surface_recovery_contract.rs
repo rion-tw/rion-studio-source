@@ -32,9 +32,6 @@ impl SystemRuntimeExecutor {
         parent_operation_id: Option<String>,
         retry_terminal: bool,
     ) -> bool {
-        if !self.health.is_healthy() {
-            return false;
-        }
         if !self.application_lifecycle.accepts_native_work() {
             return self.application_lifecycle.defer_surface_recovery(
                 role_id,

@@ -440,6 +440,10 @@ impl SystemRuntimeExecutor {
                         .and_then(|role_id| role_icons.get(role_id.as_str()))
                         .cloned()
                 });
+                let phase = self
+                    .presentation
+                    .statuses
+                    .presentation_phase(&presented.id);
                 Some(RuntimeTabChromeItemRecord {
                     id: presented.id.clone(),
                     name: presented.title.clone(),
@@ -448,15 +452,15 @@ impl SystemRuntimeExecutor {
                     audible: live.is_some_and(|tab| runtime_tab_is_audible(&state, tab)),
                     muted: live.is_some_and(|tab| tab.audio_muted),
                     loading: matches!(
-                        presented.phase,
-                        TabPresentationPhase::Reserved
-                            | TabPresentationPhase::Attaching
-                            | TabPresentationPhase::Loading
+                        phase,
+                        TabRuntimePhase::Reserved
+                            | TabRuntimePhase::Attaching
+                            | TabRuntimePhase::Loading
                     ),
-                    degraded: presented.phase == TabPresentationPhase::Degraded,
+                    degraded: phase == TabRuntimePhase::Degraded,
                     closable: presented.closable,
                     source_id: presented.source_id.clone(),
-                    phase: presented.phase.as_str().to_owned(),
+                    phase: phase.as_str().to_owned(),
                     role_names: role_ids
                         .iter()
                         .filter_map(|role_id| role_names.get(role_id.as_str()).copied())

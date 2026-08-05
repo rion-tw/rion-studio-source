@@ -164,7 +164,7 @@ it("routes close around slow effects and keeps failed close intent committed", a
     );
     const isolateTabs = stopWindow.indexOf("for (tab_type, source_id) in sources");
     expect(stopWindow.indexOf("let sources = {")).toBeLessThan(isolateTabs);
-    expect(stopWindow.lastIndexOf("embedded_window_sequence.acquire()?")).toBeGreaterThan(isolateTabs);
+    expect(stopWindow.lastIndexOf("embedded_window_sequence.acquire()?")).toBeLessThan(isolateTabs);
     expect(stopWindow.slice(0, isolateTabs)).toContain("sources\n        };");
     expect(macroRuntime).toContain("pub fn request_stop_role(");
   });
@@ -192,7 +192,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("fn preview_adjacent_tab_activation(");
     expect(runtime).toContain("fn preview_tab_close(");
     expect(runtime).toContain("optimistic_closed_tabs");
-    expect(runtime).toContain("struct LiveWindowTabState {");
+    expect(runtime).toContain("struct LiveWindowRecord {");
+    expect(runtime).toContain("struct NativeTabProjectionState {");
+    expect(runtime).toContain("struct TabRuntimeStatusStore {");
+    expect(runtime).not.toContain("struct LiveWindowTabState {");
     expect(runtime).toContain("selected_tab_id: Option<String>");
     expect(runtime).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
     expect(runtime).not.toContain("runtime_tab.visible");
@@ -220,9 +223,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(launcherActivation).toContain("Some(true)");
     const closePreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_close("),
-      runtime.indexOf("fn snapshot_with_live_tab_topology(")
+      runtime.indexOf("fn compose_live_runtime_snapshot(")
     );
-    expect(closePreview).toContain("window_state.remove_tab(");
+    expect(closePreview).toContain("next.remove_tab(");
+    expect(closePreview).toContain("commit_live_window_record(\"command\"");
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
     expect(closePreview).toContain("NativePresentationFocus::ContentOnly");
@@ -234,7 +238,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(closePreview).not.toContain("BrowserRuntimeSnapshot");
     const destroyEffect = runtime.slice(
       runtime.indexOf("CoreEffectAction::EmbeddedDestroyTab {", runtime.indexOf("fn execute(")),
-      runtime.indexOf("CoreEffectAction::EmbeddedApplyRuntime", runtime.indexOf("fn execute("))
+      runtime.indexOf(
+        "CoreEffectAction::EmbeddedFollowRoleOwnership",
+        runtime.indexOf("fn execute(")
+      )
     );
     expect(destroyEffect).toContain("prepare_destroy_tab_presentation");
     expect(destroyEffect.indexOf("prepare_destroy_tab_presentation")).toBeLessThan(
@@ -249,7 +256,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(closePreflight).not.toContain("Duration::from_secs(1)");
     expect(runtime).toContain('"preflightMode": preflight_mode');
     expect(runtime).toContain('"waitedTabId": waited_tab_id');
-    expect(runtime).toContain("struct LiveWindowTabState {");
+    expect(runtime).toContain("struct LiveWindowTabStore {");
     expect(runtime).toContain("struct NativePresentationQueue<T>");
     expect(runtime).toContain("NATIVE_WINDOW_PRESENTATION_QUEUE_CAPACITY");
     expect(runtime).toContain("enqueue_ordered(request)");
@@ -313,7 +320,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("reserve_native_tab_for_create(");
     expect(createTab).toContain("previous_surfaces");
     expect(createTab).toContain('"launch-reserved"');
-    expect(createTab).toContain("remove_native_tab_reservation(");
+    expect(createTab).not.toContain("remove_native_tab_reservation(");
+    expect(createTab).toContain("The live tab and its native chrome reservation intentionally remain");
     expect(createTab).not.toContain("publish_projection(");
     expect(createTab.indexOf("webview.navigate(url)")).toBeLessThan(
       createTab.indexOf("self.resolve_runtime_layout(")
@@ -453,7 +461,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macController).not.toContain("canvasPoint.x - item.grabRatio.x");
     expect(macController).toContain("surface.layer.presentationLayer");
     expect(runtime).toContain("project_native_order: bool");
-    expect(runtime).toContain("if project_native_order\n            && let Err(error)");
+    expect(runtime).toContain("if committed && project_native_order");
+    expect(runtime).toContain("schedule_native_tab_order_projection(");
     expect(macController).toContain("_tabIconCacheKeys");
     expect(macController).toContain("updateTabMetadata:(RionRuntimeTabModel *)tab");
     expect(macController).toContain("NSEventMaskFlagsChanged");
@@ -621,23 +630,22 @@ it("retains the live destination when native surface projection fails", async ()
       "utf8"
     )]);
     const hidePhase = move.indexOf("for surface in &surfaces");
-    const reparentPhase = move.indexOf("for (index, surface) in surfaces.iter().enumerate()");
+    const reparentPhase = move.indexOf("surface.reparent(&target_window)");
     const reparentSyncPhase = move.indexOf("synchronize_windows_reparented_surfaces(");
-    const stateCommit = move.indexOf("tab.window_id = target_window_id.to_owned()");
-    const presentationCommit = move.indexOf("let selected_tabs_after_move");
-    const nativeRelocation = move.indexOf("self.relocate_native_tab_reservation(");
+    const presentationRead = move.indexOf("let selected_tabs_after_move");
     const revealPhase = move.indexOf("let reveal_result");
     expect(hidePhase).toBeGreaterThan(-1);
     expect(reparentPhase).toBeGreaterThan(hidePhase);
     expect(reparentSyncPhase).toBeGreaterThan(reparentPhase);
-    expect(stateCommit).toBeGreaterThan(reparentSyncPhase);
-    expect(presentationCommit).toBeGreaterThan(stateCommit);
-    expect(nativeRelocation).toBeGreaterThan(presentationCommit);
-    expect(revealPhase).toBeGreaterThan(nativeRelocation);
-    expect(move).toContain("native_move.relocated = !presentation_precommitted");
+    expect(move).not.toContain("tab.window_id = target_window_id.to_owned()");
+    expect(presentationRead).toBeGreaterThan(reparentSyncPhase);
+    expect(revealPhase).toBeGreaterThan(presentationRead);
+    expect(move).not.toContain("self.relocate_native_tab_reservation(");
+    expect(move).not.toContain("commit_live_topology(");
+    expect(move).not.toContain("presentation.move_tab(");
     expect(move).toContain('"provisional-move"');
-    expect(move).toContain("retain_live_destination_after_surface_error(");
-    expect(move).toContain("surface_projection_error(");
+    expect(move).not.toContain("retain_live_destination_after_surface_error(");
+    expect(move).not.toContain("surface_projection_error(");
     expect(move).not.toContain("rollback_provisional_tab_move(");
     expect(move).not.toContain("provisional_move_error(");
     expect(move).not.toContain("SYSTEM_PROVISIONAL_MOVE_ROLLBACK_FAILED");
@@ -673,7 +681,7 @@ it("acknowledges close isolation before coalesced restore persistence", async ()
     expect(runtime).toContain("fn schedule_restore_session_persist(");
     expect(runtime).toContain("restore_persist_requested");
     expect(runtime).toContain("Collapse a rapid close burst into one durable snapshot.");
-    expect(executor).toContain("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
+    expect(executor).not.toContain("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
     expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
   });
 

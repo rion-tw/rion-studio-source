@@ -195,39 +195,6 @@ pub struct RuntimeTabChromeAcknowledgementRecord {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct RuntimeTabActivationRequestRecord {
-    pub operation_id: String,
-    #[ts(type = "number")]
-    pub revision: u64,
-    pub window_id: String,
-    #[ts(type = "number")]
-    pub window_generation: u64,
-    #[ts(type = "number")]
-    pub lifecycle_epoch: u64,
-    pub target_tab_id: String,
-    pub ordered_tab_ids: Vec<String>,
-    #[ts(type = "\"optimistic\" | \"reconcile\"")]
-    pub mode: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct RuntimeTabActivationAcknowledgementRecord {
-    pub operation_id: String,
-    #[ts(type = "number")]
-    pub revision: u64,
-    pub target_tab_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub observed_active_tab_id: Option<String>,
-    #[ts(type = "\"applied\" | \"superseded\" | \"failed\"")]
-    pub status: String,
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -313,8 +280,6 @@ pub struct RuntimeTabDragSessionRecord {
     pub source_tab_id: String,
     #[ts(type = "number")]
     pub lifecycle_epoch: u64,
-    #[ts(type = "number")]
-    pub topology_revision: u64,
     #[ts(type = "\"accepted\" | \"dragging\" | \"hovering\" | \"dropping\" | \"settling\" | \"cancelled\" | \"completed\" | \"failed\" | \"indeterminate\"")]
     pub phase: String,
     #[ts(type = "\"active\" | \"applied\" | \"cancelled\" | \"failed\" | \"indeterminate\"")]
@@ -619,9 +584,7 @@ impl SystemRuntimeOperationSubsystem {
             | Self::DisplayTopology
             | Self::WindowLifecycle
             | Self::Focus => SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
-            Self::TabActivation => {
-                SystemRuntimeOperationCompletionScope::TabActivationConverged
-            }
+            Self::TabActivation => SystemRuntimeOperationCompletionScope::TopologyCommitted,
             Self::TabMutation => SystemRuntimeOperationCompletionScope::StateCommit,
             Self::Projection => SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
             Self::Drag => SystemRuntimeOperationCompletionScope::DragCommitted,
@@ -679,7 +642,6 @@ pub enum SystemRuntimeOperationCompletionScope {
     TopologyCommitted,
     DragCommitted,
     LifecycleTransition,
-    TabActivationConverged,
 }
 
 impl SystemRuntimeOperationCompletionScope {
@@ -696,7 +658,6 @@ impl SystemRuntimeOperationCompletionScope {
             Self::TopologyCommitted => "topologyCommitted",
             Self::DragCommitted => "dragCommitted",
             Self::LifecycleTransition => "lifecycleTransition",
-            Self::TabActivationConverged => "tabActivationConverged",
         }
     }
 }

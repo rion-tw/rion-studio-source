@@ -233,7 +233,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                 initial_anchor.unwrap_or((tab_width * grab_ratio_x, tab_height * grab_ratio_y)),
             )?;
             let lifecycle_epoch = state.runtime.lifecycle_epoch();
-            let topology_revision = state.display_topology.current_revision();
             let operation = state
                 .runtime
                 .accept_tab_drag_operation(
@@ -241,7 +240,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     source_window_id,
                     tab_id,
                     lifecycle_epoch,
-                    topology_revision,
                 )
                 .map_err(|error| shell_error(error.code, error.message))?;
             {
@@ -282,7 +280,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     tab_width,
                     target: target.clone(),
                     title: title.clone(),
-                    topology_revision,
                     lifecycle_epoch,
                     window_anchor: initial_anchor,
                     window_was_moved: false,
@@ -296,7 +293,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     );
                 }
             }
-            schedule_tab_drag_session_timeout(app, session_id);
             if !deferred_native_commit {
                 state.runtime.begin_tab_drag_window_motion(source_window_id);
                 if provisional_window_id != source_window_id {

@@ -6,13 +6,6 @@ fn launch_from_menu(
     workspace: bool,
 ) {
     let tab_type = if workspace { "workspace" } else { "role" };
-    if state
-        .runtime
-        .launcher_source_is_closing(source_id, tab_type)
-    {
-        defer_launch_until_close_settles(app, target, source_id, workspace);
-        return;
-    }
     let action_started = Instant::now();
     let native_action_at = chrono::Utc::now().to_rfc3339();
     capture_launcher_action_event(
@@ -31,11 +24,7 @@ fn launch_from_menu(
     {
         if let Err(message) = crate::preview_and_schedule_launcher_tab_selection(app, state, &tab_id)
         {
-            if message == "The runtime tab is closing." {
-                defer_launch_until_close_settles(app, target, source_id, workspace);
-            } else {
-                reveal_menu_error(app, message);
-            }
+            reveal_menu_error(app, message);
             return;
         }
         state.runtime.retry_failed_tab_launch(source_id, tab_type)
@@ -49,10 +38,6 @@ fn launch_from_menu(
         {
             Ok(preview) => Some(preview),
             Err(error) => {
-                if error.code == "SYSTEM_RUNTIME_TAB_CLOSING" {
-                    defer_launch_until_close_settles(app, target, source_id, workspace);
-                    return;
-                }
                 let payload = rion_core::CoreErrorPayload {
                     code: error.code.to_owned(),
                     message: error.message,
@@ -114,40 +99,6 @@ fn launch_from_menu(
         );
         crate::reveal_shell_error(app, payload);
     }
-}
-
-fn defer_launch_until_close_settles(
-    app: &AppHandle,
-    target: EmbeddedLaunchTargetRecord,
-    source_id: &str,
-    workspace: bool,
-) {
-    let app = app.clone();
-    let source_id = source_id.to_owned();
-    tauri::async_runtime::spawn(async move {
-        let tab_type = if workspace { "workspace" } else { "role" };
-        for _ in 0..400 {
-            let closing = app
-                .try_state::<crate::CoreState>()
-                .is_some_and(|state| {
-                    state
-                        .runtime
-                        .launcher_source_is_closing(&source_id, tab_type)
-                });
-            if !closing {
-                let Some(state) = app.try_state::<crate::CoreState>() else {
-                    return;
-                };
-                launch_from_menu(&app, &state, target, &source_id, workspace);
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
-        reveal_menu_error(
-            &app,
-            "The previous role surface could not finish isolation before relaunch.",
-        );
-    });
 }
 
 #[allow(clippy::too_many_arguments)]

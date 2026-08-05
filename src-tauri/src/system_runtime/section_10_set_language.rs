@@ -30,26 +30,35 @@ impl SystemRuntimeExecutor {
             .state
             .try_lock()
             .map_err(|_| "The runtime tab menu context is temporarily busy.".to_owned())?;
-        let tab = state
+        let audio_muted = state
             .tabs
             .get(tab_id)
-            .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
+            .map(|tab| tab.audio_muted)
+            .or_else(|| self.presentation.tab(&window_id, tab_id).map(|tab| tab.audio_muted))
+            .unwrap_or(false);
         let window = state
             .display_hosts
             .get(&window_id)
             .map(|host| host.window.clone())
             .ok_or_else(|| "Runtime tab window was not found.".to_owned())?;
-        Ok((window, tab.audio_muted))
+        Ok((window, audio_muted))
     }
 
     pub(crate) fn tab_audio_muted(&self, tab_id: &str) -> Result<bool, String> {
-        self.state
+        let native = self.state
             .try_lock()
             .map_err(|_| "The runtime tab audio state is temporarily busy.".to_owned())?
             .tabs
             .get(tab_id)
-            .map(|tab| tab.audio_muted)
-            .ok_or_else(|| "Runtime tab was not found.".to_owned())
+            .map(|tab| tab.audio_muted);
+        Ok(native.or_else(|| {
+            self.presentation
+                .tab_window(tab_id)
+                .ok()
+                .flatten()
+                .and_then(|window_id| self.presentation.tab(&window_id, tab_id))
+                .map(|tab| tab.audio_muted)
+        }).unwrap_or(false))
     }
 
     pub fn window_for_id(&self, window_id: &str) -> Option<Window> {
@@ -474,15 +483,14 @@ impl SystemRuntimeExecutor {
         before_tab_id: Option<&str>,
         project_native_order: bool,
     ) -> Result<(), String> {
-        let coordinator = self
-            .presentation
-            .existing(window_id)
-            .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
         let ordered = {
-            let mut state = coordinator
+            let state = self
+                .presentation
+                .existing(window_id)
+                .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
+            let state = state
                 .lock()
                 .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            let previous = state.tab_ids();
             let mut ordered = state.tab_ids();
             let Some(index) = ordered.iter().position(|id| id == tab_id) else {
                 return Err("Dragged tab is outside the preview window.".to_owned());
@@ -492,24 +500,9 @@ impl SystemRuntimeExecutor {
                 .and_then(|before| ordered.iter().position(|id| id == before))
                 .unwrap_or(ordered.len());
             ordered.insert(insertion, tab_id.to_owned());
-            if ordered == previous {
-                return Ok(());
-            }
-            let revision = self.presentation.next_revision();
-            state.reorder_known_tabs(&ordered);
-            state.revision = revision;
             ordered
         };
-        self.schedule_live_window_state_persistence(window_id);
-        if project_native_order
-            && let Err(error) = self.reorder_native_tabs(window_id, &ordered)
-        {
-            eprintln!(
-                "Native tab order projection will reconcile from live topology: window={window_id} error={}",
-                error.message
-            );
-        }
-        Ok(())
+        self.preview_tab_drag_order_exact(window_id, &ordered, project_native_order)
     }
 
     pub(crate) fn tab_control_row_contains_screen_point(
@@ -728,14 +721,6 @@ impl SystemRuntimeExecutor {
             Ok(false) => Err("Provisional Game Window was not found.".to_owned()),
             Err(error) => Err(error.message),
         }
-    }
-
-    pub fn provisionally_move_tab(
-        &self,
-        tab_id: &str,
-        target_window_id: &str,
-    ) -> Result<(), String> {
-        self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false, false)
     }
 
     pub(crate) fn provisionally_move_tab_for_live_drag(

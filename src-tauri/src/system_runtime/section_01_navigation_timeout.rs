@@ -16,7 +16,8 @@ use crate::native_projection::RevisionedJsonProjection;
 
 use rion_core::{
     AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
-    BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord, BrowserRuntimeTabRecord,
+    BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord, BrowserRuntimeRoleRecord,
+    BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
@@ -53,9 +54,7 @@ use rion_core::{
 };
 #[cfg(windows)]
 use rion_core::{
-    DisplayInfoRecord,
-    RuntimeTabActivationAcknowledgementRecord, RuntimeTabActivationRequestRecord,
-    RuntimeTabChromeItemRecord, RuntimeWindowPreferencesRecord,
+    DisplayInfoRecord, RuntimeTabChromeItemRecord, RuntimeWindowPreferencesRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -85,7 +84,9 @@ const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
-const TAB_DRAG_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
+// Drag completion is gesture-owned and never expires while the pointer is
+// held. This horizon only bounds diagnostics retained by the operation registry.
+const TAB_DRAG_DIAGNOSTIC_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 const TAB_MUTATION_OPERATION_TIMEOUT: Duration = Duration::from_secs(20);
 const SURFACE_RECOVERY_OPERATION_TIMEOUT: Duration = Duration::from_secs(70);
 const POWER_LIFECYCLE_OPERATION_TIMEOUT: Duration = Duration::from_secs(15);
@@ -403,12 +404,8 @@ const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
 #[cfg(windows)]
 const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 (() => {
-  globalThis.__rionPendingRuntimeTabActivations ??= [];
   globalThis.__rionPendingRuntimeTabChromeMutations ??= [];
   globalThis.__rionRuntimeTabChromeReady ??= false;
-  globalThis.__rionApplyRuntimeTabActivation ??= (request) => {
-    globalThis.__rionPendingRuntimeTabActivations.push(request);
-  };
   globalThis.__rionApplyRuntimeTabChromeMutation ??= (revision, mutation) => {
     if (!globalThis.__rionRuntimeTabChromeReady) {
       globalThis.__rionPendingRuntimeTabChromeMutations.push({ mutation, revision });

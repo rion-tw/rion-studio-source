@@ -87,13 +87,6 @@ export function createBrowserRuntimeState() {
       ticket.resolve(ticket.lease);
     }
   };
-  const registerWindow = (windowId: string): BrowserRuntimeWindowRecord => {
-    const existing = windows.get(windowId);
-    if (existing) return existing;
-    const runtimeWindow: BrowserRuntimeWindowRecord = { windowId, tabIds: [] };
-    windows.set(windowId, runtimeWindow);
-    return runtimeWindow;
-  };
   const nextOwner = (tabId: string, slotId: string): BrowserRuntimeRoleOwnerRecord => {
     if (!tabs.has(tabId)) throw operationError("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.");
     return {
@@ -255,14 +248,6 @@ export function createBrowserRuntimeState() {
       switch (command.type) {
         case "snapshot":
           break;
-        case "registerWindow":
-          registerWindow(command.windowId);
-          break;
-        case "removeWindow":
-          if ((windows.get(command.windowId)?.tabIds.length ?? 0) === 0) {
-            windows.delete(command.windowId);
-          }
-          break;
         case "createTab": {
           if ([...tabs.values()].some((tab) =>
             tab.sourceId === command.sourceId && tab.tabType === command.tabType)) {
@@ -278,13 +263,11 @@ export function createBrowserRuntimeState() {
             throw operationError("RUNTIME_ROLE_SLOT_INVALID", "Runtime role slots are invalid.");
           }
           createdTabId = command.tabId ?? `runtime-tab-${++nextTabId}`;
-          const runtimeWindow = registerWindow(command.windowId);
-          runtimeWindow.tabIds.push(createdTabId);
           tabs.set(createdTabId, {
             id: createdTabId,
             sourceId: command.sourceId,
             name: command.name,
-            windowId: command.windowId,
+            windowId: "",
             tabType: command.tabType,
             ...(command.workspaceId ? { workspaceId: command.workspaceId } : {}),
             slots: command.roleSlots.map((slot) => ({

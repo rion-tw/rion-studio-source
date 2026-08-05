@@ -196,23 +196,6 @@ async fn create_game_window_transaction(
         .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
 }
 
-#[cfg(test)]
-fn game_window_create_rollback_error(
-    window_id: &str,
-    native_error: &CoreErrorPayload,
-    rollback_error: impl AsRef<str>,
-) -> CoreErrorPayload {
-    shell_error(
-        "SHELL_GAME_WINDOW_ROLLBACK_FAILED",
-        format!(
-            "Game Window {window_id} creation failed ({}: {}); rollback failed: {}",
-            native_error.code,
-            native_error.message,
-            rollback_error.as_ref()
-        ),
-    )
-}
-
 async fn restore_saved_game_windows(
     state: &CoreState,
     window: &WebviewWindow,

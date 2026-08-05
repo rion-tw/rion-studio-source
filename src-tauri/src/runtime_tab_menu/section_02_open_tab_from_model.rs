@@ -246,8 +246,14 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
                 reveal_menu_error(&app, "runtime state is unavailable");
                 return;
             };
-            if let Err(error) =
-                crate::move_game_window_tab_to_new_window(&app, &state, &tab_id, None).await
+            if let Err(error) = crate::move_game_window_tab_to_new_window(
+                &app,
+                &state,
+                &tab_id,
+                None,
+            )
+            .await
+                && error.code != "TAURI_RUNTIME_TAB_MOVE_SUPERSEDED"
             {
                 crate::reveal_shell_error(&app, error);
             }
@@ -494,7 +500,7 @@ pub async fn handle_scoped_action(
             .as_str()
             .filter(|value| matches!(*value, "next" | "previous"))
             .ok_or_else(|| "runtime tab direction is invalid".to_owned())?;
-        let (target_tab_id, provisional, operation_id) = state
+        let (target_tab_id, provisional, _operation_id) = state
             .runtime
             .preview_adjacent_tab_activation(&window_id, direction)?;
         if provisional {
@@ -505,7 +511,6 @@ pub async fn handle_scoped_action(
             state,
             &window_id,
             &target_tab_id,
-            Some(&operation_id),
         );
     }
     if action_type == "windowControl" {

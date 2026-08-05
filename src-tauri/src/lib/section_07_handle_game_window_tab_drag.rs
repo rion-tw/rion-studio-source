@@ -150,25 +150,22 @@ pub(crate) async fn handle_game_window_tab_drag(
             {
                 return active_tab_drag_response(app, state, session_id).map(Some);
             }
-            let abandoned_session_id = active_tab_drag_session_id(state)?;
-            if let Some(abandoned_session_id) = abandoned_session_id {
-                #[cfg(target_os = "macos")]
-                {
-                    // A new native NSDraggingSession proves the previous one
-                    // has ended even if AppKit omitted its terminal callback.
-                    // Held gestures are AppKit-local, so cancellation only
-                    // retires the old intent and visual suppression.
-                    if let Some(abandoned) = take_tab_drag_session(state, &abandoned_session_id)? {
-                        let _ = finish_cancelled_tab_drag(app, state, abandoned)?;
-                    }
+            #[cfg(target_os = "macos")]
+            if let Some(abandoned_session_id) = active_tab_drag_session_id(state)? {
+                // A new native NSDraggingSession proves the previous one has
+                // ended even if AppKit omitted its terminal callback. Held
+                // gestures are AppKit-local, so cancellation only retires the
+                // old intent and visual suppression.
+                if let Some(abandoned) = take_tab_drag_session(state, &abandoned_session_id)? {
+                    let _ = finish_cancelled_tab_drag(app, state, abandoned)?;
                 }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    return Err(shell_error(
-                        "TAURI_TAB_DRAG_BUSY",
-                        "Another runtime tab drag is already active.",
-                    ));
-                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            if active_tab_drag_session_id(state)?.is_some() {
+                return Err(shell_error(
+                    "TAURI_TAB_DRAG_BUSY",
+                    "Another runtime tab drag is already active.",
+                ));
             }
             let tab_id = action["tabId"]
                 .as_str()

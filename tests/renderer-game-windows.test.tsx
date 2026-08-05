@@ -252,6 +252,111 @@ describe("Game Window management", () => {
     });
   });
 
+  it("renames a window from its action menu and locks the dialog while saving", async () => {
+    const user = userEvent.setup();
+    let resolveRename: ((value: GameWindow) => void) | undefined;
+    const updateGameWindow = vi.fn(() => new Promise<GameWindow>((resolve) => {
+      resolveRename = resolve;
+    }));
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        updateGameWindow
+      }
+    });
+
+    renderRoute();
+
+    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Rename Raid window" });
+    const input = within(dialog).getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+    expect(input.value).toBe("Raid window");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("Raid window".length);
+    expect(within(dialog).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+
+    await user.clear(input);
+    await user.type(input, "Dungeon window");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateGameWindow).toHaveBeenCalledWith("window-1", { name: "Dungeon window" }));
+    expect(input).toHaveProperty("disabled", true);
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      resolveRename?.({ ...gameWindow, name: "Dungeon window" });
+    });
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename Raid window" })).toBeNull());
+  });
+
+  it("keeps invalid names local and cancels a rename without updating the window", async () => {
+    const user = userEvent.setup();
+    const updateGameWindow = vi.fn(() => Promise.resolve(gameWindow));
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        updateGameWindow
+      }
+    });
+
+    renderRoute();
+
+    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Rename Raid window" });
+    const input = within(dialog).getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+    const save = within(dialog).getByRole("button", { name: "Save" });
+    expect(save).toHaveProperty("disabled", true);
+
+    await user.clear(input);
+    expect(within(dialog).getByText("Game window name is required.")).toBeTruthy();
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent.change(input, { target: { value: "x".repeat(81) } });
+    expect(within(dialog).getByText("Game window name must be 80 characters or fewer.")).toBeTruthy();
+    expect(save).toHaveProperty("disabled", true);
+
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog", { name: "Rename Raid window" })).toBeNull();
+    expect(updateGameWindow).not.toHaveBeenCalled();
+  });
+
+  it("keeps the rename dialog and draft open when saving fails", async () => {
+    const user = userEvent.setup();
+    const updateGameWindow = vi.fn(() => Promise.reject(new Error("Rename failed.")));
+    const onError = vi.fn();
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        createGameWindow: vi.fn(() => Promise.resolve(gameWindow)),
+        updateGameWindow
+      }
+    });
+
+    renderRoute({ onError });
+
+    await user.click(screen.getByRole("button", { name: "Game window actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Rename Raid window" });
+    const input = within(dialog).getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+    await user.clear(input);
+    await user.type(input, "Failed rename");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(updateGameWindow).toHaveBeenCalledWith("window-1", { name: "Failed rename" }));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith(expect.any(Error)));
+    expect(screen.getByRole("dialog", { name: "Rename Raid window" })).toBe(dialog);
+    expect(input.value).toBe("Failed rename");
+  });
+
   it("does not expose tab reordering or close controls in the list", () => {
     const reorderGameWindowTab = vi.fn(() => Promise.resolve());
     const stopGameWindowTab = vi.fn(() => Promise.resolve());
@@ -332,15 +437,17 @@ describe("Game Window management", () => {
 function renderRoute({
   displays = [display],
   gameWindows = [gameWindow],
+  onError = vi.fn(),
   runtime: runtimeState = runtime
 }: {
   displays?: typeof display[];
   gameWindows?: GameWindow[];
+  onError?: (error: unknown) => void;
   runtime?: EmbeddedRuntimeState;
 } = {}): void {
   render(
     <ConfirmationProvider>
-      <GameWindowsRoute displays={displays} gameWindows={gameWindows} runtime={runtimeState} t={t} onError={vi.fn()} />
+      <GameWindowsRoute displays={displays} gameWindows={gameWindows} runtime={runtimeState} t={t} onError={onError} />
     </ConfirmationProvider>
   );
 }

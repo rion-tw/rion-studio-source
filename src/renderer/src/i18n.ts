@@ -93,6 +93,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Role cover dominant color must be a valid hex color.": "error.roleCoverColorInvalid",
   "Some saved browser data could not be cleared.": "error.roleBrowserDataClearFailed",
   "A role with this name already exists.": "error.roleNameDuplicate",
+  "A game window with this name already exists.": "error.gameWindowNameDuplicate",
   "Game not found.": "error.gameNotFound",
   "Game data file is invalid.": "error.gameDataInvalid",
   "Game name is required.": "error.gameNameRequired",

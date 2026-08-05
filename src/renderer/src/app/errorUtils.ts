@@ -43,6 +43,9 @@ function isSurfaceReleaseMessage(message: string): boolean {
 
 function localizedErrorKey(code: unknown) {
   const keys = {
+    GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate",
+    GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
+    GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",
     MACRO_ROLE_STOPPING: "error.macroRoleStopping",
     MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced"
   } as const;

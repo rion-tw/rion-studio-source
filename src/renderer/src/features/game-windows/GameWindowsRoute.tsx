@@ -6,6 +6,7 @@ import {
   Monitor,
   MoreHorizontal,
   PanelsTopLeft,
+  Pencil,
   Plus,
   Square,
   Trash2
@@ -41,6 +42,7 @@ import { useBusyIds } from "../../hooks/useBusyIds";
 import { useListSelection } from "../../hooks/useListSelection";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { RenameGameWindowDialog } from "./RenameGameWindowDialog";
 
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
 const newWindowBusyKey = "window:new";
@@ -117,6 +119,7 @@ export default function GameWindowsRoute({
   const { beginBusyMany, busyIds } = useBusyIds();
   const pageRef = useRef<HTMLElement | null>(null);
   const [gameWindowListScrollContainer, setGameWindowListScrollContainer] = useState<HTMLDivElement | null>(null);
+  const [renameTarget, setRenameTarget] = useState<GameWindow | null>(null);
   const [sort, setSort] = useState<GameWindowListSortState>(DEFAULT_GAME_WINDOW_LIST_SORT);
   const displayById = useMemo(() => new Map(displays.map((display) => [display.id, display])), [displays]);
   const liveWindowById = useMemo(
@@ -200,6 +203,10 @@ export default function GameWindowsRoute({
         savedWorkArea: nextDisplay.workArea
       }
     }));
+  }
+
+  function rename(gameWindow: GameWindow, name: string): Promise<boolean> {
+    return runWindow(gameWindow.id, () => window.rionStudio.updateGameWindow(gameWindow.id, { name }));
   }
 
   function handleSortChange(key: GameWindowListSortKey): void {
@@ -464,6 +471,10 @@ export default function GameWindowsRoute({
                                     </DropdownMenuRadioGroup>
                                   </DropdownMenuSubContent>
                                 </DropdownMenuSub>
+                                <DropdownMenuItem disabled={windowIsBusy} onSelect={() => setRenameTarget(gameWindow)}>
+                                  <Pencil className="mr-2" size={14} />
+                                  {t("gameWindows.rename")}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   disabled={windowIsBusy || !liveWindow}
                                   onSelect={() => void runWindow(gameWindow.id, () => window.rionStudio.hideGameWindow(gameWindow.id))}
@@ -509,6 +520,13 @@ export default function GameWindowsRoute({
         selectedIds={selection.selectedIds}
       />
       <SelectionMarquee container={pageRef.current} rect={selection.selectionRect} />
+      <RenameGameWindowDialog
+        gameWindow={renameTarget}
+        isSaving={renameTarget ? busyIds.has(windowBusyKey(renameTarget.id)) : false}
+        t={t}
+        onCancel={() => setRenameTarget(null)}
+        onSave={(name) => renameTarget ? rename(renameTarget, name) : Promise.resolve(false)}
+      />
     </PageFrame>
   );
 }

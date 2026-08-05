@@ -128,6 +128,22 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes game-window rename validation errors in every language", async () => {
+    const codes = {
+      GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
+      GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",
+      GAME_WINDOW_NAME_DUPLICATE: "error.gameWindowNameDuplicate"
+    } as const;
+
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      for (const [code, key] of Object.entries(codes) as Array<[string, TranslationKey]>) {
+        expect(toMessage({ code, message: "English fallback" }, language, t)).toBe(translations[key]);
+      }
+    }
+  });
+
   it("localizes macro dependency and called-macro errors without losing names", async () => {
     await Promise.all([loadTranslations("zh-TW"), loadTranslations("zh-CN"), loadTranslations("ja")]);
 

@@ -59,7 +59,7 @@ impl SystemRuntimeExecutor {
                         source_id: presentation_tab.source_id.clone(),
                         name: presentation_tab.title.clone(),
                         role_slots,
-                        hidden: false,
+                        hidden: live_window.tab_is_hidden(&presentation_tab.id),
                         audio_muted: runtime_tab.audio_muted,
                     })
                 })

@@ -267,7 +267,7 @@ impl PresentationRegistry {
             .existing(source_window_id)
             .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
         let target = self.coordinator(target_window_id)?;
-        let (tab, bindings, was_selected, source_before) = {
+        let (tab, bindings, was_hidden, was_selected, source_before) = {
             let mut source = source
                 .lock()
                 .map_err(|_| "The source presentation state is unavailable.".to_owned())?;
@@ -283,6 +283,7 @@ impl PresentationRegistry {
                 .flatten();
             let tab = source.tabs.remove(index);
             let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
+            let was_hidden = source.hidden_tab_ids.remove(tab_id);
             source
                 .aliases
                 .retain(|alias, target| alias != tab_id && target != tab_id);
@@ -291,7 +292,7 @@ impl PresentationRegistry {
             } else {
                 source.revision = revision;
             }
-            (tab, bindings, was_selected, source_before)
+            (tab, bindings, was_hidden, was_selected, source_before)
         };
         let moved_surfaces = bindings
             .iter()
@@ -340,6 +341,9 @@ impl PresentationRegistry {
         target.revision = revision;
         if !bindings.is_empty() {
             target.surface_bindings.insert(tab_id.to_owned(), bindings);
+        }
+        if was_hidden {
+            target.hidden_tab_ids.insert(tab_id.to_owned());
         }
         if was_selected && activate_target_if_selected {
             target.select(Some(tab_id.to_owned()), revision);

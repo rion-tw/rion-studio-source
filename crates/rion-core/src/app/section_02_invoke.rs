@@ -703,44 +703,29 @@ impl AppCore {
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::EmbeddedTabHide { tab_id } => {
-                serde_json::to_value(self.apply_embedded_runtime_command(
+                serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
                     vec![BrowserRuntimeCommand::HideTab {
                         tab_id: tab_id.clone(),
                     }],
-                    None,
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                    None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::EmbeddedTabReorder {
                 tab_id,
                 before_tab_id,
-            } => serde_json::to_value(self.apply_embedded_runtime_command(
+            } => serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
                 vec![BrowserRuntimeCommand::ReorderTab {
                     tab_id,
                     before_tab_id,
                 }],
-                None,
-                Vec::new(),
-                Vec::new(),
-                None,
-                None,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::EmbeddedTabMove { tab_id, target } => {
-                serde_json::to_value(self.apply_embedded_runtime_command(
+                serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
                     vec![BrowserRuntimeCommand::MoveTab {
                         tab_id: tab_id.clone(),
                         window_id: target.window_id.clone(),
                     }],
-                    Some(target.clone()),
-                    vec![target.window_id.clone()],
-                    vec![target.window_id.clone()],
-                    Some(tab_id),
-                    None,
                 )?)
                 .map_err(|error| CoreError::Internal(error.to_string()))
             }
@@ -748,7 +733,7 @@ impl AppCore {
                 tab_id,
                 target,
                 before_tab_id,
-            } => serde_json::to_value(self.apply_embedded_runtime_command(
+            } => serde_json::to_value(self.apply_embedded_tab_projection_without_native_effect(
                 vec![
                     BrowserRuntimeCommand::MoveTab {
                         tab_id: tab_id.clone(),
@@ -759,11 +744,6 @@ impl AppCore {
                         before_tab_id,
                     },
                 ],
-                Some(target.clone()),
-                vec![target.window_id.clone()],
-                vec![target.window_id.clone()],
-                Some(tab_id),
-                None,
             )?)
             .map_err(|error| CoreError::Internal(error.to_string())),
             command @ (CoreCommand::EmbeddedTabMutation { .. }

@@ -80,6 +80,8 @@ struct CoreState {
     tab_drag_lane: tokio::sync::Mutex<()>,
     tab_drag_projection_queue:
         OnceLock<tokio::sync::mpsc::UnboundedSender<QueuedTabDragProjection>>,
+    tab_mutation_sink_queue:
+        OnceLock<tokio::sync::mpsc::UnboundedSender<QueuedTabMutationSink>>,
     #[cfg(target_os = "macos")]
     macos_tab_drag_actions:
         OnceLock<tokio::sync::mpsc::UnboundedSender<runtime_tabs_macos::QueuedNativeTabAction>>,

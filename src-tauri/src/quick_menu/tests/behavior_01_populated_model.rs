@@ -20,6 +20,7 @@ use super::*;
                 {"id":"role-busy","name":"Busy Role"}
             ]),
             running_window_ids: vec!["active-window".to_owned(), "unsaved-window".to_owned()],
+            open_workspace_ids: vec!["workspace-running".to_owned()],
             workspace_statuses: serde_json::json!([
                 {"workspaceId":"workspace-running","state":"running"},
                 {"workspaceId":"workspace-busy","state":"launching"}
@@ -242,6 +243,7 @@ use super::*;
             role_statuses: serde_json::json!([]),
             roles: serde_json::json!([]),
             running_window_ids: vec![],
+            open_workspace_ids: vec![],
             workspace_statuses: serde_json::json!([]),
             workspaces: serde_json::json!([]),
         };

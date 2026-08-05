@@ -310,26 +310,13 @@ async fn rion_runtime_tab_action(
                     "runtime tab ID is required",
                 )
             })?;
-        let snapshot = state
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(error_payload)
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
-                    shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
-                })
-            })?;
-        let tab = snapshot
-            .tabs
-            .iter()
-            .find(|tab| tab.id == tab_id)
-            .ok_or_else(|| {
-                shell_error(
-                    "TAURI_RUNTIME_TAB_ACTION_FAILED",
-                    "runtime tab was not found",
-                )
-            })?;
-        if action_type != "move" && tab.window_id != window_id {
+        let live_window_id = state.runtime.live_tab_window_id(tab_id).ok_or_else(|| {
+            shell_error(
+                "TAURI_RUNTIME_TAB_ACTION_FAILED",
+                "runtime tab was not found in the live topology",
+            )
+        })?;
+        if action_type != "move" && live_window_id != window_id {
             return Err(shell_error(
                 "TAURI_RUNTIME_TAB_ACTION_FAILED",
                 "runtime tab is outside this tab-strip WebView's window",
@@ -340,10 +327,7 @@ async fn rion_runtime_tab_action(
             .and_then(Value::as_str)
             .map(str::to_owned);
         if let Some(before) = before_tab_id.as_deref()
-            && !snapshot
-                .tabs
-                .iter()
-                .any(|candidate| candidate.id == before && candidate.window_id == window_id)
+            && state.runtime.live_tab_window_id(before).as_deref() != Some(window_id.as_str())
         {
             return Err(shell_error(
                 "TAURI_RUNTIME_TAB_ACTION_FAILED",
@@ -463,7 +447,12 @@ fn embedded_runtime_state(state: &CoreState) -> Result<Value, CoreErrorPayload> 
         .map_err(error_payload)?;
     let snapshot = serde_json::from_value(snapshot)
         .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))?;
-    Ok(state.runtime.projection(&snapshot))
+    state.runtime.live_projection(snapshot).ok_or_else(|| {
+        shell_error(
+            "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+            "The live tab topology could not be read; the stale Core projection was ignored.",
+        )
+    })
 }
 
 fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, CoreErrorPayload> {

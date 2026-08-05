@@ -66,6 +66,8 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
     expect(macController).toContain("if (_tabItems.count < 2) return YES;");
+    expect(macController).toContain("animatesToStartingPositionsOnCancelOrFail = NO");
+    expect(macController).not.toContain("animatesToStartingPositionsOnCancelOrFail = YES");
     expect(macController).not.toContain("RionRuntimeWindowSnapshot");
   });
 

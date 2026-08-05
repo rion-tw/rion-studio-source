@@ -1,4 +1,178 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn live_tab_window_id(&self, tab_id: &str) -> Option<String> {
+        self.presentation.tab_window(tab_id).ok().flatten()
+    }
+
+    /// Commits a non-drag topology action to the same live authority used by
+    /// AppKit/HTML gestures. Core and SQLite are deliberately absent: callers
+    /// enqueue those sinks only after this method returns.
+    pub(crate) fn commit_live_tab_mutation_intent(
+        self: &Arc<Self>,
+        mutation_kind: &str,
+        tab_id: &str,
+        target: Option<&EmbeddedLaunchTargetRecord>,
+        before_tab_id: Option<&str>,
+    ) -> Result<(), String> {
+        match mutation_kind {
+            "reorder" => {
+                let window_id = self
+                    .presentation
+                    .tab_window(tab_id)?
+                    .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
+                let mut ordered = self
+                    .presentation
+                    .existing(&window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
+                ordered.retain(|candidate| candidate != tab_id);
+                let insertion = match before_tab_id {
+                    Some(before) => ordered
+                        .iter()
+                        .position(|candidate| candidate == before)
+                        .ok_or_else(|| {
+                            "The reorder target is outside the live source window.".to_owned()
+                        })?,
+                    None => ordered.len(),
+                };
+                ordered.insert(insertion, tab_id.to_owned());
+                self.preview_tab_drag_order_exact(&window_id, &ordered, true)
+            }
+            "move" | "moveToNewWindow" => {
+                let target = target
+                    .ok_or_else(|| "A live tab move requires a target window.".to_owned())?;
+                let source_window_id = self
+                    .presentation
+                    .tab_window(tab_id)?
+                    .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
+                if self.window_for_id(&target.window_id).is_none() {
+                    let title = self
+                        .presentation
+                        .tab(&source_window_id, tab_id)
+                        .map(|tab| tab.title)
+                        .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned());
+                    self.prepare_provisional_game_window(target, &title)?;
+                    self.position_provisional_game_window(target)?;
+                }
+                let mut ordered = self
+                    .presentation
+                    .existing(&target.window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .unwrap_or_default();
+                ordered.retain(|candidate| candidate != tab_id);
+                let insertion = match before_tab_id {
+                    Some(before) => ordered
+                        .iter()
+                        .position(|candidate| candidate == before)
+                        .ok_or_else(|| {
+                            "The move target is outside the live destination window.".to_owned()
+                        })?,
+                    None => ordered.len(),
+                };
+                ordered.insert(insertion, tab_id.to_owned());
+                self.commit_live_tab_drag_destination(
+                    &source_window_id,
+                    &target.window_id,
+                    tab_id,
+                    &ordered,
+                )?;
+                if let Err(error) = self.provisionally_move_tab_with_visibility_inner(
+                    tab_id,
+                    &target.window_id,
+                    true,
+                    false,
+                ) {
+                    eprintln!(
+                        "Live tab surface move will retry without rolling back topology: tab={tab_id} target={} error={error}",
+                        target.window_id
+                    );
+                    self.schedule_tab_surface_move_retry(
+                        tab_id.to_owned(),
+                        target.window_id.clone(),
+                    );
+                } else if source_window_id != target.window_id {
+                    self.discard_provisional_game_window(&source_window_id);
+                }
+                Ok(())
+            }
+            "hide" => self.commit_live_tab_hide_intent(tab_id),
+            _ => Err("The live tab mutation kind is unsupported.".to_owned()),
+        }
+    }
+
+    fn commit_live_tab_hide_intent(&self, tab_id: &str) -> Result<(), String> {
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
+        let window = self
+            .window_for_id(&window_id)
+            .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
+        let coordinator = self
+            .presentation
+            .existing(&window_id)
+            .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
+        let revision = self.presentation.next_revision();
+        let (previous_tab_id, previous_surfaces, next_tab_id, next_surfaces) = {
+            let mut live = coordinator
+                .lock()
+                .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+            if live.tab_is_hidden(tab_id) {
+                return Ok(());
+            }
+            let previous_tab_id = live.selected_tab_id.clone();
+            let previous_surfaces = live.surfaces(previous_tab_id.as_deref());
+            let next_tab_id = if previous_tab_id.as_deref() == Some(tab_id) {
+                successor_tab_after_close(&live.tab_ids(), tab_id, |_| true)
+            } else {
+                previous_tab_id.clone()
+            };
+            live.set_tab_hidden(tab_id, true, revision);
+            if previous_tab_id.as_deref() == Some(tab_id) {
+                live.select(next_tab_id.clone(), revision);
+            }
+            let next_surfaces = live.surfaces(next_tab_id.as_deref());
+            (
+                previous_tab_id,
+                previous_surfaces,
+                next_tab_id,
+                next_surfaces,
+            )
+        };
+        if let Err(error) = self.try_remove_native_tab_reservation(
+            &window_id,
+            tab_id,
+            next_tab_id.as_deref(),
+        ) {
+            eprintln!(
+                "Hidden native tab chrome remains pending without live rollback: tab={tab_id} window={window_id} error={}",
+                error.message
+            );
+        }
+        self.apply_native_active_style(
+            &window_id,
+            next_tab_id.as_deref(),
+            revision,
+            "tab-hide-live",
+        );
+        self.dispatch_native_presentation(
+            window_id.clone(),
+            next_tab_id.clone(),
+            revision,
+            "tab-hide-live",
+            Instant::now(),
+            window,
+            previous_tab_id,
+            previous_surfaces,
+            next_surfaces.clone(),
+            next_surfaces.first().cloned(),
+            next_tab_id.is_none().then_some(false),
+            NativePresentationFocus::ContentOnly,
+            None,
+        );
+        self.schedule_live_window_state_persistence(&window_id);
+        Ok(())
+    }
+
     /// Accepts the complete order reported by the visible tab strip. This is the hot-path
     /// commit between AppKit/HTML gesture handling and latest-wins persistence: it only locks
     /// LiveWindowTabState briefly and never calls Core, SQLite, or a native readback.
@@ -253,14 +427,18 @@ impl SystemRuntimeExecutor {
                     {
                         return;
                     }
-                    if runtime.tab_window_id(&tab_id).as_deref()
-                        == Some(target_window_id.as_str())
-                    {
+                    let physical_source_window_id = runtime.tab_window_id(&tab_id);
+                    if physical_source_window_id.as_deref() == Some(target_window_id.as_str()) {
                         return;
                     }
                     match runtime.provisionally_move_tab(&tab_id, &target_window_id) {
                         Ok(()) => {
                             runtime.schedule_live_window_state_persistence(&target_window_id);
+                            if let Some(source_window_id) = physical_source_window_id
+                                .filter(|source_window_id| source_window_id != &target_window_id)
+                            {
+                                runtime.discard_provisional_game_window(&source_window_id);
+                            }
                             return;
                         }
                         Err(error) => {

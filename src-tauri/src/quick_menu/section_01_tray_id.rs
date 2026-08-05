@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use rion_core::{AppCore, BrowserRuntimeSnapshot, CoreCommand};
+use rion_core::{AppCore, CoreCommand};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(target_os = "windows")]
 use tauri::{
@@ -84,6 +84,7 @@ struct MenuModel {
     role_statuses: serde_json::Value,
     roles: serde_json::Value,
     running_window_ids: Vec<String>,
+    open_workspace_ids: Vec<String>,
     workspace_statuses: serde_json::Value,
     workspaces: serde_json::Value,
 }
@@ -149,7 +150,7 @@ impl RefreshCoordinator {
                 Ok(state) => (state.revision, state.language.clone()),
                 Err(_) => return,
             };
-            let result = MenuModel::load(&core, language);
+            let result = MenuModel::load(&core, &runtime, language);
             let Ok(model) = result else {
                 eprintln!(
                     "Rion Studio Quick Menu model refresh failed: {}",
@@ -199,7 +200,11 @@ impl RefreshCoordinator {
 }
 
 impl MenuModel {
-    fn load(core: &AppCore, language: String) -> Result<Self, String> {
+    fn load(
+        core: &AppCore,
+        runtime: &crate::SystemRuntimeExecutor,
+        language: String,
+    ) -> Result<Self, String> {
         let game_windows = core
             .invoke(CoreCommand::GameWindowsList)
             .map_err(|error| error.to_string())?;
@@ -216,18 +221,16 @@ impl MenuModel {
             .invoke(CoreCommand::BrowserWorkspaceStatuses)
             .map_err(|error| error.to_string())?;
         let legal_accepted = legal_is_accepted(core);
-        let mut running_window_ids = core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .ok()
-            .and_then(|value| serde_json::from_value::<BrowserRuntimeSnapshot>(value).ok())
-            .map(|snapshot| {
-                snapshot
-                    .windows
-                    .into_iter()
-                    .map(|window| window.window_id)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let presence = runtime.launcher_presence_snapshot()?;
+        let mut open_workspace_ids = presence
+            .tabs
+            .into_iter()
+            .filter(|tab| tab.tab_type == "workspace")
+            .map(|tab| tab.source_id)
+            .collect::<Vec<_>>();
+        open_workspace_ids.sort();
+        open_workspace_ids.dedup();
+        let mut running_window_ids = runtime.live_window_ids()?;
         running_window_ids.sort();
         Ok(Self {
             game_windows,
@@ -236,6 +239,7 @@ impl MenuModel {
             role_statuses,
             roles,
             running_window_ids,
+            open_workspace_ids,
             workspace_statuses,
             workspaces,
         })
@@ -249,6 +253,7 @@ impl MenuModel {
             "roleStatuses": self.role_statuses,
             "roles": self.roles,
             "runningWindowIds": self.running_window_ids,
+            "openWorkspaceIds": self.open_workspace_ids,
             "workspaceStatuses": self.workspace_statuses,
             "workspaces": self.workspaces,
         }))
@@ -339,6 +344,11 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
     }
     let mut workspace_items = Vec::new();
     let workspace_values = workspaces.as_array().cloned().unwrap_or_default();
+    let open_workspace_ids = model
+        .open_workspace_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     if workspace_values.is_empty() {
         workspace_items.push(item("no-workspaces", labels.no_workspaces, false));
     } else {
@@ -355,7 +365,11 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
                     .iter()
                     .any(|role_id| !role_ids.contains(*role_id));
                 let busy = matches!(state, Some("launching" | "stopping"));
-                let running = state == Some("running");
+                // Opening/stopping presentation is owned by the live tab store.
+                // A delayed Core workspace status may describe role lifecycle,
+                // but it must never turn a visible tab into an "open" or "closed"
+                // menu action.
+                let running = open_workspace_ids.contains(id);
                 let (prefix, marker) = if running {
                     (STOP_WORKSPACE_PREFIX, "✓ ")
                 } else if busy {

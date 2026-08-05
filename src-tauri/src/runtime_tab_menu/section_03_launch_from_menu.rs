@@ -203,12 +203,6 @@ fn current_tab_muted(state: &crate::CoreState, tab_id: &str) -> Result<bool, Str
     state.runtime.tab_audio_muted(tab_id)
 }
 
-fn snapshot(core: &rion_core::AppCore) -> Result<BrowserRuntimeSnapshot, String> {
-    core.invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(|error| error.to_string())
-        .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-}
-
 struct Labels {
     hide: &'static str,
     loading: &'static str,

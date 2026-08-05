@@ -82,7 +82,12 @@ impl WindowStatePersistCoordinator {
         let tabs = live
             .tabs
             .iter()
-            .map(|tab| snapshots.tabs.get(&tab.id).cloned())
+            .map(|tab| {
+                snapshots.tabs.get(&tab.id).cloned().map(|mut snapshot| {
+                    snapshot.hidden = live.tab_is_hidden(&tab.id);
+                    snapshot
+                })
+            })
             .collect::<Option<Vec<_>>>()?;
         input.snapshot.window_generation = live.window_generation;
         input.snapshot.revision = live.revision;

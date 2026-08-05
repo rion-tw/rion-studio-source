@@ -94,12 +94,13 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime.indexOf("synchronize_windows_reparented_surfaces(")).toBeLessThan(
       applyRuntime.indexOf("let (obsolete_window_ids, moved_registry_surfaces)")
     );
-    expect(applyRuntime).toContain("move_tab_with_activation(");
-    expect(applyRuntime).toContain("relocate_native_tab_reservation(");
+    expect(applyRuntime).not.toContain("move_tab_with_activation(");
+    expect(applyRuntime).not.toContain("relocate_native_tab_reservation(");
     expect(applyRuntime).toContain("try_ensure_native_tab(");
     expect(applyRuntime).toContain("reorder_native_tabs_for_projection(");
     expect(applyRuntime).toContain("let projected_native_tab_window_ids = snapshot");
-    expect(applyRuntime).toContain("resolved_runtime_window_selection(");
+    expect(applyRuntime).not.toContain("resolved_runtime_window_selection(");
+    expect(applyRuntime).toContain("selection belongs exclusively to");
     expect(applyRuntime).toContain("dispatch_native_presentation(");
     expect(applyRuntime).toContain("NativePresentationFocus::WindowAndContent");
     expect(applyRuntime).toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");

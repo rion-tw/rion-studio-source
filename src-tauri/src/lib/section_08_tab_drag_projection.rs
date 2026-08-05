@@ -115,17 +115,24 @@ fn prepare_tab_drag_projection(
 fn complete_visible_tab_drag(
     state: &CoreState,
     session: &GameWindowTabDragSession,
-) -> Result<(), CoreErrorPayload> {
+) {
     let final_window_id = session.current_window_id.as_str();
     let persisted_motion_window = (session.single_tab
         && final_window_id == session.source_window_id
         && session.window_was_moved)
         .then_some(final_window_id);
     release_tab_drag_window_motion_suppression(state, session, persisted_motion_window);
-    state
+    if let Err(message) = state
         .runtime
         .make_provisional_game_window_interactive(final_window_id)
-        .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
+    {
+        // Pointer passthrough and the live destination are already committed.
+        // Focus/interactivity repair is diagnostic background work and cannot
+        // retain the gesture lane or roll topology back.
+        eprintln!(
+            "Committed tab drag window interactivity remains pending: window={final_window_id} error={message}"
+        );
+    }
     if !session.single_tab && final_window_id != session.provisional_window_id {
         state
             .runtime
@@ -135,7 +142,6 @@ fn complete_visible_tab_drag(
             .runtime
             .discard_provisional_game_window(&session.source_window_id);
     }
-    Ok(())
 }
 
 fn finish_visible_tab_drag_and_schedule_projection(
@@ -149,17 +155,17 @@ fn finish_visible_tab_drag_and_schedule_projection(
             record_tab_drag_lifecycle(
                 state,
                 session,
-                "tab.drag-core-projection-prepare-failed",
-                "The visible drag committed, but its background Core projection could not be frozen.",
+                "tab.drag-core-sink-prepare-failed",
+                "The visible drag committed, but its background Core sink input could not be prepared.",
             );
             eprintln!(
-                "Runtime tab drag Core projection could not be frozen: session={} code={} error={}",
+                "Runtime tab drag Core sink input could not be prepared: session={} code={} error={}",
                 session.id, error.code, error.message
             );
             None
         }
     };
-    complete_visible_tab_drag(state, session)?;
+    complete_visible_tab_drag(state, session);
     record_tab_drag_lifecycle(
         state,
         session,
@@ -199,13 +205,26 @@ fn schedule_tab_drag_projection(
         .send(QueuedTabDragProjection { prepared, session })
         .is_err()
     {
-        eprintln!("Runtime tab drag background Core projection queue is unavailable.");
+        eprintln!("Runtime tab drag background Core sink queue is unavailable.");
     }
 }
 
 async fn process_tab_drag_projection(app: &AppHandle, queued: QueuedTabDragProjection) {
     let state = app.state::<CoreState>();
-    let request = queued.prepared.request.clone();
+    if queued.session.intent_generation > 0
+        && !state.runtime.tab_drag_projection_is_latest(
+            &queued.session.id,
+            queued.session.intent_generation,
+        )
+    {
+        record_tab_drag_lifecycle(
+            &state,
+            &queued.session,
+            "tab.drag-core-sink-superseded",
+            "A newer live gesture superseded this queued Core sink update.",
+        );
+        return;
+    }
     match execute_tab_drag_topology_commit(
         &state,
         queued.prepared.request,
@@ -217,24 +236,21 @@ async fn process_tab_drag_projection(app: &AppHandle, queued: QueuedTabDragProje
     )
     .await
     {
-        Ok(RuntimeTabMutationProjectionOutcome::Degraded) => {
-            state.runtime.record_tab_drag_projection_mismatch(&request);
-        }
         Ok(_) => record_tab_drag_lifecycle(
             &state,
             &queued.session,
-            "tab.drag-core-projection-committed",
-            "The serialized background Core projection accepted the visible tab destination.",
+            "tab.drag-core-sink-committed",
+            "The serialized background Core sink accepted the visible tab destination.",
         ),
         Err(error) => {
             record_tab_drag_lifecycle(
                 &state,
                 &queued.session,
-                "tab.drag-core-projection-failed",
-                "The visible drag stayed committed while its serialized Core projection failed.",
+                "tab.drag-core-sink-failed",
+                "The visible drag stayed committed while its serialized Core sink failed.",
             );
             eprintln!(
-                "Runtime tab drag background Core projection failed: session={} code={} error={}",
+                "Runtime tab drag background Core sink failed: session={} code={} error={}",
                 queued.session.id, error.code, error.message
             );
         }

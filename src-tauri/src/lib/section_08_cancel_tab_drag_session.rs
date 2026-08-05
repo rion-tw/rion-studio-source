@@ -420,18 +420,13 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     tab_id: &str,
     screen_point: Option<(f64, f64)>,
 ) -> Result<RuntimeTabMoveResultRecord, CoreErrorPayload> {
-    let runtime = state
-        .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(error_payload)?;
-    let source_window_id = runtime["tabs"]
-        .as_array()
-        .and_then(|tabs| tabs.iter().find(|tab| tab["id"].as_str() == Some(tab_id)))
-        .and_then(|tab| tab["windowId"].as_str())
+    let source_window_id = state
+        .runtime
+        .live_tab_window_id(tab_id)
         .ok_or_else(|| shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
     let source = state
         .runtime
-        .launch_target_for_window_id(source_window_id)
+        .launch_target_for_window_id(&source_window_id)
         .map_err(|message| shell_error("TAURI_RUNTIME_WINDOW_NOT_FOUND", message))?;
 
     let monitors = app

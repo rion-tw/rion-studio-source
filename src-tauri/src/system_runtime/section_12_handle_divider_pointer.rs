@@ -375,23 +375,13 @@ impl SystemRuntimeExecutor {
         .to_owned();
         let sample_duration =
             sample_duration.clamp(Duration::from_millis(500), Duration::from_millis(5_000));
-        let snapshot = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(|error| RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string()))
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value).map_err(|error| {
-                    RuntimeError::new("PERFORMANCE_DIAGNOSTIC_FAILED", error.to_string())
-                })
-            })?;
+        let selected_tabs = self.presentation.selected_tabs();
         let candidates = {
             let state = self.state()?;
-            snapshot
-                .windows
+            selected_tabs
                 .iter()
-                .filter_map(|runtime_window| {
-                    let tab_id = runtime_window.active_tab_id.as_deref()?;
-                    let host = state.display_hosts.get(&runtime_window.window_id)?;
+                .filter_map(|(window_id, tab_id)| {
+                    let host = state.display_hosts.get(window_id)?;
                     let tab = state.tabs.get(tab_id)?;
                     let surfaces = tab
                         .roles
@@ -410,7 +400,7 @@ impl SystemRuntimeExecutor {
                         focused: false,
                         surfaces,
                         window: host.window.clone(),
-                        window_id: runtime_window.window_id.clone(),
+                        window_id: window_id.clone(),
                     })
                 })
                 .collect::<Vec<_>>()
@@ -608,25 +598,13 @@ impl SystemRuntimeExecutor {
             host.zoom_factor
         };
         let next_zoom = next_zoom_factor(current_zoom, action, 0.25, 5.0);
-        let snapshot = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let Some(tab_id) = snapshot
-            .windows
-            .iter()
-            .find(|window| window.window_id == *window_id)
-            .and_then(|window| window.active_tab_id.as_deref())
+        let Some(tab_id) = self.presentation.selected_tabs().remove(window_id)
         else {
             return Ok(false);
         };
         let (surfaces, visible_role_ids) = {
             let state = self.state().map_err(|error| error.message)?;
-            let Some(active_tab) = state.tabs.get(tab_id) else {
+            let Some(active_tab) = state.tabs.get(&tab_id) else {
                 return Ok(false);
             };
             let visible_role_ids = active_tab.roles.keys().cloned().collect::<HashSet<_>>();

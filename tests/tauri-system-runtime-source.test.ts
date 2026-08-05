@@ -220,7 +220,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(launcherActivation).toContain("Some(true)");
     const closePreview = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_close("),
-      runtime.indexOf("pub(crate) fn reconcile_tab_activation(")
+      runtime.indexOf("fn snapshot_with_live_tab_topology(")
     );
     expect(closePreview).toContain("window_state.remove_tab(");
     expect(closePreview).toContain("successor_tab_after_close(");
@@ -561,12 +561,14 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       menu.indexOf("pub async fn handle_scoped_action("),
       menu.indexOf("fn launch_from_menu(")
     );
-    expect(scopedTabAction.indexOf('if action_type == "activate"')).toBeLessThan(
-      scopedTabAction.indexOf("let snapshot = snapshot(&state.core)?")
-    );
+    expect(scopedTabAction).toContain('if action_type == "activate"');
+    expect(scopedTabAction).toContain("live_tab_window_id(tab_id)");
+    expect(scopedTabAction).not.toContain("BrowserRuntimeSnapshot");
+    expect(scopedTabAction).not.toContain("snapshot(&state.core)");
     expect(macBridge).toContain("crate::execute_tab_stop(&state, tab_id).await");
     expect(macBridge).toContain("state.runtime.preview_tab_close(tab_id)");
-    expect(runtime).toContain("resolve_live_presentation_tab_owner(tab_id, &runtime_window_id)");
+    expect(runtime).toContain("resolve_live_presentation_tab_owner(tab_id)?");
+    expect(runtime).not.toContain("repair_missing_tab_presentation");
     expect(runtime).not.toContain("reconcile_presentation_tab_owner(tab_id, &window_id)");
   });
 
@@ -786,7 +788,6 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     ]);
     const windowsImportStart = imports.indexOf('#[cfg(windows)]\nuse rion_core::{');
     const windowsImportEnd = imports.indexOf("};", windowsImportStart);
-
     expect(windowsImportStart).toBeGreaterThan(-1);
     expect(windowsImportEnd).toBeGreaterThan(windowsImportStart);
     expect(imports.slice(windowsImportStart, windowsImportEnd)).toContain(

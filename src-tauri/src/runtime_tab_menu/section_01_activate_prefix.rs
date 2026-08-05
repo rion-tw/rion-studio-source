@@ -6,8 +6,8 @@ use std::{
 };
 
 use rion_core::{
-    AppCore, BrowserRuntimeSnapshot, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord,
-    LogErrorDetails, LogLevel, LogSource, StateGameWindowRecord,
+    AppCore, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord, LogErrorDetails, LogLevel,
+    LogSource, StateGameWindowRecord,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -44,6 +44,7 @@ struct TabMenuIntent {
     language: String,
     muted: bool,
     tab_id: String,
+    window_id: String,
     window: Window,
 }
 
@@ -127,17 +128,16 @@ impl LaunchIntentDispatcher {
                 tauri::async_runtime::spawn(async move {
                     let _permit = permit;
                     let model = tauri::async_runtime::spawn_blocking(move || {
-                        let snapshot = snapshot(&core)?;
                         let game_windows = core
                             .invoke(CoreCommand::GameWindowsList)
                             .map_err(|error| error.to_string())?;
-                        Ok::<_, String>((snapshot, game_windows))
+                        Ok::<_, String>(game_windows)
                     })
                     .await
                     .map_err(|error| error.to_string())
                     .and_then(|result| result);
                     match model {
-                        Ok((snapshot, game_windows)) => {
+                        Ok(game_windows) => {
                             let menu_app = app.clone();
                             let error_app = app.clone();
                             if let Err(error) = app.run_on_main_thread(move || {
@@ -146,7 +146,7 @@ impl LaunchIntentDispatcher {
                                     &intent.tab_id,
                                     &intent.language,
                                     intent.muted,
-                                    &snapshot,
+                                    &intent.window_id,
                                     &game_windows,
                                     intent.window,
                                 ) {
@@ -632,6 +632,10 @@ pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "runtime state is unavailable".to_owned())?;
     let (window, muted) = state.runtime.native_menu_context_for_tab(tab_id)?;
+    let window_id = state
+        .runtime
+        .live_tab_window_id(tab_id)
+        .ok_or_else(|| "runtime tab is no longer in the live topology".to_owned())?;
     let language = state
         .menu_language
         .lock()
@@ -641,6 +645,7 @@ pub fn open_tab(app: &AppHandle, tab_id: &str) -> Result<(), String> {
         language,
         muted,
         tab_id: tab_id.to_owned(),
+        window_id,
         window,
     })
 }

@@ -34,7 +34,6 @@ include!("system_runtime/section_07_capability_evidence.rs");
 include!("system_runtime/section_08_runtime_game_window_save_input.rs");
 include!("system_runtime/section_08_runtime_window_snapshot_input.rs");
 include!("system_runtime/section_09_record_topology_reconciled.rs");
-include!("system_runtime/section_09_presentation_repair.rs");
 include!("system_runtime/section_10_set_language.rs");
 include!("system_runtime/section_10_live_tab_drag_commit.rs");
 include!("system_runtime/section_10_provisional_window_contract.rs");

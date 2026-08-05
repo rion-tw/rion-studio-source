@@ -160,18 +160,6 @@ impl TabDragIntentCoordinator {
         })
     }
 
-    pub(crate) fn operation_is_superseded(&self, operation_id: &str, tab_id: &str) -> bool {
-        self.state.lock().is_ok_and(|state| {
-            let Some(session_id) = state.operations.get(operation_id) else {
-                return false;
-            };
-            let Some(intent) = state.sessions.get(session_id) else {
-                return false;
-            };
-            intent.tab_id == tab_id && tab_drag_intent_is_superseded(&state, intent)
-        })
-    }
-
     pub(crate) fn newer_intent_started_in(
         &self,
         session_id: &str,

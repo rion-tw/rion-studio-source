@@ -404,7 +404,9 @@ impl SystemRuntimeExecutor {
         if cfg!(target_os = "macos") && live_drag {
             self.schedule_live_tab_drag_layout(tab_id.to_owned());
         }
-        self.publish_projection();
+        if !presentation_precommitted && !live_drag {
+            self.publish_projection();
+        }
         Ok(())
     }
 
@@ -419,10 +421,7 @@ impl SystemRuntimeExecutor {
                     return;
                 };
                 if let Err(error) = runtime.layout_runtime_tab(&tab_id) {
-                    eprintln!(
-                        "Live tab drag layout projection will retry through normal window layout: tab={tab_id} error={}",
-                        error.message
-                    );
+                    eprintln!("Live tab drag layout remains pending: tab={tab_id} error={}", error.message);
                 }
             });
     }
@@ -634,16 +633,23 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {
-        let host = self.state.lock().ok().and_then(|mut state| {
+        let Some((host, can_discard)) = self.state.lock().ok().map(|mut state| {
             if state.tabs.values().any(|tab| tab.window_id == window_id) {
-                return None;
+                return (None, false);
             }
-            let host = state.display_hosts.remove(window_id)?;
-            state
-                .allow_window_close_labels
-                .insert(host.window.label().to_owned());
-            Some(host)
-        });
+            let host = state.display_hosts.remove(window_id);
+            if let Some(host) = host.as_ref() {
+                state
+                    .allow_window_close_labels
+                    .insert(host.window.label().to_owned());
+            }
+            (host, true)
+        }) else {
+            return;
+        };
+        if !can_discard {
+            return;
+        }
         self.presentation.remove(window_id);
         self.publish_launcher_presence();
         if let Some(host) = host {
@@ -693,27 +699,20 @@ impl SystemRuntimeExecutor {
     ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
         self.require_runtime_accepting()
             .map_err(|error| error.message)?;
-        let role_id = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                    .map_err(|error| error.to_string())
-            })?
-            .tabs
-            .into_iter()
-            .find(|tab| tab.id == tab_id)
-            .and_then(|tab| tab.slots.first().map(|slot| slot.role_id.clone()))
-            .ok_or_else(|| "runtime tab has no role surface".to_owned())?;
-        let (window_id, surface_generation) = {
+        let (role_id, window_id, surface_generation) = {
             let state = self.state().map_err(|error| error.message)?;
             let tab = state
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "runtime tab was not found".to_owned())?;
+            let role_id = tab
+                .roles
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| "runtime tab has no owned role surface".to_owned())?;
             let surface_generation = tab.roles.get(&role_id).map(|role| role.generation);
-            (tab.window_id.clone(), surface_generation)
+            (role_id, tab.window_id.clone(), surface_generation)
         };
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Audio,

@@ -8,6 +8,17 @@ impl SystemRuntimeExecutor {
         focus_tab_id: Option<&str>,
         correlation: &RuntimeEffectCorrelation,
     ) -> RuntimeResult<()> {
+        // Core owns role lifecycle metadata, not the topology the user is
+        // currently manipulating. Any delayed ApplyRuntime effect is rebased on
+        // the one live topology before it can touch native chrome or surfaces.
+        let snapshot = self
+            .snapshot_with_live_tab_topology(snapshot)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The live tab topology could not be read; the Core projection was ignored.",
+                )
+            })?;
         let parent_operation_id = correlation.parent_operation_id.as_deref();
         let presentation_revision = correlation.presentation_revision;
         if parent_operation_id.is_some()
@@ -239,88 +250,6 @@ impl SystemRuntimeExecutor {
         }
 
         let topology_revision = self.presentation.next_revision();
-        let mut presentation_relocations = Vec::<RuntimePresentationRelocation>::new();
-        for snapshot_tab in &snapshot.tabs {
-            if !live_windows.contains_key(&snapshot_tab.id)
-                || optimistic_closed_tabs.contains(&snapshot_tab.id)
-                || self.runtime_tab_close_projection_fenced(&snapshot_tab.id)?
-            {
-                continue;
-            }
-            let owner = self
-                .presentation
-                .tab_window(&snapshot_tab.id)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            let Some(source_window_id) = owner else {
-                if optimistic_closed_tabs.contains(&snapshot_tab.id) {
-                    continue;
-                }
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    format!(
-                        "Runtime tab {} is missing from the presentation registry.",
-                        snapshot_tab.id
-                    ),
-                ));
-            };
-            if source_window_id == snapshot_tab.window_id {
-                continue;
-            }
-            // The source transition must never hide a surface after it has been
-            // reparented and shown by the target. Capture the exact pre-move
-            // presentation bindings instead of inferring them from runtime roles,
-            // which can be incomplete during launch/compensation interleavings.
-            let moved_surface_labels = presentation_before
-                .get(&source_window_id)
-                .map(|state| {
-                    presentation_surface_labels(&state.surfaces(Some(snapshot_tab.id.as_str())))
-                })
-                .unwrap_or_default();
-            self.presentation
-                .move_tab_with_activation(
-                    &snapshot_tab.id,
-                    &source_window_id,
-                    &snapshot_tab.window_id,
-                    topology_revision,
-                    false,
-                )
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            presentation_relocations.push(RuntimePresentationRelocation {
-                source_window_id,
-                surface_labels: moved_surface_labels,
-                tab_id: snapshot_tab.id.clone(),
-                target_window_id: snapshot_tab.window_id.clone(),
-            });
-        }
-        for relocation in &presentation_relocations {
-            self.record_topology_reconciled(
-                &relocation.tab_id,
-                &relocation.source_window_id,
-                &relocation.target_window_id,
-                topology_revision,
-            );
-        }
-        let relocated_active_tabs = presentation_relocations
-            .iter()
-            .filter_map(|relocation| {
-                snapshot
-                    .windows
-                    .iter()
-                    .find(|window| window.window_id == relocation.target_window_id)
-                    .and_then(|window| {
-                        (window.active_tab_id.as_deref() == Some(relocation.tab_id.as_str()))
-                            .then_some((
-                                relocation.target_window_id.as_str(),
-                                relocation.tab_id.as_str(),
-                            ))
-                    })
-            })
-            .collect::<HashMap<_, _>>();
-
         for runtime_window in &snapshot.windows {
             let pending_restore = pending_window_tab_restores.get(&runtime_window.window_id);
             let presentation = self
@@ -366,107 +295,20 @@ impl SystemRuntimeExecutor {
             window
                 .aliases
                 .retain(|_, target| local_ids.contains(target));
-            let previous = presentation_before
-                .get(&runtime_window.window_id)
-                .cloned()
-                .unwrap_or_default();
-            // A compensation effect has no explicit focus request, but it still needs to
-            // restore the active tab that moved back with the durable topology. Treat that
-            // tab as a selection request while keeping native focus behavior unchanged.
-            let selection_tab_id = focus_tab_id
-                .filter(|tab_id| {
-                    snapshot
-                        .tabs
-                        .iter()
-                        .any(|tab| tab.id == *tab_id && tab.window_id == runtime_window.window_id)
-                })
-                .or_else(|| {
-                    relocated_active_tabs
-                        .get(runtime_window.window_id.as_str())
-                        .copied()
-                });
-            let selection = pending_restore
+            // Core may seed a saved window exactly once while restore owns the
+            // initialization fence. After that, selection belongs exclusively to
+            // LiveWindowTabState and no ApplyRuntime response may change it.
+            let restore_selection = pending_restore
                 .and_then(|restore| restore.active_tab_id.clone())
-                .filter(|tab_id| window.contains_tab(tab_id))
-                .or_else(|| {
-                    resolved_runtime_window_selection(
-                        &snapshot,
-                        &runtime_window.window_id,
-                        &previous,
-                        selection_tab_id,
-                        presentation_revision,
-                    )
-                });
-            if window.selected_tab_id != selection {
-                window.select(selection, topology_revision);
+                .filter(|tab_id| window.contains_tab(tab_id));
+            if pending_restore.is_some() && window.selected_tab_id != restore_selection {
+                window.select(restore_selection, topology_revision);
             }
         }
 
         let presentation_after = self.presentation.snapshot_states().map_err(|message| {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })?;
-        for relocation in &presentation_relocations {
-            let snapshot_tab = snapshot
-                .tabs
-                .iter()
-                .find(|tab| tab.id == relocation.tab_id)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "SYSTEM_RUNTIME_TOPOLOGY_INVALID",
-                        format!(
-                            "Runtime tab {} disappeared while moving native tab chrome.",
-                            relocation.tab_id
-                        ),
-                    )
-                })?;
-            let source_active_tab_id = presentation_after
-                .get(&relocation.source_window_id)
-                .and_then(|window| window.selected_tab_id.as_deref());
-            let target_active_tab_id = presentation_after
-                .get(&relocation.target_window_id)
-                .and_then(|window| window.selected_tab_id.as_deref());
-            let target_rollback_active_tab_id = presentation_before
-                .get(&relocation.target_window_id)
-                .and_then(|window| window.selected_tab_id.as_deref());
-            if snapshot_tab.hidden {
-                self.try_remove_native_tab_reservation(
-                    &relocation.source_window_id,
-                    &relocation.tab_id,
-                    source_active_tab_id,
-                )?;
-                self.try_remove_native_tab_reservation(
-                    &relocation.target_window_id,
-                    &relocation.tab_id,
-                    target_active_tab_id,
-                )?;
-                continue;
-            }
-            #[cfg(any(windows, target_os = "macos"))]
-            let workspace_template = self
-                .state()?
-                .tabs
-                .get(&relocation.tab_id)
-                .and_then(|tab| tab.workspace_template.clone());
-            #[cfg(not(any(windows, target_os = "macos")))]
-            let workspace_template: Option<String> = None;
-            self.relocate_native_tab_reservation(
-                &relocation.source_window_id,
-                &relocation.target_window_id,
-                &relocation.tab_id,
-                &snapshot_tab.name,
-                &snapshot_tab.tab_type,
-                workspace_template.as_deref(),
-                source_active_tab_id,
-                target_rollback_active_tab_id,
-                topology_revision,
-            )?;
-            self.apply_native_active_style(
-                &relocation.target_window_id,
-                target_active_tab_id,
-                topology_revision,
-                "topology-reconciled",
-            );
-        }
         for snapshot_tab in snapshot.tabs.iter().filter(|tab| {
             live_windows.contains_key(&tab.id) && !optimistic_closed_tabs.contains(&tab.id)
         }) {
@@ -628,16 +470,6 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let moved_away_labels = presentation_relocations.iter().fold(
-            HashMap::<String, HashSet<String>>::new(),
-            |mut labels, relocation| {
-                labels
-                    .entry(relocation.source_window_id.clone())
-                    .or_default()
-                    .extend(relocation.surface_labels.iter().cloned());
-                labels
-            },
-        );
         let transition_window_ids = presentation_before
             .keys()
             .chain(presentation_after.keys())
@@ -652,10 +484,7 @@ impl SystemRuntimeExecutor {
                 .get(&window_id)
                 .cloned()
                 .unwrap_or_default();
-            let mut previous_surfaces = previous.surfaces(previous.selected_tab_id.as_deref());
-            if let Some(moved_labels) = moved_away_labels.get(&window_id) {
-                previous_surfaces.retain(|surface| !moved_labels.contains(surface.label()));
-            }
+            let previous_surfaces = previous.surfaces(previous.selected_tab_id.as_deref());
             let next_surfaces = next.surfaces(next.selected_tab_id.as_deref());
             if !native_presentation_changed(
                 &previous.selected_tab_id,

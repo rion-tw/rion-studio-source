@@ -1,37 +1,4 @@
 impl SystemRuntimeExecutor {
-    fn record_topology_reconciled(
-        &self,
-        tab_id: &str,
-        source_window_id: &str,
-        target_window_id: &str,
-        revision: u64,
-    ) {
-        let core = Arc::clone(&self.core);
-        let context = json!({
-            "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
-            "revision": revision,
-            "sourceWindowId": source_window_id,
-            "tabId": tab_id,
-            "targetWindowId": target_window_id,
-        });
-        tauri::async_runtime::spawn(async move {
-            let _ = core
-                .invoke_async(CoreCommand::LogsCapture {
-                    entries: vec![LogCaptureRecord {
-                        level: LogLevel::Debug,
-                        source: LogSource::Browser,
-                        event: "tab.topology-reconciled".to_owned(),
-                        message:
-                            "Runtime tab presentation ownership moved to the authoritative window."
-                                .to_owned(),
-                        context_raw_json: serde_json::to_string(&context).ok(),
-                        error: None,
-                    }],
-                })
-                .await;
-        });
-    }
-
     fn apply_native_active_style(
         &self,
         window_id: &str,

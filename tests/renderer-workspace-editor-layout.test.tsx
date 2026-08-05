@@ -170,8 +170,8 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
     expect(workspaceHelps[0].textContent).toContain("A role can appear only once");
     expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
-    expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
-    expect(workspaceHelps[1].textContent).toContain("Assign at least one role before launching");
+    expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
+    expect(workspaceHelps[1].textContent).toContain("Assign at least one role before opening");
     expect(workspaceHelps[1].textContent).toContain("most recently focused game window");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(workspaceHelps[2].textContent).toContain("Each role viewport adapts independently");
@@ -405,7 +405,7 @@ describe("workspace editor role picker layout", () => {
     const workspaceHelps = container.querySelectorAll("[data-workspace-help]");
     expect(workspaceHelps).toHaveLength(3);
     expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
-    expect(workspaceHelps[1].textContent).toContain("Launching the workspace");
+    expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();

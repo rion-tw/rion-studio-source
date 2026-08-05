@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   Loader2,
   MonitorUp,
+  PanelTopOpen,
   Play,
   Square,
   RotateCcw,
@@ -500,7 +501,11 @@ function RoleLaunchRow({
         onClick={handleAction}
         disabled={item.action.disabled}
       >
-        {item.action.isBusy ? <Loader2 aria-hidden="true" className="spin" size={14} /> : <Play aria-hidden="true" size={14} />}
+        {item.action.isBusy ? (
+          <Loader2 aria-hidden="true" className="spin" size={14} />
+        ) : (
+          <PanelTopOpen aria-hidden="true" size={14} />
+        )}
         {actionLabel}
       </Button>
     </div>
@@ -549,7 +554,7 @@ function WorkspaceLaunchRow({
         {item.action.isBusy ? (
           <Loader2 aria-hidden="true" className="spin" size={14} />
         ) : (
-          <Play aria-hidden="true" size={14} />
+          <PanelTopOpen aria-hidden="true" size={14} />
         )}
         {actionLabel}
       </Button>
@@ -620,7 +625,9 @@ function getWorkspaceStatusLabel(item: DashboardWorkspaceItem, t: Translator): s
     return t("dashboard.status.running");
   }
 
-  return item.assignedCount > 0 ? t("dashboard.status.ready") : t("dashboard.status.notConfigured");
+  return item.assignedCount > 0
+    ? t("dashboard.workspace.ready")
+    : t("dashboard.status.notConfigured");
 }
 
 function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
@@ -661,7 +668,7 @@ function formatLaunchUrl(launchUrl: string): string {
 
 function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
   if (item.status?.state === "launching") {
-    return t("dashboard.status.launching");
+    return t("dashboard.role.opening");
   }
 
   if (item.status?.state === "running") {
@@ -675,7 +682,7 @@ function getRoleStatusLabel(item: DashboardRoleItem, t: Translator): string {
     return t("dashboard.status.stopping");
   }
 
-  return t("dashboard.status.ready");
+  return t("dashboard.role.ready");
 }
 
 function getRoleBadgeVariant(item: DashboardRoleItem): "destructive" | "muted" | "success" | "warning" {

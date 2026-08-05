@@ -52,9 +52,11 @@ use super::*;
     }
 
     fn root_item<'a>(entries: &'a [MenuEntry], id: &str) -> Option<&'a MenuEntry> {
-        entries
-            .iter()
-            .find(|entry| matches!(entry, MenuEntry::Item { id: entry_id, .. } if entry_id == id))
+        entries.iter().find(|entry| match entry {
+            MenuEntry::Item { id: entry_id, .. }
+            | MenuEntry::CheckItem { id: entry_id, .. } => entry_id == id,
+            _ => false,
+        })
     }
 
     fn submenu<'a>(entries: &'a [MenuEntry], text: &str) -> &'a [MenuEntry] {
@@ -73,6 +75,14 @@ use super::*;
     fn assert_item(entry: &MenuEntry, expected_text: &str, expected_enabled: bool) {
         let MenuEntry::Item { text, enabled, .. } = entry else {
             panic!("expected menu item, got {entry:?}");
+        };
+        assert_eq!(text, expected_text);
+        assert_eq!(*enabled, expected_enabled);
+    }
+
+    fn assert_check_item(entry: &MenuEntry, expected_text: &str, expected_enabled: bool) {
+        let MenuEntry::CheckItem { text, enabled, .. } = entry else {
+            panic!("expected checked menu item, got {entry:?}");
         };
         assert_eq!(text, expected_text);
         assert_eq!(*enabled, expected_enabled);
@@ -153,9 +163,9 @@ use super::*;
                     "window action must not remain at the menu root: {id}"
                 );
             }
-            assert_item(
+            assert_check_item(
                 root_item(windows, "show-display:active-window").unwrap(),
-                "✓ Running Saved Window",
+                "Running Saved Window",
                 true,
             );
             assert_item(
@@ -163,9 +173,9 @@ use super::*;
                 "Dormant Saved Window",
                 true,
             );
-            assert_item(
+            assert_check_item(
                 root_item(windows, "show-display:unsaved-window").unwrap(),
-                "✓ Unsaved Role · Temporary Window",
+                "Unsaved Role · Temporary Window",
                 true,
             );
             assert!(root_item(windows, "show-games").is_none());
@@ -181,9 +191,9 @@ use super::*;
         let roles = submenu(&entries, "Roles");
         let workspaces = submenu(&entries, "Workspaces");
 
-        assert_item(
+        assert_check_item(
             root_item(roles, "launch-role:role-running").unwrap(),
-            "✓ Running Role",
+            "Running Role",
             true,
         );
         assert_item(
@@ -191,9 +201,9 @@ use super::*;
             "… Busy Role",
             false,
         );
-        assert_item(
+        assert_check_item(
             root_item(workspaces, "launch-workspace:workspace-running").unwrap(),
-            "✓ Running Workspace",
+            "Running Workspace",
             true,
         );
         assert_item(
@@ -214,27 +224,45 @@ use super::*;
     }
 
     #[test]
-    fn legal_gate_disables_launch_and_restore_actions_but_keeps_running_saved_windows_visible() {
-        let entries = menu_spec(&populated_model("en", false), QuickMenuPlatform::Macos);
+    fn live_presence_keeps_a_checked_workspace_focusable_when_core_status_lags_at_stopping() {
+        let mut model = populated_model("en", true);
+        model.workspace_statuses =
+            serde_json::json!([{"workspaceId":"workspace-running","state":"stopping"}]);
 
-        assert!(root_item(&entries, "review-terms").is_some());
-        assert_item(
-            root_item(submenu(&entries, "Roles"), "launch-role:role-running").unwrap(),
-            "✓ Running Role",
-            false,
-        );
-        assert_item(
+        let entries = menu_spec(&model, QuickMenuPlatform::Macos);
+        assert_check_item(
             root_item(
                 submenu(&entries, "Workspaces"),
                 "launch-workspace:workspace-running",
             )
             .unwrap(),
-            "✓ Running Workspace",
+            "Running Workspace",
+            true,
+        );
+    }
+
+    #[test]
+    fn legal_gate_disables_launch_and_restore_actions_but_keeps_running_saved_windows_visible() {
+        let entries = menu_spec(&populated_model("en", false), QuickMenuPlatform::Macos);
+
+        assert!(root_item(&entries, "review-terms").is_some());
+        assert_check_item(
+            root_item(submenu(&entries, "Roles"), "launch-role:role-running").unwrap(),
+            "Running Role",
+            false,
+        );
+        assert_check_item(
+            root_item(
+                submenu(&entries, "Workspaces"),
+                "launch-workspace:workspace-running",
+            )
+            .unwrap(),
+            "Running Workspace",
             false,
         );
         assert!(matches!(
             root_item(submenu(&entries, "Windows"), "show-display:active-window"),
-            Some(MenuEntry::Item { enabled: true, .. })
+            Some(MenuEntry::CheckItem { enabled: true, .. })
         ));
         assert!(matches!(
             root_item(submenu(&entries, "Windows"), "restore-window:saved-window"),

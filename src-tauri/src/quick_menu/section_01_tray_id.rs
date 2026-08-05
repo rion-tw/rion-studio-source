@@ -9,7 +9,7 @@ use rion_core::{AppCore, CoreCommand};
 use tauri::{AppHandle, Emitter, Manager};
 #[cfg(target_os = "windows")]
 use tauri::{
-    menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu},
+    menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
 };
 
@@ -94,6 +94,27 @@ struct MenuModel {
 }
 
 impl RefreshCoordinator {
+    fn request_forced(
+        &self,
+        app: AppHandle,
+        core: Arc<AppCore>,
+        runtime: Arc<crate::SystemRuntimeExecutor>,
+    ) -> Result<(), String> {
+        let language = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "quick-menu refresh coordinator lock poisoned".to_owned())?;
+            // Native check items toggle themselves before dispatching their action. The checked
+            // state describes live topology rather than a toggle preference, so a focus-only
+            // action must rebuild the same authoritative model even when its fingerprint did not
+            // otherwise change.
+            state.last_fingerprint = None;
+            state.language.clone()
+        };
+        self.request(app, core, runtime, language)
+    }
+
     /// Requests a coalesced refresh without ever reading Core state on AppKit's main thread.
     ///
     /// Core and SQLite snapshots are collected on one bounded worker. Only the already-built
@@ -305,6 +326,11 @@ pub(crate) enum MenuEntry {
         text: String,
         enabled: bool,
     },
+    CheckItem {
+        id: String,
+        text: String,
+        enabled: bool,
+    },
     Submenu {
         text: String,
         items: Vec<MenuEntry>,
@@ -344,18 +370,17 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
             if let (Some(id), Some(name)) = (role["id"].as_str(), role["name"].as_str()) {
                 let state = role_state(id);
                 let busy = matches!(state, Some("launching" | "stopping"));
-                let marker = if state == Some("running") {
-                    "✓ "
-                } else if busy {
-                    "… "
+                let running = state == Some("running");
+                let id = format!("{ROLE_PREFIX}{id}");
+                if running {
+                    role_items.push(check_item(id, name, legal_accepted));
                 } else {
-                    ""
-                };
-                role_items.push(item(
-                    format!("{ROLE_PREFIX}{id}"),
-                    format!("{marker}{name}"),
-                    legal_accepted && !busy,
-                ));
+                    role_items.push(item(
+                        id,
+                        format!("{}{name}", if busy { "… " } else { "" }),
+                        legal_accepted && !busy,
+                    ));
+                }
             }
         }
     }
@@ -386,19 +411,18 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
                 // workspace status may describe role lifecycle, but it must not
                 // change the open action for a visible tab.
                 let running = open_workspace_ids.contains(id);
-                let marker = if running {
-                    "✓ "
-                } else if busy {
-                    "… "
+                let id = format!("{WORKSPACE_PREFIX}{id}");
+                let enabled = legal_accepted
+                    && (running || (!busy && !assigned_role_ids.is_empty() && !missing_role));
+                if running {
+                    workspace_items.push(check_item(id, name, enabled));
                 } else {
-                    ""
-                };
-                workspace_items.push(item(
-                    format!("{WORKSPACE_PREFIX}{id}"),
-                    format!("{marker}{name}"),
-                    legal_accepted
-                        && (running || (!busy && !assigned_role_ids.is_empty() && !missing_role)),
-                ));
+                    workspace_items.push(item(
+                        id,
+                        format!("{}{name}", if busy { "… " } else { "" }),
+                        enabled,
+                    ));
+                }
             }
         }
     }
@@ -413,23 +437,24 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
             continue;
         };
         let running = running_window_ids.contains(id);
-        window_items.push(item(
-            format!(
-                "{}{id}",
-                if running {
-                    SHOW_DISPLAY_PREFIX
-                } else {
-                    RESTORE_WINDOW_PREFIX
-                }
-            ),
-            format!("{}{name}", if running { "✓ " } else { "" }),
-            running || legal_accepted,
-        ));
+        if running {
+            window_items.push(check_item(
+                format!("{SHOW_DISPLAY_PREFIX}{id}"),
+                name,
+                true,
+            ));
+        } else {
+            window_items.push(item(
+                format!("{RESTORE_WINDOW_PREFIX}{id}"),
+                name,
+                legal_accepted,
+            ));
+        }
     }
     for (window_id, title) in &model.transient_windows {
-        window_items.push(item(
+        window_items.push(check_item(
             format!("{SHOW_DISPLAY_PREFIX}{window_id}"),
-            format!("✓ {title} · {}", labels.temporary_window),
+            format!("{title} · {}", labels.temporary_window),
             true,
         ));
     }
@@ -476,6 +501,14 @@ fn item(id: impl Into<String>, text: impl Into<String>, enabled: bool) -> MenuEn
     }
 }
 
+fn check_item(id: impl Into<String>, text: impl Into<String>, enabled: bool) -> MenuEntry {
+    MenuEntry::CheckItem {
+        id: id.into(),
+        text: text.into(),
+        enabled,
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn windows_menu(app: &AppHandle, entries: &[MenuEntry]) -> Result<Menu<tauri::Wry>, String> {
     let menu = Menu::new(app).map_err(|error| error.to_string())?;
@@ -495,6 +528,14 @@ fn append_windows_root_entry(
         MenuEntry::Item { id, text, enabled } => {
             let item = MenuItemBuilder::with_id(id, text)
                 .enabled(*enabled)
+                .build(app)
+                .map_err(|error| error.to_string())?;
+            menu.append(&item).map_err(|error| error.to_string())
+        }
+        MenuEntry::CheckItem { id, text, enabled } => {
+            let item = CheckMenuItemBuilder::with_id(id, text)
+                .enabled(*enabled)
+                .checked(true)
                 .build(app)
                 .map_err(|error| error.to_string())?;
             menu.append(&item).map_err(|error| error.to_string())
@@ -523,6 +564,14 @@ fn windows_submenu(
             MenuEntry::Item { id, text, enabled } => {
                 let item = MenuItemBuilder::with_id(id, text)
                     .enabled(*enabled)
+                    .build(app)
+                    .map_err(|error| error.to_string())?;
+                menu.append(&item).map_err(|error| error.to_string())?;
+            }
+            MenuEntry::CheckItem { id, text, enabled } => {
+                let item = CheckMenuItemBuilder::with_id(id, text)
+                    .enabled(*enabled)
+                    .checked(true)
                     .build(app)
                     .map_err(|error| error.to_string())?;
                 menu.append(&item).map_err(|error| error.to_string())?;

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use muda::{ContextMenu, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{CheckMenuItem, ContextMenu, MenuItem, PredefinedMenuItem, Submenu};
 
 use crate::quick_menu::MenuEntry;
 
@@ -47,6 +47,10 @@ fn append_entry(menu: &Submenu, entry: &MenuEntry) -> Result<(), String> {
     match entry {
         MenuEntry::Item { id, text, enabled } => {
             let item = MenuItem::with_id(id, text, *enabled, None);
+            menu.append(&item).map_err(|error| error.to_string())
+        }
+        MenuEntry::CheckItem { id, text, enabled } => {
+            let item = CheckMenuItem::with_id(id, text, *enabled, true, None);
             menu.append(&item).map_err(|error| error.to_string())
         }
         MenuEntry::Submenu { text, items } => {

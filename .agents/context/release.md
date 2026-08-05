@@ -16,3 +16,9 @@ non-identical assets.
 
 Release workflows publish the Tauri updater manifest and verify current Tauri
 upgrade/data preservation. Historical Electron updater manifests are retired.
+
+After a public release becomes latest, its immutable source tag is also the
+canonical source for the public repository's README files, localized product
+documentation, legal documents, image assets, and core support documents. The
+workflow mirrors those managed paths to public `main` in one verified commit;
+older resumed releases never replace documentation from a newer latest release.

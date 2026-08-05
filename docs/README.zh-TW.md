@@ -59,7 +59,9 @@ Rion Studio 是獨立的一般用途啟動器及人工監督輔助工具，與�
 - [公平使用規範](legal/fair-use.zh-TW.md)
 - [第三方軟體聲明](legal/THIRD_PARTY_NOTICES.md)
 
-## 貢獻
+## 支援與意見回饋
 
-開發者筆記、本機指令、runtime data 細節與 packaging notes 位於
-[`../.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md)。
+[公開發佈倉庫](https://github.com/rion-tw/rion-studio)是 Rion Studio 的下載與產品支援入口。
+產品錯誤回報與功能建議請使用
+[GitHub Issues](https://github.com/rion-tw/rion-studio/issues)。我們不接受原始碼 Pull Request；
+請參閱 [`../SUPPORT.md`](../SUPPORT.md) 與 [`../SECURITY.md`](../SECURITY.md) 選擇正確的聯絡管道。

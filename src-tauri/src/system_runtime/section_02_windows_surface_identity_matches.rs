@@ -443,9 +443,42 @@ struct CloseCoordinator {
 }
 
 #[derive(Default)]
+struct LiveWindowTabStore {
+    commit_gate: Mutex<()>,
+    next_revision: AtomicU64,
+    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowTabState>>>>,
+}
+
+#[derive(Clone)]
+struct LiveWindowTopologyCommit {
+    active_tab_id: Option<String>,
+    hidden_tab_ids: HashSet<String>,
+    tabs: Vec<TabPresentation>,
+    ui_sequence: u64,
+    window_generation: u64,
+    window_id: String,
+}
+
+struct LiveTopologyCommitInput {
+    primary_window_id: String,
+    windows: Vec<LiveWindowTopologyCommit>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveTopologyCommitStatus {
+    Applied,
+    Superseded,
+}
+
+struct LiveTopologyCommitReceipt {
+    revision: u64,
+    status: LiveTopologyCommitStatus,
+    window_ids: Vec<String>,
+}
+
+#[derive(Default)]
 struct PresentationRegistry {
     actors: Mutex<HashMap<String, Arc<NativeWindowActor>>>,
-    next_revision: AtomicU64,
     next_surface_owner_revision: AtomicU64,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     #[cfg(windows)]
@@ -455,7 +488,7 @@ struct PresentationRegistry {
         Mutex<HashMap<String, RuntimeTabActivationAcknowledgementRecord>>,
     #[cfg(windows)]
     tab_chrome_changed: Condvar,
-    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowTabState>>>>,
+    live: LiveWindowTabStore,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

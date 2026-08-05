@@ -1,12 +1,13 @@
 impl PresentationRegistry {
     fn next_revision(&self) -> u64 {
-        self.next_revision
+        self.live
+            .next_revision
             .fetch_add(1, Ordering::AcqRel)
             .saturating_add(1)
     }
 
     fn current_revision(&self) -> u64 {
-        self.next_revision.load(Ordering::Acquire)
+        self.live.next_revision.load(Ordering::Acquire)
     }
 
     fn assign_surface_owner(
@@ -56,6 +57,7 @@ impl PresentationRegistry {
 
     fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<LiveWindowTabState>>, String> {
         let mut windows = self
+            .live
             .windows
             .lock()
             .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?;
@@ -64,7 +66,10 @@ impl PresentationRegistry {
                 .entry(window_id.to_owned())
                 .or_insert_with(|| {
                     Arc::new(Mutex::new(LiveWindowTabState {
-                        window_id: window_id.to_owned(),
+                        live: LiveWindowRecord {
+                            window_id: window_id.to_owned(),
+                            ..LiveWindowRecord::default()
+                        },
                         ..LiveWindowTabState::default()
                     }))
                 }),
@@ -82,14 +87,15 @@ impl PresentationRegistry {
     }
 
     fn existing(&self, window_id: &str) -> Option<Arc<Mutex<LiveWindowTabState>>> {
-        self.windows
+        self.live
+            .windows
             .lock()
             .ok()
             .and_then(|windows| windows.get(window_id).cloned())
     }
 
     fn resolve_tab_alias(&self, tab_id: &str) -> Option<String> {
-        self.windows.lock().ok().and_then(|windows| {
+        self.live.windows.lock().ok().and_then(|windows| {
             windows.values().find_map(|window| {
                 window
                     .lock()
@@ -100,7 +106,8 @@ impl PresentationRegistry {
     }
 
     fn selected_tabs(&self) -> HashMap<String, String> {
-        self.windows
+        self.live
+            .windows
             .lock()
             .ok()
             .map(|windows| {
@@ -135,6 +142,7 @@ impl PresentationRegistry {
 
     fn tab_window(&self, tab_id: &str) -> Result<Option<String>, String> {
         let windows = self
+            .live
             .windows
             .lock()
             .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
@@ -161,6 +169,7 @@ impl PresentationRegistry {
 
     fn snapshot_states(&self) -> Result<HashMap<String, LiveWindowTabState>, String> {
         let windows = self
+            .live
             .windows
             .lock()
             .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
@@ -179,7 +188,7 @@ impl PresentationRegistry {
     }
 
     fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
-        self.windows.lock().ok().and_then(|windows| {
+        self.live.windows.lock().ok().and_then(|windows| {
             windows.values().find_map(|window| {
                 window.lock().ok().and_then(|state| {
                     state
@@ -196,7 +205,7 @@ impl PresentationRegistry {
         let mut windows = self.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
         windows.sort_by(|left, right| left.0.cmp(&right.0));
         windows.into_iter().find_map(|(_, window)| {
-            window.tabs.into_iter().find_map(|tab| {
+            window.live.tabs.into_iter().find_map(|tab| {
                 let matches = if tab_type == "workspace" {
                     tab.tab_type == "workspace" && tab.source_id == source_id
                 } else {
@@ -215,6 +224,7 @@ impl PresentationRegistry {
             .into_iter()
             .flat_map(|(_, window)| {
                 window
+                    .live
                     .tabs
                     .into_iter()
                     .map(|tab| RuntimeLauncherPresenceTab {
@@ -303,7 +313,11 @@ impl PresentationRegistry {
             .then(|| successor_tab_after_close(&source.tab_ids(), tab_id, |_| true))
             .flatten();
         let tab = source.tabs.remove(index);
-        let bindings = source.surface_bindings.remove(tab_id).unwrap_or_default();
+        let bindings = source
+            .projection
+            .surface_bindings
+            .remove(tab_id)
+            .unwrap_or_default();
         let was_hidden = source.hidden_tab_ids.remove(tab_id);
         source
             .aliases
@@ -319,6 +333,7 @@ impl PresentationRegistry {
         target.revision = revision;
         if !bindings.is_empty() {
             target
+                .projection
                 .surface_bindings
                 .insert(tab_id.to_owned(), bindings.clone());
         }
@@ -354,6 +369,7 @@ impl PresentationRegistry {
             owners.remove(surface_label);
         }
         let windows = self
+            .live
             .windows
             .lock()
             .ok()
@@ -369,7 +385,7 @@ impl PresentationRegistry {
     }
 
     fn remove(&self, window_id: &str) {
-        if let Ok(mut windows) = self.windows.lock() {
+        if let Ok(mut windows) = self.live.windows.lock() {
             windows.remove(window_id);
         }
         if let Ok(mut actors) = self.actors.lock()

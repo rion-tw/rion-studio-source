@@ -578,11 +578,14 @@ mod window_state_persistence_tests {
         let coordinator = WindowStatePersistCoordinator::default();
         coordinator.seed(&[saved_window()]);
         let live = LiveWindowTabState {
-            revision: 19,
-            selected_tab_id: Some("tab-b".to_owned()),
-            tabs: vec![live_tab("tab-b", "role-b"), live_tab("tab-a", "role-a")],
-            window_generation: 4,
-            window_id: "window-a".to_owned(),
+            live: LiveWindowRecord {
+                revision: 19,
+                selected_tab_id: Some("tab-b".to_owned()),
+                tabs: vec![live_tab("tab-b", "role-b"), live_tab("tab-a", "role-a")],
+                window_generation: 4,
+                window_id: "window-a".to_owned(),
+                ..LiveWindowRecord::default()
+            },
             ..LiveWindowTabState::default()
         };
 

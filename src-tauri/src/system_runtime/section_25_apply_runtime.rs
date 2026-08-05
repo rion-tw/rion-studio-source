@@ -425,7 +425,7 @@ impl SystemRuntimeExecutor {
                 "topology-reconciled",
                 Instant::now(),
                 window,
-                previous.selected_tab_id,
+                previous.live.selected_tab_id,
                 previous_surfaces,
                 next_surfaces.clone(),
                 next_surfaces.first().cloned(),
@@ -477,7 +477,7 @@ impl SystemRuntimeExecutor {
                         presentation: host.target.presentation.clone(),
                         reveal: reveal_window_ids.contains(window_id),
                         retain_visibility: presentation_window
-                            .is_some_and(|presentation| presentation.host_visibility),
+                            .is_some_and(|presentation| presentation.projection.host_visibility),
                         title,
                         window: host.window.clone(),
                         window_id: window_id.clone(),

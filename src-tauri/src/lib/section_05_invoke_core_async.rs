@@ -560,6 +560,14 @@ fn browser_runtime_snapshot(state: &CoreState) -> Result<BrowserRuntimeSnapshot,
             serde_json::from_value(snapshot)
                 .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
         })
+        .and_then(|snapshot| {
+            state.runtime.live_runtime_snapshot(snapshot).ok_or_else(|| {
+                shell_error(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The live tab topology could not be read; the stale Core snapshot was ignored.",
+                )
+            })
+        })
 }
 
 fn match_runtime_restore_tab(

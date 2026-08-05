@@ -30,65 +30,74 @@ impl AppCore {
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         let _window_sequence = self.embedded_window_sequence.acquire()?;
         let _sequence = self.embedded_runtime_sequence.acquire()?;
-        let (commands, reveal_window_ids, focus_window_ids, focus_tab_id) =
-            match request.mutation_kind.as_str() {
-                "hide" => (
-                    vec![BrowserRuntimeCommand::HideTab {
-                        tab_id: request.tab_id.clone(),
-                    }],
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                ),
-                "reorder" => (
-                    vec![BrowserRuntimeCommand::ReorderTab {
+        let commands = match request.mutation_kind.as_str() {
+            "hide" => vec![BrowserRuntimeCommand::HideTab {
+                tab_id: request.tab_id.clone(),
+            }],
+            "reorder" => vec![BrowserRuntimeCommand::ReorderTab {
+                tab_id: request.tab_id.clone(),
+                before_tab_id,
+            }],
+            "move" | "moveToNewWindow" => {
+                let target = target.as_ref().ok_or_else(|| CoreError::Domain {
+                    code: "TAB_MUTATION_TARGET_REQUIRED",
+                    message: "A move mutation requires a target Game Window.".to_owned(),
+                })?;
+                let mut commands = vec![BrowserRuntimeCommand::MoveTab {
+                    tab_id: request.tab_id.clone(),
+                    window_id: target.window_id.clone(),
+                }];
+                if before_tab_id.is_some() {
+                    commands.push(BrowserRuntimeCommand::ReorderTab {
                         tab_id: request.tab_id.clone(),
                         before_tab_id,
-                    }],
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                ),
-                "move" | "moveToNewWindow" => {
-                    let target = target.as_ref().ok_or_else(|| CoreError::Domain {
-                        code: "TAB_MUTATION_TARGET_REQUIRED",
-                        message: "A move mutation requires a target Game Window.".to_owned(),
-                    })?;
-                    let mut commands = vec![BrowserRuntimeCommand::MoveTab {
-                        tab_id: request.tab_id.clone(),
-                        window_id: target.window_id.clone(),
-                    }];
-                    if before_tab_id.is_some() {
-                        commands.push(BrowserRuntimeCommand::ReorderTab {
-                            tab_id: request.tab_id.clone(),
-                            before_tab_id,
-                        });
-                    }
-                    (
-                        commands,
-                        vec![target.window_id.clone()],
-                        vec![target.window_id.clone()],
-                        Some(request.tab_id.clone()),
-                    )
-                }
-                _ => {
-                    return Err(CoreError::Domain {
-                        code: "TAB_MUTATION_KIND_INVALID",
-                        message: "The tab mutation kind is unsupported by this transaction."
-                            .to_owned(),
                     });
                 }
-            };
-        self.apply_embedded_runtime_command_inner(EmbeddedRuntimeTransition {
-            commands,
-            target,
-            reveal_window_ids,
-            focus_window_ids,
-            focus_tab_id,
-            focus_active_window_id: None,
-            parent_operation_id: Some(request.operation_id),
-            persist_runtime_topology: false,
-        })
+                commands
+            }
+            _ => {
+                return Err(CoreError::Domain {
+                    code: "TAB_MUTATION_KIND_INVALID",
+                    message: "The tab mutation kind is unsupported by this transaction.".to_owned(),
+                });
+            }
+        };
+        let (mut next_runtime, mut next) = {
+            let runtime = self
+                .browser_runtime
+                .lock()
+                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+            let mut next_runtime = runtime.clone();
+            let mut next = next_runtime.snapshot();
+            for command in commands {
+                next = next_runtime.invoke(command)?.snapshot;
+            }
+            (next_runtime, next)
+        };
+        if request.mutation_kind.starts_with("move")
+            && next
+                .windows
+                .iter()
+                .find(|window| window.window_id == request.source_window_id)
+                .is_some_and(|window| window.tab_ids.is_empty())
+        {
+            next = next_runtime
+                .invoke(BrowserRuntimeCommand::RemoveWindow {
+                    window_id: request.source_window_id,
+                })?
+                .snapshot;
+        }
+        let mut runtime = self
+            .browser_runtime
+            .lock()
+            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
+        *runtime = next_runtime;
+        drop(runtime);
+        // The live adapter has already committed AppKit/HTML and native surface
+        // intent. This command is a one-way metadata sink and never emits an
+        // ApplyRuntime effect that could compensate the user's topology.
+        self.emit_browser_statuses();
+        Ok(next)
     }
 
     fn serialized_embedded_tab_mutation(

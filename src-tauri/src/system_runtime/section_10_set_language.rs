@@ -119,6 +119,17 @@ impl SystemRuntimeExecutor {
         Ok(presence)
     }
 
+    pub(crate) fn live_window_ids(&self) -> Result<Vec<String>, String> {
+        Ok(self
+            .presentation
+            .snapshot_states()?
+            .into_iter()
+            .filter_map(|(window_id, window)| {
+                (!window.all_tab_ids().is_empty()).then_some(window_id)
+            })
+            .collect())
+    }
+
     fn publish_launcher_presence(&self) {
         let Ok(presence) = self.launcher_presence_snapshot() else {
             return;

@@ -11,13 +11,6 @@ struct RuntimeTabProjectionUpdate {
     tab_id: String,
 }
 
-struct RuntimePresentationRelocation {
-    source_window_id: String,
-    surface_labels: HashSet<String>,
-    tab_id: String,
-    target_window_id: String,
-}
-
 struct RuntimeHostProjectionUpdate {
     active_tab_id: Option<String>,
     focus_window: bool,

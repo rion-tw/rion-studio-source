@@ -192,6 +192,18 @@ impl SystemRuntimeExecutor {
             .resolve_object(self.projection_payload(snapshot))
     }
 
+    pub(crate) fn live_projection(&self, snapshot: BrowserRuntimeSnapshot) -> Option<Value> {
+        self.live_runtime_snapshot(snapshot)
+            .map(|snapshot| self.projection(&snapshot))
+    }
+
+    pub(crate) fn live_runtime_snapshot(
+        &self,
+        snapshot: BrowserRuntimeSnapshot,
+    ) -> Option<BrowserRuntimeSnapshot> {
+        self.snapshot_with_live_tab_topology(snapshot)
+    }
+
     pub fn begin_auto_restore(&self) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
@@ -235,7 +247,9 @@ impl SystemRuntimeExecutor {
         let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
             return;
         };
-        let snapshot = self.snapshot_with_native_tab_locations(snapshot);
+        let Some(snapshot) = self.snapshot_with_live_tab_topology(snapshot) else {
+            return;
+        };
         // Renderer projection and native tab metadata may lag presentation, but neither path
         // owns topology or selection. Insert/replace/remove/select are committed directly by
         // LiveWindowTabState and therefore never wait for Core or a game page.
@@ -287,15 +301,10 @@ impl SystemRuntimeExecutor {
     fn resolve_live_presentation_tab_owner(
         &self,
         tab_id: &str,
-        runtime_window_id: &str,
     ) -> Result<String, String> {
-        let mut owner = self.presentation.tab_window(tab_id)?;
-        if owner.is_none()
-            && self.repair_missing_tab_presentation(tab_id, runtime_window_id)?
-        {
-            owner = self.presentation.tab_window(tab_id)?;
-        }
-        owner.ok_or_else(|| "Runtime tab is no longer available for activation.".to_owned())
+        self.presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer available for activation.".to_owned())
     }
 
     fn request_provisional_tab_activation(
@@ -539,8 +548,7 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
             tab.window_id.clone()
         };
-        let window_id =
-            self.resolve_live_presentation_tab_owner(tab_id, &runtime_window_id)?;
+        let window_id = self.resolve_live_presentation_tab_owner(tab_id)?;
         let window = self
             .window_for_id(&window_id)
             .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
@@ -559,6 +567,8 @@ impl SystemRuntimeExecutor {
             active_webview,
             ordered_tab_ids,
             revision,
+            was_hidden,
+            tab_presentation,
         ) = {
             let presentation = self.presentation.coordinator(&window_id)?;
             let revision = self.presentation.next_revision();
@@ -572,6 +582,13 @@ impl SystemRuntimeExecutor {
             let previous_surfaces = window_state.surfaces(previous_tab_id.as_deref());
             let next_surfaces = window_state.surfaces(Some(tab_id));
             let active_webview = next_surfaces.first().cloned();
+            let was_hidden = window_state.tab_is_hidden(tab_id);
+            let tab_presentation = window_state
+                .tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .cloned()
+                .ok_or_else(|| "Runtime tab presentation metadata was not found.".to_owned())?;
             window_state.select(Some(tab_id.to_owned()), revision);
             (
                 previous_tab_id,
@@ -580,8 +597,35 @@ impl SystemRuntimeExecutor {
                 active_webview,
                 window_state.tab_ids(),
                 revision,
+                was_hidden,
+                tab_presentation,
             )
         };
+        if was_hidden {
+            #[cfg(any(windows, target_os = "macos"))]
+            let workspace_template = tab_presentation.workspace_template.as_deref();
+            #[cfg(not(any(windows, target_os = "macos")))]
+            let workspace_template: Option<&str> = None;
+            if let Err(error) = self.try_ensure_native_tab(
+                &window_id,
+                tab_id,
+                &tab_presentation.title,
+                &tab_presentation.tab_type,
+                workspace_template,
+            ) {
+                eprintln!(
+                    "Unhidden native tab chrome remains pending without live rollback: tab={tab_id} window={window_id} error={}",
+                    error.message
+                );
+            }
+            if let Err(error) = self.reorder_native_tabs(&window_id, &ordered_tab_ids) {
+                eprintln!(
+                    "Unhidden native tab order remains pending without live rollback: tab={tab_id} window={window_id} error={}",
+                    error.message
+                );
+            }
+            self.schedule_live_window_state_persistence(&window_id);
+        }
         let activation = transactional
             .then(|| self.accept_tab_activation(&window_id, tab_id, revision, trigger, true))
             .transpose()?;

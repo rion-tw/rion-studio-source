@@ -4,15 +4,10 @@ fn open_tab_from_model(
     tab_id: &str,
     language: &str,
     muted: bool,
-    snapshot: &BrowserRuntimeSnapshot,
+    live_window_id: &str,
     game_windows: &serde_json::Value,
     window: Window,
 ) -> Result<(), String> {
-    let tab = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.id == tab_id)
-        .ok_or_else(|| "runtime tab was not found".to_owned())?;
     let text = labels(language);
     let mut displays = SubmenuBuilder::new(app, text.move_to_window);
     for game_window in game_windows.as_array().cloned().unwrap_or_default() {
@@ -22,7 +17,7 @@ fn open_tab_from_model(
             continue;
         };
         let item = MenuItemBuilder::with_id(format!("{MOVE_PREFIX}{tab_id}:{window_id}"), label)
-            .enabled(window_id != tab.window_id)
+            .enabled(window_id != live_window_id)
             .build(app)
             .map_err(|error| error.to_string())?;
         displays = displays.item(&item);
@@ -561,13 +556,11 @@ pub async fn handle_scoped_action(
             .map_err(|error| format!("{}: {}", error.code, error.message))
             .and_then(crate::runtime_operation_receipt_result);
     }
-    let snapshot = snapshot(&state.core)?;
-    let tab = snapshot
-        .tabs
-        .iter()
-        .find(|tab| tab.id == tab_id)
+    let live_window_id = state
+        .runtime
+        .live_tab_window_id(tab_id)
         .ok_or_else(|| "runtime tab is outside this tab-strip WebView's window".to_owned())?;
-    if action_type != "move" && tab.window_id != window_id {
+    if action_type != "move" && live_window_id != window_id {
         return Err("runtime tab is outside this tab-strip WebView's window".to_owned());
     }
     if action_type == "openTabMenu" {
@@ -594,10 +587,7 @@ pub async fn handle_scoped_action(
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned);
             if let Some(before) = before_tab_id.as_deref()
-                && !snapshot
-                    .tabs
-                    .iter()
-                    .any(|candidate| candidate.id == before && candidate.window_id == window_id)
+                && state.runtime.live_tab_window_id(before).as_deref() != Some(window_id.as_str())
             {
                 return Err("reorder target is outside this tab-strip WebView's display".to_owned());
             }

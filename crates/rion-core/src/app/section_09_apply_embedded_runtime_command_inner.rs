@@ -279,11 +279,23 @@ impl AppCore {
         &self,
         command: BrowserRuntimeCommand,
     ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
+        self.apply_embedded_tab_projection_without_native_effect(vec![command])
+    }
+
+    fn apply_embedded_tab_projection_without_native_effect(
+        &self,
+        commands: Vec<BrowserRuntimeCommand>,
+    ) -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
         // Presentation is previewed by the native shell before this commit runs. Serialize only
         // the durable runtime mutation so a long topology transition cannot later replace the
         // browser runtime with a clone that predates this selection.
         let _sequence = self.embedded_runtime_sequence.acquire()?;
-        let snapshot = self.invoke_browser_runtime(command)?.snapshot;
+        let mut snapshot = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        for command in commands {
+            snapshot = self.invoke_browser_runtime(command)?.snapshot;
+        }
         Ok(snapshot)
     }
 

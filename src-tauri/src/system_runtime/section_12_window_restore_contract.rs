@@ -109,12 +109,15 @@ impl SystemRuntimeExecutor {
                     revision,
                     false,
                 );
+                if tab.hidden {
+                    live.set_tab_hidden(&tab.id, true, revision);
+                }
             }
             live.reorder_known_tabs(&ordered_tab_ids);
             live.select(
                 active_tab_id
                     .clone()
-                    .or_else(|| ordered_tab_ids.first().cloned()),
+                    .or_else(|| visible_tab_ids.first().cloned()),
                 revision,
             );
         }
@@ -348,7 +351,7 @@ impl SystemRuntimeExecutor {
                 let active_tab_id = prepared
                     .active_tab_id
                     .clone()
-                    .or_else(|| prepared.ordered_tab_ids.first().cloned());
+                    .or_else(|| prepared.visible_tab_ids.first().cloned());
                 live.select(active_tab_id, revision);
             }
             (

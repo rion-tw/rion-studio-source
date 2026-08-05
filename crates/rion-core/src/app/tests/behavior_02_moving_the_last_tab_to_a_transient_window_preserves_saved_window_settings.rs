@@ -202,17 +202,29 @@
                     .all(|window| { window["windowId"].as_str() != Some(source_id.as_str()) })
             );
 
-            let failed_id = uuid::Uuid::new_v4().to_string();
-            let failed = drive_async_command(
+            let projected_id = uuid::Uuid::new_v4().to_string();
+            let projected = drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::EmbeddedTabMove {
                     tab_id: tab_id.clone(),
-                    target: launch_target(&failed_id),
+                    target: launch_target(&projected_id),
                 },
+                // Behavior-layer tab moves no longer emit a native effect, so an
+                // unrelated result cannot reject or compensate this Core sink.
                 Some("other"),
             )
             .0;
-            assert!(failed.is_err(), "{platform}");
+            assert!(projected.is_ok(), "{platform}");
+            assert_eq!(
+                core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap()["tabs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|tab| tab["id"] == tab_id)
+                    .unwrap()["windowId"],
+                projected_id,
+                "{platform}"
+            );
             let windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             assert_eq!(windows.as_array().unwrap().len(), 2, "{platform}");
             assert!(

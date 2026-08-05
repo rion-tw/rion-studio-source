@@ -565,20 +565,6 @@ NS_ASSUME_NONNULL_BEGIN
   } completionHandler:nil];
 }
 
-- (BOOL)matchesTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers
-          activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
-  if (_destroyed || tabIdentifiers.count != _tabItems.count) return NO;
-  for (NSUInteger index = 0; index < tabIdentifiers.count; ++index) {
-    if (![tabIdentifiers[index]
-            isEqualToString:_tabItems[index].tabIdentifier]) {
-      return NO;
-    }
-  }
-  NSString *observedActive = _activeTabItem.tabIdentifier;
-  return (observedActive.length == 0 && activeTabIdentifier.length == 0) ||
-      [observedActive isEqualToString:activeTabIdentifier];
-}
-
 - (void)closeTab:(NSString *)tabIdentifier {
   if (_actionHandler && tabIdentifier.length > 0) {
     NSUInteger index = [_tabItems indexOfObjectPassingTest:
@@ -665,7 +651,10 @@ NS_ASSUME_NONNULL_BEGIN
   NSDraggingSession *draggingSession =
       [item beginDraggingSessionWithItems:@[ draggingItem ] event:event source:item];
   draggingSession.draggingFormation = NSDraggingFormationNone;
-  draggingSession.animatesToStartingPositionsOnCancelOrFail = YES;
+  // The AppKit drag item is only an input carrier. The live tab strip/window has
+  // already followed the pointer, so a failed-drop return animation would retain
+  // the native dragging session after mouse-up and block an immediate next drag.
+  draggingSession.animatesToStartingPositionsOnCancelOrFail = NO;
   [item beginDragPreviewSession:draggingSession
                  lockedScreenY:[self dragPreviewScreenOriginY]];
   [self setDragPlaceholderIdentifier:item.tabIdentifier];

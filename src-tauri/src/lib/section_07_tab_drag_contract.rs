@@ -375,6 +375,38 @@ fn finish_failed_tab_drag_session(
         )?;
         return serialize_tab_drag_response(&receipt);
     }
+    let live_destination_committed = state
+        .runtime
+        .live_tab_window_id(&session.tab_id)
+        .is_some_and(|window_id| {
+            window_id == session.current_window_id
+                && (window_id != session.source_window_id
+                    || session.drop_ordered_tab_ids.as_ref().is_some_and(|ordered| {
+                        state
+                            .runtime
+                            .tab_drag_window_snapshot(&window_id)
+                            .is_ok_and(|snapshot| snapshot.tab_ids == *ordered)
+                    }))
+        });
+    if live_destination_committed {
+        record_tab_drag_lifecycle(
+            state,
+            session,
+            "tab.drag-live-commit-retained",
+            "A post-commit native failure retained the live destination for background repair.",
+        );
+        release_tab_drag_window_motion_suppression(state, session, None);
+        let receipt = complete_tab_drag_terminal(
+            app,
+            state,
+            session,
+            "tabDragLiveCommittedNativeRetryPending",
+            RuntimeTabDragTerminalStatus::Applied,
+            None,
+            0,
+        )?;
+        return serialize_tab_drag_response(&receipt);
+    }
     let rollback = cancel_tab_drag_session(state, session);
     let (status, failure_code, rollback_error_count) = match rollback {
         Ok(()) => (RuntimeTabDragTerminalStatus::Failed, error.code.clone(), 0),
@@ -456,11 +488,6 @@ fn finish_applied_tab_drag(
             "tabDragSuperseded",
             RuntimeTabDragTerminalStatus::Superseded,
             None,
-        ),
-        RuntimeTabMutationProjectionOutcome::Degraded => (
-            "tabDragCleanupDegraded",
-            RuntimeTabDragTerminalStatus::Degraded,
-            Some("SYSTEM_TAB_DRAG_CLEANUP_DEGRADED"),
         ),
     };
     let receipt = complete_tab_drag_terminal(app, state, session, stage, status, failure_code, 0)?;

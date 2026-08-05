@@ -20,7 +20,6 @@ fn newer_drag_generation_supersedes_old_callbacks_and_projection() {
     assert!(hover.event_sequence > first.event_sequence);
     assert_eq!(hover.intent_generation, first.intent_generation);
     assert!(coordinator.is_latest("session-1", first.intent_generation));
-    assert!(!coordinator.operation_is_superseded("operation-1", "tab-a"));
     assert!(!coordinator.projection_is_superseded(Some("operation-1"), "window-main"));
 
     let second = coordinator.stamp_action(
@@ -35,7 +34,6 @@ fn newer_drag_generation_supersedes_old_callbacks_and_projection() {
     assert!(second.event_sequence > hover.event_sequence);
     assert!(second.intent_generation > first.intent_generation);
     assert!(!coordinator.is_latest("session-1", first.intent_generation));
-    assert!(coordinator.operation_is_superseded("operation-1", "tab-a"));
     assert!(coordinator.newer_intent_started_in(
         "session-1",
         first.intent_generation,
@@ -111,7 +109,6 @@ fn newer_drag_of_another_tab_supersedes_the_old_shared_window_projection() {
     assert!(coordinator.is_latest("session-a", first.intent_generation));
     assert!(coordinator.is_latest("session-b", second.intent_generation));
     assert!(!coordinator.projection_is_latest("session-a", first.intent_generation));
-    assert!(coordinator.operation_is_superseded("operation-a", "tab-a"));
 }
 
 #[test]

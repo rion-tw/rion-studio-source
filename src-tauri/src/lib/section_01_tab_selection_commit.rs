@@ -1,6 +1,5 @@
 const TAB_SELECTION_COMMIT_DEBOUNCE: Duration = Duration::from_millis(150);
 const TAB_SELECTION_COMMIT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
-const TAB_SELECTION_COMMIT_RETRY_DELAY: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Default)]
 struct TabSelectionCommitCoordinator {
@@ -106,26 +105,12 @@ async fn run_tab_selection_commit_worker(
             }
             continue;
         }
-        let command = || CoreCommand::EmbeddedTabActivateConditional {
+        let command = CoreCommand::EmbeddedTabActivateConditional {
             tab_id: request.tab_id.clone(),
             window_id: request.window_id.clone(),
             selection_revision: request.selection_revision,
         };
-        let mut result = Arc::clone(&request.core).invoke_async(command()).await;
-        if !tab_selection_commit_matches(&result, &request)
-            && !receiver.has_changed().unwrap_or(false)
-        {
-            tokio::time::sleep(TAB_SELECTION_COMMIT_RETRY_DELAY).await;
-            if !receiver.has_changed().unwrap_or(false)
-                && request.runtime.tab_selection_is_desired(
-                    &request.window_id,
-                    &request.tab_id,
-                    request.selection_revision,
-                )
-            {
-                result = Arc::clone(&request.core).invoke_async(command()).await;
-            }
-        }
+        let result = Arc::clone(&request.core).invoke_async(command).await;
         let changed = receiver.has_changed().unwrap_or(false);
         let desired = request.runtime.tab_selection_is_desired(
             &request.window_id,
@@ -137,23 +122,21 @@ async fn run_tab_selection_commit_worker(
                 &request,
                 TabActivationComponentStatus::Superseded,
             );
-        } else if tab_selection_commit_matches(&result, &request) {
+        } else if result.is_ok() {
             finish_tab_selection_commit(&request, TabActivationComponentStatus::Applied);
         } else {
-            request.runtime.reconcile_tab_activation(&request.window_id);
             let failure_code = result
                 .err()
                 .map(|error| error.payload())
                 .map(|payload| payload.code)
-                .unwrap_or_else(|| "CORE_TAB_PROJECTION_PENDING".to_owned());
+                .unwrap_or_else(|| "CORE_TAB_PROJECTION_FAILED".to_owned());
             eprintln!(
                 "Background active-tab projection remains pending: window={} tab={} revision={} code={failure_code}",
                 request.window_id, request.tab_id, request.selection_revision
             );
             // LiveWindowTabState and the native titlebar already committed the
-            // interaction. Core metadata is a non-blocking projection and may
-            // be superseded by a drag or close; it must never turn a valid UI
-            // state into a user-facing activation failure.
+            // interaction. Core is a one-way background sink: its return value
+            // can be logged, but may never validate, retry, or repair live UI.
             finish_tab_selection_commit(
                 &request,
                 TabActivationComponentStatus::Superseded,
@@ -170,26 +153,6 @@ async fn run_tab_selection_commit_worker(
             return;
         }
     }
-}
-
-fn tab_selection_commit_matches(
-    result: &Result<Value, rion_core::CoreError>,
-    request: &TabSelectionCommitRequest,
-) -> bool {
-    result.as_ref().ok().is_some_and(|snapshot| {
-        snapshot
-            .get("windows")
-            .and_then(Value::as_array)
-            .and_then(|windows| {
-                windows.iter().find(|window| {
-                    window.get("windowId").and_then(Value::as_str)
-                        == Some(request.window_id.as_str())
-                })
-            })
-            .and_then(|window| window.get("activeTabId"))
-            .and_then(Value::as_str)
-            == Some(request.tab_id.as_str())
-    })
 }
 
 fn finish_tab_selection_commit(

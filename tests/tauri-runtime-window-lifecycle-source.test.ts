@@ -14,8 +14,67 @@ describe("runtime window lifecycle authority", () => {
 
     expect(selection).toContain("Background active-tab projection remains pending");
     expect(selection).toContain("TabActivationComponentStatus::Superseded");
+    expect(selection).not.toContain("tab_selection_commit_matches");
+    expect(selection).not.toContain("TAB_SELECTION_COMMIT_RETRY_DELAY");
+    expect(selection).not.toContain("reconcile_tab_activation");
     expect(selection).not.toContain("The active tab metadata did not converge");
     expect(selection).not.toContain("reveal_shell_error(&request.app");
+  });
+
+  it("authorizes behavior-layer tab actions only against live topology", async () => {
+    const [overlay, menu, shell, runtimeBehavior, quickMenu] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/lib/section_03_rion_overlay_request.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_04_rion_shell_invoke.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_12_handle_divider_pointer.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/quick_menu/section_01_tray_id.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+    ]);
+    const overlayActions = overlay.slice(
+      overlay.indexOf('Some("hide" | "move" | "reorder")'),
+      overlay.indexOf('Some("windowControl")')
+    );
+    const menuActions = menu.slice(
+      menu.indexOf("pub async fn handle_scoped_action("),
+      menu.indexOf("fn spawn_tab_mutation(")
+    );
+    const shellReorder = shell.slice(
+      shell.indexOf('"reorderGameWindowTab" =>'),
+      shell.indexOf('"setGameWindowTabMuted" =>')
+    );
+
+    for (const source of [overlayActions, menuActions, shellReorder]) {
+      expect(source).toContain("live_tab_window_id");
+      expect(source).not.toContain("BrowserRuntimeSnapshot");
+    }
+    expect(runtimeBehavior).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
+    expect(runtimeBehavior).toContain("self.presentation.selected_tabs()");
+    expect(quickMenu).toContain("runtime.live_window_ids()?");
+    expect(quickMenu).toContain("runtime.launcher_presence_snapshot()?");
+    expect(quickMenu).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
   });
 
   it("commits terminal drag topology without replaying the native presentation", async () => {
@@ -36,6 +95,51 @@ describe("runtime window lifecycle authority", () => {
     expect(commit).not.toContain("apply_embedded_runtime_command_inner");
     expect(commit).not.toContain("EmbeddedApplyRuntime");
     expect(commit).not.toContain("run_embedded_runtime_effect");
+  });
+
+  it("commits every tab behavior to live state before a one-way Core sink", async () => {
+    const [shell, core, coordinator] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/lib/section_01_tab_mutation.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../crates/rion-core/src/app/section_08_tab_mutation.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_03_tab_mutation_coordinator.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+    ]);
+    const mutation = shell.slice(
+      shell.indexOf("async fn execute_tab_mutation("),
+      shell.indexOf("struct QueuedTabMutationSink")
+    );
+    const sink = shell.slice(
+      shell.indexOf("struct QueuedTabMutationSink"),
+      shell.indexOf("fn tab_stop_terminal_outcome")
+    );
+    const coreMutation = core.slice(
+      core.indexOf("fn apply_embedded_tab_mutation("),
+      core.indexOf("fn serialized_embedded_tab_mutation")
+    );
+
+    expect(mutation.indexOf("commit_live_tab_mutation_intent(")).toBeLessThan(
+      mutation.indexOf("schedule_tab_mutation_core_sink(")
+    );
+    expect(sink).toContain("unbounded_channel::<QueuedTabMutationSink>()");
+    expect(sink).not.toContain("publish_projection");
+    expect(sink).not.toContain("schedule_live_window_state_persistence");
+    expect(coreMutation).toContain("self.emit_browser_statuses()");
+    expect(coreMutation).not.toContain("EmbeddedApplyRuntime");
+    expect(coreMutation).not.toContain("apply_embedded_runtime_command_inner");
+    expect(coordinator).not.toContain("CoreCommand::BrowserRuntimeSnapshot");
+    expect(coordinator).not.toContain("matches_projection(");
+    expect(coordinator).not.toContain("schedule_tab_mutation_projection_diagnostic");
   });
 
   it("retains the full persistence input before the debounce worker can outlive its host", async () => {
@@ -332,8 +436,8 @@ describe("runtime window lifecycle authority", () => {
     expect(state).toContain("pending_window_tab_restores");
   });
 
-  it("waits for the old window generation and repairs live presentation metadata before activation", async () => {
-    const [restore, activation, repair] = await Promise.all([
+  it("waits for the old window generation without rebuilding live topology from Core", async () => {
+    const [restore, activation, applyRuntime, liveSnapshot] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/lib/section_05_invoke_core_async.rs",
@@ -349,22 +453,23 @@ describe("runtime window lifecycle authority", () => {
         "utf8"
       ),
       readFile(
-        new URL(
-          "../src-tauri/src/system_runtime/section_09_presentation_repair.rs",
-          import.meta.url
-        ),
+        new URL("../src-tauri/src/system_runtime/section_25_apply_runtime.rs", import.meta.url),
         "utf8"
-      )
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_14_preview_tab_close.rs", import.meta.url),
+        "utf8"
+      ),
     ]);
 
     expect(restore).toContain("wait_for_window_close_before_reopen");
-    expect(activation).toContain("repair_missing_tab_presentation");
-    expect(activation).not.toContain(
-      "Runtime tab was not found in the presentation registry."
-    );
-    expect(repair).toContain('"tab.presentation-repaired"');
-    expect(repair).toContain("live.surface_bindings");
-    expect(repair).toContain("self.try_ensure_native_tab");
+    expect(activation).not.toContain("repair_missing_tab_presentation");
+    expect(activation).toContain(".tab_window(tab_id)?");
+    expect(applyRuntime).toContain(".snapshot_with_live_tab_topology(snapshot)");
+    expect(applyRuntime).not.toContain("move_tab_with_activation(");
+    expect(applyRuntime).toContain("selection belongs exclusively to");
+    expect(liveSnapshot).toContain("fn snapshot_with_live_tab_topology(");
+    expect(liveSnapshot).toContain("live.all_tab_ids()");
   });
 
   it("refreshes a restored macOS role viewport after the main frame becomes ready", async () => {

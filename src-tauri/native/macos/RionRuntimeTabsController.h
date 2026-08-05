@@ -66,8 +66,6 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)removeTabIdentifier:(NSString *)tabIdentifier
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers;
-- (BOOL)matchesTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers
-          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)updateTabMetadata:(RionRuntimeTabModel *)tab
        hideTabCloseButton:(BOOL)hideTabCloseButton
                  addLabel:(NSString *)addLabel
@@ -142,9 +140,6 @@ void rion_runtime_tabs_remove(
     const char * _Nullable activeTabIdentifier);
 void rion_runtime_tabs_reorder(
     void * _Nullable controller, const char *tabIdentifiersJSON);
-bool rion_runtime_tabs_matches_projection(
-    void * _Nullable controller, const char *tabIdentifiersJSON,
-    const char * _Nullable activeTabIdentifier);
 void rion_runtime_tabs_update_metadata(
     void * _Nullable controller, const RionRuntimeTabInput *tab,
     bool alwaysHideTabCloseButton, const char *audioMutedLabel,

@@ -277,29 +277,6 @@ impl SystemRuntimeExecutor {
         self.publish_projection();
     }
 
-    pub(crate) fn reconcile_tab_activation(&self, window_id: &str) {
-        let (tab_id, revision) = self
-            .presentation
-            .existing(window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .map(|window| (window.selected_tab_id.clone(), window.revision))
-            })
-            .unwrap_or((None, 0));
-        self.record_presentation_event(
-            LogLevel::Warn,
-            "tab.selection-persist-failed",
-            "The visual tab selection was retained after metadata persistence failed.",
-            window_id,
-            tab_id.as_deref(),
-            revision,
-            "persistence",
-            0,
-        );
-    }
-
     pub(crate) fn tab_selection_revision(&self, window_id: &str, tab_id: &str) -> Option<u64> {
         self.presentation
             .existing(window_id)
@@ -319,82 +296,111 @@ impl SystemRuntimeExecutor {
         self.tab_selection_revision(window_id, tab_id) == Some(selection_revision)
     }
 
-    fn snapshot_with_native_tab_locations(
+    /// Overlays Core metadata with the already-committed live topology. Core
+    /// snapshots are allowed to lag, but they can never move, reorder, reveal,
+    /// hide, or select an open-window tab on their way back through a native
+    /// effect or renderer projection.
+    fn snapshot_with_live_tab_topology(
         &self,
         mut snapshot: BrowserRuntimeSnapshot,
-    ) -> BrowserRuntimeSnapshot {
-        let selected_tabs = self.presentation.selected_tabs();
-        let Ok(state) = self.state.lock() else {
-            return snapshot;
-        };
-        let native_locations = state
-            .tabs
+    ) -> Option<BrowserRuntimeSnapshot> {
+        // Fail closed when the live authority cannot be read. Returning the raw
+        // Core snapshot here would let a delayed projection become a second UI
+        // authority precisely when the presentation registry is unhealthy.
+        let live_windows = self.presentation.snapshot_states().ok()?;
+        let optimistic_closed_tabs = self
+            .state
+            .lock()
+            .map(|state| state.optimistic_closed_tabs.clone())
+            .unwrap_or_default();
+        let live_owners = live_windows
             .iter()
-            .map(|(tab_id, tab)| (tab_id.as_str(), tab.window_id.as_str()))
+            .flat_map(|(window_id, live)| {
+                live.all_tab_ids()
+                    .into_iter()
+                    .map(|tab_id| (tab_id, window_id.clone()))
+            })
             .collect::<HashMap<_, _>>();
         for tab in &mut snapshot.tabs {
-            if let Some(window_id) = native_locations.get(tab.id.as_str()) {
-                tab.window_id = (*window_id).to_owned();
+            if let Some(window_id) = live_owners.get(&tab.id) {
+                tab.window_id = window_id.clone();
+                tab.hidden = live_windows
+                    .get(window_id)
+                    .is_some_and(|live| live.tab_is_hidden(&tab.id));
+            } else if optimistic_closed_tabs.contains(&tab.id) {
+                tab.hidden = true;
             }
         }
-        for window in &mut snapshot.windows {
-            window.tab_ids.clear();
-            window.active_tab_id = None;
-        }
-        for tab in &snapshot.tabs {
+        let snapshot_tab_ids = snapshot
+            .tabs
+            .iter()
+            .map(|tab| tab.id.clone())
+            .collect::<HashSet<_>>();
+        for window_id in live_windows.keys().chain(snapshot.tabs.iter().map(|tab| &tab.window_id)) {
             if !snapshot
                 .windows
                 .iter()
-                .any(|window| window.window_id == tab.window_id)
+                .any(|window| window.window_id == *window_id)
             {
                 snapshot.windows.push(BrowserRuntimeWindowRecord {
-                    window_id: tab.window_id.clone(),
+                    window_id: window_id.clone(),
                     active_tab_id: None,
                     tab_ids: Vec::new(),
                 });
             }
-            let window = snapshot
-                .windows
-                .iter_mut()
-                .find(|window| window.window_id == tab.window_id)
-                .expect("native tab window was inserted");
-            window.tab_ids.push(tab.id.clone());
-            if selected_tabs
-                .get(&tab.window_id)
-                .is_some_and(|selected| selected == &tab.id)
-                && !state.optimistic_closed_tabs.contains(&tab.id)
-            {
-                window.active_tab_id = Some(tab.id.clone());
-            }
         }
         for window in &mut snapshot.windows {
-            if window.active_tab_id.is_none() {
+            let core_order = window.tab_ids.clone();
+            if let Some(live) = live_windows.get(&window.window_id) {
+                let mut ordered = live
+                    .all_tab_ids()
+                    .into_iter()
+                    .filter(|tab_id| {
+                        snapshot_tab_ids.contains(tab_id)
+                            && !optimistic_closed_tabs.contains(tab_id)
+                    })
+                    .collect::<Vec<_>>();
+                let mut seen = ordered.iter().cloned().collect::<HashSet<_>>();
+                ordered.extend(core_order.into_iter().filter(|tab_id| {
+                    seen.insert(tab_id.clone())
+                        && !live_owners.contains_key(tab_id)
+                        && !optimistic_closed_tabs.contains(tab_id)
+                }));
+                window.tab_ids = ordered;
+                window.active_tab_id = live.selected_tab_id.clone().filter(|tab_id| {
+                    !live.tab_is_hidden(tab_id)
+                        && window.tab_ids.contains(tab_id)
+                        && !optimistic_closed_tabs.contains(tab_id)
+                });
+            } else {
+                window.tab_ids.retain(|tab_id| {
+                    !live_owners.contains_key(tab_id)
+                        && !optimistic_closed_tabs.contains(tab_id)
+                });
                 window.active_tab_id = window
-                    .tab_ids
-                    .iter()
-                    .find(|tab_id| !state.optimistic_closed_tabs.contains(tab_id.as_str()))
-                    .cloned();
+                    .active_tab_id
+                    .take()
+                    .filter(|tab_id| window.tab_ids.contains(tab_id));
             }
         }
-        snapshot
+        Some(snapshot)
     }
 
     pub fn restore_tab_audio_muted(&self, source_id: &str, muted: bool) -> Result<(), String> {
-        let snapshot = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSnapshot)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let role_id = snapshot
+        let tab_id = self
+            .presentation
+            .tab_for_source(source_id, "role")
+            .or_else(|| self.presentation.tab_for_source(source_id, "workspace"))
+            .ok_or_else(|| "The restored runtime tab was not found in live topology.".to_owned())?;
+        let role_id = self
+            .state()
+            .map_err(|error| error.message)?
             .tabs
-            .iter()
-            .find(|tab| tab.source_id == source_id)
-            .and_then(|tab| tab.slots.first().map(|slot| &slot.role_id))
-            .ok_or_else(|| "The restored runtime tab has no role surface.".to_owned())?;
-        self.set_role_audio_muted(role_id, muted)
+            .get(&tab_id)
+            .and_then(|tab| tab.roles.keys().next())
+            .cloned()
+            .ok_or_else(|| "The restored runtime tab has no owned role surface.".to_owned())?;
+        self.set_role_audio_muted(&role_id, muted)
             .map_err(|error| error.message)
     }
 

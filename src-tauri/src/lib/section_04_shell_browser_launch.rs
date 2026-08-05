@@ -108,25 +108,13 @@ async fn prepare_core_launch_preview(
 }
 
 fn launched_source_window_id(
-    runtime: &Value,
+    runtime: &SystemRuntimeExecutor,
     source_id: &str,
     tab_type: &str,
 ) -> Option<String> {
-    runtime["tabs"]
-        .as_array()?
-        .iter()
-        .find(|tab| {
-            (tab["sourceId"].as_str() == Some(source_id)
-                && tab["tabType"].as_str() == Some(tab_type))
-                || (tab_type == "role"
-                    && tab["slots"].as_array().is_some_and(|slots| {
-                        slots
-                            .iter()
-                            .any(|slot| slot["roleId"].as_str() == Some(source_id))
-                    }))
-        })?["windowId"]
-        .as_str()
-        .map(str::to_owned)
+    runtime
+        .presented_tab_for_launcher_source(source_id, tab_type)
+        .and_then(|tab_id| runtime.live_tab_window_id(&tab_id))
 }
 
 async fn launch_role_from_shell(
@@ -166,11 +154,7 @@ async fn launch_role_from_shell(
         .and_then(|statuses| statuses.first())
         .cloned()
         .unwrap_or(Value::Null);
-    let runtime = state
-        .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(error_payload)?;
-    let window_id = launched_source_window_id(&runtime, &role_id, "role")
+    let window_id = launched_source_window_id(&state.runtime, &role_id, "role")
         .unwrap_or(requested_window_id);
     Ok(json!({ "windowId": window_id, "status": status }))
 }
@@ -207,11 +191,7 @@ async fn launch_workspace_from_shell(
             return Err(error_payload(error));
         }
     };
-    let runtime = state
-        .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(error_payload)?;
-    let window_id = launched_source_window_id(&runtime, &workspace_id, "workspace")
+    let window_id = launched_source_window_id(&state.runtime, &workspace_id, "workspace")
         .unwrap_or(requested_window_id);
     Ok(json!({
         "kind": "launched",

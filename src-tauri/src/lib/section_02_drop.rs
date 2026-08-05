@@ -229,6 +229,7 @@ struct GameWindowCloseCopy {
 
 fn preview_game_window_close(
     core: &AppCore,
+    runtime: &SystemRuntimeExecutor,
     window_id: &str,
 ) -> Result<GameWindowClosePreview, CoreErrorPayload> {
     let name = match game_window_record(core, window_id) {
@@ -243,6 +244,12 @@ fn preview_game_window_close(
             serde_json::from_value::<BrowserRuntimeSnapshot>(value)
                 .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
         })?;
+    let snapshot = runtime.live_runtime_snapshot(snapshot).ok_or_else(|| {
+        shell_error(
+            "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+            "The live tab topology could not be read while closing the window.",
+        )
+    })?;
     let role_ids = snapshot
         .tabs
         .iter()
@@ -449,9 +456,10 @@ async fn process_game_window_close_requested(
     };
 
     let preview_core = Arc::clone(&core);
+    let preview_runtime = Arc::clone(&runtime);
     let preview_window_id = window_id.clone();
     let preview = tauri::async_runtime::spawn_blocking(move || {
-        preview_game_window_close(&preview_core, &preview_window_id)
+        preview_game_window_close(&preview_core, &preview_runtime, &preview_window_id)
     })
     .await
     .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))

@@ -357,50 +357,6 @@ struct RuntimeTabHostPlan {
     tab_id: String,
 }
 
-fn resolved_runtime_window_selection(
-    snapshot: &BrowserRuntimeSnapshot,
-    window_id: &str,
-    previous: &LiveWindowTabState,
-    focus_tab_id: Option<&str>,
-    presentation_revision: u64,
-) -> Option<String> {
-    let visible_in_window = |tab_id: &str| {
-        snapshot
-            .tabs
-            .iter()
-            .any(|tab| tab.id == tab_id && tab.window_id == window_id && !tab.hidden)
-    };
-    let snapshot_tab = |tab_id: &str| snapshot.tabs.iter().find(|tab| tab.id == tab_id);
-    let desired_active = snapshot
-        .windows
-        .iter()
-        .find(|window| window.window_id == window_id)
-        .and_then(|window| window.active_tab_id.as_deref())
-        .filter(|tab_id| visible_in_window(tab_id))
-        .map(str::to_owned);
-    let superseded = previous.revision > presentation_revision;
-
-    if !superseded
-        && let Some(focus_tab_id) = focus_tab_id.filter(|tab_id| visible_in_window(tab_id))
-    {
-        return Some(focus_tab_id.to_owned());
-    }
-
-    let Some(selected_tab_id) = previous.selected_tab_id.as_deref() else {
-        return if superseded { None } else { desired_active };
-    };
-    let Some(selected_snapshot) = snapshot_tab(selected_tab_id) else {
-        // A provisional or closing presentation is newer than Core metadata and remains
-        // authoritative until its own transaction commits or rolls back.
-        return Some(selected_tab_id.to_owned());
-    };
-    if selected_snapshot.window_id == window_id && !selected_snapshot.hidden {
-        Some(selected_tab_id.to_owned())
-    } else {
-        desired_active
-    }
-}
-
 fn resolve_runtime_tab_host_plan(
     snapshot: &BrowserRuntimeSnapshot,
     live_windows: &HashMap<String, String>,

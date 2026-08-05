@@ -367,6 +367,7 @@ struct LiveWindowTabState {
     applied_tab_id: Option<String>,
     applied_revision: u64,
     host_visibility: bool,
+    hidden_tab_ids: HashSet<String>,
     in_flight: bool,
     revision: u64,
     scheduled: bool,
@@ -379,7 +380,34 @@ struct LiveWindowTabState {
 
 impl LiveWindowTabState {
     fn tab_ids(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter(|tab| !self.hidden_tab_ids.contains(&tab.id))
+            .map(|tab| tab.id.clone())
+            .collect()
+    }
+
+    fn all_tab_ids(&self) -> Vec<String> {
         self.tabs.iter().map(|tab| tab.id.clone()).collect()
+    }
+
+    fn tab_is_hidden(&self, tab_id: &str) -> bool {
+        self.hidden_tab_ids.contains(tab_id)
+    }
+
+    fn set_tab_hidden(&mut self, tab_id: &str, hidden: bool, revision: u64) -> bool {
+        if !self.contains_tab(tab_id) {
+            return false;
+        }
+        let changed = if hidden {
+            self.hidden_tab_ids.insert(tab_id.to_owned())
+        } else {
+            self.hidden_tab_ids.remove(tab_id)
+        };
+        if changed {
+            self.revision = revision;
+        }
+        changed
     }
 
     fn contains_tab(&self, tab_id: &str) -> bool {
@@ -395,18 +423,23 @@ impl LiveWindowTabState {
         }
         self.revision = revision;
         if select {
+            self.hidden_tab_ids.remove(&id);
             self.select(Some(id), revision);
         }
     }
 
     fn replace_tab_id(&mut self, provisional_id: &str, mut tab: TabPresentation, revision: u64) {
         let selected_provisional = self.selected_tab_id.as_deref() == Some(provisional_id);
+        let hidden_provisional = self.hidden_tab_ids.remove(provisional_id);
         if let Some(index) = self.tabs.iter().position(|item| item.id == provisional_id) {
             self.aliases
                 .insert(provisional_id.to_owned(), tab.id.clone());
             let previous_bindings = self.surface_bindings.remove(provisional_id);
             let replacement_id = tab.id.clone();
             self.tabs[index] = tab;
+            if hidden_provisional {
+                self.hidden_tab_ids.insert(replacement_id.clone());
+            }
             if let Some(bindings) = previous_bindings {
                 self.surface_bindings
                     .insert(replacement_id.clone(), bindings);
@@ -426,6 +459,7 @@ impl LiveWindowTabState {
         let existed = self.tabs.iter().any(|tab| tab.id == tab_id);
         self.tabs.retain(|tab| tab.id != tab_id);
         self.surface_bindings.remove(tab_id);
+        self.hidden_tab_ids.remove(tab_id);
         self.aliases
             .retain(|alias, target| alias != tab_id && target != tab_id);
         if existed {
@@ -438,6 +472,9 @@ impl LiveWindowTabState {
     }
 
     fn select(&mut self, tab_id: Option<String>, revision: u64) {
+        if let Some(tab_id) = tab_id.as_deref() {
+            self.hidden_tab_ids.remove(tab_id);
+        }
         self.revision = revision;
         self.host_visibility = tab_id.is_some();
         self.selected_tab_id = tab_id;

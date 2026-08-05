@@ -351,7 +351,7 @@ async fn rion_shell_invoke(
         }
         "reorderGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            let source_window_id = state.runtime.tab_window_id(&tab_id).ok_or_else(|| {
+            let source_window_id = state.runtime.live_tab_window_id(&tab_id).ok_or_else(|| {
                 shell_error("TAURI_RUNTIME_TAB_NOT_FOUND", "The runtime tab was not found.")
             })?;
             let before_tab_id = match args.get(1) {
@@ -371,7 +371,7 @@ async fn rion_shell_invoke(
                 ));
             }
             if let Some(before_tab_id) = before_tab_id.as_deref()
-                && state.runtime.tab_window_id(before_tab_id).as_deref()
+                && state.runtime.live_tab_window_id(before_tab_id).as_deref()
                     != Some(source_window_id.as_str())
             {
                 return Err(shell_error(

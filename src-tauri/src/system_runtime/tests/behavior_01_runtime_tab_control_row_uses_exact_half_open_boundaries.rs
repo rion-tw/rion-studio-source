@@ -328,6 +328,31 @@ use super::*;
     }
 
     #[test]
+    fn live_hidden_state_controls_visible_order_and_selection_without_core() {
+        let mut state = LiveWindowTabState::default();
+        state.insert_tab(
+            presentation_tab("tab-a", TabPresentationPhase::Ready),
+            1,
+            true,
+        );
+        state.insert_tab(
+            presentation_tab("tab-b", TabPresentationPhase::Ready),
+            2,
+            false,
+        );
+
+        assert!(state.set_tab_hidden("tab-a", true, 3));
+        state.select(Some("tab-b".to_owned()), 3);
+        assert_eq!(state.all_tab_ids(), ["tab-a", "tab-b"]);
+        assert_eq!(state.tab_ids(), ["tab-b"]);
+        assert!(state.tab_is_hidden("tab-a"));
+
+        state.select(Some("tab-a".to_owned()), 4);
+        assert_eq!(state.tab_ids(), ["tab-a", "tab-b"]);
+        assert!(!state.tab_is_hidden("tab-a"));
+    }
+
+    #[test]
     fn moving_a_selected_presentation_tab_commits_both_windows_without_core_state() {
         let registry = PresentationRegistry::default();
         let source = registry.coordinator("window-a").unwrap();
@@ -515,45 +540,6 @@ use super::*;
                 .tab_window("tab-a")
                 .unwrap_err()
                 .contains("more than one")
-        );
-    }
-
-    #[test]
-    fn runtime_selection_honors_focus_fences_and_repairs_hidden_tabs() {
-        let mut snapshot = runtime_tab_host_snapshot("tab-a");
-        let mut previous = LiveWindowTabState::default();
-        previous.select(Some("tab-a".to_owned()), 4);
-        assert_eq!(
-            resolved_runtime_window_selection(&snapshot, "window-11", &previous, Some("tab-b"), 4,)
-                .as_deref(),
-            Some("tab-b")
-        );
-
-        previous.select(Some("tab-a".to_owned()), 6);
-        assert_eq!(
-            resolved_runtime_window_selection(&snapshot, "window-11", &previous, Some("tab-b"), 5,)
-                .as_deref(),
-            Some("tab-a")
-        );
-
-        snapshot.tabs[0].hidden = true;
-        snapshot.windows[0].active_tab_id = Some("tab-b".to_owned());
-        assert_eq!(
-            resolved_runtime_window_selection(&snapshot, "window-11", &previous, None, 5,)
-                .as_deref(),
-            Some("tab-b")
-        );
-
-        previous.select(Some("provisional-tab".to_owned()), 7);
-        assert_eq!(
-            resolved_runtime_window_selection(&snapshot, "window-11", &previous, Some("tab-b"), 7,)
-                .as_deref(),
-            Some("tab-b")
-        );
-        assert_eq!(
-            resolved_runtime_window_selection(&snapshot, "window-11", &previous, Some("tab-b"), 6,)
-                .as_deref(),
-            Some("provisional-tab")
         );
     }
 

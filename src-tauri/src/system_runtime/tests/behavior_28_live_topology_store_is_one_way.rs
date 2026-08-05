@@ -206,3 +206,48 @@ fn busy_native_projection_never_blocks_or_rolls_back_a_live_commit() {
     assert!(registry.try_follow_live_projection_membership());
     assert!(!registry.projection_membership_needs_follow());
 }
+
+#[test]
+fn live_window_snapshot_releases_its_mutex_before_the_following_commit() {
+    let registry = Arc::new(PresentationRegistry::default());
+    registry
+        .commit_live_topology(LiveTopologyCommitInput {
+            commit_id: "commit-before-launch-preview".to_owned(),
+            source: "command",
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some("tab-a".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![topology_tab("tab-a")],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        })
+        .unwrap();
+
+    let (completed, completion) = mpsc::channel();
+    let worker_registry = Arc::clone(&registry);
+    let worker = thread::spawn(move || {
+        let result = (|| {
+            let mut next = worker_registry.snapshot_live_window("window-a")?;
+            next.insert_tab(topology_tab("provisional-tab"), 0, true);
+            worker_registry.commit_live_window_record("command", "window-a", &next)
+        })();
+        completed.send(result).unwrap();
+    });
+
+    let receipt = completion
+        .recv_timeout(Duration::from_millis(250))
+        .expect("snapshot followed by commit must not self-deadlock")
+        .unwrap();
+    worker.join().unwrap();
+    assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
+    assert_eq!(
+        registry
+            .snapshot_live_window("window-a")
+            .unwrap()
+            .all_tab_ids(),
+        ["tab-a", "provisional-tab"]
+    );
+}

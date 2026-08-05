@@ -98,56 +98,12 @@ impl SystemRuntimeExecutor {
             self.remove_empty_display_host(&target.window_id, host_created);
             return Ok(existing);
         }
-        let presentation = match self.presentation.coordinator(&target.window_id) {
-            Ok(presentation) => presentation,
-            Err(message) => {
-                self.cancel_tab_launch_preview(&launch_preview_id);
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    message,
-                ));
-            }
-        };
-        let (previous_tab_id, previous_surfaces, revision) = match presentation.lock() {
-            Ok(selection) => {
-                let mut selection = selection.clone();
-                let previous_tab_id = selection.selected_tab_id.clone();
-                let previous_surfaces = self
-                    .presentation
-                    .surfaces(&target.window_id, previous_tab_id.as_deref());
-                selection.insert_tab(
-                    LiveTabRecord {
-                        audio_muted: false,
-                        closable: true,
-                        icon_data_url: None,
-                        id: provisional_id.clone(),
-                        persistable: false,
-                        role_ids: if tab_type == "role" {
-                            vec![source_id.to_owned()]
-                        } else {
-                            Vec::new()
-                        },
-                        role_slots: Vec::new(),
-                        source_id: source_id.to_owned(),
-                        tab_type: tab_type.to_owned(),
-                        title: placeholder_name.to_owned(),
-                        #[cfg(any(windows, target_os = "macos"))]
-                        workspace_template: None,
-                    },
-                    0,
-                    true,
-                );
-                let receipt = self
-                    .presentation
-                    .commit_live_window_record("command", &target.window_id, &selection)
-                    .map_err(|message| {
-                        RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                    })?;
-                self.presentation
-                    .statuses
-                    .set_presentation_phase(&provisional_id, TabRuntimePhase::Reserved);
-                (previous_tab_id, previous_surfaces, receipt.revision)
-            }
+        // Clone the live record and release its window mutex before committing.
+        // `commit_live_window_record` reacquires the same coordinator through the
+        // store's atomic commit lane; retaining the guard here would deadlock the
+        // AppKit menu callback against itself.
+        let mut selection = match self.presentation.snapshot_live_window(&target.window_id) {
+            Ok(selection) => selection,
             Err(_) => {
                 self.cancel_tab_launch_preview(&launch_preview_id);
                 return Err(RuntimeError::new(
@@ -156,6 +112,42 @@ impl SystemRuntimeExecutor {
                 ));
             }
         };
+        let previous_tab_id = selection.selected_tab_id.clone();
+        let previous_surfaces = self
+            .presentation
+            .surfaces(&target.window_id, previous_tab_id.as_deref());
+        selection.insert_tab(
+            LiveTabRecord {
+                audio_muted: false,
+                closable: true,
+                icon_data_url: None,
+                id: provisional_id.clone(),
+                persistable: false,
+                role_ids: if tab_type == "role" {
+                    vec![source_id.to_owned()]
+                } else {
+                    Vec::new()
+                },
+                role_slots: Vec::new(),
+                source_id: source_id.to_owned(),
+                tab_type: tab_type.to_owned(),
+                title: placeholder_name.to_owned(),
+                #[cfg(any(windows, target_os = "macos"))]
+                workspace_template: None,
+            },
+            0,
+            true,
+        );
+        let receipt = self
+            .presentation
+            .commit_live_window_record("command", &target.window_id, &selection)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        self.presentation
+            .statuses
+            .set_presentation_phase(&provisional_id, TabRuntimePhase::Reserved);
+        let revision = receipt.revision;
         self.publish_launcher_presence();
         if let Err(error) = self.reserve_native_tab(
             &target.window_id,
@@ -485,65 +477,53 @@ impl SystemRuntimeExecutor {
                 return None;
             }
         };
-        let presentation = match self.presentation.coordinator(&completion.window_id) {
-            Ok(presentation) => presentation,
-            Err(message) => {
-                eprintln!("Failed launch tab presentation could not be retained: {message}");
-                return None;
-            }
-        };
         let phase = if failed {
             TabRuntimePhase::Failed
         } else {
             TabRuntimePhase::Reserved
         };
-        let (active_tab_id, revision) = match presentation.lock() {
-            Ok(presentation) => {
-                let mut presentation = presentation.clone();
-                if !presentation
-                    .tabs
-                    .iter()
-                    .any(|tab| tab.id == completion.tab_id)
-                {
-                    let should_select = presentation.selected_tab_id.is_none();
-                    presentation.insert_tab(
-                        LiveTabRecord {
-                            audio_muted: false,
-                            closable: true,
-                            icon_data_url: None,
-                            id: completion.tab_id.clone(),
-                            persistable: false,
-                            role_ids: if completion.tab_type == "role" {
-                                vec![completion.source_id.clone()]
-                            } else {
-                                Vec::new()
-                            },
-                            role_slots: Vec::new(),
-                            source_id: completion.source_id.clone(),
-                            tab_type: completion.tab_type.clone(),
-                            title: completion.title.clone(),
-                            #[cfg(any(windows, target_os = "macos"))]
-                            workspace_template: None,
-                        },
-                        0,
-                        should_select,
-                    );
-                }
-                let receipt = match self.presentation.commit_live_window_record(
-                    "command",
-                    &completion.window_id,
-                    &presentation,
-                ) {
-                    Ok(receipt) => receipt,
-                    Err(_) => return None,
-                };
-                self.presentation
-                    .statuses
-                    .set_presentation_phase(&completion.tab_id, phase);
-                (presentation.selected_tab_id.clone(), receipt.revision)
-            }
-            Err(_) => return None,
-        };
+        let mut presentation = self
+            .presentation
+            .snapshot_live_window(&completion.window_id)
+            .ok()?;
+        if !presentation
+            .tabs
+            .iter()
+            .any(|tab| tab.id == completion.tab_id)
+        {
+            let should_select = presentation.selected_tab_id.is_none();
+            presentation.insert_tab(
+                LiveTabRecord {
+                    audio_muted: false,
+                    closable: true,
+                    icon_data_url: None,
+                    id: completion.tab_id.clone(),
+                    persistable: false,
+                    role_ids: if completion.tab_type == "role" {
+                        vec![completion.source_id.clone()]
+                    } else {
+                        Vec::new()
+                    },
+                    role_slots: Vec::new(),
+                    source_id: completion.source_id.clone(),
+                    tab_type: completion.tab_type.clone(),
+                    title: completion.title.clone(),
+                    #[cfg(any(windows, target_os = "macos"))]
+                    workspace_template: None,
+                },
+                0,
+                should_select,
+            );
+        }
+        let receipt = self
+            .presentation
+            .commit_live_window_record("command", &completion.window_id, &presentation)
+            .ok()?;
+        self.presentation
+            .statuses
+            .set_presentation_phase(&completion.tab_id, phase);
+        let active_tab_id = presentation.selected_tab_id.clone();
+        let revision = receipt.revision;
         let launch_preview_id = uuid::Uuid::new_v4().to_string();
         let provisional = ProvisionalLaunch {
             cancelled: false,

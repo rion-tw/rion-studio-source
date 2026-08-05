@@ -39,6 +39,11 @@ const architectureGuards = [
     pattern: /TabActivationCoordinator|tabActivationConverged|__rionApplyRuntimeTabActivation/u
   },
   {
+    name: "launch-preview live-window self-deadlock",
+    paths: /^src-tauri\/src\/system_runtime\/section_22_with_native_creation_lane\.rs$/u,
+    pattern: /match\s+presentation\.lock\(\)/u
+  },
+  {
     name: "Core window topology command",
     pattern: /BrowserRuntimeCommand::(?:RegisterWindow|RemoveWindow)/u
   },

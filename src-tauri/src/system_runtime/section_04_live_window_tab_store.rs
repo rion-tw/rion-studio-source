@@ -178,6 +178,14 @@ impl LiveWindowTabStore {
 }
 
 impl PresentationRegistry {
+    fn snapshot_live_window(&self, window_id: &str) -> Result<LiveWindowRecord, String> {
+        self.existing(window_id)
+            .ok_or_else(|| "The live runtime window is unavailable.".to_owned())?
+            .lock()
+            .map(|live| live.clone())
+            .map_err(|_| "The live runtime window is unavailable.".to_owned())
+    }
+
     fn commit_live_window_record(
         &self,
         source: &'static str,

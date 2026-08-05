@@ -333,6 +333,39 @@ impl PresentationRegistry {
         Ok(actor)
     }
 
+    fn record_externally_applied_presentation(
+        &self,
+        window_id: &str,
+        revision: u64,
+        tab_id: Option<&str>,
+        surfaces: &[Webview],
+    ) {
+        let surface_labels = presentation_surface_labels(surfaces);
+        let surface_owner_revisions = self.surface_owner_revisions(&surface_labels);
+        let surface_identities =
+            presentation_owner_identities(surfaces, &surface_owner_revisions);
+        if let Ok(projection) = self.projection_coordinator(window_id)
+            && let Ok(mut projection) = projection.lock()
+            && revision >= projection.applied_revision
+        {
+            projection.applied_revision = revision;
+            projection.applied_tab_id = tab_id.map(str::to_owned);
+        }
+        let actor = self
+            .actors
+            .lock()
+            .ok()
+            .and_then(|actors| actors.get(window_id).cloned());
+        if let Some(actor) = actor {
+            actor.record_externally_applied_presentation(
+                revision,
+                tab_id.map(str::to_owned),
+                surface_identities,
+                surfaces.to_vec(),
+            );
+        }
+    }
+
     fn unbind_surface(&self, instance_id: &str, surface_label: &str) {
         if let Ok(mut owners) = self.surface_owners.lock()
             && owners

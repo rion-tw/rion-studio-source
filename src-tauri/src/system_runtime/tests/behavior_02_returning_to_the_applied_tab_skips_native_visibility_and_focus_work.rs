@@ -157,6 +157,61 @@
     }
 
     #[test]
+    fn presentation_fence_uses_projection_instance_identities_on_both_threads() {
+        let tab_id = Some("tab-a".to_owned());
+        let projection_identities =
+            HashSet::from([("surface-instance:7".to_owned(), 7)]);
+        let native_owner_identities = HashSet::from([("webview-label".to_owned(), 42)]);
+
+        assert!(native_presentation_intent_is_current(
+            11,
+            &tab_id,
+            &projection_identities,
+            11,
+            &tab_id,
+            &projection_identities,
+        ));
+        assert!(!native_presentation_intent_is_current(
+            11,
+            &tab_id,
+            &projection_identities,
+            11,
+            &tab_id,
+            &native_owner_identities,
+        ));
+    }
+
+    #[test]
+    fn externally_reparented_surface_reseeds_the_target_actor_once() {
+        let mut state = NativeWindowActorState {
+            applied_revision: 12,
+            applied_surface_identities: HashSet::from([("surface-a".to_owned(), 3)]),
+            applied_tab_id: Some("tab-a".to_owned()),
+            ..NativeWindowActorState::default()
+        };
+
+        state.record_externally_applied_presentation(
+            13,
+            Some("tab-b".to_owned()),
+            HashSet::from([("surface-b".to_owned(), 4)]),
+            Vec::new(),
+        );
+        state.record_externally_applied_presentation(
+            11,
+            Some("stale-tab".to_owned()),
+            HashSet::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(state.applied_revision, 13);
+        assert_eq!(state.applied_tab_id.as_deref(), Some("tab-b"));
+        assert_eq!(
+            state.applied_surface_identities,
+            HashSet::from([("surface-b".to_owned(), 4)])
+        );
+    }
+
+    #[test]
     fn rapid_close_preflight_reuses_the_latest_optimistic_preview_revision() {
         assert_eq!(
             close_preflight_plan(

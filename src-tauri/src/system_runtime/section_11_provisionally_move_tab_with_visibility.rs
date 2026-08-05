@@ -212,6 +212,16 @@ impl SystemRuntimeExecutor {
             Ok::<(), String>(())
         })();
         reveal_result?;
+        if tab_was_visible
+            && target_active_after_move.as_deref() == Some(tab_id)
+        {
+            self.presentation.record_externally_applied_presentation(
+                target_window_id,
+                move_revision,
+                Some(tab_id),
+                &surfaces,
+            );
+        }
         if cfg!(target_os = "macos") && live_drag {
             self.schedule_live_tab_drag_layout(tab_id.to_owned());
         }

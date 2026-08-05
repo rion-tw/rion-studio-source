@@ -225,9 +225,6 @@ impl AppCore {
                 self.mutate_state(StateMutation::GameWindowReorder { ordered_ids })
             }
             CoreCommand::GameWindowDelete { id } => self.delete_game_window(id),
-            CoreCommand::GameWindowDeleteIfUnchanged { id, updated_at } => {
-                self.mutate_state(StateMutation::GameWindowDeleteIfUnchanged { id, updated_at })
-            }
             CoreCommand::MacrosList => self.read_state_collection("macros"),
             CoreCommand::MacroGet { id } => {
                 self.read_state_record("macros", "id", &id, "MACRO_NOT_FOUND", "Macro not found.")

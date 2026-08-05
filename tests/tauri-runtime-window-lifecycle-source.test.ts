@@ -144,6 +144,48 @@ describe("runtime window lifecycle authority", () => {
     expect(worker).not.toContain("runtime_window_snapshot_commit_input");
   });
 
+  it("saves a detached live window without consulting or compensating Core topology", async () => {
+    const [menuSave, coreSave, coreModel] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../crates/rion-core/src/app/section_08_stop_embedded_workspace_with_operation_lease.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../crates/rion-core/src/model/section_02_core_command.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
+    const saveMenu = menuSave.slice(
+      menuSave.indexOf("fn save_runtime_game_window("),
+      menuSave.indexOf("fn saved_game_windows(")
+    );
+    const saveCore = coreSave.slice(
+      coreSave.indexOf("fn save_runtime_game_window("),
+      coreSave.lastIndexOf("\n}")
+    );
+
+    expect(saveMenu).toContain("runtime_game_window_save_input");
+    expect(saveMenu).toContain("GameWindowSaveRuntime");
+    expect(saveMenu).not.toContain("GameWindowDeleteIfUnchanged");
+    expect(saveMenu).not.toContain("rollback");
+    expect(saveCore).toContain("StateMutation::GameWindowSaveRuntime(input)");
+    expect(saveCore).not.toContain("BrowserRuntimeCommand::Snapshot");
+    expect(saveCore).not.toContain("browser_runtime");
+    expect(saveCore).not.toContain("embedded_window_sequence");
+    expect(saveCore).not.toContain("embedded_runtime_sequence");
+    expect(coreModel).not.toContain("GameWindowDeleteIfUnchanged");
+  });
+
   it("retains the complete live revision while a window close tears down its tabs", async () => {
     const [close, tabClose, persistence, saveInput] = await Promise.all([
       readFile(

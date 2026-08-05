@@ -435,17 +435,6 @@ fn apply_domain_mutation(
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
                 Ok(json!({ "deleted": true }))
             }
-            StateMutation::GameWindowDeleteIfUnchanged { id, updated_at } => {
-                let mut game_windows =
-                    read_typed_collection::<StateGameWindowRecord>(&transaction, "gameWindows")?;
-                let deleted = delete_game_window_if_unchanged(&mut game_windows, &id, &updated_at);
-                if deleted {
-                    transaction
-                        .execute("DELETE FROM game_windows WHERE id=?1", params![id])
-                        .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-                }
-                Ok(json!({ "deleted": deleted }))
-            }
             StateMutation::MacroCreate(input) => {
                 let mut macros = read_typed_collection::<StateMacroRecord>(&transaction, "macros")?;
                 let roles = read_typed_collection::<StateRoleRecord>(&transaction, "roles")?;

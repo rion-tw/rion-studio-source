@@ -203,21 +203,6 @@ pub fn delete_game_window(
     Ok(())
 }
 
-pub fn delete_game_window_if_unchanged(
-    game_windows: &mut Vec<StateGameWindowRecord>,
-    id: &str,
-    updated_at: &str,
-) -> bool {
-    let Some(index) = game_windows
-        .iter()
-        .position(|window| window.id == id && window.updated_at == updated_at)
-    else {
-        return false;
-    };
-    game_windows.remove(index);
-    true
-}
-
 pub fn validate_game_window_collection(game_windows: &[StateGameWindowRecord]) -> CoreResult<()> {
     if game_windows.len() > 32 {
         return Err(domain(

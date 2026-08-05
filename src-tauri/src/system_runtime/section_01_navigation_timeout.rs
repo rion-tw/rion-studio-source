@@ -482,8 +482,8 @@ pub(crate) fn native_runtime_window_title(saved_name: Option<&str>) -> String {
 
 fn next_zoom_factor(current: f64, action: &str, minimum: f64, maximum: f64) -> f64 {
     let value = match action {
-        "in" => current + 0.1,
-        "out" => current - 0.1,
+        "in" => current + 0.05,
+        "out" => current - 0.05,
         _ => 1.0,
     };
     ((value * 100.0).round() / 100.0).clamp(minimum, maximum)

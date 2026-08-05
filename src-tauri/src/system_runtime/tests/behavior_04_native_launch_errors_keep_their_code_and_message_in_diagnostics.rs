@@ -258,10 +258,11 @@
     #[test]
     fn window_and_role_zoom_layers_compose_and_clamp_on_both_platforms() {
         for platform in ["macos", "windows"] {
-            assert_eq!(next_zoom_factor(1.0, "in", 0.25, 5.0), 1.1, "{platform}");
-            assert_eq!(next_zoom_factor(1.0, "out", 0.25, 5.0), 0.9, "{platform}");
-            assert_eq!(next_zoom_factor(0.33, "in", 0.25, 3.0), 0.43, "{platform}");
+            assert_eq!(next_zoom_factor(1.0, "in", 0.25, 5.0), 1.05, "{platform}");
+            assert_eq!(next_zoom_factor(1.0, "out", 0.25, 5.0), 0.95, "{platform}");
+            assert_eq!(next_zoom_factor(0.33, "in", 0.25, 3.0), 0.38, "{platform}");
             assert_eq!(next_zoom_factor(1.8, "reset", 0.25, 5.0), 1.0, "{platform}");
+            assert_eq!(next_zoom_factor(0.25, "out", 0.25, 5.0), 0.25, "{platform}");
             assert_eq!(next_zoom_factor(3.0, "in", 0.25, 3.0), 3.0, "{platform}");
             assert_eq!(effective_zoom_factor(1.25, 1.1), 1.375, "{platform}");
             assert_eq!(effective_zoom_factor(3.0, 2.0), 5.0, "{platform}");

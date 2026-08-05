@@ -6,12 +6,9 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let started = Instant::now();
         let setup = (|| -> RuntimeResult<_> {
+            let window_id = self.resolve_live_tab_window_id(tab_id)?;
             let (window_id, window, fallback_successor_tab_id) = {
                 let state = self.state()?;
-                let tab = state.tabs.get(tab_id).ok_or_else(|| {
-                    RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
-                })?;
-                let window_id = tab.window_id.clone();
                 let host = state.display_hosts.get(&window_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
@@ -21,10 +18,8 @@ impl SystemRuntimeExecutor {
                 let fallback_successor_tab_id = next_active_tab_id
                     .filter(|next_tab_id| *next_tab_id != tab_id)
                     .filter(|next_tab_id| {
-                        state.tabs.get(*next_tab_id).is_some_and(|next_tab| {
-                            next_tab.window_id == window_id
-                                && !state.optimistic_closed_tabs.contains(*next_tab_id)
-                        })
+                        self.presentation.window_contains_tab(&window_id, next_tab_id)
+                            && !state.optimistic_closed_tabs.contains(*next_tab_id)
                     })
                     .map(str::to_owned);
                 (window_id, host.window.clone(), fallback_successor_tab_id)

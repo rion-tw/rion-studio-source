@@ -319,7 +319,7 @@ pub struct AppCore {
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_launch_completion_sink: RwLock<Option<BrowserLaunchCompletionSink>>,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
-    browser_runtime: Arc<Mutex<crate::browser_runtime::BrowserRuntime>>,
+    browser_runtime: Arc<Mutex<crate::browser_runtime::RoleOwnershipRuntime>>,
     browser_status_emit_guard: Mutex<()>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     database_paths: DatabasePaths,
@@ -430,7 +430,9 @@ impl AppCore {
             route_browser_action_events(events, &macro_browser_action_sender, &macro_event_sender);
         })));
         let browser_runtime =
-            Arc::new(Mutex::new(crate::browser_runtime::BrowserRuntime::default()));
+            Arc::new(Mutex::new(
+                crate::browser_runtime::RoleOwnershipRuntime::default(),
+            ));
         let browser_action_event_sender = event_sender.clone();
         let browser_action_effects =
             crate::browser_action_effects::BrowserActionEffectRuntime::start(

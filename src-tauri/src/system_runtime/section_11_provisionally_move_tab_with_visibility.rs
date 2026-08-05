@@ -6,6 +6,7 @@ impl SystemRuntimeExecutor {
         reveal_hidden_target: bool,
         live_drag: bool,
     ) -> Result<(), String> {
+        let live_window_id = self.resolve_live_tab_window_id(tab_id).map_err(|error| error.message)?;
         let (source_window_id, source_window, target_window, surfaces) = {
             let state = self
                 .state
@@ -15,7 +16,12 @@ impl SystemRuntimeExecutor {
                 .tabs
                 .get(tab_id)
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-            let source_window_id = tab.window_id.clone();
+            let source_window_id = state
+                .surface_registry
+                .values()
+                .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                .map(|surface| surface.window_id.clone())
+                .unwrap_or_else(|| live_window_id.clone());
             let source_window = state
                 .display_hosts
                 .get(&source_window_id)
@@ -184,7 +190,7 @@ impl SystemRuntimeExecutor {
                     ));
                 }
             };
-            let Some(tab) = state.tabs.get_mut(tab_id) else {
+            let Some(_tab) = state.tabs.get_mut(tab_id) else {
                 drop(state);
                 let projection_notes = self.retain_live_destination_after_surface_error(
                     tab_id,
@@ -205,28 +211,6 @@ impl SystemRuntimeExecutor {
                     projection_notes,
                 ));
             };
-            if tab.window_id != source_window_id {
-                drop(state);
-                let projection_notes = self.retain_live_destination_after_surface_error(
-                    tab_id,
-                    &source_window_id,
-                    target_window_id,
-                    &source_window,
-                    &target_window,
-                    &surfaces,
-                    surfaces.len(),
-                    false,
-                    &native_move,
-                    tab_was_visible,
-                    source_window_was_visible,
-                    target_window_was_visible,
-                );
-                return Err(self.surface_projection_error(
-                    "Runtime tab moved before the provisional transaction committed.".to_owned(),
-                    projection_notes,
-                ));
-            }
-            tab.window_id = target_window_id.to_owned();
             for surface in state.surface_registry.values_mut() {
                 if surface.tab_id.as_deref() == Some(tab_id) {
                     surface.window_id = target_window_id.to_owned();
@@ -238,10 +222,10 @@ impl SystemRuntimeExecutor {
                 .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
                 .cloned()
                 .collect::<Vec<_>>();
-            let source_is_empty = !state
-                .tabs
-                .values()
-                .any(|tab| tab.window_id == source_window_id);
+            let source_is_empty = self
+                .live_tab_ids_for_window(&source_window_id)
+                .iter()
+                .all(|live_tab_id| live_tab_id == tab_id);
             (source_is_empty, moved_surfaces)
         };
         for surface in &moved_surfaces {
@@ -459,10 +443,10 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {
+        if !self.live_tab_ids_for_window(window_id).is_empty() {
+            return;
+        }
         let Some((host, can_discard)) = self.state.lock().ok().map(|mut state| {
-            if state.tabs.values().any(|tab| tab.window_id == window_id) {
-                return (None, false);
-            }
             let host = state.display_hosts.remove(window_id);
             if let Some(host) = host.as_ref() {
                 state
@@ -525,7 +509,8 @@ impl SystemRuntimeExecutor {
     ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
         self.require_runtime_accepting()
             .map_err(|error| error.message)?;
-        let (role_id, window_id, surface_generation) = {
+        let window_id = self.resolve_live_tab_window_id(tab_id).map_err(|error| error.message)?;
+        let (role_id, surface_generation) = {
             let state = self.state().map_err(|error| error.message)?;
             let tab = state
                 .tabs
@@ -538,7 +523,7 @@ impl SystemRuntimeExecutor {
                 .cloned()
                 .ok_or_else(|| "runtime tab has no owned role surface".to_owned())?;
             let surface_generation = tab.roles.get(&role_id).map(|role| role.generation);
-            (role_id, tab.window_id.clone(), surface_generation)
+            (role_id, surface_generation)
         };
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Audio,
@@ -600,11 +585,7 @@ impl SystemRuntimeExecutor {
                 .get_mut(window_id)
                 .ok_or_else(|| "Runtime display host was not found".to_owned())?;
             host.toolbar_revealed = revealed;
-            state
-                .tabs
-                .iter()
-                .filter_map(|(tab_id, tab)| (tab.window_id == window_id).then_some(tab_id.clone()))
-                .collect::<Vec<_>>()
+            self.live_tab_ids_for_window(window_id)
         };
         for tab_id in tab_ids {
             self.layout_runtime_tab(&tab_id)

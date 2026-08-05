@@ -146,3 +146,26 @@ impl LiveWindowTabStore {
         })
     }
 }
+
+impl SystemRuntimeExecutor {
+    fn resolve_live_tab_window_id(&self, tab_id: &str) -> RuntimeResult<String> {
+        self.presentation
+            .tab_window(tab_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "The runtime tab is no longer in live topology.",
+                )
+            })
+    }
+
+    fn live_tab_ids_for_window(&self, window_id: &str) -> Vec<String> {
+        self.presentation
+            .existing(window_id)
+            .and_then(|live| live.lock().ok().map(|live| live.all_tab_ids()))
+            .unwrap_or_default()
+    }
+}

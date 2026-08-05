@@ -282,7 +282,6 @@ impl SystemRuntimeExecutor {
             .drain(..)
             .map(|tab| (tab.id.clone(), tab))
             .collect::<HashMap<_, _>>();
-        let mut owner_by_tab = HashMap::new();
         let mut tabs = Vec::new();
         let mut windows = Vec::new();
         for (window_id, live) in &live_windows {
@@ -295,7 +294,6 @@ impl SystemRuntimeExecutor {
                 tab_ids,
             });
             for tab in &live.tabs {
-                owner_by_tab.insert(tab.id.clone(), window_id.clone());
                 let previous_slots = core_tabs
                     .get(&tab.id)
                     .map(|tab| tab.slots.clone())
@@ -350,11 +348,6 @@ impl SystemRuntimeExecutor {
                 projected.slots = slots;
                 projected.hidden = live.tab_is_hidden(&tab.id);
                 tabs.push(projected);
-            }
-        }
-        for role in &mut snapshot.roles {
-            if let Some(window_id) = owner_by_tab.get(&role.owner.tab_id) {
-                role.owner.window_id = window_id.clone();
             }
         }
         snapshot.workspaces.retain_mut(|workspace| {
@@ -455,20 +448,7 @@ impl SystemRuntimeExecutor {
                 host.target.bounds.height = height.round() as i32;
             }
         }
-        let tab_ids = self
-            .state
-            .lock()
-            .ok()
-            .map(|state| {
-                state
-                    .tabs
-                    .iter()
-                    .filter_map(|(tab_id, tab)| {
-                        (tab.window_id == window_id).then_some(tab_id.clone())
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let tab_ids = self.live_tab_ids_for_window(&window_id);
         let mut layout_errors = Vec::new();
         for tab_id in tab_ids {
             if let Err(error) = self.layout_runtime_tab(&tab_id) {

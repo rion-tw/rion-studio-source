@@ -12,23 +12,17 @@ impl AppCore {
             focus_active_window_id,
             parent_operation_id,
         } = transition;
-        let (previous, mut next_runtime, mut next) = {
-            let runtime = self
+        let next = {
+            let mut runtime = self
                 .browser_runtime
                 .lock()
                 .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-            let previous = runtime.clone();
-            let mut next_runtime = previous.clone();
-            let mut result = next_runtime.invoke(BrowserRuntimeCommand::Snapshot)?;
+            let mut result = runtime.invoke(BrowserRuntimeCommand::Snapshot)?;
             for command in commands {
-                result = next_runtime.invoke(command)?;
+                result = runtime.invoke(command)?;
             }
-            (previous, next_runtime, result.snapshot)
+            result.snapshot
         };
-        let previous_snapshot = previous
-            .clone()
-            .invoke(BrowserRuntimeCommand::Snapshot)?
-            .snapshot;
         let focus_tab_id = focus_tab_id.or_else(|| {
             focus_active_window_id.and_then(|window_id| {
                 next.windows
@@ -50,50 +44,6 @@ impl AppCore {
             None,
             parent_operation_id.as_deref(),
         )?;
-        let removed_window_ids = previous_snapshot
-            .windows
-            .iter()
-            .filter(|previous_window| {
-                !previous_window.tab_ids.is_empty()
-                    && next
-                        .windows
-                        .iter()
-                        .find(|next_window| next_window.window_id == previous_window.window_id)
-                        .is_some_and(|next_window| next_window.tab_ids.is_empty())
-            })
-            .map(|window| window.window_id.clone())
-            .collect::<std::collections::HashSet<_>>();
-        if !removed_window_ids.is_empty() {
-            let mut cleaned_runtime = next_runtime.clone();
-            for window_id in &removed_window_ids {
-                cleaned_runtime.invoke(BrowserRuntimeCommand::RemoveWindow {
-                    window_id: window_id.clone(),
-                })?;
-            }
-            let cleaned = cleaned_runtime
-                .invoke(BrowserRuntimeCommand::Snapshot)?
-                .snapshot;
-            let _ = self.run_embedded_runtime_effect(
-                "embedded-runtime-empty-window-cleanup",
-                CoreEffectAction::EmbeddedApplyRuntime {
-                    snapshot: cleaned.clone(),
-                    target: None,
-                    reveal_window_ids: Vec::new(),
-                    focus_window_ids: Vec::new(),
-                    focus_tab_id: None,
-                },
-                None,
-                parent_operation_id.as_deref(),
-            );
-            next_runtime = cleaned_runtime;
-            next = cleaned;
-        }
-        let mut runtime = self
-            .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-        *runtime = next_runtime;
-        drop(runtime);
         self.emit_browser_statuses();
         Ok(next)
     }

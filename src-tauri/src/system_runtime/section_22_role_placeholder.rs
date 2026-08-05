@@ -34,7 +34,10 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<RolePlaceholderSurface> {
         let owner_tab_name = slot.owner.as_ref().and_then(|owner| {
             self.presentation
-                .existing(&owner.window_id)
+                .tab_window(&owner.tab_id)
+                .ok()
+                .flatten()
+                .and_then(|window_id| self.presentation.existing(&window_id))
                 .and_then(|presentation| {
                     presentation
                         .lock()

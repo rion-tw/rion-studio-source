@@ -43,9 +43,14 @@ impl SystemRuntimeExecutor {
             let state = self.state()?;
             (
                 state
-                    .tabs
-                    .iter()
-                    .map(|(tab_id, tab)| (tab_id.clone(), tab.window_id.clone()))
+                    .surface_registry
+                    .values()
+                    .filter_map(|surface| {
+                        surface
+                            .tab_id
+                            .as_ref()
+                            .map(|tab_id| (tab_id.clone(), surface.window_id.clone()))
+                    })
                     .collect::<HashMap<_, _>>(),
                 state.optimistic_closed_tabs.clone(),
                 state.pending_window_tab_restores.clone(),
@@ -80,7 +85,7 @@ impl SystemRuntimeExecutor {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
                         #[cfg(windows)]
-                        source_window_id: runtime_tab.window_id.clone(),
+                        source_window_id: live_windows.get(&plan.tab_id)?.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
                     })
@@ -167,9 +172,6 @@ impl SystemRuntimeExecutor {
             for update in &tab_updates {
                 if update.moved && !projected_tab_ids.contains(&update.tab_id) {
                     continue;
-                }
-                if let Some(runtime_tab) = state.tabs.get_mut(&update.tab_id) {
-                    runtime_tab.window_id = update.window_id.clone();
                 }
                 for surface in state.surface_registry.values_mut() {
                     if surface.tab_id.as_deref() == Some(update.tab_id.as_str()) {
@@ -331,10 +333,8 @@ impl SystemRuntimeExecutor {
                     let active_tab = presentation_window
                         .and_then(|selection| selection.selected_tab_id.as_deref())
                         .filter(|tab_id| {
-                            state.tabs.get(*tab_id).is_some_and(|tab| {
-                                tab.window_id == *window_id
-                                    && !state.optimistic_closed_tabs.contains(*tab_id)
-                            })
+                            state.tabs.contains_key(*tab_id)
+                                && !state.optimistic_closed_tabs.contains(*tab_id)
                         });
                     let title = Some(native_runtime_window_title(
                         game_window_names.get(window_id).map(String::as_str),

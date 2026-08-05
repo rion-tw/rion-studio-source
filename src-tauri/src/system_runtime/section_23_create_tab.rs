@@ -101,7 +101,6 @@ impl SystemRuntimeExecutor {
                     active_divider_resize: None,
                     audio_muted: false,
                     dividers: Vec::new(),
-                    window_id: target.window_id.clone(),
                     roles: HashMap::new(),
                     slots: tab
                         .slots

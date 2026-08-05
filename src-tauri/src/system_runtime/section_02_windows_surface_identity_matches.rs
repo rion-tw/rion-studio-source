@@ -288,7 +288,6 @@ struct RuntimeTab {
     active_divider_resize: Option<ActiveDividerResize>,
     audio_muted: bool,
     dividers: Vec<RuntimeDivider>,
-    window_id: String,
     roles: HashMap<String, RoleSurface>,
     slots: HashMap<String, RuntimeRoleSlot>,
     workspace_id: Option<String>,

@@ -282,7 +282,7 @@ impl SystemRuntimeExecutor {
         role_id: &str,
     ) -> RuntimeResult<()> {
         self.require_runtime_accepting()?;
-        let (window_id, window_generation, tab_id) = {
+        let owned_tab_id = {
             let state = self.state()?;
             if let Some(tab_id) = state.role_tabs.get(role_id)
                 && let Some(tab) = state.tabs.get(tab_id)
@@ -290,20 +290,27 @@ impl SystemRuntimeExecutor {
                     surface.webview.label() == webview.label()
                 })
             {
-                let generation = state
-                    .display_hosts
-                    .get(&tab.window_id)
-                    .map(|host| host.generation)
-                    .unwrap_or_default();
-                (tab.window_id.clone(), generation, Some(tab_id.clone()))
+                Some(tab_id.clone())
             } else if state.popup_roles.get(webview.label()).map(String::as_str) == Some(role_id) {
-                (format!("popup:{}", webview.label()), 0, None)
+                None
             } else {
                 return Err(RuntimeError::new(
                     "OVERLAY_WEBVIEW_FOCUS_STATE_FAILED",
                     "The overlay WebView is no longer owned by the selected role.",
                 ));
             }
+        };
+        let (window_id, window_generation, tab_id) = if let Some(tab_id) = owned_tab_id {
+            let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+            let generation = self
+                .state()?
+                .display_hosts
+                .get(&window_id)
+                .map(|host| host.generation)
+                .unwrap_or_default();
+            (window_id, generation, Some(tab_id))
+        } else {
+            (format!("popup:{}", webview.label()), 0, None)
         };
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::Focus,

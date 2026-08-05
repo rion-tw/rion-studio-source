@@ -18,9 +18,19 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
+        let tab_id = self
+            .state()?
+            .role_tabs
+            .get(role_id)
+            .cloned()
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role was not found during System WebView recovery.",
+                )
+            })?;
+        let window_id = self.resolve_live_tab_window_id(&tab_id)?;
         let (
-            tab_id,
-            window_id,
             window,
             old_surface_instance_id,
             old_webview_label,
@@ -34,14 +44,7 @@ impl SystemRuntimeExecutor {
             generation,
         ) = {
             let state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
-                    "Runtime role was not found during System WebView recovery.",
-                )
-            })?;
             let (
-                window_id,
                 old_surface_instance_id,
                 old_webview_label,
                 expected_generation,
@@ -61,7 +64,7 @@ impl SystemRuntimeExecutor {
                     )
                 })?;
                 if !surface_recovery_target_is_current(
-                    &tab.window_id,
+                    &window_id,
                     &transaction.window_id,
                     role.generation,
                     transaction.surface_generation,
@@ -78,7 +81,6 @@ impl SystemRuntimeExecutor {
                     )
                 })?;
                 (
-                    tab.window_id.clone(),
                     role.surface_instance_id.clone(),
                     role.webview.label().to_owned(),
                     role.generation,
@@ -105,8 +107,6 @@ impl SystemRuntimeExecutor {
                 .max(expected_generation)
                 .saturating_add(1);
             (
-                tab_id,
-                window_id,
                 window,
                 old_surface_instance_id,
                 old_webview_label,

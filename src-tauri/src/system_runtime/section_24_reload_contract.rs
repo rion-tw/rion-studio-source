@@ -31,12 +31,13 @@ fn aggregate_reload_status(statuses: &[NativeOperationStatus]) -> NativeOperatio
 impl SystemRuntimeExecutor {
     fn reload_tab_contract(self: &Arc<Self>, tab_id: &str) -> RuntimeResult<String> {
         self.require_runtime_accepting()?;
-        let (window_id, targets) = {
+        let window_id = self.resolve_live_tab_window_id(tab_id)?;
+        let targets = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            let targets = tab
+            tab
                 .roles
                 .iter()
                 .map(|(role_id, role)| {
@@ -47,8 +48,7 @@ impl SystemRuntimeExecutor {
                         role.generation,
                     )
                 })
-                .collect::<Vec<_>>();
-            (tab.window_id.clone(), targets)
+                .collect::<Vec<_>>()
         };
         if targets.is_empty() {
             return Err(RuntimeError::new(

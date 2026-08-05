@@ -464,6 +464,7 @@ impl SystemRuntimeExecutor {
         &self,
         released: &ReleasedRoleSurface,
     ) -> RuntimeResult<()> {
+        let live_window_id = self.resolve_live_tab_window_id(&released.tab_id)?;
         let (window, window_id, slot, selected) = {
             let state = self.state()?;
             let tab = state.tabs.get(&released.tab_id).ok_or_else(|| {
@@ -482,7 +483,7 @@ impl SystemRuntimeExecutor {
                         "The stopped role no longer has a runtime slot.",
                     )
                 })?;
-            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&live_window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "The runtime display host closed before the placeholder was restored.",
@@ -490,7 +491,7 @@ impl SystemRuntimeExecutor {
             })?;
             let selected = self
                 .presentation
-                .existing(&tab.window_id)
+                .existing(&live_window_id)
                 .and_then(|presentation| {
                     presentation.lock().ok().map(|presentation| {
                         presentation.selected_tab_id.as_deref() == Some(released.tab_id.as_str())
@@ -499,7 +500,7 @@ impl SystemRuntimeExecutor {
                 .unwrap_or(false);
             (
                 host.window.clone(),
-                tab.window_id.clone(),
+                live_window_id.clone(),
                 EmbeddedRoleSlotEffectRecord {
                     owner: None,
                     rect: slot.rect.clone(),
@@ -549,15 +550,30 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?
+            .or_else(|| {
+                self.state
+                    .lock()
+                    .ok()
+                    .and_then(|state| state.close_previews.get(tab_id).map(|item| item.window_id.clone()))
+            })
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "Runtime tab cleanup identity was not found.",
+                )
+            })?;
         let (role_ids, window_id) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            (
-                tab.roles.keys().cloned().collect::<Vec<_>>(),
-                tab.window_id.clone(),
-            )
+            (tab.roles.keys().cloned().collect::<Vec<_>>(), window_id)
         };
         {
             let mut state = self.state()?;

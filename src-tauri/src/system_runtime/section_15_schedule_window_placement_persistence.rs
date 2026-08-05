@@ -294,11 +294,15 @@ impl SystemRuntimeExecutor {
             if !owns_surface {
                 return Ok(false);
             }
-            (tab.window_id.clone(), tab_id.clone())
+            tab_id.clone()
         };
+        let window_id = self
+            .presentation
+            .tab_window(&target)?
+            .ok_or_else(|| "Overlay target tab is no longer live.".to_owned())?;
         let selected_tab_id = self
             .presentation
-            .existing(&target.0)
+            .existing(&window_id)
             .and_then(|presentation| {
                 presentation
                     .lock()
@@ -307,7 +311,7 @@ impl SystemRuntimeExecutor {
             });
         Ok(overlay_focus_target_is_selected(
             false,
-            Some(target.1.as_str()),
+            Some(target.as_str()),
             selected_tab_id.as_deref(),
         ))
     }
@@ -417,10 +421,9 @@ impl SystemRuntimeExecutor {
             operation.surface_generation = self.surface_generation_for_role(&role_id);
             if let Ok(state) = self.state()
                 && let Some(tab_id) = state.role_tabs.get(&role_id)
-                && let Some(tab) = state.tabs.get(tab_id)
             {
                 operation.tab_id = Some(tab_id.clone());
-                operation.window_id = Some(tab.window_id.clone());
+                operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
             }
         }
         let result = self.apply_role_zoom_for_webview(webview_label, action);
@@ -458,9 +461,18 @@ impl SystemRuntimeExecutor {
             return Err("Role zoom action is invalid.".to_owned());
         }
         let role_id = self.role_id_for_webview(webview_label)?;
+        let tab_id = self
+            .state()
+            .map_err(|error| error.message)?
+            .role_tabs
+            .get(&role_id)
+            .cloned()
+            .ok_or_else(|| "Runtime role was not found.".to_owned())?;
+        let window_id = self
+            .presentation
+            .tab_window(&tab_id)?
+            .ok_or_else(|| "Runtime role tab is no longer live.".to_owned())?;
         let (
-            tab_id,
-            window_id,
             workspace_id,
             persist_saved_zoom,
             window_zoom_factor,
@@ -472,11 +484,6 @@ impl SystemRuntimeExecutor {
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-            let tab_id = state
-                .role_tabs
-                .get(&role_id)
-                .cloned()
-                .ok_or_else(|| "Runtime role was not found.".to_owned())?;
             let tab = state
                 .tabs
                 .get(&tab_id)
@@ -487,7 +494,7 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| "Runtime role was not found.".to_owned())?;
             let window_zoom_factor = state
                 .display_hosts
-                .get(&tab.window_id)
+                .get(&window_id)
                 .map(|host| host.zoom_factor)
                 .unwrap_or(1.0);
             let mut webviews = vec![surface.webview.clone()];
@@ -502,10 +509,8 @@ impl SystemRuntimeExecutor {
                     }),
             );
             (
-                tab_id,
-                tab.window_id.clone(),
                 tab.workspace_id.clone(),
-                should_persist_role_zoom(&state.saved_window_names, &tab.window_id),
+                should_persist_role_zoom(&state.saved_window_names, &window_id),
                 window_zoom_factor,
                 surface.zoom_factor,
                 next_zoom_factor(surface.zoom_factor, action, 0.25, 3.0),

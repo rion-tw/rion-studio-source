@@ -138,6 +138,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab_inner(&self, tab_id: &str) -> RuntimeResult<()> {
+        let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (
             window,
             role_views,
@@ -152,7 +153,7 @@ impl SystemRuntimeExecutor {
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            let host = state.display_hosts.get(&tab.window_id).ok_or_else(|| {
+            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
@@ -577,14 +578,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn remove_empty_display_host(&self, window_id: &str, created_for_operation: bool) {
-        if !created_for_operation {
+        if !created_for_operation || !self.live_tab_ids_for_window(window_id).is_empty() {
             return;
         }
         let host = self.state.lock().ok().and_then(|mut state| {
-            let has_tabs = state.tabs.values().any(|tab| tab.window_id == window_id);
-            if has_tabs {
-                return None;
-            }
             let host = state.display_hosts.remove(window_id)?;
             state
                 .allow_window_close_labels

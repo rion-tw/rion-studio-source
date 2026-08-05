@@ -537,29 +537,10 @@ impl SystemRuntimeExecutor {
     ) -> Result<(String, u64, String), String> {
         self.mark_critical_activity();
         let requested_at = Instant::now();
-        let runtime_window_id = {
-            let state = self.state().map_err(|error| error.message)?;
-            if state.optimistic_closed_tabs.contains(tab_id) {
-                return Err("The runtime tab is closing.".to_owned());
-            }
-            let tab = state
-                .tabs
-                .get(tab_id)
-                .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
-            tab.window_id.clone()
-        };
         let window_id = self.resolve_live_presentation_tab_owner(tab_id)?;
         let window = self
             .window_for_id(&window_id)
             .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
-        if runtime_window_id != window_id
-            && let Some(runtime) = self
-                .self_weak
-                .get()
-                .and_then(std::sync::Weak::upgrade)
-        {
-            runtime.schedule_tab_surface_move_retry(tab_id.to_owned(), window_id.clone());
-        }
         let (
             previous_tab_id,
             previous_surfaces,

@@ -50,10 +50,9 @@ impl SystemRuntimeExecutor {
         .with_surface_generation(generation);
         if let Ok(state) = self.state()
             && let Some(tab_id) = state.role_tabs.get(role_id)
-            && let Some(tab) = state.tabs.get(tab_id)
         {
             operation.tab_id = Some(tab_id.clone());
-            operation.window_id = Some(tab.window_id.clone());
+            operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
         }
         accept_navigation_input_operation(&self.operations, &operation)?;
         let epoch_result = self

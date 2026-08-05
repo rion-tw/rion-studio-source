@@ -6,12 +6,9 @@ impl SystemRuntimeExecutor {
     }
 
     fn retire_unacknowledged_created_tab(&self, tab_id: &str) -> RuntimeResult<()> {
-        let Some(window_id) = self
-            .state()?
-            .tabs
-            .get(tab_id)
-            .map(|tab| tab.window_id.clone())
-        else {
+        let Some(window_id) = self.presentation.tab_window(tab_id).map_err(|message| {
+            RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+        })? else {
             return Ok(());
         };
         let mut next_tab_id = None;

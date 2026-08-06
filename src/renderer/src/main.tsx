@@ -35,11 +35,13 @@ document.documentElement.dataset.platform = detectPlatform();
 document.documentElement.dataset.windowFullscreen = "false";
 document.documentElement.dataset.windowMaximized = "false";
 document.documentElement.dataset.windowFocused = "true";
+document.documentElement.dataset.windowsMica = "fallback";
 
 async function bootstrapRenderer(): Promise<void> {
   try {
     await installTauriBridgeIfNeeded();
-    await waitForNativeStartup();
+    const startup = await waitForNativeStartup();
+    document.documentElement.dataset.windowsMica = startup.windowsMicaEnabled ? "enabled" : "fallback";
   } catch (error) {
     const message = startupFailureMessage(error);
     showStartupFailure(message);

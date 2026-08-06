@@ -13,6 +13,7 @@ struct StartupWindowState {
     native_startup_phase: Mutex<NativeStartupPhase>,
     renderer_ready: AtomicBool,
     revealed: AtomicBool,
+    windows_mica_enabled: AtomicBool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -75,14 +76,18 @@ impl StartupWindowState {
         }
     }
 
-    async fn wait_for_native_startup(&self) -> Result<(), CoreErrorPayload> {
+    async fn wait_for_native_startup(&self) -> Result<bool, CoreErrorPayload> {
         loop {
             let changed = self.native_startup_changed.notified();
             if self.native_startup_result()?.is_some() {
-                return Ok(());
+                return Ok(self.windows_mica_enabled.load(Ordering::Acquire));
             }
             changed.await;
         }
+    }
+
+    fn set_windows_mica_enabled(&self, enabled: bool) {
+        self.windows_mica_enabled.store(enabled, Ordering::Release);
     }
 
     fn renderer_ready(&self) -> bool {

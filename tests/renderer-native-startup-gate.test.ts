@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { invoke } = vi.hoisted(() => ({
-  invoke: vi.fn(() => Promise.resolve())
+  invoke: vi.fn<(...args: unknown[]) => Promise<unknown>>()
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -22,7 +22,9 @@ describe("native startup gate", () => {
       value: {}
     });
 
-    await waitForNativeStartup();
+    invoke.mockResolvedValueOnce({ windowsMicaEnabled: true });
+
+    await expect(waitForNativeStartup()).resolves.toEqual({ windowsMicaEnabled: true });
 
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith("rion_shell_invoke", {
@@ -32,7 +34,7 @@ describe("native startup gate", () => {
   });
 
   it("does not invoke Tauri outside the desktop runtime", async () => {
-    await waitForNativeStartup();
+    await expect(waitForNativeStartup()).resolves.toEqual({ windowsMicaEnabled: false });
 
     expect(invoke).not.toHaveBeenCalled();
   });

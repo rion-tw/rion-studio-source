@@ -4,17 +4,22 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri shell contract guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
-    const [baseSource, macSource, shell, startup, bootStyles, startupFallback, rendererMain] = await Promise.all([
+    const [baseSource, macSource, windowsSource, shell, runtime, windowsMaterial, startup, bootStyles, runtimeTabs, startupFallback, rendererMain] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("src-tauri/tauri.macos.conf.json", "utf8"),
+      readFile("src-tauri/tauri.windows.conf.json", "utf8"),
       readFile("src-tauri/src/lib.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/platform/windows/material.rs", "utf8"),
       readFile("src/renderer/index.html", "utf8"),
       readFile("src/renderer/src/boot.css", "utf8"),
+      readFile("src/renderer/runtime-tabs.css", "utf8"),
       readFile("src/renderer/src/app/startupFallback.ts", "utf8"),
       readFile("src/renderer/src/main.tsx", "utf8")
     ]);
     const base = JSON.parse(baseSource);
     const mac = JSON.parse(macSource);
+    const windows = JSON.parse(windowsSource);
 
     expect(base.app.windows[0]).toMatchObject({
       width: 1440,
@@ -30,6 +35,17 @@ describe("Tauri shell contract guard", () => {
       transparent: true
     });
     expect(mac.app.windows[0].windowEffects.effects).toContain("underWindowBackground");
+    expect(windows.app.windows[0]).toMatchObject({
+      decorations: false,
+      shadow: true,
+      transparent: true
+    });
+    expect(windows.app.windows[0].windowEffects).toBeUndefined();
+    expect(windowsMaterial).toContain("RtlGetVersion");
+    expect(windowsMaterial).toContain("Effect::Mica");
+    expect(windowsMaterial).toContain("retrying with an opaque host");
+    expect(runtime).toContain("build_windows_runtime_host_window");
+    expect(runtime).toContain("windowsMica");
     expect(shell).toContain("renderer_ready");
     expect(shell).toContain("StartupWindowState");
     expect(shell).toContain("reveal_once()");
@@ -41,6 +57,11 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain('"rendererStartupFailed"');
     expect(shell).toContain('"waitForNativeStartup"');
     expect(shell).toContain("startup.wait_for_native_startup().await?");
+    expect(shell).toContain("windowsMicaEnabled");
+    expect(startup).toContain("dataset.windowsMica");
+    expect(bootStyles).toContain('data-windows-mica="fallback"');
+    expect(runtimeTabs).toContain('data-windows-mica="enabled"');
+    expect(rendererMain).toContain("startup.windowsMicaEnabled");
     const shellInvokeStart = shell.indexOf("async fn rion_shell_invoke(");
     const shellInvokeSignature = shell.slice(
       shellInvokeStart,

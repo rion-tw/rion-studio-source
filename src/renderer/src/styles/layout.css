@@ -49,6 +49,15 @@
     padding-top: 1.25rem;
   }
 
+  :root[data-platform="windows"][data-windows-mica="fallback"] .liquid-app-shell,
+  :root[data-platform="windows"][data-windows-mica="fallback"] .app-content {
+    background: hsl(var(--background));
+  }
+
+  :root[data-platform="windows"][data-windows-mica="fallback"] .app-sidebar {
+    background: hsl(var(--sidebar));
+  }
+
   :root[data-platform="mac"] .app-sidebar {
     padding-top: 54px;
   }

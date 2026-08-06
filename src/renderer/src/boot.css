@@ -102,6 +102,10 @@ body {
   -webkit-app-region: drag;
 }
 
+:root[data-platform="windows"][data-windows-mica="fallback"] .boot-fallback {
+  background: hsl(var(--background));
+}
+
 :root[data-platform="windows"] .boot-fallback {
   padding-top: calc(var(--space-6) + 44px);
 }

@@ -1,8 +1,10 @@
 fn surface_host_initialization_should_restore_hidden(
     initialized_for_operation: bool,
     desired_host_visibility: Option<bool>,
+    applied_host_visibility: Option<bool>,
 ) -> bool {
-    initialized_for_operation && desired_host_visibility == Some(false)
+    initialized_for_operation
+        && applied_host_visibility.or(desired_host_visibility) == Some(false)
 }
 
 impl SystemRuntimeExecutor {
@@ -44,8 +46,12 @@ impl SystemRuntimeExecutor {
                     },
                     started,
                 );
-                let release =
-                    self.finish_surface_host_initialization(window, restore_parent, lifecycle_id);
+                let release = self.finish_surface_host_initialization(
+                    window,
+                    restore_parent,
+                    Some(false),
+                    lifecycle_id,
+                );
                 match (result, release) {
                     (Ok(webview), Ok(())) => Ok(webview),
                     (Ok(webview), Err(error)) => {
@@ -88,8 +94,12 @@ impl SystemRuntimeExecutor {
                         "The timed-out native WebView creation did not settle before the cleanup deadline. Restart Rion Studio before retrying.",
                     )),
                 };
-                let restore =
-                    self.finish_surface_host_initialization(window, restore_parent, lifecycle_id);
+                let restore = self.finish_surface_host_initialization(
+                    window,
+                    restore_parent,
+                    Some(false),
+                    lifecycle_id,
+                );
                 if let Err(cleanup_error) = cleanup {
                     self.health.mark_unhealthy();
                     return Err(cleanup_error);
@@ -238,9 +248,32 @@ impl SystemRuntimeExecutor {
         &self,
         window: &Window,
         initialized_for_operation: bool,
+        desired_host_visibility: Option<bool>,
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
-        if !initialized_for_operation {
+        let logical_window_id = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .display_hosts
+                    .get(lifecycle_id)
+                    .map(|_| lifecycle_id.to_owned())
+                    .or_else(|| {
+                        state.display_hosts.iter().find_map(|(window_id, host)| {
+                            (host.window.label() == window.label()).then(|| window_id.clone())
+                        })
+                    })
+            });
+        let applied_host_visibility = logical_window_id
+            .as_deref()
+            .and_then(|window_id| self.presentation.applied_window_visibility(window_id));
+        if !surface_host_initialization_should_restore_hidden(
+            initialized_for_operation,
+            desired_host_visibility,
+            applied_host_visibility,
+        ) {
             return Ok(());
         }
         #[cfg(windows)]

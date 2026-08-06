@@ -518,24 +518,20 @@ fn set_windows_surface_host_initialization_visibility(
     window: &Window,
     visible: bool,
 ) -> RuntimeResult<()> {
-    use windows::Win32::{
-        Foundation::HWND,
-        UI::WindowsAndMessaging::{SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow},
-    };
-
-    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?.0 as usize;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let callback_window = window.clone();
     window
         .run_on_main_thread(move || {
-            let hwnd = HWND(hwnd as *mut std::ffi::c_void);
-            let command = if visible { SW_SHOWNOACTIVATE } else { SW_HIDE };
-            unsafe {
-                let _ = ShowWindow(hwnd, command);
+            let result = if visible {
+                callback_window.show()
+            } else {
+                callback_window.hide()
             }
-            let _ = sender.send(());
+            .map_err(|error| error.to_string());
+            let _ = sender.send(result);
         })
         .map_err(RuntimeError::tauri)?;
-    receiver
+    let result = receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|error| {
             let action = if visible { "show" } else { "hide" };
@@ -546,7 +542,14 @@ fn set_windows_surface_host_initialization_visibility(
                     PLATFORM_CALLBACK_TIMEOUT.as_millis()
                 ),
             )
-        })
+        })?;
+    result.map_err(|error| {
+        let action = if visible { "show" } else { "hide" };
+        RuntimeError::new(
+            "TAURI_RUNTIME_VISIBILITY_FAILED",
+            format!("The Windows WebView2 parent window could not {action}: {error}"),
+        )
+    })
 }
 
 struct SessionPaths {

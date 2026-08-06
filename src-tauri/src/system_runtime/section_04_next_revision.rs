@@ -333,6 +333,14 @@ impl PresentationRegistry {
         Ok(actor)
     }
 
+    fn applied_window_visibility(&self, window_id: &str) -> Option<bool> {
+        self.actors
+            .lock()
+            .ok()
+            .and_then(|actors| actors.get(window_id).cloned())
+            .and_then(|actor| actor.applied_window_visibility())
+    }
+
     fn record_externally_applied_presentation(
         &self,
         window_id: &str,

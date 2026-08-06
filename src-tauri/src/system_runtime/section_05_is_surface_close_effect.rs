@@ -281,11 +281,27 @@ fn native_presentation_mutation_plan(
     }
 }
 
+fn native_presentation_host_visibility(
+    tab_id: Option<&str>,
+    requested_visibility: Option<bool>,
+) -> bool {
+    requested_visibility.unwrap_or(tab_id.is_some())
+}
+
 fn native_window_restore_required(
     apply_window_focus: bool,
     window_was_minimized: Option<bool>,
 ) -> bool {
     apply_window_focus && window_was_minimized == Some(true)
+}
+
+fn native_window_focus_should_apply(
+    presentation_current: bool,
+    ordered_window_control: bool,
+    focus_requested: bool,
+    focus_current: bool,
+) -> bool {
+    focus_requested && focus_current && (presentation_current || ordered_window_control)
 }
 
 fn presentation_owner_identities(
@@ -551,9 +567,12 @@ fn apply_native_presentation_batch(
             None => None,
         };
         let focus_current = focus_lease.is_none() || focus_guard.is_some();
-        let apply_window_focus = presentation_current
-            && mutation_plan.apply_window_focus
-            && focus_current;
+        let apply_window_focus = native_window_focus_should_apply(
+            presentation_current,
+            ordered_window_control,
+            mutation_plan.apply_window_focus,
+            focus_current,
+        );
         let window_was_minimized = apply_window_focus
             .then(|| window.is_minimized().ok())
             .flatten();

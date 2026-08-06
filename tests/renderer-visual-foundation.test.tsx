@@ -36,6 +36,9 @@ describe("renderer visual foundation", () => {
     expect(runtimeTabStyles).toMatch(
       /\.tab\.runtime-tab-sort-ghost \{[\s\S]*?visibility: hidden;[\s\S]*?opacity: 0;/
     );
+    expect(runtimeTabStyles).toMatch(
+      /\.tab\.runtime-tab-sort-fallback \{[\s\S]*?opacity: 1;/
+    );
     expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });

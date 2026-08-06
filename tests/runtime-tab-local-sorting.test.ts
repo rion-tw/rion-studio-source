@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import Sortable, { type Options, type SortableEvent } from "sortablejs";
+import type { Options, SortableEvent } from "sortablejs";
 
 const { createSortable, option } = vi.hoisted(() => ({
   createSortable: vi.fn(),
@@ -16,8 +16,7 @@ vi.mock("sortablejs", () => ({
     create: createSortable.mockImplementation((_root: HTMLElement, options: Options) => {
       sortableOptions = options;
       return { option };
-    }),
-    ghost: null
+    })
   }
 }));
 
@@ -100,7 +99,6 @@ describe("Windows local runtime tab sorting", () => {
   beforeEach(() => {
     createSortable.mockClear();
     option.mockClear();
-    Sortable.ghost = null;
   });
 
   it("forces pointer fallback and locks sorting to the current horizontal strip", () => {
@@ -129,23 +127,6 @@ describe("Windows local runtime tab sorting", () => {
       pull: false,
       put: false
     });
-  });
-
-  it("locks the fallback preview to its starting y coordinate", async () => {
-    const { root } = setup();
-    const dragged = root.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
-    const fallbackGhost = dragged.cloneNode(true) as HTMLButtonElement;
-    fallbackGhost.classList.add("runtime-tab-sort-fallback");
-    fallbackGhost.style.transform = "matrix(1, 0, 0, 1, 42, 17)";
-    document.body.append(fallbackGhost);
-    Sortable.ghost = fallbackGhost;
-
-    sortableOptions.onStart?.(eventFor(dragged));
-    document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
-    await Promise.resolve();
-
-    expect(fallbackGhost.style.transform).toBe("matrix(1, 0, 0, 1, 42, 0)");
-    sortableOptions.onEnd?.(eventFor(dragged));
   });
 
   it("disables sorting for one tab and delegates its primary press to native window dragging", () => {

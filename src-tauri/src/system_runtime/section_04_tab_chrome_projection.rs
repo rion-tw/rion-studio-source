@@ -414,7 +414,7 @@ impl SystemRuntimeExecutor {
             {
                 host.tab_chrome_reveal.cloaked = true;
             }
-            eprintln!("Windows runtime window could not be revealed after tab chrome paint: {error}");
+            eprintln!("Windows runtime window could not be revealed after tab chrome paint: {error:?}");
         }
     }
 

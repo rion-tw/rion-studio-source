@@ -12,6 +12,8 @@ afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, "rionStudio");
   delete document.documentElement.dataset.windowFullscreen;
+  delete document.documentElement.dataset.windowMaximized;
+  delete document.documentElement.dataset.windowFocused;
   vi.restoreAllMocks();
 });
 
@@ -44,6 +46,15 @@ describe("useAppWindowStateSync", () => {
     expect(document.documentElement.dataset.windowFullscreen).toBe("false");
   });
 
+  it("projects maximize and focus state for the persistent Windows controls", async () => {
+    const bridge = installBridge(windowState(1, false));
+    render(<WindowStateSync />);
+
+    bridge.emit(windowState(2, false, { focused: false, maximized: true }));
+    expect(document.documentElement.dataset.windowMaximized).toBe("true");
+    expect(document.documentElement.dataset.windowFocused).toBe("false");
+  });
+
   it("keeps a newer event when the initial request resolves later", async () => {
     let resolveInitial = (_state: AppWindowState): void => undefined;
     const initialState = new Promise<AppWindowState>((resolve) => {
@@ -65,7 +76,11 @@ function WindowStateSync(): JSX.Element {
   return <div />;
 }
 
-function windowState(revision: number, fullscreen: boolean): AppWindowState {
+function windowState(
+  revision: number,
+  fullscreen: boolean,
+  state: { focused?: boolean; maximized?: boolean } = {}
+): AppWindowState {
   return {
     revision,
     capturedAt: `2026-08-03T00:00:0${revision}Z`,
@@ -74,9 +89,9 @@ function windowState(revision: number, fullscreen: boolean): AppWindowState {
     lifecycleEpoch: 0,
     visible: true,
     minimized: false,
-    maximized: false,
+    maximized: state.maximized ?? false,
     fullscreen,
-    focused: true
+    focused: state.focused ?? true
   };
 }
 

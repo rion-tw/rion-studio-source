@@ -19,6 +19,8 @@ fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> Runtime
         active_tab_id: active_tab_id.map(str::to_owned),
         display_id: 11,
         displays: Vec::new(),
+        window_name: "Rion Studio".to_owned(),
+        window_maximized: false,
         fullscreen: false,
         window_fullscreen: false,
         toolbar_visible: true,
@@ -58,6 +60,27 @@ fn semantic_projection_revision_survives_a_renderer_reload() {
         assert_eq!(first.projection_revision, replay.projection_revision, "{platform}");
         assert!(changed.projection_revision > replay.projection_revision, "{platform}");
     }
+}
+
+#[test]
+fn window_chrome_identity_and_maximize_state_advance_the_projection_revision() {
+    let coordinator = TabChromeProjectionCoordinator::default();
+    coordinator
+        .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+        .unwrap();
+    let initial = coordinator
+        .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+        .unwrap();
+    let mut renamed = tab_chrome_projection("renderer-1", Some("tab-1"));
+    renamed.window_name = "Raid Window".to_owned();
+    let renamed = coordinator.resolve_projection(renamed).unwrap();
+    let mut maximized = tab_chrome_projection("renderer-1", Some("tab-1"));
+    maximized.window_name = "Raid Window".to_owned();
+    maximized.window_maximized = true;
+    let maximized = coordinator.resolve_projection(maximized).unwrap();
+
+    assert!(renamed.projection_revision > initial.projection_revision);
+    assert!(maximized.projection_revision > renamed.projection_revision);
 }
 
 #[test]

@@ -494,13 +494,15 @@ impl SystemRuntimeExecutor {
         let bounds = target.bounds.clone();
         let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
         let window = self.create_window_bounded(&target.window_id, move || {
-            WindowBuilder::new(&window_app, window_label)
+            let builder = WindowBuilder::new(&window_app, window_label)
                 .title(window_title)
                 .inner_size(bounds.width.max(1) as f64, bounds.height.max(1) as f64)
                 .min_inner_size(640.0, 480.0)
                 .visible(false)
-                .focused(false)
-                .build()
+                .focused(false);
+            #[cfg(windows)]
+            let builder = builder.decorations(false).shadow(true);
+            builder.build()
         })?;
         window
             .set_position(PhysicalPosition::new(

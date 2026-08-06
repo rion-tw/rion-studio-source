@@ -77,6 +77,16 @@
     height: 3.5rem;
   }
 
+  :root[data-platform="windows"] .app-content-window-drag-region {
+    right: 138px;
+  }
+
+  :root[data-platform="windows"] .app-page-header,
+  :root[data-platform="windows"] .app-editor-header,
+  :root[data-platform="windows"] .liquid-app-shell > header {
+    padding-right: 138px;
+  }
+
   .sidebar-settings {
     margin-right: -0.75rem;
     margin-left: -0.75rem;

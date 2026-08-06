@@ -2,6 +2,7 @@ import appIconUrl from "../assets/app-icon.png";
 import { LANGUAGE_STORAGE_KEY } from "./constants";
 import {
   createTranslator,
+  languages,
   loadTranslations,
   readStoredLanguage,
   type Language,
@@ -33,6 +34,69 @@ function updateDocumentLanguage(): void {
   if (failureTitle) {
     failureTitle.textContent = translate("startup.failedTitle");
   }
+  updateWindowControlLabels();
+}
+
+function updateWindowControlLabels(): void {
+  const labels = {
+    close: translate("common.close"),
+    maximize: translate("common.maximize"),
+    minimize: translate("common.minimize"),
+    restore: translate("common.restore")
+  };
+  for (const control of document.querySelectorAll<HTMLButtonElement>("[data-window-control]")) {
+    const action = control.dataset.windowControl as "close" | "maximize" | "minimize";
+    const label = action === "maximize"
+      ? (document.documentElement.dataset.windowMaximized === "true"
+        ? labels.restore
+        : labels.maximize)
+      : labels[action];
+    control.ariaLabel = label;
+    control.title = label;
+  }
+}
+
+function installWindowControls(): void {
+  const controls = document.querySelector<HTMLElement>("[data-windows-window-controls]");
+  if (!controls || controls.dataset.installed === "true") return;
+  controls.dataset.installed = "true";
+  controls.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-window-control]");
+    if (!button) return;
+    const api = window.rionStudio;
+    const action = button.dataset.windowControl;
+    const request = action === "minimize"
+      ? api?.minimizeCurrentWindow()
+      : action === "maximize"
+        ? api?.toggleCurrentWindowMaximize()
+        : api?.requestCurrentWindowClose();
+    if (!request && action === "close") {
+      window.close();
+      return;
+    }
+    void request?.catch((error) => console.error(`Main window ${action} failed.`, error));
+  });
+  new MutationObserver(updateWindowControlLabels).observe(document.documentElement, {
+    attributeFilter: ["data-window-maximized"],
+    attributes: true
+  });
+  window.addEventListener("rion:language-changed", (event) => {
+    const nextLanguage = (event as CustomEvent<Language>).detail;
+    if (languages.includes(nextLanguage)) loadStartupLanguage(nextLanguage);
+  });
+}
+
+function loadStartupLanguage(nextLanguage: Language): void {
+  language = nextLanguage;
+  translate = createTranslator(language);
+  updateDocumentLanguage();
+  void loadTranslations(nextLanguage)
+    .then((translations) => {
+      if (language !== nextLanguage) return;
+      translate = createTranslator(nextLanguage, translations);
+      updateDocumentLanguage();
+    })
+    .catch(() => undefined);
 }
 
 export function startupFailureMessage(error: unknown): string {
@@ -101,11 +165,5 @@ export function showStartupFailure(error: unknown): void {
 }
 
 window.__rionShowStartupFailure = showStartupFailure;
-updateDocumentLanguage();
-
-void loadTranslations(language)
-  .then((translations) => {
-    translate = createTranslator(language, translations);
-    updateDocumentLanguage();
-  })
-  .catch(() => undefined);
+installWindowControls();
+loadStartupLanguage(language);

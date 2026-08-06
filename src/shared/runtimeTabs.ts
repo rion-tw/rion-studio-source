@@ -78,6 +78,7 @@ export type RuntimeTabAction =
   | { type: "tabDragCancel"; sessionId: string }
   | { type: "reorder"; tabId: string; beforeTabId?: string }
   | { type: "openLauncher" }
+  | { type: "startWindowDrag" }
   | { type: "openTabMenu"; tabId: string }
   | { type: "applicationShortcut"; command: ApplicationShortcutCommand }
   | { type: "activateAdjacent"; direction: "next" | "previous" }
@@ -100,6 +101,8 @@ export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   tabIconDataUrls: Record<string, string>;
   tabWorkspaceTemplates: Record<string, WorkspaceLayoutTemplate>;
   toolbarVisible: boolean;
+  windowMaximized: boolean;
+  windowName: string;
   windowFullscreen: boolean;
 }
 
@@ -231,7 +234,12 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       action.command as string
     ) && Object.keys(action).length === 2;
   }
-  if (["openLauncher", "fullscreenToolbarEnter", "fullscreenToolbarLeave"].includes(action.type)) {
+  if ([
+    "openLauncher",
+    "startWindowDrag",
+    "fullscreenToolbarEnter",
+    "fullscreenToolbarLeave"
+  ].includes(action.type)) {
     return Object.keys(action).length === 1;
   }
   return false;

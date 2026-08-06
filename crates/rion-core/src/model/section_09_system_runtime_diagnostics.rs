@@ -159,6 +159,8 @@ pub struct RuntimeTabChromeProjectionRecord {
     #[ts(type = "number")]
     pub display_id: u64,
     pub displays: Vec<DisplayInfoRecord>,
+    pub window_name: String,
+    pub window_maximized: bool,
     pub fullscreen: bool,
     pub window_fullscreen: bool,
     pub toolbar_visible: bool,

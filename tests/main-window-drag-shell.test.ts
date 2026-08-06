@@ -2,8 +2,8 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 import { describe, expect, it } from "vitest";
 
-describe("main window drag shell", () => {
-  it("handles renderer drag and maximize requests on the current Tauri window", async () => {
+describe("main window chrome shell", () => {
+  it("handles renderer minimize, drag, and maximize requests on the current Tauri window", async () => {
     const [shell, runtime] = await Promise.all([
       readFile("src-tauri/src/lib.rs", "utf8"),
       readFile("src-tauri/src/system_runtime.rs", "utf8")
@@ -14,6 +14,8 @@ describe("main window drag shell", () => {
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
+    expect(shellInvoke).toContain('"minimizeCurrentWindow"');
+    expect(shellInvoke).toContain('hide_main_window("renderer-minimize-requested")');
     expect(shellInvoke).toContain('"startCurrentWindowDrag"');
     expect(shellInvoke).toContain(".start_main_window_drag()");
     expect(shellInvoke).toContain('"toggleCurrentWindowMaximize"');

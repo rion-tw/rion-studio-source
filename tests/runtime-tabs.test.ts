@@ -39,6 +39,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "tabDragCancel", sessionId: "drag-1" })).toBe(true);
     expect(isRuntimeTabAction({ type: "reorder", tabId: "tab-1", beforeTabId: "tab-2" })).toBe(true);
     expect(isRuntimeTabAction({ type: "openLauncher" })).toBe(true);
+    expect(isRuntimeTabAction({ type: "startWindowDrag" })).toBe(true);
     expect(isRuntimeTabAction({ type: "openTabMenu", tabId: "tab-1" })).toBe(true);
     expect(isRuntimeTabAction({ type: "fullscreenToolbarEnter" })).toBe(true);
     expect(isRuntimeTabAction({ type: "fullscreenToolbarLeave" })).toBe(true);

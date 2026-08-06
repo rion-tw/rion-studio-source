@@ -46,6 +46,7 @@ impl SystemRuntimeExecutor {
             #[cfg(target_os = "macos")]
             controller.set_window_name(saved_name)?;
         }
+        self.publish_projection();
         Ok(())
     }
 

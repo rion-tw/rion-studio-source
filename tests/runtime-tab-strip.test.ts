@@ -39,6 +39,8 @@ const state: RuntimeTabStripState = {
     type: "workspace"
   }],
   toolbarVisible: true,
+  windowMaximized: false,
+  windowName: "主遊戲視窗",
   windowFullscreen: false,
   windows: []
 };
@@ -53,7 +55,7 @@ beforeAll(async () => {
     observe() {}
     unobserve() {}
   });
-  document.body.innerHTML = '<button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button>';
+  document.body.innerHTML = '<div id="window-identity"><span id="window-name"></span></div><button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button><div id="window-drag-region"></div><div id="window-controls"><button id="window-minimize"></button><button id="window-maximize"></button><button id="window-close"></button></div>';
   await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
 
@@ -259,6 +261,50 @@ it("projects the resolved app theme onto an already-open tab document", () => {
     window.__rionApplyRuntimeTabState?.({ ...state, resolvedTheme: "light" });
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(document.documentElement.style.colorScheme).toBe("light");
+  });
+
+it("routes custom Windows titlebar drag and caption controls through the scoped action bridge", () => {
+    window.__rionApplyRuntimeTabState?.(state);
+    invoke.mockClear();
+
+    document.querySelector("#window-drag-region")?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      detail: 1
+    }));
+    document.querySelector<HTMLButtonElement>("#window-minimize")?.click();
+    document.querySelector<HTMLButtonElement>("#window-maximize")?.click();
+    document.querySelector<HTMLButtonElement>("#window-close")?.click();
+
+    expect(invoke.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
+      { action: { type: "startWindowDrag" } },
+      { action: { type: "windowControl", control: "minimize" } },
+      { action: { type: "windowControl", control: "zoom" } },
+      { action: { type: "windowControl", control: "close" } }
+    ]);
+    expect(document.querySelector("#window-name")?.textContent).toBe("主遊戲視窗");
+    expect(document.querySelector<HTMLButtonElement>("#window-maximize")?.ariaLabel)
+      .toBe("最大化視窗");
+
+    window.__rionApplyRuntimeTabState?.({
+      ...state,
+      fullscreen: true,
+      windowFullscreen: true
+    });
+    invoke.mockClear();
+    document.querySelector("#window-drag-region")?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      detail: 1
+    }));
+    document.querySelector<HTMLButtonElement>("#window-maximize")?.click();
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "windowControl", control: "toggleFullscreen" }
+    });
+    expect(document.querySelector<HTMLButtonElement>("#window-maximize")?.ariaLabel)
+      .toBe("還原視窗");
   });
 
 it("renders workspace detail, audio state, and a stop control", () => {

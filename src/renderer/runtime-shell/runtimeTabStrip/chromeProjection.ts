@@ -48,6 +48,8 @@ export function stateFromChromeProjection(
       windowId: projection.windowId
     })),
     toolbarVisible: projection.toolbarVisible,
+    windowMaximized: projection.windowMaximized,
+    windowName: projection.windowName,
     windowFullscreen: projection.windowFullscreen,
     windows: [{
       id: projection.windowId,

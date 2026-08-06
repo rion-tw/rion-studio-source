@@ -18,7 +18,7 @@ beforeAll(async () => {
     observe() {}
     unobserve() {}
   });
-  document.body.innerHTML = '<button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button>';
+  document.body.innerHTML = '<div id="window-identity"><span id="window-name"></span></div><button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button><div id="window-drag-region"></div><div id="window-controls"><button id="window-minimize"></button><button id="window-maximize"></button><button id="window-close"></button></div>';
   const tabStrip = await import("../src/renderer/runtime-shell/runtimeTabStrip");
   rendererInstanceId = tabStrip.runtimeState.rendererInstanceId;
 });
@@ -74,6 +74,8 @@ describe("Windows runtime tab chrome projection", () => {
       activeTabId: "tab-2",
       displayId: 11,
       displays: [],
+      windowName: "Main Game Window",
+      windowMaximized: false,
       fullscreen: false,
       windowFullscreen: false,
       toolbarVisible: true,
@@ -91,6 +93,7 @@ describe("Windows runtime tab chrome projection", () => {
     expect(tabs[1]?.getAttribute("aria-selected")).toBe("false");
     expect(tabs[1]?.querySelector(".name")?.textContent).toBe("Renamed Workspace");
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.querySelector("#window-name")?.textContent).toBe("Main Game Window");
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: {
         type: "tabChromeProjectionApplied",
@@ -117,6 +120,8 @@ describe("Windows runtime tab chrome projection", () => {
       tabOrder: [],
       displayId: 11,
       displays: [],
+      windowName: "Rion Studio",
+      windowMaximized: false,
       fullscreen: false,
       windowFullscreen: false,
       toolbarVisible: true,

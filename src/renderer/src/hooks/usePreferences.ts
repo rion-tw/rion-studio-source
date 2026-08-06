@@ -58,6 +58,7 @@ export function usePreferences() {
     };
 
     document.documentElement.lang = htmlLanguages[language];
+    window.dispatchEvent(new CustomEvent("rion:language-changed", { detail: language }));
     void window.rionStudio?.setOverlayLanguage?.(language)?.catch(() => undefined);
   }, [language]);
 

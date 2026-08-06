@@ -228,7 +228,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("fn schedule_layout_surface_recovery(", resizeLayoutStart)
     );
     const windowsResizeMetricsStart = resizeLayout.indexOf(
-      "let (tab_strip_height, metrics)"
+      "let metrics = match metrics_override"
     );
     const windowsResizeMetrics = resizeLayout.slice(
       windowsResizeMetricsStart,
@@ -236,6 +236,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     expect(windowsResizeMetrics.indexOf("Some(metrics)")).toBeLessThan(
       windowsResizeMetrics.indexOf("self.windows_tab_strip_height")
+    );
+    expect(resizeLayout).toContain(
+      "let tab_strip_height = resize_snapshot_tab_strip_height(metrics);"
     );
     expect(resizeLayout).toContain("apply_resize_layout_mutation_batch(&window, mutations)");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");

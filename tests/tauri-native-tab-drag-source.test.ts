@@ -299,4 +299,39 @@ describe("native tab drag latest-intent transaction", () => {
     expect(liveCommit).toContain("commit_live_tab_order_intent(target_window_id, ordered_tab_ids)");
     expect(liveCommit).not.toContain("preview_tab_drag_order_exact(target_window_id, ordered_tab_ids, true)");
   });
+
+  it("keeps Windows HTML tab dragging local to its source window", async () => {
+    const [intent, terminal, handler] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_deferred_tab_drag_intent.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_08_cancel_tab_drag_session.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/lib/section_07_handle_game_window_tab_drag.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(intent).toContain("windows_html_tab_drag_target_is_local(");
+    expect(intent).toContain("session.source_cancelled = true;");
+    expect(handler).toContain("The Windows HTML tab drag session is no longer active.");
+    expect(handler).toContain("&source_window_id,");
+    expect(terminal).toContain("Windows HTML tab drag ended without a local drop");
+    expect(terminal).toContain("Windows HTML tabs cannot be dragged between windows");
+    expect(terminal).not.toContain("float_tab_drag_session(");
+    expect(handler).toContain("if deferred_native_commit || single_tab");
+  });
 });

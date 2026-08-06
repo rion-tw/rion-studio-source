@@ -59,6 +59,32 @@ pub(crate) async fn handle_game_window_tab_drag(
         let _ = target_window_id;
         #[cfg(not(target_os = "macos"))]
         {
+            if deferred_native_commit {
+                let source_window_id = state
+                    .tab_drag
+                    .lock()
+                    .map_err(|_| {
+                        shell_error("TAURI_TAB_DRAG_FAILED", "Tab drag state lock was poisoned.")
+                    })?
+                    .as_ref()
+                    .filter(|session| session.id == session_id)
+                    .map(|session| session.source_window_id.clone())
+                    .ok_or_else(|| {
+                        shell_error(
+                            "TAURI_TAB_DRAG_STALE",
+                            "The Windows HTML tab drag session is no longer active.",
+                        )
+                    })?;
+                if !windows_html_tab_drag_target_is_local(
+                    &source_window_id,
+                    target_window_id,
+                ) {
+                    return Err(shell_error(
+                        "TAURI_TAB_DRAG_INVALID",
+                        "Windows HTML tabs cannot be dragged between windows.",
+                    ));
+                }
+            }
             if let Err(error) = state
                 .runtime
                 .commit_live_tab_order_intent(target_window_id, &ordered_tab_ids)
@@ -211,7 +237,7 @@ pub(crate) async fn handle_game_window_tab_drag(
                 .launch_target_for_window_id(source_window_id)
                 .map_err(|message| shell_error("TAURI_TAB_DRAG_INVALID", message))?;
             let single_tab = state.runtime.window_tab_count(source_window_id) == 1;
-            let provisional_window_id = if single_tab {
+            let provisional_window_id = if deferred_native_commit || single_tab {
                 source_window_id.to_owned()
             } else {
                 uuid::Uuid::new_v4().to_string()
@@ -279,7 +305,6 @@ pub(crate) async fn handle_game_window_tab_drag(
                     tab_id: tab_id.to_owned(),
                     tab_width,
                     target: target.clone(),
-                    title: title.clone(),
                     lifecycle_epoch,
                     window_anchor: initial_anchor,
                     window_was_moved: false,

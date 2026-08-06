@@ -264,7 +264,6 @@ struct GameWindowTabDragSession {
     tab_id: String,
     tab_width: f64,
     target: EmbeddedLaunchTargetRecord,
-    title: String,
     lifecycle_epoch: u64,
     window_anchor: Option<(f64, f64)>,
     window_was_moved: bool,

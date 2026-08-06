@@ -128,27 +128,6 @@ function tabReorderHysteresis(width: number): number {
   );
 }
 
-export function rememberDragInsertion(
-  payload: RuntimeTabDragPayload,
-  beforeTab?: HTMLButtonElement,
-  clientX?: number
-): void {
-  const previousCenter = runtimeState.dragInsertionState?.sessionId === payload.sessionId
-    ? runtimeState.dragInsertionState.visualCenterX
-    : undefined;
-  const frame = clientX !== undefined && Number.isFinite(clientX)
-    ? dragTabFrame(payload, clientX)
-    : undefined;
-  const visualCenterX = frame
-    ? frame.center - root.getBoundingClientRect().left + root.scrollLeft
-    : previousCenter ?? 0;
-  runtimeState.dragInsertionState = {
-    sessionId: payload.sessionId,
-    visualCenterX,
-    ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
-  };
-}
-
 export function previewDragPosition(
   payload: RuntimeTabDragPayload | undefined,
   beforeTab?: HTMLButtonElement,

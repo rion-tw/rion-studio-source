@@ -204,7 +204,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         metrics_override: Option<WindowContentMetrics>,
         skip_active_bounds: bool,
-        publish_native_plan: bool,
+        _publish_native_plan: bool,
     ) -> RuntimeResult<()> {
         let is_resize_projection = metrics_override.is_some();
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
@@ -317,7 +317,7 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or(false);
         #[cfg(windows)]
-        if publish_native_plan
+        if _publish_native_plan
             && is_active_tab
             && let Some(tab_strip) = tab_strip.as_ref()
         {

@@ -11,11 +11,43 @@ import type { RuntimeTabChromeProjectionRecord } from "../../../shared/generated
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
-import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, suspendDragVisual, syncCloseControlState, terminalDragSessions, windowCloseButton, windowControls, windowDragRegion, windowIdentity, windowMaximizeButton, windowMinimizeButton, windowName, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import {
+  OVERFLOW_EPSILON,
+  add,
+  audioSignatureByButton,
+  commitRuntimeTabReorder,
+  createAudioIndicator,
+  createCloseControl,
+  createLucideSvg,
+  createTabIcon,
+  dispatch,
+  iconSignatureByButton,
+  installTabButtonInteractions,
+  logicalRuntimeTabOrder,
+  reportRuntimeTabSortFailure,
+  root,
+  runtimeState,
+  scrollLeftButton,
+  scrollRightButton,
+  syncCloseControlState,
+  windowCloseButton,
+  windowControls,
+  windowDragRegion,
+  windowIdentity,
+  windowMaximizeButton,
+  windowMinimizeButton,
+  windowName,
+  workspaceTemplateByTabId
+} from "../runtimeTabStrip";
 
 import type { RuntimeTabModel } from "../runtimeTabStrip";
 
-import { animateReorderedTabs, optimisticallyActivateTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./drag";
+import { animateReorderedTabs, optimisticallyActivateTab } from "./drag";
+
+import {
+  installRuntimeTabSorting,
+  type RuntimeTabSortingController
+} from "./localSorting";
 
 import {
   acknowledgeChromeProjection,
@@ -23,12 +55,14 @@ import {
   stateFromChromeProjection
 } from "./chromeProjection";
 
+let localTabSorting: RuntimeTabSortingController | undefined;
+
 function createTabButton(tabId: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "tab";
   button.dataset.tabId = tabId;
-  button.draggable = true;
+  button.draggable = false;
   button.role = "tab";
   button.setAttribute("aria-selected", "false");
   installTabButtonInteractions(button, tabId);
@@ -43,7 +77,7 @@ function patchTabButton(
   active: boolean
 ): void {
   button.classList.toggle("active", active);
-  button.draggable = true;
+  button.draggable = false;
   button.setAttribute("aria-selected", String(active));
   button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
     ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
@@ -95,16 +129,12 @@ function patchTabButton(
 
 function render(
   state: RuntimeTabStripState,
-  authoritative = false,
-  projectionRevision?: number
+  authoritative = false
 ): void {
   const revision = ++runtimeState.renderRevision;
   const previousScrollLeft = root.scrollLeft;
   const labels = runtimeTabStripLabels(state.language);
   runtimeState.current = state;
-  if (authoritative && !runtimeState.latestDragIntentSessionId) {
-    runtimeState.optimisticActiveTabId = undefined;
-  }
   document.documentElement.lang = state.language;
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
@@ -131,6 +161,13 @@ function render(
     if (workspaceTemplate) workspaceTemplateByTabId.set(tab.id, workspaceTemplate);
   }
   const snapshotActiveTabId = visibleTabs.find((tab) => tab.active)?.id;
+  const desiredOrder = visibleTabs.map((tab) => tab.id);
+  const deferAuthoritativeOrder = authoritative
+    ? localTabSorting?.observeAuthoritativeOrder(desiredOrder, snapshotActiveTabId) ?? false
+    : localTabSorting?.deferMutationOrder() ?? false;
+  if (authoritative && !localTabSorting?.ownsVisibleOrder()) {
+    runtimeState.optimisticActiveTabId = undefined;
+  }
   // Native presentation owns selection. A delayed Core projection may refresh metadata and
   // topology, but it must not repaint an older active tab over an optimistic pointer/key action.
   const optimisticSelectionIsVisible = runtimeState.optimisticActiveTabId
@@ -144,8 +181,9 @@ function render(
     state,
     labels,
     presentationActiveTabId,
-    projectionRevision
+    deferAuthoritativeOrder
   );
+  localTabSorting?.syncAvailability();
   for (const tab of tabElements()) syncCloseControlState(tab);
   const nextActiveTabId = presentationActiveTabId;
   root.scrollLeft = previousScrollLeft;
@@ -170,12 +208,12 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
     || projection.projectionRevision < runtimeState.projectionRevision) return;
   runtimeState.projectionRevision = projection.projectionRevision;
   runtimeState.chromeHydrated = true;
-  render(stateFromChromeProjection(projection), true, projection.projectionRevision);
+  render(stateFromChromeProjection(projection), true);
   const observedOrder = logicalRuntimeTabOrder();
   const observedActiveTabId = exactActiveRuntimeTabId();
   const projectionMatchesObserved = ordersEqual(observedOrder, projection.tabOrder)
     && observedActiveTabId === projection.activeTabId;
-  if (!runtimeState.latestDragIntentSessionId) {
+  if (!localTabSorting?.ownsVisibleOrder()) {
     if (projection.activeTabId) optimisticallyActivateTab(projection.activeTabId);
     else window.__rionSetActiveRuntimeTab?.();
   }
@@ -184,7 +222,7 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
     runtimeState.rendererInstanceId,
     tabElements(),
     observedOrder,
-    runtimeState.latestDragIntentSessionId && !projectionMatchesObserved
+    localTabSorting?.ownsVisibleOrder() && !projectionMatchesObserved
       ? "superseded"
       : undefined
   );
@@ -224,7 +262,7 @@ function reconcileTabButtons(
   state: RuntimeTabStripState,
   labels: ReturnType<typeof runtimeTabStripLabels>,
   presentationActiveTabId?: string,
-  projectionRevision?: number
+  deferOrder = false
 ): void {
   const existingById = new Map(tabElements().map((button) => [button.dataset.tabId, button]));
   const retained = new Set<string>();
@@ -238,24 +276,10 @@ function reconcileTabButtons(
   for (const [tabId, existing] of existingById) {
     if (!tabId || retained.has(tabId)) continue;
     existing.remove();
-    if (runtimeState.dragVisualState?.surface === existing) {
-      runtimeState.dragVisualState.surface = undefined;
-      runtimeState.dragVisualState.slot.remove();
-      runtimeState.dragVisualState.suspended = true;
-    }
   }
 
   const desiredOrder = tabs.map((tab) => tab.id);
-  if (deferRuntimeTabOrder(desiredOrder, projectionRevision)) {
-    const visual = runtimeState.dragVisualState;
-    const incoming = visual ? existingById.get(visual.tabId) : undefined;
-    if (visual && incoming && retained.has(visual.tabId) && visual.slot.isConnected
-      && visual.surface !== incoming) {
-      adoptDragSurface(incoming);
-    }
-  } else {
-    applyRuntimeTabOrder(desiredOrder, false);
-  }
+  if (!deferOrder) applyRuntimeTabOrder(desiredOrder, false);
 }
 
 export function applyRuntimeTabOrder(tabIds: string[], animate: boolean): void {
@@ -275,50 +299,8 @@ export function applyRuntimeTabOrder(tabIds: string[], animate: boolean): void {
   scheduleScrollControlsUpdate();
 }
 
-export type RuntimeTabDragPayload = {
-  sessionId: string;
-  sourceWindowId: string;
-  tabId: string;
-  tabWidth: number;
-  tabHeight: number;
-  grabRatioX: number;
-};
-
-export function runtimeTabDragPayload(
-  dataTransfer: DataTransfer | null
-): RuntimeTabDragPayload | undefined {
-  if (!dataTransfer || typeof dataTransfer.getData !== "function") return undefined;
-  const raw = dataTransfer.getData("text/rion-runtime-tab");
-  if (!raw) return undefined;
-  try {
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof value.sessionId !== "string" || typeof value.sourceWindowId !== "string"
-      || value.sourceWindowId !== runtimeState.current?.windowId
-      || typeof value.tabId !== "string"
-      || typeof value.tabWidth !== "number" || !Number.isFinite(value.tabWidth)
-      || typeof value.tabHeight !== "number" || !Number.isFinite(value.tabHeight)) return undefined;
-    return {
-      sessionId: value.sessionId,
-      sourceWindowId: value.sourceWindowId,
-      tabId: value.tabId,
-      tabWidth: Math.max(1, value.tabWidth),
-      tabHeight: Math.max(1, value.tabHeight),
-      grabRatioX: clampRatio(
-        typeof value.grabRatioX === "number" ? value.grabRatioX : 0.5
-      )
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export function clampRatio(value: number): number {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
-}
 export function tabElements(): HTMLButtonElement[] {
-  const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
-  const dragSurface = runtimeState.dragVisualState?.surface;
-  return dragSurface?.isConnected && !tabs.includes(dragSurface) ? [...tabs, dragSurface] : tabs;
+  return Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
 }
 
 function visibleWidthWithoutScrollControls(): number {
@@ -397,94 +379,23 @@ function scrollToAdjacentHiddenTab(direction: "left" | "right"): void {
   );
 }
 
-export function scrollForDragPoint(clientX: number, continuous = false): void {
-  if (!hasTabOverflow()) return;
-  const bounds = root.getBoundingClientRect();
-  const edge = Math.min(36, bounds.width / 4);
-  const delta = dragScrollDelta(clientX, bounds.left, bounds.right, edge);
-  if (delta === 0) {
-    stopEdgeScroll();
-    return;
-  }
-  root.scrollLeft += delta;
-  refreshDragVisualForScroll();
-  scheduleScrollControlsUpdate();
-  if (!continuous) return;
-  runtimeState.edgeScrollClientX = clientX;
-  if (runtimeState.edgeScrollFrame !== undefined) return;
-  const tick = (): void => {
-    runtimeState.edgeScrollFrame = undefined;
-    if (runtimeState.edgeScrollClientX === undefined || !hasTabOverflow()) return;
-    const nextBounds = root.getBoundingClientRect();
-    const nextEdge = Math.min(36, nextBounds.width / 4);
-    const nextDelta = dragScrollDelta(
-      runtimeState.edgeScrollClientX,
-      nextBounds.left,
-      nextBounds.right,
-      nextEdge
-    );
-    if (nextDelta === 0) {
-      runtimeState.edgeScrollClientX = undefined;
-      return;
-    }
-    root.scrollLeft += nextDelta;
-    refreshDragVisualForScroll();
-    scheduleScrollControlsUpdate();
-    runtimeState.edgeScrollFrame = requestAnimationFrame(tick);
-  };
-  runtimeState.edgeScrollFrame = requestAnimationFrame(tick);
-}
-
-function refreshDragVisualForScroll(): void {
-  const visual = runtimeState.dragVisualState;
-  if (!visual || visual.suspended || visual.latestClientX === undefined
-    || terminalDragSessions.has(visual.sessionId)) return;
-  const sourceWindowId = runtimeState.current?.windowId;
-  if (!sourceWindowId) return;
-  const payload: RuntimeTabDragPayload = {
-    grabRatioX: visual.grabRatioX,
-    sessionId: visual.sessionId,
-    sourceWindowId,
-    tabHeight: visual.tabHeight,
-    tabId: visual.tabId,
-    tabWidth: visual.tabWidth
-  };
-  const beforeTab = resolveStableDragInsertion(payload, visual.latestClientX);
-  previewDragPosition(payload, beforeTab, visual.latestClientX);
-}
-
-function dragScrollDelta(clientX: number, left: number, right: number, edge: number): number {
-  if (clientX < left + edge) {
-    const strength = clampRatio((left + edge - clientX) / Math.max(1, edge));
-    return -(2 + Math.round(strength * 14));
-  }
-  if (clientX > right - edge) {
-    const strength = clampRatio((clientX - (right - edge)) / Math.max(1, edge));
-    return 2 + Math.round(strength * 14);
-  }
-  return 0;
-}
-
-export function stopEdgeScroll(): void {
-  runtimeState.edgeScrollClientX = undefined;
-  if (runtimeState.edgeScrollFrame !== undefined) cancelAnimationFrame(runtimeState.edgeScrollFrame);
-  runtimeState.edgeScrollFrame = undefined;
-}
-
-function cancelActiveTabDrag(): void {
-  if (!runtimeState.draggingTabId || runtimeState.dragCancelled) return;
-  runtimeState.dragCancelled = true;
-  clearDropIndicator();
-  clearDragVisual({ mode: "restore" });
-  clearDragProxy();
-  stopEdgeScroll();
-  if (runtimeState.dragOriginActiveTabId) {
-    optimisticallyActivateTab(runtimeState.dragOriginActiveTabId);
-  }
-  if (runtimeState.dragSessionId) dispatch({ type: "tabDragCancel", sessionId: runtimeState.dragSessionId });
-}
-
 export function installRuntimeTabStrip(): void {
+  localTabSorting = installRuntimeTabSorting(root, {
+    activateTab: (tabId) => dispatch({ type: "activate", tabId }),
+    applyOrder: applyRuntimeTabOrder,
+    commit: ({ beforeTabId, tabId }) => commitRuntimeTabReorder(tabId, beforeTabId),
+    currentActiveTabId: () => exactActiveRuntimeTabId() ?? runtimeState.activeTabId,
+    isWindowFullscreen: () => Boolean(runtimeState.current?.windowFullscreen),
+    reportFailure: reportRuntimeTabSortFailure,
+    restoreActiveTab: (tabId) => {
+      if (tabId) dispatch({ type: "activate", tabId });
+      else window.__rionSetActiveRuntimeTab?.();
+    },
+    scheduleOverflowUpdate: scheduleScrollControlsUpdate,
+    startWindowDrag: () => dispatch({ type: "startWindowDrag" }),
+    tabIds: logicalRuntimeTabOrder
+  });
+
   window.__rionApplyRuntimeTabChromeMutation = (revision, mutation) => {
     if (!window.__rionRuntimeTabChromeReady || !runtimeState.chromeHydrated) {
       window.__rionPendingRuntimeTabChromeMutations ??= [];
@@ -520,10 +431,8 @@ export function installRuntimeTabStrip(): void {
       iconSignatureByButton.set(button, `${tab.type}\u0000${tab.workspaceTemplate ?? ""}\u0000`);
       audioSignatureByButton.set(button, "false\u0000false\u0000\u0000");
       root.append(button);
-      if (runtimeState.dragVisualState?.tabId === tab.id && runtimeState.dragVisualState.slot.isConnected) {
-        adoptDragSurface(button);
-      }
     }
+    localTabSorting?.syncAvailability();
     scheduleScrollControlsUpdate();
   };
 
@@ -536,24 +445,19 @@ export function installRuntimeTabStrip(): void {
   window.__rionRemoveRuntimeTab = (tabId, nextTabId) => {
     const button = tabElements().find((tab) => tab.dataset.tabId === tabId);
     button?.remove();
-    const visual = runtimeState.dragVisualState;
-    if (visual && button && visual.surface === button) {
-      visual.surface = undefined;
-      visual.slot.remove();
-      visual.suspended = true;
-    }
     workspaceTemplateByTabId.delete(tabId);
     if (nextTabId) optimisticallyActivateTab(nextTabId);
     else {
       runtimeState.activeTabId = undefined;
       runtimeState.optimisticActiveTabId = undefined;
     }
+    localTabSorting?.syncAvailability();
     scheduleScrollControlsUpdate();
   };
 
   window.__rionReorderRuntimeTabs = (tabIds) => {
-    if (deferRuntimeTabOrder(tabIds)) return;
-    applyRuntimeTabOrder(tabIds, true);
+    if (localTabSorting?.deferMutationOrder()) return;
+    applyRuntimeTabOrder(tabIds, false);
   };
 
   window.__rionSetActiveRuntimeTab = (tabId) => {
@@ -659,10 +563,6 @@ export function installRuntimeTabStrip(): void {
   });
 
   addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && runtimeState.draggingTabId) {
-      cancelActiveTabDrag();
-      return;
-    }
     const applicationCommand = applicationShortcutForKeyEvent(event);
     if (applicationCommand) {
       event.preventDefault();
@@ -675,78 +575,11 @@ export function installRuntimeTabStrip(): void {
     dispatch({ type: "activateAdjacent", direction: event.shiftKey ? "previous" : "next" });
   }, true);
 
-  root.addEventListener("dragover", (event) => {
-    const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    const beforeTab = resolveStableDragInsertion(payload, event.clientX);
-    clearDropIndicator();
-    previewDragPosition(payload, beforeTab, event.clientX);
-    scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
-    scrollForDragPoint(event.clientX, Boolean(payload));
-  });
-
-  root.addEventListener("dragleave", (event) => {
-    if (event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
-    clearDropIndicator();
-    stopEdgeScroll();
-  });
-
-  root.addEventListener("drop", (event) => {
-    const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload || !runtimeState.current) return;
-    event.preventDefault();
-    clearDropIndicator();
-    localDropSessions.add(payload.sessionId);
-    const beforeTab = resolveStableDragInsertion(payload, event.clientX);
-    previewDragPosition(payload, beforeTab, event.clientX);
-    const orderedTabIds = logicalRuntimeTabOrder();
-    dispatch({
-      type: "tabDragDrop",
-      sessionId: payload.sessionId,
-      windowId: runtimeState.current.windowId,
-      screenX: event.screenX,
-      screenY: event.screenY,
-      orderedTabIds,
-      ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
-    });
-    clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
-    stopEdgeScroll();
-  });
-
-  document.body.addEventListener("dragover", (event) => {
-    if (event.target instanceof Node && root.contains(event.target)) return;
-    const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload) return;
-    clearDropIndicator();
-    suspendDragVisual();
-    stopEdgeScroll();
-  });
-
-  document.body.addEventListener("dragleave", (event) => {
-    if (event.relatedTarget instanceof Node && document.body.contains(event.relatedTarget)) return;
-    suspendDragVisual();
-    stopEdgeScroll();
-  });
-
-  document.body.addEventListener("drop", (event) => {
-    if (event.target instanceof Node && root.contains(event.target)) return;
-    const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload) return;
-    clearDropIndicator();
-    suspendDragVisual();
-    stopEdgeScroll();
-  });
-
   add.addEventListener("click", () => dispatch({ type: "openLauncher" }));
 
   add.addEventListener("contextmenu", (event) => event.preventDefault());
 
-  root.addEventListener("scroll", () => {
-    scheduleScrollControlsUpdate();
-    refreshDragVisualForScroll();
-  });
+  root.addEventListener("scroll", scheduleScrollControlsUpdate);
 
   root.addEventListener("wheel", (event) => {
     if (!hasTabOverflow() || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
@@ -779,5 +612,6 @@ export function installRuntimeTabStrip(): void {
     });
   }
 
+  localTabSorting.syncAvailability();
   void runtimeState.current;
 }

@@ -237,7 +237,7 @@ button {
   font-size: var(--type-control-size);
   font-weight: var(--weight-regular);
   line-height: var(--type-control-line);
-  transition: transform 120ms ease-out, opacity 90ms ease-out;
+  transition: opacity 90ms ease-out;
 }
 
 .tab + .tab::after {
@@ -252,7 +252,7 @@ button {
   pointer-events: none;
 }
 
-.tab:hover:not(.active):not(.drag-slot) {
+.tab:hover:not(.active):not(.runtime-tab-sort-ghost) {
   background: hsl(var(--glass-control-hover));
   color: hsl(var(--foreground));
 }
@@ -261,67 +261,38 @@ button {
   background: hsl(var(--glass-control-selected));
   color: hsl(var(--foreground));
   font-weight: var(--weight-semibold);
-  box-shadow: inset 0 1px 0 hsl(var(--glass-highlight-muted));
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--border) / 0.68),
+    inset 0 1px 0 hsl(var(--glass-highlight-muted));
 }
 
-.tab.drag-surface {
+.tab.runtime-tab-sort-fallback {
   position: fixed;
   z-index: var(--layer-selection);
   margin: 0;
-  opacity: 1;
+  background: hsl(var(--glass-control-selected));
+  color: hsl(var(--foreground));
+  box-shadow: var(--shadow-overlay);
+  opacity: 0.96;
   pointer-events: none;
   transition: none;
+  will-change: transform;
 }
 
-.tab.drag-surface.drag-surface-suspended {
-  opacity: 0;
-}
-
-.drag-proxy {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: var(--layer-selection);
-  margin: 0;
-  opacity: 0.92;
-  pointer-events: none;
-  transform: translateZ(0);
-}
-
-.tab.drag-slot {
-  flex: none;
-  border: 0;
+.tab.runtime-tab-sort-ghost {
+  visibility: hidden;
   background: transparent;
   box-shadow: none;
   opacity: 0;
-  pointer-events: none;
 }
 
-.tab.drag-slot::after,
-.tab.drag-surface::after,
-.tab.drag-surface + .tab::after {
-  display: none;
+.tab.runtime-tab-sort-chosen,
+.tab.runtime-tab-sort-drag {
+  cursor: grabbing;
 }
 
-.tab.drop-before::before,
-#tabs.drop-at-end::after {
-  width: 2px;
-  height: 20px;
-  flex: none;
-  border-radius: var(--radius-pill);
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--background) / 0.7);
-  content: "";
-}
-
-.tab.drop-before::before {
-  position: absolute;
-  top: 4px;
-  left: -3px;
-}
-
-#tabs.drop-at-end::after {
-  align-self: center;
+#tabs.runtime-tab-sort-active {
+  user-select: none;
 }
 
 .icon {

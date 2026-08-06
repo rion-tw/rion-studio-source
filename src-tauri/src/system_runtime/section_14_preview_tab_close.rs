@@ -1,5 +1,13 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<RuntimeTabCloseIntent, String> {
+        self.preview_tab_close_with_presentation(tab_id, true)
+    }
+
+    fn preview_tab_close_with_presentation(
+        &self,
+        tab_id: &str,
+        present_successor: bool,
+    ) -> Result<RuntimeTabCloseIntent, String> {
         let started = Instant::now();
         if let Some(tombstone) = self
             .state
@@ -130,8 +138,12 @@ impl SystemRuntimeExecutor {
         };
         let elapsed = started.elapsed();
         self.publish_launcher_presence();
-        self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
-        if let Some(window) = self.window_for_id(&window_id) {
+        if present_successor {
+            self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
+        }
+        if present_successor
+            && let Some(window) = self.window_for_id(&window_id)
+        {
             self.dispatch_native_presentation(
                 window_id.clone(),
                 next_tab_id.clone(),

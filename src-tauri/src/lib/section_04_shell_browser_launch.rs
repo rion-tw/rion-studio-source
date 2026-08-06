@@ -137,6 +137,7 @@ async fn launch_role_from_shell(
                 .as_ref()
                 .map(|preview| preview.launch_preview_id.clone()),
             zoom_factor: None,
+            restore_role_slots: None,
         })
         .await
     {

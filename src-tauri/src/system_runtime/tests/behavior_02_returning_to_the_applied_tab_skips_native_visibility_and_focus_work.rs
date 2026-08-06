@@ -227,6 +227,113 @@
     }
 
     #[test]
+    fn claimed_surface_membership_reconciles_without_a_new_live_revision() {
+        let workspace_tab = Some("workspace-tab".to_owned());
+        let role_tab = Some("role-tab".to_owned());
+        let applied_workspace_surfaces = HashSet::from([
+            ("unique-role".to_owned(), 3),
+            ("claimed-shared-role".to_owned(), 9),
+        ]);
+        let current_role_placeholder =
+            HashSet::from([("role-placeholder".to_owned(), 10)]);
+        let plan = native_presentation_mutation_plan(
+            &workspace_tab,
+            &role_tab,
+            &applied_workspace_surfaces,
+            &current_role_placeholder,
+            NativeWindowPresentationTransition::new(
+                None,
+                None,
+                None,
+                NativePresentationFocus::None,
+            ),
+        );
+        assert!(plan.presentation_changed);
+        assert!(plan.requires_ui_thread);
+        assert!(native_presentation_intent_is_current(
+            27,
+            &role_tab,
+            &current_role_placeholder,
+            27,
+            &role_tab,
+            &current_role_placeholder,
+        ));
+    }
+
+    #[test]
+    fn late_surface_membership_cannot_rewind_rapid_a_b_c_selection() {
+        let selected_c = Some("tab-c".to_owned());
+        let surfaces_c = HashSet::from([("surface-c".to_owned(), 30)]);
+        for (late_revision, late_tab, late_surface) in [
+            (28, "tab-a", "surface-a"),
+            (29, "tab-b", "surface-b"),
+        ] {
+            assert!(!native_presentation_intent_is_current(
+                30,
+                &selected_c,
+                &surfaces_c,
+                late_revision,
+                &Some(late_tab.to_owned()),
+                &HashSet::from([(late_surface.to_owned(), late_revision)]),
+            ));
+        }
+
+        // A projection-only reconciliation samples the selection after the delayed
+        // surface attaches, so it replays C without committing another live revision.
+        assert!(native_presentation_intent_is_current(
+            30,
+            &selected_c,
+            &surfaces_c,
+            30,
+            &selected_c,
+            &surfaces_c,
+        ));
+    }
+
+    #[test]
+    fn presentation_native_work_is_fenced_by_lifecycle_epoch_and_actor_liveness() {
+        let shutdown_state = AtomicU8::new(RuntimeShutdownState::Accepting as u8);
+        let lifecycle = ApplicationLifecycleCoordinator::new_for_platform("macos");
+        let actor_liveness = AtomicBool::new(true);
+        assert!(native_presentation_native_work_is_current(
+            &shutdown_state,
+            &lifecycle,
+            0,
+            &actor_liveness,
+        ));
+
+        lifecycle.transition(ApplicationLifecyclePhase::Suspending, 1, "test");
+        assert!(!native_presentation_native_work_is_current(
+            &shutdown_state,
+            &lifecycle,
+            0,
+            &actor_liveness,
+        ));
+        lifecycle.suspended.store(false, Ordering::Release);
+        lifecycle.transition(ApplicationLifecyclePhase::Active, 1, "test");
+        assert!(!native_presentation_native_work_is_current(
+            &shutdown_state,
+            &lifecycle,
+            0,
+            &actor_liveness,
+        ));
+        assert!(native_presentation_native_work_is_current(
+            &shutdown_state,
+            &lifecycle,
+            1,
+            &actor_liveness,
+        ));
+
+        actor_liveness.store(false, Ordering::Release);
+        assert!(!native_presentation_native_work_is_current(
+            &shutdown_state,
+            &lifecycle,
+            1,
+            &actor_liveness,
+        ));
+    }
+
+    #[test]
     fn externally_reparented_surface_preserves_covered_target_surfaces() {
         let mut state = NativeWindowActorState {
             applied_revision: 12,

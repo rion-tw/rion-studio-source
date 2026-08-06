@@ -30,7 +30,6 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         slot: &EmbeddedRoleSlotEffectRecord,
         bounds: RoleBounds,
-        selected: bool,
     ) -> RuntimeResult<RolePlaceholderSurface> {
         let owner_tab_name = slot.owner.as_ref().and_then(|owner| {
             self.presentation
@@ -79,11 +78,7 @@ impl SystemRuntimeExecutor {
                 &format!("{tab_id}:placeholder:{}", slot.slot_id),
             )
         })?;
-        if selected {
-            webview.show().map_err(RuntimeError::tauri)?;
-        } else {
-            webview.hide().map_err(RuntimeError::tauri)?;
-        }
+        webview.hide().map_err(RuntimeError::tauri)?;
         let surface_instance_id = next_surface_instance_id(webview.label());
         let bound = self.presentation.bind_surface(
             window_id,
@@ -106,8 +101,11 @@ impl SystemRuntimeExecutor {
             &surface_instance_id,
             window_id,
         ) {
-            self.presentation
-                .unbind_surface(&surface_instance_id, webview.label());
+            self.unbind_surface_and_reconcile(
+                &surface_instance_id,
+                webview.label(),
+                "placeholder-owner-rollback",
+            );
             let _ = webview.close();
             return Err(RuntimeError::new(
                 "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -123,14 +121,18 @@ impl SystemRuntimeExecutor {
             false
         };
         if !inserted {
-            self.presentation
-                .unbind_surface(&surface_instance_id, webview.label());
+            self.unbind_surface_and_reconcile(
+                &surface_instance_id,
+                webview.label(),
+                "placeholder-attach-rollback",
+            );
             let _ = webview.close();
             return Err(RuntimeError::new(
                 "SYSTEM_RUNTIME_STATE_UNAVAILABLE",
                 "The runtime role placeholder registry is unavailable.",
             ));
         }
+        self.reconcile_surface_membership(window_id, "placeholder-attached");
         Ok(RolePlaceholderSurface {
             surface_instance_id,
             webview,
@@ -146,9 +148,10 @@ impl SystemRuntimeExecutor {
                 .role_placeholder_identities
                 .remove(placeholder.webview.label());
         }
-        self.presentation.unbind_surface(
+        self.unbind_surface_and_reconcile(
             &placeholder.surface_instance_id,
             placeholder.webview.label(),
+            "placeholder-retired",
         );
         placeholder.webview.close().map_err(RuntimeError::tauri)
     }

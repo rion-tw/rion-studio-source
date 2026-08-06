@@ -474,6 +474,14 @@ impl SystemRuntimeExecutor {
             ApplicationLifecyclePhase::Active
         };
         self.transition_application_lifecycle(final_phase, epoch, reason);
+        let live_window_ids = self
+            .presentation
+            .snapshot_states()
+            .map(|windows| windows.into_keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for window_id in live_window_ids {
+            self.reconcile_surface_membership(&window_id, "application-resume");
+        }
         let receipt = NativeOperationReceipt::with_status(
             operation,
             "applicationResumed",

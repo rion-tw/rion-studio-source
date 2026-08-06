@@ -10,6 +10,7 @@ include!("app/section_03_invoke_async.rs");
 include!("app/section_04_apply_one_chrome_profile.rs");
 include!("app/section_05_delete_workspaces_runtime_aware.rs");
 include!("app/section_06_acquire_browser_operation_async.rs");
+include!("app/section_06_restored_role_demand.rs");
 include!("app/section_07_embedded_workspace_launch.rs");
 include!("app/section_07_commit_embedded_role_launch_outcome.rs");
 include!("app/section_07_stop_embedded_role.rs");

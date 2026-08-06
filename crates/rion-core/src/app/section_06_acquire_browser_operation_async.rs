@@ -392,9 +392,13 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         launch_preview_id: Option<String>,
         zoom_factor: f64,
+        restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
     ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
         let completion_zoom_factor = zoom_factor;
         let completion_permit = self.launch_completion.try_reserve()?;
+        let restore_role_slot =
+            validate_restored_role_slot(&role_id, restore_role_slots.as_deref())?;
+        let restoring = restore_role_slot.is_some();
         let core = Arc::clone(self);
         let start_launch_preview_id = launch_preview_id.clone();
         let start = tokio::task::spawn_blocking(move || {
@@ -409,8 +413,14 @@ impl AppCore {
                 start_launch_preview_id,
                 zoom_factor,
                 lease.id.clone(),
+                restore_role_slot,
             ) {
                 Ok(EmbeddedRoleLaunchStart::Completed(value)) => {
+                    core.browser_operations.complete(&lease.id)?;
+                    Ok(EmbeddedRoleLaunchStart::Completed(value))
+                }
+                Ok(EmbeddedRoleLaunchStart::Pending(pending)) if restoring => {
+                    let value = core.settle_embedded_role_launch_blocking(*pending)?;
                     core.browser_operations.complete(&lease.id)?;
                     Ok(EmbeddedRoleLaunchStart::Completed(value))
                 }
@@ -504,6 +514,7 @@ impl AppCore {
                 None,
                 zoom_factor,
                 lease.id.clone(),
+                None,
             )
             .and_then(|start| match start {
                 EmbeddedRoleLaunchStart::Completed(value) => Ok(value),
@@ -525,6 +536,7 @@ impl AppCore {
         launch_preview_id: Option<String>,
         zoom_factor: f64,
         lease_id: String,
+        restore_role_slot: Option<GameWindowRoleSlotRecord>,
     ) -> CoreResult<EmbeddedRoleLaunchStart> {
         let role = serde_json::from_value::<StateRoleRecord>(self.read_state_record(
             "roles",
@@ -547,6 +559,16 @@ impl AppCore {
                     code: "ROLE_ALREADY_RUNNING",
                     message: "The role is already launching or stopping.".to_owned(),
                 });
+            }
+            if let Some(restore_role_slot) = restore_role_slot {
+                return self.create_restored_role_demand(
+                    role,
+                    runtime_role.clone(),
+                    target,
+                    launch_preview_id,
+                    restore_role_slot,
+                    snapshot,
+                );
             }
             self.run_effect_plan(vec![effect_step(
                 role_id,
@@ -593,6 +615,17 @@ impl AppCore {
         require_system_resolution(&resolution)?;
         let resolved_engine = resolution.resolved_engine;
 
+        let role_slot_input = restore_role_slot.unwrap_or_else(|| GameWindowRoleSlotRecord {
+            slot_id: format!("role:{}", role.id),
+            role_id: role.id.clone(),
+            rect: full_window_rect(),
+            browser_zoom_percent: Some((zoom_factor * 100.0).clamp(25.0, 500.0)),
+        });
+        let role_zoom_factor = role_slot_input
+            .browser_zoom_percent
+            .unwrap_or(zoom_factor * 100.0)
+            .clamp(25.0, 500.0)
+            / 100.0;
         let tab_id = self
             .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
                 tab_id: self.saved_game_window_tab_id(&target.window_id, "role", &role.id)?,
@@ -601,12 +634,10 @@ impl AppCore {
                 tab_type: "role".to_owned(),
                 workspace_id: None,
                 role_slots: vec![RuntimeRoleSlotInputRecord {
-                    slot_id: format!("role:{}", role.id),
+                    slot_id: role_slot_input.slot_id.clone(),
                     role_id: role.id.clone(),
-                    rect: full_window_rect(),
-                    browser_zoom_percent: Some(
-                        (zoom_factor * 100.0).clamp(25.0, 500.0),
-                    ),
+                    rect: role_slot_input.rect.clone(),
+                    browser_zoom_percent: role_slot_input.browser_zoom_percent,
                 }],
             })?
             .created_tab_id
@@ -615,15 +646,15 @@ impl AppCore {
             role_id: role.id.clone(),
             runtime: "embedded".to_owned(),
             tab_id: tab_id.clone(),
-            slot_id: Some(format!("role:{}", role.id)),
+            slot_id: Some(role_slot_input.slot_id.clone()),
             state: "launching".to_owned(),
             launched_at: None,
         })?;
         let role_slot = EmbeddedRoleSlotEffectRecord {
-            slot_id: format!("role:{}", role.id),
+            slot_id: role_slot_input.slot_id,
             role: role.clone(),
-            rect: full_window_rect(),
-            zoom_factor,
+            rect: role_slot_input.rect.clone(),
+            zoom_factor: role_zoom_factor,
             zoom_mode: "fixed".to_owned(),
             state: "launching".to_owned(),
             owner: self
@@ -648,8 +679,8 @@ impl AppCore {
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
                 resolved_engine,
-                rect: full_window_rect(),
-                zoom_factor,
+                rect: role_slot_input.rect,
+                zoom_factor: role_zoom_factor,
                 zoom_mode: "fixed".to_owned(),
             }],
         };

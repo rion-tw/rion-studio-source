@@ -91,6 +91,7 @@ impl SystemRuntimeExecutor {
                     LogicalSize::new(bounds.width, bounds.height),
                     &lifecycle_id,
                 )?;
+                webview.hide().map_err(RuntimeError::tauri)?;
                 let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
@@ -109,20 +110,6 @@ impl SystemRuntimeExecutor {
                     0,
                 )?;
                 let attached = (|| -> RuntimeResult<RuntimeDivider> {
-                    let selected = self
-                        .presentation
-                        .existing(&window_id)
-                        .and_then(|presentation| {
-                            presentation.lock().ok().map(|presentation| {
-                                presentation.selected_tab_id.as_deref() == Some(tab_id)
-                            })
-                        })
-                        .ok_or_else(|| {
-                            RuntimeError::new(
-                                "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                                "The runtime tab presentation disappeared before its divider could bind.",
-                            )
-                        })?;
                     if !self.presentation.bind_surface(
                         &window_id,
                         tab_id,
@@ -142,9 +129,7 @@ impl SystemRuntimeExecutor {
                         .map_err(|message| {
                             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                         })?;
-                    if !selected {
-                        webview.hide().map_err(RuntimeError::tauri)?;
-                    }
+                    self.reconcile_surface_membership(&window_id, "divider-attached");
                     Ok(RuntimeDivider {
                         descriptor,
                         index,
@@ -211,22 +196,8 @@ impl SystemRuntimeExecutor {
             }
             Ok(inserted)
         })?;
-        if inserted
-            && self
-            .presentation
-            .existing(&window_id)
-            .is_some_and(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .is_some_and(|selection| selection.selected_tab_id.as_deref() == Some(tab_id))
-            })
-        {
-            let _ = self.request_tab_presentation(
-                tab_id,
-                NativePresentationFocus::None,
-                "optional-dividers-attached",
-            );
+        if inserted {
+            self.reconcile_surface_membership(&window_id, "optional-dividers-attached");
         }
         Ok(())
     }

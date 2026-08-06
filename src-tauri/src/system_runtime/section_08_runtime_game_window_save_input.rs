@@ -369,8 +369,11 @@ impl SystemRuntimeExecutor {
         if let Some(surface) = removed {
             #[cfg(windows)]
             windows_live_resize_unregister_surface(&surface.webview);
-            self.presentation
-                .unbind_surface(instance_id, surface.webview.label());
+            self.unbind_surface_and_reconcile(
+                instance_id,
+                surface.webview.label(),
+                "surface-released",
+            );
             self.record_surface_event(
                 LogLevel::Debug,
                 "surface.released",
@@ -399,8 +402,11 @@ impl SystemRuntimeExecutor {
                 .insert(instance_id.to_owned(), surface.clone());
             surface
         };
-        self.presentation
-            .unbind_surface(instance_id, surface.webview.label());
+        self.unbind_surface_and_reconcile(
+            instance_id,
+            surface.webview.label(),
+            "surface-retired",
+        );
         self.record_surface_event(
             LogLevel::Debug,
             "surface.lease-retired",

@@ -94,6 +94,7 @@ impl LaunchIntentDispatcher {
                             target: intent.target.clone(),
                             launch_preview_id: Some(intent.launch_preview_id.clone()),
                             zoom_factor: None,
+                            restore_role_slots: None,
                         }
                     };
                     let result = core.invoke_async(command).await;

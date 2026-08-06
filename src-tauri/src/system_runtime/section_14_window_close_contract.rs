@@ -227,17 +227,15 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<(Vec<String>, SystemRuntimeOperationSummaryRecord)> {
         let tab_ids = self.live_window_tab_ids(window_id).unwrap_or_default();
         for tab_id in &tab_ids {
-            if self.cancel_provisional_tab_launch(tab_id) {
+            if self.cancel_provisional_tab_launch_with_presentation(tab_id, false) {
                 continue;
             }
-            if let Err(message) = self.preview_tab_close(tab_id) {
+            if let Err(message) = self.preview_tab_close_with_presentation(tab_id, false) {
                 eprintln!(
                     "Late tab close intent was retired while closing its window: window={window_id} tab={tab_id} error={message}"
                 );
             }
         }
-        self.presentation.remove(window_id);
-
         let native_window = {
             let mut state = self.state()?;
             let native_window = state.display_hosts.get_mut(window_id).map(|host| {
@@ -277,6 +275,7 @@ impl SystemRuntimeExecutor {
                 );
             }
         }
+        self.presentation.remove(window_id);
         self.schedule_retiring_window_tab_cleanup(window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
         self.publish_launcher_presence();

@@ -212,8 +212,8 @@ fn queue_full_and_actor_stop_complete_receipts_without_fake_success() {
             registry.complete(NativeOperationReceipt::with_status(
                 stopped,
                 "nativePresentationStopped",
-                NativeOperationStatus::Failed,
-                Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
+                NativeOperationStatus::Superseded,
+                None,
             ));
         }
         assert_eq!(
@@ -223,12 +223,8 @@ fn queue_full_and_actor_stop_complete_receipts_without_fake_success() {
         );
         for operation_id in queued_ids {
             let receipt = registry.wait(&operation_id).unwrap();
-            assert_eq!(receipt.status, NativeOperationStatus::Failed, "{platform}");
-            assert_eq!(
-                receipt.failure_code.as_deref(),
-                Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
-                "{platform}"
-            );
+            assert_eq!(receipt.status, NativeOperationStatus::Superseded, "{platform}");
+            assert_eq!(receipt.failure_code, None, "{platform}");
         }
     }
 }

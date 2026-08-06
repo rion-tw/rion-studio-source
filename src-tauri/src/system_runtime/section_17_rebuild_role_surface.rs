@@ -153,6 +153,7 @@ impl SystemRuntimeExecutor {
             LogicalSize::new(bounds.width, bounds.height),
             role_id,
         )?;
+        webview.hide().map_err(RuntimeError::tauri)?;
         let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
             Ok(lifecycle) => lifecycle,
             Err(error) => {
@@ -441,20 +442,6 @@ impl SystemRuntimeExecutor {
         drop(state);
         self.require_application_lifecycle_epoch(lifecycle_epoch)?;
         self.set_role_input_surface(role_id, generation, false, false)?;
-        let selected = self
-            .presentation
-            .existing(&window_id)
-            .and_then(|presentation| {
-                presentation.lock().ok().map(|presentation| {
-                    presentation.selected_tab_id.as_deref() == Some(tab_id.as_str())
-                })
-            })
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation disappeared before recovery could bind its replacement surface.",
-                )
-            })?;
         let surface_bound = self.presentation.bind_surface(
             &window_id,
             &tab_id,
@@ -480,15 +467,7 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        if selected {
-            let _ = self.request_tab_presentation(
-                &tab_id,
-                NativePresentationFocus::None,
-                "surface-recovered",
-            );
-        } else {
-            let _ = replacement_webview.hide();
-        }
+        self.reconcile_surface_membership(&window_id, "surface-recovered");
         if let Ok(surface) = self.managed_surface(&replacement_instance_id) {
             self.record_surface_event(
                 LogLevel::Info,

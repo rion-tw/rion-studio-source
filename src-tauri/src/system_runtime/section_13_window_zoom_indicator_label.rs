@@ -416,6 +416,63 @@ impl SystemRuntimeExecutor {
         self.request_tab_presentation_with_window_visibility(tab_id, focus, trigger, None)
     }
 
+    fn reconcile_window_presentation(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+    ) -> Result<(u64, String), String> {
+        let requested_at = Instant::now();
+        let window = self
+            .window_for_id(window_id)
+            .ok_or_else(|| "Runtime display host was not found.".to_owned())?;
+        let live = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "The live runtime window is no longer available.".to_owned())?;
+        let (tab_id, revision) = live
+            .lock()
+            .map(|live| (live.selected_tab_id.clone(), live.revision))
+            .map_err(|_| "The live runtime window state is unavailable.".to_owned())?;
+        let next_surfaces = self
+            .presentation
+            .surfaces(window_id, tab_id.as_deref());
+        let active_webview = next_surfaces.first().cloned();
+        let operation_id = self.dispatch_native_presentation(
+            window_id.to_owned(),
+            tab_id,
+            revision,
+            trigger,
+            requested_at,
+            window,
+            None,
+            Vec::new(),
+            next_surfaces,
+            active_webview,
+            None,
+            NativePresentationFocus::None,
+            None,
+        );
+        Ok((revision, operation_id))
+    }
+
+    fn reconcile_surface_membership(&self, window_id: &str, trigger: &'static str) {
+        let _ = self.reconcile_window_presentation(window_id, trigger);
+    }
+
+    fn unbind_surface_and_reconcile(
+        &self,
+        instance_id: &str,
+        surface_label: &str,
+        trigger: &'static str,
+    ) {
+        if let Some(window_id) = self
+            .presentation
+            .unbind_surface(instance_id, surface_label)
+        {
+            self.reconcile_surface_membership(&window_id, trigger);
+        }
+    }
+
     fn request_tab_activation_with_window_visibility(
         &self,
         tab_id: &str,

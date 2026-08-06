@@ -361,7 +361,8 @@ async fn restore_saved_game_windows(
                         json!({
                             "type": "browserRoleLaunch",
                             "roleId": tab.source_id,
-                            "target": target
+                            "target": target,
+                            "restoreRoleSlots": tab.role_slots
                         }),
                     )
                     .await

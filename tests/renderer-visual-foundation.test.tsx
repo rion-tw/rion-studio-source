@@ -32,6 +32,10 @@ describe("renderer visual foundation", () => {
     expect(runtimeTabs).toContain('href="/runtime-tabs.css"');
     expect(bootStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
     expect(runtimeTabStyles).toContain("font-variant-numeric: lining-nums tabular-nums");
+    expect(runtimeTabStyles).toMatch(/\.tab \{[\s\S]*?transition: opacity 90ms ease-out;/);
+    expect(runtimeTabStyles).toMatch(
+      /\.tab\.runtime-tab-sort-ghost \{[\s\S]*?visibility: hidden;[\s\S]*?opacity: 0;/
+    );
     expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });

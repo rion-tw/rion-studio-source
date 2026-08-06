@@ -7,6 +7,7 @@ import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
 let resizeObserverCallback: ResizeObserverCallback | undefined;
+let runtimeTabStripModule: typeof import("../src/renderer/runtime-shell/runtimeTabStrip");
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
@@ -56,7 +57,7 @@ beforeAll(async () => {
     unobserve() {}
   });
   document.body.innerHTML = '<div id="window-identity"><span id="window-name"></span></div><button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button><div id="window-drag-region"></div><div id="window-controls"><button id="window-minimize"></button><button id="window-maximize"></button><button id="window-close"></button></div>';
-  await import("../src/renderer/runtime-shell/runtimeTabStrip");
+  runtimeTabStripModule = await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
 
 beforeEach(async () => {
@@ -263,7 +264,7 @@ it("projects the resolved app theme onto an already-open tab document", () => {
     expect(document.documentElement.style.colorScheme).toBe("light");
   });
 
-it("routes custom Windows titlebar drag and caption controls through the scoped action bridge", () => {
+it("routes custom Windows titlebar drag and caption controls through the scoped action bridge", async () => {
     window.__rionApplyRuntimeTabState?.(state);
     invoke.mockClear();
 
@@ -275,6 +276,7 @@ it("routes custom Windows titlebar drag and caption controls through the scoped 
     document.querySelector<HTMLButtonElement>("#window-minimize")?.click();
     document.querySelector<HTMLButtonElement>("#window-maximize")?.click();
     document.querySelector<HTMLButtonElement>("#window-close")?.click();
+    await Promise.resolve();
 
     expect(invoke.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
       { action: { type: "startWindowDrag" } },
@@ -481,6 +483,30 @@ it("reorders existing native tabs without recreating their controls", () => {
     expect(Array.from(document.querySelectorAll<HTMLElement>(".tab"), (tab) => tab.dataset.tabId))
       .toEqual(["tab-4", "tab-2", "tab-1", "tab-3"]);
     expect(original?.classList.contains("active")).toBe(true);
+  });
+
+it("waits for an in-flight reorder before closing the window", async () => {
+    let resolveReorder!: () => void;
+    const reorderReceipt = new Promise<void>((resolve) => {
+      resolveReorder = resolve;
+    });
+    invoke.mockImplementationOnce(() => reorderReceipt);
+
+    const reorder = runtimeTabStripModule.commitRuntimeTabReorder("tab-1", "tab-2");
+    await Promise.resolve();
+    document.querySelector<HTMLButtonElement>("#window-close")?.click();
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect((invoke.mock.calls[0] as unknown[])?.[1]).toEqual({
+      action: { beforeTabId: "tab-2", tabId: "tab-1", type: "reorder" }
+    });
+
+    resolveReorder();
+    await reorder;
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect((invoke.mock.calls[1] as unknown[])?.[1]).toEqual({
+      action: { control: "close", type: "windowControl" }
+    });
   });
 
 it("ensures a projected tab exists without changing the active tab", () => {

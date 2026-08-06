@@ -29,7 +29,7 @@ beforeEach(() => {
 });
 
 describe("Windows runtime tab chrome projection", () => {
-  it("atomically rehydrates order, active ARIA state, metadata, and removes stale tabs", () => {
+  it("atomically rehydrates order, active ARIA state, metadata, and removes stale tabs", async () => {
     window.__rionEnsureRuntimeTab?.({ id: "stale-tab", name: "Stale", type: "role" });
     window.__rionApplyRuntimeTabChromeProjection?.({
       rendererInstanceId,
@@ -94,6 +94,8 @@ describe("Windows runtime tab chrome projection", () => {
     expect(tabs[1]?.querySelector(".name")?.textContent).toBe("Renamed Workspace");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(document.querySelector("#window-name")?.textContent).toBe("Main Game Window");
+    expect(invoke).not.toHaveBeenCalled();
+    await nextPaint();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: {
         type: "tabChromeProjectionApplied",
@@ -135,3 +137,8 @@ describe("Windows runtime tab chrome projection", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 });
+
+async function nextPaint(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}

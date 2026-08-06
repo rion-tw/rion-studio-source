@@ -32,6 +32,33 @@ fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> Runtime
 }
 
 #[test]
+fn windows_tab_chrome_reveal_waits_for_visibility_and_painted_content() {
+    for signals in [
+        [
+            WindowsTabChromeRevealSignal::VisibilityRequested,
+            WindowsTabChromeRevealSignal::ContentPainted,
+        ],
+        [
+            WindowsTabChromeRevealSignal::ContentPainted,
+            WindowsTabChromeRevealSignal::VisibilityRequested,
+        ],
+    ] {
+        let mut reveal = WindowsTabChromeRevealState::new(true);
+        assert!(!reveal.observe(signals[0]));
+        assert!(reveal.observe(signals[1]));
+        assert!(!reveal.observe(signals[1]));
+    }
+
+    let mut fallback = WindowsTabChromeRevealState::new(true);
+    assert!(!fallback.observe(WindowsTabChromeRevealSignal::FallbackElapsed));
+    assert!(fallback.observe(WindowsTabChromeRevealSignal::VisibilityRequested));
+
+    let mut uncloaked = WindowsTabChromeRevealState::new(false);
+    assert!(!uncloaked.observe(WindowsTabChromeRevealSignal::VisibilityRequested));
+    assert!(!uncloaked.observe(WindowsTabChromeRevealSignal::ContentPainted));
+}
+
+#[test]
 fn semantic_projection_revision_survives_a_renderer_reload() {
     let platform = "windows";
     {

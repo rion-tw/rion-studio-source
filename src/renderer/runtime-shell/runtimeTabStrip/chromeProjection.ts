@@ -65,15 +65,19 @@ export function stateFromChromeProjection(
 
 function observedChromeState(
   tabs: HTMLButtonElement[],
-  observedTabOrder?: string[]
+  observedTabOrder?: string[],
+  observedActiveTabId?: string | null
 ): { activeTabId?: string; tabOrder: string[] } {
   const active = tabs.filter((tab) =>
     tab.classList.contains("active") && tab.getAttribute("aria-selected") === "true"
   );
+  const activeTabId = observedActiveTabId !== undefined
+    ? observedActiveTabId ?? undefined
+    : active.length === 1
+      ? active[0]?.dataset.tabId
+      : undefined;
   return {
-    ...(active.length === 1 && active[0]?.dataset.tabId
-      ? { activeTabId: active[0].dataset.tabId }
-      : {}),
+    ...(activeTabId ? { activeTabId } : {}),
     tabOrder: observedTabOrder
       ?? tabs.flatMap((tab) => tab.dataset.tabId ? [tab.dataset.tabId] : [])
   };
@@ -84,9 +88,10 @@ export function acknowledgeChromeProjection(
   rendererInstanceId: string,
   tabs: HTMLButtonElement[],
   observedTabOrder?: string[],
-  forcedStatus?: "superseded" | "failed"
+  forcedStatus?: "superseded" | "failed",
+  observedActiveTabId?: string | null
 ): void {
-  const observed = observedChromeState(tabs, observedTabOrder);
+  const observed = observedChromeState(tabs, observedTabOrder, observedActiveTabId);
   const acknowledgement: RuntimeTabChromeAcknowledgementRecord = {
     rendererInstanceId,
     projectionRevision: projection.projectionRevision,

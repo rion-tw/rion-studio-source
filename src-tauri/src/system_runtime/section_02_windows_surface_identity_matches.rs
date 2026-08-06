@@ -332,6 +332,8 @@ struct RuntimeDisplayHost {
     tab_strip: Webview,
     #[cfg(windows)]
     toolbar_revealed: bool,
+    #[cfg(windows)]
+    tab_chrome_reveal: WindowsTabChromeRevealState,
     #[cfg(target_os = "macos")]
     tabs_controller: crate::runtime_tabs_macos::MacRuntimeTabsController,
 }

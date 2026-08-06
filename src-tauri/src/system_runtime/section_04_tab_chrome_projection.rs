@@ -52,6 +52,52 @@ enum TabChromeProjectionWaitOutcome {
 }
 
 #[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsTabChromeRevealSignal {
+    ContentPainted,
+    FallbackElapsed,
+    VisibilityRequested,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowsTabChromeRevealState {
+    cloaked: bool,
+    content_painted: bool,
+    fallback_elapsed: bool,
+    visibility_requested: bool,
+}
+
+#[cfg(any(windows, test))]
+impl WindowsTabChromeRevealState {
+    fn new(cloaked: bool) -> Self {
+        Self {
+            cloaked,
+            content_painted: false,
+            fallback_elapsed: false,
+            visibility_requested: false,
+        }
+    }
+
+    fn observe(&mut self, signal: WindowsTabChromeRevealSignal) -> bool {
+        match signal {
+            WindowsTabChromeRevealSignal::ContentPainted => self.content_painted = true,
+            WindowsTabChromeRevealSignal::FallbackElapsed => self.fallback_elapsed = true,
+            WindowsTabChromeRevealSignal::VisibilityRequested => {
+                self.visibility_requested = true;
+            }
+        }
+        let reveal = self.cloaked
+            && self.visibility_requested
+            && (self.content_painted || self.fallback_elapsed);
+        if reveal {
+            self.cloaked = false;
+        }
+        reveal
+    }
+}
+
+#[cfg(any(windows, test))]
 impl TabChromeProjectionCoordinator {
     fn register_renderer(
         &self,
@@ -345,6 +391,56 @@ impl TabChromeProjectionCoordinator {
 
 #[cfg(windows)]
 impl SystemRuntimeExecutor {
+    fn observe_windows_tab_chrome_reveal(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        signal: WindowsTabChromeRevealSignal,
+    ) {
+        let window = self.state.lock().ok().and_then(|mut state| {
+            let host = state.display_hosts.get_mut(window_id)?;
+            if host.generation != window_generation || !host.tab_chrome_reveal.observe(signal) {
+                return None;
+            }
+            Some(host.window.clone())
+        });
+        let Some(window) = window else {
+            return;
+        };
+        if let Err(error) = set_windows_runtime_window_cloaked(&window, false) {
+            if let Ok(mut state) = self.state.lock()
+                && let Some(host) = state.display_hosts.get_mut(window_id)
+                && host.generation == window_generation
+            {
+                host.tab_chrome_reveal.cloaked = true;
+            }
+            eprintln!("Windows runtime window could not be revealed after tab chrome paint: {error}");
+        }
+    }
+
+    fn schedule_windows_tab_chrome_reveal_fallback(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+    ) {
+        let Some(runtime) = self.self_weak.get().cloned() else {
+            return;
+        };
+        let window_id = window_id.to_owned();
+        let _ = thread::Builder::new()
+            .name(format!("rion-tab-chrome-reveal-{window_generation}"))
+            .spawn(move || {
+                thread::sleep(WINDOWS_TAB_CHROME_REVEAL_FALLBACK_TIMEOUT);
+                if let Some(runtime) = runtime.upgrade() {
+                    runtime.observe_windows_tab_chrome_reveal(
+                        &window_id,
+                        window_generation,
+                        WindowsTabChromeRevealSignal::FallbackElapsed,
+                    );
+                }
+            });
+    }
+
     fn display_records_for_tab_chrome(&self) -> Vec<DisplayInfoRecord> {
         self.app
             .try_state::<crate::CoreState>()
@@ -570,6 +666,7 @@ impl SystemRuntimeExecutor {
         let worker_operation = operation.clone();
         let worker_projection = projection.clone();
         let worker_renderer_instance_id = renderer_instance_id.clone();
+        let runtime = self.self_weak.get().cloned();
         let worker = thread::Builder::new()
             .name(format!(
                 "rion-tab-chrome-projection-{}",
@@ -620,6 +717,16 @@ impl SystemRuntimeExecutor {
                         Some("TAB_CHROME_PROJECTION_TIMEOUT"),
                     ),
                 };
+                if matches!(outcome, TabChromeProjectionWaitOutcome::Applied)
+                    && !worker_projection.tab_order.is_empty()
+                    && let Some(runtime) = runtime.and_then(|runtime| runtime.upgrade())
+                {
+                    runtime.observe_windows_tab_chrome_reveal(
+                        &worker_projection.window_id,
+                        worker_projection.window_generation,
+                        WindowsTabChromeRevealSignal::ContentPainted,
+                    );
+                }
                 coordinator.finish(
                     &worker_projection.window_id,
                     &worker_renderer_instance_id,

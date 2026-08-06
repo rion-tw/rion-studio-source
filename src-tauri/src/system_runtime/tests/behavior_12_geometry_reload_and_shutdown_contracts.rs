@@ -251,17 +251,26 @@ fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
 
 #[test]
 fn live_resize_projects_the_active_tab_then_settles_every_tab() {
+    let hydrated = HashSet::from(["active".to_owned(), "hidden".to_owned()]);
     assert_eq!(
-        resize_projection_tab_ids(Some("active".to_owned()), None),
+        resize_projection_tab_ids(Some("active".to_owned()), None, &hydrated),
         ["active"]
     );
     assert_eq!(
         resize_projection_tab_ids(
             Some("active".to_owned()),
             Some(vec!["active".to_owned(), "hidden".to_owned()]),
+            &hydrated,
         ),
         ["active", "hidden"]
     );
+    assert!(resize_projection_tab_ids(
+        Some("reserved".to_owned()),
+        Some(vec!["reserved".to_owned(), "active".to_owned()]),
+        &hydrated,
+    )
+    .iter()
+    .eq(["active"]));
 }
 
 #[test]

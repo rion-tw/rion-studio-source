@@ -594,3 +594,201 @@ fn reopening_a_stopped_role_reuses_its_preserved_available_slot() {
     assert!(snapshot.tabs[0].hidden, "Core must not project tab visibility");
     core.shutdown();
 }
+
+#[test]
+fn closing_an_available_role_tab_removes_its_demand_record() {
+    let (_directory, core) = core();
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let launch = command(json!({
+        "type": "embeddedRoleLaunch",
+        "roleId": role_id,
+        "target": {
+            "windowId": "available-demand-window",
+            "displayId": 1,
+            "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+        }
+    }));
+    assert!(drive_command(Arc::clone(&core), launch, None).0.is_ok());
+    let tab_id = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot
+        .tabs[0]
+        .id
+        .clone();
+    assert!(
+        drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedRoleStop {
+                role_id: role_id.clone(),
+            },
+            None,
+        )
+        .0
+        .is_ok()
+    );
+
+    let (closed, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        embedded_tab_stop_mutation_command(
+            "close-available-demand",
+            &tab_id,
+            "available-demand-window",
+            &role_id,
+        ),
+        None,
+    );
+    assert!(closed.is_ok(), "{closed:?}");
+    assert!(actions.is_empty());
+    let snapshot = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert!(snapshot.tabs.is_empty());
+    assert!(snapshot.roles.is_empty());
+    core.shutdown();
+}
+
+#[test]
+fn closing_a_window_removes_available_role_demands_without_native_owners() {
+    let (_directory, core) = core();
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let window_id = "available-demand-window-close";
+    let launch = command(json!({
+        "type": "embeddedRoleLaunch",
+        "roleId": role_id,
+        "target": {
+            "windowId": window_id,
+            "displayId": 1,
+            "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+        }
+    }));
+    assert!(drive_command(Arc::clone(&core), launch, None).0.is_ok());
+    let tab_id = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot
+        .tabs[0]
+        .id
+        .clone();
+    assert!(
+        drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedRoleStop {
+                role_id: role_id.clone(),
+            },
+            None,
+        )
+        .0
+        .is_ok()
+    );
+
+    let (closed, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserWindowStop {
+            window_id: window_id.to_owned(),
+            tab_ids: vec![tab_id],
+        },
+        None,
+    );
+    assert!(closed.is_ok(), "{closed:?}");
+    assert!(actions.is_empty());
+    let snapshot = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert!(snapshot.tabs.is_empty());
+    assert!(snapshot.roles.is_empty());
+    core.shutdown();
+}
+
+#[test]
+fn restored_available_role_rebuilds_a_stale_demand_instead_of_completing_empty() {
+    let (_directory, core) = core();
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let launch = command(json!({
+        "type": "embeddedRoleLaunch",
+        "roleId": role_id,
+        "target": {
+            "windowId": "stale-demand-window",
+            "displayId": 1,
+            "workArea": {"x": 0, "y": 0, "width": 1200, "height": 800}
+        }
+    }));
+    assert!(drive_command(Arc::clone(&core), launch, None).0.is_ok());
+    let stale_tab_id = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot
+        .tabs[0]
+        .id
+        .clone();
+    assert!(
+        drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedRoleStop {
+                role_id: role_id.clone(),
+            },
+            None,
+        )
+        .0
+        .is_ok()
+    );
+
+    let saved_rect = StateNormalizedRectRecord {
+        x: 0.1,
+        y: 0.2,
+        width: 0.8,
+        height: 0.7,
+    };
+    let (restored, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleLaunch {
+            role_id: role_id.clone(),
+            target: EmbeddedLaunchTargetRecord {
+                window_id: "stale-demand-window".to_owned(),
+                display_id: 1,
+                scale_factor: 1.0,
+                work_area: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                bounds: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                presentation: "normal".to_owned(),
+            },
+            launch_preview_id: None,
+            zoom_factor: None,
+            restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
+                slot_id: "restored-stale-slot".to_owned(),
+                role_id: role_id.clone(),
+                rect: saved_rect.clone(),
+                browser_zoom_percent: Some(133.0),
+            }]),
+        },
+        None,
+    );
+    assert!(restored.is_ok(), "{restored:?}");
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        CoreEffectAction::EmbeddedCreateTab { tab }
+            if tab.tab_id != stale_tab_id
+                && tab.roles.len() == 1
+                && tab.slots[0].slot_id == "restored-stale-slot"
+                && tab.slots[0].rect == saved_rect
+    )));
+    let snapshot = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert_eq!(snapshot.tabs.len(), 1);
+    assert_eq!(snapshot.roles.len(), 1);
+    assert_eq!(snapshot.tabs[0].slots[0].slot_id, "restored-stale-slot");
+    core.shutdown();
+}

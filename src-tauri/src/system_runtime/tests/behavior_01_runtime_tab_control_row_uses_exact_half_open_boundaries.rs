@@ -652,6 +652,24 @@ use super::*;
     }
 
     #[test]
+    fn role_store_reuse_waits_for_exact_surface_release() {
+        assert!(ROLE_STORE_REUSE_TIMEOUT > SURFACE_RECLAMATION_TIMEOUT);
+        for phase in [
+            ManagedSurfacePhase::Live,
+            ManagedSurfacePhase::CloseRequested,
+            ManagedSurfacePhase::Isolating,
+            ManagedSurfacePhase::Isolated,
+            ManagedSurfacePhase::Provisional,
+            ManagedSurfacePhase::Quarantined,
+            ManagedSurfacePhase::Releasing,
+            ManagedSurfacePhase::Retired,
+        ] {
+            assert!(phase.blocks_role_store_reuse(), "{phase:?}");
+        }
+        assert!(!ManagedSurfacePhase::Released.blocks_role_store_reuse());
+    }
+
+    #[test]
     fn native_window_actor_bounds_and_coalesces_pending_presentation_work() {
         let mut queue = NativePresentationQueue::default();
         for revision in 1..=20 {

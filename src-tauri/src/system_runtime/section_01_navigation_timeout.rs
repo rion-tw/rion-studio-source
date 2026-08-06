@@ -81,6 +81,10 @@ const WINDOWS_TAB_STRIP_HEIGHT: f64 = 40.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
+// A role-store reuse waiter must outlive the worker that owns the final Tauri
+// unregister check. That worker may enter its last bounded poll just before its
+// own deadline and report the release on the following UI turn.
+const ROLE_STORE_REUSE_TIMEOUT: Duration = Duration::from_secs(12);
 const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;

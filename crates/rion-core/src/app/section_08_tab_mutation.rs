@@ -61,6 +61,12 @@ impl AppCore {
                 message: "The runtime tab identity changed before stop committed.".to_owned(),
             });
         }
+        if tab_type == "role"
+            && let Some(snapshot) =
+                self.remove_unowned_role_tab_mutation(&request, source_id, tab_type)?
+        {
+            return Ok(snapshot);
+        }
         if tab_type == "workspace" {
             self.stop_embedded_workspace_with_operation_lease(
                 source_id,
@@ -80,5 +86,41 @@ impl AppCore {
         Ok(self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot)
+    }
+
+    fn remove_unowned_role_tab_mutation(
+        &self,
+        request: &crate::model::RuntimeTabMutationRequestRecord,
+        source_id: &str,
+        tab_type: &str,
+    ) -> CoreResult<Option<crate::model::BrowserRuntimeSnapshot>> {
+        let sequence = self.embedded_runtime_sequence.acquire()?;
+        let current = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
+        let Some(tab) = current.tabs.iter().find(|tab| tab.id == request.tab_id) else {
+            return Ok(Some(current));
+        };
+        if tab.source_id != source_id || tab.tab_type != tab_type {
+            return Err(CoreError::Domain {
+                code: "TAB_MUTATION_RESULT_UNKNOWN",
+                message: "The runtime tab identity changed before stop committed.".to_owned(),
+            });
+        }
+        if current
+            .roles
+            .iter()
+            .any(|role| role.owner.tab_id == request.tab_id)
+        {
+            return Ok(None);
+        }
+        let next = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                tab_id: request.tab_id.clone(),
+            })?
+            .snapshot;
+        drop(sequence);
+        self.emit_browser_statuses();
+        Ok(Some(next))
     }
 }

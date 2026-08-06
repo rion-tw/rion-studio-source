@@ -22,6 +22,17 @@ impl SystemRuntimeExecutor {
                     "The claimed role slot has no matching runtime owner.",
                 )
             })?;
+        let role_close_wait_started = Instant::now();
+        if self.wait_for_role_relaunch_fences(
+            &HashSet::from([role.role.id.clone()]),
+            ROLE_STORE_REUSE_TIMEOUT,
+        )? {
+            self.record_runtime_stage(
+                format!("role-claim-release-fence:{}", role.role.id),
+                "completed",
+                role_close_wait_started,
+            );
+        }
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (window, window_id, window_zoom_factor, previous_owner_generation) = {
             let state = self.state()?;

@@ -130,7 +130,7 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        let (previous_tab_id, previous_surfaces, reservation_revision) = {
+        let reservation_revision = {
             let mut selection = presentation.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -138,9 +138,6 @@ impl SystemRuntimeExecutor {
                 )
             })?.clone();
             let previous_tab_id = selection.selected_tab_id.clone();
-            let previous_surfaces = self
-                .presentation
-                .surfaces(&target.window_id, previous_tab_id.as_deref());
             let presentation_tab = LiveTabRecord {
                 audio_muted: false,
                 closable: true,
@@ -207,7 +204,7 @@ impl SystemRuntimeExecutor {
                     &created_tab_id,
                 );
             }
-            (previous_tab_id, previous_surfaces, receipt.revision)
+            receipt.revision
         };
         let committed_window_id = self
             .presentation
@@ -292,22 +289,16 @@ impl SystemRuntimeExecutor {
             self.mark_restored_native_tab_reserved(&target.window_id, &created_tab_id);
         }
         self.reconcile_prepared_restored_window_tabs(&target.window_id)?;
-        self.dispatch_native_presentation(
-            target.window_id.clone(),
-            Some(created_tab_id.clone()),
-            reservation_revision,
-            "launch-reserved",
-            Instant::now(),
-            window.clone(),
-            previous_tab_id,
-            previous_surfaces,
-            Vec::new(),
-            None,
-            Some(true),
-            NativePresentationFocus::None,
-            None,
-        );
-        self.wait_for_presentation_paint_barrier(&target.window_id, reservation_revision);
+        // Native reservation is membership work, not a second selection intent. The user may
+        // have switched tabs while this create effect waited for AppKit/WebView2. Re-sample the
+        // live selection and project that exact tab without re-showing or re-focusing the host.
+        let projection_revision = self
+            .reconcile_window_presentation(&target.window_id, "launch-reserved")
+            .map(|(revision, _)| revision)
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?;
+        self.wait_for_presentation_paint_barrier(&target.window_id, projection_revision);
         let window_zoom_factor = self
             .state()?
             .display_hosts

@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 describe("list selection", () => {
-  it("starts a marquee only after the drag threshold and selects intersecting items", () => {
+  it("starts a marquee only after an intentional drag distance and selects intersecting items", () => {
     let nextFrame: FrameRequestCallback | undefined;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       nextFrame = callback;
@@ -51,6 +51,9 @@ describe("list selection", () => {
 
     fireEvent.pointerDown(collection, { button: 0, clientX: 0, clientY: 0, isPrimary: true, pointerId: 1 });
     fireEvent.pointerMove(collection, { clientX: 2, clientY: 2, isPrimary: true, pointerId: 1 });
+    expect(screen.getByTestId("selected").textContent).toBe("");
+
+    fireEvent.pointerMove(collection, { clientX: 7, clientY: 0, isPrimary: true, pointerId: 1 });
     expect(screen.getByTestId("selected").textContent).toBe("");
 
     fireEvent.pointerMove(collection, { clientX: 55, clientY: 55, isPrimary: true, pointerId: 1 });
@@ -100,10 +103,14 @@ describe("list selection", () => {
     expect(screen.getByTestId("selected").textContent).toBe("");
   });
 
-  it("preserves normal interactive clicks but consumes modifier clicks for selection", () => {
+  it("preserves normal clicks and enters selection only with an intentional gesture", () => {
     const onAction = vi.fn();
     render(<SelectionHarness ids={["one"]} onAction={onAction} />);
+    const item = screen.getByTestId("one");
     const action = screen.getByRole("button", { name: "Open one" });
+
+    fireEvent.click(item);
+    expect(screen.getByTestId("selected").textContent).toBe("");
 
     fireEvent.click(action);
     expect(onAction).toHaveBeenCalledOnce();

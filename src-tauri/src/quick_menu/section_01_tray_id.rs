@@ -41,7 +41,7 @@ pub fn create(app: &AppHandle) -> Result<QuickMenu, String> {
                     ..
                 }
             ) {
-                crate::activate_last_focused_window_or_main(
+                crate::activate_main_window(
                     tray.app_handle(),
                     "tray-activation",
                 );

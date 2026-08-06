@@ -75,7 +75,7 @@ describe("Game Window management", () => {
     const row = screen.getByText("Social window").closest("tr");
     if (!selectedRow || !row) throw new Error("Expected game window rows.");
 
-    fireEvent.click(selectedRow);
+    fireEvent.click(selectedRow, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
 
     expect(fireEvent.contextMenu(row, { clientX: 240, clientY: 160 })).toBe(false);
@@ -131,7 +131,7 @@ describe("Game Window management", () => {
 
     renderRoute({ gameWindows: [gameWindow, secondWindow] });
 
-    await user.click(screen.getByText("Raid window").closest("tr")!);
+    fireEvent.click(screen.getByText("Raid window").closest("tr")!, { ctrlKey: true });
     fireEvent.click(screen.getByText("Social window").closest("tr")!, { ctrlKey: true });
 
     expect(screen.getByText("2 selected")).toBeTruthy();

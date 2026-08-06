@@ -172,12 +172,22 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     expect(showGameWindow).toContain("game_window_record(&state.core, &window_id)");
     expect(showGameWindow).toContain("saved.tabs.is_empty()");
+    expect(showGameWindow).toContain("activate_live_runtime_window(");
+    expect(showGameWindow).toContain('"renderer-game-window-list"');
+    expect(showGameWindow).toContain('"TAURI_RUNTIME_VISIBILITY_FAILED"');
     expect(showGameWindow).toContain("CoreCommand::EmbeddedWindowRegister");
     expect(showGameWindow).toContain("restore_saved_game_windows(");
+    expect(showGameWindow.indexOf("activate_live_runtime_window(")).toBeLessThan(
+      showGameWindow.indexOf("restore_saved_game_windows(")
+    );
     const restoreSavedWindows = shell.slice(
       shell.indexOf("async fn restore_saved_game_windows("),
       shell.indexOf("fn browser_runtime_snapshot(")
     );
+    expect(restoreSavedWindows).toContain("activate_live_runtime_window(");
+    expect(restoreSavedWindows).toContain('"saved-window-restore"');
+    expect(restoreSavedWindows).toContain('"TAURI_RESTORE_ACTIVATION_FAILED"');
+    expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");
     expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
     expect(restoreSavedWindows).not.toContain("game_windows.retain");
     const resizeRuntimeWindow = runtime.slice(

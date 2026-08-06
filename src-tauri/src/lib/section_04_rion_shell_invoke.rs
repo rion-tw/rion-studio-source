@@ -1,3 +1,23 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GameWindowShowRoute {
+    ActivateLive,
+    RegisterEmpty,
+    RestoreSaved,
+}
+
+fn game_window_show_route(
+    live_window_activated: bool,
+    saved_tabs_empty: bool,
+) -> GameWindowShowRoute {
+    if live_window_activated {
+        GameWindowShowRoute::ActivateLive
+    } else if saved_tabs_empty {
+        GameWindowShowRoute::RegisterEmpty
+    } else {
+        GameWindowShowRoute::RestoreSaved
+    }
+}
+
 #[tauri::command]
 async fn rion_shell_invoke(
     app: tauri::AppHandle,
@@ -145,19 +165,27 @@ async fn rion_shell_invoke(
         "showGameWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
             let saved = game_window_record(&state.core, &window_id)?;
-            if saved.tabs.is_empty() {
-                let target = launch_target_for_game_window(&app, &window_id)?;
-                Arc::clone(&state.core)
-                    .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
-                    .await
-                    .map_err(error_payload)
-            } else {
-                restore_saved_game_windows(
+            let live_window_activated = state
+                .runtime
+                .activate_live_runtime_window(&window_id, "renderer-game-window-list")
+                .map_err(|message| {
+                    shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message)
+                })?;
+            match game_window_show_route(live_window_activated, saved.tabs.is_empty()) {
+                GameWindowShowRoute::ActivateLive => Ok(Value::Null),
+                GameWindowShowRoute::RegisterEmpty => {
+                    let target = launch_target_for_game_window(&app, &window_id)?;
+                    Arc::clone(&state.core)
+                        .invoke_async(CoreCommand::EmbeddedWindowRegister { target })
+                        .await
+                        .map_err(error_payload)
+                }
+                GameWindowShowRoute::RestoreSaved => restore_saved_game_windows(
                     &state,
                     &window,
                     &[json!({ "scope": "window", "windowId": window_id })],
                 )
-                .await
+                .await,
             }
         }
         "updateGameWindow" => {

@@ -285,7 +285,7 @@ describe("renderer status indicators", () => {
     const row = start.closest("tr")!;
     expect(row.getAttribute("data-macro-unassigned")).toBe("true");
     expect(row.className).toContain("bg-warning/35");
-    fireEvent.click(screen.getByText("No execution roles"));
+    fireEvent.click(row, { ctrlKey: true });
     expect(row.className).toContain("bg-warning/35");
     expect(document.querySelector("[data-selection-group-outline]")).not.toBeNull();
   });

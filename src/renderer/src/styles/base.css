@@ -83,6 +83,21 @@
     cursor: grabbing !important;
     user-select: none;
   }
+
+  /* List cards and rows have pointer gestures; their labels are not editable. */
+  [data-selection-id],
+  [data-selection-id] * {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  [data-selection-id] input,
+  [data-selection-id] textarea,
+  [data-selection-id] [contenteditable]:not([contenteditable='false']) {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
   * {
     box-sizing: border-box;
     border-color: hsl(var(--border));

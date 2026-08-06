@@ -60,7 +60,7 @@ describe("bulk selection UI", () => {
 
     const card = getSelectionItem("game-1");
     expect(screen.queryByRole("button", { name: "Select One" })).toBeNull();
-    await user.click(card);
+    fireEvent.click(card, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
     const toolbar = screen.getByRole("toolbar");
     expect(toolbar.className).toContain("fixed");
@@ -171,13 +171,12 @@ describe("bulk selection UI", () => {
     await user.click(actionButton);
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Select Main role" })).toBeNull();
-    await user.click(card);
+    fireEvent.click(card, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
     expectSelectedCardOverlay(card);
   });
 
   it("adds a selectable state to workspace cards", async () => {
-    const user = userEvent.setup();
     const item = workspace("workspace-1", "Party");
     render(
       <LaunchWorkspacesRoute
@@ -204,13 +203,12 @@ describe("bulk selection UI", () => {
     const card = getSelectionItem("workspace-1");
     expect(screen.queryByText("Adaptive (recommended)")).toBeNull();
     expect(screen.queryByRole("button", { name: "Select Party" })).toBeNull();
-    await user.click(card);
+    fireEvent.click(card, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
     expectSelectedCardOverlay(card);
   });
 
   it("keeps macro rows selectable without rendering a checkbox column", async () => {
-    const user = userEvent.setup();
     const item = macro("macro-1", "Auto heal");
     render(
       <MacrosRoute
@@ -278,7 +276,7 @@ describe("bulk selection UI", () => {
     expect(actionsButton.className).toContain("h-5");
     expect(actionsButton.className).toContain("w-5");
     expect(actionsButton.querySelector("svg")?.getAttribute("width")).toBe("10");
-    await user.click(macroRow);
+    fireEvent.click(macroRow, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();
   });
@@ -410,8 +408,8 @@ describe("bulk selection UI", () => {
     );
 
     const macrosToSelect = [runnable, running, disabled, unassigned];
-    for (const [index, macroToSelect] of macrosToSelect.entries()) {
-      fireEvent.click(getSelectionItem(macroToSelect.id), index === 0 ? undefined : { ctrlKey: true });
+    for (const macroToSelect of macrosToSelect) {
+      fireEvent.click(getSelectionItem(macroToSelect.id), { ctrlKey: true });
     }
 
     await user.click(screen.getByRole("button", { name: "Run 1" }));
@@ -427,7 +425,6 @@ describe("bulk selection UI", () => {
   });
 
   it("disables every bulk macro action while a selected macro is busy", async () => {
-    const user = userEvent.setup();
     const item = { ...macro("macro-busy", "Busy macro"), roleIds: ["role-1"] };
     render(
       <MacrosRoute
@@ -456,7 +453,7 @@ describe("bulk selection UI", () => {
       />
     );
 
-    await user.click(screen.getByText("Main role"));
+    fireEvent.click(screen.getByText("Main role").closest("[data-selection-id]")!, { ctrlKey: true });
 
     for (const label of ["Run 0", "Stop 0", "Enable 0", "Disable 0"]) {
       expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
@@ -502,7 +499,7 @@ describe("bulk selection UI", () => {
     setBounds(getSelectionItem("macro-beta"), 110, 100, 300, 30);
     setBounds(getSelectionItem("macro-gamma"), 110, 130, 300, 30);
 
-    fireEvent.click(getSelectionItem("macro-alpha"));
+    fireEvent.click(getSelectionItem("macro-alpha"), { ctrlKey: true });
     fireEvent.click(getSelectionItem("macro-beta"), { ctrlKey: true });
 
     const alpha = getSelectionItem("macro-alpha");

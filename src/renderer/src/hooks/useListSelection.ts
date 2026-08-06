@@ -10,7 +10,9 @@ import {
   type RefCallback
 } from "react";
 
-const DRAG_THRESHOLD_PX = 4;
+// A selection drag must be deliberate. This keeps a small pointer wobble from
+// turning a normal left click into a bulk-selection gesture.
+const MARQUEE_ACTIVATION_DISTANCE_PX = 8;
 const AUTO_SCROLL_EDGE_PX = 40;
 const AUTO_SCROLL_MAX_PX = 18;
 
@@ -137,17 +139,14 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
       return;
     }
 
-    if (isInteractiveTarget(target)) {
-      if (selectedIdsRef.current.size > 0) {
-        clearSelection();
-      }
-      return;
+    // A plain left click belongs to the item itself (for example, opening its
+    // editor or launching it). Selection starts only through a modifier or a
+    // deliberate marquee drag, so browsing a list cannot accidentally enter
+    // bulk-selection mode.
+    if (selectedIdsRef.current.size > 0) {
+      clearSelection();
     }
-
-    event.preventDefault();
-    anchorIdRef.current = id;
-    commitSelection([id]);
-  }, [clearSelection, commitSelection, selectRange, toggleSelection]);
+  }, [clearSelection, selectRange, toggleSelection]);
 
   const updateMarqueeSelection = useCallback((state: MarqueeState): void => {
     state.needsSelectionUpdate = false;
@@ -266,7 +265,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     state.currentY = event.clientY;
     if (!state.hasStarted) {
       const distance = Math.hypot(state.currentX - state.startX, state.currentY - state.startY);
-      if (distance < DRAG_THRESHOLD_PX) {
+      if (distance < MARQUEE_ACTIVATION_DISTANCE_PX) {
         return;
       }
       state.hasStarted = true;

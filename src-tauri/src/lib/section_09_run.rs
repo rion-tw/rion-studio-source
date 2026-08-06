@@ -557,7 +557,7 @@ pub fn run() {
                 }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
-                    activate_last_focused_window_or_main(app_handle, "application-reopen");
+                    activate_main_window(app_handle, "application-reopen");
                 }
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app_handle.try_state::<CoreState>() {

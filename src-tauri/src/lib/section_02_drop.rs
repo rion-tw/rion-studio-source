@@ -86,6 +86,7 @@ impl StartupWindowState {
         }
     }
 
+    #[cfg(windows)]
     fn set_windows_mica_enabled(&self, enabled: bool) {
         self.windows_mica_enabled.store(enabled, Ordering::Release);
     }

@@ -46,21 +46,23 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab(&self, tab_id: &str) -> RuntimeResult<()> {
-        self.layout_runtime_tab_projection(tab_id, None)
+        self.layout_runtime_tab_projection(tab_id, None, false)
     }
 
     fn layout_runtime_tab_with_metrics(
         &self,
         tab_id: &str,
         metrics: WindowContentMetrics,
+        skip_active_bounds: bool,
     ) -> RuntimeResult<()> {
-        self.layout_runtime_tab_projection(tab_id, Some(metrics))
+        self.layout_runtime_tab_projection(tab_id, Some(metrics), skip_active_bounds)
     }
 
     fn layout_runtime_tab_projection(
         &self,
         tab_id: &str,
         metrics: Option<WindowContentMetrics>,
+        skip_active_bounds: bool,
     ) -> RuntimeResult<()> {
         self.require_runtime_accepting()?;
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
@@ -93,7 +95,8 @@ impl SystemRuntimeExecutor {
             ));
             return Ok(());
         }
-        let result = self.layout_runtime_tab_inner_with_metrics(tab_id, metrics);
+        let result =
+            self.layout_runtime_tab_inner_with_metrics(tab_id, metrics, skip_active_bounds);
         let receipt = match result.as_ref() {
             Ok(())
                 if !self

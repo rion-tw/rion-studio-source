@@ -45,7 +45,7 @@ use rion_core::{
     RuntimeWindowTabSnapshotRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
+    WorkspaceDividerResizeOutput, WorkspaceLayoutInput,
 };
 #[cfg(any(windows, test))]
 use rion_core::{
@@ -122,6 +122,8 @@ static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
 static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
+#[cfg(windows)]
+static WINDOWS_LIVE_RESIZE_PLAN_REVISION: AtomicU64 = AtomicU64::new(1);
 
 fn point_in_runtime_tab_control_row(
     left: f64,

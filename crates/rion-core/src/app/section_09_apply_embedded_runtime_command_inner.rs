@@ -250,7 +250,7 @@ impl AppCore {
         &self,
         input: &crate::model::WorkspaceLayoutInput,
     ) -> crate::model::WorkspaceLayoutOutput {
-        layout::resolve(input)
+        crate::resolve_workspace_layout(input)
     }
 
     pub fn resolve_adaptive_workspace_zoom(

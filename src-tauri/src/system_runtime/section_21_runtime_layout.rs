@@ -134,46 +134,28 @@ impl SystemRuntimeExecutor {
         roles: Vec<LayoutRoleInput>,
         gap: u32,
     ) -> RuntimeResult<ResolvedRuntimeLayout> {
-        let descriptors = self
-            .core
-            .invoke(CoreCommand::LayoutCreateDividers {
-                roles: roles.clone(),
-            })
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<Vec<WorkspaceDividerDescriptor>>(value)
-                    .map_err(|error| RuntimeError::new("TAURI_LAYOUT_INVALID", error.to_string()))
-            })?;
-        let output = self
-            .core
-            .invoke(CoreCommand::LayoutResolve {
-                input: WorkspaceLayoutInput {
-                    active: true,
-                    hidden: false,
-                    window_visible: true,
-                    content_bounds: LayoutBounds {
-                        x: 0,
-                        y: metrics.top_inset.round() as i32,
-                        width: metrics.width.round().max(1.0) as i32,
-                        height: metrics.height.round().max(1.0) as i32,
-                    },
-                    gap,
-                    roles,
-                    dividers: descriptors
-                        .iter()
-                        .map(|divider| LayoutDividerInput {
-                            axis: divider.axis.clone(),
-                            before_role_ids: divider.before_role_ids.clone(),
-                            after_role_ids: divider.after_role_ids.clone(),
-                        })
-                        .collect(),
-                },
-            })
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<WorkspaceLayoutOutput>(value)
-                    .map_err(|error| RuntimeError::new("TAURI_LAYOUT_INVALID", error.to_string()))
-            })?;
+        let descriptors = rion_core::create_workspace_dividers(&roles);
+        let output = rion_core::resolve_workspace_layout(&WorkspaceLayoutInput {
+            active: true,
+            hidden: false,
+            window_visible: true,
+            content_bounds: LayoutBounds {
+                x: 0,
+                y: metrics.top_inset.round() as i32,
+                width: metrics.width.round().max(1.0) as i32,
+                height: metrics.height.round().max(1.0) as i32,
+            },
+            gap,
+            roles,
+            dividers: descriptors
+                .iter()
+                .map(|divider| LayoutDividerInput {
+                    axis: divider.axis.clone(),
+                    before_role_ids: divider.before_role_ids.clone(),
+                    after_role_ids: divider.after_role_ids.clone(),
+                })
+                .collect(),
+        });
         let roles = output
             .roles
             .into_iter()
@@ -214,13 +196,14 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab_inner(&self, tab_id: &str) -> RuntimeResult<()> {
-        self.layout_runtime_tab_inner_with_metrics(tab_id, None)
+        self.layout_runtime_tab_inner_with_metrics(tab_id, None, false)
     }
 
     fn layout_runtime_tab_inner_with_metrics(
         &self,
         tab_id: &str,
         metrics_override: Option<WindowContentMetrics>,
+        skip_active_bounds: bool,
     ) -> RuntimeResult<()> {
         let is_resize_projection = metrics_override.is_some();
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
@@ -233,6 +216,7 @@ impl SystemRuntimeExecutor {
             window_zoom_factor,
             tab_strip,
             _toolbar_revealed,
+            _window_generation,
         ) = {
             let state = self.state()?;
             let tab = state.tabs.get(tab_id).ok_or_else(|| {
@@ -300,6 +284,7 @@ impl SystemRuntimeExecutor {
                 host.toolbar_revealed,
                 #[cfg(not(windows))]
                 false,
+                host.generation,
             )
         };
         #[cfg(windows)]
@@ -318,7 +303,56 @@ impl SystemRuntimeExecutor {
         let role_inputs = role_views
             .iter()
             .map(|(_, _, _, _, _, input)| input.clone())
-            .collect();
+            .collect::<Vec<_>>();
+        #[cfg(windows)]
+        let is_active_tab = self
+            .presentation
+            .existing(&window_id)
+            .and_then(|presentation| {
+                presentation
+                    .lock()
+                    .ok()
+                    .map(|live| live.selected_tab_id.as_deref() == Some(tab_id))
+            })
+            .unwrap_or(false);
+        #[cfg(windows)]
+        if is_active_tab
+            && let Some(tab_strip) = tab_strip.as_ref()
+        {
+            let descriptors = rion_core::create_workspace_dividers(&role_inputs);
+            let revision = WINDOWS_LIVE_RESIZE_PLAN_REVISION
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1);
+            windows_live_resize_publish_plan(
+                &window,
+                WindowsLiveResizePlan {
+                    dividers: descriptors
+                        .iter()
+                        .enumerate()
+                        .map(|(index, descriptor)| WindowsLiveResizeDividerPlan {
+                            axis: descriptor.axis.clone(),
+                            index: index as u32,
+                            label: divider_views
+                                .get(&(index as u32))
+                                .map(|webview| webview.label().to_owned())
+                                .unwrap_or_else(|| format!("missing-divider-{index}")),
+                        })
+                        .collect(),
+                    gap,
+                    generation: _window_generation,
+                    revision,
+                    roles: role_views
+                        .iter()
+                        .map(|(_, webview, _, _, _, input)| WindowsLiveResizeRolePlan {
+                            input: input.clone(),
+                            label: webview.label().to_owned(),
+                        })
+                        .collect(),
+                    tab_strip_height: resize_snapshot_tab_strip_height(metrics),
+                    tab_strip_label: tab_strip.label().to_owned(),
+                },
+            );
+        }
         let (role_bounds, divider_bounds) =
             self.resolve_runtime_layout(metrics, role_inputs, gap)?;
         let mut zoom_updates = Vec::with_capacity(role_views.len());
@@ -343,7 +377,9 @@ impl SystemRuntimeExecutor {
         }
         let mut mutations = Vec::new();
         #[cfg(windows)]
-        if let Some(tab_strip) = tab_strip {
+        if !skip_active_bounds
+            && let Some(tab_strip) = tab_strip
+        {
             let tab_strip_height = resize_snapshot_tab_strip_height(metrics);
             mutations.push(native_layout_bounds_mutation(
                 tab_strip,
@@ -353,13 +389,15 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(not(windows))]
         let _ = tab_strip;
-        for (role_id, webview, _, _, _, _) in &role_views {
-            if let Some(bounds) = role_bounds.get(role_id) {
-                mutations.push(native_layout_bounds_mutation(
-                    webview.clone(),
-                    LogicalPosition::new(bounds.x, bounds.y),
-                    LogicalSize::new(bounds.width, bounds.height),
-                ));
+        if !skip_active_bounds {
+            for (role_id, webview, _, _, _, _) in &role_views {
+                if let Some(bounds) = role_bounds.get(role_id) {
+                    mutations.push(native_layout_bounds_mutation(
+                        webview.clone(),
+                        LogicalPosition::new(bounds.x, bounds.y),
+                        LogicalSize::new(bounds.width, bounds.height),
+                    ));
+                }
             }
         }
         for (_, webview, _, effective_zoom, previous_zoom) in &zoom_updates {
@@ -395,14 +433,16 @@ impl SystemRuntimeExecutor {
                 });
             }
         }
-        for (index, descriptor, bounds) in divider_bounds {
-            if let Some(webview) = divider_views.get(&index) {
-                let bounds = divider_hit_bounds(&descriptor.axis, bounds);
-                mutations.push(native_layout_bounds_mutation(
-                    webview.clone(),
-                    LogicalPosition::new(bounds.x, bounds.y),
-                    LogicalSize::new(bounds.width, bounds.height),
-                ));
+        if !skip_active_bounds {
+            for (index, descriptor, bounds) in divider_bounds {
+                if let Some(webview) = divider_views.get(&index) {
+                    let bounds = divider_hit_bounds(&descriptor.axis, bounds);
+                    mutations.push(native_layout_bounds_mutation(
+                        webview.clone(),
+                        LogicalPosition::new(bounds.x, bounds.y),
+                        LogicalSize::new(bounds.width, bounds.height),
+                    ));
+                }
             }
         }
         let projection_failures = if is_resize_projection {
@@ -575,7 +615,9 @@ impl SystemRuntimeExecutor {
                 .visible(false)
                 .focused(false);
             #[cfg(windows)]
-            let builder = builder.decorations(false).shadow(true);
+            let builder = builder
+                .decorations(false)
+                .shadow(true);
             builder.build()
         })?;
         window
@@ -643,6 +685,8 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
+        #[cfg(windows)]
+        windows_live_resize_register_webview(&tab_strip)?;
 
         let mut state = self.state()?;
         if let Some(existing) = state.display_hosts.get(&target.window_id) {
@@ -670,6 +714,8 @@ impl SystemRuntimeExecutor {
             },
         );
         drop(state);
+        #[cfg(windows)]
+        windows_live_resize_install_host(&window, window_generation)?;
         #[cfg(windows)]
         self.schedule_windows_tab_chrome_reveal_fallback(
             &target.window_id,

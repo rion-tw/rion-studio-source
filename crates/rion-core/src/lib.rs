@@ -107,6 +107,20 @@ pub use model::{
 };
 pub use portable::PORTABLE_SCHEMA_VERSION;
 
+/// Resolves workspace surface geometry without entering [`AppCore`]. Native
+/// window adapters use this during UI-thread resize callbacks, where re-entering
+/// the command coordinator would risk a lock inversion.
+pub fn resolve_workspace_layout(input: &WorkspaceLayoutInput) -> WorkspaceLayoutOutput {
+    layout::resolve(input)
+}
+
+/// Builds the divider descriptors consumed by [`resolve_workspace_layout`].
+/// This is kept beside the resolver so native and command-driven layouts share
+/// the same edge matching rules.
+pub fn create_workspace_dividers(roles: &[LayoutRoleInput]) -> Vec<WorkspaceDividerDescriptor> {
+    layout::create_dividers(roles)
+}
+
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]

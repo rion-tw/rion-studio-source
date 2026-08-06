@@ -9,11 +9,17 @@ pub(crate) struct RuntimeWindowResizeSnapshot {
     received_at: Instant,
     scale_factor: f64,
     sequence: u64,
+    #[cfg(windows)]
+    native_fast_path_applied: bool,
+    #[cfg(windows)]
+    native_fast_path_counters: WindowsLiveResizeCounters,
 }
 
 #[derive(Clone, Debug)]
 struct PendingWindowResize {
     coalesced_count: u64,
+    #[cfg(windows)]
+    native_fast_path_counters: WindowsLiveResizeCounters,
     received_count: u64,
     snapshot: RuntimeWindowResizeSnapshot,
 }
@@ -53,6 +59,12 @@ impl SystemRuntimeExecutor {
         ) else {
             return;
         };
+        #[cfg(windows)]
+        let live_resize = windows_live_resize_observe(
+            &window,
+            physical_width,
+            physical_height,
+        );
         let snapshot = RuntimeWindowResizeSnapshot {
             content_metrics,
             fullscreen: window.is_fullscreen().unwrap_or(false),
@@ -63,6 +75,10 @@ impl SystemRuntimeExecutor {
             received_at: Instant::now(),
             scale_factor,
             sequence: WINDOW_RESIZE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+            #[cfg(windows)]
+            native_fast_path_applied: live_resize.matched_latest_frame,
+            #[cfg(windows)]
+            native_fast_path_counters: live_resize.counters,
         };
         #[cfg(target_os = "macos")]
         self.prepare_runtime_window_fullscreen(label, snapshot.fullscreen);
@@ -140,7 +156,13 @@ impl SystemRuntimeExecutor {
         );
         let mut layout_errors = Vec::new();
         for tab_id in tab_ids {
-            if let Err(error) = self.layout_runtime_tab_with_metrics(&tab_id, metrics) {
+            #[cfg(windows)]
+            let skip_active_bounds = snapshot.native_fast_path_applied && !settled;
+            #[cfg(not(windows))]
+            let skip_active_bounds = false;
+            if let Err(error) =
+                self.layout_runtime_tab_with_metrics(&tab_id, metrics, skip_active_bounds)
+            {
                 layout_errors.push(format!("{tab_id}: {}: {}", error.code, error.message));
             }
         }
@@ -239,6 +261,12 @@ impl SystemRuntimeExecutor {
                     applied_count,
                     started.elapsed(),
                 );
+                #[cfg(windows)]
+                self.record_windows_live_resize_counters(
+                    &label,
+                    pending.native_fast_path_counters,
+                    pending.snapshot.native_fast_path_applied,
+                );
                 self.clear_resize_worker(&label, None);
                 break;
             }
@@ -258,6 +286,12 @@ impl SystemRuntimeExecutor {
                     );
                 }
                 if self.clear_resize_worker(&label, Some(pending.snapshot.sequence)) {
+                    #[cfg(windows)]
+                    self.record_windows_live_resize_counters(
+                        &label,
+                        pending.native_fast_path_counters,
+                        pending.snapshot.native_fast_path_applied,
+                    );
                     self.record_resize_worker_event(
                         &label,
                         "settled",
@@ -342,10 +376,20 @@ fn coalesce_pending_resize(
     previous: Option<PendingWindowResize>,
     snapshot: RuntimeWindowResizeSnapshot,
 ) -> PendingWindowResize {
+    #[cfg(windows)]
+    let native_fast_path_counters = previous
+        .as_ref()
+        .map_or(snapshot.native_fast_path_counters, |pending| {
+            pending
+                .native_fast_path_counters
+                .saturating_add(snapshot.native_fast_path_counters)
+        });
     PendingWindowResize {
         coalesced_count: previous
             .as_ref()
             .map_or(0, |pending| pending.coalesced_count.saturating_add(1)),
+        #[cfg(windows)]
+        native_fast_path_counters,
         received_count: previous
             .as_ref()
             .map_or(1, |pending| pending.received_count.saturating_add(1)),

@@ -92,6 +92,17 @@ describe("renderer visual foundation", () => {
     expect(dashboard).not.toContain("grid-cols-5");
   });
 
+  it("reserves Windows caption controls only from the top drag region", () => {
+    const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
+
+    expect(styles).toContain(
+      ':root[data-platform="windows"] .app-content-window-drag-region {\n    right: 138px;\n  }'
+    );
+    expect(styles).not.toContain(':root[data-platform="windows"] .app-page-header');
+    expect(styles).not.toContain(':root[data-platform="windows"] .app-editor-header');
+    expect(styles).not.toContain(':root[data-platform="windows"] .liquid-app-shell > header');
+  });
+
   it("reserves backdrop blur for top-level glass surfaces", () => {
     const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
 

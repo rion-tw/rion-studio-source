@@ -558,7 +558,7 @@ impl SystemRuntimeExecutor {
             Ok(()) => true,
             Err(error) => {
                 eprintln!(
-                    "Windows runtime window could not be cloaked during tab chrome hydration: {error}"
+                    "Windows runtime window could not be cloaked during tab chrome hydration: {error:?}"
                 );
                 false
             }

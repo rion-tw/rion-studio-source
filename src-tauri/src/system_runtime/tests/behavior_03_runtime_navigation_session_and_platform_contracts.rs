@@ -626,6 +626,24 @@ use uuid::Uuid;
     }
 
     #[test]
+    fn unchanged_surface_host_initialization_skips_the_state_snapshot() {
+        let snapshot_called = std::cell::Cell::new(false);
+        let skipped = snapshot_initialized_surface_host(false, || {
+            snapshot_called.set(true);
+            "window-1"
+        });
+        assert_eq!(skipped, None);
+        assert!(!snapshot_called.get());
+
+        let captured = snapshot_initialized_surface_host(true, || {
+            snapshot_called.set(true);
+            "window-1"
+        });
+        assert_eq!(captured, Some("window-1"));
+        assert!(snapshot_called.get());
+    }
+
+    #[test]
     fn empty_runtime_hosts_honor_explicit_focus_requests_on_macos_and_windows() {
         for (platform, focus_requested, has_active_tab, expected) in [
             ("macos", true, false, true),

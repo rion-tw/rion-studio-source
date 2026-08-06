@@ -439,22 +439,16 @@ impl SystemRuntimeExecutor {
         failed: bool,
     ) -> Option<LaunchPreviewHandle> {
         let existing = self.state.lock().ok().and_then(|mut state| {
-            let launch_preview_id = completion.launch_preview_id.as_deref()?;
-            let provisional = state.provisional_launches.get_mut(launch_preview_id)?;
-            if provisional.cancelled {
-                return None;
-            }
-            provisional.failed = failed;
-            Some((launch_preview_handle(provisional), provisional.clone()))
+            settle_provisional_launch_completion(
+                &mut state,
+                completion.launch_preview_id.as_deref(),
+                failed,
+            )
         });
-        if let Some((handle, provisional)) = existing {
+        if let Some((handle, provisional, phase)) = existing {
             self.presentation.statuses.set_presentation_phase(
                 &provisional.id,
-                if failed {
-                    TabRuntimePhase::Failed
-                } else {
-                    TabRuntimePhase::Reserved
-                },
+                phase,
             );
             return Some(handle);
         }
@@ -477,11 +471,7 @@ impl SystemRuntimeExecutor {
                 return None;
             }
         };
-        let phase = if failed {
-            TabRuntimePhase::Failed
-        } else {
-            TabRuntimePhase::Reserved
-        };
+        let phase = launch_completion_phase(failed);
         let mut presentation = self
             .presentation
             .snapshot_live_window(&completion.window_id)

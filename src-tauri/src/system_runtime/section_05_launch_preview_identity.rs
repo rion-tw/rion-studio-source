@@ -10,6 +10,33 @@ fn launch_preview_handle(provisional: &ProvisionalLaunch) -> LaunchPreviewHandle
     }
 }
 
+fn launch_completion_phase(failed: bool) -> TabRuntimePhase {
+    if failed {
+        TabRuntimePhase::Failed
+    } else {
+        TabRuntimePhase::Reserved
+    }
+}
+
+fn settle_provisional_launch_completion(
+    state: &mut RuntimeState,
+    launch_preview_id: Option<&str>,
+    failed: bool,
+) -> Option<(LaunchPreviewHandle, ProvisionalLaunch, TabRuntimePhase)> {
+    let provisional = state
+        .provisional_launches
+        .get_mut(launch_preview_id?)?;
+    if provisional.cancelled {
+        return None;
+    }
+    provisional.failed = failed;
+    Some((
+        launch_preview_handle(provisional),
+        provisional.clone(),
+        launch_completion_phase(failed),
+    ))
+}
+
 fn insert_provisional_launch(state: &mut RuntimeState, provisional: ProvisionalLaunch) {
     let launch_preview_id = provisional.launch_preview_id.clone();
     let source_key = launch_source_key(&provisional.tab_type, &provisional.source_id);

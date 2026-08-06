@@ -52,6 +52,24 @@ enum TabChromeProjectionWaitOutcome {
 }
 
 #[cfg(any(windows, test))]
+fn query_tab_chrome_window_state_unlocked<State, Snapshot, Output>(
+    state: &Mutex<State>,
+    snapshot: impl FnOnce(&State) -> RuntimeResult<Snapshot>,
+    query: impl FnOnce(Snapshot) -> RuntimeResult<Output>,
+) -> RuntimeResult<Output> {
+    let snapshot = {
+        let state = state.lock().map_err(|_| {
+            RuntimeError::new(
+                "TAURI_RUNTIME_STATE_FAILED",
+                "System runtime state lock poisoned.",
+            )
+        })?;
+        snapshot(&state)?
+    };
+    query(snapshot)
+}
+
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowsTabChromeRevealSignal {
     ContentPainted,
@@ -501,84 +519,142 @@ impl SystemRuntimeExecutor {
                     "The authoritative tab presentation was not found.",
                 )
             })?;
-        let state = self.state()?;
-        let host = state.display_hosts.get(&renderer.window_id).ok_or_else(|| {
-            RuntimeError::new(
-                "TAB_CHROME_WINDOW_NOT_FOUND",
-                "The runtime tab-strip window was not found.",
-            )
-        })?;
-        if host.generation != renderer.window_generation
-            || renderer.lifecycle_epoch != self.lifecycle_epoch()
-        {
+        if renderer.lifecycle_epoch != self.lifecycle_epoch() {
             return Err(RuntimeError::new(
                 "TAB_CHROME_RENDERER_INSTANCE_STALE",
                 "The runtime tab-strip renderer belongs to an obsolete window generation.",
             ));
         }
-        let items = presentation
+        let phases = presentation
             .tabs
             .iter()
-            .filter_map(|presented| {
-                let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
-                if core_tab.is_some_and(|tab| tab.hidden)
-                    || state.optimistic_closed_tabs.contains(&presented.id)
-                {
-                    return None;
-                }
-                let live = state.tabs.get(&presented.id);
-                let role_ids = core_tab
-                    .map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()).collect())
-                    .unwrap_or_else(|| presented.role_ids.clone());
-                let icon_data_url = presented.icon_data_url.clone().or_else(|| {
-                    role_ids
-                        .first()
-                        .and_then(|role_id| role_icons.get(role_id.as_str()))
-                        .cloned()
-                });
-                let phase = self
-                    .presentation
-                    .statuses
-                    .presentation_phase(&presented.id);
-                Some(RuntimeTabChromeItemRecord {
-                    id: presented.id.clone(),
-                    name: presented.title.clone(),
-                    tab_type: presented.tab_type.clone(),
-                    hidden: false,
-                    audible: live.is_some_and(|tab| runtime_tab_is_audible(&state, tab)),
-                    muted: live.is_some_and(|tab| tab.audio_muted),
-                    loading: matches!(
-                        phase,
-                        TabRuntimePhase::Reserved
-                            | TabRuntimePhase::Attaching
-                            | TabRuntimePhase::Loading
-                    ),
-                    degraded: phase == TabRuntimePhase::Degraded,
-                    closable: presented.closable,
-                    source_id: presented.source_id.clone(),
-                    phase: phase.as_str().to_owned(),
-                    role_names: role_ids
-                        .iter()
-                        .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
-                        .map(str::to_owned)
-                        .collect(),
-                    role_ids,
-                    icon_data_url,
-                    workspace_template: presented
-                        .workspace_template
-                        .clone()
-                        .or_else(|| live.and_then(|tab| tab.workspace_template.clone())),
-                })
+            .map(|presented| {
+                (
+                    presented.id.clone(),
+                    self.presentation
+                        .statuses
+                        .presentation_phase(&presented.id),
+                )
             })
-            .collect::<Vec<_>>();
+            .collect::<HashMap<_, _>>();
+        // The tab-chrome renderer can report ready while WebView2 is still completing a child
+        // controller attachment. Keep this critical section to pure Rust snapshots: Tauri window
+        // getters synchronously rendezvous with the platform UI thread and must never run while
+        // the runtime-state mutex is held.
+        let (items, display_id, toolbar_revealed, window_name, fullscreen, window_maximized) =
+            query_tab_chrome_window_state_unlocked(
+                &self.state,
+                |state| {
+                    let host = state.display_hosts.get(&renderer.window_id).ok_or_else(|| {
+                        RuntimeError::new(
+                            "TAB_CHROME_WINDOW_NOT_FOUND",
+                            "The runtime tab-strip window was not found.",
+                        )
+                    })?;
+                    if host.generation != renderer.window_generation {
+                        return Err(RuntimeError::new(
+                            "TAB_CHROME_RENDERER_INSTANCE_STALE",
+                            "The runtime tab-strip renderer belongs to an obsolete window generation.",
+                        ));
+                    }
+                    let items = presentation
+                        .tabs
+                        .iter()
+                        .filter_map(|presented| {
+                            let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
+                            if core_tab.is_some_and(|tab| tab.hidden)
+                                || state.optimistic_closed_tabs.contains(&presented.id)
+                            {
+                                return None;
+                            }
+                            let live = state.tabs.get(&presented.id);
+                            let role_ids = core_tab
+                                .map(|tab| {
+                                    tab.slots
+                                        .iter()
+                                        .map(|slot| slot.role_id.clone())
+                                        .collect()
+                                })
+                                .unwrap_or_else(|| presented.role_ids.clone());
+                            let icon_data_url = presented.icon_data_url.clone().or_else(|| {
+                                role_ids
+                                    .first()
+                                    .and_then(|role_id| role_icons.get(role_id.as_str()))
+                                    .cloned()
+                            });
+                            let phase = phases
+                                .get(&presented.id)
+                                .copied()
+                                .unwrap_or(TabRuntimePhase::Failed);
+                            Some(RuntimeTabChromeItemRecord {
+                                id: presented.id.clone(),
+                                name: presented.title.clone(),
+                                tab_type: presented.tab_type.clone(),
+                                hidden: false,
+                                audible: live
+                                    .is_some_and(|tab| runtime_tab_is_audible(state, tab)),
+                                muted: live.is_some_and(|tab| tab.audio_muted),
+                                loading: matches!(
+                                    phase,
+                                    TabRuntimePhase::Reserved
+                                        | TabRuntimePhase::Attaching
+                                        | TabRuntimePhase::Loading
+                                ),
+                                degraded: phase == TabRuntimePhase::Degraded,
+                                closable: presented.closable,
+                                source_id: presented.source_id.clone(),
+                                phase: phase.as_str().to_owned(),
+                                role_names: role_ids
+                                    .iter()
+                                    .filter_map(|role_id| {
+                                        role_names.get(role_id.as_str()).copied()
+                                    })
+                                    .map(str::to_owned)
+                                    .collect(),
+                                role_ids,
+                                icon_data_url,
+                                workspace_template: presented
+                                    .workspace_template
+                                    .clone()
+                                    .or_else(|| {
+                                        live.and_then(|tab| tab.workspace_template.clone())
+                                    }),
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    Ok((
+                        items,
+                        host.window.clone(),
+                        host.target.display_id.max(0) as u64,
+                        host.toolbar_revealed,
+                        state
+                            .saved_window_names
+                            .get(&renderer.window_id)
+                            .filter(|name| !name.trim().is_empty())
+                            .cloned()
+                            .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned()),
+                    ))
+                },
+                |(items, window, display_id, toolbar_revealed, window_name)| {
+                    let fullscreen = window.is_fullscreen().unwrap_or(false);
+                    let window_maximized = window.is_maximized().unwrap_or(false);
+                    Ok((
+                        items,
+                        display_id,
+                        toolbar_revealed,
+                        window_name,
+                        fullscreen,
+                        window_maximized,
+                    ))
+                },
+            )?;
         let tab_order = items.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
         let active_tab_id = presentation
             .selected_tab_id
             .filter(|tab_id| tab_order.contains(tab_id));
-        let fullscreen = host.window.is_fullscreen().unwrap_or(false);
         let toolbar_visible = !fullscreen
             || preferences.always_show_toolbar_in_full_screen
-            || host.toolbar_revealed;
+            || toolbar_revealed;
         let language = self
             .language
             .lock()
@@ -598,15 +674,10 @@ impl SystemRuntimeExecutor {
             tabs: items,
             tab_order,
             active_tab_id,
-            display_id: host.target.display_id.max(0) as u64,
+            display_id,
             displays: self.display_records_for_tab_chrome(),
-            window_name: state
-                .saved_window_names
-                .get(&renderer.window_id)
-                .filter(|name| !name.trim().is_empty())
-                .cloned()
-                .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned()),
-            window_maximized: host.window.is_maximized().unwrap_or(false),
+            window_name,
+            window_maximized,
             fullscreen,
             window_fullscreen: fullscreen,
             toolbar_visible,
@@ -765,15 +836,14 @@ impl SystemRuntimeExecutor {
                 state
                     .display_hosts
                     .iter()
-                    .filter_map(|(window_id, host)| {
-                        self.tab_chrome_projections
-                            .renderer(window_id)
-                            .map(|renderer| (host.tab_strip.clone(), renderer))
-                    })
+                    .map(|(window_id, host)| (window_id.clone(), host.tab_strip.clone()))
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        for (tab_strip, renderer) in targets {
+        for (window_id, tab_strip) in targets {
+            let Some(renderer) = self.tab_chrome_projections.renderer(&window_id) else {
+                continue;
+            };
             let Ok(projection) = self.build_tab_chrome_projection(snapshot, &renderer) else {
                 continue;
             };

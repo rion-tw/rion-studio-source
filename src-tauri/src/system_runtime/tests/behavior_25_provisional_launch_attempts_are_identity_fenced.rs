@@ -164,6 +164,23 @@ fn retry_reuses_the_presentation_but_rotates_the_attempt_identity() {
 }
 
 #[test]
+fn core_effect_timeout_marks_the_retained_provisional_launch_failed() {
+    let mut state = RuntimeState::default();
+    insert_provisional_launch(
+        &mut state,
+        provisional_launch("preview-a", "loading-tab", "role-1", "role", false),
+    );
+
+    let (handle, retained, phase) =
+        settle_provisional_launch_completion(&mut state, Some("preview-a"), true).unwrap();
+
+    assert_eq!(handle.provisional_tab_id, "loading-tab");
+    assert!(retained.failed);
+    assert_eq!(phase, TabRuntimePhase::Failed);
+    assert!(state.provisional_launches["preview-a"].failed);
+}
+
+#[test]
 fn automatic_retry_marker_moves_to_the_rotated_identity_and_remains_cancellable() {
     let mut state = RuntimeState::default();
     insert_provisional_launch(

@@ -59,10 +59,18 @@ declare global {
       windowGeneration: number;
       windowId: string;
     };
+    __rionRuntimeTabWindowsMicaEnabled?: boolean;
     __rionUpdateRuntimeTabMetadata?: (tab: RuntimeTabMetadata) => void;
     __rionUpdateRuntimeTabMetadataBatch?: (tabs: RuntimeTabMetadata[]) => void;
   }
 }
+
+export function applyRuntimeTabWindowsMaterial(): void {
+  document.documentElement.dataset.windowsMica =
+    window.__rionRuntimeTabWindowsMicaEnabled === true ? "enabled" : "fallback";
+}
+
+applyRuntimeTabWindowsMaterial();
 
 type ProvisionalRuntimeTab = {
   id: string;

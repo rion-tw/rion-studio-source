@@ -7,6 +7,13 @@ fn surface_host_initialization_should_restore_hidden(
         && applied_host_visibility.or(desired_host_visibility) == Some(false)
 }
 
+fn snapshot_initialized_surface_host<T>(
+    initialized_for_operation: bool,
+    snapshot: impl FnOnce() -> T,
+) -> Option<T> {
+    initialized_for_operation.then(snapshot)
+}
+
 impl SystemRuntimeExecutor {
     fn add_child_bounded(
         &self,
@@ -37,30 +44,26 @@ impl SystemRuntimeExecutor {
             })?;
         match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
             Ok(result) => {
-                self.record_runtime_stage(
-                    stage,
-                    if result.is_ok() {
-                        "completed"
-                    } else {
-                        "failed"
-                    },
-                    started,
-                );
                 let release = self.finish_surface_host_initialization(
                     window,
                     restore_parent,
                     Some(false),
                     lifecycle_id,
                 );
-                match (result, release) {
+                let outcome = match (result.map_err(RuntimeError::tauri), release) {
                     (Ok(webview), Ok(())) => Ok(webview),
                     (Ok(webview), Err(error)) => {
                         let _ = webview.close();
                         Err(error)
                     }
-                    (Err(error), Ok(())) => Err(RuntimeError::tauri(error)),
+                    (Err(error), Ok(())) => Err(error),
                     (Err(_), Err(error)) => Err(error),
+                };
+                match outcome.as_ref() {
+                    Ok(_) => self.record_runtime_stage(stage, "completed", started),
+                    Err(error) => self.record_runtime_stage_failure(stage, started, error),
                 }
+                outcome
             }
             Err(error) => {
                 self.record_runtime_stage(stage, "failed", started);
@@ -251,21 +254,24 @@ impl SystemRuntimeExecutor {
         desired_host_visibility: Option<bool>,
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
-        let logical_window_id = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| {
-                state
-                    .display_hosts
-                    .get(lifecycle_id)
-                    .map(|_| lifecycle_id.to_owned())
-                    .or_else(|| {
-                        state.display_hosts.iter().find_map(|(window_id, host)| {
-                            (host.window.label() == window.label()).then(|| window_id.clone())
+        let Some(logical_window_id) = snapshot_initialized_surface_host(
+            initialized_for_operation,
+            || {
+                self.state.lock().ok().and_then(|state| {
+                    state
+                        .display_hosts
+                        .get(lifecycle_id)
+                        .map(|_| lifecycle_id.to_owned())
+                        .or_else(|| {
+                            state.display_hosts.iter().find_map(|(window_id, host)| {
+                                (host.window.label() == window.label()).then(|| window_id.clone())
+                            })
                         })
-                    })
-            });
+                })
+            },
+        ) else {
+            return Ok(());
+        };
         let applied_host_visibility = logical_window_id
             .as_deref()
             .and_then(|window_id| self.presentation.applied_window_visibility(window_id));

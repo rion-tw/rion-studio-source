@@ -32,6 +32,40 @@ fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> Runtime
 }
 
 #[test]
+fn tab_chrome_native_window_queries_run_after_runtime_state_is_released() {
+    let state = Mutex::new(41_u32);
+    let (query_started_tx, query_started_rx) = std::sync::mpsc::channel();
+    let (release_query_tx, release_query_rx) = std::sync::mpsc::channel();
+
+    std::thread::scope(|scope| {
+        let state_for_query = &state;
+        let query = scope.spawn(move || {
+            query_tab_chrome_window_state_unlocked(
+                state_for_query,
+                |state| Ok(*state),
+                |snapshot| {
+                    query_started_tx.send(()).unwrap();
+                    release_query_rx.recv().unwrap();
+                    Ok(snapshot + 1)
+                },
+            )
+            .unwrap()
+        });
+
+        query_started_rx.recv().unwrap();
+        let runtime_state_available = state.try_lock().is_ok();
+        release_query_tx.send(()).unwrap();
+        let result = query.join().unwrap();
+
+        assert!(
+            runtime_state_available,
+            "a blocked native tab-chrome query must not retain the runtime-state mutex"
+        );
+        assert_eq!(result, 42);
+    });
+}
+
+#[test]
 fn windows_tab_chrome_reveal_waits_for_visibility_and_painted_content() {
     for signals in [
         [

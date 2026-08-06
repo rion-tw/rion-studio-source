@@ -599,23 +599,29 @@ use uuid::Uuid;
 
     #[test]
     fn initialized_surface_hosts_follow_explicit_visibility_ownership() {
-        for platform in ["macos", "windows"] {
-            assert!(!surface_host_initialization_should_restore_hidden(
-                true,
-                Some(true)
-            ), "{platform}");
-            assert!(surface_host_initialization_should_restore_hidden(
-                true,
-                Some(false)
-            ), "{platform}");
-            assert!(!surface_host_initialization_should_restore_hidden(
-                true,
-                None
-            ), "{platform}");
-            assert!(!surface_host_initialization_should_restore_hidden(
-                false,
-                Some(false)
-            ), "{platform}");
+        for (platform, initialized, desired_visibility, applied_visibility, expected) in [
+            ("macos", true, Some(true), None, false),
+            ("windows", true, Some(true), None, false),
+            ("macos", true, Some(false), None, true),
+            ("windows", true, Some(false), None, true),
+            ("macos", true, Some(false), Some(true), false),
+            ("windows", true, Some(false), Some(true), false),
+            ("macos", true, Some(true), Some(false), true),
+            ("windows", true, Some(true), Some(false), true),
+            ("macos", true, None, None, false),
+            ("windows", true, None, None, false),
+            ("macos", false, Some(false), Some(false), false),
+            ("windows", false, Some(false), Some(false), false),
+        ] {
+            assert_eq!(
+                surface_host_initialization_should_restore_hidden(
+                    initialized,
+                    desired_visibility,
+                    applied_visibility,
+                ),
+                expected,
+                "{platform}: initialized={initialized}, desired={desired_visibility:?}, applied={applied_visibility:?}"
+            );
         }
     }
 

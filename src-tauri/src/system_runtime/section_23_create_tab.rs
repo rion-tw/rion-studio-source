@@ -642,10 +642,8 @@ impl SystemRuntimeExecutor {
             }
             self.finish_surface_host_initialization(
                 &window,
-                surface_host_initialization_should_restore_hidden(
-                    host_created,
-                    Some(launch_preview.is_some()),
-                ),
+                host_created,
+                Some(launch_preview.is_some()),
                 &target.window_id,
             )?;
             self.set_launch_phase(&tab.tab_id, LaunchPhase::Navigating);

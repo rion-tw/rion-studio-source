@@ -264,15 +264,12 @@ impl SystemRuntimeExecutor {
             )
         };
         #[cfg(windows)]
-        let (tab_strip_height, metrics) = match metrics_override {
-            Some(metrics) => (resize_snapshot_tab_strip_height(metrics), metrics),
+        let metrics = match metrics_override {
+            Some(metrics) => metrics,
             None => {
                 let tab_strip_height =
                     self.windows_tab_strip_height(&window, _toolbar_revealed);
-                (
-                    tab_strip_height,
-                    runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?,
-                )
+                runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?
             }
         };
         #[cfg(not(windows))]
@@ -308,6 +305,7 @@ impl SystemRuntimeExecutor {
         let mut mutations = Vec::new();
         #[cfg(windows)]
         if let Some(tab_strip) = tab_strip {
+            let tab_strip_height = resize_snapshot_tab_strip_height(metrics);
             mutations.push(native_layout_bounds_mutation(
                 tab_strip,
                 LogicalPosition::new(0.0, 0.0),

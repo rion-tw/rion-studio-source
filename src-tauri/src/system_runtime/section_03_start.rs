@@ -274,6 +274,14 @@ impl NativeWindowActor {
         state.applied_revision >= revision
     }
 
+    fn applied_window_visibility(&self) -> Option<bool> {
+        self.queue
+            .0
+            .lock()
+            .ok()
+            .and_then(|state| state.applied_window_visibility)
+    }
+
     fn record_externally_applied_presentation(
         &self,
         revision: u64,

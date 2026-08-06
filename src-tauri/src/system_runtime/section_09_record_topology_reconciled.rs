@@ -609,7 +609,10 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .map(|mut state| {
-                state.host_visibility = tab_id.is_some();
+                state.host_visibility = native_presentation_host_visibility(
+                    tab_id.as_deref(),
+                    window_visibility,
+                );
                 state.surface_identities(tab_id.as_deref())
             })
             .unwrap_or_default();

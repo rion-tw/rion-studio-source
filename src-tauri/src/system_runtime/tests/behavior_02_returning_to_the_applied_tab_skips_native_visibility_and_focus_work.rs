@@ -157,6 +157,51 @@
     }
 
     #[test]
+    fn explicit_window_visibility_controls_empty_host_retention() {
+        for (platform, tab_id, requested_visibility, expected) in [
+            ("macos", None, Some(true), true),
+            ("windows", None, Some(true), true),
+            ("macos", None, Some(false), false),
+            ("windows", None, Some(false), false),
+            ("macos", Some("tab-a"), None, true),
+            ("windows", Some("tab-a"), None, true),
+            ("macos", Some("tab-a"), Some(false), false),
+            ("windows", Some("tab-a"), Some(false), false),
+        ] {
+            assert_eq!(
+                native_presentation_host_visibility(tab_id, requested_visibility),
+                expected,
+                "{platform}: tab={tab_id:?}, requested_visibility={requested_visibility:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordered_window_activation_can_focus_before_native_content_attaches() {
+        for (platform, presentation_current, ordered, requested, current, expected) in [
+            ("macos", false, true, true, true, true),
+            ("windows", false, true, true, true, true),
+            ("macos", false, false, true, true, false),
+            ("windows", false, false, true, true, false),
+            ("macos", true, false, true, true, true),
+            ("windows", true, false, true, true, true),
+            ("macos", true, true, true, false, false),
+            ("windows", true, true, false, true, false),
+        ] {
+            assert_eq!(
+                native_window_focus_should_apply(
+                    presentation_current,
+                    ordered,
+                    requested,
+                    current,
+                ),
+                expected,
+                "{platform}: presentation={presentation_current}, ordered={ordered}, requested={requested}, current={current}"
+            );
+        }
+    }
+
+    #[test]
     fn presentation_fence_uses_projection_instance_identities_on_both_threads() {
         let tab_id = Some("tab-a".to_owned());
         let projection_identities =

@@ -322,10 +322,8 @@ impl SystemRuntimeExecutor {
         {
             self.finish_surface_host_initialization(
                 &window,
-                surface_host_initialization_should_restore_hidden(
-                    true,
-                    Some(reveal_window_ids.contains(window_id)),
-                ),
+                true,
+                Some(reveal_window_ids.contains(window_id)),
                 window_id,
             )?;
         }

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri shell contract guard", () => {
   it("keeps the hidden-inset-equivalent main window and bundled startup failure UI", async () => {
-    const [baseSource, macSource, windowsSource, shell, runtime, windowsMaterial, startup, bootStyles, runtimeTabs, startupFallback, rendererMain] = await Promise.all([
+    const [baseSource, macSource, windowsSource, shell, runtime, windowsMaterial, startup, bootStyles, runtimeTabs, startupFallback, rendererMain, runtimeTabScript] = await Promise.all([
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("src-tauri/tauri.macos.conf.json", "utf8"),
       readFile("src-tauri/tauri.windows.conf.json", "utf8"),
@@ -15,7 +15,8 @@ describe("Tauri shell contract guard", () => {
       readFile("src/renderer/src/boot.css", "utf8"),
       readFile("src/renderer/runtime-tabs.css", "utf8"),
       readFile("src/renderer/src/app/startupFallback.ts", "utf8"),
-      readFile("src/renderer/src/main.tsx", "utf8")
+      readFile("src/renderer/src/main.tsx", "utf8"),
+      readFile("src/renderer/runtime-shell/runtimeTabStrip.ts", "utf8")
     ]);
     const base = JSON.parse(baseSource);
     const mac = JSON.parse(macSource);
@@ -45,7 +46,7 @@ describe("Tauri shell contract guard", () => {
     expect(windowsMaterial).toContain("Effect::Mica");
     expect(windowsMaterial).toContain("retrying with an opaque host");
     expect(runtime).toContain("build_windows_runtime_host_window");
-    expect(runtime).toContain("windowsMica");
+    expect(runtime).toContain("__rionRuntimeTabWindowsMicaEnabled");
     expect(shell).toContain("renderer_ready");
     expect(shell).toContain("StartupWindowState");
     expect(shell).toContain("reveal_once()");
@@ -62,6 +63,18 @@ describe("Tauri shell contract guard", () => {
     expect(bootStyles).toContain('data-windows-mica="fallback"');
     expect(runtimeTabs).toContain('data-windows-mica="enabled"');
     expect(rendererMain).toContain("startup.windowsMicaEnabled");
+    const tabInitializationStart = runtime.indexOf(
+      "fn windows_runtime_tab_initialization_script("
+    );
+    const tabInitialization = runtime.slice(
+      tabInitializationStart,
+      runtime.indexOf("fn native_runtime_window_title_for_platform", tabInitializationStart)
+    );
+    expect(tabInitialization).toContain("__rionRuntimeTabWindowsMicaEnabled");
+    expect(tabInitialization).toContain("__rionRuntimeTabChromeIdentity");
+    expect(tabInitialization).not.toContain("document.");
+    expect(runtimeTabScript).toContain("window.__rionRuntimeTabWindowsMicaEnabled");
+    expect(runtimeTabScript).toContain("document.documentElement.dataset.windowsMica");
     const shellInvokeStart = shell.indexOf("async fn rion_shell_invoke(");
     const shellInvokeSignature = shell.slice(
       shellInvokeStart,

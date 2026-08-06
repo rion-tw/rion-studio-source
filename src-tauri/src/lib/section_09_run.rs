@@ -45,6 +45,15 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             runtime_tabs_macos::install_safe_tao_event_dispatch()
                 .map_err(std::io::Error::other)?;
+            #[cfg(windows)]
+            if let Some(startup) = app.try_state::<StartupWindowState>() {
+                let mica_enabled = app
+                    .get_webview_window("main")
+                    .is_some_and(|window| {
+                        system_runtime::apply_windows_mica_to_main_window(&window)
+                    });
+                startup.set_windows_mica_enabled(mica_enabled);
+            }
             let user_data_dir = shared_user_data_dir(app)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
             let app_version = app.package_info().version.to_string();

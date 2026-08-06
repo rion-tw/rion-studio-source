@@ -616,19 +616,39 @@ impl SystemRuntimeExecutor {
         let window_title = native_runtime_window_title(saved_name.as_deref());
         let bounds = target.bounds.clone();
         let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
+        #[cfg(windows)]
+        let windows_mica_enabled = Arc::new(AtomicBool::new(false));
+        #[cfg(windows)]
+        let windows_mica_enabled_for_creation = Arc::clone(&windows_mica_enabled);
         let window = self.create_window_bounded(&target.window_id, move || {
+            #[cfg(windows)]
+            {
+                let (window, material) = build_windows_runtime_host_window(
+                    &window_app,
+                    &window_label,
+                    &window_title,
+                    bounds.width.max(1) as f64,
+                    bounds.height.max(1) as f64,
+                )?;
+                windows_mica_enabled_for_creation.store(
+                    material == WindowsMicaMaterial::Mica,
+                    Ordering::Release,
+                );
+                Ok(window)
+            }
+            #[cfg(not(windows))]
+            {
             let builder = WindowBuilder::new(&window_app, window_label)
                 .title(window_title)
                 .inner_size(bounds.width.max(1) as f64, bounds.height.max(1) as f64)
                 .min_inner_size(640.0, 480.0)
                 .visible(false)
                 .focused(false);
-            #[cfg(windows)]
-            let builder = builder
-                .decorations(false)
-                .shadow(true);
             builder.build()
+            }
         })?;
+        #[cfg(windows)]
+        let windows_mica_enabled = windows_mica_enabled.load(Ordering::Acquire);
         window
             .set_position(PhysicalPosition::new(
                 physical_position.0,
@@ -673,17 +693,26 @@ impl SystemRuntimeExecutor {
             &target.window_id,
             window_generation,
             self.lifecycle_epoch(),
+            windows_mica_enabled,
         )
         .map_err(RuntimeError::tauri)?;
         #[cfg(windows)]
+        let tab_strip_builder = WebviewBuilder::new(
+            runtime_label("game-tab-strip", &host_id),
+            WebviewUrl::App("runtime-tabs.html".into()),
+        )
+        .disable_drag_drop_handler()
+        .initialization_script(&tab_initialization_script);
+        #[cfg(windows)]
+        let tab_strip_builder = if windows_mica_enabled {
+            tab_strip_builder.transparent(true)
+        } else {
+            tab_strip_builder
+        };
+        #[cfg(windows)]
         let tab_strip = match self.add_child_bounded(
             &window,
-            WebviewBuilder::new(
-                runtime_label("game-tab-strip", &host_id),
-                WebviewUrl::App("runtime-tabs.html".into()),
-            )
-            .disable_drag_drop_handler()
-            .initialization_script(&tab_initialization_script),
+            tab_strip_builder,
             LogicalPosition::new(0.0, 0.0),
             LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),
             &format!("{}:tab-strip", target.window_id),

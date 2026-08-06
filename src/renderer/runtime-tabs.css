@@ -24,6 +24,11 @@ body {
   user-select: none;
 }
 
+:root[data-windows-mica="enabled"],
+:root[data-windows-mica="enabled"] body {
+  background: transparent;
+}
+
 body {
   display: flex;
   align-items: center;

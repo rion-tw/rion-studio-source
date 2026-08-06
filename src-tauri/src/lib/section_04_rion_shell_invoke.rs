@@ -26,8 +26,8 @@ async fn rion_shell_invoke(
     operation: String,
     args: Vec<Value>,
 ) -> Result<Value, CoreErrorPayload> {
-    if prepare_shell_invoke(&app, &startup, &operation, &args).await? {
-        return Ok(Value::Null);
+    if let Some(response) = prepare_shell_invoke(&app, &startup, &operation, &args).await? {
+        return Ok(response);
     }
     let state = app.try_state::<CoreState>().ok_or_else(|| {
         shell_error(

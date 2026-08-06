@@ -454,6 +454,7 @@ fn windows_runtime_tab_initialization_script(
     window_id: &str,
     window_generation: u64,
     lifecycle_epoch: u64,
+    windows_mica_enabled: bool,
 ) -> Result<String, serde_json::Error> {
     let identity = serde_json::to_string(&json!({
         "windowId": window_id,
@@ -461,7 +462,8 @@ fn windows_runtime_tab_initialization_script(
         "lifecycleEpoch": lifecycle_epoch,
     }))?;
     Ok(format!(
-        "{WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT}\nObject.defineProperty(globalThis, '__rionRuntimeTabChromeIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});"
+        "{WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT}\ndocument.documentElement.dataset.windowsMica = {};\nObject.defineProperty(globalThis, '__rionRuntimeTabChromeIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});",
+        if windows_mica_enabled { "'enabled'" } else { "'fallback'" }
     ))
 }
 

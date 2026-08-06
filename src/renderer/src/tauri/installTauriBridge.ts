@@ -191,9 +191,13 @@ export async function reportRendererStartupFailure(message: string): Promise<voi
   await invokeShell("rendererStartupFailed", [message]);
 }
 
-export async function waitForNativeStartup(): Promise<void> {
-  if (!isTauriRuntime()) return;
-  await invokeShell("waitForNativeStartup");
+export interface NativeStartupStatus {
+  windowsMicaEnabled: boolean;
+}
+
+export async function waitForNativeStartup(): Promise<NativeStartupStatus> {
+  if (!isTauriRuntime()) return { windowsMicaEnabled: false };
+  return invokeShell<NativeStartupStatus>("waitForNativeStartup");
 }
 
 export async function installTauriBridgeIfNeeded(): Promise<void> {

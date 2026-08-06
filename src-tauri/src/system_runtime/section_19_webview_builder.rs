@@ -319,6 +319,9 @@ impl SystemRuntimeExecutor {
                 handle_browser_download(&download_app, download_role_id.as_deref(), event)
             });
         if role_id.is_some() {
+            // This API is main-frame-only. Popup builders and child frames must
+            // retain their own scrolling behavior.
+            builder = builder.initialization_script(CANVAS_SCROLL_LOCK_INITIALIZATION_SCRIPT);
             if let Some(source) = overlay_document_start_script.as_deref() {
                 builder = builder.initialization_script_for_all_frames(source);
             }

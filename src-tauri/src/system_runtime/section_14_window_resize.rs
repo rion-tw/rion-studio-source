@@ -10,9 +10,7 @@ pub(crate) struct RuntimeWindowResizeSnapshot {
     scale_factor: f64,
     sequence: u64,
     #[cfg(windows)]
-    native_fast_path_applied: bool,
-    #[cfg(windows)]
-    native_fast_path_counters: WindowsLiveResizeCounters,
+    native_fast_path: WindowsLiveResizeObservation,
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +49,20 @@ impl SystemRuntimeExecutor {
             .or_else(|| window.scale_factor().ok())
             .map(normalized_scale_factor)
             .unwrap_or(1.0);
+        #[cfg(windows)]
+        let live_resize = windows_live_resize_observe(
+            &window,
+            physical_width,
+            physical_height,
+        );
+        #[cfg(windows)]
+        let (physical_width, physical_height) = if live_resize.client_width > 0
+            && live_resize.client_height > 0
+        {
+            (live_resize.client_width, live_resize.client_height)
+        } else {
+            (physical_width, physical_height)
+        };
         let Some(content_metrics) = snapshot_window_content_metrics(
             &window,
             physical_width,
@@ -59,12 +71,6 @@ impl SystemRuntimeExecutor {
         ) else {
             return;
         };
-        #[cfg(windows)]
-        let live_resize = windows_live_resize_observe(
-            &window,
-            physical_width,
-            physical_height,
-        );
         let snapshot = RuntimeWindowResizeSnapshot {
             content_metrics,
             fullscreen: window.is_fullscreen().unwrap_or(false),
@@ -76,9 +82,7 @@ impl SystemRuntimeExecutor {
             scale_factor,
             sequence: WINDOW_RESIZE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
             #[cfg(windows)]
-            native_fast_path_applied: live_resize.matched_latest_frame,
-            #[cfg(windows)]
-            native_fast_path_counters: live_resize.counters,
+            native_fast_path: live_resize,
         };
         #[cfg(target_os = "macos")]
         self.prepare_runtime_window_fullscreen(label, snapshot.fullscreen);
@@ -157,11 +161,15 @@ impl SystemRuntimeExecutor {
         let mut layout_errors = Vec::new();
         for tab_id in tab_ids {
             #[cfg(windows)]
-            let skip_active_bounds = snapshot.native_fast_path_applied && !settled;
+            let skip_active_bounds = snapshot.native_fast_path.native_fast_path_available && !settled;
             #[cfg(not(windows))]
             let skip_active_bounds = false;
-            if let Err(error) =
-                self.layout_runtime_tab_with_metrics(&tab_id, metrics, skip_active_bounds)
+            if let Err(error) = self.layout_runtime_tab_with_metrics(
+                &tab_id,
+                metrics,
+                skip_active_bounds,
+                settled,
+            )
             {
                 layout_errors.push(format!("{tab_id}: {}: {}", error.code, error.message));
             }
@@ -265,7 +273,7 @@ impl SystemRuntimeExecutor {
                 self.record_windows_live_resize_counters(
                     &label,
                     pending.native_fast_path_counters,
-                    pending.snapshot.native_fast_path_applied,
+                    pending.snapshot.native_fast_path,
                 );
                 self.clear_resize_worker(&label, None);
                 break;
@@ -290,7 +298,7 @@ impl SystemRuntimeExecutor {
                     self.record_windows_live_resize_counters(
                         &label,
                         pending.native_fast_path_counters,
-                        pending.snapshot.native_fast_path_applied,
+                        pending.snapshot.native_fast_path,
                     );
                     self.record_resize_worker_event(
                         &label,
@@ -379,10 +387,10 @@ fn coalesce_pending_resize(
     #[cfg(windows)]
     let native_fast_path_counters = previous
         .as_ref()
-        .map_or(snapshot.native_fast_path_counters, |pending| {
+        .map_or(snapshot.native_fast_path.counters, |pending| {
             pending
                 .native_fast_path_counters
-                .saturating_add(snapshot.native_fast_path_counters)
+                .saturating_add(snapshot.native_fast_path.counters)
         });
     PendingWindowResize {
         coalesced_count: previous

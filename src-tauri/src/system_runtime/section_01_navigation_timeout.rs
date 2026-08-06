@@ -137,7 +137,10 @@ fn point_in_runtime_tab_control_row(
     screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
 }
 const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
-const WINDOW_RESIZE_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+// Interactive Windows resize is intentionally rate-limited. Updating several
+// native WebView controllers for every WM_SIZE can saturate the UI thread and
+// the compositor on high-frequency mice.
+const WINDOW_RESIZE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(200);
 const DESIGN_TOKENS_CSS: &str = include_str!("../../../src/shared/designTokens.css");
 const MACRO_OVERLAY_RUNTIME_SOURCE: &str = concat!(
@@ -176,6 +179,8 @@ const RUNTIME_INDICATOR_CSS_TOKEN: &str = "__RION_STUDIO_RUNTIME_INDICATOR_CSS__
 const BROWSER_FONTS_RUNTIME_SOURCE: &str =
     include_str!("../../../src/shared/browser-overlay/browserFontsRuntime.js");
 const BROWSER_FONTS_REFRESH_SOURCE: &str = "void globalThis.__rionStudioBrowserFonts?.refresh?.()";
+const CANVAS_SCROLL_LOCK_INITIALIZATION_SCRIPT: &str =
+    include_str!("../../../src/shared/browser-overlay/canvasScrollLock.js");
 const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
 (() => {
   if (!Object.prototype.hasOwnProperty.call(globalThis, "__rionStudioDocumentInstanceId")) {

@@ -92,7 +92,7 @@ fn apply_resize_layout_mutations(
     // Do not wrap these submissions in another main-thread task and wait for it: Windows can
     // defer that task during an interactive sizing loop, making the visible surface trail the
     // native window by seconds. The resize worker already limits submissions to the latest
-    // snapshot once per frame.
+    // snapshot on the shared live-resize debounce interval.
     Ok(submit_native_layout_mutations(&mutations))
 }
 
@@ -196,7 +196,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn layout_runtime_tab_inner(&self, tab_id: &str) -> RuntimeResult<()> {
-        self.layout_runtime_tab_inner_with_metrics(tab_id, None, false)
+        self.layout_runtime_tab_inner_with_metrics(tab_id, None, false, true)
     }
 
     fn layout_runtime_tab_inner_with_metrics(
@@ -204,6 +204,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         metrics_override: Option<WindowContentMetrics>,
         skip_active_bounds: bool,
+        publish_native_plan: bool,
     ) -> RuntimeResult<()> {
         let is_resize_projection = metrics_override.is_some();
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
@@ -316,7 +317,8 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or(false);
         #[cfg(windows)]
-        if is_active_tab
+        if publish_native_plan
+            && is_active_tab
             && let Some(tab_strip) = tab_strip.as_ref()
         {
             let descriptors = rion_core::create_workspace_dividers(&role_inputs);

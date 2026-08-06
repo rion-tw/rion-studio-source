@@ -8,8 +8,8 @@ use windows::Win32::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
             BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect,
-            SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_ENTERSIZEMOVE,
-            WM_EXITSIZEMOVE, WM_NCDESTROY, WM_SIZE,
+            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
+            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY, WM_SIZE,
         },
     },
 };
@@ -47,6 +47,7 @@ struct WindowsLiveResizeSurface {
 #[derive(Clone, Copy, Debug, Default)]
 struct WindowsLiveResizeCounters {
     applied: u64,
+    deferred: u64,
     errors: u64,
     fallback: u64,
     received: u64,
@@ -56,6 +57,7 @@ impl WindowsLiveResizeCounters {
     fn saturating_add(self, other: Self) -> Self {
         Self {
             applied: self.applied.saturating_add(other.applied),
+            deferred: self.deferred.saturating_add(other.deferred),
             errors: self.errors.saturating_add(other.errors),
             fallback: self.fallback.saturating_add(other.fallback),
             received: self.received.saturating_add(other.received),
@@ -66,10 +68,22 @@ impl WindowsLiveResizeCounters {
 #[derive(Debug)]
 struct WindowsLiveResizeHost {
     counters: WindowsLiveResizeCounters,
+    frame_sequence: u64,
     generation: u64,
-    last_applied_size: Option<(u32, u32)>,
+    last_batch_failed: bool,
+    last_native_attempt_at: Option<Instant>,
+    last_applied_frame: Option<WindowsLiveResizeFrame>,
     plan: Option<WindowsLiveResizePlan>,
+    plan_epoch: u64,
     subclass_id: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowsLiveResizeFrame {
+    height: u32,
+    plan_epoch: u64,
+    sequence: u64,
+    width: u32,
 }
 
 #[derive(Default)]
@@ -80,8 +94,16 @@ struct WindowsLiveResizeRegistry {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct WindowsLiveResizeObservation {
+    client_height: u32,
+    client_width: u32,
     counters: WindowsLiveResizeCounters,
+    event_height: u32,
+    event_width: u32,
+    frame_sequence: u64,
+    native_fast_path_available: bool,
     matched_latest_frame: bool,
+    match_status: &'static str,
+    plan_epoch: u64,
 }
 
 thread_local! {
@@ -127,9 +149,13 @@ fn windows_live_resize_install_host(window: &Window, generation: u64) -> Runtime
                         key,
                         WindowsLiveResizeHost {
                             counters: WindowsLiveResizeCounters::default(),
+                            frame_sequence: 0,
                             generation,
-                            last_applied_size: None,
+                            last_batch_failed: false,
+                            last_native_attempt_at: None,
+                            last_applied_frame: None,
                             plan: None,
+                            plan_epoch: 0,
                             subclass_id,
                         },
                     );
@@ -147,10 +173,12 @@ fn windows_live_resize_register_webview(webview: &Webview) -> RuntimeResult<()> 
             let mut hwnd = HWND::default();
             if controller.ParentWindow(&mut hwnd).is_ok() && !hwnd.is_invalid() {
                 WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
-                    registry.borrow_mut().surfaces.insert(
-                        label,
+                    let mut registry = registry.borrow_mut();
+                    registry.surfaces.insert(
+                        label.clone(),
                         WindowsLiveResizeSurface { controller, hwnd },
                     );
+                    windows_live_resize_invalidate_surface_plans(&mut registry, &label);
                 });
             }
         })
@@ -166,10 +194,12 @@ fn windows_live_resize_register_controller(
         return;
     }
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
-        registry
-            .borrow_mut()
-            .surfaces
-            .insert(label, WindowsLiveResizeSurface { controller, hwnd });
+        let mut registry = registry.borrow_mut();
+        registry.surfaces.insert(
+            label.clone(),
+            WindowsLiveResizeSurface { controller, hwnd },
+        );
+        windows_live_resize_invalidate_surface_plans(&mut registry, &label);
     });
 }
 
@@ -178,7 +208,9 @@ fn windows_live_resize_unregister_surface(webview: &Webview) {
     let app = webview.app_handle().clone();
     let _ = app.run_on_main_thread(move || {
         WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
-            registry.borrow_mut().surfaces.remove(&label);
+            let mut registry = registry.borrow_mut();
+            registry.surfaces.remove(&label);
+            windows_live_resize_invalidate_surface_plans(&mut registry, &label);
         });
     });
 }
@@ -203,12 +235,72 @@ fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan
             ) {
                 return;
             }
-            // Replacing the plan invalidates the old tab immediately. If one of
-            // the new controllers has not arrived, WM_SIZE takes the worker fallback.
+            let topology_changed = host
+                .plan
+                .as_ref()
+                .is_none_or(|current| !windows_live_resize_plans_match(current, &plan));
             host.plan = Some(plan);
-            host.last_applied_size = None;
+            if topology_changed {
+                windows_live_resize_advance_epoch(host);
+            }
         });
     });
+}
+
+fn windows_live_resize_advance_epoch(host: &mut WindowsLiveResizeHost) {
+    host.plan_epoch = host.plan_epoch.saturating_add(1).max(1);
+    host.last_batch_failed = false;
+    host.last_applied_frame = None;
+}
+
+fn windows_live_resize_invalidate_surface_plans(
+    registry: &mut WindowsLiveResizeRegistry,
+    label: &str,
+) {
+    for host in registry.hosts.values_mut() {
+        if host
+            .plan
+            .as_ref()
+            .is_some_and(|plan| windows_live_resize_plan_contains_label(plan, label))
+        {
+            windows_live_resize_advance_epoch(host);
+        }
+    }
+}
+
+fn windows_live_resize_plan_contains_label(plan: &WindowsLiveResizePlan, label: &str) -> bool {
+    plan.tab_strip_label == label
+        || plan.roles.iter().any(|role| role.label == label)
+        || plan.dividers.iter().any(|divider| divider.label == label)
+}
+
+fn windows_live_resize_plans_match(
+    current: &WindowsLiveResizePlan,
+    next: &WindowsLiveResizePlan,
+) -> bool {
+    current.generation == next.generation
+        && current.gap == next.gap
+        && current.tab_strip_height.to_bits() == next.tab_strip_height.to_bits()
+        && current.tab_strip_label == next.tab_strip_label
+        && current.roles.len() == next.roles.len()
+        && current.roles.iter().zip(&next.roles).all(|(left, right)| {
+            left.label == right.label
+                && left.input.role_id == right.input.role_id
+                && left.input.rect.x.to_bits() == right.input.rect.x.to_bits()
+                && left.input.rect.y.to_bits() == right.input.rect.y.to_bits()
+                && left.input.rect.width.to_bits() == right.input.rect.width.to_bits()
+                && left.input.rect.height.to_bits() == right.input.rect.height.to_bits()
+        })
+        && current.dividers.len() == next.dividers.len()
+        && current
+            .dividers
+            .iter()
+            .zip(&next.dividers)
+            .all(|(left, right)| {
+                left.axis == right.axis
+                    && left.index == right.index
+                    && left.label == right.label
+            })
 }
 
 fn windows_live_resize_plan_is_current(
@@ -223,24 +315,98 @@ fn windows_live_resize_plan_is_current(
 
 fn windows_live_resize_observe(
     window: &Window,
-    physical_width: u32,
-    physical_height: u32,
+    event_width: u32,
+    event_height: u32,
 ) -> WindowsLiveResizeObservation {
     let Ok(hwnd) = window.hwnd() else {
-        return WindowsLiveResizeObservation::default();
+        return WindowsLiveResizeObservation {
+            event_height,
+            event_width,
+            match_status: "host-unavailable",
+            ..WindowsLiveResizeObservation::default()
+        };
     };
+    let client_size = windows_live_resize_client_size(hwnd);
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
-        let Some(host) = registry.hosts.get_mut(&windows_hwnd_key(hwnd)) else {
-            return WindowsLiveResizeObservation::default();
+        let key = windows_hwnd_key(hwnd);
+        let native_fast_path_available = registry
+            .hosts
+            .get(&key)
+            .filter(|host| !host.last_batch_failed)
+            .and_then(|host| host.plan.as_ref())
+            .is_some_and(|plan| windows_live_resize_plan_surfaces_available(&registry, plan));
+        let Some(host) = registry.hosts.get_mut(&key) else {
+            return WindowsLiveResizeObservation {
+                client_height: client_size.map_or(0, |size| size.1),
+                client_width: client_size.map_or(0, |size| size.0),
+                event_height,
+                event_width,
+                match_status: "host-unavailable",
+                ..WindowsLiveResizeObservation::default()
+            };
         };
         let counters = std::mem::take(&mut host.counters);
+        let (client_width, client_height) = client_size.unwrap_or((event_width, event_height));
+        let (matched_latest_frame, match_status) =
+            windows_live_resize_frame_match(host, client_size);
         WindowsLiveResizeObservation {
+            client_height,
+            client_width,
             counters,
-            matched_latest_frame: host.last_applied_size
-                == Some((physical_width, physical_height)),
+            event_height,
+            event_width,
+            frame_sequence: host.last_applied_frame.map_or(0, |frame| frame.sequence),
+            matched_latest_frame,
+            native_fast_path_available,
+            match_status,
+            plan_epoch: host.plan_epoch,
         }
     })
+}
+
+fn windows_live_resize_frame_match(
+    host: &WindowsLiveResizeHost,
+    client_size: Option<(u32, u32)>,
+) -> (bool, &'static str) {
+    let Some(client_size) = client_size else {
+        return (false, "client-rect-unavailable");
+    };
+    if host.plan.is_none() {
+        return (false, "plan-unavailable");
+    }
+    let Some(frame) = host.last_applied_frame else {
+        return (false, "frame-unavailable");
+    };
+    if frame.plan_epoch != host.plan_epoch {
+        return (false, "plan-fence");
+    }
+    if (frame.width, frame.height) != client_size {
+        return (false, "size-mismatch");
+    }
+    (true, "matched")
+}
+
+fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
+    let mut client = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut client) }
+        .ok()
+        .and_then(|()| {
+            let width = client.right - client.left;
+            let height = client.bottom - client.top;
+            (width > 0 && height > 0).then_some((width as u32, height as u32))
+        })
+}
+
+fn windows_live_resize_should_submit(
+    last_attempt_at: Option<Instant>,
+    now: Instant,
+    force: bool,
+) -> bool {
+    force
+        || last_attempt_at.is_none_or(|last| {
+            now.saturating_duration_since(last) >= WINDOW_RESIZE_FRAME_INTERVAL
+        })
 }
 
 unsafe extern "system" fn windows_live_resize_subclass_proc(
@@ -258,17 +424,12 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
             let width = lparam.0 as u32 & 0xffff;
             let height = (lparam.0 as u32 >> 16) & 0xffff;
             if width > 0 && height > 0 {
-                windows_live_resize_apply(hwnd, width, height);
+                windows_live_resize_apply(hwnd, width, height, false);
             }
         }
         WM_EXITSIZEMOVE => {
-            let mut client = RECT::default();
-            if unsafe { GetClientRect(hwnd, &mut client) }.is_ok() {
-                windows_live_resize_apply(
-                    hwnd,
-                    (client.right - client.left).max(1) as u32,
-                    (client.bottom - client.top).max(1) as u32,
-                );
+            if let Some((width, height)) = windows_live_resize_client_size(hwnd) {
+                windows_live_resize_apply(hwnd, width, height, true);
             }
         }
         WM_NCDESTROY => {
@@ -299,7 +460,12 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
     result
 }
 
-fn windows_live_resize_apply(hwnd: HWND, physical_width: u32, physical_height: u32) {
+fn windows_live_resize_apply(
+    hwnd: HWND,
+    physical_width: u32,
+    physical_height: u32,
+    force: bool,
+) {
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
         let key = windows_hwnd_key(hwnd);
@@ -318,6 +484,19 @@ fn windows_live_resize_apply(hwnd: HWND, physical_width: u32, physical_height: u
             }
             return;
         };
+        let now = Instant::now();
+        let should_submit = registry.hosts.get(&key).is_some_and(|host| {
+            windows_live_resize_should_submit(host.last_native_attempt_at, now, force)
+        });
+        if !should_submit {
+            if let Some(host) = registry.hosts.get_mut(&key) {
+                host.counters.deferred = host.counters.deferred.saturating_add(1);
+            }
+            return;
+        }
+        if let Some(host) = registry.hosts.get_mut(&key) {
+            host.last_native_attempt_at = Some(now);
+        }
         let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
         let scale = f64::from(dpi) / 96.0;
         let bounds = windows_live_resize_resolve_bounds(
@@ -330,13 +509,21 @@ fn windows_live_resize_apply(hwnd: HWND, physical_width: u32, physical_height: u
             Ok(()) => {
                 if let Some(host) = registry.hosts.get_mut(&key) {
                     host.counters.applied = host.counters.applied.saturating_add(1);
-                    host.last_applied_size = Some((physical_width, physical_height));
+                    host.frame_sequence = host.frame_sequence.saturating_add(1);
+                    host.last_batch_failed = false;
+                    host.last_applied_frame = Some(WindowsLiveResizeFrame {
+                        height: physical_height,
+                        plan_epoch: host.plan_epoch,
+                        sequence: host.frame_sequence,
+                        width: physical_width,
+                    });
                 }
             }
             Err(()) => {
                 if let Some(host) = registry.hosts.get_mut(&key) {
                     host.counters.errors = host.counters.errors.saturating_add(1);
-                    host.last_applied_size = None;
+                    host.last_batch_failed = true;
+                    host.last_applied_frame = None;
                 }
             }
         }
@@ -353,6 +540,16 @@ fn windows_live_resize_collect_surfaces(
     labels
         .map(|label| registry.surfaces.get(label).cloned())
         .collect()
+}
+
+fn windows_live_resize_plan_surfaces_available(
+    registry: &WindowsLiveResizeRegistry,
+    plan: &WindowsLiveResizePlan,
+) -> bool {
+    let labels = std::iter::once(plan.tab_strip_label.as_str())
+        .chain(plan.roles.iter().map(|role| role.label.as_str()))
+        .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
+    labels.into_iter().all(|label| registry.surfaces.contains_key(label))
 }
 
 include!("live_resize_geometry.rs");

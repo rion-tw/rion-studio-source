@@ -142,14 +142,31 @@ fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
-    if surfaces.len() != bounds.len() || surfaces.is_empty() {
-        return Err(());
-    }
-    let mut deferred = unsafe { BeginDeferWindowPos(surfaces.len() as i32) }.map_err(|_| ())?;
-    let flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER;
-    let mut failed = false;
-    for (surface, bounds) in surfaces.iter().zip(bounds) {
-        if unsafe {
+    windows_live_resize_submit_ordered(
+        surfaces,
+        bounds,
+        |surfaces, bounds| {
+            let mut deferred =
+                unsafe { BeginDeferWindowPos(surfaces.len() as i32) }.map_err(|_| ())?;
+            let flags = windows_live_resize_window_pos_flags();
+            for (surface, bounds) in surfaces.iter().zip(bounds) {
+                deferred = unsafe {
+                    DeferWindowPos(
+                        deferred,
+                        surface.hwnd,
+                        None,
+                        bounds.x,
+                        bounds.y,
+                        bounds.width,
+                        bounds.height,
+                        flags,
+                    )
+                }
+                .map_err(|_| ())?;
+            }
+            unsafe { EndDeferWindowPos(deferred) }.map_err(|_| ())
+        },
+        |surface, bounds| unsafe {
             surface.controller.SetBounds(RECT {
                 left: 0,
                 top: 0,
@@ -157,26 +174,26 @@ fn windows_live_resize_submit_batch(
                 bottom: bounds.height,
             })
         }
-        .is_err()
-        {
-            failed = true;
-        }
-        deferred = unsafe {
-            DeferWindowPos(
-                deferred,
-                surface.hwnd,
-                None,
-                bounds.x,
-                bounds.y,
-                bounds.width,
-                bounds.height,
-                flags,
-            )
-        }
-        .map_err(|_| ())?;
+        .map_err(|_| ()),
+    )
+}
+
+fn windows_live_resize_window_pos_flags() -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {
+    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOZORDER
+}
+
+fn windows_live_resize_submit_ordered<T>(
+    surfaces: &[T],
+    bounds: &[WindowsLiveResizeBounds],
+    submit_child_batch: impl FnOnce(&[T], &[WindowsLiveResizeBounds]) -> Result<(), ()>,
+    mut submit_controller_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
+) -> Result<(), ()> {
+    if surfaces.len() != bounds.len() || surfaces.is_empty() {
+        return Err(());
     }
-    if unsafe { EndDeferWindowPos(deferred) }.is_err() {
-        failed = true;
+    submit_child_batch(surfaces, bounds)?;
+    for (surface, bounds) in surfaces.iter().zip(bounds) {
+        submit_controller_bounds(surface, bounds)?;
     }
-    if failed { Err(()) } else { Ok(()) }
+    Ok(())
 }

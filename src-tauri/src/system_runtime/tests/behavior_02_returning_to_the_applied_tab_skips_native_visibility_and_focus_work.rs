@@ -691,6 +691,33 @@
     }
 
     #[test]
+    fn native_surface_isolation_is_singleflight_and_terminal() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Joined);
+
+        tracker.mark_isolated();
+        assert_eq!(
+            tracker.claim_isolation().unwrap(),
+            SurfaceIsolationClaim::AlreadyIsolated
+        );
+    }
+
+    #[test]
+    fn native_surface_isolation_failure_is_not_retried_destructively() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            "exact controller outcome unknown",
+        ));
+
+        let error = tracker.claim_isolation().unwrap_err();
+        assert_eq!(error.code, "SYSTEM_SURFACE_RELEASE_UNVERIFIED");
+        assert_eq!(error.message, "exact controller outcome unknown");
+    }
+
+    #[test]
     fn recovery_swap_requires_the_original_surface_and_generation() {
         assert!(surface_recovery_swap_is_current(
             "role-surface-a",

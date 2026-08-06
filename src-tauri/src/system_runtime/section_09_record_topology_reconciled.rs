@@ -777,4 +777,66 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn record_surface_isolation_request(
+        &self,
+        webview_label: &str,
+        request: SurfaceIsolationRequest,
+    ) {
+        let surface = self.state.lock().ok().and_then(|state| {
+            state
+                .surface_registry
+                .values()
+                .find(|surface| surface.webview.label() == webview_label)
+                .cloned()
+        });
+        let Some(surface) = surface else {
+            return;
+        };
+        let (event, message, metrics) = match request {
+            SurfaceIsolationRequest::Started(metrics) => (
+                "surface.isolation-submitted",
+                "The exact native surface isolation sequence was submitted once.",
+                Some(metrics),
+            ),
+            SurfaceIsolationRequest::Joined => (
+                "surface.isolation-singleflight-joined",
+                "The close path joined the existing native surface isolation sequence.",
+                None,
+            ),
+            SurfaceIsolationRequest::AlreadyIsolated => (
+                "surface.isolation-already-complete",
+                "The close path observed an already isolated native surface.",
+                None,
+            ),
+        };
+        let core = Arc::clone(&self.core);
+        let context = json!({
+            "callbackQueueWaitMs": metrics.map(|value| value.callback_queue_wait_ms),
+            "controllerCloseMs": metrics.map(|value| value.close_ms),
+            "deadlineExceeded": metrics.map(|value| value.deadline_exceeded),
+            "generation": surface.generation,
+            "instanceId": surface.instance_id,
+            "navigateMs": metrics.map(|value| value.navigate_ms),
+            "roleId": surface.role_id,
+            "stopMs": metrics.map(|value| value.stop_ms),
+            "tabId": surface.tab_id,
+            "webviewLabel": surface.webview.label(),
+            "windowId": surface.window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: LogSource::Browser,
+                        event: event.to_owned(),
+                        message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
 }

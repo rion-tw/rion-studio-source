@@ -569,12 +569,19 @@ impl SystemRuntimeExecutor {
         target: &EmbeddedLaunchTargetRecord,
         _title: &str,
     ) -> RuntimeResult<(Window, bool)> {
-        if let Some((window, generation)) = self
-            .state()?
-            .display_hosts
-            .get(&target.window_id)
-            .map(|host| (host.window.clone(), host.generation))
-        {
+        let existing_host = {
+            let mut runtime_state = self.state()?;
+            runtime_state
+                .display_hosts
+                .get_mut(&target.window_id)
+                .map(|host| {
+                host.retirement_revision = WINDOW_RETIREMENT_SEQUENCE
+                    .fetch_add(1, Ordering::AcqRel)
+                    .saturating_add(1);
+                (host.window.clone(), host.generation)
+                })
+        };
+        if let Some((window, generation)) = existing_host {
             // A native host can outlive a removed live record while close cleanup
             // retires its surfaces. Reusing that host must first re-establish the
             // matching live generation so launch and placement intents never see
@@ -700,6 +707,7 @@ impl SystemRuntimeExecutor {
             target.window_id.clone(),
             RuntimeDisplayHost {
                 generation: window_generation,
+                retirement_revision: 0,
                 target: target.clone(),
                 window: window.clone(),
                 zoom_factor: 1.0,
@@ -757,11 +765,50 @@ impl SystemRuntimeExecutor {
     }
 
     fn remove_empty_display_host(&self, window_id: &str, created_for_operation: bool) {
+        self.remove_empty_display_host_at_revision(window_id, created_for_operation, None);
+    }
+
+    fn remove_empty_display_host_at_revision(
+        &self,
+        window_id: &str,
+        created_for_operation: bool,
+        expected_retirement_revision: Option<u64>,
+    ) {
+        if let Err(error) = self.with_native_window_lifecycle_lane(window_id, || {
+            self.remove_empty_display_host_at_revision_in_lane(
+                window_id,
+                created_for_operation,
+                expected_retirement_revision,
+            );
+            Ok(())
+        }) {
+            self.health.mark_unhealthy();
+            eprintln!(
+                "Native Game Window lifecycle lane failed before host retirement: window={window_id} error={}",
+                error.message
+            );
+        }
+    }
+
+    fn remove_empty_display_host_at_revision_in_lane(
+        &self,
+        window_id: &str,
+        created_for_operation: bool,
+        expected_retirement_revision: Option<u64>,
+    ) {
         if !created_for_operation || !self.live_tab_ids_for_window(window_id).is_empty() {
             return;
         }
         let host = self.state.lock().ok().and_then(|mut state| {
             if state.quarantined_window_hosts.contains(window_id) {
+                return None;
+            }
+            if !state.display_hosts.get(window_id).is_some_and(|host| {
+                window_retirement_revision_is_current(
+                    host.retirement_revision,
+                    expected_retirement_revision,
+                )
+            }) {
                 return None;
             }
             if state
@@ -772,6 +819,7 @@ impl SystemRuntimeExecutor {
                 return None;
             }
             state.retiring_window_tabs.remove(window_id);
+            state.retiring_window_revisions.remove(window_id);
             let host = state.display_hosts.remove(window_id)?;
             state
                 .allow_window_close_labels
@@ -779,8 +827,56 @@ impl SystemRuntimeExecutor {
             Some(host)
         });
         if let Some(host) = host {
-            self.unregister_runtime_launcher_window(window_id);
-            let _ = host.window.close();
+            let label = host.window.label().to_owned();
+            match host.window.close() {
+                Ok(()) => self.unregister_runtime_launcher_window(window_id),
+                Err(error) => {
+                    if let Ok(mut state) = self.state.lock() {
+                        state.allow_window_close_labels.remove(&label);
+                        state
+                            .display_hosts
+                            .entry(window_id.to_owned())
+                            .or_insert(host);
+                    }
+                    self.health.mark_unhealthy();
+                    let error_message = error.to_string();
+                    let core = Arc::clone(&self.core);
+                    let context = json!({
+                        "error": error_message.clone(),
+                        "windowId": window_id,
+                        "windowLabel": label,
+                    });
+                    tauri::async_runtime::spawn(async move {
+                        let _ = core
+                            .invoke_async(CoreCommand::LogsCapture {
+                                entries: vec![LogCaptureRecord {
+                                    level: LogLevel::Error,
+                                    source: LogSource::Browser,
+                                    event: "native.window-retirement-failed".to_owned(),
+                                    message: "The empty native game window could not be released."
+                                        .to_owned(),
+                                    context_raw_json: serde_json::to_string(&context).ok(),
+                                    error: Some(LogErrorDetails {
+                                        name: "SYSTEM_WINDOW_RELEASE_FAILED".to_owned(),
+                                        message: error_message,
+                                        stack: None,
+                                        cause: None,
+                                    }),
+                                }],
+                            })
+                            .await;
+                    });
+                    let _ = self.app.emit(
+                        "rion://shell-error",
+                        json!({
+                            "code": "SYSTEM_WINDOW_RELEASE_FAILED",
+                            "failureKind": "native-window-retirement",
+                            "message": "Rion Studio could not release the empty game window. Reopen it or restart Rion Studio before retrying.",
+                            "windowId": window_id,
+                        }),
+                    );
+                }
+            }
         }
     }
 
@@ -789,15 +885,16 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         tab_id: &str,
         cleanup_failed: bool,
+        expected_retirement_revision: Option<u64>,
     ) {
-        let retirement = self.state.lock().ok().and_then(|mut state| {
+        let retirement = self.state.lock().ok().map(|mut state| {
             let Some(tab_ids) = state.retiring_window_tabs.get_mut(window_id) else {
                 if cleanup_failed {
                     state
                         .quarantined_window_hosts
                         .insert(window_id.to_owned());
                 }
-                return None;
+                return (false, expected_retirement_revision);
             };
             tab_ids.remove(tab_id);
             let all_tabs_terminal = tab_ids.is_empty();
@@ -807,26 +904,41 @@ impl SystemRuntimeExecutor {
                     .insert(window_id.to_owned());
             }
             if !all_tabs_terminal {
-                return Some(false);
+                return (false, None);
             }
             state.retiring_window_tabs.remove(window_id);
+            let retirement_revision = state.retiring_window_revisions.remove(window_id);
             let failed = state.retiring_window_cleanup_failed.remove(window_id);
             if failed {
                 state
                     .quarantined_window_hosts
                     .insert(window_id.to_owned());
             }
-            Some(failed)
+            (failed, retirement_revision.or(expected_retirement_revision))
         });
         match retirement {
-            Some(true) => return,
-            Some(false) => {}
+            Some((true, _)) => return,
+            Some((false, None)) if self.state.lock().ok().is_some_and(|state| {
+                state.retiring_window_tabs.contains_key(window_id)
+            }) => return,
+            Some((false, revision)) => {
+                self.remove_empty_display_host_at_revision(window_id, true, revision);
+                return;
+            }
             None if cleanup_failed => return,
             None => {}
         }
-        self.remove_empty_display_host(window_id, true);
+        self.remove_empty_display_host_at_revision(
+            window_id,
+            true,
+            expected_retirement_revision,
+        );
     }
 
+}
+
+fn window_retirement_revision_is_current(active: u64, expected: Option<u64>) -> bool {
+    expected.is_none_or(|expected| active == expected)
 }
 
 fn native_surface_channel_is_unavailable(message: &str) -> bool {

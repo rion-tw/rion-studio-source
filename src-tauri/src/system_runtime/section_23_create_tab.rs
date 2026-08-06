@@ -21,6 +21,45 @@ impl SystemRuntimeExecutor {
                 "The native create effect belongs to a window generation that is closing.",
             ));
         }
+        let close_wait_started = Instant::now();
+        let previous_close_pending = self
+            .state
+            .lock()
+            .is_ok_and(|state| tab_close_fence_pending(&state, &tab.tab_id));
+        if !wait_for_tab_close_fence(
+            &self.state,
+            &self.tab_close_changed,
+            &tab.tab_id,
+            SURFACE_RECLAMATION_TIMEOUT,
+        ) {
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_PREVIOUS_CLOSE_PENDING",
+                "The previous native tab generation did not finish closing before relaunch.",
+            ));
+        }
+        if previous_close_pending {
+            self.record_runtime_stage(
+                format!("tab-relaunch-close-fence:{}", tab.tab_id),
+                "completed",
+                close_wait_started,
+            );
+        }
+        let requested_role_ids = tab
+            .roles
+            .iter()
+            .map(|role| role.role.id.clone())
+            .collect::<HashSet<_>>();
+        let role_close_wait_started = Instant::now();
+        if self.wait_for_role_relaunch_fences(
+            &requested_role_ids,
+            SURFACE_RECLAMATION_TIMEOUT,
+        )? {
+            self.record_runtime_stage(
+                format!("role-relaunch-close-fence:{}", tab.tab_id),
+                "completed",
+                role_close_wait_started,
+            );
+        }
         let unavailable_role_ids = {
             let state = self.state()?;
             if state.tabs.contains_key(&tab.tab_id) {
@@ -757,6 +796,7 @@ impl SystemRuntimeExecutor {
                     );
                 }
             }
+            self.tab_close_changed.notify_all();
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(&created_tab_id, tombstone, true);
             }

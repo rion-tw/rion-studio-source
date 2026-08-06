@@ -159,6 +159,32 @@ use uuid::Uuid;
     }
 
     #[tokio::test]
+    async fn closing_a_launching_surface_supersedes_its_async_navigation_wait_immediately() {
+        let tracker = Arc::new(NavigationTracker::default());
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(30),
+        );
+        tracker.begin_operation(&operation).unwrap();
+        let waiting = Arc::clone(&tracker);
+        let waiter = tokio::spawn(async move { waiting.wait_operation_async(operation).await });
+        tokio::task::yield_now().await;
+
+        tracker.reset();
+
+        let receipt = tokio::time::timeout(Duration::from_millis(100), waiter)
+            .await
+            .expect("navigation cancellation must not wait for its native deadline")
+            .unwrap();
+        assert_eq!(receipt.status, NativeOperationStatus::Superseded);
+        assert_eq!(
+            receipt.failure_code.as_deref(),
+            Some("SYSTEM_NAVIGATION_SUPERSEDED")
+        );
+    }
+
+    #[tokio::test]
     async fn navigation_tracker_retains_completion_before_async_subscription() {
         let tracker = NavigationTracker::default();
         let operation = NativeOperationContext::new(

@@ -787,15 +787,33 @@ impl SystemRuntimeExecutor {
                 state.close_coordinator.closing_roles.remove(role_id);
             });
         }
+        self.tab_close_changed.notify_all();
         if result.is_ok() {
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(tab_id, tombstone, true);
             }
             self.publish_launcher_presence();
-            self.complete_retiring_window_tab(&window_id, tab_id, false);
+            self.complete_retiring_window_tab(
+                &window_id,
+                tab_id,
+                false,
+                completed_tombstone
+                    .as_ref()
+                    .and_then(|tombstone| tombstone.retirement_revision),
+            );
         } else {
             self.retire_quarantined_tab_after_close(tab_id);
-            self.complete_retiring_window_tab(&window_id, tab_id, true);
+            self.complete_retiring_window_tab(
+                &window_id,
+                tab_id,
+                true,
+                self.state.lock().ok().and_then(|state| {
+                    state
+                        .close_previews
+                        .get(tab_id)
+                        .and_then(|tombstone| tombstone.retirement_revision)
+                }),
+            );
         }
         result
     }

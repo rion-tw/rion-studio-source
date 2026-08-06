@@ -240,15 +240,26 @@ impl SystemRuntimeExecutor {
 
         let native_window = {
             let mut state = self.state()?;
-            let native_window = state.display_hosts.get(window_id).map(|host| host.window.clone());
+            let native_window = state.display_hosts.get_mut(window_id).map(|host| {
+                let retirement_revision = WINDOW_RETIREMENT_SEQUENCE
+                    .fetch_add(1, Ordering::AcqRel)
+                    .saturating_add(1);
+                host.retirement_revision = retirement_revision;
+                (host.window.clone(), retirement_revision)
+            });
             if native_window.is_some() && !tab_ids.is_empty() {
                 state.quarantined_window_hosts.remove(window_id);
                 state.retiring_window_cleanup_failed.remove(window_id);
                 state
                     .retiring_window_tabs
                     .insert(window_id.to_owned(), tab_ids.iter().cloned().collect());
+                if let Some((_, retirement_revision)) = native_window.as_ref() {
+                    state
+                        .retiring_window_revisions
+                        .insert(window_id.to_owned(), *retirement_revision);
+                }
             }
-            native_window
+            native_window.map(|(window, _)| window)
         };
         if native_window.is_some() {
             self.mark_window_close_native_submitted(operation_id)?;
@@ -256,12 +267,13 @@ impl SystemRuntimeExecutor {
         if let Some(window) = native_window {
             if tab_ids.is_empty() {
                 self.remove_empty_display_host(window_id, true);
-            } else if let Err(error) = window.hide() {
+            } else if let Err(error) = request_platform_window_hide(&window) {
                 // The live close has committed and cannot be rolled back. Keep the
                 // native parent alive so its child WebViews can still finish blank
                 // isolation; cleanup will destroy the exact host afterward.
                 eprintln!(
-                    "Native Game Window could not hide before cleanup: window={window_id} error={error}"
+                    "Native Game Window hide submission failed before cleanup: window={window_id} error={} ",
+                    error.message
                 );
             }
         }

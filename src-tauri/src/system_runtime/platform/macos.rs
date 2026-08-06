@@ -1,6 +1,17 @@
 // macos system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(target_os = "macos")]
+fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+    crate::runtime_tabs_macos::request_window_hide(window.clone());
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+    window.show().map_err(RuntimeError::tauri)
+}
+
+#[cfg(target_os = "macos")]
 fn dispatch_key_effect(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
@@ -550,10 +561,10 @@ fn platform_surface_lifecycle_tracker(
 }
 
 #[cfg(target_os = "macos")]
-fn quiesce_platform_surface(
+fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<SurfaceQuiesceMetrics> {
     unsafe extern "C" {
         fn rion_wk_quiesce_surface(token: u64) -> bool;
     }
@@ -564,7 +575,7 @@ fn quiesce_platform_surface(
             "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
         ));
     }
-    Ok(())
+    Ok(SurfaceQuiesceMetrics::default())
 }
 
 #[cfg(target_os = "macos")]

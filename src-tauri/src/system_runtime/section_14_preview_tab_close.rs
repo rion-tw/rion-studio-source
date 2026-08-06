@@ -77,6 +77,17 @@ impl SystemRuntimeExecutor {
         self.schedule_live_projection_membership_follow();
         let isolation_surfaces = {
             let mut state = self.state().map_err(|error| error.message)?;
+            let retirement_revision = if next_tab_id.is_none() {
+                state.display_hosts.get_mut(&window_id).map(|host| {
+                    let revision = WINDOW_RETIREMENT_SEQUENCE
+                        .fetch_add(1, Ordering::AcqRel)
+                        .saturating_add(1);
+                    host.retirement_revision = revision;
+                    revision
+                })
+            } else {
+                None
+            };
             let isolation_surfaces = state
                 .surface_registry
                 .values()
@@ -108,6 +119,7 @@ impl SystemRuntimeExecutor {
                 tab_id.to_owned(),
                 TabCloseTombstone {
                     revision,
+                    retirement_revision,
                     slot_owners,
                     source_id: source_id.clone(),
                     tab_type: tab_type.clone(),
@@ -168,15 +180,28 @@ impl SystemRuntimeExecutor {
             // The native adapter dispatches to AppKit without waiting. This must
             // precede Core persistence so a rapid close burst takes every game
             // page offline even while metadata commits are queued.
-            let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+            if let Ok(request) = quiesce_platform_surface(&surface.webview, &surface.lifecycle) {
+                self.record_surface_isolation_request(surface.webview.label(), request);
+            }
         }
 
+        #[cfg(windows)]
+        let runtime = self.self_weak.get().and_then(std::sync::Weak::upgrade);
         #[cfg(windows)]
         tauri::async_runtime::spawn_blocking(move || {
             std::thread::scope(|scope| {
                 for surface in &surfaces {
+                    let runtime = runtime.clone();
                     scope.spawn(move || {
-                        let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+                        if let Ok(request) =
+                            quiesce_platform_surface(&surface.webview, &surface.lifecycle)
+                            && let Some(runtime) = runtime
+                        {
+                            runtime.record_surface_isolation_request(
+                                surface.webview.label(),
+                                request,
+                            );
+                        }
                     });
                 }
             });
@@ -184,7 +209,9 @@ impl SystemRuntimeExecutor {
 
         #[cfg(not(any(windows, target_os = "macos")))]
         for surface in surfaces {
-            let _ = quiesce_platform_surface(&surface.webview, &surface.lifecycle);
+            if let Ok(request) = quiesce_platform_surface(&surface.webview, &surface.lifecycle) {
+                self.record_surface_isolation_request(surface.webview.label(), request);
+            }
         }
     }
 
@@ -223,6 +250,7 @@ impl SystemRuntimeExecutor {
         } else {
             None
         };
+        self.tab_close_changed.notify_all();
         if let Some(tombstone) = tombstone {
             self.record_tab_close_tombstone_resolution(tab_id, &tombstone, succeeded);
         }
@@ -399,6 +427,136 @@ fn retire_completed_tab_close_fence(
 ) -> Option<TabCloseTombstone> {
     state.optimistic_closed_tabs.remove(tab_id);
     state.close_previews.remove(tab_id)
+}
+
+fn wait_for_tab_close_fence(
+    state: &Mutex<RuntimeState>,
+    changed: &Condvar,
+    tab_id: &str,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    let Ok(mut state) = state.lock() else {
+        return false;
+    };
+    while tab_close_fence_pending(&state, tab_id) {
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let Ok((next, wait)) = changed.wait_timeout(
+            state,
+            deadline.saturating_duration_since(now),
+        ) else {
+            return false;
+        };
+        state = next;
+        if wait.timed_out() && tab_close_fence_pending(&state, tab_id) {
+            return false;
+        }
+    }
+    true
+}
+
+fn tab_close_fence_pending(state: &RuntimeState, tab_id: &str) -> bool {
+    state.close_previews.contains_key(tab_id)
+        || state.close_coordinator.closing_tabs.contains(tab_id)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RoleRelaunchFenceState {
+    Ready,
+    Pending,
+    Quarantined,
+}
+
+fn role_relaunch_fence_state(
+    state: &RuntimeState,
+    live_tab_ids: &HashSet<String>,
+    role_ids: &HashSet<String>,
+) -> RoleRelaunchFenceState {
+    if role_ids
+        .iter()
+        .any(|role_id| state.close_coordinator.quarantined_roles.contains(role_id))
+    {
+        return RoleRelaunchFenceState::Quarantined;
+    }
+    let close_pending = role_ids.iter().any(|role_id| {
+        state.close_coordinator.closing_roles.contains(role_id)
+            || state
+                .role_tabs
+                .get(role_id)
+                .is_some_and(|tab_id| !live_tab_ids.contains(tab_id))
+            || state.surface_registry.values().any(|surface| {
+                surface.role_id.as_deref() == Some(role_id.as_str())
+                    && surface
+                        .tab_id
+                        .as_ref()
+                        .is_some_and(|tab_id| !live_tab_ids.contains(tab_id))
+            })
+    });
+    if close_pending {
+        RoleRelaunchFenceState::Pending
+    } else {
+        RoleRelaunchFenceState::Ready
+    }
+}
+
+impl SystemRuntimeExecutor {
+    fn wait_for_role_relaunch_fences(
+        &self,
+        role_ids: &HashSet<String>,
+        timeout: Duration,
+    ) -> RuntimeResult<bool> {
+        if role_ids.is_empty() {
+            return Ok(false);
+        }
+        let deadline = Instant::now() + timeout;
+        let mut waited = false;
+        loop {
+            let live_tab_ids = self
+                .presentation
+                .snapshot_states()
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                })?
+                .into_values()
+                .flat_map(|window| window.all_tab_ids())
+                .collect::<HashSet<_>>();
+            let state = self.state()?;
+            match role_relaunch_fence_state(&state, &live_tab_ids, role_ids) {
+                RoleRelaunchFenceState::Ready => return Ok(waited),
+                RoleRelaunchFenceState::Quarantined => {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                        "A previous native role surface could not be released safely. Restart Rion Studio before reopening this role.",
+                    ));
+                }
+                RoleRelaunchFenceState::Pending => {}
+            }
+            waited = true;
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_PREVIOUS_CLOSE_PENDING",
+                    "The previous native role surfaces did not finish closing before relaunch.",
+                ));
+            }
+            let wait_for = deadline
+                .saturating_duration_since(now)
+                .min(Duration::from_millis(50));
+            let (state, _) = self
+                .tab_close_changed
+                .wait_timeout(state, wait_for)
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_STATE_UNAVAILABLE",
+                        "The native role close coordinator is unavailable.",
+                    )
+                })?;
+            drop(state);
+        }
+    }
 }
 
 impl SystemRuntimeExecutor {

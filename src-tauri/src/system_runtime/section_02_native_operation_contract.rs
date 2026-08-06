@@ -345,7 +345,7 @@ impl NavigationTracker {
             .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
         state.active_operation_id = Some(context.operation_id.clone());
         if state.finished {
-            self.async_changed.send_replace(true);
+            self.signal_async_changed();
         }
         Ok(())
     }
@@ -358,7 +358,8 @@ impl NavigationTracker {
         state.active_operation_id = Some(context.operation_id.clone());
         state.finished = false;
         state.started = false;
-        self.async_changed.send_replace(false);
+        self.changed.notify_all();
+        self.signal_async_changed();
         Ok(())
     }
 

@@ -153,6 +153,7 @@ impl SystemRuntimeExecutor {
             optional_hydration_sender: OnceLock::new(),
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
+            tab_close_changed: Condvar::new(),
             tab_drag_intents: Arc::new(TabDragIntentCoordinator::default()),
             tab_mutations: Arc::new(TabMutationCoordinator::default()),
             #[cfg(windows)]
@@ -244,7 +245,12 @@ impl SystemRuntimeExecutor {
                             .lock()
                             .is_ok_and(|state| state.tabs.contains_key(&tab_id));
                         if !runtime_tab_exists {
-                            runtime.complete_retiring_window_tab(&window_id, &tab_id, false);
+                            runtime.complete_retiring_window_tab(
+                                &window_id,
+                                &tab_id,
+                                false,
+                                None,
+                            );
                         } else if let Err(error) = runtime.destroy_tab(&tab_id) {
                             eprintln!(
                                 "Live tab native cleanup was quarantined: tab={tab_id} error={}",
@@ -661,6 +667,15 @@ impl SystemRuntimeExecutor {
     }
 
     fn hydrate_tab_optional(&self, tab_id: &str) {
+        let tab_accepts_optional_hydration = self.state.lock().ok().is_some_and(|state| {
+            state.tabs.contains_key(tab_id)
+                && !state.close_coordinator.closing_tabs.contains(tab_id)
+                && !state.optimistic_closed_tabs.contains(tab_id)
+                && !state.close_previews.contains_key(tab_id)
+        });
+        if !tab_accepts_optional_hydration {
+            return;
+        }
         self.set_launch_phase(tab_id, LaunchPhase::OptionalHydrating);
         let mut degraded = false;
         let surfaces = self
@@ -717,14 +732,28 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
         }
-        self.set_launch_phase(
-            tab_id,
-            if degraded {
-                LaunchPhase::Degraded
-            } else {
-                LaunchPhase::Ready
-            },
-        );
+        let tab_still_live = self
+            .presentation
+            .tab_window(tab_id)
+            .ok()
+            .flatten()
+            .is_some()
+            && self.state.lock().ok().is_some_and(|state| {
+                state.tabs.contains_key(tab_id)
+                    && !state.close_coordinator.closing_tabs.contains(tab_id)
+                    && !state.optimistic_closed_tabs.contains(tab_id)
+                    && !state.close_previews.contains_key(tab_id)
+            });
+        if tab_still_live {
+            self.set_launch_phase(
+                tab_id,
+                if degraded {
+                    LaunchPhase::Degraded
+                } else {
+                    LaunchPhase::Ready
+                },
+            );
+        }
     }
 
 }

@@ -325,6 +325,7 @@ impl LaunchPhase {
 
 struct RuntimeDisplayHost {
     generation: u64,
+    retirement_revision: u64,
     target: EmbeddedLaunchTargetRecord,
     window: Window,
     zoom_factor: f64,

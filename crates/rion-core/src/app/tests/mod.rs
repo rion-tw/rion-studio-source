@@ -31,3 +31,4 @@ include!("behavior_08_display_remap_transaction_is_atomic.rs");
 include!("behavior_11_shared_workspace_role_slot_claim.rs");
 include!("behavior_12_runtime_window_snapshot_revision.rs");
 include!("behavior_13_tab_stop_uses_stable_identity.rs");
+include!("behavior_14_cancelled_workspace_launch_retires_native_tab.rs");

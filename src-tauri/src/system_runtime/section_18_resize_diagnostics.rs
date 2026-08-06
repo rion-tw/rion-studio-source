@@ -4,17 +4,26 @@ impl SystemRuntimeExecutor {
         &self,
         window_label: &str,
         counters: WindowsLiveResizeCounters,
-        matched_latest_frame: bool,
+        observation: WindowsLiveResizeObservation,
     ) {
         if counters.received == 0 {
             return;
         }
         let context = json!({
             "appliedCount": counters.applied,
+            "clientHeight": observation.client_height,
+            "clientWidth": observation.client_width,
+            "deferredCount": counters.deferred,
             "errorCount": counters.errors,
+            "eventHeight": observation.event_height,
+            "eventWidth": observation.event_width,
             "fallbackCount": counters.fallback,
-            "matchedLatestFrame": matched_latest_frame,
+            "frameSequence": observation.frame_sequence,
+            "matchedLatestFrame": observation.matched_latest_frame,
+            "matchStatus": observation.match_status,
+            "nativeFastPathAvailable": observation.native_fast_path_available,
             "platform": "windows",
+            "planEpoch": observation.plan_epoch,
             "receivedCount": counters.received,
             "windowLabel": window_label,
         });

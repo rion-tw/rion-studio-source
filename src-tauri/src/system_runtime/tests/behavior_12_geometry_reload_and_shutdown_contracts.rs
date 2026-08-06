@@ -238,9 +238,7 @@ fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
         scale_factor: 2.0,
         sequence,
         #[cfg(windows)]
-        native_fast_path_applied: false,
-        #[cfg(windows)]
-        native_fast_path_counters: WindowsLiveResizeCounters::default(),
+        native_fast_path: WindowsLiveResizeObservation::default(),
     };
     let first = coalesce_pending_resize(None, snapshot(1, 2_560));
     let second = coalesce_pending_resize(Some(first), snapshot(2, 2_800));
@@ -365,6 +363,166 @@ fn windows_live_resize_plan_fences_generation_and_revision() {
     assert!(windows_live_resize_plan_is_current(7, Some(11), 7, 11));
     assert!(!windows_live_resize_plan_is_current(7, Some(12), 7, 11));
     assert!(!windows_live_resize_plan_is_current(8, None, 7, 99));
+}
+
+#[cfg(windows)]
+#[test]
+fn equivalent_live_resize_plan_preserves_the_native_frame_epoch() {
+    let current = two_column_live_resize_plan();
+    let mut next_revision = current.clone();
+    next_revision.revision += 1;
+    assert!(windows_live_resize_plans_match(&current, &next_revision));
+
+    next_revision.roles[0].input.rect.width = 0.6;
+    assert!(!windows_live_resize_plans_match(&current, &next_revision));
+
+    let mut next_generation = current.clone();
+    next_generation.generation += 1;
+    assert!(!windows_live_resize_plans_match(&current, &next_generation));
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
+    let host = WindowsLiveResizeHost {
+        counters: WindowsLiveResizeCounters::default(),
+        frame_sequence: 9,
+        generation: 7,
+        last_batch_failed: false,
+        last_native_attempt_at: None,
+        last_applied_frame: Some(WindowsLiveResizeFrame {
+            height: 720,
+            plan_epoch: 3,
+            sequence: 9,
+            width: 1_280,
+        }),
+        plan: Some(two_column_live_resize_plan()),
+        plan_epoch: 3,
+        subclass_id: 7,
+    };
+    // The Tauri event size is deliberately absent from this decision. Only
+    // Win32's current client rect and the applied native frame are compared.
+    assert_eq!(
+        windows_live_resize_frame_match(&host, Some((1_280, 720))),
+        (true, "matched")
+    );
+    assert_eq!(
+        windows_live_resize_frame_match(&host, Some((1_279, 720))),
+        (false, "size-mismatch")
+    );
+    let mut fenced = host;
+    fenced.plan_epoch += 1;
+    assert_eq!(
+        windows_live_resize_frame_match(&fenced, Some((1_280, 720))),
+        (false, "plan-fence")
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_debounce_limits_native_batches_but_forces_the_final_size() {
+    let started = Instant::now();
+    assert!(windows_live_resize_should_submit(None, started, false));
+    assert!(!windows_live_resize_should_submit(
+        Some(started),
+        started + WINDOW_RESIZE_FRAME_INTERVAL - Duration::from_millis(1),
+        false,
+    ));
+    assert!(windows_live_resize_should_submit(
+        Some(started),
+        started + WINDOW_RESIZE_FRAME_INTERVAL,
+        false,
+    ));
+    assert!(windows_live_resize_should_submit(
+        Some(started),
+        started + Duration::from_millis(1),
+        true,
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth() {
+    let surfaces = ["tabs", "left", "right"];
+    let events = RefCell::new(Vec::new());
+    let child_batch_complete = std::cell::Cell::new(false);
+    let controller_heights = RefCell::new(HashMap::new());
+    let submit = |height| {
+        child_batch_complete.set(false);
+        let bounds = surfaces
+            .iter()
+            .enumerate()
+            .map(|(index, _)| WindowsLiveResizeBounds {
+                height,
+                width: 600,
+                x: (index as i32) * 600,
+                y: 0,
+            })
+            .collect::<Vec<_>>();
+        windows_live_resize_submit_ordered(
+            &surfaces,
+            &bounds,
+            |children, _| {
+                events
+                    .borrow_mut()
+                    .extend(children.iter().map(|label| format!("child:{label}")));
+                child_batch_complete.set(true);
+                Ok(())
+            },
+            |label, bounds| {
+                assert!(child_batch_complete.get());
+                events.borrow_mut().push(format!("controller:{label}"));
+                controller_heights.borrow_mut().insert(*label, bounds.height);
+                Ok(())
+            },
+        )
+    };
+
+    submit(320).unwrap();
+    submit(900).unwrap();
+    assert!(windows_live_resize_window_pos_flags().contains(SWP_NOCOPYBITS));
+    assert_eq!(controller_heights.borrow().get("left"), Some(&900));
+    assert_eq!(controller_heights.borrow().get("right"), Some(&900));
+    assert_eq!(
+        &events.borrow()[..6],
+        [
+            "child:tabs",
+            "child:left",
+            "child:right",
+            "controller:tabs",
+            "controller:left",
+            "controller:right",
+        ]
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
+    let bounds = [WindowsLiveResizeBounds {
+        height: 600,
+        width: 800,
+        x: 0,
+        y: 0,
+    }];
+    let controller_called = std::cell::Cell::new(false);
+    assert!(
+        windows_live_resize_submit_ordered(
+            &["role"],
+            &bounds,
+            |_, _| Err(()),
+            |_, _| {
+                controller_called.set(true);
+                Ok(())
+            },
+        )
+        .is_err()
+    );
+    assert!(!controller_called.get());
+    assert!(
+        windows_live_resize_submit_ordered(&["role"], &bounds, |_, _| Ok(()), |_, _| Err(()))
+            .is_err()
+    );
 }
 
 #[cfg(windows)]

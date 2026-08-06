@@ -1,7 +1,16 @@
+fn live_window_activation_available(live_tab_count: Option<usize>) -> bool {
+    live_tab_count.is_some_and(|tab_count| tab_count > 0)
+}
+
 impl SystemRuntimeExecutor {
     pub(crate) fn focus_live_runtime_window(&self, window_id: &str) -> Result<(), String> {
-        self.activate_live_runtime_window(window_id, "quick-menu-live-window")
-            .map(|_| ())
+        match self.activate_live_runtime_window(window_id, "quick-menu-live-window") {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(
+                "Live runtime window state was not found or contains no tabs.".to_owned(),
+            ),
+            Err(error) => Err(error),
+        }
     }
 
     pub(crate) fn activate_live_runtime_window(
@@ -9,7 +18,16 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         trigger: &'static str,
     ) -> Result<bool, String> {
-        if self.live_window_tab_ids(window_id)?.is_empty() {
+        let live_tab_count = self
+            .presentation
+            .existing(window_id)
+            .map(|live| {
+                live.lock()
+                    .map(|state| state.all_tab_ids().len())
+                    .map_err(|_| "Live runtime window state is unavailable.".to_owned())
+            })
+            .transpose()?;
+        if !live_window_activation_available(live_tab_count) {
             return Ok(false);
         }
         let window = {

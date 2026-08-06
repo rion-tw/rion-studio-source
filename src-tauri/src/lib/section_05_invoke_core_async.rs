@@ -477,12 +477,16 @@ async fn restore_saved_game_windows(
         .persist_restore_session(false)
         .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
     if let Some(window_id) = focus_window_id {
-        Arc::clone(&state.core)
-            .invoke_async(CoreCommand::EmbeddedWindowsShow {
-                window_id: Some(window_id),
-            })
-            .await
-            .map_err(error_payload)?;
+        let activated = state
+            .runtime
+            .activate_live_runtime_window(&window_id, "saved-window-restore")
+            .map_err(|error| shell_error("TAURI_RESTORE_ACTIVATION_FAILED", error))?;
+        if !activated {
+            return Err(shell_error(
+                "TAURI_RESTORE_ACTIVATION_FAILED",
+                "The restored Game Window is no longer available for activation.",
+            ));
+        }
     }
     Ok(json!({
         "restoredWindowIds": restored_ids,

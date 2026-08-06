@@ -77,7 +77,7 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(40);
 const RION_STUDIO_APP_NAME: &str = "Rion Studio";
 const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
-const WINDOWS_TAB_STRIP_HEIGHT: f64 = 44.0;
+const WINDOWS_TAB_STRIP_HEIGHT: f64 = 40.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -413,7 +413,7 @@ const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
   document.addEventListener("DOMContentLoaded", publish, { once: true });
 })();
 "#;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 (() => {
   globalThis.__rionPendingRuntimeTabChromeMutations ??= [];
@@ -449,7 +449,7 @@ const WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT: &str = r#"
 })();
 "#;
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn windows_runtime_tab_initialization_script(
     window_id: &str,
     window_generation: u64,
@@ -462,8 +462,7 @@ fn windows_runtime_tab_initialization_script(
         "lifecycleEpoch": lifecycle_epoch,
     }))?;
     Ok(format!(
-        "{WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT}\ndocument.documentElement.dataset.windowsMica = {};\nObject.defineProperty(globalThis, '__rionRuntimeTabChromeIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});",
-        if windows_mica_enabled { "'enabled'" } else { "'fallback'" }
+        "{WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT}\nObject.defineProperty(globalThis, '__rionRuntimeTabWindowsMicaEnabled', {{ configurable: false, enumerable: false, writable: false, value: {windows_mica_enabled} }});\nObject.defineProperty(globalThis, '__rionRuntimeTabChromeIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});"
     ))
 }
 

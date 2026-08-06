@@ -69,7 +69,7 @@ fn query_windows() -> Result<Vec<String>, PlatformError> {
             "Windows font enumeration could not acquire a display context".to_owned(),
         ));
     }
-    let mut request = LOGFONTW {
+    let request = LOGFONTW {
         lfCharSet: DEFAULT_CHARSET,
         ..Default::default()
     };
@@ -77,7 +77,7 @@ fn query_windows() -> Result<Vec<String>, PlatformError> {
     unsafe {
         EnumFontFamiliesExW(
             hdc,
-            &mut request,
+            &request,
             Some(collect_family),
             LPARAM((&mut names as *mut Vec<String>) as isize),
             0,

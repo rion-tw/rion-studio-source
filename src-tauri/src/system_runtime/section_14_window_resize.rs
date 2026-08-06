@@ -110,7 +110,8 @@ impl SystemRuntimeExecutor {
             }
             Some(host.target.clone())
         });
-        if let Some(target) = live_target
+        if settled
+            && let Some(target) = live_target
             && let Err(error) = self.update_live_window_target(&target, true)
         {
             eprintln!("Live Game Window resize commit failed: window={window_id} error={error}");
@@ -150,7 +151,9 @@ impl SystemRuntimeExecutor {
                 label,
             );
         }
-        self.publish_projection();
+        if settled {
+            self.publish_projection();
+        }
         true
     }
 
@@ -172,6 +175,7 @@ impl SystemRuntimeExecutor {
         }
         let runtime = Arc::clone(self);
         let worker_label = label.clone();
+        self.record_resize_worker_event(&label, "started", 0, 0, 0, Duration::ZERO);
         eprintln!("Runtime resize worker started: window={worker_label}");
         if thread::Builder::new()
             .name("rion-runtime-window-resize".to_owned())
@@ -179,6 +183,14 @@ impl SystemRuntimeExecutor {
             .is_err()
         {
             self.clear_resize_worker(&label, None);
+            self.record_resize_worker_event(
+                &label,
+                "spawn-failed",
+                0,
+                0,
+                0,
+                Duration::ZERO,
+            );
         }
     }
 
@@ -220,6 +232,14 @@ impl SystemRuntimeExecutor {
                     "Game Window resize could not enter the native geometry lane.".to_owned(),
                     &label,
                 );
+                self.record_resize_worker_event(
+                    &label,
+                    "timed-out",
+                    pending.received_count,
+                    pending.coalesced_count,
+                    applied_count,
+                    started.elapsed(),
+                );
                 self.clear_resize_worker(&label, None);
                 break;
             }
@@ -239,6 +259,14 @@ impl SystemRuntimeExecutor {
                     );
                 }
                 if self.clear_resize_worker(&label, Some(pending.snapshot.sequence)) {
+                    self.record_resize_worker_event(
+                        &label,
+                        "settled",
+                        pending.received_count,
+                        pending.coalesced_count,
+                        applied_count,
+                        started.elapsed(),
+                    );
                     eprintln!(
                         "Runtime resize worker settled: window={label} received={} coalesced={} applied={} elapsedMs={}",
                         pending.received_count,
@@ -255,6 +283,14 @@ impl SystemRuntimeExecutor {
             "Runtime resize worker stopped: window={label} applied={} elapsedMs={}",
             applied_count,
             started.elapsed().as_millis()
+        );
+        self.record_resize_worker_event(
+            &label,
+            "stopped",
+            0,
+            0,
+            applied_count,
+            started.elapsed(),
         );
     }
 

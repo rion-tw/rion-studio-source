@@ -36,11 +36,16 @@ fn platform_surface_lifecycle_tracker(
 
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
     let callback_tracker = Arc::clone(&tracker);
+    let live_resize_label = webview.label().to_owned();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
             let result = (|| -> RuntimeResult<(u32, u64)> {
                 let controller = platform_webview.controller();
+                windows_live_resize_register_controller(
+                    live_resize_label,
+                    controller.clone(),
+                );
                 let core: ICoreWebView2 = platform_webview
                     .controller()
                     .CoreWebView2()

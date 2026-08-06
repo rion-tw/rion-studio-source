@@ -237,6 +237,10 @@ fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
         received_at: Instant::now(),
         scale_factor: 2.0,
         sequence,
+        #[cfg(windows)]
+        native_fast_path_applied: false,
+        #[cfg(windows)]
+        native_fast_path_counters: WindowsLiveResizeCounters::default(),
     };
     let first = coalesce_pending_resize(None, snapshot(1, 2_560));
     let second = coalesce_pending_resize(Some(first), snapshot(2, 2_800));
@@ -281,6 +285,97 @@ fn resize_metrics_preserve_windows_two_hundred_percent_scaling() {
     assert_eq!(content.top_inset, 44.0);
     assert_eq!(content.height, 1_211.0);
     assert_eq!(resize_snapshot_tab_strip_height(content), 44.0);
+}
+
+#[cfg(windows)]
+fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
+    WindowsLiveResizePlan {
+        dividers: vec![WindowsLiveResizeDividerPlan {
+            axis: "vertical".to_owned(),
+            index: 0,
+            label: "divider".to_owned(),
+        }],
+        gap: 4,
+        generation: 7,
+        revision: 11,
+        roles: vec![
+            WindowsLiveResizeRolePlan {
+                input: LayoutRoleInput {
+                    role_id: "left".to_owned(),
+                    rect: LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: 0.5,
+                        height: 1.0,
+                    },
+                },
+                label: "left".to_owned(),
+            },
+            WindowsLiveResizeRolePlan {
+                input: LayoutRoleInput {
+                    role_id: "right".to_owned(),
+                    rect: LayoutRect {
+                        x: 0.5,
+                        y: 0.0,
+                        width: 0.5,
+                        height: 1.0,
+                    },
+                },
+                label: "right".to_owned(),
+            },
+        ],
+        tab_strip_height: 44.0,
+        tab_strip_label: "tabs".to_owned(),
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let physical_width = (1_601.0_f64 * scale).round() as u32;
+        let physical_height = (1_001.0_f64 * scale).round() as u32;
+        let bounds = windows_live_resize_resolve_bounds(
+            &two_column_live_resize_plan(),
+            physical_width,
+            physical_height,
+            scale,
+        )
+        .unwrap();
+        let [tab_strip, left, right, divider] = bounds.as_slice() else {
+            panic!("expected tab strip, two roles, and one divider");
+        };
+        assert_eq!(tab_strip.width, physical_width as i32);
+        assert_eq!(tab_strip.y + tab_strip.height, left.y);
+        assert_eq!(left.y, right.y);
+        assert_eq!(left.height, right.height);
+        assert_eq!(right.x + right.width, physical_width as i32);
+        assert_eq!(right.y + right.height, physical_height as i32);
+        let expected_gap = (4.0_f64 * scale).round() as i32;
+        assert_eq!(right.x - (left.x + left.width), expected_gap);
+        assert!(divider.x <= left.x + left.width);
+        assert!(divider.x + divider.width >= right.x);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_live_resize_plan_fences_generation_and_revision() {
+    assert!(windows_live_resize_plan_is_current(7, Some(10), 7, 11));
+    assert!(windows_live_resize_plan_is_current(7, Some(11), 7, 11));
+    assert!(!windows_live_resize_plan_is_current(7, Some(12), 7, 11));
+    assert!(!windows_live_resize_plan_is_current(8, None, 7, 99));
+}
+
+#[cfg(windows)]
+#[test]
+fn incomplete_live_resize_plan_uses_fallback_without_native_submission() {
+    let registry = WindowsLiveResizeRegistry::default();
+    assert!(windows_live_resize_collect_surfaces(
+        &registry,
+        &two_column_live_resize_plan()
+    )
+    .is_none());
 }
 
 #[test]

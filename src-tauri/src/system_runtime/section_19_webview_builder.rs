@@ -332,6 +332,11 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(windows)]
         {
+            if role_id.is_some() {
+                // Keep the native WebView2 under-page surface transparent so the
+                // selected workspace material remains visible until the game paints.
+                builder = builder.background_color(tauri::utils::config::Color(0, 0, 0, 0));
+            }
             builder = builder
                 .additional_browser_args(&self.configuration.additional_browser_arguments);
         }

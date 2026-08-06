@@ -1,4 +1,45 @@
 impl SystemRuntimeExecutor {
+    #[cfg(windows)]
+    fn record_windows_live_resize_counters(
+        &self,
+        window_label: &str,
+        counters: WindowsLiveResizeCounters,
+        matched_latest_frame: bool,
+    ) {
+        if counters.received == 0 {
+            return;
+        }
+        let context = json!({
+            "appliedCount": counters.applied,
+            "errorCount": counters.errors,
+            "fallbackCount": counters.fallback,
+            "matchedLatestFrame": matched_latest_frame,
+            "platform": "windows",
+            "receivedCount": counters.received,
+            "windowLabel": window_label,
+        });
+        let core = Arc::clone(&self.core);
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: if counters.errors > 0 {
+                            LogLevel::Warn
+                        } else {
+                            LogLevel::Debug
+                        },
+                        source: LogSource::Browser,
+                        event: "native.window-live-resize".to_owned(),
+                        message: "The Windows UI-thread live resize adapter drained its frame counters."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
     fn record_resize_worker_event(
         &self,
         window_label: &str,

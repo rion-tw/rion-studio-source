@@ -367,6 +367,8 @@ impl SystemRuntimeExecutor {
                 .or_else(|| state.retired_surface_registry.remove(instance_id))
         };
         if let Some(surface) = removed {
+            #[cfg(windows)]
+            windows_live_resize_unregister_surface(&surface.webview);
             self.presentation
                 .unbind_surface(instance_id, surface.webview.label());
             self.record_surface_event(

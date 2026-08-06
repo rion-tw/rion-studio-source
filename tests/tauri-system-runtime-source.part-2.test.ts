@@ -251,6 +251,29 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsResizeSubmission).toContain("submit_native_layout_mutations(&mutations)");
     expect(windowsResizeSubmission).not.toContain("run_on_main_thread");
     expect(windowsResizeSubmission).not.toContain("recv_timeout");
+    const liveResizeProcStart = runtime.indexOf(
+      'unsafe extern "system" fn windows_live_resize_subclass_proc('
+    );
+    const liveResizeProc = runtime.slice(
+      liveResizeProcStart,
+      runtime.indexOf("fn windows_live_resize_apply(", liveResizeProcStart)
+    );
+    expect(runtime).toContain("SetWindowSubclass");
+    expect(runtime).toContain("WM_SIZE");
+    expect(runtime).toContain("BeginDeferWindowPos");
+    expect(runtime).toContain("surface.controller.SetBounds");
+    expect(runtime).toContain("WINDOWS_LIVE_RESIZE_REGISTRY");
+    expect(runtime).toContain(
+      "background_color(tauri::utils::config::Color(0, 0, 0, 0))"
+    );
+    expect(runtime).not.toContain(
+      "background_color(tauri::utils::config::Color(0, 0, 0, 255))"
+    );
+    expect(liveResizeProc).not.toContain("self.state");
+    expect(liveResizeProc).not.toContain("AppCore");
+    expect(liveResizeProc).not.toContain("LogsCapture");
+    expect(resizeObserver).toContain("windows_live_resize_observe");
+    expect(resizeLayout).toContain("if !skip_active_bounds");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');

@@ -321,8 +321,12 @@ it("keeps tab interaction responsive while native launch verification is pending
       runtime.indexOf("fn load_roles(")
     );
     expect(createTab).toContain("reserve_native_tab_for_create(");
-    expect(createTab).toContain("previous_surfaces");
     expect(createTab).toContain('"launch-reserved"');
+    expect(createTab).toContain(
+      'reconcile_window_presentation(&target.window_id, "launch-reserved")'
+    );
+    expect(createTab).not.toContain("dispatch_native_presentation(");
+    expect(createTab).not.toContain("previous_surfaces");
     expect(createTab).not.toContain("remove_native_tab_reservation(");
     expect(createTab).toContain("The live tab and its native chrome reservation intentionally remain");
     expect(createTab).not.toContain("publish_projection(");
@@ -335,6 +339,24 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("presentation.bind_surface(");
     expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
+    const claimRoleSlot = runtime.slice(
+      runtime.indexOf("fn claim_role_slot_surface("),
+      runtime.indexOf("fn finish_claimed_role_slot(")
+    );
+    expect(claimRoleSlot).toContain("wait_for_role_relaunch_fences(");
+    expect(claimRoleSlot).toContain("ROLE_STORE_REUSE_TIMEOUT");
+    expect(claimRoleSlot.indexOf("wait_for_role_relaunch_fences(")).toBeLessThan(
+      claimRoleSlot.indexOf("claim_surface_generation(")
+    );
+    expect(claimRoleSlot.indexOf("wait_for_role_relaunch_fences(")).toBeLessThan(
+      claimRoleSlot.indexOf("add_child_bounded(")
+    );
+    const roleRelaunchFence = runtime.slice(
+      runtime.indexOf("fn role_relaunch_fence_state("),
+      runtime.indexOf("fn wait_for_role_relaunch_fences(")
+    );
+    expect(roleRelaunchFence).toContain("retired_surface_registry.values()");
+    expect(roleRelaunchFence).toContain("surface.phase.blocks_role_store_reuse()");
     const macRoleSetup = runtime.slice(
       runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup_inner('),
       runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_isolated(')

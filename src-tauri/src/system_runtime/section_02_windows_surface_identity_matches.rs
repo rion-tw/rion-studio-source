@@ -97,6 +97,10 @@ impl ManagedSurfacePhase {
                 | Self::Quarantined
         )
     }
+
+    const fn blocks_role_store_reuse(self) -> bool {
+        !matches!(self, Self::Released)
+    }
 }
 
 #[derive(Clone)]

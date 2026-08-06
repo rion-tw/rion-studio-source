@@ -506,6 +506,10 @@ fn role_relaunch_fence_state(
                         .as_ref()
                         .is_some_and(|tab_id| !live_tab_ids.contains(tab_id))
             })
+            || state.retired_surface_registry.values().any(|surface| {
+                surface.role_id.as_deref() == Some(role_id.as_str())
+                    && surface.phase.blocks_role_store_reuse()
+            })
     });
     if close_pending {
         RoleRelaunchFenceState::Pending

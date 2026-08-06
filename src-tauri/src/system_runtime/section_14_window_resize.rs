@@ -154,9 +154,25 @@ impl SystemRuntimeExecutor {
                     .ok()
                     .and_then(|live| live.selected_tab_id.clone())
             });
+        let hydrated_tab_ids = self
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .tabs
+                    .keys()
+                    .filter(|tab_id| {
+                        !state.optimistic_closed_tabs.contains(*tab_id)
+                            && !state.close_coordinator.closing_tabs.contains(*tab_id)
+                    })
+                    .cloned()
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
         let tab_ids = resize_projection_tab_ids(
             selected_tab_id,
             settled.then(|| self.live_tab_ids_for_window(&window_id)),
+            &hydrated_tab_ids,
         );
         let mut layout_errors = Vec::new();
         for tab_id in tab_ids {
@@ -408,8 +424,13 @@ fn coalesce_pending_resize(
 fn resize_projection_tab_ids(
     selected_tab_id: Option<String>,
     settled_tab_ids: Option<Vec<String>>,
+    hydrated_tab_ids: &HashSet<String>,
 ) -> Vec<String> {
-    settled_tab_ids.unwrap_or_else(|| selected_tab_id.into_iter().collect())
+    settled_tab_ids
+        .unwrap_or_else(|| selected_tab_id.into_iter().collect())
+        .into_iter()
+        .filter(|tab_id| hydrated_tab_ids.contains(tab_id))
+        .collect()
 }
 
 fn native_resize_should_retry(

@@ -247,6 +247,40 @@ impl AppCore {
             }
         }
 
+        let removed_unowned_demands = {
+            let _window_sequence = self.embedded_window_sequence.acquire()?;
+            let _runtime_sequence = self.embedded_runtime_sequence.acquire()?;
+            let current = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                .snapshot;
+            let remaining_tab_ids = current
+                .tabs
+                .iter()
+                .filter(|tab| tab_is_in_close_scope(tab))
+                .map(|tab| tab.id.clone())
+                .collect::<Vec<_>>();
+            if current.roles.iter().any(|role| {
+                remaining_tab_ids
+                    .iter()
+                    .any(|tab_id| tab_id == &role.owner.tab_id)
+            }) {
+                return Err(CoreError::Domain {
+                    code: "SYSTEM_SURFACE_CLOSE_STALE",
+                    message: "A role owner remained after the window close transaction."
+                        .to_owned(),
+                });
+            }
+            for tab_id in &remaining_tab_ids {
+                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                    tab_id: tab_id.clone(),
+                })?;
+            }
+            !remaining_tab_ids.is_empty()
+        };
+        if removed_unowned_demands {
+            self.emit_browser_statuses();
+        }
+
         if !delete {
             return Ok(());
         }

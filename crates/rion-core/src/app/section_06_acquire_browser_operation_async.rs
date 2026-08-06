@@ -546,9 +546,32 @@ impl AppCore {
             "Role not found.",
         )?)
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
-        let snapshot = self
+        let mut snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
+        if restore_role_slot.is_some()
+            && let Some(stale_tab_id) = snapshot
+                .tabs
+                .iter()
+                .find(|tab| {
+                    tab.tab_type == "role"
+                        && tab.source_id == role_id
+                        && !snapshot
+                            .roles
+                            .iter()
+                            .any(|runtime_role| runtime_role.owner.tab_id == tab.id)
+                })
+                .map(|tab| tab.id.clone())
+        {
+            // A demand-only role tab may survive an older close path even though
+            // it has no native tab or role owner. Restore must rebuild the saved
+            // tab instead of treating that empty Core record as completion.
+            snapshot = self
+                .invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
+                    tab_id: stale_tab_id,
+                })?
+                .snapshot;
+        }
         if let Some(runtime_role) = snapshot
             .roles
             .iter()

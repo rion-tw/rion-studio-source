@@ -442,6 +442,43 @@ fn live_resize_debounce_limits_native_batches_but_forces_the_final_size() {
 
 #[cfg(windows)]
 #[test]
+fn live_resize_parent_position_notification_reaches_every_active_surface() {
+    let surfaces = ["tabs", "left", "right", "divider"];
+    let notified = RefCell::new(Vec::new());
+    let (applied, errors) = windows_live_resize_notify_each(&surfaces, |label| {
+        notified.borrow_mut().push(*label);
+        if *label == "left" {
+            Err(())
+        } else {
+            Ok(())
+        }
+    });
+
+    assert_eq!(notified.into_inner(), surfaces);
+    assert_eq!(applied, 3);
+    assert_eq!(errors, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_counters_keep_resize_and_parent_position_events_distinct() {
+    let mut counters = WindowsLiveResizeCounters::default();
+    counters.record_native_resize_applied();
+
+    assert_eq!(counters.applied, 1);
+    assert_eq!(counters.parent_position_received, 0);
+    assert_eq!(counters.parent_position_applied, 0);
+    assert_eq!(counters.parent_position_errors, 0);
+
+    counters.record_parent_position(3, 1);
+    assert_eq!(counters.applied, 1);
+    assert_eq!(counters.parent_position_received, 1);
+    assert_eq!(counters.parent_position_applied, 3);
+    assert_eq!(counters.parent_position_errors, 1);
+}
+
+#[cfg(windows)]
+#[test]
 fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth() {
     let surfaces = ["tabs", "left", "right"];
     let events = RefCell::new(Vec::new());
@@ -523,6 +560,45 @@ fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
         windows_live_resize_submit_ordered(&["role"], &bounds, |_, _| Ok(()), |_, _| Err(()))
             .is_err()
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_controller_geometry_only_submits_bounds() {
+    let bounds = WindowsLiveResizeBounds {
+        height: 900,
+        width: 10,
+        x: 795,
+        y: 44,
+    };
+    let events = RefCell::new(Vec::new());
+    windows_live_resize_submit_controller_bounds(
+        &"divider",
+        &bounds,
+        |label, bounds| {
+            events
+                .borrow_mut()
+                .push(format!("bounds:{label}:{}", bounds.height));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(events.into_inner(), ["bounds:divider:900"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_controller_bounds_propagates_failure() {
+    let bounds = WindowsLiveResizeBounds {
+        height: 900,
+        width: 10,
+        x: 795,
+        y: 44,
+    };
+    let result = windows_live_resize_submit_controller_bounds(&"divider", &bounds, |_, _| Err(()));
+
+    assert!(result.is_err());
 }
 
 #[cfg(windows)]

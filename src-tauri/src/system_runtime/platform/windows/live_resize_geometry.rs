@@ -166,16 +166,30 @@ fn windows_live_resize_submit_batch(
             }
             unsafe { EndDeferWindowPos(deferred) }.map_err(|_| ())
         },
-        |surface, bounds| unsafe {
-            surface.controller.SetBounds(RECT {
-                left: 0,
-                top: 0,
-                right: bounds.width,
-                bottom: bounds.height,
-            })
-        }
-        .map_err(|_| ()),
+        |surface, bounds| {
+            windows_live_resize_submit_controller_bounds(
+                surface,
+                bounds,
+                |surface, bounds| unsafe {
+                    surface.controller.SetBounds(RECT {
+                        left: 0,
+                        top: 0,
+                        right: bounds.width,
+                        bottom: bounds.height,
+                    })
+                }
+                .map_err(|_| ()),
+            )
+        },
     )
+}
+
+fn windows_live_resize_submit_controller_bounds<T>(
+    surface: &T,
+    bounds: &WindowsLiveResizeBounds,
+    set_bounds: impl FnOnce(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
+) -> Result<(), ()> {
+    set_bounds(surface, bounds)
 }
 
 fn windows_live_resize_window_pos_flags() -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {

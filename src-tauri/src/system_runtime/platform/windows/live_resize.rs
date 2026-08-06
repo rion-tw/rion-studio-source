@@ -9,7 +9,8 @@ use windows::Win32::{
         WindowsAndMessaging::{
             BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect,
             SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
-            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY, WM_SIZE,
+            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY,
+            WM_SIZE,
         },
     },
 };
@@ -50,16 +51,38 @@ struct WindowsLiveResizeCounters {
     deferred: u64,
     errors: u64,
     fallback: u64,
+    parent_position_applied: u64,
+    parent_position_errors: u64,
+    parent_position_received: u64,
     received: u64,
 }
 
 impl WindowsLiveResizeCounters {
+    fn record_native_resize_applied(&mut self) {
+        self.applied = self.applied.saturating_add(1);
+    }
+
+    fn record_parent_position(&mut self, applied: u64, errors: u64) {
+        self.parent_position_received = self.parent_position_received.saturating_add(1);
+        self.parent_position_applied = self.parent_position_applied.saturating_add(applied);
+        self.parent_position_errors = self.parent_position_errors.saturating_add(errors);
+    }
+
     fn saturating_add(self, other: Self) -> Self {
         Self {
             applied: self.applied.saturating_add(other.applied),
             deferred: self.deferred.saturating_add(other.deferred),
             errors: self.errors.saturating_add(other.errors),
             fallback: self.fallback.saturating_add(other.fallback),
+            parent_position_applied: self
+                .parent_position_applied
+                .saturating_add(other.parent_position_applied),
+            parent_position_errors: self
+                .parent_position_errors
+                .saturating_add(other.parent_position_errors),
+            parent_position_received: self
+                .parent_position_received
+                .saturating_add(other.parent_position_received),
             received: self.received.saturating_add(other.received),
         }
     }
@@ -432,6 +455,9 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
                 windows_live_resize_apply(hwnd, width, height, true);
             }
         }
+        message if message == WM_MOVE || message == WM_MOVING => {
+            windows_live_resize_notify_parent_position_changed(hwnd);
+        }
         WM_NCDESTROY => {
             WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
                 let mut registry = registry.borrow_mut();
@@ -458,6 +484,47 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
         _ => {}
     }
     result
+}
+
+fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {
+    let key = windows_hwnd_key(hwnd);
+    let surfaces = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let registry = registry.borrow();
+        let plan = registry.hosts.get(&key)?.plan.as_ref()?;
+        windows_live_resize_collect_surfaces(&registry, plan)
+    });
+    let Some(surfaces) = surfaces else {
+        return;
+    };
+    let (applied, errors) = windows_live_resize_notify_each(&surfaces, |surface| unsafe {
+        surface
+            .controller
+            .NotifyParentWindowPositionChanged()
+            .map_err(|_| ())
+    });
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let Some(host) = registry.hosts.get_mut(&key) else {
+            return;
+        };
+        host.counters.record_parent_position(applied, errors);
+    });
+}
+
+fn windows_live_resize_notify_each<T>(
+    surfaces: &[T],
+    mut notify: impl FnMut(&T) -> Result<(), ()>,
+) -> (u64, u64) {
+    let mut applied = 0_u64;
+    let mut errors = 0_u64;
+    for surface in surfaces {
+        if notify(surface).is_ok() {
+            applied = applied.saturating_add(1);
+        } else {
+            errors = errors.saturating_add(1);
+        }
+    }
+    (applied, errors)
 }
 
 fn windows_live_resize_apply(
@@ -508,7 +575,7 @@ fn windows_live_resize_apply(
         match bounds.and_then(|bounds| windows_live_resize_submit_batch(&surfaces, &bounds)) {
             Ok(()) => {
                 if let Some(host) = registry.hosts.get_mut(&key) {
-                    host.counters.applied = host.counters.applied.saturating_add(1);
+                    host.counters.record_native_resize_applied();
                     host.frame_sequence = host.frame_sequence.saturating_add(1);
                     host.last_batch_failed = false;
                     host.last_applied_frame = Some(WindowsLiveResizeFrame {

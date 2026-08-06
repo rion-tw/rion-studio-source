@@ -727,21 +727,39 @@
     fn surface_release_barrier_has_a_bounded_timeout() {
         let tracker = SurfaceLifecycleTracker::default();
         let started = Instant::now();
-        assert!(!tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
+        assert!(!tracker.wait_for_store_reusable("windows", Duration::from_millis(5)));
         assert!(started.elapsed() < Duration::from_secs(1));
 
         tracker.mark_controller_released();
-        assert!(!tracker.wait_for_controller_release("macos", Duration::from_millis(5)));
+        assert!(!tracker.wait_for_store_reusable("macos", Duration::from_millis(5)));
         tracker.mark_native_surface_released();
-        assert!(tracker.wait_for_controller_release("macos", Duration::from_millis(5)));
+        assert!(tracker.wait_for_store_reusable("macos", Duration::from_millis(5)));
 
         #[cfg(windows)]
         {
-            assert!(tracker.wait_for_controller_release("windows", Duration::from_millis(5)));
+            assert!(tracker.wait_for_store_reusable("windows", Duration::from_millis(5)));
             assert!(!tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
             tracker.mark_browser_process_exited();
             assert!(tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
         }
+    }
+
+    #[test]
+    fn store_reuse_waiter_is_released_by_exact_lifecycle_events_without_polling() {
+        let tracker = Arc::new(SurfaceLifecycleTracker::default());
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let waiter_tracker = Arc::clone(&tracker);
+        let waiter_barrier = Arc::clone(&barrier);
+        let waiter = std::thread::spawn(move || {
+            waiter_barrier.wait();
+            waiter_tracker.wait_for_store_reusable("macos", Duration::from_secs(1))
+        });
+
+        barrier.wait();
+        tracker.mark_native_surface_released();
+        assert!(!tracker.wait_for_store_reusable("macos", Duration::ZERO));
+        tracker.mark_controller_released();
+        assert!(waiter.join().unwrap());
     }
 
     #[test]

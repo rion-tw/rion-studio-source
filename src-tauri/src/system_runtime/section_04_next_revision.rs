@@ -802,11 +802,6 @@ enum SystemRuntimeWork {
         reason: String,
         transaction: Box<SurfaceRecoveryTransaction>,
     },
-    FinalizeSurfaceRelease {
-        instance_id: String,
-        isolated: bool,
-        released: bool,
-    },
 }
 
 struct ConcurrentRuntimeWork {

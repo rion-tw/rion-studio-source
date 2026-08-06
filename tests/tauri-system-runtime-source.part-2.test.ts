@@ -27,6 +27,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("add_BrowserProcessExited");
     expect(runtime).toContain("controller_identity");
     expect(runtime).toContain("controller.Close()");
+    expect(runtime).toContain("webview.close().map_err(RuntimeError::tauri)?");
     expect(runtime).toContain("mark_native_surface_released");
     expect(runtime).toContain("fn add_child_bounded(");
     expect(runtime).toContain("fn create_window_bounded(");
@@ -195,6 +196,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       shell.indexOf("fn browser_runtime_snapshot(")
     );
     expect(restoreSavedWindows).toContain("activate_live_runtime_window(");
+    expect(restoreSavedWindows).toContain("reveal_live_runtime_window(");
+    expect(restoreSavedWindows).toContain('"saved-window-active-surface-attached"');
     expect(restoreSavedWindows).toContain('"saved-window-restore"');
     expect(restoreSavedWindows).toContain('"TAURI_RESTORE_ACTIVATION_FAILED"');
     expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");
@@ -384,6 +387,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(macInput).toContain("blankNavigationRequested");
     expect(macInput).toContain("__rionPrepareForNativeClose");
     expect(macInput).toContain("rion_wk_surface_quiesced");
+    expect(macInput).toContain("rion_wk_release_surface");
+    expect(macInput).toContain("[webView removeFromSuperview]");
     expect(macInput).toContain("rion_wk_surface_released");
     expect(macInput).toContain("webView.superview || webView.window");
     expect(macInput).toContain('[url.absoluteString isEqualToString:@"about:blank"]');

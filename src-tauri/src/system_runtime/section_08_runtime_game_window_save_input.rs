@@ -384,38 +384,6 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn retire_managed_surface(&self, instance_id: &str) -> RuntimeResult<ManagedSurface> {
-        let surface = {
-            let mut state = self.state()?;
-            if let Some(surface) = state.retired_surface_registry.get(instance_id) {
-                return Ok(surface.clone());
-            }
-            let mut surface = state.surface_registry.remove(instance_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_SURFACE_REGISTRY_MISSING",
-                    "The native surface registry entry is missing.",
-                )
-            })?;
-            surface.phase = ManagedSurfacePhase::Releasing;
-            state
-                .retired_surface_registry
-                .insert(instance_id.to_owned(), surface.clone());
-            surface
-        };
-        self.unbind_surface_and_reconcile(
-            instance_id,
-            surface.webview.label(),
-            "surface-retired",
-        );
-        self.record_surface_event(
-            LogLevel::Debug,
-            "surface.lease-retired",
-            "The isolated native surface lease moved to background cleanup.",
-            &surface,
-        );
-        Ok(surface)
-    }
-
     fn record_surface_event(
         &self,
         level: LogLevel,

@@ -257,6 +257,18 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(windows)]
+fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+    if lifecycle.native_surface_is_released() {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            "WebView2 did not acknowledge the exact controller release.",
+        ))
+    }
+}
+
+#[cfg(windows)]
 fn install_process_failure_monitor(
     webview: &Webview,
     app: AppHandle,

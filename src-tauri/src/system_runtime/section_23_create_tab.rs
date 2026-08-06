@@ -554,6 +554,11 @@ impl SystemRuntimeExecutor {
                 "completed",
                 launch_started,
             );
+            self.record_runtime_stage(
+                format!("tab.surfaces-attached:{}", tab.tab_id),
+                "completed",
+                launch_started,
+            );
             let (resolved_role_bounds, _resolved_dividers) = self.resolve_runtime_layout(
                 content_metrics,
                 role_inputs,

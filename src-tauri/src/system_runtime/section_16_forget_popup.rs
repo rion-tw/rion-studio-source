@@ -70,7 +70,7 @@ impl SystemRuntimeExecutor {
             lifecycle.mark_controller_released();
             #[cfg(windows)]
             lifecycle.mark_native_surface_released();
-            if lifecycle.wait_for_controller_release(platform, Duration::ZERO) {
+            if lifecycle.wait_for_store_reusable(platform, Duration::ZERO) {
                 let _ = self.remove_managed_surface(&instance_id);
             }
         }

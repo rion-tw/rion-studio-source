@@ -506,10 +506,6 @@ fn role_relaunch_fence_state(
                         .as_ref()
                         .is_some_and(|tab_id| !live_tab_ids.contains(tab_id))
             })
-            || state.retired_surface_registry.values().any(|surface| {
-                surface.role_id.as_deref() == Some(role_id.as_str())
-                    && surface.phase.blocks_role_store_reuse()
-            })
     });
     if close_pending {
         RoleRelaunchFenceState::Pending
@@ -558,12 +554,9 @@ impl SystemRuntimeExecutor {
                     "The previous native role surfaces did not finish closing before relaunch.",
                 ));
             }
-            let wait_for = deadline
-                .saturating_duration_since(now)
-                .min(Duration::from_millis(50));
             let (state, _) = self
                 .tab_close_changed
-                .wait_timeout(state, wait_for)
+                .wait_timeout(state, deadline.saturating_duration_since(now))
                 .map_err(|_| {
                     RuntimeError::new(
                         "SYSTEM_RUNTIME_STATE_UNAVAILABLE",

@@ -22,17 +22,6 @@ impl SystemRuntimeExecutor {
                     "The claimed role slot has no matching runtime owner.",
                 )
             })?;
-        let role_close_wait_started = Instant::now();
-        if self.wait_for_role_relaunch_fences(
-            &HashSet::from([role.role.id.clone()]),
-            ROLE_STORE_REUSE_TIMEOUT,
-        )? {
-            self.record_runtime_stage(
-                format!("role-claim-release-fence:{}", role.role.id),
-                "completed",
-                role_close_wait_started,
-            );
-        }
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (window, window_id, window_zoom_factor, previous_owner_generation) = {
             let state = self.state()?;
@@ -191,14 +180,21 @@ impl SystemRuntimeExecutor {
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
-            self.reconcile_surface_membership(&window_id, "claimed-surface-attached");
             webview
                 .set_zoom(effective_zoom_factor(
                     role.zoom_factor.clamp(0.25, 3.0),
                     window_zoom_factor,
                 ))
                 .map_err(RuntimeError::tauri)?;
-            self.layout_runtime_tab_inner(tab_id)
+            self.layout_runtime_tab_inner(tab_id)?;
+            self.finish_claimed_role_slot(&role.role.id)?;
+            self.reconcile_surface_membership(&window_id, "claimed-surface-attached");
+            self.record_runtime_stage(
+                format!("tab.surfaces-attached:{tab_id}:claim:{}", role.role.id),
+                "completed",
+                Instant::now(),
+            );
+            Ok(())
         })();
         if let Err(error) = result {
             if let Ok(mut state) = self.state.lock()

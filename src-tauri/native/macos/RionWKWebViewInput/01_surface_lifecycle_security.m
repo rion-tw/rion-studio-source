@@ -263,6 +263,46 @@ bool rion_wk_surface_quiesced(uint64_t token) {
   return false;
 }
 
+static bool RionWKReleaseSurfaceOnMain(uint64_t token) {
+  @autoreleasepool {
+    RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
+    if (!lease) return true;
+    WKWebView *webView = lease.webView;
+    if (!webView) {
+      RionWKFinishSurfaceLease(lease);
+      return true;
+    }
+    uintptr_t currentDataStore = (uintptr_t)(__bridge void *)
+        webView.configuration.websiteDataStore;
+    if (!lease.isolationConfirmed || currentDataStore == 0 ||
+        currentDataStore != lease.dataStoreIdentity) {
+      return false;
+    }
+    @try {
+      NSURL *url = webView.URL;
+      if (!url || ![url.absoluteString isEqualToString:@"about:blank"] ||
+          webView.loading) {
+        return false;
+      }
+      [webView stopLoading];
+      [webView removeFromSuperview];
+      RionWKFinishSurfaceLease(lease);
+      return true;
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
+  }
+}
+
+bool rion_wk_release_surface(uint64_t token) {
+  if (token == 0) return false;
+  if (NSThread.isMainThread) return RionWKReleaseSurfaceOnMain(token);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    (void)RionWKReleaseSurfaceOnMain(token);
+  });
+  return true;
+}
+
 static bool RionWKSurfaceReleasedOnMain(uint64_t token) {
   @autoreleasepool {
     RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];

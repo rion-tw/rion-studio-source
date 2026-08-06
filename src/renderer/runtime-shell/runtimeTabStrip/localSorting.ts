@@ -55,19 +55,6 @@ function tabIdFromItem(item: HTMLElement): string | undefined {
   return item.dataset.tabId;
 }
 
-function lockFallbackGhostToHorizontalAxis(): void {
-  const fallbackGhost = Sortable.ghost;
-  if (!fallbackGhost?.classList.contains("runtime-tab-sort-fallback")) return;
-  const match = /^matrix\((.+)\)$/.exec(fallbackGhost.style.transform);
-  if (!match) return;
-  const components = match[1].split(",").map((component) => component.trim());
-  if (components.length !== 6) return;
-  components[5] = "0";
-  const horizontalTransform = `matrix(${components.join(", ")})`;
-  fallbackGhost.style.transform = horizontalTransform;
-  fallbackGhost.style.setProperty("-webkit-transform", horizontalTransform);
-}
-
 export function installRuntimeTabSorting(
   root: HTMLElement,
   callbacks: RuntimeTabSortCallbacks
@@ -76,16 +63,6 @@ export function installRuntimeTabSorting(
   let fence: RuntimeTabSortFence | undefined;
   let latestAuthoritativeOrder = callbacks.tabIds();
   let latestAuthoritativeActiveTabId = callbacks.currentActiveTabId();
-  let horizontalLockQueued = false;
-
-  const scheduleHorizontalGhostLock = (): void => {
-    if (horizontalLockQueued) return;
-    horizontalLockQueued = true;
-    queueMicrotask(() => {
-      horizontalLockQueued = false;
-      lockFallbackGhostToHorizontalAxis();
-    });
-  };
 
   const restoreAuthoritativeState = (): void => {
     if (latestAuthoritativeOrder.length > 0) {
@@ -106,7 +83,6 @@ export function installRuntimeTabSorting(
 
   const finishGesture = (event: SortableEvent): void => {
     document.removeEventListener("pointerup", recordPointerRelease, true);
-    document.removeEventListener("pointermove", scheduleHorizontalGhostLock, true);
     const completed = gesture;
     gesture = undefined;
     root.classList.remove("runtime-tab-sort-active");
@@ -186,7 +162,6 @@ export function installRuntimeTabSorting(
       fence = undefined;
       root.classList.add("runtime-tab-sort-active");
       document.addEventListener("pointerup", recordPointerRelease, true);
-      document.addEventListener("pointermove", scheduleHorizontalGhostLock, true);
       callbacks.activateTab(tabId);
       callbacks.scheduleOverflowUpdate();
     },

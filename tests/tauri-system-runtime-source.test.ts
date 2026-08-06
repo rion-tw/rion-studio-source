@@ -496,7 +496,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(windowsStrip).toContain("forceFallback: true");
     expect(windowsStrip).toContain('animation: 180');
     expect(windowsStrip).toContain('easing: "cubic-bezier(0.2, 0, 0, 1)"');
-    expect(windowsStrip).toContain("lockFallbackGhostToHorizontalAxis");
+    expect(windowsStrip).not.toContain("lockFallbackGhostToHorizontalAxis");
     expect(windowsStrip).toContain("runtimeTabReorderBarrier.then(invokeAction)");
     expect(windowsStrip).toContain("revertOnSpill: true");
     expect(windowsStrip).toContain('sortable.option("disabled", callbacks.tabIds().length <= 1)');

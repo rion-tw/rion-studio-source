@@ -273,7 +273,7 @@ button {
   background: hsl(var(--glass-control-selected));
   color: hsl(var(--foreground));
   box-shadow: var(--shadow-overlay);
-  opacity: 0.96;
+  opacity: 1;
   pointer-events: none;
   transition: none;
   will-change: transform;

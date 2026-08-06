@@ -154,6 +154,7 @@ impl AppCore {
                 target,
                 launch_preview_id,
                 zoom_factor,
+                restore_role_slots,
             } => {
                 let launch_started = std::time::Instant::now();
                 eprintln!(
@@ -166,6 +167,7 @@ impl AppCore {
                         target,
                         launch_preview_id,
                         zoom_factor.unwrap_or(1.0),
+                        restore_role_slots,
                     )
                     .await?;
                 serde_json::to_value(statuses)

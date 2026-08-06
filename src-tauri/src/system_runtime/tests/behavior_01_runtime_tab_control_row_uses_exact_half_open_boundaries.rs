@@ -253,6 +253,8 @@ use super::*;
     #[test]
     fn presentation_barrier_waits_for_the_applied_revision_and_is_bounded() {
         let actor = Arc::new(NativeWindowActor {
+            generation: 1,
+            liveness: Arc::new(AtomicBool::new(true)),
             queue: Arc::new((
                 Mutex::new(NativeWindowActorState::default()),
                 Condvar::new(),
@@ -270,6 +272,23 @@ use super::*;
         assert!(actor.wait_until_applied(7, Duration::from_millis(100)));
         completion.join().unwrap();
         assert!(!actor.wait_until_applied(8, Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn native_window_actor_generation_and_stop_fence_reopened_windows() {
+        let actor = NativeWindowActor {
+            generation: 7,
+            liveness: Arc::new(AtomicBool::new(true)),
+            queue: Arc::new((
+                Mutex::new(NativeWindowActorState::default()),
+                Condvar::new(),
+            )),
+        };
+        assert!(actor.matches_generation(7));
+        assert!(!actor.matches_generation(8));
+        actor.stop();
+        assert!(!actor.matches_generation(7));
+        assert!(actor.queue.0.lock().unwrap().stopped);
     }
 
     fn presentation_tab(id: &str, _phase: TabRuntimePhase) -> LiveTabRecord {

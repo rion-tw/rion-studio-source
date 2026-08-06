@@ -229,6 +229,7 @@
                     target: target.clone(),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 }))
                 .unwrap();
             assert!(started.elapsed() < Duration::from_secs(2));
@@ -293,6 +294,7 @@
                 target,
                 launch_preview_id: Some(launch_preview_id.clone()),
                 zoom_factor: None,
+                restore_role_slots: None,
             }))
             .unwrap();
         assert_eq!(accepted[0]["state"], "launching");

@@ -84,6 +84,7 @@
                     target: target(&stopped_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 },
             );
             drive_accepted_launch_to_completion(
@@ -97,6 +98,7 @@
                     target: target(&other_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 },
             );
             drive_async_command(
@@ -142,6 +144,7 @@
                     target: target(&stopped_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 },
             );
             drive_accepted_launch_to_completion(
@@ -199,6 +202,7 @@
                     target: target(&deleted_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 },
             );
             drive_async_command(
@@ -228,6 +232,7 @@
                     target: target(&failed_window_id),
                     launch_preview_id: None,
                     zoom_factor: None,
+                    restore_role_slots: None,
                 },
             );
             let failed = drive_async_command(
@@ -290,6 +295,7 @@
                         target: target.clone(),
                         launch_preview_id: None,
                         zoom_factor: None,
+                        restore_role_slots: None,
                     },
                 );
             }

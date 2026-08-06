@@ -288,6 +288,19 @@ fn native_presentation_host_visibility(
     requested_visibility.unwrap_or(tab_id.is_some())
 }
 
+fn native_presentation_native_work_is_current(
+    shutdown_state: &AtomicU8,
+    application_lifecycle: &ApplicationLifecycleCoordinator,
+    expected_lifecycle_epoch: u64,
+    actor_liveness: &AtomicBool,
+) -> bool {
+    RuntimeShutdownState::from_raw(shutdown_state.load(Ordering::Acquire))
+        == RuntimeShutdownState::Accepting
+        && application_lifecycle.accepts_native_work()
+        && application_lifecycle.epoch() == expected_lifecycle_epoch
+        && actor_liveness.load(Ordering::Acquire)
+}
+
 fn native_window_restore_required(
     apply_window_focus: bool,
     window_was_minimized: Option<bool>,
@@ -338,10 +351,12 @@ fn apply_native_presentation_batch(
             );
         }
     };
-    if RuntimeShutdownState::from_raw(request.shutdown_state.load(Ordering::Acquire))
-        != RuntimeShutdownState::Accepting
-        || !request.application_lifecycle.accepts_native_work()
-    {
+    if !native_presentation_native_work_is_current(
+        &request.shutdown_state,
+        &request.application_lifecycle,
+        request.expected_lifecycle_epoch,
+        &request.actor_liveness,
+    ) {
         return NativePresentationOutcome {
             applied: false,
             presentation_applied: false,
@@ -450,9 +465,44 @@ fn apply_native_presentation_batch(
     let mutation_plan = mutation_plan.clone();
     let focus_broker = Arc::clone(&request.focus_broker);
     let focus_lease = request.focus_lease.clone();
+    let shutdown_state = Arc::clone(&request.shutdown_state);
+    let application_lifecycle = Arc::clone(&request.application_lifecycle);
+    let expected_lifecycle_epoch = request.expected_lifecycle_epoch;
+    let actor_liveness = Arc::clone(&request.actor_liveness);
     let task = move || {
         let main_started_at = Instant::now();
         let main_queue_wait_ms = requested_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        if !native_presentation_native_work_is_current(
+            &shutdown_state,
+            &application_lifecycle,
+            expected_lifecycle_epoch,
+            &actor_liveness,
+        ) {
+            let _ = sender.send(NativePresentationOutcome {
+                applied: false,
+                presentation_applied: false,
+                focus_applied: false,
+                focus_superseded: false,
+                hidden_surface_count: 0,
+                hide_ms: 0,
+                main_queue_wait_ms,
+                main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128)
+                    as u64,
+                no_op: false,
+                shown_surface_count: 0,
+                show_ms: 0,
+                visibility_errors: Vec::new(),
+                webview_focus_ms: 0,
+                window_focused_after: None,
+                window_focus_applied: false,
+                window_focus_ms: 0,
+                window_restore_applied: false,
+                window_visible_after: None,
+                window_visibility_ms: 0,
+                window_was_minimized: None,
+            });
+            return;
+        }
         let live_intent = live
             .lock()
             .ok()

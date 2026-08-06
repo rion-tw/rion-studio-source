@@ -198,6 +198,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                         target,
                         launch_preview_id: Some(preview.launch_preview_id.clone()),
                         zoom_factor: None,
+                        restore_role_slots: None,
                     }
                 };
                 let result = core.invoke_async(command).await;

@@ -23,7 +23,7 @@ impl SystemRuntimeExecutor {
                 )
             })?;
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
-        let (window, window_id, selected, window_zoom_factor, previous_owner_generation) = {
+        let (window, window_id, window_zoom_factor, previous_owner_generation) = {
             let state = self.state()?;
             if state.role_tabs.contains_key(&role.role.id)
                 || state.close_coordinator.closing_roles.contains(&role.role.id)
@@ -55,19 +55,9 @@ impl SystemRuntimeExecutor {
                     "Runtime display host was not found.",
                 )
             })?;
-            let selected = self
-                .presentation
-                .existing(&window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|presentation| {
-                        presentation.selected_tab_id.as_deref() == Some(tab_id)
-                    })
-                })
-                .unwrap_or(false);
             (
                 host.window.clone(),
                 window_id.clone(),
-                selected,
                 host.zoom_factor,
                 runtime_slot.owner_generation,
             )
@@ -106,14 +96,10 @@ impl SystemRuntimeExecutor {
                 &role.role.id,
             )
         })?;
+        webview.hide().map_err(RuntimeError::tauri)?;
         let mut lifecycle = None;
         let mut surface_instance_id = None;
         let result = (|| -> RuntimeResult<()> {
-            if selected {
-                webview.show().map_err(RuntimeError::tauri)?;
-            } else {
-                webview.hide().map_err(RuntimeError::tauri)?;
-            }
             let installed_lifecycle = self
                 .setup_role_surface(&webview, &role.role.id, native_generation)
                 .map_err(|failure| failure.error)?;
@@ -194,6 +180,7 @@ impl SystemRuntimeExecutor {
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
+            self.reconcile_surface_membership(&window_id, "claimed-surface-attached");
             webview
                 .set_zoom(effective_zoom_factor(
                     role.zoom_factor.clamp(0.25, 3.0),
@@ -333,15 +320,6 @@ impl SystemRuntimeExecutor {
             {
                 continue;
             }
-            let selected = self
-                .presentation
-                .existing(&window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|presentation| {
-                        presentation.selected_tab_id.as_deref() == Some(tab_id.as_str())
-                    })
-                })
-                .unwrap_or(false);
             let metrics = runtime_window_content_metrics(&window)?;
             let bounds = role_bounds_for_content(metrics, &slot.rect);
             let replacement = self.create_role_placeholder(
@@ -350,7 +328,6 @@ impl SystemRuntimeExecutor {
                 &tab_id,
                 &slot,
                 bounds,
-                selected,
             )?;
             let mut state = self.state()?;
             let runtime_slot = state

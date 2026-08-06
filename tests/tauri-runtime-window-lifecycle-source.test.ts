@@ -306,7 +306,15 @@ describe("runtime window lifecycle authority", () => {
     expect(visibleClose).not.toContain("window.hide()");
     expect(visibleClose).not.toContain("window.close()");
     expect(visibleClose).toContain("retiring_window_tabs");
-    expect(visibleClose).toContain("cancel_provisional_tab_launch(tab_id)");
+    expect(visibleClose).toContain(
+      "cancel_provisional_tab_launch_with_presentation(tab_id, false)"
+    );
+    expect(visibleClose).toContain(
+      "preview_tab_close_with_presentation(tab_id, false)"
+    );
+    expect(visibleClose.indexOf("request_platform_window_hide(&window)")).toBeLessThan(
+      visibleClose.indexOf("self.presentation.remove(window_id)")
+    );
     expect(visibleClose).toContain(
       "schedule_retiring_window_tab_cleanup(window_id, &tab_ids)"
     );

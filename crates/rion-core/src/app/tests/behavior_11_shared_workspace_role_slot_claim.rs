@@ -329,6 +329,224 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
 }
 
 #[test]
+fn restored_role_tab_creates_a_blocked_demand_when_workspace_owns_the_role() {
+    let (_directory, core) = core();
+    let game_id = first_game_id(&core);
+    let role_id = create_role(&core, &game_id, 1);
+    let workspace_id = core
+        .invoke(command(json!({
+            "type": "workspaceCreate",
+            "input": {
+                "name": "Owner",
+                "template": "single",
+                "slots": [{"roleId": role_id, "rect": workspace_rect(0, 1)}]
+            }
+        })))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let target = |window_id: &str| EmbeddedLaunchTargetRecord {
+        window_id: window_id.to_owned(),
+        display_id: 1,
+        scale_factor: 1.0,
+        work_area: StatePixelBoundsRecord {
+            x: 0,
+            y: 0,
+            width: 1440,
+            height: 900,
+        },
+        bounds: StatePixelBoundsRecord {
+            x: 0,
+            y: 0,
+            width: 960,
+            height: 640,
+        },
+        presentation: "normal".to_owned(),
+    };
+    drive_accepted_launch_to_completion(
+        Arc::clone(&core),
+        CoreCommand::BrowserWorkspaceLaunch {
+            workspace_id: workspace_id.clone(),
+            target: target("restore-window"),
+            launch_preview_id: None,
+            restore_role_slots: None,
+        },
+    );
+    let before = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    let owner = before
+        .roles
+        .iter()
+        .find(|runtime_role| runtime_role.role_id == role_id)
+        .unwrap()
+        .owner
+        .clone();
+    let saved_rect = StateNormalizedRectRecord {
+        x: 0.125,
+        y: 0.25,
+        width: 0.75,
+        height: 0.5,
+    };
+    let (restored, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleLaunch {
+            role_id: role_id.clone(),
+            target: target("restore-window"),
+            launch_preview_id: None,
+            zoom_factor: None,
+            restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
+                slot_id: "saved-role-slot".to_owned(),
+                role_id: role_id.clone(),
+                rect: saved_rect.clone(),
+                browser_zoom_percent: Some(137.0),
+            }]),
+        },
+        None,
+    );
+    assert!(restored.is_ok(), "{restored:?}");
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        CoreEffectAction::EmbeddedCreateTab { tab }
+            if tab.roles.is_empty()
+                && tab.slots.len() == 1
+                && tab.slots[0].slot_id == "saved-role-slot"
+                && tab.slots[0].state == "blocked"
+                && tab.slots[0].owner.as_ref() == Some(&owner)
+    )));
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        CoreEffectAction::EmbeddedLoadRoles { roles } if roles.is_empty()
+    )));
+
+    let after = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert_eq!(
+        after
+            .roles
+            .iter()
+            .find(|runtime_role| runtime_role.role_id == role_id)
+            .unwrap()
+            .owner,
+        owner
+    );
+    let restored_tab = after
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_type == "role" && tab.source_id == role_id)
+        .unwrap();
+    assert_eq!(restored_tab.slots[0].slot_id, "saved-role-slot");
+    assert_eq!(restored_tab.slots[0].state, "blocked");
+    assert_eq!(restored_tab.slots[0].rect, saved_rect);
+    assert_eq!(restored_tab.slots[0].browser_zoom_percent, Some(137.0));
+    core.shutdown();
+}
+
+#[test]
+fn restored_role_tab_rejects_mismatched_slot_without_native_effects() {
+    let (_directory, core) = core();
+    let game_id = first_game_id(&core);
+    let role_id = create_role(&core, &game_id, 1);
+    let (restored, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleLaunch {
+            role_id,
+            target: EmbeddedLaunchTargetRecord {
+                window_id: "restore-window".to_owned(),
+                display_id: 1,
+                scale_factor: 1.0,
+                work_area: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                bounds: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                presentation: "normal".to_owned(),
+            },
+            launch_preview_id: None,
+            zoom_factor: None,
+            restore_role_slots: Some(Vec::new()),
+        },
+        None,
+    );
+    assert_eq!(restored.unwrap_err().code(), "ROLE_RESTORE_SLOT_INVALID");
+    assert!(actions.is_empty());
+    core.shutdown();
+}
+
+#[test]
+fn restored_available_role_uses_the_saved_slot_geometry_and_zoom() {
+    let (_directory, core) = core();
+    let role_id = create_role(&core, &first_game_id(&core), 1);
+    let saved_rect = StateNormalizedRectRecord {
+        x: 0.2,
+        y: 0.1,
+        width: 0.6,
+        height: 0.8,
+    };
+    let (restored, actions, _) = drive_async_command(
+        Arc::clone(&core),
+        CoreCommand::BrowserRoleLaunch {
+            role_id: role_id.clone(),
+            target: EmbeddedLaunchTargetRecord {
+                window_id: "restore-window".to_owned(),
+                display_id: 1,
+                scale_factor: 1.0,
+                work_area: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                bounds: StatePixelBoundsRecord {
+                    x: 0,
+                    y: 0,
+                    width: 1200,
+                    height: 800,
+                },
+                presentation: "normal".to_owned(),
+            },
+            launch_preview_id: None,
+            zoom_factor: None,
+            restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
+                slot_id: "restored-available-slot".to_owned(),
+                role_id: role_id.clone(),
+                rect: saved_rect.clone(),
+                browser_zoom_percent: Some(142.0),
+            }]),
+        },
+        None,
+    );
+    assert!(restored.is_ok(), "{restored:?}");
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        CoreEffectAction::EmbeddedCreateTab { tab }
+            if tab.slots[0].slot_id == "restored-available-slot"
+                && tab.slots[0].rect == saved_rect
+                && tab.roles[0].zoom_factor == 1.42
+    )));
+    let snapshot = core
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
+        .unwrap()
+        .snapshot;
+    assert_eq!(snapshot.tabs[0].slots[0].slot_id, "restored-available-slot");
+    assert_eq!(snapshot.tabs[0].slots[0].rect, saved_rect);
+    assert_eq!(snapshot.tabs[0].slots[0].browser_zoom_percent, Some(142.0));
+    assert_eq!(snapshot.roles[0].owner.tab_id, snapshot.tabs[0].id);
+    core.shutdown();
+}
+
+#[test]
 fn reopening_a_stopped_role_reuses_its_preserved_available_slot() {
     let (_directory, core) = core();
     let role_id = create_role(&core, &first_game_id(&core), 1);

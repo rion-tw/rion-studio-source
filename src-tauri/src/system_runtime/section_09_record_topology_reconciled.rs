@@ -551,6 +551,7 @@ impl SystemRuntimeExecutor {
                 WindowsTabChromeRevealSignal::VisibilityRequested,
             );
         }
+        let expected_lifecycle_epoch = self.lifecycle_epoch();
         let mut operation = NativeOperationContext::new_at_for_platform(
             NativeOperationSubsystem::Presentation,
             trigger,
@@ -562,7 +563,7 @@ impl SystemRuntimeExecutor {
         .with_revision(revision)
         .with_window(window_id.clone())
         .with_window_generation(window_generation)
-        .with_lifecycle_epoch(self.lifecycle_epoch());
+        .with_lifecycle_epoch(expected_lifecycle_epoch);
         if let Some(tab_id) = tab_id.as_ref() {
             operation = operation.with_tab(tab_id.clone());
         }
@@ -630,7 +631,7 @@ impl SystemRuntimeExecutor {
             .map(|surface| surface.label().to_owned())
             .collect::<HashSet<_>>();
         let surface_owner_revisions = self.presentation.surface_owner_revisions(&surface_labels);
-        let actor = match self.presentation.actor(&window_id) {
+        let actor = match self.presentation.actor(&window_id, window_generation) {
             Ok(actor) => actor,
             Err(message) => {
                 self.record_presentation_event(
@@ -655,6 +656,7 @@ impl SystemRuntimeExecutor {
         };
         let dispatch_result = actor.dispatch(NativePresentationRequest {
             active_webview,
+            actor_liveness: actor.liveness(),
             coordinator: presentation,
             core: Arc::clone(&self.core),
             focus,
@@ -669,6 +671,7 @@ impl SystemRuntimeExecutor {
             operations: Arc::clone(&self.operations),
             requested_at,
             revision,
+            expected_lifecycle_epoch,
             surface_owner_revisions,
             surface_owners: Arc::clone(&self.presentation.surface_owners),
             shutdown_state: Arc::clone(&self.shutdown_state),
@@ -689,9 +692,15 @@ impl SystemRuntimeExecutor {
 
     fn wait_for_presentation_paint_barrier(&self, window_id: &str, revision: u64) {
         let started = Instant::now();
+        let window_generation = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.display_hosts.get(window_id).map(|host| host.generation))
+            .unwrap_or_default();
         let applied = self
             .presentation
-            .actor(window_id)
+            .actor(window_id, window_generation)
             .ok()
             .is_some_and(|actor| {
                 actor.wait_until_applied(revision, PRESENTATION_PAINT_BARRIER_TIMEOUT)

@@ -320,15 +320,24 @@ impl PresentationRegistry {
         })
     }
 
-    fn actor(&self, window_id: &str) -> Result<Arc<NativeWindowActor>, String> {
+    fn actor(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+    ) -> Result<Arc<NativeWindowActor>, String> {
         let mut actors = self
             .actors
             .lock()
             .map_err(|_| "The native window actor registry is unavailable.".to_owned())?;
-        if let Some(actor) = actors.get(window_id) {
+        if let Some(actor) = actors.get(window_id)
+            && actor.matches_generation(window_generation)
+        {
             return Ok(Arc::clone(actor));
         }
-        let actor = NativeWindowActor::start(window_id)?;
+        if let Some(stale) = actors.remove(window_id) {
+            stale.stop();
+        }
+        let actor = NativeWindowActor::start(window_id, window_generation)?;
         actors.insert(window_id.to_owned(), Arc::clone(&actor));
         Ok(actor)
     }
@@ -374,7 +383,7 @@ impl PresentationRegistry {
         }
     }
 
-    fn unbind_surface(&self, instance_id: &str, surface_label: &str) {
+    fn unbind_surface(&self, instance_id: &str, surface_label: &str) -> Option<String> {
         if let Ok(mut owners) = self.surface_owners.lock()
             && owners
                 .get(surface_label)
@@ -387,15 +396,29 @@ impl PresentationRegistry {
             .windows
             .lock()
             .ok()
-            .map(|windows| windows.values().cloned().collect::<Vec<_>>())
+            .map(|windows| {
+                windows
+                    .iter()
+                    .map(|(window_id, projection)| (window_id.clone(), Arc::clone(projection)))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
-        for window in windows {
+        for (window_id, window) in windows {
             if let Ok(mut projection) = window.lock()
                 && projection.unbind_surface(instance_id)
             {
-                break;
+                if let Some(actor) = self
+                    .actors
+                    .lock()
+                    .ok()
+                    .and_then(|actors| actors.get(&window_id).cloned())
+                {
+                    actor.forget_surface(instance_id, surface_label);
+                }
+                return Some(window_id);
             }
         }
+        None
     }
 
     fn remove(&self, window_id: &str) {

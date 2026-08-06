@@ -513,7 +513,7 @@ impl SystemRuntimeExecutor {
         released: &ReleasedRoleSurface,
     ) -> RuntimeResult<()> {
         let live_window_id = self.resolve_live_tab_window_id(&released.tab_id)?;
-        let (window, window_id, slot, selected) = {
+        let (window, window_id, slot) = {
             let state = self.state()?;
             let tab = state.tabs.get(&released.tab_id).ok_or_else(|| {
                 RuntimeError::new(
@@ -537,15 +537,6 @@ impl SystemRuntimeExecutor {
                     "The runtime display host closed before the placeholder was restored.",
                 )
             })?;
-            let selected = self
-                .presentation
-                .existing(&live_window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|presentation| {
-                        presentation.selected_tab_id.as_deref() == Some(released.tab_id.as_str())
-                    })
-                })
-                .unwrap_or(false);
             (
                 host.window.clone(),
                 live_window_id.clone(),
@@ -558,7 +549,6 @@ impl SystemRuntimeExecutor {
                     zoom_factor: slot.zoom_factor,
                     zoom_mode: slot.zoom_mode.clone(),
                 },
-                selected,
             )
         };
         let metrics = runtime_window_content_metrics(&window)?;
@@ -569,7 +559,6 @@ impl SystemRuntimeExecutor {
             &released.tab_id,
             &slot,
             bounds,
-            selected,
         )?;
         let inserted = {
             let mut state = self.state()?;

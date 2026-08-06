@@ -655,6 +655,7 @@ impl NativePresentationAdapter for TauriNativePresentationAdapter {
 
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
+    actor_liveness: Arc<AtomicBool>,
     coordinator: Arc<Mutex<NativeTabProjectionState>>,
     core: Arc<AppCore>,
     focus: NativePresentationFocus,
@@ -669,6 +670,7 @@ struct NativePresentationRequest {
     operations: Arc<NativeOperationRegistry>,
     requested_at: Instant,
     revision: u64,
+    expected_lifecycle_epoch: u64,
     surface_owner_revisions: HashMap<String, u64>,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     shutdown_state: Arc<AtomicU8>,
@@ -751,5 +753,7 @@ struct NativeWindowActorState {
 }
 
 struct NativeWindowActor {
+    generation: u64,
+    liveness: Arc<AtomicBool>,
     queue: Arc<(Mutex<NativeWindowActorState>, Condvar)>,
 }

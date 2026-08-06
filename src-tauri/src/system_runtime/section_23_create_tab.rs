@@ -337,7 +337,6 @@ impl SystemRuntimeExecutor {
                     &tab.tab_id,
                     slot,
                     bounds,
-                    should_select,
                 )?;
                 let state = match self.state() {
                     Ok(state) => state,
@@ -406,6 +405,7 @@ impl SystemRuntimeExecutor {
                         &role_id,
                     )
                 })?;
+                webview.hide().map_err(RuntimeError::tauri)?;
                 if !first_surface_recorded {
                     first_surface_recorded = true;
                     self.record_runtime_stage(
@@ -413,27 +413,6 @@ impl SystemRuntimeExecutor {
                         "completed",
                         launch_started,
                     );
-                }
-                // Controller visibility belongs to presentation, not native
-                // setup or navigation readiness. Show the selected tab's blank
-                // viewport immediately; a tab that was switched away from while
-                // creation was in flight stays hidden.
-                let selected_before_setup = self
-                    .presentation
-                    .existing(&target.window_id)
-                    .and_then(|presentation| {
-                        presentation.lock().ok().map(|presentation| {
-                            presentation.selected_tab_id.as_deref() == Some(tab.tab_id.as_str())
-                        })
-                    })
-                    .unwrap_or(false);
-                let visibility_result = if selected_before_setup {
-                    webview.show()
-                } else {
-                    webview.hide()
-                };
-                if let Err(error) = visibility_result {
-                    return Err(RuntimeError::tauri(error));
                 }
                 self.record_runtime_stage(
                     format!("controller-presented:{role_id}"),
@@ -513,21 +492,6 @@ impl SystemRuntimeExecutor {
                     );
                 }
                 self.set_role_input_surface(&role_id, generation, true, true)?;
-                let selected = self
-                    .presentation
-                    .existing(&target.window_id)
-                    .and_then(|presentation| {
-                        presentation.lock().ok().map(|presentation| {
-                            presentation.selected_tab_id.as_deref()
-                                == Some(tab.tab_id.as_str())
-                        })
-                    })
-                    .ok_or_else(|| {
-                        RuntimeError::new(
-                            "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                            "The runtime tab presentation disappeared before surface binding.",
-                        )
-                    })?;
                 let bound = self.presentation.bind_surface(
                     &target.window_id,
                     &tab.tab_id,
@@ -553,15 +517,7 @@ impl SystemRuntimeExecutor {
                     "completed",
                     launch_started,
                 );
-                if selected {
-                    let _ = self.request_tab_presentation(
-                        &tab.tab_id,
-                        NativePresentationFocus::None,
-                        "surface-attached",
-                    );
-                } else {
-                    webview.hide().map_err(RuntimeError::tauri)?;
-                }
+                self.reconcile_surface_membership(&target.window_id, "surface-attached");
                 webview
                     .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
                     .map_err(RuntimeError::tauri)?;
@@ -809,21 +765,7 @@ impl SystemRuntimeExecutor {
             self.schedule_live_window_state_persistence(&target.window_id);
             self.publish_launcher_presence();
         } else {
-            let remains_selected =
-                self.presentation
-                    .existing(&target.window_id)
-                    .is_some_and(|presentation| {
-                        presentation.lock().ok().is_some_and(|window| {
-                            window.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
-                        })
-                    });
-            if remains_selected {
-                let _ = self.request_tab_presentation(
-                    &created_tab_id,
-                    NativePresentationFocus::None,
-                    "surface-attached",
-                );
-            }
+            self.reconcile_surface_membership(&target.window_id, "surface-attached");
             self.schedule_live_window_state_persistence(&target.window_id);
         }
         result

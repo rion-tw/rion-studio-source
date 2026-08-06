@@ -1,9 +1,10 @@
 impl NativeWindowActor {
-    fn start(window_id: &str) -> Result<Arc<Self>, String> {
+    fn start(window_id: &str, generation: u64) -> Result<Arc<Self>, String> {
         let queue = Arc::new((
             Mutex::new(NativeWindowActorState::default()),
             Condvar::new(),
         ));
+        let liveness = Arc::new(AtomicBool::new(true));
         let worker_queue = Arc::clone(&queue);
         std::thread::Builder::new()
             .name(format!("rion-native-window-{window_id}"))
@@ -148,7 +149,19 @@ impl NativeWindowActor {
                 }
             })
             .map_err(|error| error.to_string())?;
-        Ok(Arc::new(Self { queue }))
+        Ok(Arc::new(Self {
+            generation,
+            liveness,
+            queue,
+        }))
+    }
+
+    fn matches_generation(&self, generation: u64) -> bool {
+        self.generation == generation && self.liveness.load(Ordering::Acquire)
+    }
+
+    fn liveness(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.liveness)
     }
 
     fn dispatch(&self, mut request: NativePresentationRequest) -> Result<(), String> {
@@ -169,8 +182,8 @@ impl NativeWindowActor {
             request.operations.complete(NativeOperationReceipt::with_status(
                 request.operation,
                 "nativePresentationStopped",
-                NativeOperationStatus::Failed,
-                Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
+                NativeOperationStatus::Superseded,
+                None,
             ));
             return Ok(());
         }
@@ -301,7 +314,21 @@ impl NativeWindowActor {
         }
     }
 
+    fn forget_surface(&self, instance_id: &str, surface_label: &str) {
+        let (lock, changed) = &*self.queue;
+        if let Ok(mut state) = lock.lock() {
+            state
+                .applied_surface_identities
+                .retain(|(applied_instance_id, _)| applied_instance_id != instance_id);
+            state
+                .applied_surfaces
+                .retain(|surface| surface.label() != surface_label);
+            changed.notify_all();
+        }
+    }
+
     fn stop(&self) {
+        self.liveness.store(false, Ordering::Release);
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
             state.stopped = true;
@@ -310,8 +337,8 @@ impl NativeWindowActor {
                 superseded.operations.complete(NativeOperationReceipt::with_status(
                     superseded.operation,
                     "nativePresentationStopped",
-                    NativeOperationStatus::Failed,
-                    Some("NATIVE_PRESENTATION_ACTOR_STOPPED"),
+                    NativeOperationStatus::Superseded,
+                    None,
                 ));
             }
             changed.notify_all();

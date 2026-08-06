@@ -608,6 +608,7 @@ impl SystemRuntimeExecutor {
                     target: completion.target.clone(),
                     launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
                     zoom_factor: completion.zoom_factor,
+                    restore_role_slots: None,
                 }
             };
             if let Err(error) = Arc::clone(&runtime.core).invoke_async(command).await {
@@ -646,6 +647,14 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn cancel_provisional_tab_launch(&self, tab_id: &str) -> bool {
+        self.cancel_provisional_tab_launch_with_presentation(tab_id, true)
+    }
+
+    fn cancel_provisional_tab_launch_with_presentation(
+        &self,
+        tab_id: &str,
+        present_successor: bool,
+    ) -> bool {
         let provisional = self
             .state
             .lock()
@@ -672,7 +681,9 @@ impl SystemRuntimeExecutor {
             &provisional.id,
             next_tab_id.as_deref(),
         );
-        if let Some(tab_id) = next_tab_id {
+        if present_successor
+            && let Some(tab_id) = next_tab_id
+        {
             let _ = self.request_tab_presentation(
                 tab_id.as_str(),
                 NativePresentationFocus::None,

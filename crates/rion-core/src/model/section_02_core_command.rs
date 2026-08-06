@@ -453,6 +453,9 @@ pub enum CoreCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "zoomFactor")]
         zoom_factor: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "restoreRoleSlots")]
+        restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
     },
     BrowserWorkspaceLaunch {
         #[ts(rename = "workspaceId")]

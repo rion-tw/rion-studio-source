@@ -425,7 +425,16 @@ NS_ASSUME_NONNULL_BEGIN
 
   [_clusterContent addSubview:_scrollLeftSurface];
   [_clusterContent addSubview:_windowNameField];
-  [_clusterContent addSubview:_tabScrollView];
+  if (_clusterContainer != _clusterContent) {
+    // NSGlassEffectContainerView promotes every descendant glass surface above
+    // its content view. Keep scrolling tabs outside that hierarchy so the
+    // NSClipView remains their final compositing boundary on macOS 26.
+    [root addSubview:_tabScrollView
+          positioned:NSWindowAbove
+          relativeTo:_clusterContainer];
+  } else {
+    [_clusterContent addSubview:_tabScrollView];
+  }
   [_clusterContent addSubview:_scrollRightSurface];
   [_clusterContent addSubview:_addSurface];
 

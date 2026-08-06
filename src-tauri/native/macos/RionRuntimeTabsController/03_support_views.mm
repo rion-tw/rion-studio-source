@@ -60,6 +60,17 @@ NS_ASSUME_NONNULL_BEGIN
 
 @implementation RionRuntimeHorizontalScrollView
 
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self) {
+    // macOS 14 and later no longer clip subviews by default. Keep tab surfaces
+    // inside the scroll viewport so Liquid Glass does not render them beneath
+    // the adjacent scroll controls.
+    self.contentView.clipsToBounds = YES;
+  }
+  return self;
+}
+
 - (void)scrollWheel:(NSEvent *)event {
   if (std::fabs(event.scrollingDeltaX) >= std::fabs(event.scrollingDeltaY)) {
     [super scrollWheel:event];

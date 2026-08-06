@@ -228,12 +228,12 @@ impl SystemRuntimeExecutor {
             )
         };
         #[cfg(windows)]
-        let metrics = if let Some(metrics) = metrics_override {
-            metrics
-        } else {
-            let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
-            runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?
-        };
+        let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
+        #[cfg(windows)]
+        let metrics = metrics_override.map_or_else(
+            || runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height),
+            Ok,
+        )?;
         #[cfg(not(windows))]
         let metrics = metrics_override
             .map(Ok)

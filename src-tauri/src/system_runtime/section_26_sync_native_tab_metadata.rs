@@ -315,7 +315,6 @@ impl SystemRuntimeExecutor {
             } else {
                 "other"
             };
-            let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.blank-requested",
@@ -331,14 +330,8 @@ impl SystemRuntimeExecutor {
             if let Ok(request) = quiesce_result.as_ref() {
                 self.record_surface_isolation_request(&label, *request);
             }
-            let first_isolation =
-                quiesce_result.is_ok() && lifecycle.wait_for_isolation(SURFACE_ISOLATION_TIMEOUT);
-            let isolated = first_isolation
-                || lifecycle.native_surface_is_released()
-                || (quiesce_result.is_ok()
-                    && lifecycle.wait_for_isolation(
-                        deadline.saturating_duration_since(Instant::now()),
-                    ));
+            let isolated = quiesce_result.is_ok()
+                && lifecycle.wait_for_isolation(SURFACE_ISOLATION_TIMEOUT);
             if !isolated {
                 self.record_surface_stage_by_label(
                     LogLevel::Error,
@@ -357,7 +350,7 @@ impl SystemRuntimeExecutor {
                         "roleId": role_id,
                         "webviewLabel": label,
                         "quiesceError": quiesce_error,
-                        "isolationWaitMs": SURFACE_RECLAMATION_TIMEOUT.as_millis()
+                        "isolationWaitMs": SURFACE_ISOLATION_TIMEOUT.as_millis()
                     }),
                 );
                 return Err(RuntimeError::new(
@@ -373,24 +366,51 @@ impl SystemRuntimeExecutor {
             );
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
-                "surface.controller-close-queued",
-                "The isolated native controller close was queued.",
+                "surface.native-release-requested",
+                "The exact isolated native surface release was requested.",
                 &label,
             );
-            let close_error = webview.close().err().map(|error| error.to_string());
-            if let Some(error) = close_error.as_deref() {
-                if native_surface_channel_is_unavailable(error) {
-                    lifecycle.mark_controller_released();
-                }
-                self.record_surface_stage_by_label(
-                    LogLevel::Debug,
-                    "surface.wrapper-close-pending",
-                    "The isolated Tauri wrapper will be verified by background cleanup.",
-                    &label,
-                );
+            release_platform_surface(lifecycle)?;
+            if !lifecycle.wait_for(
+                SURFACE_RECLAMATION_TIMEOUT,
+                |release| release.native_surface_released,
+            ) {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "The native surface did not acknowledge its exact release before the watchdog deadline.",
+                ));
             }
-            let released = lifecycle.wait_for_controller_release(platform, Duration::ZERO);
-            Ok(SurfaceCloseOutcome { isolated, released })
+            self.record_surface_stage_by_label(
+                LogLevel::Info,
+                "surface.native-released",
+                "The exact native surface generation was released.",
+                &label,
+            );
+            webview.close().map_err(RuntimeError::tauri)?;
+            lifecycle.mark_controller_released();
+            self.record_surface_stage_by_label(
+                LogLevel::Info,
+                "surface.wrapper-close-accepted",
+                "Tauri accepted the wrapper close and unregistered its manager entry.",
+                &label,
+            );
+            let store_reusable = lifecycle.wait_for_store_reusable(platform, Duration::ZERO);
+            if !store_reusable {
+                return Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "The exact surface generation did not reach the store-reusable milestone.",
+                ));
+            }
+            self.record_surface_stage_by_label(
+                LogLevel::Info,
+                "role.store-reusable",
+                "The role store is immediately reusable after exact native release.",
+                &label,
+            );
+            Ok(SurfaceCloseOutcome {
+                isolated,
+                store_reusable,
+            })
         })();
         if result.is_ok() {
             self.revoke_overlay_capability(&label);
@@ -409,19 +429,11 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let label = webview.label().to_owned();
         let outcome = self.close_surface_and_wait(webview, lifecycle, role_id)?;
-        if outcome.released {
+        if outcome.store_reusable {
             return Ok(());
         }
-        let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
-        while Instant::now() < deadline {
-            if self.app.get_webview(&label).is_none() {
-                lifecycle.mark_controller_released();
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
         let platform = current_runtime_platform();
-        if lifecycle.wait_for_controller_release(platform, Duration::ZERO) {
+        if lifecycle.wait_for_store_reusable(platform, Duration::ZERO) {
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.failed-launch-release-verified",
@@ -443,34 +455,14 @@ impl SystemRuntimeExecutor {
         role_id: &str,
     ) -> RuntimeResult<()> {
         let label = webview.label().to_owned();
-        let close_error = webview.close().err().map(|error| error.to_string());
         let started = Instant::now();
-        let deadline = started + SURFACE_RECLAMATION_TIMEOUT;
-        while Instant::now() < deadline {
-            if self.app.get_webview(&label).is_none() {
-                self.record_runtime_stage(
-                    format!("untracked-surface-release-verified:{role_id}"),
-                    "completed",
-                    started,
-                );
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        Err(RuntimeError::new(
-            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            close_error.map_or_else(
-                || {
-                    "The failed WebView2 controller did not disappear before the cleanup deadline. Restart Rion Studio before retrying."
-                        .to_owned()
-                },
-                |message| {
-                    format!(
-                        "The failed WebView2 controller could not be closed or verified: {message}. Restart Rion Studio before retrying."
-                    )
-                },
-            ),
-        ))
+        webview.close().map_err(RuntimeError::tauri)?;
+        self.record_runtime_stage(
+            format!("untracked-surface-wrapper-close-accepted:{role_id}:{label}"),
+            "completed",
+            started,
+        );
+        Ok(())
     }
 
     fn close_untracked_failed_launch_window_and_wait(
@@ -479,34 +471,14 @@ impl SystemRuntimeExecutor {
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
         let label = window.label().to_owned();
-        let close_error = window.close().err().map(|error| error.to_string());
         let started = Instant::now();
-        let deadline = started + SURFACE_RECLAMATION_TIMEOUT;
-        while Instant::now() < deadline {
-            if self.app.get_window(&label).is_none() {
-                self.record_runtime_stage(
-                    format!("untracked-window-release-verified:{lifecycle_id}"),
-                    "completed",
-                    started,
-                );
-                return Ok(());
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        Err(RuntimeError::new(
-            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            close_error.map_or_else(
-                || {
-                    "The failed native host window did not disappear before the cleanup deadline. Restart Rion Studio before retrying."
-                        .to_owned()
-                },
-                |message| {
-                    format!(
-                        "The failed native host window could not be closed or verified: {message}. Restart Rion Studio before retrying."
-                    )
-                },
-            ),
-        ))
+        window.close().map_err(RuntimeError::tauri)?;
+        self.record_runtime_stage(
+            format!("untracked-window-close-accepted:{lifecycle_id}:{label}"),
+            "completed",
+            started,
+        );
+        Ok(())
     }
 
     fn close_managed_surface_and_wait(
@@ -530,11 +502,12 @@ impl SystemRuntimeExecutor {
         }
         let result = (|| {
             match surface.phase {
-                ManagedSurfacePhase::Isolated
-                | ManagedSurfacePhase::Releasing
-                | ManagedSurfacePhase::Released => return Ok(()),
-                ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => {
-                    return self.wait_for_managed_surface_isolation(instance_id, &surface);
+                ManagedSurfacePhase::Released => return Ok(()),
+                ManagedSurfacePhase::CloseRequested
+                | ManagedSurfacePhase::Isolating
+                | ManagedSurfacePhase::Isolated
+                => {
+                    return self.wait_for_managed_surface_release(instance_id, &surface);
                 }
                 ManagedSurfacePhase::Live
                 | ManagedSurfacePhase::Provisional
@@ -556,10 +529,11 @@ impl SystemRuntimeExecutor {
                     )
                 })?;
                 let owns_close = match surface.phase {
-                    ManagedSurfacePhase::Isolated
-                    | ManagedSurfacePhase::Releasing
-                    | ManagedSurfacePhase::Released => return Ok(()),
-                    ManagedSurfacePhase::CloseRequested | ManagedSurfacePhase::Isolating => false,
+                    ManagedSurfacePhase::Released => return Ok(()),
+                    ManagedSurfacePhase::CloseRequested
+                    | ManagedSurfacePhase::Isolating
+                    | ManagedSurfacePhase::Isolated
+                    => false,
                     ManagedSurfacePhase::Live
                     | ManagedSurfacePhase::Provisional
                     | ManagedSurfacePhase::Quarantined
@@ -573,7 +547,7 @@ impl SystemRuntimeExecutor {
             };
             if !owns_close {
                 drop(native_lifecycle_guard);
-                return self.wait_for_managed_surface_isolation(instance_id, &surface);
+                return self.wait_for_managed_surface_release(instance_id, &surface);
             }
             self.record_surface_event(
                 LogLevel::Debug,
@@ -593,12 +567,14 @@ impl SystemRuntimeExecutor {
             match close_result {
                 Ok(outcome) => {
                     self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
-                    if outcome.released {
-                        self.remove_managed_surface(instance_id)?;
-                    } else {
-                        let retired = self.retire_managed_surface(instance_id)?;
-                        self.schedule_surface_reclamation(retired, true);
+                    if !outcome.isolated || !outcome.store_reusable {
+                        return Err(RuntimeError::new(
+                            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                            "The exact native surface generation did not finish releasing.",
+                        ));
                     }
+                    self.remove_managed_surface(instance_id)?;
+                    self.tab_close_changed.notify_all();
                     Ok(())
                 }
                 Err(error) => {
@@ -644,7 +620,7 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn wait_for_managed_surface_isolation(
+    fn wait_for_managed_surface_release(
         &self,
         instance_id: &str,
         surface: &ManagedSurface,
@@ -656,7 +632,10 @@ impl SystemRuntimeExecutor {
             .unwrap_or_else(Instant::now);
         if surface
             .lifecycle
-            .wait_for_isolation(deadline.saturating_duration_since(Instant::now()))
+            .wait_for_store_reusable(
+                current_runtime_platform(),
+                deadline.saturating_duration_since(Instant::now()),
+            )
         {
             return Ok(());
         }
@@ -669,9 +648,7 @@ impl SystemRuntimeExecutor {
             || matches!(
                 phase,
                 Some(
-                    ManagedSurfacePhase::Isolated
-                        | ManagedSurfacePhase::Releasing
-                        | ManagedSurfacePhase::Released
+                    ManagedSurfacePhase::Released
                 )
             )
         {
@@ -679,109 +656,8 @@ impl SystemRuntimeExecutor {
         }
         Err(RuntimeError::new(
             "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
+            "Rion Studio could not verify the exact native surface release. The tab remains closed; restart Rion Studio before reopening this role.",
         ))
-    }
-
-    fn schedule_surface_reclamation(&self, surface: ManagedSurface, isolated: bool) {
-        let Some(sender) = self.effect_sender.get().cloned() else {
-            return;
-        };
-        let app = self.app.clone();
-        let instance_id = surface.instance_id.clone();
-        let lifecycle = Arc::clone(&surface.lifecycle);
-        let label = surface.webview.label().to_owned();
-        let spawn = std::thread::Builder::new()
-            .name(format!("rion-surface-release-{instance_id}"))
-            .spawn(move || {
-                // Wry unregisters asynchronously. Wrapper disposal is safe to
-                // resubmit after exact native isolation, but the destructive
-                // platform quiesce sequence above must never be repeated.
-                let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
-                let mut attempt = 0_u32;
-                let mut released = false;
-                while Instant::now() < deadline {
-                    std::thread::sleep(Duration::from_millis(250));
-                    released = app.get_webview(&label).is_none();
-                    if released {
-                        lifecycle.mark_controller_released();
-                        break;
-                    }
-                    if matches!(attempt, 1 | 7)
-                        && let Some(webview) = app.get_webview(&label)
-                    {
-                        let _ = webview.close();
-                    }
-                    attempt = attempt.saturating_add(1);
-                }
-                let _ = sender.send(SystemRuntimeWork::FinalizeSurfaceRelease {
-                    instance_id,
-                    isolated,
-                    released,
-                });
-            });
-        if let Err(error) = spawn {
-            eprintln!(
-                "System WebView lifecycle: stage=surface-release-worker status=failed error={error}"
-            );
-        }
-    }
-
-    fn finalize_surface_release(&self, instance_id: &str, isolated: bool, released: bool) {
-        let Ok(surface) = self.managed_surface(instance_id) else {
-            return;
-        };
-        if released {
-            self.record_surface_event(
-                LogLevel::Debug,
-                "surface.tauri-unregistered",
-                "Tauri unregistered the retired native surface.",
-                &surface,
-            );
-            let _ = self.remove_managed_surface(instance_id);
-            self.tab_close_changed.notify_all();
-            return;
-        }
-        if isolated {
-            let _ = self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Releasing);
-            self.record_surface_event(
-                LogLevel::Error,
-                "surface.wrapper-release-failed",
-                "The isolated native surface remained registered after bounded wrapper cleanup.",
-                &surface,
-            );
-            self.health.mark_unhealthy();
-            let _ = self.app.emit(
-                "rion://shell-error",
-                json!({
-                    "code": "SYSTEM_SURFACE_WRAPPER_RELEASE_FAILED",
-                    "failureKind": "wrapper-release-timeout",
-                    "message": "Rion Studio stopped the game page, but could not release its native wrapper. Restart Rion Studio before reopening this role.",
-                    "roleId": surface.role_id,
-                    "webviewLabel": surface.webview.label()
-                }),
-            );
-            self.tab_close_changed.notify_all();
-            return;
-        }
-        let _ = self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Quarantined);
-        self.record_surface_event(
-            LogLevel::Error,
-            "surface.quarantine-persisted",
-            "Native surface isolation remained unverified after background retries.",
-            &surface,
-        );
-        let _ = self.app.emit(
-            "rion://shell-error",
-            json!({
-                "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                "failureKind": "native-isolation-retry-exhausted",
-                "message": "Rion Studio still cannot verify that the native game page stopped. Keep this tab closed and restart Rion Studio before reopening the role.",
-                "roleId": surface.role_id,
-                "webviewLabel": surface.webview.label()
-            }),
-        );
-        self.tab_close_changed.notify_all();
     }
 
     fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {
@@ -812,13 +688,7 @@ impl SystemRuntimeExecutor {
                 "The native surface is not a workspace divider.",
             ));
         }
-        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::CloseRequested)?;
-        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolating)?;
-        surface.webview.close().map_err(RuntimeError::tauri)?;
-        self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
-        let retired = self.retire_managed_surface(instance_id)?;
-        self.schedule_surface_reclamation(retired, true);
-        Ok(())
+        self.close_managed_surface_and_wait(instance_id, instance_id)
     }
 
 }

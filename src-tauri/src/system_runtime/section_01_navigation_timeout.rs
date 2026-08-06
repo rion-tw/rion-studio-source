@@ -81,10 +81,6 @@ const WINDOWS_TAB_STRIP_HEIGHT: f64 = 40.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
-// A role-store reuse waiter must outlive the worker that owns the final Tauri
-// unregister check. That worker may enter its last bounded poll just before its
-// own deadline and report the release on the following UI turn.
-const ROLE_STORE_REUSE_TIMEOUT: Duration = Duration::from_secs(12);
 const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
@@ -683,7 +679,7 @@ struct ReleasedRoleSurface {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SurfaceCloseOutcome {
     isolated: bool,
-    released: bool,
+    store_reusable: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -828,10 +824,8 @@ impl SurfaceLifecycleTracker {
             .unwrap_or(false)
     }
 
-    fn wait_for_controller_release(&self, platform: &str, timeout: Duration) -> bool {
-        self.wait_for(timeout, |release| {
-            surface_release_complete(platform, release)
-        })
+    fn wait_for_store_reusable(&self, platform: &str, timeout: Duration) -> bool {
+        self.wait_for(timeout, |release| surface_store_reusable(platform, release))
     }
 
     #[cfg(all(windows, test))]
@@ -881,7 +875,7 @@ fn quiesce_platform_surface(
     }
 }
 
-fn surface_release_complete(platform: &str, release: &SurfaceReleaseState) -> bool {
+fn surface_store_reusable(platform: &str, release: &SurfaceReleaseState) -> bool {
     match platform {
         "windows" => release.controller_released && release.native_surface_released,
         "macos" => release.controller_released && release.native_surface_released,

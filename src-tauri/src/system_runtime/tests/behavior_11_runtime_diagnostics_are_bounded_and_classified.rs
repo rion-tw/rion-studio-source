@@ -105,7 +105,6 @@ fn diagnostic_surface_closing_policy_matches_lifecycle_boundaries() {
         ManagedSurfacePhase::CloseRequested,
         ManagedSurfacePhase::Isolating,
         ManagedSurfacePhase::Isolated,
-        ManagedSurfacePhase::Releasing,
         ManagedSurfacePhase::Retired,
     ] {
         assert!(diagnostic_surface_is_closing(phase));

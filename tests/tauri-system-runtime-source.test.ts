@@ -101,24 +101,27 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(runtime).toContain("closing_roles");
     expect(runtime).toContain('"surface.blank-finished"');
     expect(runtime).toContain('"surface.quiesce-unverified"');
-    expect(runtime).toContain('"surface.wrapper-close-pending"');
-    expect(runtime).toContain('"surface.wrapper-release-failed"');
+    expect(runtime).toContain('"surface.native-released"');
+    expect(runtime).toContain('"surface.wrapper-close-accepted"');
+    expect(runtime).toContain('"role.store-reusable"');
     expect(runtime).not.toContain('"surface.blank-retry"');
-    expect(runtime).toContain('"surface.quarantine-persisted"');
+    expect(runtime).not.toContain("schedule_surface_reclamation");
 
     const nativeClose = runtime.slice(
       runtime.indexOf("fn close_surface_and_wait("),
       runtime.indexOf("fn close_managed_surface_and_wait(")
     );
+    expect(nativeClose).not.toContain("Duration::from_millis(250)");
     expect(nativeClose.indexOf("quiesce_platform_surface(webview, lifecycle)")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
     expect(nativeClose.indexOf("wait_for_isolation(SURFACE_ISOLATION_TIMEOUT)")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
-    expect(nativeClose).toContain('"surface.controller-close-queued"');
+    expect(nativeClose).toContain("release_platform_surface(lifecycle)?");
+    expect(nativeClose).toContain('"surface.native-release-requested"');
     expect(nativeClose).toContain("SURFACE_ISOLATION_TIMEOUT");
-    expect(nativeClose).not.toContain("wait_for_platform_release(");
+    expect(nativeClose).toContain("wait_for_store_reusable(platform, Duration::ZERO)");
     expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
   });
 
@@ -166,7 +169,7 @@ it("routes close around slow effects and keeps failed close intent committed", a
     );
     const isolateTabs = stopWindow.indexOf("for (tab_type, source_id) in sources");
     expect(stopWindow.indexOf("let sources = {")).toBeLessThan(isolateTabs);
-    expect(stopWindow.lastIndexOf("embedded_window_sequence.acquire()?")).toBeLessThan(isolateTabs);
+    expect(stopWindow.indexOf("embedded_window_sequence.acquire()?")).toBeLessThan(isolateTabs);
     expect(stopWindow.slice(0, isolateTabs)).toContain("sources\n        };");
     expect(macroRuntime).toContain("pub fn request_stop_role(");
   });
@@ -339,24 +342,25 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("presentation.bind_surface(");
     expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
+    const createTabLaunch = createTab.slice(
+      0,
+      createTab.indexOf("fn claim_role_slot_surface(")
+    );
+    expect(createTabLaunch).toContain("wait_for_role_relaunch_fences(");
+    expect(createTabLaunch).not.toContain("wait_for_role_store_reuse_fences(");
     const claimRoleSlot = runtime.slice(
       runtime.indexOf("fn claim_role_slot_surface("),
       runtime.indexOf("fn finish_claimed_role_slot(")
     );
-    expect(claimRoleSlot).toContain("wait_for_role_relaunch_fences(");
-    expect(claimRoleSlot).toContain("ROLE_STORE_REUSE_TIMEOUT");
-    expect(claimRoleSlot.indexOf("wait_for_role_relaunch_fences(")).toBeLessThan(
-      claimRoleSlot.indexOf("claim_surface_generation(")
-    );
-    expect(claimRoleSlot.indexOf("wait_for_role_relaunch_fences(")).toBeLessThan(
-      claimRoleSlot.indexOf("add_child_bounded(")
-    );
+    expect(claimRoleSlot).not.toContain("wait_for_role_store_reuse_fences(");
+    expect(claimRoleSlot).not.toContain("ROLE_STORE_REUSE_TIMEOUT");
+    expect(claimRoleSlot).toContain("self.finish_claimed_role_slot(&role.role.id)?");
     const roleRelaunchFence = runtime.slice(
       runtime.indexOf("fn role_relaunch_fence_state("),
-      runtime.indexOf("fn wait_for_role_relaunch_fences(")
+      runtime.indexOf("impl SystemRuntimeExecutor {\n    pub fn move_window")
     );
-    expect(roleRelaunchFence).toContain("retired_surface_registry.values()");
-    expect(roleRelaunchFence).toContain("surface.phase.blocks_role_store_reuse()");
+    expect(roleRelaunchFence).not.toContain("Duration::from_millis(50)");
+    expect(roleRelaunchFence).not.toContain("retired_surface_registry.values()");
     const macRoleSetup = runtime.slice(
       runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup_inner('),
       runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_isolated(')
@@ -372,6 +376,15 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("wait_role_navigation_for_lifecycle");
     expect(runtime).toContain(".wait_operation_async(operation.clone())");
     expect(runtime).toContain("application_lifecycle_epoch_matches");
+    const asyncRoleLoad = runtime.slice(
+      runtime.indexOf("fn execute_role_load_effect_async("),
+      runtime.indexOf("fn start_role_loads(")
+    );
+    expect(asyncRoleLoad.indexOf("dispatch_core_effect_results")).toBeLessThan(
+      asyncRoleLoad.indexOf("wait_role_navigation_for_lifecycle")
+    );
+    expect(asyncRoleLoad).toContain('"navigation-submitted:{operation_id}"');
+    expect(asyncRoleLoad).toContain('"tab.page-ready:{tab_id}:{}"');
     const overlays = runtime.slice(
       runtime.indexOf("fn install_overlays("),
       runtime.indexOf("fn focus_role(")
@@ -638,7 +651,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     expect(runtime).toContain("struct CloseCoordinator {");
     expect(runtime).toContain("struct TabCloseTombstone {");
     expect(runtime).toContain("surface_registry: HashMap<String, ManagedSurface>");
-    expect(runtime).toContain("fn wait_for_managed_surface_isolation(");
+    expect(runtime).toContain("fn wait_for_managed_surface_release(");
     expect(runtime).toContain("state.close_coordinator.closing_roles.contains(role_id)");
     expect(runtime).toContain("surface_instance_id: String");
     for (const kind of ["Role", "Recovery", "Popup", "Divider"]) {

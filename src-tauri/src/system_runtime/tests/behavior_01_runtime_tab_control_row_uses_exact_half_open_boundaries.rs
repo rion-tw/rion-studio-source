@@ -191,7 +191,7 @@ use super::*;
             ("windows", true, true, true, true),
         ] {
             assert_eq!(
-                surface_release_complete(
+                surface_store_reusable(
                     platform,
                     &SurfaceReleaseState {
                         #[cfg(windows)]
@@ -643,30 +643,11 @@ use super::*;
         }
         for phase in [
             ManagedSurfacePhase::Isolated,
-            ManagedSurfacePhase::Releasing,
             ManagedSurfacePhase::Released,
             ManagedSurfacePhase::Retired,
         ] {
             assert!(!phase.blocks_role_relaunch(), "{phase:?}");
         }
-    }
-
-    #[test]
-    fn role_store_reuse_waits_for_exact_surface_release() {
-        assert!(ROLE_STORE_REUSE_TIMEOUT > SURFACE_RECLAMATION_TIMEOUT);
-        for phase in [
-            ManagedSurfacePhase::Live,
-            ManagedSurfacePhase::CloseRequested,
-            ManagedSurfacePhase::Isolating,
-            ManagedSurfacePhase::Isolated,
-            ManagedSurfacePhase::Provisional,
-            ManagedSurfacePhase::Quarantined,
-            ManagedSurfacePhase::Releasing,
-            ManagedSurfacePhase::Retired,
-        ] {
-            assert!(phase.blocks_role_store_reuse(), "{phase:?}");
-        }
-        assert!(!ManagedSurfacePhase::Released.blocks_role_store_reuse());
     }
 
     #[test]

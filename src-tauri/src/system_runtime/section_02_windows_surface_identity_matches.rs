@@ -47,7 +47,6 @@ enum ManagedSurfacePhase {
     Isolated,
     Provisional,
     Quarantined,
-    Releasing,
     Released,
     Retired,
 }
@@ -79,7 +78,6 @@ impl ManagedSurfacePhase {
             Self::Isolated => "isolated",
             Self::Provisional => "provisional",
             Self::Quarantined => "quarantined",
-            Self::Releasing => "releasing",
             Self::Released => "released",
             Self::Retired => "retired",
         }
@@ -96,10 +94,6 @@ impl ManagedSurfacePhase {
                 | Self::Provisional
                 | Self::Quarantined
         )
-    }
-
-    const fn blocks_role_store_reuse(self) -> bool {
-        !matches!(self, Self::Released)
     }
 }
 

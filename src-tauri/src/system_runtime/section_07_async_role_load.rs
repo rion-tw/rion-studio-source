@@ -46,171 +46,164 @@ impl SystemRuntimeExecutor {
                 return;
             }
         };
+        let lifecycle_epoch = pending
+            .first()
+            .map(|pending| pending.lifecycle_epoch)
+            .unwrap_or_else(|| self.lifecycle_epoch());
+        let mut result = CoreEffectResult {
+            effect_id: effect_id.clone(),
+            operation_id: operation_id.clone(),
+            ok: true,
+            value_json: None,
+            error: None,
+        };
+        let persistence_error = persist_runtime
+            .then(|| self.persist_restore_session(false).err())
+            .flatten();
+        result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
+        let succeeded = result.ok;
+        let error_payload = result.error.clone();
+        let dispatch = self.core.dispatch_core_effect_results(vec![result]);
+        let acknowledgement_status = dispatch
+            .as_ref()
+            .map(|report| effect_acknowledgement_status(report, &effect_id))
+            .unwrap_or("dispatchFailed");
+        let effect_accepted = succeeded && acknowledgement_status == "accepted";
+        self.record_effect_outcome_failures(
+            action_name,
+            &effect_id,
+            &operation_id,
+            error_payload.as_ref(),
+            acknowledgement_status,
+            started.elapsed(),
+            persist_runtime,
+            &scope,
+        );
+        self.record_runtime_stage(
+            format!("navigation-submitted:{operation_id}"),
+            if effect_accepted {
+                "completed"
+            } else {
+                "failed"
+            },
+            started,
+        );
+        if effect_accepted && persist_runtime {
+            self.publish_projection();
+        }
+
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
-            let lifecycle_epoch = pending
-                .first()
-                .map(|pending| pending.lifecycle_epoch)
-                .unwrap_or_else(|| runtime.lifecycle_epoch());
-            let role_ids = pending
-                .iter()
-                .map(|pending| pending.role_id.clone())
-                .collect::<Vec<_>>();
-            let mut navigation_error: Option<(&'static str, String)> = None;
+            let mut ready_roles = HashSet::new();
+            let mut failed_roles = Vec::new();
             for pending_navigation in &pending {
-                if navigation_error.is_some() {
-                    if let Some(operation) = pending_navigation.operation.clone() {
-                        pending_navigation.navigation.reset();
-                        runtime.record_native_operation_receipt(
-                            NativeOperationReceipt::with_status(
-                                operation,
-                                "navigationBatchAborted",
-                                NativeOperationStatus::Superseded,
-                                Some("SYSTEM_NAVIGATION_SUPERSEDED"),
-                            ),
-                        );
-                    }
-                    continue;
-                }
-                if let Some(operation) = pending_navigation.operation.clone() {
+                let status = if let Some(operation) = pending_navigation.operation.clone() {
                     let receipt = runtime
                         .wait_role_navigation_for_lifecycle(pending_navigation, operation)
                         .await;
                     let status = receipt.status;
                     let failure_code = receipt.failure_code.clone();
                     runtime.record_native_operation_receipt(receipt);
-                    if status != NativeOperationStatus::Applied {
-                        navigation_error = Some((
-                            if status == NativeOperationStatus::Superseded {
-                                "SYSTEM_NAVIGATION_SUPERSEDED"
-                            } else {
-                                "TAURI_NAVIGATION_FAILED"
-                            },
+                    if matches!(
+                        status,
+                        NativeOperationStatus::Degraded
+                            | NativeOperationStatus::Failed
+                            | NativeOperationStatus::Indeterminate
+                    ) {
+                        failed_roles.push((
+                            pending_navigation.role_id.clone(),
+                            pending_navigation.surface.label().to_owned(),
                             failure_code.unwrap_or_else(|| {
                                 "System WebView navigation did not complete.".to_owned()
                             }),
                         ));
-                        continue;
                     }
+                    status
+                } else {
+                    NativeOperationStatus::Applied
+                };
+                if status == NativeOperationStatus::Applied {
+                    ready_roles.insert(pending_navigation.role_id.clone());
                 }
-                runtime.record_runtime_stage(
-                    format!("page-finished:{}", pending_navigation.role_id),
-                    "completed",
-                    started,
-                );
             }
+            if !effect_accepted {
+                ready_roles.clear();
+                failed_roles.clear();
+            }
+
             let runtime_for_completion = Arc::clone(&runtime);
             let completion = tauri::async_runtime::spawn_blocking(move || {
                 let controlled_labels = pending
                     .iter()
                     .map(|pending| pending.surface.label().to_owned())
                     .collect::<Vec<_>>();
-                let result = if let Some((code, message)) = navigation_error {
-                    Err(RuntimeError::new(code, message))
-                } else if !runtime_for_completion
-                    .application_lifecycle_epoch_matches(lifecycle_epoch)
-                {
-                    Err(RuntimeError::new(
-                        "SYSTEM_LIFECYCLE_STALE",
-                        "The role navigation was accepted before the current application lifecycle epoch.",
-                    ))
-                } else {
-                    pending.iter().try_for_each(|pending| {
-                        runtime_for_completion
-                            .require_application_lifecycle_epoch(pending.lifecycle_epoch)?;
-                        runtime_for_completion
-                            .reassert_role_keys(&pending.role_id, &pending.surface)
-                    })
-                };
+                let mut ready_tabs = HashSet::new();
+                for pending_navigation in &pending {
+                    if !ready_roles.contains(&pending_navigation.role_id)
+                        || !runtime_for_completion
+                            .application_lifecycle_epoch_matches(pending_navigation.lifecycle_epoch)
+                    {
+                        continue;
+                    }
+                    let current_tab_id = runtime_for_completion.state.lock().ok().and_then(|state| {
+                        let tab_id = state.role_tabs.get(&pending_navigation.role_id)?.clone();
+                        let surface = state.tabs.get(&tab_id)?.roles.get(&pending_navigation.role_id)?;
+                        (surface.webview.label() == pending_navigation.surface.label())
+                            .then_some(tab_id)
+                    });
+                    let Some(tab_id) = current_tab_id else {
+                        continue;
+                    };
+                    if runtime_for_completion
+                        .reassert_role_keys(
+                            &pending_navigation.role_id,
+                            &pending_navigation.surface,
+                        )
+                        .is_ok()
+                    {
+                        runtime_for_completion.record_runtime_stage(
+                            format!(
+                                "tab.page-ready:{tab_id}:{}",
+                                pending_navigation.role_id
+                            ),
+                            "completed",
+                            started,
+                        );
+                        ready_tabs.insert(tab_id);
+                    }
+                }
                 runtime_for_completion.finish_controlled_navigations(&controlled_labels);
-                result
+                ready_tabs
             })
             .await
-            .unwrap_or_else(|error| {
-                Err(RuntimeError::new(
-                    "TAURI_NAVIGATION_FAILED",
-                    format!("Navigation completion task failed: {error}"),
-                ))
-            });
-            let mut result = match completion {
-                Ok(()) => CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: true,
-                    value_json: None,
-                    error: None,
-                },
-                Err(error) => CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: false,
-                    value_json: None,
-                    error: Some(rion_core::CoreErrorPayload {
-                        code: error.code.to_owned(),
-                        message: error.message,
-                    }),
-                },
-            };
-            if result.ok
-                && !runtime
-                    .application_lifecycle_epoch_matches(lifecycle_epoch)
-            {
-                result = CoreEffectResult {
-                    effect_id: effect_id.clone(),
-                    operation_id: operation_id.clone(),
-                    ok: false,
-                    value_json: None,
-                    error: Some(rion_core::CoreErrorPayload {
-                        code: "SYSTEM_LIFECYCLE_STALE".to_owned(),
-                        message: "The role navigation completed after its application lifecycle epoch ended."
-                            .to_owned(),
-                    }),
-                };
-            }
-            if result.ok {
-                let tab_ids = runtime
-                    .state
-                    .lock()
-                    .ok()
-                    .map(|state| {
-                        role_ids
-                            .iter()
-                            .filter_map(|role_id| state.role_tabs.get(role_id).cloned())
-                            .collect::<HashSet<_>>()
-                    })
-                    .unwrap_or_default();
-                for tab_id in tab_ids {
+            .unwrap_or_default();
+
+            if runtime.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                for tab_id in completion {
                     runtime.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
                     runtime.schedule_optional_hydration(&tab_id);
                 }
             }
-            let persistence_error = (result.ok && persist_runtime)
-                .then(|| runtime.persist_restore_session(false).err())
-                .flatten();
-            result = finalize_persisted_effect_result(result, persist_runtime, persistence_error);
-            let succeeded = result.ok;
-            let error_payload = result.error.clone();
-            eprintln!(
-                "System WebView effect: {action_name} completed asynchronously (ok={succeeded}, elapsedMs={}).",
-                started.elapsed().as_millis()
-            );
-            let dispatch = runtime.core.dispatch_core_effect_results(vec![result]);
-            let acknowledgement_status = dispatch
-                .as_ref()
-                .map(|report| effect_acknowledgement_status(report, &effect_id))
-                .unwrap_or("dispatchFailed");
-            runtime.record_effect_outcome_failures(
-                action_name,
-                &effect_id,
-                &operation_id,
-                error_payload.as_ref(),
-                acknowledgement_status,
-                started.elapsed(),
-                persist_runtime,
-                &scope,
-            );
-            if dispatch.is_ok() && succeeded && persist_runtime {
-                runtime.publish_projection();
+            for (role_id, surface_label, failure) in failed_roles {
+                let current = runtime.state.lock().ok().and_then(|state| {
+                    let tab_id = state.role_tabs.get(&role_id)?.clone();
+                    let surface = state.tabs.get(&tab_id)?.roles.get(&role_id)?;
+                    (surface.webview.label() == surface_label)
+                        .then_some((tab_id, surface.generation))
+                });
+                if let Some((tab_id, generation)) = current {
+                    runtime.set_launch_phase(&tab_id, LaunchPhase::Degraded);
+                    runtime.record_runtime_stage(
+                        format!("tab.page-ready:{tab_id}:{role_id}:{failure}"),
+                        "failed",
+                        started,
+                    );
+                    runtime.schedule_surface_recovery(
+                        role_id,
+                        "navigation-page-ready-failed".to_owned(),
+                        generation,
+                    );
+                }
             }
         });
     }

@@ -329,6 +329,7 @@ impl SystemRuntimeExecutor {
         if let Ok(mut state) = self.state.lock() {
             state.close_coordinator.closing_roles.remove(role_id);
         }
+        self.tab_close_changed.notify_all();
         result
     }
 

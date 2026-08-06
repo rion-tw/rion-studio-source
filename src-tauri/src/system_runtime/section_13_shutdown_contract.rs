@@ -85,7 +85,7 @@ impl SystemRuntimeExecutor {
         let unreleased_count = surfaces
             .iter()
             .filter(|surface| {
-                !surface.lifecycle.wait_for_controller_release(
+                !surface.lifecycle.wait_for_store_reusable(
                     platform,
                     deadline.saturating_duration_since(Instant::now()),
                 )

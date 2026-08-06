@@ -579,6 +579,21 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(target_os = "macos")]
+fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_release_surface(token: u64) -> bool;
+    }
+    let token = lifecycle.native_token.load(Ordering::Acquire);
+    if token == 0 || !unsafe { rion_wk_release_surface(token) } {
+        return Err(RuntimeError::new(
+            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+            "WKWebView rejected the exact native surface release request.",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
     use std::{ffi::c_void, os::raw::c_char};
 

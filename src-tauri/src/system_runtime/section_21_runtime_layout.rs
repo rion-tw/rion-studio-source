@@ -947,6 +947,7 @@ impl SystemRuntimeExecutor {
             }
             (failed, retirement_revision.or(expected_retirement_revision))
         });
+        self.tab_close_changed.notify_all();
         match retirement {
             Some((true, _)) => return,
             Some((false, None)) if self.state.lock().ok().is_some_and(|state| {

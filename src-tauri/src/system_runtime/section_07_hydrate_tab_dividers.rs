@@ -288,11 +288,6 @@ impl SystemRuntimeExecutor {
                     }
                 }
             }
-            SystemRuntimeWork::FinalizeSurfaceRelease {
-                instance_id,
-                isolated,
-                released,
-            } => self.finalize_surface_release(&instance_id, isolated, released),
         }
     }
 

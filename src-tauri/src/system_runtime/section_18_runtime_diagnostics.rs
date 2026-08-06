@@ -81,7 +81,6 @@ fn diagnostic_surface_is_closing(phase: ManagedSurfacePhase) -> bool {
         ManagedSurfacePhase::CloseRequested
             | ManagedSurfacePhase::Isolating
             | ManagedSurfacePhase::Isolated
-            | ManagedSurfacePhase::Releasing
             | ManagedSurfacePhase::Retired
     )
 }

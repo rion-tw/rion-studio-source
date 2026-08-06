@@ -22,6 +22,22 @@ fn window_close_failure_status(
     }
 }
 
+fn window_close_in_progress(state: &RuntimeState, window_id: &str) -> bool {
+    if state.retiring_window_tabs.contains_key(window_id) {
+        return true;
+    }
+    let Some(generation) = state
+        .display_hosts
+        .get(window_id)
+        .map(|host| host.generation)
+    else {
+        return false;
+    };
+    state
+        .window_closes
+        .contains_window_generation(window_id, generation)
+}
+
 impl SystemRuntimeExecutor {
     pub(crate) fn live_window_tab_ids(&self, window_id: &str) -> Result<Vec<String>, String> {
         self.presentation
@@ -33,21 +49,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn current_window_close_in_progress(&self, window_id: &str) -> bool {
-        self.state.lock().ok().is_some_and(|state| {
-            if state.retiring_window_tabs.contains_key(window_id) {
-                return true;
-            }
-            let Some(generation) = state
-                .display_hosts
-                .get(window_id)
-                .map(|host| host.generation)
-            else {
-                return false;
-            };
-            state
-                .window_closes
-                .contains_window_generation(window_id, generation)
-        })
+        self.state
+            .lock()
+            .ok()
+            .is_some_and(|state| window_close_in_progress(&state, window_id))
     }
 
     pub(crate) fn wait_for_window_close_before_reopen(
@@ -76,14 +81,29 @@ impl SystemRuntimeExecutor {
             }
         }
         let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
-        while self.current_window_close_in_progress(window_id) {
-            if Instant::now() >= deadline {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        while window_close_in_progress(&state, window_id) {
+            let now = Instant::now();
+            if now >= deadline {
                 return Err(
                     "The previous native window generation is still releasing its role surfaces."
                         .to_owned(),
                 );
             }
-            std::thread::sleep(Duration::from_millis(10));
+            let (next, timeout) = self
+                .tab_close_changed
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+            state = next;
+            if timeout.timed_out() && window_close_in_progress(&state, window_id) {
+                return Err(
+                    "The previous native window generation is still releasing its role surfaces."
+                        .to_owned(),
+                );
+            }
         }
         Ok(())
     }

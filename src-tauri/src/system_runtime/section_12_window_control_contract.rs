@@ -51,6 +51,40 @@ impl SystemRuntimeExecutor {
         .map_err(|error| error.message)
     }
 
+    pub(crate) fn reveal_live_runtime_window(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+    ) -> Result<bool, String> {
+        let started = Instant::now();
+        let live_tab_count = self
+            .presentation
+            .existing(window_id)
+            .map(|live| {
+                live.lock()
+                    .map(|state| state.all_tab_ids().len())
+                    .map_err(|_| "Live runtime window state is unavailable.".to_owned())
+            })
+            .transpose()?;
+        if !live_window_activation_available(live_tab_count) {
+            return Ok(false);
+        }
+        self.request_window_contract_presentation(
+            window_id,
+            Some(true),
+            NativePresentationFocus::None,
+            None,
+            trigger,
+        )
+        .map_err(|error| error.message)?;
+        self.record_runtime_stage(
+            format!("window.first-visible:{window_id}"),
+            "completed",
+            started,
+        );
+        Ok(true)
+    }
+
     pub fn hide_runtime_window(
         &self,
         window_id: &str,

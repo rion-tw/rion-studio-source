@@ -98,6 +98,12 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+    lifecycle.mark_native_surface_released();
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn set_audio_muted(_webview: &Webview, _muted: bool) -> RuntimeResult<()> {
     Err(RuntimeError::new(
         "TAURI_AUDIO_MUTE_FAILED",

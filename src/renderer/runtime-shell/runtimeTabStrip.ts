@@ -421,6 +421,11 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     dispatch({ type: "openTabMenu", tabId });
   });
   button.addEventListener("dragstart", (event) => {
+    const sourceWindowId = runtimeState.current?.windowId;
+    if (!sourceWindowId) {
+      event.preventDefault();
+      return;
+    }
     clearDropIndicator();
     clearDragVisual({ mode: "restore" });
     runtimeState.dragOriginActiveTabId = runtimeState.activeTabId;
@@ -436,6 +441,7 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     const tabHeight = Math.max(1, bounds.height || button.offsetHeight || 28);
     const payload: RuntimeTabDragPayload = {
       sessionId: runtimeState.dragSessionId,
+      sourceWindowId,
       tabId,
       tabWidth,
       tabHeight,
@@ -470,35 +476,43 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
   });
   button.addEventListener("dragend", (event) => {
     const endingSessionId = runtimeState.dragSessionId;
+    const localDropAccepted = endingSessionId !== undefined
+      && localDropSessions.has(endingSessionId);
     clearDropIndicator();
     stopEdgeScroll();
     if (runtimeState.dragMoveFrame !== undefined) {
       cancelAnimationFrame(runtimeState.dragMoveFrame);
       runtimeState.dragMoveFrame = undefined;
     }
-    if (runtimeState.dragSessionId) {
+    if (runtimeState.dragSessionId && !runtimeState.dragCancelled) {
       const terminalPoint = runtimeState.pendingDragPoint ?? (
         event.screenX !== 0 || event.screenY !== 0
           ? { screenX: event.screenX, screenY: event.screenY }
           : runtimeState.lastDragPoint
       ) ?? { screenX: event.screenX, screenY: event.screenY };
-      const sourceEndAction: RuntimeTabAction = {
-        type: "tabDragSourceEnd",
-        sessionId: runtimeState.dragSessionId,
-        cancelled: runtimeState.dragCancelled,
-        dropAccepted: event.dataTransfer?.dropEffect === "move",
-        ...terminalPoint
-      };
+      const terminalAction: RuntimeTabAction = localDropAccepted
+        ? {
+          type: "tabDragSourceEnd",
+          sessionId: runtimeState.dragSessionId,
+          cancelled: false,
+          dropAccepted: true,
+          ...terminalPoint
+        }
+        : {
+          type: "tabDragCancel",
+          sessionId: runtimeState.dragSessionId
+        };
       // WebView2 implements HTML drag through a nested OLE loop. Posting the
       // terminal action guarantees native topology changes cannot run from the
       // dragend callback itself.
-      setTimeout(() => dispatch(sourceEndAction), 0);
+      setTimeout(() => dispatch(terminalAction), 0);
     }
     clearDragVisual({
-      mode: runtimeState.dragCancelled || runtimeState.dragVisualState?.suspended
-        ? "restore"
-        : "settle"
+      mode: localDropAccepted ? "settle" : "restore"
     });
+    if (!localDropAccepted && runtimeState.dragOriginActiveTabId) {
+      optimisticallyActivateTab(runtimeState.dragOriginActiveTabId);
+    }
     clearDragProxy();
     if (endingSessionId) localDropSessions.delete(endingSessionId);
     runtimeState.draggingTabId = undefined;
@@ -509,23 +523,23 @@ export function installTabButtonInteractions(button: HTMLButtonElement, tabId: s
     runtimeState.dragCancelled = false;
   });
   button.addEventListener("dragover", (event) => {
+    const payload = runtimeTabDragPayload(event.dataTransfer);
+    if (!payload) return;
     event.preventDefault();
     event.stopPropagation();
-    const payload = runtimeTabDragPayload(event.dataTransfer);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
-    if (payload) clearDropIndicator();
-    else setDropIndicator(beforeTab);
+    clearDropIndicator();
     previewDragPosition(payload, beforeTab, event.clientX);
     scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
     scrollForDragPoint(event.clientX, Boolean(payload));
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   });
   button.addEventListener("drop", (event) => {
+    const payload = runtimeTabDragPayload(event.dataTransfer);
+    if (!payload || !runtimeState.current) return;
     event.preventDefault();
     event.stopPropagation();
     clearDropIndicator();
-    const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload || !runtimeState.current) return;
     localDropSessions.add(payload.sessionId);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
     previewDragPosition(payload, beforeTab, event.clientX);
@@ -622,7 +636,9 @@ export function adoptDragSurface(button: HTMLButtonElement): void {
   if (!visual || button.dataset.tabId !== visual.tabId) return;
   if (visual.surface && visual.surface !== button) clearDragSurfaceStyles(visual.surface);
   visual.surface = button;
-  document.body.append(button);
+  // WebView2 ends its nested OLE drag loop if the original HTML drag source is
+  // synchronously reparented. Fixed positioning lifts it without disconnecting
+  // it from the tab strip that owns the active drag gesture.
   button.classList.add("drag-surface");
   button.classList.remove("drag-placeholder", "drag-surface-suspended", "dragging");
   button.setAttribute("aria-grabbed", "true");
@@ -735,13 +751,6 @@ export function clearDragVisual(options: {
     applyRuntimeTabOrder(visual.originOrder, true);
   }
   scheduleScrollControlsUpdate();
-}
-
-export function setDropIndicator(beforeTab?: HTMLButtonElement): void {
-  root.classList.toggle("drop-at-end", !beforeTab);
-  for (const tab of tabElements()) {
-    tab.classList.toggle("drop-before", tab === beforeTab);
-  }
 }
 
 export function clearDropIndicator(): void {

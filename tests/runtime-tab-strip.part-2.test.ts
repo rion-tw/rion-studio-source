@@ -191,7 +191,12 @@ function setTabGeometry(width = 140, spacing = 10): void {
 
 function dragTransfer(payload?: Record<string, unknown>) {
   const values = new Map<string, string>();
-  if (payload) values.set("text/rion-runtime-tab", JSON.stringify(payload));
+  if (payload) {
+    values.set("text/rion-runtime-tab", JSON.stringify({
+      sourceWindowId: "window-1",
+      ...payload
+    }));
+  }
   return {
     dropEffect: "move",
     effectAllowed: "none",
@@ -270,7 +275,15 @@ it("maps a vertical wheel and drag-edge movement into horizontal scrolling", asy
     expect(geometry.scrollLeft).toBe(40);
 
     const drag = new Event("dragover", { bubbles: true, cancelable: true });
-    Object.defineProperty(drag, "clientX", { value: 195 });
+    Object.defineProperties(drag, {
+      clientX: { value: 195 },
+      dataTransfer: { value: dragTransfer({
+        sessionId: "single-edge-scroll",
+        tabId: "tab-1",
+        tabWidth: 160,
+        tabHeight: 28
+      }) }
+    });
     root.dispatchEvent(drag);
     expect(geometry.scrollLeft).toBe(54);
   });
@@ -303,7 +316,7 @@ it("continues distance-sensitive edge scrolling until the drag leaves the strip"
     expect(geometry.scrollLeft).toBe(stopped);
   });
 
-it("uses the original tab as the only drag surface with an equal-width transparent slot", () => {
+it("keeps the original drag source connected beside its equal-width transparent slot", () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
     const dragged = document.querySelector<HTMLElement>('[data-tab-id="tab-3"]')!;
     document.querySelectorAll<HTMLElement>("#tabs .tab").forEach((tab, index) => {
@@ -327,6 +340,7 @@ it("uses the original tab as the only drag surface with an equal-width transpare
 
     const slot = document.querySelector<HTMLElement>('[data-drag-slot-session="drag-placeholder"]')!;
     expect(dragged.classList.contains("drag-surface")).toBe(true);
+    expect(dragged.parentElement).toBe(document.querySelector("#tabs"));
     expect(dragged.getAttribute("aria-hidden")).toBe("true");
     expect(slot.textContent).toBe("");
     expect(slot.style.width).toBe("168px");
@@ -559,6 +573,7 @@ it("preserves native grab geometry on the real HTML drag surface", async () => {
     expect(dataTransfer.setDragImage.mock.calls[0]?.[0]).toBeInstanceOf(HTMLButtonElement);
     const dragSurface = document.querySelector<HTMLElement>(".drag-surface")!;
     expect(dragSurface).toBe(tab);
+    expect(dragSurface.parentElement).toBe(document.querySelector("#tabs"));
     expect(dragSurface.classList.contains("active")).toBe(true);
     expect(dragSurface.querySelector(".name")?.textContent).toBe("Workspace 1");
     expect(document.querySelector(".drag-preview")).toBeNull();
@@ -566,9 +581,9 @@ it("preserves native grab geometry on the real HTML drag surface", async () => {
     expect(dragSurface.getAttribute("aria-hidden")).toBe("true");
     expect(dragSurface.style.left).toBe("100px");
     expect(dragSurface.style.top).toBe("0px");
-    expect(JSON.parse(dataTransfer.getData("text/rion-runtime-tab"))).not.toHaveProperty(
-      "previewMarkup"
-    );
+    const payload = JSON.parse(dataTransfer.getData("text/rion-runtime-tab"));
+    expect(payload.sourceWindowId).toBe("window-1");
+    expect(payload).not.toHaveProperty("previewMarkup");
 
     const dragOverAt = (clientX: number, clientY: number) => {
       const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
@@ -608,59 +623,29 @@ it("preserves native grab geometry on the real HTML drag surface", async () => {
     expect(document.querySelector(".drag-proxy")).toBeNull();
   });
 
-it("hands an external slot to the real target tab without creating preview markup", () => {
+it("rejects tab drags originating from another Windows window", () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
     const root = document.querySelector<HTMLDivElement>("#tabs")!;
     const dataTransfer = dragTransfer({
       grabRatioX: 0.25,
       sessionId: "cross-window-preview",
+      sourceWindowId: "window-2",
       tabHeight: 28,
       tabId: "external-tab",
       tabWidth: 160
     });
-    const dragOverAt = (clientX: number, clientY: number) => {
-      const event = new Event("dragover", { bubbles: true, cancelable: true });
-      Object.defineProperties(event, {
-        clientX: { value: clientX },
-        clientY: { value: clientY },
-        dataTransfer: { value: dataTransfer }
-      });
-      root.dispatchEvent(event);
-    };
-
-    dragOverAt(100, 2);
-    expect(document.querySelector(".drag-preview")).toBeNull();
-    expect(document.querySelector<HTMLElement>(".drag-slot")?.textContent).toBe("");
-    expect(document.querySelector(".drag-surface")).toBeNull();
-    dragOverAt(180, 30);
-
-    document.body.dispatchEvent(new Event("dragleave", { bubbles: true }));
-    expect(document.querySelector(".drag-slot")).toBeNull();
-    Object.defineProperty(root, "getBoundingClientRect", {
-      configurable: true,
-      value: () => ({
-        bottom: 131,
-        height: 31,
-        left: 0,
-        right: 1_000,
-        toJSON: () => ({}),
-        top: 100,
-        width: 1_000,
-        x: 0,
-        y: 100
-      })
+    const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragOver, {
+      clientX: { value: 100 },
+      clientY: { value: 2 },
+      dataTransfer: { value: dataTransfer }
     });
-    dragOverAt(220, 120);
-    window.__rionEnsureRuntimeTab?.({ id: "external-tab", name: "External tab", type: "role" });
-    const targetSurface = document.querySelector<HTMLElement>(
-      '[data-tab-id="external-tab"]'
-    )!;
-    expect(targetSurface.classList.contains("drag-surface")).toBe(true);
-    expect(targetSurface.getAttribute("aria-hidden")).toBe("true");
-    expect(targetSurface.querySelector(".name")?.textContent).toBe("External tab");
-    expect(targetSurface.style.left).toBe("180px");
-    expect(targetSurface.style.top).toBe("100px");
-    expect(document.querySelectorAll('[data-tab-id="external-tab"]')).toHaveLength(1);
+    root.dispatchEvent(dragOver);
+
+    expect(dragOver.defaultPrevented).toBe(false);
+    expect(document.querySelector(".drag-slot")).toBeNull();
+    expect(document.querySelector(".drag-surface")).toBeNull();
+
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperties(drop, {
       dataTransfer: { value: dataTransfer },
@@ -668,9 +653,12 @@ it("hands an external slot to the real target tab without creating preview marku
       screenY: { value: 220 }
     });
     root.dispatchEvent(drop);
+
+    expect(drop.defaultPrevented).toBe(false);
     expect(document.querySelector(".drag-slot")).toBeNull();
-    expect(targetSurface.classList.contains("drag-surface")).toBe(false);
-    expect(targetSurface.hasAttribute("aria-hidden")).toBe(false);
+    expect(invoke.mock.calls.some((call) => (
+      call as unknown as [string, { action: { type: string } }]
+    )[1].action.type === "tabDragDrop")).toBe(false);
   });
 
 it("selects an inactive tab as soon as its drag starts", async () => {
@@ -698,6 +686,9 @@ it("selects an inactive tab as soon as its drag starts", async () => {
     });
     tab.dispatchEvent(dragEnd);
     await flushPostedDragAction();
+    expect(document.querySelector('[data-tab-id="tab-1"]')?.classList.contains("active"))
+      .toBe(true);
+    expect(tab.classList.contains("active")).toBe(false);
   });
 
 it("cancels an active drag with Escape and removes its placeholder", async () => {
@@ -729,7 +720,7 @@ it("cancels an active drag with Escape and removes its placeholder", async () =>
     await flushPostedDragAction();
   });
 
-it("does not treat HTML drag pointer handoff as cancellation", async () => {
+it("waits for dragend before cancelling a drag released outside the window", async () => {
     const tab = document.querySelector<HTMLElement>('[data-tab-id="tab-1"]')!;
     const dataTransfer = dragTransfer();
     const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
@@ -755,22 +746,16 @@ it("does not treat HTML drag pointer handoff as cancellation", async () => {
       screenY: { value: 340 }
     });
     tab.dispatchEvent(dragEnd);
-    expect(invoke.mock.calls.some((call) => (
-      call as unknown as [string, { action: { type: string } }]
-    )[1].action.type === "tabDragSourceEnd")).toBe(false);
     await flushPostedDragAction();
 
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
-      action: expect.objectContaining({
-        type: "tabDragSourceEnd",
-        cancelled: false,
-        dropAccepted: false,
-        screenX: 520,
-        screenY: 340
-      })
+      action: expect.objectContaining({ type: "tabDragCancel" })
     });
+    expect(invoke.mock.calls.some((call) => (
+      call as unknown as [string, { action: { type: string } }]
+    )[1].action.type === "tabDragSourceEnd")).toBe(false);
   });
-it("keeps the source tab recoverable while a cross-window drop is being committed", async () => {
+it("restores the source tab when it is released outside its window", async () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs());
     const tab = document.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;
     const dataTransfer = dragTransfer();
@@ -783,6 +768,10 @@ it("keeps the source tab recoverable while a cross-window drop is being committe
     tab.dispatchEvent(dragStart);
     document.body.dispatchEvent(new Event("dragleave", { bubbles: true }));
     expect(tab.classList.contains("drag-surface-suspended")).toBe(true);
+    const outsideDrop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(outsideDrop, "dataTransfer", { value: dataTransfer });
+    document.body.dispatchEvent(outsideDrop);
+    expect(outsideDrop.defaultPrevented).toBe(false);
 
     const dragEnd = new Event("dragend", { bubbles: true });
     Object.defineProperties(dragEnd, {
@@ -796,6 +785,12 @@ it("keeps the source tab recoverable while a cross-window drop is being committe
     expect(document.querySelector('[data-tab-id="tab-1"]')).toBe(tab);
     expect(tab.classList.contains("drag-surface")).toBe(false);
     expect(tab.hasAttribute("aria-hidden")).toBe(false);
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: expect.objectContaining({ type: "tabDragCancel" })
+    });
+    expect(invoke.mock.calls.some((call) => (
+      call as unknown as [string, { action: { type: string } }]
+    )[1].action.type === "tabDragSourceEnd")).toBe(false);
   });
 
 });

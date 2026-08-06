@@ -238,6 +238,9 @@ use super::*;
         assert!(deferred_tab_drag_terminal_ready(false, true, true));
         assert!(deferred_tab_drag_terminal_ready(false, false, false));
         assert!(deferred_tab_drag_terminal_ready(true, true, false));
+
+        assert!(windows_html_tab_drag_target_is_local("source", "source"));
+        assert!(!windows_html_tab_drag_target_is_local("source", "target"));
     }
 
     #[test]

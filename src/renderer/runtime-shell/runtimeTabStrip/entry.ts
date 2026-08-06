@@ -11,11 +11,11 @@ import type { RuntimeTabChromeProjectionRecord } from "../../../shared/generated
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
-import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, windowCloseButton, windowControls, windowDragRegion, windowIdentity, windowMaximizeButton, windowMinimizeButton, windowName, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, suspendDragVisual, syncCloseControlState, terminalDragSessions, windowCloseButton, windowControls, windowDragRegion, windowIdentity, windowMaximizeButton, windowMinimizeButton, windowName, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 import type { RuntimeTabModel } from "../runtimeTabStrip";
 
-import { animateReorderedTabs, optimisticallyActivateTab, previewDragPosition, rememberDragInsertion, resolveStableDragInsertion, scheduleDragHover } from "./drag";
+import { animateReorderedTabs, optimisticallyActivateTab, previewDragPosition, resolveStableDragInsertion, scheduleDragHover } from "./drag";
 
 import {
   acknowledgeChromeProjection,
@@ -277,6 +277,7 @@ export function applyRuntimeTabOrder(tabIds: string[], animate: boolean): void {
 
 export type RuntimeTabDragPayload = {
   sessionId: string;
+  sourceWindowId: string;
   tabId: string;
   tabWidth: number;
   tabHeight: number;
@@ -291,11 +292,14 @@ export function runtimeTabDragPayload(
   if (!raw) return undefined;
   try {
     const value = JSON.parse(raw) as Record<string, unknown>;
-    if (typeof value.sessionId !== "string" || typeof value.tabId !== "string"
+    if (typeof value.sessionId !== "string" || typeof value.sourceWindowId !== "string"
+      || value.sourceWindowId !== runtimeState.current?.windowId
+      || typeof value.tabId !== "string"
       || typeof value.tabWidth !== "number" || !Number.isFinite(value.tabWidth)
       || typeof value.tabHeight !== "number" || !Number.isFinite(value.tabHeight)) return undefined;
     return {
       sessionId: value.sessionId,
+      sourceWindowId: value.sourceWindowId,
       tabId: value.tabId,
       tabWidth: Math.max(1, value.tabWidth),
       tabHeight: Math.max(1, value.tabHeight),
@@ -435,9 +439,12 @@ function refreshDragVisualForScroll(): void {
   const visual = runtimeState.dragVisualState;
   if (!visual || visual.suspended || visual.latestClientX === undefined
     || terminalDragSessions.has(visual.sessionId)) return;
+  const sourceWindowId = runtimeState.current?.windowId;
+  if (!sourceWindowId) return;
   const payload: RuntimeTabDragPayload = {
     grabRatioX: visual.grabRatioX,
     sessionId: visual.sessionId,
+    sourceWindowId,
     tabHeight: visual.tabHeight,
     tabId: visual.tabId,
     tabWidth: visual.tabWidth
@@ -669,12 +676,12 @@ export function installRuntimeTabStrip(): void {
   }, true);
 
   root.addEventListener("dragover", (event) => {
+    const payload = runtimeTabDragPayload(event.dataTransfer);
+    if (!payload) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-    const payload = runtimeTabDragPayload(event.dataTransfer);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
-    if (payload) clearDropIndicator();
-    else setDropIndicator();
+    clearDropIndicator();
     previewDragPosition(payload, beforeTab, event.clientX);
     scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
     scrollForDragPoint(event.clientX, Boolean(payload));
@@ -687,10 +694,10 @@ export function installRuntimeTabStrip(): void {
   });
 
   root.addEventListener("drop", (event) => {
-    event.preventDefault();
-    clearDropIndicator();
     const payload = runtimeTabDragPayload(event.dataTransfer);
     if (!payload || !runtimeState.current) return;
+    event.preventDefault();
+    clearDropIndicator();
     localDropSessions.add(payload.sessionId);
     const beforeTab = resolveStableDragInsertion(payload, event.clientX);
     previewDragPosition(payload, beforeTab, event.clientX);
@@ -712,16 +719,9 @@ export function installRuntimeTabStrip(): void {
     if (event.target instanceof Node && root.contains(event.target)) return;
     const payload = runtimeTabDragPayload(event.dataTransfer);
     if (!payload) return;
-    event.preventDefault();
     clearDropIndicator();
-    const beforeTab = event.clientX <= root.getBoundingClientRect().left
-      ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
-      : undefined;
-    rememberDragInsertion(payload, beforeTab, event.clientX);
-    previewDragPosition(payload, beforeTab, event.clientX);
-    scheduleDragHover(payload, beforeTab?.dataset.tabId, event);
+    suspendDragVisual();
     stopEdgeScroll();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
   });
 
   document.body.addEventListener("dragleave", (event) => {
@@ -733,25 +733,9 @@ export function installRuntimeTabStrip(): void {
   document.body.addEventListener("drop", (event) => {
     if (event.target instanceof Node && root.contains(event.target)) return;
     const payload = runtimeTabDragPayload(event.dataTransfer);
-    if (!payload || !runtimeState.current) return;
-    localDropSessions.add(payload.sessionId);
-    event.preventDefault();
-    const beforeTab = event.clientX <= root.getBoundingClientRect().left
-      ? tabElements().find((tab) => tab.dataset.tabId !== payload.tabId)
-      : undefined;
-    rememberDragInsertion(payload, beforeTab, event.clientX);
-    previewDragPosition(payload, beforeTab, event.clientX);
-    const orderedTabIds = logicalRuntimeTabOrder();
-    dispatch({
-      type: "tabDragDrop",
-      sessionId: payload.sessionId,
-      windowId: runtimeState.current.windowId,
-      screenX: event.screenX,
-      screenY: event.screenY,
-      orderedTabIds,
-      ...(beforeTab?.dataset.tabId ? { beforeTabId: beforeTab.dataset.tabId } : {})
-    });
-    clearDragVisual({ mode: "settle", sessionId: payload.sessionId });
+    if (!payload) return;
+    clearDropIndicator();
+    suspendDragVisual();
     stopEdgeScroll();
   });
 

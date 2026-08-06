@@ -18,24 +18,14 @@ async fn finish_deferred_tab_drag_session(
         );
         return finish_cancelled_tab_drag(app, state, session);
     }
-    if session.source_drop_accepted && session.drop_window_id.is_none() {
+    if session.drop_window_id.is_none() {
         record_tab_drag_lifecycle(
             state,
             &session,
-            "tab.drag-drop-superseded",
-            "The source ended before a matching HTML drop intent arrived.",
+            "tab.drag-local-drop-missing",
+            "The Windows HTML tab drag ended without a local drop and was cancelled.",
         );
-        release_tab_drag_window_motion_suppression(state, &session, None);
-        let receipt = complete_tab_drag_terminal(
-            app,
-            state,
-            &session,
-            "tabDragDropSuperseded",
-            RuntimeTabDragTerminalStatus::Superseded,
-            None,
-            0,
-        )?;
-        return serialize_tab_drag_response(&receipt);
+        return finish_cancelled_tab_drag(app, state, session);
     }
     session.phase = GameWindowTabDragPhase::Finishing;
     if let Some(error) = tab_drag_fence_error(state, &session) {
@@ -67,7 +57,7 @@ async fn finish_deferred_tab_drag_session(
         "tab.drag-native-commit-started",
         "The native drag ended; tab topology commit is starting.",
     );
-    if let Err(error) = apply_deferred_tab_drag_destination(app, state, &mut session) {
+    if let Err(error) = apply_deferred_tab_drag_destination(state, &mut session) {
         record_tab_drag_lifecycle(
             state,
             &session,
@@ -117,88 +107,46 @@ fn record_tab_drag_lifecycle(
 }
 
 fn apply_deferred_tab_drag_destination(
-    app: &AppHandle,
     state: &CoreState,
     session: &mut GameWindowTabDragSession,
 ) -> Result<(), CoreErrorPayload> {
-    if let Some(target_window_id) = session.drop_window_id.clone() {
-        let before_tab_id = session.drop_before_tab_id.clone();
-        let ordered_tab_ids = session.drop_ordered_tab_ids.clone().ok_or_else(|| {
-            shell_error(
-                "TAURI_TAB_DRAG_INVALID",
-                "The accepted drop did not carry its complete visible order.",
-            )
-        })?;
-        let materialized = attach_tab_drag_session(
-            state,
-            session,
-            &target_window_id,
-            before_tab_id.as_deref(),
-            Some(&ordered_tab_ids),
-        );
-        if let Err(error) = materialized {
-            eprintln!(
-                "Committed tab drag surface will retry in place: tab={} target={} error={}",
-                session.tab_id, target_window_id, error.message
-            );
-            state.runtime.schedule_tab_surface_move_retry(
-                session.tab_id.clone(),
-                target_window_id.clone(),
-            );
-            session.current_window_id = target_window_id;
-            session.phase = GameWindowTabDragPhase::Attached;
-        }
-        return Ok(());
-    }
-
-    if session.single_tab {
-        state
-            .runtime
-            .begin_tab_drag_window_motion(&session.source_window_id);
-    } else {
-        let anchor = session.window_anchor.unwrap_or((
-            session.tab_width * session.grab_ratio_x,
-            session.tab_height * session.grab_ratio_y,
+    let target_window_id = session.drop_window_id.clone().ok_or_else(|| {
+        shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Windows HTML tab drag requires a local drop destination.",
+        )
+    })?;
+    if !windows_html_tab_drag_target_is_local(&session.source_window_id, &target_window_id) {
+        return Err(shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "Windows HTML tabs cannot be dragged between windows.",
         ));
-        let target = tab_drag_target_for_screen(
-            app,
-            &session.original_target,
-            &session.provisional_window_id,
-            session.latest_screen_x,
-            session.latest_screen_y,
-            anchor,
-        )?;
-        session.target = target.clone();
-        state
-            .runtime
-            .prepare_provisional_game_window(&target, &session.title)
-            .and_then(|_| state.runtime.position_provisional_game_window(&target))
-            .map_err(|message| shell_error("TAURI_TAB_DRAG_FAILED", message))?;
     }
-    let materialized = float_tab_drag_session(
-        app,
+    let before_tab_id = session.drop_before_tab_id.clone();
+    let ordered_tab_ids = session.drop_ordered_tab_ids.clone().ok_or_else(|| {
+        shell_error(
+            "TAURI_TAB_DRAG_INVALID",
+            "The accepted drop did not carry its complete visible order.",
+        )
+    })?;
+    let materialized = attach_tab_drag_session(
         state,
         session,
-        session.latest_screen_x,
-        session.latest_screen_y,
+        &target_window_id,
+        before_tab_id.as_deref(),
+        Some(&ordered_tab_ids),
     );
     if let Err(error) = materialized {
-        if session.single_tab {
-            return Err(error);
-        }
         eprintln!(
-            "Committed detached tab surface will retry in place: tab={} target={} error={}",
-            session.tab_id, session.provisional_window_id, error.message
+            "Committed tab drag surface will retry in place: tab={} target={} error={}",
+            session.tab_id, target_window_id, error.message
         );
         state.runtime.schedule_tab_surface_move_retry(
             session.tab_id.clone(),
-            session.provisional_window_id.clone(),
+            target_window_id.clone(),
         );
-        let _ = state
-            .runtime
-            .show_tab_drag_window(&session.provisional_window_id);
-        session.current_window_id = session.provisional_window_id.clone();
-        session.phase = GameWindowTabDragPhase::Floating;
+        session.current_window_id = target_window_id;
+        session.phase = GameWindowTabDragPhase::Attached;
     }
     Ok(())
 }

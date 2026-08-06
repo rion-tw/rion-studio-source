@@ -61,6 +61,12 @@ fn record_deferred_tab_drag_drop_intent(
     else {
         return Ok(false);
     };
+    if !windows_html_tab_drag_target_is_local(&session.source_window_id, target_window_id) {
+        session.source_cancelled = true;
+        session.source_drop_accepted = false;
+        session.source_end_received = true;
+        return Ok(true);
+    }
     session.drop_window_id = Some(target_window_id.to_owned());
     session.drop_before_tab_id = before_tab_id
         .filter(|before_tab_id| *before_tab_id != session.tab_id)
@@ -68,6 +74,13 @@ fn record_deferred_tab_drag_drop_intent(
     session.drop_ordered_tab_ids = Some(ordered_tab_ids);
     session.phase = GameWindowTabDragPhase::Previewing;
     Ok(session.source_end_received && session.source_drop_accepted)
+}
+
+fn windows_html_tab_drag_target_is_local(
+    source_window_id: &str,
+    target_window_id: &str,
+) -> bool {
+    source_window_id == target_window_id
 }
 
 fn record_deferred_tab_drag_source_end(

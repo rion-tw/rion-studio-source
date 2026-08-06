@@ -212,7 +212,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("fn resize_window_projection_is_busy(")
     );
     expect(resizeScheduler).toContain("WINDOW_RESIZE_FRAME_INTERVAL");
-    expect(resizeScheduler).toContain("WINDOW_PLACEMENT_PERSIST_DEBOUNCE");
+    expect(resizeScheduler).toContain("resize_snapshot_is_settled");
+    expect(runtime).toContain(
+      "elapsed >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE"
+    );
     expect(resizeScheduler).toContain("persist_game_window_placement");
     expect(resizeScheduler).not.toContain("window.scale_factor()");
     expect(resizeScheduler).not.toContain("window.is_minimized()");
@@ -240,7 +243,14 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(resizeLayout).toContain(
       "let tab_strip_height = resize_snapshot_tab_strip_height(metrics);"
     );
-    expect(resizeLayout).toContain("apply_resize_layout_mutation_batch(&window, mutations)");
+    expect(resizeLayout).toContain("apply_resize_layout_mutations(&window, mutations)");
+    const windowsResizeSubmission = runtime.slice(
+      runtime.indexOf("#[cfg(windows)]\nfn apply_resize_layout_mutations("),
+      runtime.indexOf("#[cfg(not(windows))]\nfn apply_resize_layout_mutations(")
+    );
+    expect(windowsResizeSubmission).toContain("submit_native_layout_mutations(&mutations)");
+    expect(windowsResizeSubmission).not.toContain("run_on_main_thread");
+    expect(windowsResizeSubmission).not.toContain("recv_timeout");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');

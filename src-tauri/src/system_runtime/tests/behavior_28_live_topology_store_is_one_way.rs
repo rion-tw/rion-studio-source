@@ -236,3 +236,28 @@ fn missing_live_window_is_seeded_without_holding_its_mutex_through_commit() {
         ["provisional-tab"]
     );
 }
+
+#[test]
+fn reorder_known_tabs_uses_stable_keys_for_memory_and_persistence_snapshots() {
+    let mut live = LiveWindowRecord {
+        tabs: vec![
+            topology_tab("tab-a"),
+            topology_tab("tab-b"),
+            topology_tab("tab-c"),
+            topology_tab("tab-d"),
+        ],
+        ..LiveWindowRecord::default()
+    };
+
+    live.reorder_known_tabs(&[
+        "tab-c".to_owned(),
+        "tab-a".to_owned(),
+        "tab-d".to_owned(),
+        "tab-b".to_owned(),
+    ]);
+
+    assert_eq!(
+        live.all_tab_ids(),
+        ["tab-c", "tab-a", "tab-d", "tab-b"]
+    );
+}

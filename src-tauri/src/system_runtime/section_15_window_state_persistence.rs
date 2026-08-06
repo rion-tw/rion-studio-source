@@ -599,14 +599,15 @@ mod window_state_persistence_tests {
     fn live_memory_snapshot_keeps_latest_ui_order_after_native_host_retires() {
         let coordinator = WindowStatePersistCoordinator::default();
         coordinator.seed(&[saved_window()]);
-        let live = LiveWindowRecord {
+        let mut live = LiveWindowRecord {
             revision: 19,
             selected_tab_id: Some("tab-b".to_owned()),
-            tabs: vec![live_tab("tab-b", "role-b"), live_tab("tab-a", "role-a")],
+            tabs: vec![live_tab("tab-a", "role-a"), live_tab("tab-b", "role-b")],
             window_generation: 4,
             window_id: "window-a".to_owned(),
             ..LiveWindowRecord::default()
         };
+        live.reorder_known_tabs(&["tab-b".to_owned(), "tab-a".to_owned()]);
 
         let snapshot = coordinator
             .materialize_live_snapshot("window-a", &live)

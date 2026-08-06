@@ -620,14 +620,14 @@ impl LiveWindowRecord {
     }
 
     fn reorder_known_tabs(&mut self, ordered_tab_ids: &[String]) {
-        let mut positions = ordered_tab_ids
+        let positions = ordered_tab_ids
             .iter()
             .enumerate()
             .map(|(index, tab_id)| (tab_id.as_str(), index))
             .collect::<HashMap<_, _>>();
         let fallback = ordered_tab_ids.len();
         self.tabs
-            .sort_by_key(|tab| positions.remove(tab.id.as_str()).unwrap_or(fallback));
+            .sort_by_key(|tab| positions.get(tab.id.as_str()).copied().unwrap_or(fallback));
     }
 
 }

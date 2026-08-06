@@ -216,8 +216,7 @@ impl SystemRuntimeExecutor {
                 self.clear_resize_worker(&label, None);
                 break;
             };
-            let settled = pending.snapshot.received_at.elapsed()
-                >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE;
+            let settled = resize_snapshot_is_settled(pending.snapshot.received_at.elapsed());
             let requires_projection = pending.snapshot.sequence != last_applied_sequence || settled;
             if requires_projection && self.resize_window_projection_is_busy(&label) {
                 let blocked_for = native_blocked_since
@@ -369,6 +368,10 @@ fn native_resize_should_retry(
     native_busy
         && shutdown_state == RuntimeShutdownState::Accepting
         && blocked_for < PLATFORM_CALLBACK_TIMEOUT
+}
+
+fn resize_snapshot_is_settled(elapsed: Duration) -> bool {
+    elapsed >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE
 }
 
 #[cfg(windows)]

@@ -53,12 +53,51 @@ fn zoom_factor_changed(previous: f64, next: f64) -> bool {
     (previous - next).abs() > 0.000_1
 }
 
+fn collect_native_layout_submission_failures<T>(
+    submissions: &[T],
+    label: impl Fn(&T) -> String,
+    submit: impl Fn(&T) -> Result<(), String>,
+) -> Vec<(String, String)> {
+    submissions
+        .iter()
+        .filter_map(|submission| {
+            submit(submission)
+                .err()
+                .map(|error| (label(submission), error))
+        })
+        .collect()
+}
+
+fn submit_native_layout_mutations(
+    mutations: &[NativeLayoutMutation],
+) -> Vec<(String, String)> {
+    collect_native_layout_submission_failures(
+        mutations,
+        |mutation| mutation.label().to_owned(),
+        NativeLayoutMutation::apply,
+    )
+}
+
 #[cfg(any(windows, test))]
 fn resize_snapshot_tab_strip_height(metrics: WindowContentMetrics) -> f64 {
     metrics.top_inset.max(1.0)
 }
 
-fn apply_resize_layout_mutation_batch(
+#[cfg(windows)]
+fn apply_resize_layout_mutations(
+    _window: &Window,
+    mutations: Vec<NativeLayoutMutation>,
+) -> RuntimeResult<Vec<(String, String)>> {
+    // Tauri's Windows dispatcher queues each WebView2 bounds update and returns immediately.
+    // Do not wrap these submissions in another main-thread task and wait for it: Windows can
+    // defer that task during an interactive sizing loop, making the visible surface trail the
+    // native window by seconds. The resize worker already limits submissions to the latest
+    // snapshot once per frame.
+    Ok(submit_native_layout_mutations(&mutations))
+}
+
+#[cfg(not(windows))]
+fn apply_resize_layout_mutations(
     window: &Window,
     mutations: Vec<NativeLayoutMutation>,
 ) -> RuntimeResult<Vec<(String, String)>> {
@@ -367,17 +406,9 @@ impl SystemRuntimeExecutor {
             }
         }
         let projection_failures = if is_resize_projection {
-            apply_resize_layout_mutation_batch(&window, mutations)?
+            apply_resize_layout_mutations(&window, mutations)?
         } else {
-            mutations
-                .iter()
-                .filter_map(|mutation| {
-                    mutation
-                        .apply()
-                        .err()
-                        .map(|error| (mutation.label().to_owned(), error))
-                })
-                .collect::<Vec<_>>()
+            submit_native_layout_mutations(&mutations)
         };
         let disconnected = projection_failures
             .iter()

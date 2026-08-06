@@ -202,6 +202,30 @@ fn native_resize_retry_is_bounded_and_stops_during_shutdown() {
 }
 
 #[test]
+fn windows_resize_submission_returns_without_native_acknowledgement() {
+    let (submission_tx, submission_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let native = std::thread::spawn(move || {
+        let submitted = submission_rx.recv().unwrap();
+        release_rx.recv().unwrap();
+        submitted
+    });
+
+    let failures = collect_native_layout_submission_failures(
+        &[42_u32],
+        |submission| submission.to_string(),
+        |submission| {
+            submission_tx.send(*submission).unwrap();
+            Ok(())
+        },
+    );
+
+    assert!(failures.is_empty());
+    release_tx.send(()).unwrap();
+    assert_eq!(native.join().unwrap(), 42);
+}
+
+#[test]
 fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
     let snapshot = |sequence, width| RuntimeWindowResizeSnapshot {
         content_metrics: logical_resize_metrics(width, 1_440, 2.0),
@@ -236,6 +260,16 @@ fn live_resize_projects_the_active_tab_then_settles_every_tab() {
         ),
         ["active", "hidden"]
     );
+}
+
+#[test]
+fn resize_settlement_keeps_the_persistence_debounce_out_of_live_projection() {
+    assert!(!resize_snapshot_is_settled(
+        WINDOW_PLACEMENT_PERSIST_DEBOUNCE - Duration::from_millis(1)
+    ));
+    assert!(resize_snapshot_is_settled(
+        WINDOW_PLACEMENT_PERSIST_DEBOUNCE
+    ));
 }
 
 #[test]

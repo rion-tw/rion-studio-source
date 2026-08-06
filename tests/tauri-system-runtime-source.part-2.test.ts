@@ -196,6 +196,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     expect(resizeRuntimeWindow).toContain("runtime_window_resize_is_actionable");
     expect(resizeRuntimeWindow).toContain("TAURI_RUNTIME_WINDOW_LAYOUT_FAILED");
+    expect(resizeRuntimeWindow).toContain("if settled");
     expect(resizeRuntimeWindow).not.toContain("persist_game_window_placement");
     const resizeScheduler = runtime.slice(
       runtime.indexOf("pub fn schedule_resize_window("),
@@ -212,6 +213,22 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     expect(resizeObserver).toContain("window.scale_factor()");
     expect(resizeObserver).toContain("window.is_fullscreen()");
+    const resizeLayoutStart = runtime.indexOf("fn layout_runtime_tab_inner_with_metrics(");
+    const resizeLayout = runtime.slice(
+      resizeLayoutStart,
+      runtime.indexOf("fn schedule_layout_surface_recovery(", resizeLayoutStart)
+    );
+    const windowsResizeMetricsStart = resizeLayout.indexOf(
+      "let (tab_strip_height, metrics)"
+    );
+    const windowsResizeMetrics = resizeLayout.slice(
+      windowsResizeMetricsStart,
+      resizeLayout.indexOf("#[cfg(not(windows))]", windowsResizeMetricsStart)
+    );
+    expect(windowsResizeMetrics.indexOf("Some(metrics)")).toBeLessThan(
+      windowsResizeMetrics.indexOf("self.windows_tab_strip_height")
+    );
+    expect(resizeLayout).toContain("apply_resize_layout_mutation_batch(&window, mutations)");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');

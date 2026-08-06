@@ -53,6 +53,41 @@ fn zoom_factor_changed(previous: f64, next: f64) -> bool {
     (previous - next).abs() > 0.000_1
 }
 
+#[cfg(any(windows, test))]
+fn resize_snapshot_tab_strip_height(metrics: WindowContentMetrics) -> f64 {
+    metrics.top_inset.max(1.0)
+}
+
+fn apply_resize_layout_mutation_batch(
+    window: &Window,
+    mutations: Vec<NativeLayoutMutation>,
+) -> RuntimeResult<Vec<(String, String)>> {
+    if mutations.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (sender, receiver) = mpsc::sync_channel(1);
+    window
+        .run_on_main_thread(move || {
+            let failures = mutations
+                .iter()
+                .filter_map(|mutation| {
+                    mutation
+                        .apply()
+                        .err()
+                        .map(|error| (mutation.label().to_owned(), error))
+                })
+                .collect();
+            let _ = sender.send(failures);
+        })
+        .map_err(RuntimeError::tauri)?;
+    receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT).map_err(|error| {
+        RuntimeError::new(
+            "SYSTEM_GEOMETRY_APPLY_FAILED",
+            format!("The native resize layout batch did not complete on the UI thread: {error}"),
+        )
+    })
+}
+
 impl SystemRuntimeExecutor {
     fn resolve_runtime_layout(
         &self,
@@ -148,6 +183,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         metrics_override: Option<WindowContentMetrics>,
     ) -> RuntimeResult<()> {
+        let is_resize_projection = metrics_override.is_some();
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let (
             window,
@@ -228,12 +264,17 @@ impl SystemRuntimeExecutor {
             )
         };
         #[cfg(windows)]
-        let tab_strip_height = self.windows_tab_strip_height(&window, _toolbar_revealed);
-        #[cfg(windows)]
-        let metrics = metrics_override.map_or_else(
-            || runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height),
-            Ok,
-        )?;
+        let (tab_strip_height, metrics) = match metrics_override {
+            Some(metrics) => (resize_snapshot_tab_strip_height(metrics), metrics),
+            None => {
+                let tab_strip_height =
+                    self.windows_tab_strip_height(&window, _toolbar_revealed);
+                (
+                    tab_strip_height,
+                    runtime_window_content_metrics_with_tab_strip(&window, tab_strip_height)?,
+                )
+            }
+        };
         #[cfg(not(windows))]
         let metrics = metrics_override
             .map(Ok)
@@ -327,15 +368,19 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
-        let projection_failures = mutations
-            .iter()
-            .filter_map(|mutation| {
-                mutation
-                    .apply()
-                    .err()
-                    .map(|error| (mutation.label().to_owned(), error))
-            })
-            .collect::<Vec<_>>();
+        let projection_failures = if is_resize_projection {
+            apply_resize_layout_mutation_batch(&window, mutations)?
+        } else {
+            mutations
+                .iter()
+                .filter_map(|mutation| {
+                    mutation
+                        .apply()
+                        .err()
+                        .map(|error| (mutation.label().to_owned(), error))
+                })
+                .collect::<Vec<_>>()
+        };
         let disconnected = projection_failures
             .iter()
             .filter(|(_, error)| native_surface_channel_is_unavailable(error))

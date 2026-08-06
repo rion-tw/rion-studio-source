@@ -246,6 +246,7 @@ fn resize_metrics_preserve_windows_two_hundred_percent_scaling() {
     let content = resize_metrics_with_tab_strip(metrics, 44.0);
     assert_eq!(content.top_inset, 44.0);
     assert_eq!(content.height, 1_211.0);
+    assert_eq!(resize_snapshot_tab_strip_height(content), 44.0);
 }
 
 #[test]

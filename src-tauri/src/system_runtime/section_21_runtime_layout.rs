@@ -553,6 +553,16 @@ impl SystemRuntimeExecutor {
                 physical_position.1,
             ))
             .map_err(RuntimeError::tauri)?;
+        #[cfg(windows)]
+        let tab_chrome_cloaked = match set_windows_runtime_window_cloaked(&window, true) {
+            Ok(()) => true,
+            Err(error) => {
+                eprintln!(
+                    "Windows runtime window could not be cloaked during tab chrome hydration: {error}"
+                );
+                false
+            }
+        };
         if let Err(error) = self.begin_surface_host_initialization(&window, &target.window_id) {
             let _ = window.close();
             return Err(error);
@@ -622,11 +632,18 @@ impl SystemRuntimeExecutor {
                 tab_strip,
                 #[cfg(windows)]
                 toolbar_revealed: false,
+                #[cfg(windows)]
+                tab_chrome_reveal: WindowsTabChromeRevealState::new(tab_chrome_cloaked),
                 #[cfg(target_os = "macos")]
                 tabs_controller,
             },
         );
         drop(state);
+        #[cfg(windows)]
+        self.schedule_windows_tab_chrome_reveal_fallback(
+            &target.window_id,
+            window_generation,
+        );
         self.presentation
             .set_window_generation(&target.window_id, window_generation)
             .map_err(|message| {

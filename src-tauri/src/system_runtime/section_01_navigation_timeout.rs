@@ -94,6 +94,8 @@ const NATIVE_PRESENTATION_COALESCE_INTERVAL: Duration = Duration::from_millis(8)
 const PRESENTATION_PAINT_BARRIER_TIMEOUT: Duration = Duration::from_millis(50);
 #[cfg(windows)]
 const WINDOWS_TAB_CHROME_ACK_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(windows)]
+const WINDOWS_TAB_CHROME_REVEAL_FALLBACK_TIMEOUT: Duration = Duration::from_secs(5);
 const OPTIONAL_HYDRATION_IDLE_INTERVAL: Duration = Duration::from_millis(500);
 const SURFACE_RECOVERY_LIMIT: u8 = 2;
 const SURFACE_RECOVERY_WINDOW: Duration = Duration::from_secs(60);

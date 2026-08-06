@@ -216,7 +216,7 @@ async function _flushMicrotasks(): Promise<void> {
 }
 
 describe("Tauri-owned Windows runtime tab strip", () => {
-it("acknowledges a tab chrome revision only after applying its mutation", () => {
+it("acknowledges a tab chrome revision only after applying and painting its mutation", async () => {
     const mutation = vi.fn(() => {
       document.body.dataset.appliedRevision = "41";
     });
@@ -225,12 +225,15 @@ it("acknowledges a tab chrome revision only after applying its mutation", () => 
 
     expect(mutation).toHaveBeenCalledOnce();
     expect(document.body.dataset.appliedRevision).toBe("41");
+    expect(invoke).not.toHaveBeenCalled();
+    await nextAnimationFrame();
+    await nextAnimationFrame();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: { type: "presentationApplied", revision: 41 }
     });
   });
 
-it("defers tab chrome acknowledgement until the strip is ready", () => {
+it("defers tab chrome acknowledgement until the strip is ready and painted", async () => {
     window.__rionRuntimeTabChromeReady = false;
     window.__rionPendingRuntimeTabChromeMutations = [];
     const mutation = vi.fn();
@@ -248,6 +251,9 @@ it("defers tab chrome acknowledgement until the strip is ready", () => {
     window.__rionPendingRuntimeTabChromeMutations = [];
 
     expect(mutation).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+    await nextAnimationFrame();
+    await nextAnimationFrame();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: { type: "presentationApplied", revision: 42 }
     });

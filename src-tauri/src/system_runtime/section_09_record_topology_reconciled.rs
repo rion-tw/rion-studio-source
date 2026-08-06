@@ -543,6 +543,14 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| state.display_hosts.get(&window_id).map(|host| host.generation))
             .unwrap_or_default();
+        #[cfg(windows)]
+        if window_visibility == Some(true) && window_generation != 0 {
+            self.observe_windows_tab_chrome_reveal(
+                &window_id,
+                window_generation,
+                WindowsTabChromeRevealSignal::VisibilityRequested,
+            );
+        }
         let mut operation = NativeOperationContext::new_at_for_platform(
             NativeOperationSubsystem::Presentation,
             trigger,

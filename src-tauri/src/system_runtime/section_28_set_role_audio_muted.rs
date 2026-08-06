@@ -514,6 +514,26 @@ fn surface_host_initialization_requires_visible_parent(platform: &str) -> bool {
 }
 
 #[cfg(windows)]
+fn set_windows_runtime_window_cloaked(window: &Window, cloaked: bool) -> RuntimeResult<()> {
+    use windows::{
+        Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute},
+        core::BOOL,
+    };
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let value = BOOL::from(cloaked);
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAK,
+            std::ptr::from_ref(&value).cast(),
+            std::mem::size_of::<BOOL>() as u32,
+        )
+    }
+    .map_err(RuntimeError::tauri)
+}
+
+#[cfg(windows)]
 fn set_windows_surface_host_initialization_visibility(
     window: &Window,
     visible: bool,

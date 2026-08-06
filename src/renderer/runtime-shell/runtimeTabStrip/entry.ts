@@ -57,6 +57,12 @@ import {
 
 let localTabSorting: RuntimeTabSortingController | undefined;
 
+function afterNextPaint(callback: () => void): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(callback);
+  });
+}
+
 function createTabButton(tabId: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -217,15 +223,9 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
     if (projection.activeTabId) optimisticallyActivateTab(projection.activeTabId);
     else window.__rionSetActiveRuntimeTab?.();
   }
-  acknowledgeChromeProjection(
-    projection,
-    runtimeState.rendererInstanceId,
-    tabElements(),
-    observedOrder,
-    localTabSorting?.ownsVisibleOrder() && !projectionMatchesObserved
-      ? "superseded"
-      : undefined
-  );
+  const acknowledgementStatus = localTabSorting?.ownsVisibleOrder() && !projectionMatchesObserved
+    ? "superseded"
+    : undefined;
 
   const mutations = window.__rionPendingRuntimeTabChromeMutations ?? [];
   window.__rionPendingRuntimeTabChromeMutations = [];
@@ -244,6 +244,20 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
   }
   window.__rionPendingRuntimeTabs = [];
   window.__rionPendingRuntimeTabOrder = [];
+
+  // WebView2's native host is revealed from this acknowledgement. Two animation frames ensure
+  // both the authoritative projection and any queued launch reservation have crossed a paint
+  // boundary before Windows composites the window for the first time.
+  afterNextPaint(() => {
+    acknowledgeChromeProjection(
+      projection,
+      runtimeState.rendererInstanceId,
+      tabElements(),
+      observedOrder,
+      acknowledgementStatus,
+      observedActiveTabId ?? null
+    );
+  });
 }
 
 function ordersEqual(left: string[], right: string[]): boolean {
@@ -403,9 +417,11 @@ export function installRuntimeTabStrip(): void {
       return;
     }
     mutation();
-    void invoke("rion_runtime_tab_action", {
-      action: { type: "presentationApplied", revision }
-    }).catch(() => undefined);
+    afterNextPaint(() => {
+      void invoke("rion_runtime_tab_action", {
+        action: { type: "presentationApplied", revision }
+      }).catch(() => undefined);
+    });
   };
 
   window.__rionApplyRuntimeTabState = (state) => {

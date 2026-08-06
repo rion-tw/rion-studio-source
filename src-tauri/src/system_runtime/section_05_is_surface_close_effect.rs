@@ -587,15 +587,11 @@ fn apply_native_presentation_batch(
         let window_visibility_started_at = Instant::now();
         if let Some(visible) = window_visibility {
             if visible {
-                if matches!(window.is_visible(), Ok(false))
-                    && let Err(error) = window.show()
-                {
-                    visibility_errors.push(error.to_string());
+                if let Err(error) = request_platform_window_show(&window) {
+                    visibility_errors.push(error.message);
                 }
-            } else if !matches!(window.is_visible(), Ok(false))
-                && let Err(error) = window.hide()
-            {
-                visibility_errors.push(error.to_string());
+            } else if let Err(error) = request_platform_window_hide(&window) {
+                visibility_errors.push(error.message);
             }
         }
         let window_visibility_ms = window_visibility_started_at
@@ -671,7 +667,16 @@ fn apply_native_presentation_batch(
             .as_millis()
             .min(u64::MAX as u128) as u64;
         let window_focused_after = window.is_focused().ok();
-        let window_visible_after = window.is_visible().ok();
+        // A retirement hide is intentionally submission-based. Synchronous
+        // visibility readback can marshal behind slow WebView2/AppKit teardown
+        // and would recreate the last-tab loading delay.
+        let window_visible_after = if window_visibility == Some(false)
+            || (cfg!(windows) && window_visibility == Some(true))
+        {
+            None
+        } else {
+            window.is_visible().ok()
+        };
         let focus_superseded = focus_lease.as_ref().is_some_and(|lease| {
             if !focus_broker.is_current(lease) {
                 true

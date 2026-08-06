@@ -1,6 +1,16 @@
 // unsupported system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+    window.hide().map_err(RuntimeError::tauri)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+    window.show().map_err(RuntimeError::tauri)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn dispatch_key_effect(
     _webview: &Webview,
     _effect: &EmbeddedKeyEffectRecord,
@@ -78,13 +88,13 @@ fn platform_surface_lifecycle_tracker(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn quiesce_platform_surface(
+fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<SurfaceQuiesceMetrics> {
     lifecycle.mark_native_surface_released();
     lifecycle.mark_isolated();
-    Ok(())
+    Ok(SurfaceQuiesceMetrics::default())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]

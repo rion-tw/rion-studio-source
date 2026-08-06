@@ -101,7 +101,9 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(runtime).toContain("closing_roles");
     expect(runtime).toContain('"surface.blank-finished"');
     expect(runtime).toContain('"surface.quiesce-unverified"');
-    expect(runtime).toContain('"surface.release-deferred"');
+    expect(runtime).toContain('"surface.wrapper-close-pending"');
+    expect(runtime).toContain('"surface.wrapper-release-failed"');
+    expect(runtime).not.toContain('"surface.blank-retry"');
     expect(runtime).toContain('"surface.quarantine-persisted"');
 
     const nativeClose = runtime.slice(
@@ -520,7 +522,8 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       runtime.indexOf("pub(crate) fn preview_tab_launch("),
       runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
     );
-    expect(launchPreview).toContain("let existing_window = self");
+    expect(launchPreview).toContain("let existing_window = {");
+    expect(launchPreview).toContain("host.retirement_revision");
     expect(launchPreview).toContain(".display_hosts");
     expect(launchPreview.indexOf("if let Some(window) = existing_window")).toBeLessThan(
       launchPreview.indexOf("with_native_creation_lane")

@@ -15,6 +15,13 @@ impl AppCore {
         persist_closed_tab: bool,
         parent_operation_id: Option<&str>,
     ) -> CoreResult<()> {
+        let initial_tab_id = self
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot
+            .roles
+            .iter()
+            .find(|candidate| candidate.role_id == role_id && candidate.runtime == "embedded")
+            .map(|role| role.owner.tab_id.clone());
         self.cancel_embedded_operations(&[role_id.to_owned()])?;
         let lease = acquire_operation_lease
             .then(|| {
@@ -30,47 +37,70 @@ impl AppCore {
                 let snapshot = self
                     .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                     .snapshot;
-                let Some(role) = snapshot
+                let role = snapshot
                     .roles
                     .iter()
                     .find(|candidate| {
                         candidate.role_id == role_id && candidate.runtime == "embedded"
                     })
-                    .cloned()
-                else {
-                    return Ok(());
-                };
-                let tab_id = role.owner.tab_id.clone();
-                // Cancellation is a fence, not a synchronous worker join. Native
-                // isolation must never wait for the macro cleanup timeout.
-                self.macro_runtime.request_stop_role(role_id)?;
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
-                    role_id: role_id.to_owned(),
-                    runtime: "embedded".to_owned(),
-                    tab_id: tab_id.clone(),
-                    slot_id: Some(role.owner.slot_id.clone()),
-                    state: "stopping".to_owned(),
-                    launched_at: role.launched_at.clone(),
-                })?;
-                let action = if close_role_tab {
-                    CoreEffectAction::EmbeddedDestroyTab {
-                        tab_id: tab_id.clone(),
-                        attempt_generation: None,
-                        next_active_tab_id: None,
-                    }
-                } else {
-                    CoreEffectAction::EmbeddedDestroyRole {
+                    .cloned();
+                if let Some(role) = role {
+                    let tab_id = role.owner.tab_id.clone();
+                    // Cancellation is a fence, not a synchronous worker join. Native
+                    // isolation must never wait for the macro cleanup timeout.
+                    self.macro_runtime.request_stop_role(role_id)?;
+                    self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.to_owned(),
-                    }
-                };
-                (tab_id, action)
+                        runtime: "embedded".to_owned(),
+                        tab_id: tab_id.clone(),
+                        slot_id: Some(role.owner.slot_id.clone()),
+                        state: "stopping".to_owned(),
+                        launched_at: role.launched_at.clone(),
+                    })?;
+                    let action = if close_role_tab {
+                        CoreEffectAction::EmbeddedDestroyTab {
+                            tab_id: tab_id.clone(),
+                            attempt_generation: None,
+                            next_active_tab_id: None,
+                        }
+                    } else {
+                        CoreEffectAction::EmbeddedDestroyRole {
+                            role_id: role_id.to_owned(),
+                        }
+                    };
+                    Some((tab_id, action))
+                } else {
+                    None
+                }
+            };
+
+            let Some((tab_id, action)) = prepared else {
+                if let Some(tab_id) = initial_tab_id.as_deref() {
+                    let action = if close_role_tab {
+                        CoreEffectAction::EmbeddedDestroyTab {
+                            tab_id: tab_id.to_owned(),
+                            attempt_generation: None,
+                            next_active_tab_id: None,
+                        }
+                    } else {
+                        CoreEffectAction::EmbeddedDestroyRole {
+                            role_id: role_id.to_owned(),
+                        }
+                    };
+                    self.run_embedded_runtime_effect(
+                        role_id,
+                        action,
+                        None,
+                        parent_operation_id,
+                    )?;
+                }
+                return Ok(());
             };
 
             // Native isolation is the safety boundary. Persistence is committed
             // after the exact game surface is offline; a busy SQLite writer must
             // never leave a visually closed role running.
             self.emit_browser_statuses();
-            let (tab_id, action) = prepared;
             self.run_embedded_runtime_effect(role_id, action, None, parent_operation_id)?;
 
             {

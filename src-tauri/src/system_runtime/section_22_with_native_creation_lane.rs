@@ -1,16 +1,14 @@
 impl SystemRuntimeExecutor {
-    fn with_native_creation_lane<T>(
+    fn with_native_window_lifecycle_lane<T>(
         &self,
         window_id: &str,
         operation: impl FnOnce() -> RuntimeResult<T>,
     ) -> RuntimeResult<T> {
-        self.require_runtime_accepting()?;
-        let _global_permit = self.native_creation_slots.acquire()?;
         let lane = {
             let mut lanes = self.native_creation_lanes.lock().map_err(|_| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
-                    "The native surface creation coordinator is unavailable.",
+                    "The native surface lifecycle coordinator is unavailable.",
                 )
             })?;
             Arc::clone(
@@ -22,11 +20,23 @@ impl SystemRuntimeExecutor {
         let _guard = lane.lock().map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_RUNTIME_CREATION_UNAVAILABLE",
-                "The native surface creation lane is unavailable.",
+                "The native surface lifecycle lane is unavailable.",
             )
         })?;
-        self.require_runtime_accepting()?;
         operation()
+    }
+
+    fn with_native_creation_lane<T>(
+        &self,
+        window_id: &str,
+        operation: impl FnOnce() -> RuntimeResult<T>,
+    ) -> RuntimeResult<T> {
+        self.require_runtime_accepting()?;
+        let _global_permit = self.native_creation_slots.acquire()?;
+        self.with_native_window_lifecycle_lane(window_id, || {
+            self.require_runtime_accepting()?;
+            operation()
+        })
     }
 
     pub(crate) fn preview_tab_launch(
@@ -48,11 +58,17 @@ impl SystemRuntimeExecutor {
         // An existing game window already owns a fully initialized native tab controller.
         // Reserving another tab must not wait behind an in-flight WKWebView/WebView2 creation:
         // that worker may itself be waiting for the UI thread to attach its controller.
-        let existing_window = self
-            .state()?
-            .display_hosts
-            .get(&target.window_id)
-            .map(|host| host.window.clone());
+        let existing_window = {
+            let mut state = self.state()?;
+            state.display_hosts.get_mut(&target.window_id).map(|host| {
+                // A new user launch supersedes any delayed empty-host close,
+                // even before the stable tab ID is attached by Core.
+                host.retirement_revision = WINDOW_RETIREMENT_SEQUENCE
+                    .fetch_add(1, Ordering::AcqRel)
+                    .saturating_add(1);
+                host.window.clone()
+            })
+        };
         let (window, host_created) = if let Some(window) = existing_window {
             (window, false)
         } else {

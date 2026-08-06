@@ -1,14 +1,30 @@
 impl SystemRuntimeExecutor {
     fn hydrate_tab_dividers(&self, tab_id: &str) -> RuntimeResult<()> {
-        let window_id = self.resolve_live_tab_window_id(tab_id)?;
+        let window_id = match self.presentation.tab_window(tab_id).map_err(|message| {
+            RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+        })? {
+            Some(window_id) => window_id,
+            None => {
+                let expected_close = self.state.lock().ok().is_some_and(|state| {
+                    !state.tabs.contains_key(tab_id)
+                        || state.optimistic_closed_tabs.contains(tab_id)
+                        || state.close_previews.contains_key(tab_id)
+                        || state.close_coordinator.closing_tabs.contains(tab_id)
+                });
+                if expected_close {
+                    return Ok(());
+                }
+                return Err(RuntimeError::new(
+                    "TAURI_RUNTIME_TAB_NOT_FOUND",
+                    "The runtime tab is no longer in live topology.",
+                ));
+            }
+        };
         let (window_id, window, gap, role_inputs) = {
             let state = self.state()?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
-                    "The runtime tab closed before optional dividers were attached.",
-                )
-            })?;
+            let Some(tab) = state.tabs.get(tab_id) else {
+                return Ok(());
+            };
             if !tab.dividers.is_empty() || tab.slots.len() < 2 {
                 return Ok(());
             }
@@ -33,23 +49,36 @@ impl SystemRuntimeExecutor {
         };
         let content_metrics = runtime_window_content_metrics(&window)?;
         let (_, descriptors) = self.resolve_runtime_layout(content_metrics, role_inputs, gap)?;
-        let mut created = Vec::with_capacity(descriptors.len());
-        for (index, descriptor, bounds) in descriptors {
-            self.wait_for_optional_idle();
-            let still_current = self.state.lock().ok().is_some_and(|state| {
-                state
-                    .tabs
-                    .get(tab_id)
-                    .is_some_and(|tab| tab.dividers.is_empty())
-                    && !state.close_coordinator.closing_tabs.contains(tab_id)
-            });
-            if !still_current {
-                break;
-            }
-            let bounds = divider_hit_bounds(&descriptor.axis, bounds);
-            let lifecycle_id = format!("{tab_id}:divider:{index}");
-            let webview = self.with_native_creation_lane(&window_id, || {
-                self.add_child_bounded(
+        self.wait_for_optional_idle();
+        let inserted = self.with_native_creation_lane(&window_id, || {
+            let mut created = Vec::with_capacity(descriptors.len());
+            for (index, descriptor, bounds) in descriptors {
+                let owner_matches = self
+                    .presentation
+                    .tab_window(tab_id)
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    == Some(window_id.as_str());
+                let state_current = self.state.lock().ok().is_some_and(|state| {
+                    optional_divider_hydration_can_continue(
+                        state.tabs.contains_key(tab_id),
+                        state
+                            .tabs
+                            .get(tab_id)
+                            .is_some_and(|tab| tab.dividers.is_empty()),
+                        state.close_coordinator.closing_tabs.contains(tab_id),
+                        state.optimistic_closed_tabs.contains(tab_id)
+                            || state.close_previews.contains_key(tab_id),
+                        owner_matches,
+                    )
+                });
+                if !state_current {
+                    break;
+                }
+                let bounds = divider_hit_bounds(&descriptor.axis, bounds);
+                let lifecycle_id = format!("{tab_id}:divider:{index}");
+                let webview = self.add_child_bounded(
                     &window,
                     WebviewBuilder::new(
                         runtime_label("game-divider", &format!("{tab_id}:{index}")),
@@ -61,84 +90,129 @@ impl SystemRuntimeExecutor {
                     LogicalPosition::new(bounds.x, bounds.y),
                     LogicalSize::new(bounds.width, bounds.height),
                     &lifecycle_id,
-                )
-            })?;
-            let lifecycle = self.install_surface_lifecycle_tracker(&webview)?;
-            let surface_instance_id = self.register_managed_surface(
-                &webview,
-                &lifecycle,
-                ManagedSurfaceKind::Divider,
-                ManagedSurfacePhase::Live,
-                None,
-                Some(tab_id),
-                &window_id,
-                0,
-            )?;
-            let selected = self
-                .presentation
-                .existing(&window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|presentation| {
-                        presentation.selected_tab_id.as_deref() == Some(tab_id)
+                )?;
+                let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+                    Ok(lifecycle) => lifecycle,
+                    Err(error) => {
+                        webview.close().map_err(RuntimeError::tauri)?;
+                        return Err(error);
+                    }
+                };
+                let surface_instance_id = self.register_managed_surface(
+                    &webview,
+                    &lifecycle,
+                    ManagedSurfaceKind::Divider,
+                    ManagedSurfacePhase::Live,
+                    None,
+                    Some(tab_id),
+                    &window_id,
+                    0,
+                )?;
+                let attached = (|| -> RuntimeResult<RuntimeDivider> {
+                    let selected = self
+                        .presentation
+                        .existing(&window_id)
+                        .and_then(|presentation| {
+                            presentation.lock().ok().map(|presentation| {
+                                presentation.selected_tab_id.as_deref() == Some(tab_id)
+                            })
+                        })
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                                "The runtime tab presentation disappeared before its divider could bind.",
+                            )
+                        })?;
+                    if !self.presentation.bind_surface(
+                        &window_id,
+                        tab_id,
+                        SurfacePresentationBinding {
+                            generation: 0,
+                            instance_id: surface_instance_id.clone(),
+                            webview: webview.clone(),
+                        },
+                    ) {
+                        return Err(RuntimeError::new(
+                            "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
+                            "The runtime tab was removed before its divider could bind.",
+                        ));
+                    }
+                    self.presentation
+                        .assign_surface_owner(webview.label(), &surface_instance_id, &window_id)
+                        .map_err(|message| {
+                            RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+                        })?;
+                    if !selected {
+                        webview.hide().map_err(RuntimeError::tauri)?;
+                    }
+                    Ok(RuntimeDivider {
+                        descriptor,
+                        index,
+                        surface_instance_id: surface_instance_id.clone(),
+                        webview: webview.clone(),
                     })
-                })
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                        "The runtime tab presentation disappeared before its divider could bind.",
-                    )
-                })?;
-            let bound = self.presentation.bind_surface(
-                &window_id,
-                tab_id,
-                SurfacePresentationBinding {
-                    generation: 0,
-                    instance_id: surface_instance_id.clone(),
-                    webview: webview.clone(),
-                },
-            );
-            if !bound {
-                let _ = self.close_managed_surface_and_wait(
-                    &surface_instance_id,
-                    &format!("{tab_id}:divider:{index}"),
-                );
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
-                    "The runtime tab was removed before its divider could bind.",
-                ));
+                })();
+                match attached {
+                    Ok(divider) => created.push(divider),
+                    Err(error) => {
+                        self.close_managed_divider(&surface_instance_id)?;
+                        let owner_matches = self
+                            .presentation
+                            .tab_window(tab_id)
+                            .ok()
+                            .flatten()
+                            .as_deref()
+                            == Some(window_id.as_str());
+                        let superseded = self.state.lock().ok().is_some_and(|state| {
+                            !optional_divider_hydration_can_continue(
+                                state.tabs.contains_key(tab_id),
+                                state
+                                    .tabs
+                                    .get(tab_id)
+                                    .is_some_and(|tab| tab.dividers.is_empty()),
+                                state.close_coordinator.closing_tabs.contains(tab_id),
+                                state.optimistic_closed_tabs.contains(tab_id)
+                                    || state.close_previews.contains_key(tab_id),
+                                owner_matches,
+                            )
+                        });
+                        if superseded {
+                            break;
+                        } else {
+                            return Err(error);
+                        }
+                    }
+                }
             }
-            self.presentation
-                .assign_surface_owner(webview.label(), &surface_instance_id, &window_id)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
-            if !selected {
-                let _ = webview.hide();
+            let owner_matches = self
+                .presentation
+                .tab_window(tab_id)
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some(window_id.as_str());
+            let inserted = if let Ok(mut state) = self.state.lock()
+                && !state.close_coordinator.closing_tabs.contains(tab_id)
+                && !state.optimistic_closed_tabs.contains(tab_id)
+                && !state.close_previews.contains_key(tab_id)
+                && owner_matches
+                && let Some(tab) = state.tabs.get_mut(tab_id)
+                && tab.dividers.is_empty()
+            {
+                tab.dividers = std::mem::take(&mut created);
+                true
+            } else {
+                false
+            };
+            if !inserted {
+                for divider in created {
+                    self.close_managed_divider(&divider.surface_instance_id)?;
+                }
             }
-            created.push(RuntimeDivider {
-                descriptor,
-                index,
-                surface_instance_id,
-                webview,
-            });
-        }
-        let inserted = if let Ok(mut state) = self.state.lock()
-            && let Some(tab) = state.tabs.get_mut(tab_id)
-            && tab.dividers.is_empty()
-        {
-            tab.dividers = std::mem::take(&mut created);
-            true
-        } else {
-            false
-        };
-        if !inserted {
-            for divider in created {
-                let _ = self.close_managed_surface_and_wait(
-                    &divider.surface_instance_id,
-                    &format!("{tab_id}:divider:{}", divider.index),
-                );
-            }
-        } else if self
+            Ok(inserted)
+        })?;
+        if inserted
+            && self
             .presentation
             .existing(&window_id)
             .is_some_and(|presentation| {
@@ -631,4 +705,14 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "The conflicting runtime window has no live native host.".to_owned())
     }
 
+}
+
+fn optional_divider_hydration_can_continue(
+    tab_exists: bool,
+    dividers_empty: bool,
+    closing: bool,
+    close_projected: bool,
+    owner_matches: bool,
+) -> bool {
+    tab_exists && dividers_empty && !closing && !close_projected && owner_matches
 }

@@ -731,14 +731,33 @@ impl SystemRuntimeExecutor {
     }
 
     fn discard_role_navigation_input_fences(&self, role_id: &str, reason: &str) {
-        let discarded_epoch = self.state.lock().ok().and_then(|mut state| {
-            state.last_input_ready_epochs.remove(role_id);
-            let fence = state.role_input_fences.remove(role_id)?;
-            state
-                .main_frame_navigation_input_fences
-                .retain(|_, ticket| ticket.role_id != role_id);
-            Some((fence.input_epoch, fence.navigation_operation))
-        });
+        let (discarded_epoch, navigation) = self
+            .state
+            .lock()
+            .ok()
+            .map(|mut state| {
+                let navigation = state
+                    .role_tabs
+                    .get(role_id)
+                    .and_then(|tab_id| state.tabs.get(tab_id))
+                    .and_then(|tab| tab.roles.get(role_id))
+                    .map(|surface| Arc::clone(&surface.navigation));
+                state.last_input_ready_epochs.remove(role_id);
+                let discarded_epoch = state.role_input_fences.remove(role_id).map(|fence| {
+                    state
+                        .main_frame_navigation_input_fences
+                        .retain(|_, ticket| ticket.role_id != role_id);
+                    (fence.input_epoch, fence.navigation_operation)
+                });
+                (discarded_epoch, navigation)
+            })
+            .unwrap_or((None, None));
+        if let Some(navigation) = navigation {
+            // Closing a launching role supersedes the pending native page wait.
+            // Wake both sync and async subscribers immediately; controller
+            // isolation must not leave EmbeddedLoadRoles alive until deadline.
+            navigation.reset();
+        }
         if let Some((input_epoch, operation)) = discarded_epoch {
             if let Some(operation) = operation {
                 self.record_native_operation_receipt(NativeOperationReceipt::with_status(

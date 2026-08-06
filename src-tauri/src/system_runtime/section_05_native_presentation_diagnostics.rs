@@ -117,6 +117,17 @@ fn capture_presentation_batch_events(
             }),
         },
     ];
+    if request.window_visibility == Some(false) && outcome.visibility_errors.is_empty() {
+        entries.push(LogCaptureRecord {
+            level: LogLevel::Debug,
+            source: LogSource::Browser,
+            event: "native.window-retirement-submitted".to_owned(),
+            message: "The native window hide was submitted without waiting for teardown."
+                .to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        });
+    }
     if outcome.main_queue_wait_ms > 100 || outcome.main_thread_ms > 100 {
         entries.push(LogCaptureRecord {
             level: LogLevel::Warn,

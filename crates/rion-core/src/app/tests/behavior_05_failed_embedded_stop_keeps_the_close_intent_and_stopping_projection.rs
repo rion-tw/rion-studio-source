@@ -143,7 +143,7 @@
         core.shutdown();
     }
     #[test]
-    fn stopping_a_launching_role_cancels_without_topology_compensation() {
+    fn stopping_a_launching_role_cancels_and_still_retires_its_native_surface() {
         let (_directory, core) = core();
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let receiver = core.subscribe().unwrap();
@@ -160,7 +160,7 @@
             })))
         });
         let mut stop = None;
-        let mut saw_compensation = false;
+        let mut saw_native_cleanup = false;
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !launch.is_finished()
             || stop
@@ -194,8 +194,8 @@
                         }));
                         continue;
                     }
-                    if matches!(effect.action, CoreEffectAction::EmbeddedDestroyTab { .. }) {
-                        saw_compensation = true;
+                    if matches!(effect.action, CoreEffectAction::EmbeddedDestroyRole { .. }) {
+                        saw_native_cleanup = true;
                     }
                     results.push(effect_result(effect, None));
                 }
@@ -209,7 +209,7 @@
             "LAUNCH_CANCELLED"
         );
         assert!(stop.unwrap().join().unwrap().is_ok());
-        assert!(!saw_compensation);
+        assert!(saw_native_cleanup);
         let snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
             .unwrap()

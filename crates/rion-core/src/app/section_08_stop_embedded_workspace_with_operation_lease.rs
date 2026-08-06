@@ -33,6 +33,13 @@ impl AppCore {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        let initial_tab_id = initial_snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| {
+                workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
+            })
+            .map(|workspace| workspace.tab_id.clone());
         self.cancel_embedded_operations(&initial_role_ids)?;
         let lease = acquire_operation_lease
             .then(|| {
@@ -50,48 +57,69 @@ impl AppCore {
                 let snapshot = self
                     .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                     .snapshot;
-                let Some(workspace) = snapshot
+                let workspace = snapshot
                     .workspaces
                     .iter()
                     .find(|workspace| {
                         workspace.workspace_id == workspace_id && workspace.runtime == "embedded"
                     })
-                    .cloned()
-                else {
-                    return Ok(());
-                };
-                let tab_id = workspace.tab_id.clone();
-                let owned_roles = snapshot
-                    .roles
-                    .iter()
-                    .filter(|role| role.owner.tab_id == tab_id)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                for role in &owned_roles {
-                    let role_id = &role.role_id;
-                    self.macro_runtime.request_stop_role(role_id)?;
-                    self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
-                        role_id: role_id.clone(),
-                        runtime: "embedded".to_owned(),
-                        tab_id: tab_id.clone(),
-                        slot_id: Some(role.owner.slot_id.clone()),
-                        state: "stopping".to_owned(),
-                        launched_at: role.launched_at.clone(),
-                    })?;
+                    .cloned();
+                if let Some(workspace) = workspace {
+                    let tab_id = workspace.tab_id.clone();
+                    let owned_roles = snapshot
+                        .roles
+                        .iter()
+                        .filter(|role| role.owner.tab_id == tab_id)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for role in &owned_roles {
+                        let role_id = &role.role_id;
+                        self.macro_runtime.request_stop_role(role_id)?;
+                        self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
+                            role_id: role_id.clone(),
+                            runtime: "embedded".to_owned(),
+                            tab_id: tab_id.clone(),
+                            slot_id: Some(role.owner.slot_id.clone()),
+                            state: "stopping".to_owned(),
+                            launched_at: role.launched_at.clone(),
+                        })?;
+                    }
+                    self.embedded_closing_tabs
+                        .lock()
+                        .map_err(|_| {
+                            CoreError::Internal("embedded closing tab lock poisoned".to_owned())
+                        })?
+                        .insert(tab_id.clone());
+                    Some((owned_roles, tab_id))
+                } else {
+                    None
                 }
-                self.embedded_closing_tabs
-                    .lock()
-                    .map_err(|_| {
-                        CoreError::Internal("embedded closing tab lock poisoned".to_owned())
-                    })?
-                    .insert(tab_id.clone());
-                (owned_roles, tab_id)
+            };
+
+            let Some((owned_roles, tab_id)) = prepared else {
+                // Cancelling an in-flight launch removes its speculative Core
+                // topology immediately, but EmbeddedCreateTab may already have
+                // attached native surfaces. Run cleanup after releasing the
+                // Core sequence lease so the native acknowledgement cannot
+                // deadlock against runtime-state finalization.
+                if let Some(tab_id) = initial_tab_id.as_deref() {
+                    self.run_embedded_runtime_effect(
+                        tab_id,
+                        CoreEffectAction::EmbeddedDestroyTab {
+                            tab_id: tab_id.to_owned(),
+                            attempt_generation: None,
+                            next_active_tab_id: None,
+                        },
+                        None,
+                        parent_operation_id,
+                    )?;
+                }
+                return Ok(());
             };
 
             // Keep durability behind native isolation. The final runtime commit
             // below persists the coalesced workspace removal.
             self.emit_browser_statuses();
-            let (owned_roles, tab_id) = prepared;
             self.run_embedded_runtime_effect(
                 &tab_id,
                 CoreEffectAction::EmbeddedDestroyTab {

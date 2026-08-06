@@ -12,7 +12,7 @@ use std::{
 
 use rion_core::{CoreCommand, RuntimeWindowPreferencesRecord};
 use dispatch2::DispatchQueue;
-use tauri::{AppHandle, Manager, Window};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
 const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
 const APPKIT_TRACKING_DISPATCH_TIMEOUT: Duration = Duration::from_secs(2);
@@ -33,6 +33,28 @@ where
     receiver
         .recv_timeout(APPKIT_TRACKING_DISPATCH_TIMEOUT)
         .map_err(|_| "The AppKit tracking-loop mutation did not complete in time.".to_owned())
+}
+
+pub(crate) fn request_window_hide(window: Window) {
+    let label = window.label().to_owned();
+    let app = window.app_handle().clone();
+    DispatchQueue::main().exec_async(move || {
+        if let Err(error) = window.hide() {
+            eprintln!(
+                "AppKit window retirement failed after submission: window={label} error={error}"
+            );
+            let _ = app.emit(
+                "rion://shell-error",
+                serde_json::json!({
+                    "code": "SYSTEM_WINDOW_HIDE_FAILED",
+                    "failureKind": "appkit-window-retirement",
+                    "message": "Rion Studio could not hide the game window before background cleanup.",
+                    "windowLabel": label,
+                    "error": error.to_string(),
+                }),
+            );
+        }
+    });
 }
 
 #[repr(C)]

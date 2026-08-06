@@ -447,6 +447,7 @@ struct RuntimeState {
     native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
     retiring_window_cleanup_failed: HashSet<String>,
+    retiring_window_revisions: HashMap<String, u64>,
     retiring_window_tabs: HashMap<String, HashSet<String>>,
     window_closes: WindowCloseLedger,
     overlay_capabilities: HashMap<String, String>,
@@ -488,6 +489,7 @@ struct PendingWindowTabRestore {
 #[derive(Clone)]
 struct TabCloseTombstone {
     revision: u64,
+    retirement_revision: Option<u64>,
     slot_owners: Vec<(String, String, Option<u64>)>,
     source_id: String,
     tab_type: String,
@@ -729,6 +731,7 @@ pub struct SystemRuntimeExecutor {
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
+    tab_close_changed: Condvar,
     tab_drag_intents: Arc<TabDragIntentCoordinator>,
     tab_mutations: Arc<TabMutationCoordinator>,
     #[cfg(windows)]

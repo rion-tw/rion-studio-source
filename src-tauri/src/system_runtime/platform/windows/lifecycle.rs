@@ -25,6 +25,41 @@ fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
 }
 
 #[cfg(windows)]
+fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_HIDE, ShowWindowAsync};
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(RuntimeError::new(
+            "SYSTEM_WINDOW_HIDE_SUBMISSION_FAILED",
+            "The Win32 game window handle is no longer valid.",
+        ));
+    }
+    // ShowWindowAsync returns the previous visibility state, not a success
+    // flag. A zero result therefore also represents an already-hidden window.
+    let _ = unsafe { ShowWindowAsync(hwnd, SW_HIDE) };
+    Ok(())
+}
+
+#[cfg(windows)]
+fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_SHOW, ShowWindowAsync};
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(RuntimeError::new(
+            "SYSTEM_WINDOW_SHOW_SUBMISSION_FAILED",
+            "The Win32 game window handle is no longer valid.",
+        ));
+    }
+    // Use the same owning-thread queue as retirement hides. An unconditional
+    // later show supersedes a hide that was already posted by the old empty
+    // host generation, even if synchronous visibility readback is stale.
+    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
+    Ok(())
+}
+
+#[cfg(windows)]
 fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
@@ -113,49 +148,101 @@ fn windows_surface_lifecycle_error(
 }
 
 #[cfg(windows)]
-fn quiesce_platform_surface(
+fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<SurfaceQuiesceMetrics> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 
     use windows::core::Interface;
 
     let expected_process_id = lifecycle.browser_process_id.load(Ordering::Acquire) as u32;
     let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
+    let requested_at = Instant::now();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let controller = platform_webview.controller();
-            let result = (|| -> windows::core::Result<()> {
+            let callback_started_at = Instant::now();
+            let result = (|| -> Result<SurfaceQuiesceMetrics, String> {
+                let controller = platform_webview.controller();
                 let actual_controller_identity = controller.as_raw() as usize as u64;
-                let core: ICoreWebView2 = controller.CoreWebView2()?;
+                let core: ICoreWebView2 = controller.CoreWebView2().map_err(|error| {
+                    format!(
+                        "stage=resolve-core code=0x{:08X} error={error}",
+                        error.code().0 as u32
+                    )
+                })?;
                 let mut process_id = 0;
-                core.BrowserProcessId(&mut process_id)?;
+                core.BrowserProcessId(&mut process_id).map_err(|error| {
+                    format!(
+                        "stage=verify-process code=0x{:08X} error={error}",
+                        error.code().0 as u32
+                    )
+                })?;
                 if !windows_surface_identity_matches(
                     expected_controller_identity,
                     actual_controller_identity,
                     expected_process_id,
                     process_id,
                 ) {
-                    return Err(windows::core::Error::from_hresult(windows::core::HRESULT(
-                        0x80004005_u32 as i32,
-                    )));
+                    return Err(
+                        "stage=verify-identity code=0x80004005 error=controller or process mismatch"
+                            .to_owned(),
+                    );
                 }
-                core.Stop()?;
-                core.Navigate(&windows::core::HSTRING::from("about:blank"))?;
-                controller.Close()
-            })()
-            .map_err(|error| error.to_string());
+                let stop_started_at = Instant::now();
+                core.Stop().map_err(|error| {
+                    format!(
+                        "stage=stop code=0x{:08X} error={error}",
+                        error.code().0 as u32
+                    )
+                })?;
+                let stop_ms = stop_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let navigate_started_at = Instant::now();
+                core.Navigate(&windows::core::HSTRING::from("about:blank"))
+                    .map_err(|error| {
+                        format!(
+                            "stage=navigate-blank code=0x{:08X} error={error}",
+                            error.code().0 as u32
+                        )
+                    })?;
+                let navigate_ms = navigate_started_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64;
+                let close_started_at = Instant::now();
+                controller.Close().map_err(|error| {
+                    format!(
+                        "stage=controller-close code=0x{:08X} error={error}",
+                        error.code().0 as u32
+                    )
+                })?;
+                let close_ms = close_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                let elapsed = requested_at.elapsed();
+                Ok(SurfaceQuiesceMetrics {
+                    callback_queue_wait_ms: callback_started_at
+                        .duration_since(requested_at)
+                        .as_millis()
+                        .min(u64::MAX as u128) as u64,
+                    close_ms,
+                    deadline_exceeded: elapsed > SURFACE_ISOLATION_TIMEOUT,
+                    navigate_ms,
+                    stop_ms,
+                })
+            })();
             let _ = sender.send(result);
         })
         .map_err(RuntimeError::tauri)?;
-    receiver
-        .recv_timeout(SURFACE_ISOLATION_TIMEOUT)
+    let remaining = SURFACE_ISOLATION_TIMEOUT.saturating_sub(requested_at.elapsed());
+    let metrics = receiver
+        .recv_timeout(remaining)
         .map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                "WebView2 surface identity verification timed out.",
+                format!(
+                    "WebView2 surface isolation did not complete within {} ms.",
+                    SURFACE_ISOLATION_TIMEOUT.as_millis()
+                ),
             )
         })?
         .map_err(|message| {
@@ -166,7 +253,7 @@ fn quiesce_platform_surface(
         })?;
     lifecycle.mark_native_surface_released();
     lifecycle.mark_isolated();
-    Ok(())
+    Ok(metrics)
 }
 
 #[cfg(windows)]

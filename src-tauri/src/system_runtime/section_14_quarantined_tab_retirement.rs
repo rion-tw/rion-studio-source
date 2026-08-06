@@ -113,6 +113,7 @@ impl SystemRuntimeExecutor {
         let Some((divider_ids, placeholders, role_webviews, tombstone)) = retired else {
             return;
         };
+        self.tab_close_changed.notify_all();
         for webview in role_webviews {
             let _ = webview.hide();
         }

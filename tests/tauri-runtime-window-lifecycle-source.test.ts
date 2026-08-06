@@ -302,7 +302,8 @@ describe("runtime window lifecycle authority", () => {
       closeContract.indexOf("pub(crate) fn complete_window_close_state_commit")
     );
 
-    expect(visibleClose).toContain("window.hide()");
+    expect(visibleClose).toContain("request_platform_window_hide(&window)");
+    expect(visibleClose).not.toContain("window.hide()");
     expect(visibleClose).not.toContain("window.close()");
     expect(visibleClose).toContain("retiring_window_tabs");
     expect(visibleClose).toContain("cancel_provisional_tab_launch(tab_id)");
@@ -311,13 +312,17 @@ describe("runtime window lifecycle authority", () => {
     );
     expect(layout).toContain("complete_retiring_window_tab");
     expect(layout).toContain("retiring_window_cleanup_failed");
-    expect(closeFollower).toContain("complete_retiring_window_tab(&window_id, tab_id, false)");
+    expect(layout).toContain("with_native_window_lifecycle_lane(window_id");
+    expect(closeFollower).toContain("complete_retiring_window_tab(");
+    expect(closeFollower).toContain("tombstone.retirement_revision");
     expect(closeFollower).toContain("retire_quarantined_tab_after_close(tab_id)");
     expect(closeFollower).toContain("return self.refresh_role_placeholders(role_id, None)");
     expect(create.indexOf("commit_live_window_record(")).toBeLessThan(
       create.indexOf("runtime_tab_from_effect(")
     );
     expect(create).toContain("state.close_previews.contains_key(&created_tab_id)");
+    expect(create).toContain("wait_for_tab_close_fence(");
+    expect(create).toContain("SYSTEM_RUNTIME_PREVIOUS_CLOSE_PENDING");
   });
 
   it("fences cancelled create effects and retires a create that loses its Core acknowledgement race", async () => {
@@ -348,6 +353,8 @@ describe("runtime window lifecycle authority", () => {
     expect(core).toContain("pub fn effect_is_pending");
     expect(executor).toContain("create_effect_is_still_pending");
     expect(executor).toContain("retire_unacknowledged_created_tab");
+    expect(executor).toContain("optional_divider_hydration_can_continue");
+    expect(executor).toContain("self.close_managed_divider(&surface_instance_id)?");
     expect(admission).toContain("self.destroy_tab(tab_id)?");
     expect(admission).toContain('"tab.stale-create-retired"');
   });

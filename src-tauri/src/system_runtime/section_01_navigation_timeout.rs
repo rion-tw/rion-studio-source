@@ -120,6 +120,7 @@ static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static WINDOW_RETIREMENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
 static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
@@ -528,12 +529,12 @@ struct NavigationState {
 struct NavigationTracker {
     state: Mutex<NavigationState>,
     changed: Condvar,
-    async_changed: watch::Sender<bool>,
+    async_changed: watch::Sender<u64>,
 }
 
 impl Default for NavigationTracker {
     fn default() -> Self {
-        let (async_changed, _) = watch::channel(false);
+        let (async_changed, _) = watch::channel(0);
         Self {
             state: Mutex::new(NavigationState::default()),
             changed: Condvar::new(),
@@ -548,8 +549,14 @@ impl NavigationTracker {
             state.active_operation_id = None;
             state.finished = false;
             state.started = false;
+            self.changed.notify_all();
         }
-        self.async_changed.send_replace(false);
+        self.signal_async_changed();
+    }
+
+    fn signal_async_changed(&self) {
+        self.async_changed
+            .send_modify(|revision| *revision = revision.saturating_add(1));
     }
 
     fn page_event(&self, event: PageLoadEvent, url: &Url) {
@@ -567,7 +574,7 @@ impl NavigationTracker {
             }
             self.changed.notify_all();
             if state.finished {
-                self.async_changed.send_replace(true);
+                self.signal_async_changed();
             }
         }
     }
@@ -669,11 +676,47 @@ struct SurfaceCloseOutcome {
     released: bool,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum SurfaceIsolationProgress {
+    #[default]
+    Live,
+    Requested,
+    Isolated,
+    Failed {
+        code: &'static str,
+        message: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SurfaceQuiesceMetrics {
+    callback_queue_wait_ms: u64,
+    close_ms: u64,
+    deadline_exceeded: bool,
+    navigate_ms: u64,
+    stop_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceIsolationRequest {
+    Started(SurfaceQuiesceMetrics),
+    Joined,
+    AlreadyIsolated,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceIsolationClaim {
+    Owner,
+    Joined,
+    AlreadyIsolated,
+}
+
 #[derive(Default)]
 struct SurfaceReleaseState {
     #[cfg(windows)]
     browser_process_exited: bool,
     controller_released: bool,
+    isolation_progress: SurfaceIsolationProgress,
     isolated: bool,
     native_surface_released: bool,
 }
@@ -691,9 +734,48 @@ struct SurfaceLifecycleTracker {
 }
 
 impl SurfaceLifecycleTracker {
+    fn claim_isolation(&self) -> RuntimeResult<SurfaceIsolationClaim> {
+        let mut release = self.release.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+                "The native surface lifecycle lock was poisoned.",
+            )
+        })?;
+        if release.isolated || release.native_surface_released {
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            return Ok(SurfaceIsolationClaim::AlreadyIsolated);
+        }
+        match &release.isolation_progress {
+            SurfaceIsolationProgress::Live => {
+                release.isolation_progress = SurfaceIsolationProgress::Requested;
+                Ok(SurfaceIsolationClaim::Owner)
+            }
+            SurfaceIsolationProgress::Requested => Ok(SurfaceIsolationClaim::Joined),
+            SurfaceIsolationProgress::Isolated => Ok(SurfaceIsolationClaim::AlreadyIsolated),
+            SurfaceIsolationProgress::Failed { code, message } => {
+                Err(RuntimeError::new(code, message.clone()))
+            }
+        }
+    }
+
+    fn fail_isolation(&self, error: &RuntimeError) {
+        if let Ok(mut release) = self.release.lock() {
+            if release.isolated || release.native_surface_released {
+                release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            } else {
+                release.isolation_progress = SurfaceIsolationProgress::Failed {
+                    code: error.code,
+                    message: error.message.clone(),
+                };
+            }
+            self.changed.notify_all();
+        }
+    }
+
     fn mark_isolated(&self) {
         if let Ok(mut release) = self.release.lock() {
             release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
             self.changed.notify_all();
         }
     }
@@ -723,6 +805,7 @@ impl SurfaceLifecycleTracker {
     fn mark_native_surface_released(&self) {
         if let Ok(mut release) = self.release.lock() {
             release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
             release.native_surface_released = true;
             self.changed.notify_all();
         }
@@ -768,6 +851,23 @@ impl SurfaceLifecycleTracker {
             }
         }
         true
+    }
+}
+
+fn quiesce_platform_surface(
+    webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<SurfaceIsolationRequest> {
+    match lifecycle.claim_isolation()? {
+        SurfaceIsolationClaim::Joined => Ok(SurfaceIsolationRequest::Joined),
+        SurfaceIsolationClaim::AlreadyIsolated => Ok(SurfaceIsolationRequest::AlreadyIsolated),
+        SurfaceIsolationClaim::Owner => match perform_platform_surface_quiesce(webview, lifecycle) {
+            Ok(metrics) => Ok(SurfaceIsolationRequest::Started(metrics)),
+            Err(error) => {
+                lifecycle.fail_isolation(&error);
+                Err(error)
+            }
+        },
     }
 }
 

@@ -126,3 +126,21 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         assert_eq!(failed.status, NativePresentationStatus::Failed, "{platform}");
     }
 }
+
+#[test]
+fn retirement_hide_is_acknowledged_from_submission_without_sync_readback() {
+    for platform in ["macos", "windows"] {
+        let mut plan = presentation_plan(platform);
+        plan.focus = NativePresentationFocus::ContentOnly;
+        plan.tab_id = None;
+        plan.surface_identities.clear();
+        plan.window_visibility = Some(false);
+
+        let receipt = NativePresentationReceipt::from_outcome(
+            &plan,
+            &presentation_outcome(true, None, None, Vec::new()),
+        );
+        assert_eq!(receipt.status, NativePresentationStatus::Applied, "{platform}");
+        assert_eq!(receipt.visible, None, "{platform}");
+    }
+}

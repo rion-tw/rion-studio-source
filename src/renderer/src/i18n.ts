@@ -10,51 +10,76 @@ export type TranslationDictionary = Record<TranslationKey, string>;
 export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
 type RuntimeTabStripLabels = {
+  closeWindow: string;
   closeTab: string;
+  maximizeWindow: string;
+  minimizeWindow: string;
   openLauncher: string;
   openTabMenu: string;
   playingAudio: string;
+  restoreWindow: string;
   scrollLeft: string;
   scrollRight: string;
   tabMuted: string;
+  windowControls: string;
 };
 
 const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
   en: {
+    closeWindow: "Close window",
     closeTab: "Stop and close tab",
+    maximizeWindow: "Maximize window",
+    minimizeWindow: "Minimize window",
     openLauncher: "Open role or workspace",
     openTabMenu: "Open tab menu",
     playingAudio: "Playing audio",
+    restoreWindow: "Restore window",
     scrollLeft: "Scroll tabs left",
     scrollRight: "Scroll tabs right",
-    tabMuted: "Tab muted"
+    tabMuted: "Tab muted",
+    windowControls: "Window controls"
   },
   "zh-TW": {
+    closeWindow: "關閉視窗",
     closeTab: "停止並關閉分頁",
+    maximizeWindow: "最大化視窗",
+    minimizeWindow: "最小化視窗",
     openLauncher: "開啟角色或工作區",
     openTabMenu: "開啟分頁選單",
     playingAudio: "正在播放聲音",
+    restoreWindow: "還原視窗",
     scrollLeft: "向左捲動分頁",
     scrollRight: "向右捲動分頁",
-    tabMuted: "分頁已靜音"
+    tabMuted: "分頁已靜音",
+    windowControls: "視窗控制項"
   },
   "zh-CN": {
+    closeWindow: "关闭窗口",
     closeTab: "停止并关闭标签页",
+    maximizeWindow: "最大化窗口",
+    minimizeWindow: "最小化窗口",
     openLauncher: "打开角色或工作区",
     openTabMenu: "打开标签页菜单",
     playingAudio: "正在播放声音",
+    restoreWindow: "还原窗口",
     scrollLeft: "向左滚动标签页",
     scrollRight: "向右滚动标签页",
-    tabMuted: "标签页已静音"
+    tabMuted: "标签页已静音",
+    windowControls: "窗口控件"
   },
   ja: {
+    closeWindow: "ウインドウを閉じる",
     closeTab: "停止してタブを閉じる",
+    maximizeWindow: "ウインドウを最大化",
+    minimizeWindow: "ウインドウを最小化",
     openLauncher: "ロールまたはワークスペースを開く",
     openTabMenu: "タブメニューを開く",
     playingAudio: "音声を再生中",
+    restoreWindow: "ウインドウを元に戻す",
     scrollLeft: "タブを左へスクロール",
     scrollRight: "タブを右へスクロール",
-    tabMuted: "タブはミュート中"
+    tabMuted: "タブはミュート中",
+    windowControls: "ウインドウコントロール"
   }
 };
 

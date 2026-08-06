@@ -85,6 +85,20 @@ export const scrollLeftButton = document.querySelector<HTMLButtonElement>("#scro
 
 export const scrollRightButton = document.querySelector<HTMLButtonElement>("#scroll-right")!;
 
+export const windowIdentity = document.querySelector<HTMLElement>("#window-identity")!;
+
+export const windowName = document.querySelector<HTMLElement>("#window-name")!;
+
+export const windowDragRegion = document.querySelector<HTMLElement>("#window-drag-region")!;
+
+export const windowControls = document.querySelector<HTMLElement>("#window-controls")!;
+
+export const windowMinimizeButton = document.querySelector<HTMLButtonElement>("#window-minimize")!;
+
+export const windowMaximizeButton = document.querySelector<HTMLButtonElement>("#window-maximize")!;
+
+export const windowCloseButton = document.querySelector<HTMLButtonElement>("#window-close")!;
+
 export const runtimeState = {
   current: undefined as RuntimeTabStripState | undefined,
   draggingTabId: undefined as string | undefined,

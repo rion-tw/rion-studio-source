@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 beforeEach(() => {
   document.documentElement.lang = "en";
   document.body.innerHTML = `
+    <div data-windows-window-controls>
+      <button data-window-control="minimize"></button>
+      <button data-window-control="maximize"></button>
+      <button data-window-control="close"></button>
+    </div>
     <div id="root">
       <div data-startup-loading aria-label="Loading Rion Studio">
         <span data-startup-loading-label>Loading Rion Studio</span>
@@ -17,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete window.__rionShowStartupFailure;
+  Reflect.deleteProperty(window, "rionStudio");
 });
 
 describe("pre-React startup fallback", () => {
@@ -54,5 +60,32 @@ describe("pre-React startup fallback", () => {
       expect(document.querySelector("[data-startup-failure-title]")?.textContent)
         .toBe("無法啟動 Rion Studio");
     });
+  });
+
+  it("keeps localized Windows controls active before the React root mounts", async () => {
+    const minimizeCurrentWindow = vi.fn(() => Promise.resolve());
+    const toggleCurrentWindowMaximize = vi.fn(() => Promise.resolve());
+    const requestCurrentWindowClose = vi.fn(() => Promise.resolve());
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: {
+        minimizeCurrentWindow,
+        requestCurrentWindowClose,
+        toggleCurrentWindowMaximize
+      }
+    });
+
+    await import("../src/renderer/src/app/startupFallback");
+    document.querySelector<HTMLButtonElement>('[data-window-control="minimize"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-window-control="maximize"]')?.click();
+    document.querySelector<HTMLButtonElement>('[data-window-control="close"]')?.click();
+
+    expect(minimizeCurrentWindow).toHaveBeenCalledOnce();
+    expect(toggleCurrentWindowMaximize).toHaveBeenCalledOnce();
+    expect(requestCurrentWindowClose).toHaveBeenCalledOnce();
+    const maximize = document.querySelector<HTMLButtonElement>('[data-window-control="maximize"]')!;
+    expect(maximize.ariaLabel).toBe("Maximize");
+    document.documentElement.dataset.windowMaximized = "true";
+    await vi.waitFor(() => expect(maximize.ariaLabel).toBe("Restore"));
   });
 });

@@ -51,6 +51,8 @@ const state: RuntimeTabStripState = {
     type: "workspace"
   }],
   toolbarVisible: true,
+  windowMaximized: false,
+  windowName: "主遊戲視窗",
   windowFullscreen: false,
   windows: []
 };
@@ -65,7 +67,7 @@ beforeAll(async () => {
     observe() {}
     unobserve() {}
   });
-  document.body.innerHTML = '<button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button>';
+  document.body.innerHTML = '<div id="window-identity"><span id="window-name"></span></div><button id="scroll-left" hidden></button><div id="tabs" role="tablist"></div><button id="scroll-right" hidden></button><button id="add"></button><div id="window-drag-region"></div><div id="window-controls"><button id="window-minimize"></button><button id="window-maximize"></button><button id="window-close"></button></div>';
   await import("../src/renderer/runtime-shell/runtimeTabStrip");
 });
 
@@ -336,6 +338,8 @@ describe("Tauri-owned Windows runtime tab strip", () => {
       activeTabId: "tab-1",
       displayId: 11,
       displays: [],
+      windowName: "主遊戲視窗",
+      windowMaximized: false,
       fullscreen: false,
       windowFullscreen: false,
       toolbarVisible: true,

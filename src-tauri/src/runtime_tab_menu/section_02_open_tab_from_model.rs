@@ -459,7 +459,8 @@ pub async fn handle_scoped_action(
         "tabDragEnd" => &["type", "sessionId", "cancelled", "screenX", "screenY"][..],
         "tabDragCancel" => &["type", "sessionId"][..],
         "reorder" => &["type", "tabId", "beforeTabId"][..],
-        "openLauncher" | "fullscreenToolbarEnter" | "fullscreenToolbarLeave" => &["type"][..],
+        "openLauncher" | "startWindowDrag" | "fullscreenToolbarEnter"
+        | "fullscreenToolbarLeave" => &["type"][..],
         "activateAdjacent" => &["type", "direction"][..],
         "applicationShortcut" => &["type", "command"][..],
         "windowControl" => &["type", "control"][..],
@@ -474,6 +475,14 @@ pub async fn handle_scoped_action(
     }
     if action_type == "openLauncher" {
         return open_launcher(app, &window_id);
+    }
+    if action_type == "startWindowDrag" {
+        return state
+            .runtime
+            .window_for_id(&window_id)
+            .ok_or_else(|| "runtime window was not found".to_owned())?
+            .start_dragging()
+            .map_err(|error| error.to_string());
     }
     if action_type == "applicationShortcut" {
         let command = action["command"]

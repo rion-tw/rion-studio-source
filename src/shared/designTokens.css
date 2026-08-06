@@ -77,6 +77,8 @@
   --blur-on-media: 12px;
   --media-black: 0 0% 0%;
   --media-white: 0 0% 100%;
+  --windows-caption-close: 5 75% 44%;
+  --windows-caption-close-foreground: 0 0% 100%;
 }
 
 :root,

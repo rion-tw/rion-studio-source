@@ -11,7 +11,7 @@ import type { RuntimeTabChromeProjectionRecord } from "../../../shared/generated
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
-import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, workspaceTemplateByTabId } from "../runtimeTabStrip";
+import { OVERFLOW_EPSILON, add, adoptDragSurface, audioSignatureByButton, clearDragProxy, clearDragVisual, clearDropIndicator, createAudioIndicator, createCloseControl, createLucideSvg, createTabIcon, deferRuntimeTabOrder, dispatch, iconSignatureByButton, installTabButtonInteractions, localDropSessions, logicalRuntimeTabOrder, root, runtimeState, scrollLeftButton, scrollRightButton, setDropIndicator, suspendDragVisual, syncCloseControlState, terminalDragSessions, windowCloseButton, windowControls, windowDragRegion, windowIdentity, windowMaximizeButton, windowMinimizeButton, windowName, workspaceTemplateByTabId } from "../runtimeTabStrip";
 
 import type { RuntimeTabModel } from "../runtimeTabStrip";
 
@@ -109,6 +109,21 @@ function render(
   document.documentElement.dataset.theme = state.resolvedTheme;
   document.documentElement.style.colorScheme = state.resolvedTheme;
   document.body.dataset.toolbarVisible = String(state.toolbarVisible);
+  document.body.dataset.windowFullscreen = String(state.windowFullscreen);
+  document.body.dataset.windowMaximized = String(state.windowMaximized);
+  windowName.textContent = state.windowName;
+  windowName.title = state.windowName;
+  windowIdentity.title = state.windowName;
+  windowControls.ariaLabel = labels.windowControls;
+  windowMinimizeButton.ariaLabel = labels.minimizeWindow;
+  windowMinimizeButton.title = labels.minimizeWindow;
+  const maximizeLabel = state.windowFullscreen || state.windowMaximized
+    ? labels.restoreWindow
+    : labels.maximizeWindow;
+  windowMaximizeButton.ariaLabel = maximizeLabel;
+  windowMaximizeButton.title = maximizeLabel;
+  windowCloseButton.ariaLabel = labels.closeWindow;
+  windowCloseButton.title = labels.closeWindow;
   const visibleTabs = state.tabs
     .filter((tab) => tab.windowId === state.windowId && !tab.hidden);
   for (const tab of visibleTabs) {
@@ -599,6 +614,30 @@ export function installRuntimeTabStrip(): void {
     runtimeState.rendererInstanceId,
     window.__rionRuntimeTabChromeIdentity
   );
+
+  const handleWindowDragMouseDown = (event: MouseEvent): void => {
+    if (event.button !== 0 || runtimeState.current?.windowFullscreen) return;
+    event.preventDefault();
+    if (event.detail === 1) {
+      dispatch({ type: "startWindowDrag" });
+    } else if (event.detail === 2) {
+      dispatch({ type: "windowControl", control: "zoom" });
+    }
+  };
+  windowIdentity.addEventListener("mousedown", handleWindowDragMouseDown);
+  windowDragRegion.addEventListener("mousedown", handleWindowDragMouseDown);
+  windowMinimizeButton.addEventListener("click", () => {
+    dispatch({ type: "windowControl", control: "minimize" });
+  });
+  windowMaximizeButton.addEventListener("click", () => {
+    dispatch({
+      type: "windowControl",
+      control: runtimeState.current?.windowFullscreen ? "toggleFullscreen" : "zoom"
+    });
+  });
+  windowCloseButton.addEventListener("click", () => {
+    dispatch({ type: "windowControl", control: "close" });
+  });
 
   document.body.addEventListener("pointerenter", () => {
     if (runtimeState.current?.fullscreen && !runtimeState.current.alwaysShowToolbarInFullScreen) {

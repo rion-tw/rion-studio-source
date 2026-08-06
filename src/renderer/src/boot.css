@@ -21,6 +21,78 @@ body {
   min-height: 100vh;
 }
 
+.windows-window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: var(--layer-tooltip);
+  display: none;
+  height: 44px;
+  align-items: stretch;
+  color: hsl(var(--foreground));
+  -webkit-app-region: no-drag;
+}
+
+:root[data-platform="windows"][data-window-fullscreen="false"] .windows-window-controls {
+  display: flex;
+}
+
+.windows-window-controls button {
+  display: grid;
+  width: 46px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.windows-window-controls button:hover {
+  background: hsl(var(--glass-control-hover));
+}
+
+.windows-window-controls button:active {
+  background: hsl(var(--glass-control-selected));
+}
+
+.windows-window-controls button[data-window-control="close"]:hover,
+.windows-window-controls button[data-window-control="close"]:active {
+  background: hsl(var(--windows-caption-close));
+  color: hsl(var(--windows-caption-close-foreground));
+}
+
+.windows-window-controls button:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.75);
+  outline-offset: -2px;
+}
+
+.windows-window-controls svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.15;
+}
+
+.windows-window-controls [data-window-control-glyph="restore"] {
+  display: none;
+}
+
+:root[data-window-maximized="true"] .windows-window-controls [data-window-control-glyph="maximize"] {
+  display: none;
+}
+
+:root[data-window-maximized="true"] .windows-window-controls [data-window-control-glyph="restore"] {
+  display: block;
+}
+
+:root[data-window-focused="false"] .windows-window-controls {
+  color: hsl(var(--muted-foreground));
+}
+
 .boot-fallback {
   display: grid;
   min-height: 100vh;
@@ -28,6 +100,10 @@ body {
   padding: var(--space-6);
   background: var(--liquid-background);
   -webkit-app-region: drag;
+}
+
+:root[data-platform="windows"] .boot-fallback {
+  padding-top: calc(var(--space-6) + 44px);
 }
 
 .boot-fallback-content {

@@ -504,6 +504,13 @@ impl SystemRuntimeExecutor {
             active_tab_id,
             display_id: host.target.display_id.max(0) as u64,
             displays: self.display_records_for_tab_chrome(),
+            window_name: state
+                .saved_window_names
+                .get(&renderer.window_id)
+                .filter(|name| !name.trim().is_empty())
+                .cloned()
+                .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned()),
+            window_maximized: host.window.is_maximized().unwrap_or(false),
             fullscreen,
             window_fullscreen: fullscreen,
             toolbar_visible,

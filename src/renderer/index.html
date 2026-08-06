@@ -22,11 +22,34 @@
           document.documentElement.dataset.theme = "light";
           document.documentElement.style.colorScheme = "light";
         }
+        const platform = navigator.platform.toLowerCase();
+        const userAgent = navigator.userAgent.toLowerCase();
+        document.documentElement.dataset.platform =
+          platform.includes("mac") || userAgent.includes("mac os")
+            ? "mac"
+            : platform.includes("win") || userAgent.includes("windows")
+              ? "windows"
+              : "linux";
+        document.documentElement.dataset.windowFullscreen = "false";
+        document.documentElement.dataset.windowMaximized = "false";
+        document.documentElement.dataset.windowFocused = "true";
       })();
     </script>
     <link rel="stylesheet" href="/src/boot.css" />
   </head>
   <body>
+    <div class="windows-window-controls" data-windows-window-controls>
+      <button type="button" data-window-control="minimize" aria-label="Minimize" title="Minimize">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="M3 8.5h10" /></svg>
+      </button>
+      <button type="button" data-window-control="maximize" aria-label="Maximize" title="Maximize">
+        <svg aria-hidden="true" data-window-control-glyph="maximize" viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" /></svg>
+        <svg aria-hidden="true" data-window-control-glyph="restore" viewBox="0 0 16 16"><path d="M5.5 5.5V3.5h7v7h-2M3.5 5.5h7v7h-7z" /></svg>
+      </button>
+      <button type="button" data-window-control="close" aria-label="Close" title="Close">
+        <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8" /></svg>
+      </button>
+    </div>
     <div id="root">
       <div class="boot-fallback" role="status" aria-label="Loading Rion Studio" aria-live="polite" aria-busy="true" data-startup-loading>
         <div class="boot-fallback-content">

@@ -19,8 +19,8 @@ afterEach(() => {
   listen.mockClear();
 });
 
-describe("main window drag bridge", () => {
-  it("routes drag and maximize requests through the typed Tauri shell bridge", async () => {
+describe("main window chrome bridge", () => {
+  it("routes minimize, drag, maximize, and close requests through the typed Tauri shell bridge", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}
@@ -28,19 +28,24 @@ describe("main window drag bridge", () => {
     invoke.mockResolvedValue({ status: "applied" });
 
     await installTauriBridgeIfNeeded();
+    await window.rionStudio.minimizeCurrentWindow();
     await window.rionStudio.startCurrentWindowDrag();
     await window.rionStudio.toggleCurrentWindowMaximize();
     await window.rionStudio.requestCurrentWindowClose();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "rion_shell_invoke", {
-      operation: "startCurrentWindowDrag",
+      operation: "minimizeCurrentWindow",
       args: []
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_shell_invoke", {
-      operation: "toggleCurrentWindowMaximize",
+      operation: "startCurrentWindowDrag",
       args: []
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "rion_shell_invoke", {
+      operation: "toggleCurrentWindowMaximize",
+      args: []
+    });
+    expect(invoke).toHaveBeenNthCalledWith(4, "rion_shell_invoke", {
       operation: "requestCurrentWindowClose",
       args: []
     });

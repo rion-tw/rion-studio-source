@@ -499,6 +499,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     requestCurrentWindowClose: async () => handleSystemRuntimeReceipt(
       await invokeShell("requestCurrentWindowClose")
     ),
+    minimizeCurrentWindow: async () => handleSystemRuntimeReceipt(
+      await invokeShell("minimizeCurrentWindow")
+    ),
     startCurrentWindowDrag: async () => handleSystemRuntimeReceipt(
       await invokeShell("startCurrentWindowDrag")
     ),

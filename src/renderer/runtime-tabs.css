@@ -29,7 +29,7 @@ body {
   align-items: center;
   gap: var(--space-1-5);
   border-bottom: 1px solid hsl(var(--border));
-  padding: var(--space-1-5) 9px;
+  padding: 0 0 0 10px;
 }
 
 body[data-toolbar-visible="false"] {
@@ -40,6 +40,112 @@ body[data-toolbar-visible="false"] {
 
 body[data-toolbar-visible="false"] > * {
   visibility: hidden;
+}
+
+#window-identity {
+  display: flex;
+  min-width: 26px;
+  max-width: 270px;
+  height: 44px;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 auto;
+  margin-right: var(--space-1);
+  overflow: hidden;
+}
+
+#window-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  pointer-events: none;
+}
+
+#window-name {
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  font-size: var(--type-control-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--type-control-line);
+  pointer-events: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-drag-surface {
+  cursor: default;
+}
+
+#window-drag-region {
+  min-width: 12px;
+  height: 44px;
+  flex: 1 1 12px;
+}
+
+#window-controls {
+  display: flex;
+  height: 44px;
+  align-self: stretch;
+  flex: none;
+  margin-left: auto;
+}
+
+.window-control {
+  display: grid;
+  width: 46px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+.window-control:hover {
+  background: hsl(var(--glass-control-hover));
+}
+
+.window-control:active {
+  background: hsl(var(--glass-control-selected));
+}
+
+.window-control.close-window:hover,
+.window-control.close-window:active {
+  background: hsl(var(--windows-caption-close));
+  color: hsl(var(--windows-caption-close-foreground));
+}
+
+.window-control:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.7);
+  outline-offset: -2px;
+}
+
+.window-control svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-width: 1.15;
+}
+
+.window-control [data-window-control-glyph="restore"] {
+  display: none;
+}
+
+body[data-window-maximized="true"] .window-control [data-window-control-glyph="maximize"],
+body[data-window-fullscreen="true"] .window-control [data-window-control-glyph="maximize"] {
+  display: none;
+}
+
+body[data-window-maximized="true"] .window-control [data-window-control-glyph="restore"],
+body[data-window-fullscreen="true"] .window-control [data-window-control-glyph="restore"] {
+  display: block;
 }
 
 #tabs {

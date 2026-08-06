@@ -31,6 +31,11 @@ function detectPlatform(): "linux" | "mac" | "windows" {
   return "linux";
 }
 
+document.documentElement.dataset.platform = detectPlatform();
+document.documentElement.dataset.windowFullscreen = "false";
+document.documentElement.dataset.windowMaximized = "false";
+document.documentElement.dataset.windowFocused = "true";
+
 async function bootstrapRenderer(): Promise<void> {
   try {
     await installTauriBridgeIfNeeded();
@@ -41,9 +46,6 @@ async function bootstrapRenderer(): Promise<void> {
     void reportRendererStartupFailure(message).catch(() => undefined);
     return;
   }
-
-  document.documentElement.dataset.platform = detectPlatform();
-  document.documentElement.dataset.windowFullscreen = "false";
 
   const router = createHashRouter([
     {

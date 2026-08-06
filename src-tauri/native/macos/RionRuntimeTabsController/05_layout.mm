@@ -571,6 +571,11 @@ NS_ASSUME_NONNULL_BEGIN
       width, _tabItems.count, _externalDragGhostWidth);
 }
 
+- (NSView *)tabSurfaceOverlayHost {
+  NSView *root = _accessoryController.view;
+  return _clusterContainer != _clusterContent && root ? root : _clusterContent;
+}
+
 - (void)setWindowName:(nullable NSString *)windowName {
   if (_destroyed) return;
   NSString *name = [windowName stringByTrimmingCharactersInSet:
@@ -595,8 +600,8 @@ NS_ASSUME_NONNULL_BEGIN
   CGFloat leadingInset = [self trafficLightReserveWidth] + kRionRootLeadingInset;
   CGFloat windowNameWidth = 0;
   if (!_windowNameField.hidden) {
-    windowNameWidth = MIN(kRionWindowNameMaximumWidth,
-                          ceil(_windowNameField.intrinsicContentSize.width));
+    windowNameWidth = RionRuntimeWindowNameWidth(
+        _windowNameField.intrinsicContentSize.width);
     _windowNameField.frame = NSMakeRect(
         leadingInset, MAX(0, (rootHeight - kRionTabHeight) / 2.0),
         windowNameWidth, kRionTabHeight);
@@ -650,11 +655,12 @@ NS_ASSUME_NONNULL_BEGIN
     NSRect canvasFrame = NSMakeRect(lifted ? _dragSurfaceCanvasX : x, 0,
                                     width, kRionTabHeight);
     if (lifted) {
-      NSRect overlayFrame = [_clusterContent convertRect:canvasFrame
-                                                fromView:_tabCanvas];
-      [_clusterContent addSubview:surface
-                       positioned:NSWindowAbove
-                       relativeTo:nil];
+      NSView *overlayHost = [self tabSurfaceOverlayHost];
+      NSRect overlayFrame = [overlayHost convertRect:canvasFrame
+                                            fromView:_tabCanvas];
+      [overlayHost addSubview:surface
+                   positioned:NSWindowAbove
+                   relativeTo:nil];
       surface.frame = overlayFrame;
     } else {
       [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];

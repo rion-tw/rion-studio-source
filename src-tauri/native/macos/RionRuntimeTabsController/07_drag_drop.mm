@@ -151,9 +151,10 @@ NS_ASSUME_NONNULL_BEGIN
   surface.alphaValue = 1.0;
   NSRect canvasFrame = NSMakeRect(_dragSurfaceCanvasX, 0, width,
                                   kRionTabHeight);
-  NSRect overlayFrame = [_clusterContent convertRect:canvasFrame
-                                            fromView:_tabCanvas];
-  [_clusterContent addSubview:surface positioned:NSWindowAbove relativeTo:nil];
+  NSView *overlayHost = [self tabSurfaceOverlayHost];
+  NSRect overlayFrame = [overlayHost convertRect:canvasFrame
+                                        fromView:_tabCanvas];
+  [overlayHost addSubview:surface positioned:NSWindowAbove relativeTo:nil];
   surface.frame = overlayFrame;
   [self positionAddSurfaceAfterVisibleDragTail];
 }

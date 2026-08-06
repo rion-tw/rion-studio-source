@@ -50,6 +50,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)updateDragPlaceholderAppearance;
 - (void)scrollTabsLeft:(id)sender;
 - (void)scrollTabsRight:(id)sender;
+- (NSView *)tabSurfaceOverlayHost;
 - (void)beginTabShortcutModifierHandoff:(NSEventModifierFlags)flags;
 - (void)finishTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType;

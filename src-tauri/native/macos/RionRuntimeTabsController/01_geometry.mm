@@ -28,6 +28,7 @@ static const CGFloat kRionTabScrollButtonWidth = 22.0;
 static const CGFloat kRionTabScrollButtonSpacing = 3.0;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
+static const CGFloat kRionWindowNameMinimumWidth = 150.0;
 static const CGFloat kRionWindowNameMaximumWidth = 240.0;
 static const CGFloat kRionWindowNameTrailingSpacing = 10.0;
 static const CGFloat kRionRootTrailingDraggableWidth = 12.0;
@@ -43,6 +44,11 @@ static CGFloat RionRuntimeTabsWidthWithExternalGhost(CGFloat tabsWidth,
                                                        CGFloat ghostWidth) {
   if (ghostWidth <= 0) return tabsWidth;
   return tabsWidth + ghostWidth + (tabCount > 0 ? kRionTabSpacing : 0);
+}
+
+static CGFloat RionRuntimeWindowNameWidth(CGFloat intrinsicWidth) {
+  return MIN(kRionWindowNameMaximumWidth,
+             MAX(kRionWindowNameMinimumWidth, ceil(intrinsicWidth)));
 }
 
 static CGFloat RionRuntimeTrailingControlOriginX(

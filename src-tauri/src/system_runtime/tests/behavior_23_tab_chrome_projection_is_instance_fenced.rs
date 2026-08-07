@@ -223,6 +223,31 @@ fn tab_intent_is_renderer_instance_and_adapter_sequence_fenced() {
 }
 
 #[test]
+fn initial_lifecycle_epoch_does_not_invalidate_the_registered_tab_adapter() {
+    // Lifecycle epoch zero is the valid initial application epoch. Adapter
+    // authority comes from the registered host generation and WebView identity,
+    // not from treating zero as an uninitialized sentinel.
+    assert!(tab_intent_source_identity_is_current(
+        7,
+        "tab-strip-1",
+        7,
+        "tab-strip-1"
+    ));
+    assert!(!tab_intent_source_identity_is_current(
+        8,
+        "tab-strip-1",
+        7,
+        "tab-strip-1"
+    ));
+    assert!(!tab_intent_source_identity_is_current(
+        7,
+        "tab-strip-replaced",
+        7,
+        "tab-strip-1"
+    ));
+}
+
+#[test]
 fn window_chrome_identity_and_maximize_state_advance_the_projection_revision() {
     let coordinator = TabChromeProjectionCoordinator::default();
     coordinator

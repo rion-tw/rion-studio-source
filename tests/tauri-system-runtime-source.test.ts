@@ -857,4 +857,36 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
       "fn display_records_for_tab_chrome(&self) -> Vec<DisplayInfoRecord>"
     );
   });
+
+  it("treats lifecycle epoch zero as valid and scopes every tab mutation to its source", async () => {
+    const [projection, handler, menu] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_04_tab_chrome_projection.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_03_rion_overlay_request.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+
+    expect(projection).not.toContain("self.lifecycle_epoch() > 0");
+    expect(projection).toContain("tab_intent_source_identity_is_current(");
+    expect(projection).toContain('"tab.intent-superseded"');
+    expect(handler).toContain(
+      "state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str())"
+    );
+    expect(handler).not.toContain('action_type != "move" && live_window_id != window_id');
+    expect(menu).not.toContain('action_type != "move" && live_window_id != window_id');
+  });
 });

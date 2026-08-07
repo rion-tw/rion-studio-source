@@ -550,6 +550,10 @@ pub async fn handle_scoped_action(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "runtime tab ID is required".to_owned())?;
     if action_type == "activate" {
+        if state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str()) {
+            state.runtime.publish_projection();
+            return Ok(());
+        }
         return crate::preview_and_schedule_native_tab_selection(app, state, tab_id);
     }
     if action_type == "stop" {
@@ -564,7 +568,7 @@ pub async fn handle_scoped_action(
         // complete and must not surface a "tab not found" error.
         return Ok(());
     };
-    if action_type != "move" && live_window_id != window_id {
+    if live_window_id != window_id {
         return Err("runtime tab is outside this tab-strip WebView's window".to_owned());
     }
     if action_type == "openTabMenu" {

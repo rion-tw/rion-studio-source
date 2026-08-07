@@ -528,14 +528,20 @@ impl MacroRuntime {
     pub fn dispatch_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
         for result in results {
             validate_result(&result)?;
-            if let Some(sender) = self
+            if let Some(pending) = self
                 .shared
                 .pending
                 .lock()
                 .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?
                 .remove(&result.request_id)
             {
-                let _ = sender.send(result);
+                if let Some(signal) = pending.signal.upgrade() {
+                    let _signal_guard = signal.wake.0.lock().ok();
+                    let _ = pending.result.send(result);
+                    signal.wake.1.notify_all();
+                } else {
+                    let _ = pending.result.send(result);
+                }
             }
         }
         Ok(())

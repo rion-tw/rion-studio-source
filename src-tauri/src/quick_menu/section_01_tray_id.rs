@@ -2,7 +2,6 @@ use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
 };
 
 use rion_core::{AppCore, CoreCommand};

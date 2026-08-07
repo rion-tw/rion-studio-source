@@ -192,11 +192,6 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
             TabChromeProjectionWaitOutcome::Applied,
             "{platform}"
         );
-        assert!(coordinator.prepare_retry(
-            "window-1",
-            "renderer-1",
-            projection.projection_revision,
-        ));
         coordinator.finish(
             "window-1",
             "renderer-1",

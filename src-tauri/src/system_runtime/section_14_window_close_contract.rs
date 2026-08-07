@@ -296,6 +296,8 @@ impl SystemRuntimeExecutor {
             }
         }
         self.presentation.remove(window_id);
+        self.cancel_pending_window_activation(window_id);
+        self.notify_optional_idle_changed();
         self.schedule_retiring_window_tab_cleanup(window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
         self.publish_launcher_presence();
@@ -439,6 +441,7 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or_default();
         if let Some((window_id, generation)) = focus_identity {
+            self.cancel_pending_window_activation(&window_id);
             self.focus_broker.revoke_window(&window_id, generation);
         }
         if let Some(transaction) = transaction {

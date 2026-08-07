@@ -159,7 +159,7 @@ impl SystemRuntimeExecutor {
                         "Live tab surface projection remains pending: tab={} target={} error={}",
                         update.tab_id, update.window_id, error.message
                     );
-                    self.schedule_tab_surface_move_retry(
+                    self.schedule_tab_surface_move_projection(
                         update.tab_id.clone(),
                         update.window_id.clone(),
                     );

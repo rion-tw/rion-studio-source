@@ -773,6 +773,7 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
+        self.complete_pending_window_activation(&target.window_id, window_generation);
         self.register_runtime_launcher_window(&target.window_id);
         Ok((window, true))
     }

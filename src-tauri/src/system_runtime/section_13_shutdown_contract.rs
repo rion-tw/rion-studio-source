@@ -253,6 +253,7 @@ impl SystemRuntimeExecutor {
         state.main_frame_navigation_input_fences.clear();
         state.role_input_fences.clear();
         state.last_input_ready_epochs.clear();
+        self.input_readiness.notify();
         state.controlled_navigation_webviews.clear();
         state.surface_registry.clear();
         state.retired_surface_registry.clear();
@@ -280,6 +281,8 @@ impl SystemRuntimeExecutor {
         for (window_id, host) in display_hosts {
             self.unregister_runtime_launcher_window(&window_id);
             self.presentation.remove(&window_id);
+            self.cancel_pending_window_activation(&window_id);
+            self.notify_optional_idle_changed();
             self.native_window_mutations.forget(&window_id);
             if host.window.close().is_err() {
                 errors += 1;

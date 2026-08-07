@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
-    const [runtime, shell, macInput, platformProbe] = await Promise.all([
+    const [runtime, shell, macInput, platformProbe, powerLifecycle] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(
@@ -13,6 +13,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       ),
       readFile(
         new URL("../crates/rion-platform/src/system_webview.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/power_lifecycle.rs", import.meta.url),
         "utf8"
       )
     ]);
@@ -114,7 +118,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(applyRuntime).not.toContain("dispatch_native_presentation(");
     expect(applyRuntime).toContain("request_window_contract_presentation(");
     expect(applyRuntime).toContain("NativePresentationFocus::WindowAndContent");
-    expect(applyRuntime).toContain("schedule_tab_surface_move_retry(");
+    expect(applyRuntime).toContain("schedule_tab_surface_move_projection(");
     expect(applyRuntime).not.toContain("SYSTEM_RUNTIME_TOPOLOGY_INVALID");
     expect(applyRuntime).not.toContain("self.presentation.remove(&window_id)");
     expect(applyRuntime).not.toContain("visibility_mutations");
@@ -369,7 +373,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("pub fn restore_tab_role_slots(");
 
     expect(shell).toContain("on_web_content_process_terminate");
-    expect(shell).toContain("rion-tauri-display-watcher");
+    expect(powerLifecycle).toContain("WM_DISPLAYCHANGE");
+    expect(powerLifecycle).toContain("request_display_topology_refresh");
+    expect(shell).not.toContain("rion-tauri-display-watcher");
     expect(shell).not.toContain("CoreCommand::EmbeddedDisplayRemove");
     expect(shell).not.toContain("CoreCommand::WorkspaceReconcileDisplays");
     expect(shell).toContain('"rion://display-topology"');

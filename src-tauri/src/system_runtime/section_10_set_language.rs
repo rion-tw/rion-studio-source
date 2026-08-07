@@ -28,8 +28,8 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Runtime tab is no longer in live topology.".to_owned())?;
         let state = self
             .state
-            .try_lock()
-            .map_err(|_| "The runtime tab menu context is temporarily busy.".to_owned())?;
+            .lock()
+            .map_err(|_| "The runtime tab menu context is unavailable.".to_owned())?;
         let audio_muted = state
             .tabs
             .get(tab_id)
@@ -46,8 +46,8 @@ impl SystemRuntimeExecutor {
 
     pub(crate) fn tab_audio_muted(&self, tab_id: &str) -> Result<bool, String> {
         let native = self.state
-            .try_lock()
-            .map_err(|_| "The runtime tab audio state is temporarily busy.".to_owned())?
+            .lock()
+            .map_err(|_| "The runtime tab audio state is unavailable.".to_owned())?
             .tabs
             .get(tab_id)
             .map(|tab| tab.audio_muted);
@@ -464,13 +464,6 @@ impl SystemRuntimeExecutor {
             state
                 .tab_drag_placement_suppressed_windows
                 .insert(window_id.to_owned());
-            if let Some(label) = state
-                .display_hosts
-                .get(window_id)
-                .map(|host| host.window.label().to_owned())
-            {
-                state.pending_window_placement_writes.remove(&label);
-            }
         }
     }
 

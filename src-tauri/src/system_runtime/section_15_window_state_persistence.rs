@@ -1,5 +1,6 @@
 #[derive(Default)]
 struct WindowStatePersistCoordinator {
+    changed: Condvar,
     lanes: Mutex<HashMap<String, WindowStatePersistLane>>,
     snapshots: Mutex<WindowStatePersistSnapshots>,
     worker_active: Mutex<bool>,
@@ -11,8 +12,8 @@ struct WindowStatePersistSnapshots {
 }
 
 struct WindowStatePersistLane {
+    due_at: Instant,
     failure_count: u32,
-    immediate: bool,
     input: GameWindowRuntimeSnapshotCommitInputRecord,
     last_error: Option<String>,
     revision: u64,
@@ -114,17 +115,30 @@ impl WindowStatePersistCoordinator {
                     lane.window_generation == window_generation && lane.revision == revision
                 })
                 .and_then(|lane| lane.last_error.clone());
+            let due_at = if immediate {
+                Instant::now()
+            } else if failure_count > 0 {
+                lanes
+                    .get(window_id)
+                    .map(|lane| lane.due_at)
+                    .unwrap_or_else(|| {
+                        Instant::now() + window_state_persist_retry_delay(failure_count)
+                    })
+            } else {
+                Instant::now() + WINDOW_STATE_PERSIST_DEBOUNCE
+            };
             lanes.insert(
                 window_id.to_owned(),
                 WindowStatePersistLane {
+                    due_at,
                     failure_count,
-                    immediate,
                     input,
                     last_error,
                     revision,
                     window_generation,
                 },
             );
+            self.changed.notify_all();
             true
         });
         if !accepted {
@@ -155,75 +169,47 @@ impl WindowStatePersistCoordinator {
 }
 
 fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecutor>) {
+    let Some(runtime) = runtime.upgrade() else {
+        return;
+    };
+    let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock() else {
+        return;
+    };
     loop {
-        let Some(runtime) = runtime.upgrade() else {
-            return;
-        };
-        let delay = runtime
-            .window_state_persistence
-            .lanes
-            .lock()
-            .ok()
-            .and_then(|lanes| {
-                if lanes.is_empty() {
-                    None
-                } else if lanes.values().any(|lane| lane.immediate) {
-                    Some(Duration::ZERO)
-                } else {
-                    let failure_count = lanes
-                        .values()
-                        .map(|lane| lane.failure_count)
-                        .min()
-                        .unwrap_or_default();
-                    Some(window_state_persist_retry_delay(failure_count))
-                }
-            });
-        let Some(delay) = delay else {
+        if lanes.is_empty() {
             if let Ok(mut active) = runtime.window_state_persistence.worker_active.lock() {
                 *active = false;
             }
-            // A request can arrive between observing the empty map and retiring
-            // the worker. Re-arm once so no latest snapshot is stranded.
-            let should_continue = runtime
-                .window_state_persistence
-                .lanes
-                .lock()
-                .is_ok_and(|lanes| !lanes.is_empty())
-                && runtime
-                    .window_state_persistence
-                    .worker_active
-                    .lock()
-                    .is_ok_and(|mut active| {
-                        if *active {
-                            false
-                        } else {
-                            *active = true;
-                            true
-                        }
-                    });
-            if should_continue {
-                continue;
-            }
             return;
-        };
-        if !delay.is_zero() {
-            thread::sleep(delay);
         }
-        let inputs = runtime
-            .window_state_persistence
-            .lanes
-            .lock()
-            .map(|mut lanes| {
-                for lane in lanes.values_mut() {
-                    lane.immediate = false;
-                }
-                lanes
-                    .values()
-                    .map(|lane| lane.input.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let now = Instant::now();
+        let next_due = lanes
+            .values()
+            .map(|lane| lane.due_at)
+            .min()
+            .unwrap_or(now);
+        if next_due > now {
+            lanes = match runtime
+                .window_state_persistence
+                .changed
+                .wait_timeout(lanes, next_due.saturating_duration_since(now))
+            {
+                Ok((lanes, _)) => lanes,
+                Err(_) => return,
+            };
+            continue;
+        }
+        let inputs = lanes
+            .values()
+            .filter(|lane| lane.due_at <= now)
+            .map(|lane| lane.input.clone())
+            .collect::<Vec<_>>();
+        drop(lanes);
         if inputs.is_empty() {
+            lanes = match runtime.window_state_persistence.lanes.lock() {
+                Ok(lanes) => lanes,
+                Err(_) => return,
+            };
             continue;
         }
         let requested = inputs
@@ -297,6 +283,10 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
                 }
             }
         }
+        lanes = match runtime.window_state_persistence.lanes.lock() {
+            Ok(lanes) => lanes,
+            Err(_) => return,
+        };
     }
 }
 
@@ -312,6 +302,7 @@ fn retire_window_state_persist_lane(
         })
     {
         lanes.remove(window_id);
+        runtime.window_state_persistence.changed.notify_all();
     }
 }
 
@@ -334,6 +325,9 @@ fn record_window_state_persist_failure(
             }
             lane.failure_count = lane.failure_count.saturating_add(1);
             lane.last_error = Some(message.clone());
+            lane.due_at =
+                Instant::now() + window_state_persist_retry_delay(lane.failure_count);
+            runtime.window_state_persistence.changed.notify_all();
             Some(lane.failure_count)
         });
     let Some(failure_count) = failure_count else {
@@ -487,40 +481,34 @@ impl SystemRuntimeExecutor {
 
     pub(crate) fn wait_for_final_window_state_flush(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
-        loop {
-            let pending = self
-                .window_state_persistence
-                .lanes
-                .lock()
-                .map(|lanes| {
-                    lanes
-                        .values()
-                        .map(|lane| {
-                            (
-                                lane.input.snapshot.window_id.clone(),
-                                lane.window_generation,
-                                lane.revision,
-                                lane.failure_count,
-                                lane.last_error.clone(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            if pending.is_empty() {
-                return true;
-            }
-            if Instant::now() >= deadline {
-                for (window_id, generation, revision, attempts, error) in pending {
-                    eprintln!(
-                        "Final Live Game Window snapshot remains dirty: window={window_id} generation={generation} revision={revision} attempts={attempts} error={}",
-                        error.as_deref().unwrap_or("persistence worker still pending")
-                    );
-                }
-                return false;
-            }
-            thread::sleep(Duration::from_millis(10));
+        let Ok(mut lanes) = self.window_state_persistence.lanes.lock() else {
+            return false;
+        };
+        while !lanes.is_empty() && Instant::now() < deadline {
+            lanes = match self.window_state_persistence.changed.wait_timeout(
+                lanes,
+                deadline.saturating_duration_since(Instant::now()),
+            ) {
+                Ok((lanes, _)) => lanes,
+                Err(_) => return false,
+            };
         }
+        if lanes.is_empty() {
+            return true;
+        }
+        for lane in lanes.values() {
+            eprintln!(
+                "Final Live Game Window snapshot remains dirty: window={} generation={} revision={} attempts={} error={}",
+                lane.input.snapshot.window_id,
+                lane.window_generation,
+                lane.revision,
+                lane.failure_count,
+                lane.last_error
+                    .as_deref()
+                    .unwrap_or("persistence worker still pending")
+            );
+        }
+        false
     }
 }
 

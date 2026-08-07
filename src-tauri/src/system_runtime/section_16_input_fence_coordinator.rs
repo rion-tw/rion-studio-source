@@ -323,6 +323,7 @@ impl SystemRuntimeExecutor {
                     .retain(|_, ticket| ticket.role_id != role_id);
                 operation
             });
+            self.input_readiness.notify();
             if let Some(operation) = operation {
                 self.record_native_operation_receipt(NativeOperationReceipt::applied(
                     operation,
@@ -384,6 +385,7 @@ impl SystemRuntimeExecutor {
             )
             .and_then(|fence| fence.navigation_operation);
         drop(state);
+        self.input_readiness.notify();
         if let Some(operation) = superseded_operation {
             self.record_native_operation_receipt(NativeOperationReceipt::with_status(
                 operation,
@@ -752,6 +754,7 @@ impl SystemRuntimeExecutor {
                 (discarded_epoch, navigation)
             })
             .unwrap_or((None, None));
+        self.input_readiness.notify();
         if let Some(navigation) = navigation {
             // Closing a launching role supersedes the pending native page wait.
             // Wake both sync and async subscribers immediately; controller

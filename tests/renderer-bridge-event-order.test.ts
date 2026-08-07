@@ -71,15 +71,17 @@ describe("Tauri bridge state event ordering", () => {
         changedCollections: ["games"]
       }]
     });
+    // A latest-wins follower keeps one query in flight. The newer revision is
+    // observed immediately after the older query settles, without a timer.
+    older.resolve([{ id: "older" }]);
+    await older.promise;
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect(onGamesChanged).not.toHaveBeenCalled();
+
     newer.resolve([{ id: "newer" }]);
     await newer.promise;
     await vi.waitFor(() => expect(onGamesChanged).toHaveBeenCalledOnce());
     expect(onGamesChanged).toHaveBeenLastCalledWith([{ id: "newer" }]);
-
-    older.resolve([{ id: "older" }]);
-    await older.promise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onGamesChanged).toHaveBeenCalledOnce();
 
     invoke.mockResolvedValue([{ id: "latest" }]);
     onCoreEvents?.({

@@ -47,6 +47,14 @@ impl Drop for ActiveTopologyGeometryGuard<'_> {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn request_display_topology_refresh(&self, cause: &str) {
+        if let Some(state) = self.app.try_state::<crate::CoreState>()
+            && let Err(error) = state.display_topology.request(self.app.clone(), cause)
+        {
+            eprintln!("Display topology event could not be queued: cause={cause} error={error}");
+        }
+    }
+
     pub(crate) fn reconcile_display_topology_targets<F>(
         &self,
         topology_revision: u64,
@@ -78,10 +86,11 @@ impl SystemRuntimeExecutor {
             .register(operation.clone())
             .map_err(str::to_owned)?;
 
-        let issue_guard = match lock_until_deadline(
-            &self.native_window_mutations.issue_gate,
-            operation.deadline,
-        ) {
+        let issue_guard = match self
+            .native_window_mutations
+            .issue_gate
+            .lock_until(operation.deadline)
+        {
             Ok(guard) => guard,
             Err(code) => {
                 return Ok(self
@@ -420,33 +429,13 @@ impl SystemRuntimeExecutor {
     }
 }
 
-fn lock_until_deadline<'a, T>(
-    mutex: &'a Mutex<T>,
-    deadline: Instant,
-) -> Result<std::sync::MutexGuard<'a, T>, &'static str> {
-    loop {
-        match mutex.try_lock() {
-            Ok(guard) => return Ok(guard),
-            Err(std::sync::TryLockError::Poisoned(_)) => {
-                return Err("SYSTEM_DISPLAY_TOPOLOGY_LANE_UNAVAILABLE");
-            }
-            Err(std::sync::TryLockError::WouldBlock) if Instant::now() < deadline => {
-                thread::sleep(Duration::from_millis(2));
-            }
-            Err(std::sync::TryLockError::WouldBlock) => {
-                return Err("SYSTEM_DISPLAY_TOPOLOGY_DEADLINE_EXCEEDED");
-            }
-        }
-    }
-}
-
 fn lock_lanes_until_deadline<'a>(
-    lanes: &'a [Arc<Mutex<()>>],
+    lanes: &'a [Arc<NativeWindowMutationLane>],
     deadline: Instant,
-) -> Result<Vec<std::sync::MutexGuard<'a, ()>>, &'static str> {
+) -> Result<Vec<NativeWindowMutationPermit<'a>>, &'static str> {
     let mut guards = Vec::with_capacity(lanes.len());
     for lane in lanes {
-        guards.push(lock_until_deadline(lane, deadline)?);
+        guards.push(lane.lock_until(deadline)?);
     }
     Ok(guards)
 }

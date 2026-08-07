@@ -51,6 +51,7 @@ struct ApplicationLifecycleCoordinator {
     changed: watch::Sender<u64>,
     deferred_surface_recoveries: Mutex<HashMap<String, DeferredSurfaceRecovery>>,
     phase: AtomicU8,
+    navigation_waiters: Mutex<Vec<Weak<NavigationTracker>>>,
     record: Mutex<ApplicationLifecycleStatusRecord>,
     role_input_epochs: Mutex<HashMap<String, u64>>,
     suspended: AtomicBool,
@@ -67,6 +68,7 @@ impl ApplicationLifecycleCoordinator {
             changed,
             deferred_surface_recoveries: Mutex::new(HashMap::new()),
             phase: AtomicU8::new(ApplicationLifecyclePhase::Active as u8),
+            navigation_waiters: Mutex::new(Vec::new()),
             record: Mutex::new(ApplicationLifecycleStatusRecord {
                 revision: 1,
                 captured_at: chrono::Utc::now().to_rfc3339(),
@@ -112,6 +114,7 @@ impl ApplicationLifecycleCoordinator {
         let next = record.clone();
         drop(record);
         self.changed.send_replace(epoch);
+        self.notify_navigation_waiters();
         next
     }
 
@@ -132,6 +135,28 @@ impl ApplicationLifecycleCoordinator {
 
     fn subscribe(&self) -> watch::Receiver<u64> {
         self.changed.subscribe()
+    }
+
+    fn register_navigation_waiter(&self, navigation: &Arc<NavigationTracker>) {
+        if let Ok(mut waiters) = self.navigation_waiters.lock() {
+            waiters.retain(|waiter| waiter.strong_count() > 0);
+            waiters.push(Arc::downgrade(navigation));
+        }
+    }
+
+    fn notify_navigation_waiters(&self) {
+        let waiters = self
+            .navigation_waiters
+            .lock()
+            .map(|mut waiters| {
+                let live = waiters.iter().filter_map(Weak::upgrade).collect::<Vec<_>>();
+                waiters.retain(|waiter| waiter.strong_count() > 0);
+                live
+            })
+            .unwrap_or_default();
+        for waiter in waiters {
+            waiter.wake();
+        }
     }
 
     fn defer_surface_recovery(
@@ -575,6 +600,7 @@ impl SystemRuntimeExecutor {
                 .main_frame_navigation_input_fences
                 .retain(|_, ticket| ticket.role_id != role_id);
         }
+        self.input_readiness.notify();
         true
     }
 }

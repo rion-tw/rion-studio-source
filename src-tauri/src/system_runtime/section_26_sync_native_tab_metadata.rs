@@ -393,6 +393,53 @@ impl SystemRuntimeExecutor {
         self.cancel_surface_continuations(surfaces, code, message)
     }
 
+    fn complete_destroyed_host_surface_continuations(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+    ) -> usize {
+        let surfaces = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                state
+                    .surface_registry
+                    .values()
+                    .chain(state.retired_surface_registry.values())
+                    .filter(|surface| {
+                        destroyed_host_surface_identity_matches(
+                            &surface.window_id,
+                            surface.window_generation,
+                            window_id,
+                            window_generation,
+                        ) && destroyed_host_surface_close_is_pending(
+                            surface.close_operation_id.is_some(),
+                            surface.phase,
+                        )
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let completed = surfaces
+            .into_iter()
+            .filter(|surface| surface.lifecycle.mark_parent_window_destroyed())
+            .collect::<Vec<_>>();
+        for surface in &completed {
+            self.record_surface_event(
+                LogLevel::Info,
+                "surface.parent-window-destroyed",
+                "The exact parent window generation destroyed the pending native surface.",
+                surface,
+            );
+        }
+        if !completed.is_empty() {
+            self.tab_close_changed.notify_all();
+        }
+        completed.len()
+    }
+
     fn cancel_surface_continuations(
         &self,
         surfaces: Vec<ManagedSurface>,
@@ -527,14 +574,16 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
             lifecycle.wait_for_isolation_event().await?;
-            if lifecycle.native_isolation_event() == 5 {
+            if !lifecycle.parent_window_destroyed()
+                && lifecycle.native_isolation_event() == 5
+            {
                 self.record_surface_stage_by_label(
                     LogLevel::Info,
                     "surface.process-terminated",
                     "The exact WebContent process termination stopped the page.",
                     &label,
                 );
-            } else {
+            } else if !lifecycle.parent_window_destroyed() {
                 self.record_surface_stage_by_label(
                     LogLevel::Debug,
                     "surface.blank-finished",
@@ -550,13 +599,19 @@ impl SystemRuntimeExecutor {
                     &label,
                 );
             }
-            self.record_surface_stage_by_label(
-                LogLevel::Debug,
-                "surface.native-release-requested",
-                "The exact isolated native surface release was requested.",
-                &label,
-            );
-            release_platform_surface(webview, lifecycle)?;
+            if !lifecycle.parent_window_destroyed() {
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.native-release-requested",
+                    "The exact isolated native surface release was requested.",
+                    &label,
+                );
+                if let Err(error) = release_platform_surface(webview, lifecycle)
+                    && !lifecycle.parent_window_destroyed()
+                {
+                    return Err(error);
+                }
+            }
             lifecycle.wait_for_native_release_event().await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
@@ -564,14 +619,22 @@ impl SystemRuntimeExecutor {
                 "The exact native surface generation was released.",
                 &label,
             );
-            webview.close().map_err(RuntimeError::tauri)?;
-            lifecycle.mark_controller_released();
-            self.record_surface_stage_by_label(
-                LogLevel::Info,
-                "surface.wrapper-close-accepted",
-                "Tauri accepted the wrapper close and unregistered its manager entry.",
-                &label,
-            );
+            if !lifecycle.parent_window_destroyed() {
+                if let Err(error) = webview.close()
+                    && !lifecycle.parent_window_destroyed()
+                {
+                    return Err(RuntimeError::tauri(error));
+                }
+                if !lifecycle.parent_window_destroyed() {
+                    lifecycle.mark_controller_released();
+                    self.record_surface_stage_by_label(
+                        LogLevel::Info,
+                        "surface.wrapper-close-accepted",
+                        "Tauri accepted the wrapper close and unregistered its manager entry.",
+                        &label,
+                    );
+                }
+            }
             lifecycle.wait_for_store_reusable_event(platform).await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,

@@ -136,6 +136,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(nativeMacTabs).toContain(".update_metadata(");
     expect(nativeMacTabs).not.toContain(".update(");
     expect(applyRuntime).toContain("surface.reparent(&window)");
+    expect(applyRuntime).toContain("surface.window_generation = target_window_generation");
     expect(applyRuntime).toContain("synchronize_windows_reparented_surfaces(");
     expect(applyRuntime).toContain('"tab.reparent-synchronized"');
     expect(applyRuntime).toContain('"tab.reparent-sync-failed"');

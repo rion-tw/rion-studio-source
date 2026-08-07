@@ -778,6 +778,29 @@
     }
 
     #[test]
+    fn parent_window_destroyed_completes_the_exact_surface_release_barrier() {
+        for platform in ["macos", "windows"] {
+            let tracker = Arc::new(SurfaceLifecycleTracker::default());
+            assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+            let callback_tracker = Arc::clone(&tracker);
+            let callback = std::thread::spawn(move || {
+                assert!(callback_tracker.mark_parent_window_destroyed());
+            });
+
+            assert!(tauri::async_runtime::block_on(async {
+                tracker.wait_for_isolation_event().await?;
+                tracker.wait_for_native_release_event().await?;
+                tracker.wait_for_store_reusable_event(platform).await
+            })
+            .is_ok());
+            callback.join().unwrap();
+            assert!(tracker.parent_window_destroyed());
+            assert_eq!(tracker.native_isolation_event(), 11);
+            assert!(!tracker.mark_parent_window_destroyed());
+        }
+    }
+
+    #[test]
     fn lifecycle_cancellation_is_terminal_and_late_native_events_are_stale() {
         let tracker = SurfaceLifecycleTracker::default();
         assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);

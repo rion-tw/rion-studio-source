@@ -167,7 +167,7 @@ impl SystemRuntimeExecutor {
             }
         }
 
-        let moved_registry_surfaces = {
+        let moved_registry_surfaces = (|| -> RuntimeResult<Vec<ManagedSurface>> {
             let mut state = self.state()?;
             if let Some(target) = target.as_ref()
                 && let Some(host) = state.display_hosts.get_mut(&target.window_id)
@@ -181,13 +181,24 @@ impl SystemRuntimeExecutor {
                 state
                     .native_tab_hosts
                     .insert(update.tab_id.clone(), update.window_id.clone());
+                let target_window_generation = state
+                    .display_hosts
+                    .get(&update.window_id)
+                    .map(|host| host.generation)
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_RUNTIME_WINDOW_NOT_FOUND",
+                            "The target native window generation disappeared during projection.",
+                        )
+                    })?;
                 for surface in state.surface_registry.values_mut() {
                     if surface.tab_id.as_deref() == Some(update.tab_id.as_str()) {
                         surface.window_id = update.window_id.clone();
+                        surface.window_generation = target_window_generation;
                     }
                 }
             }
-            state
+            Ok(state
                 .surface_registry
                 .values()
                 .filter(|surface| {
@@ -198,8 +209,8 @@ impl SystemRuntimeExecutor {
                     })
                 })
                 .cloned()
-                .collect::<Vec<_>>()
-        };
+                .collect::<Vec<_>>())
+        })()?;
         for surface in &moved_registry_surfaces {
             self.record_surface_event(
                 LogLevel::Debug,

@@ -466,6 +466,7 @@ impl SystemRuntimeExecutor {
             .unwrap_or_default();
         self.tab_close_changed.notify_all();
         if let Some((window_id, generation)) = retired_identity.as_ref() {
+            self.complete_destroyed_host_surface_continuations(window_id, *generation);
             self.record_presentation_event(
                 LogLevel::Debug,
                 "native.window-destroyed",

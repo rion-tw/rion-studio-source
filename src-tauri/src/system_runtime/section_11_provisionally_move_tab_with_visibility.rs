@@ -133,9 +133,20 @@ impl SystemRuntimeExecutor {
                 drop(state);
                 return Ok(());
             };
+            let Some(target_window_generation) = state
+                .display_hosts
+                .get(target_window_id)
+                .map(|host| host.generation)
+            else {
+                return Err(
+                    "The target native window generation disappeared during reparenting."
+                        .to_owned(),
+                );
+            };
             for surface in state.surface_registry.values_mut() {
                 if surface.tab_id.as_deref() == Some(tab_id) {
                     surface.window_id = target_window_id.to_owned();
+                    surface.window_generation = target_window_generation;
                 }
             }
             state

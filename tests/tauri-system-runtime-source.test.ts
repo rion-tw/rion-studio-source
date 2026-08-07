@@ -120,12 +120,16 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(nativeClose.indexOf("wait_for_isolation_event().await")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
-    expect(nativeClose).toContain("release_platform_surface(webview, lifecycle)?");
+    expect(nativeClose).toContain("if let Err(error) = release_platform_surface(webview, lifecycle)");
+    expect(nativeClose).toContain("!lifecycle.parent_window_destroyed()");
     expect(nativeClose).toContain('"surface.native-release-requested"');
     expect(nativeClose).not.toContain("SURFACE_ISOLATION_TIMEOUT");
     expect(nativeClose).toContain("wait_for_store_reusable_event(platform).await");
     expect(nativeClose).not.toContain("recv_timeout");
     expect(nativeClose).not.toContain("wait_timeout");
+    expect(runtime).toContain("complete_destroyed_host_surface_continuations(window_id, *generation)");
+    expect(runtime).toContain("destroyed_host_surface_identity_matches(");
+    expect(runtime).toContain("surface_window_generation == destroyed_window_generation");
   });
 
 it("routes close around slow effects and keeps failed close intent committed", async () => {
@@ -667,6 +671,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     );
     expect(move).toContain("state.surface_registry.values_mut()");
     expect(move).toContain("surface.window_id = target_window_id.to_owned()");
+    expect(move).toContain("surface.window_generation = target_window_generation");
     expect(move).toMatch(/state\s*\.native_tab_hosts/u);
     expect(move).not.toContain("surface.window_id = source_window_id.to_owned()");
     const popup = runtime.slice(

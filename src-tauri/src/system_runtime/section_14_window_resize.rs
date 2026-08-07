@@ -1,3 +1,4 @@
+#[cfg(not(windows))]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RuntimeWindowResizeSnapshot {
     content_metrics: WindowContentMetrics,
@@ -9,23 +10,20 @@ pub(crate) struct RuntimeWindowResizeSnapshot {
     received_at: Instant,
     scale_factor: f64,
     sequence: u64,
-    #[cfg(windows)]
-    native_fast_path: WindowsLiveResizeObservation,
 }
 
+#[cfg(not(windows))]
 #[derive(Clone, Debug)]
 struct PendingWindowResize {
     coalesced_count: u64,
-    #[cfg(windows)]
-    native_fast_path_counters: WindowsLiveResizeCounters,
     received_count: u64,
     snapshot: RuntimeWindowResizeSnapshot,
 }
 
 impl SystemRuntimeExecutor {
-    /// Called directly from Tauri's window event callback. All Tauri window
-    /// getters intentionally run here on the UI thread; the resize worker only
-    /// consumes this value snapshot and never synchronously queries the window.
+    /// Windows geometry is owned by the Win32 coordinator. Tauri resize events
+    /// only drain diagnostics and never start another bounds writer. Other
+    /// platforms keep their existing immutable UI-thread snapshot pipeline.
     pub fn observe_resize_window(
         self: &Arc<Self>,
         label: &str,
@@ -45,24 +43,23 @@ impl SystemRuntimeExecutor {
         }) else {
             return;
         };
+        #[cfg(windows)]
+        {
+            let observation =
+                windows_live_resize_observe(&window, physical_width, physical_height);
+            self.record_windows_live_resize_counters(
+                label,
+                observation.counters,
+                observation,
+            );
+            let _ = event_scale_factor;
+        }
+        #[cfg(not(windows))]
         let scale_factor = event_scale_factor
             .or_else(|| window.scale_factor().ok())
             .map(normalized_scale_factor)
             .unwrap_or(1.0);
-        #[cfg(windows)]
-        let live_resize = windows_live_resize_observe(
-            &window,
-            physical_width,
-            physical_height,
-        );
-        #[cfg(windows)]
-        let (physical_width, physical_height) = if live_resize.client_width > 0
-            && live_resize.client_height > 0
-        {
-            (live_resize.client_width, live_resize.client_height)
-        } else {
-            (physical_width, physical_height)
-        };
+        #[cfg(not(windows))]
         let Some(content_metrics) = snapshot_window_content_metrics(
             &window,
             physical_width,
@@ -71,6 +68,7 @@ impl SystemRuntimeExecutor {
         ) else {
             return;
         };
+        #[cfg(not(windows))]
         let snapshot = RuntimeWindowResizeSnapshot {
             content_metrics,
             fullscreen: window.is_fullscreen().unwrap_or(false),
@@ -81,14 +79,130 @@ impl SystemRuntimeExecutor {
             received_at: Instant::now(),
             scale_factor,
             sequence: WINDOW_RESIZE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
-            #[cfg(windows)]
-            native_fast_path: live_resize,
         };
         #[cfg(target_os = "macos")]
         self.prepare_runtime_window_fullscreen(label, snapshot.fullscreen);
+        #[cfg(not(windows))]
         self.schedule_resize_window(label.to_owned(), snapshot);
     }
 
+    #[cfg(windows)]
+    fn observe_windows_geometry_receipt(
+        &self,
+        window_id: String,
+        receipt: WindowsGeometryReceipt,
+    ) {
+        self.record_windows_geometry_receipt(&window_id, receipt);
+        if receipt.status == WindowsGeometryStatus::Failed {
+            let label = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .display_hosts
+                        .get(&window_id)
+                        .map(|host| host.window.label().to_owned())
+                })
+                .unwrap_or_else(|| window_id.clone());
+            self.emit_runtime_shell_error(
+                "SYSTEM_GEOMETRY_APPLY_FAILED",
+                "The Windows geometry coordinator could not materialize every WebView surface."
+                    .to_owned(),
+                &label,
+            );
+            return;
+        }
+        self.observe_windows_tab_chrome_reveal(
+            &window_id,
+            receipt.key.generation,
+            WindowsTabChromeRevealSignal::GeometryReady,
+        );
+        if !receipt.terminal {
+            return;
+        }
+        let Some(runtime) = self.self_weak.get().cloned() else {
+            return;
+        };
+        let _ = thread::Builder::new()
+            .name("rion-windows-geometry-receipt".to_owned())
+            .spawn(move || {
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                runtime.commit_windows_geometry_receipt(&window_id, receipt);
+            });
+    }
+
+    #[cfg(windows)]
+    fn commit_windows_geometry_receipt(
+        &self,
+        window_id: &str,
+        receipt: WindowsGeometryReceipt,
+    ) {
+        if self.require_runtime_accepting().is_err() {
+            return;
+        }
+        let Some((window, label)) = self.state.lock().ok().and_then(|state| {
+            let host = state.display_hosts.get(window_id)?;
+            (host.generation == receipt.key.generation
+                && receipt.key.frame_revision > host.last_geometry_receipt_revision)
+                .then(|| (host.window.clone(), host.window.label().to_owned()))
+        }) else {
+            return;
+        };
+
+        // Native getters intentionally run after the runtime-state guard has
+        // been released. WebView2 and Tauri callbacks may re-enter the runtime.
+        let fullscreen = window.is_fullscreen().unwrap_or(false);
+        let minimized = window.is_minimized().unwrap_or(false);
+        if minimized {
+            return;
+        }
+        let scale_factor = (f64::from(receipt.key.dpi) / 96.0).max(f64::EPSILON);
+        let presentation = if fullscreen {
+            "fullscreen"
+        } else if receipt.key.presentation == WindowsGeometryPresentation::Maximized {
+            "maximized"
+        } else {
+            "normal"
+        };
+        let target = self.state.lock().ok().and_then(|mut state| {
+            let host = state.display_hosts.get_mut(window_id)?;
+            if host.generation != receipt.key.generation
+                || receipt.key.frame_revision <= host.last_geometry_receipt_revision
+            {
+                return None;
+            }
+            host.last_geometry_receipt_revision = receipt.key.frame_revision;
+            host.target.presentation = presentation.to_owned();
+            host.target.scale_factor = scale_factor;
+            if presentation == "normal" {
+                host.target.bounds.width =
+                    (f64::from(receipt.key.width) / scale_factor).round().max(1.0) as i32;
+                host.target.bounds.height =
+                    (f64::from(receipt.key.height) / scale_factor).round().max(1.0) as i32;
+            }
+            Some(host.target.clone())
+        });
+        let Some(target) = target else {
+            return;
+        };
+        if let Err(error) = self.update_live_window_target(&target, true) {
+            eprintln!(
+                "Windows geometry receipt commit failed: window={window_id} error={error}"
+            );
+            return;
+        }
+        self.publish_projection();
+        if let Err(error) = self.persist_game_window_placement(&label) {
+            eprintln!(
+                "Windows geometry receipt persistence failed: window={window_id} error={error}"
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
     pub fn resize_window(
         &self,
         label: &str,
@@ -205,6 +319,7 @@ impl SystemRuntimeExecutor {
         true
     }
 
+    #[cfg(not(windows))]
     pub fn schedule_resize_window(
         self: &Arc<Self>,
         label: String,
@@ -242,6 +357,7 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    #[cfg(not(windows))]
     fn run_resize_worker(self: &Arc<Self>, label: String) {
         let started = Instant::now();
         let mut applied_count = 0_u64;
@@ -354,6 +470,7 @@ impl SystemRuntimeExecutor {
         );
     }
 
+    #[cfg(not(windows))]
     fn resize_window_projection_is_busy(&self, label: &str) -> bool {
         self.window_id_for_label(label).is_some_and(|window_id| {
             self.native_window_mutations.is_busy(&window_id)
@@ -363,6 +480,7 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(not(windows))]
     fn wait_for_resize_projection_lane(&self, label: &str, deadline: Instant) -> bool {
         let Some(window_id) = self.window_id_for_label(label) else {
             return false;
@@ -373,6 +491,7 @@ impl SystemRuntimeExecutor {
         lane.lock_until(deadline).is_ok()
     }
 
+    #[cfg(not(windows))]
     fn resize_pending_sequence_matches(&self, label: &str, sequence: u64) -> bool {
         self.state.lock().ok().is_some_and(|state| {
             state
@@ -382,6 +501,7 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(not(windows))]
     fn clear_resize_worker(&self, label: &str, sequence: Option<u64>) -> bool {
         self.state.lock().ok().is_some_and(|mut state| {
             if sequence.is_some_and(|sequence| {
@@ -399,7 +519,7 @@ impl SystemRuntimeExecutor {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(not(windows))]
 fn resize_metrics_with_tab_strip(
     mut metrics: WindowContentMetrics,
     tab_strip_height: f64,
@@ -409,6 +529,7 @@ fn resize_metrics_with_tab_strip(
     metrics
 }
 
+#[cfg(not(windows))]
 fn coalesce_pending_resize(
     previous: Option<PendingWindowResize>,
     snapshot: RuntimeWindowResizeSnapshot,
@@ -434,6 +555,7 @@ fn coalesce_pending_resize(
     }
 }
 
+#[cfg(not(windows))]
 fn resize_projection_tab_ids(
     selected_tab_id: Option<String>,
     settled_tab_ids: Option<Vec<String>>,
@@ -446,6 +568,7 @@ fn resize_projection_tab_ids(
         .collect()
 }
 
+#[cfg(not(windows))]
 fn native_resize_should_retry(
     native_busy: bool,
     shutdown_state: RuntimeShutdownState,
@@ -456,13 +579,9 @@ fn native_resize_should_retry(
         && blocked_for < PLATFORM_CALLBACK_TIMEOUT
 }
 
+#[cfg(not(windows))]
 fn resize_snapshot_is_settled(elapsed: Duration) -> bool {
     elapsed >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE
-}
-
-#[cfg(windows)]
-fn resize_toolbar_revealed(host: &RuntimeDisplayHost) -> bool {
-    host.toolbar_revealed
 }
 
 #[cfg(not(windows))]

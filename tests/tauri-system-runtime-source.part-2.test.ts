@@ -207,32 +207,24 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");
     expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
     expect(restoreSavedWindows).not.toContain("game_windows.retain");
-    const resizeRuntimeWindow = runtime.slice(
-      runtime.indexOf("pub fn resize_window("),
-      runtime.indexOf("pub fn schedule_resize_window(")
-    );
-    expect(resizeRuntimeWindow).toContain("runtime_window_resize_is_actionable");
-    expect(resizeRuntimeWindow).toContain("TAURI_RUNTIME_WINDOW_LAYOUT_FAILED");
-    expect(resizeRuntimeWindow).toContain("if settled");
-    expect(resizeRuntimeWindow).not.toContain("persist_game_window_placement");
-    const resizeScheduler = runtime.slice(
-      runtime.indexOf("pub fn schedule_resize_window("),
-      runtime.indexOf("fn resize_window_projection_is_busy(")
-    );
-    expect(resizeScheduler).toContain("WINDOW_RESIZE_FRAME_INTERVAL");
-    expect(resizeScheduler).toContain("resize_snapshot_is_settled");
-    expect(runtime).toContain(
-      "elapsed >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE"
-    );
-    expect(resizeScheduler).toContain("persist_game_window_placement");
-    expect(resizeScheduler).not.toContain("window.scale_factor()");
-    expect(resizeScheduler).not.toContain("window.is_minimized()");
     const resizeObserver = runtime.slice(
       runtime.indexOf("pub fn observe_resize_window("),
       runtime.indexOf("pub fn resize_window(")
     );
-    expect(resizeObserver).toContain("window.scale_factor()");
-    expect(resizeObserver).toContain("window.is_fullscreen()");
+    expect(resizeObserver).toContain("windows_live_resize_observe");
+    expect(resizeObserver).toContain("record_windows_live_resize_counters");
+    expect(resizeObserver).not.toContain("windows_resize_snapshot_is_unchanged");
+    expect(runtime).toContain("#[cfg(not(windows))]\nconst WINDOW_RESIZE_FRAME_INTERVAL");
+    expect(runtime).toContain("#[cfg(not(windows))]\nconst WINDOW_PLACEMENT_PERSIST_DEBOUNCE");
+    expect(runtime).toContain("commit_windows_geometry_receipt");
+    const geometryReceiptCommit = runtime.slice(
+      runtime.indexOf("fn commit_windows_geometry_receipt("),
+      runtime.indexOf("pub fn resize_window(")
+    );
+    expect(geometryReceiptCommit.indexOf("window.is_fullscreen()")).toBeLessThan(
+      geometryReceiptCommit.indexOf("let target = self.state.lock()")
+    );
+    expect(geometryReceiptCommit).toContain("persist_game_window_placement");
     const resizeLayoutStart = runtime.indexOf("fn layout_runtime_tab_inner_with_metrics(");
     const resizeLayout = runtime.slice(
       resizeLayoutStart,
@@ -248,9 +240,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsResizeMetrics.indexOf("Some(metrics)")).toBeLessThan(
       windowsResizeMetrics.indexOf("self.windows_tab_strip_height")
     );
-    expect(resizeLayout).toContain(
-      "let tab_strip_height = resize_snapshot_tab_strip_height(metrics);"
-    );
+    expect(resizeLayout).toContain("windows_live_resize_publish_plan");
     expect(resizeLayout).toContain("apply_resize_layout_mutations(&window, mutations)");
     const windowsResizeSubmission = runtime.slice(
       runtime.indexOf("#[cfg(windows)]\nfn apply_resize_layout_mutations("),
@@ -264,12 +254,19 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     );
     const liveResizeProc = runtime.slice(
       liveResizeProcStart,
-      runtime.indexOf("fn windows_live_resize_apply(", liveResizeProcStart)
+      runtime.indexOf("fn windows_live_resize_notify_parent_position_changed(", liveResizeProcStart)
     );
     expect(runtime).toContain("SetWindowSubclass");
     expect(runtime).toContain("WM_SIZE");
+    expect(runtime).toContain("SIZE_MINIMIZED");
+    expect(runtime).toContain("WM_RION_GEOMETRY_FLUSH");
+    expect(runtime).toContain("PostMessageW");
     expect(runtime).toContain("BeginDeferWindowPos");
     expect(runtime).toContain("surface.controller.SetBounds");
+    expect(runtime).not.toContain("windows_live_resize_surface_bounds_match");
+    expect(runtime).not.toContain("MapWindowPoints");
+    expect(runtime).not.toContain("controller.Bounds(&mut");
+    expect(runtime).toContain("native_frame_unchanged");
     expect(runtime).toContain("WINDOWS_LIVE_RESIZE_REGISTRY");
     expect(runtime).toContain(
       "background_color(tauri::utils::config::Color(0, 0, 0, 0))"
@@ -280,9 +277,37 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(liveResizeProc).not.toContain("self.state");
     expect(liveResizeProc).not.toContain("AppCore");
     expect(liveResizeProc).not.toContain("LogsCapture");
-    expect(resizeObserver).toContain("windows_live_resize_observe");
-    expect(resizeLayout).toContain("if !skip_active_bounds");
+    expect(runtime).toContain("windows_live_resize_queue_current_frame(hwnd, false)");
+    expect(runtime).toContain("windows_geometry_submission_is_current");
+    expect(runtime).not.toContain("last_resize_key");
+    expect(runtime).toContain("#[cfg(not(windows))]\n    Bounds {");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");
+    expect(runtime).toContain("WindowsTabChromeRevealSignal::GeometryReady");
+    const ensureDisplayHost = runtime.slice(
+      runtime.indexOf("fn ensure_display_host("),
+      runtime.indexOf("fn register_runtime_launcher_window(")
+    );
+    expect(ensureDisplayHost.indexOf("windows_live_resize_install_host(")).toBeLessThan(
+      ensureDisplayHost.indexOf("self.begin_surface_host_initialization(")
+    );
+    const displayHostStateStart = ensureDisplayHost.indexOf(
+      "let mut state = self.state()?;",
+      ensureDisplayHost.indexOf("windows_live_resize_register_webview(&tab_strip)")
+    );
+    const displayHostStateCommit = ensureDisplayHost.slice(
+      displayHostStateStart,
+      ensureDisplayHost.indexOf("drop(state);", displayHostStateStart)
+    );
+    expect(displayHostStateCommit).not.toContain("window.inner_size()");
+    expect(displayHostStateCommit).not.toContain("window.is_minimized()");
+    expect(displayHostStateCommit).not.toContain("window.scale_factor()");
+    const tabPresentation = runtime.slice(
+      runtime.indexOf("fn request_tab_presentation_with_window_visibility("),
+      runtime.indexOf("pub(crate) fn preview_adjacent_tab_activation(")
+    );
+    expect(tabPresentation.indexOf("self.layout_runtime_tab(tab_id)")).toBeLessThan(
+      tabPresentation.lastIndexOf("self.dispatch_native_presentation(")
+    );
     expect(runtime).toContain('document.addEventListener("DOMContentLoaded", publish, { once: true })');
     expect(runtime).not.toContain('  publish();\n})();\n"#;');
 

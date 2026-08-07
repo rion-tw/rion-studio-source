@@ -66,7 +66,7 @@ fn tab_chrome_native_window_queries_run_after_runtime_state_is_released() {
 }
 
 #[test]
-fn windows_tab_chrome_reveal_waits_for_visibility_and_painted_content() {
+fn windows_tab_chrome_reveal_waits_for_geometry_visibility_and_painted_content() {
     for signals in [
         [
             WindowsTabChromeRevealSignal::VisibilityRequested,
@@ -79,17 +79,20 @@ fn windows_tab_chrome_reveal_waits_for_visibility_and_painted_content() {
     ] {
         let mut reveal = WindowsTabChromeRevealState::new(true);
         assert!(!reveal.observe(signals[0]));
-        assert!(reveal.observe(signals[1]));
+        assert!(!reveal.observe(signals[1]));
+        assert!(reveal.observe(WindowsTabChromeRevealSignal::GeometryReady));
         assert!(!reveal.observe(signals[1]));
     }
 
     let mut fallback = WindowsTabChromeRevealState::new(true);
     assert!(!fallback.observe(WindowsTabChromeRevealSignal::FallbackElapsed));
-    assert!(fallback.observe(WindowsTabChromeRevealSignal::VisibilityRequested));
+    assert!(!fallback.observe(WindowsTabChromeRevealSignal::VisibilityRequested));
+    assert!(fallback.observe(WindowsTabChromeRevealSignal::GeometryReady));
 
     let mut uncloaked = WindowsTabChromeRevealState::new(false);
     assert!(!uncloaked.observe(WindowsTabChromeRevealSignal::VisibilityRequested));
     assert!(!uncloaked.observe(WindowsTabChromeRevealSignal::ContentPainted));
+    assert!(!uncloaked.observe(WindowsTabChromeRevealSignal::GeometryReady));
 }
 
 #[test]

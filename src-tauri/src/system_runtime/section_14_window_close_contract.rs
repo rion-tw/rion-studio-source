@@ -431,8 +431,11 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .map(|mut state| {
-                state.pending_window_resizes.remove(label);
-                state.active_window_resize_workers.remove(label);
+                #[cfg(not(windows))]
+                {
+                    state.pending_window_resizes.remove(label);
+                    state.active_window_resize_workers.remove(label);
+                }
                 let focus_identity = state.display_hosts.iter().find_map(|(window_id, host)| {
                     (host.window.label() == label)
                         .then(|| (window_id.clone(), host.generation))

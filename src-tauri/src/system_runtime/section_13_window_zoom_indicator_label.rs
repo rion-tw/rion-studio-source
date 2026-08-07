@@ -662,6 +662,9 @@ impl SystemRuntimeExecutor {
                 trigger,
             );
         }
+        #[cfg(windows)]
+        self.layout_runtime_tab(tab_id)
+            .map_err(|error| error.message)?;
         let presentation_operation_id = self.dispatch_native_presentation(
             window_id.clone(),
             Some(tab_id.to_owned()),

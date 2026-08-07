@@ -359,6 +359,8 @@ struct RuntimeDisplayHost {
     window: Window,
     zoom_factor: f64,
     #[cfg(windows)]
+    last_geometry_receipt_revision: u64,
+    #[cfg(windows)]
     tab_strip: Webview,
     #[cfg(windows)]
     toolbar_revealed: bool,

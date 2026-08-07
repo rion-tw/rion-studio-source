@@ -1,5 +1,53 @@
 impl SystemRuntimeExecutor {
     #[cfg(windows)]
+    fn record_windows_geometry_receipt(
+        &self,
+        window_id: &str,
+        receipt: WindowsGeometryReceipt,
+    ) {
+        let status = match receipt.status {
+            WindowsGeometryStatus::Applied => "applied",
+            WindowsGeometryStatus::Failed => "failed",
+            WindowsGeometryStatus::Unchanged => "unchanged",
+        };
+        let context = json!({
+            "dpi": receipt.key.dpi,
+            "frameRevision": receipt.key.frame_revision,
+            "height": receipt.key.height,
+            "hostGeneration": receipt.key.generation,
+            "planRevision": receipt.key.plan_revision,
+            "presentation": match receipt.key.presentation {
+                WindowsGeometryPresentation::Maximized => "maximized",
+                WindowsGeometryPresentation::Restored => "restored",
+            },
+            "status": status,
+            "terminal": receipt.terminal,
+            "width": receipt.key.width,
+            "windowId": window_id,
+        });
+        let core = Arc::clone(&self.core);
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: if receipt.status == WindowsGeometryStatus::Failed {
+                            LogLevel::Warn
+                        } else {
+                            LogLevel::Debug
+                        },
+                        source: LogSource::Browser,
+                        event: "native.windows-geometry-receipt".to_owned(),
+                        message: "The Windows geometry coordinator completed a revision-fenced frame."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
+    #[cfg(windows)]
     fn record_windows_live_resize_counters(
         &self,
         window_label: &str,
@@ -22,12 +70,14 @@ impl SystemRuntimeExecutor {
             "matchedLatestFrame": observation.matched_latest_frame,
             "matchStatus": observation.match_status,
             "nativeFastPathAvailable": observation.native_fast_path_available,
+            "nativeFrameUnchanged": observation.native_frame_unchanged,
             "parentPositionAppliedCount": counters.parent_position_applied,
             "parentPositionErrorCount": counters.parent_position_errors,
             "parentPositionReceivedCount": counters.parent_position_received,
             "platform": "windows",
             "planEpoch": observation.plan_epoch,
             "receivedCount": counters.received,
+            "unchangedCount": counters.unchanged,
             "windowLabel": window_label,
         });
         let core = Arc::clone(&self.core);
@@ -52,6 +102,7 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    #[cfg(not(windows))]
     fn record_resize_worker_event(
         &self,
         window_label: &str,

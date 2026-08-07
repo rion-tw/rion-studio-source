@@ -194,27 +194,6 @@ fn overlapping_controlled_navigations_release_only_their_own_scope() {
 }
 
 #[test]
-fn native_resize_retry_is_bounded_and_stops_during_shutdown() {
-    for _platform in ["macos", "windows"] {
-        assert!(native_resize_should_retry(
-            true,
-            RuntimeShutdownState::Accepting,
-            PLATFORM_CALLBACK_TIMEOUT - Duration::from_millis(1),
-        ));
-        assert!(!native_resize_should_retry(
-            true,
-            RuntimeShutdownState::Accepting,
-            PLATFORM_CALLBACK_TIMEOUT,
-        ));
-        assert!(!native_resize_should_retry(
-            true,
-            RuntimeShutdownState::Draining,
-            Duration::ZERO,
-        ));
-    }
-}
-
-#[test]
 fn windows_resize_submission_returns_without_native_acknowledgement() {
     let (submission_tx, submission_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -239,72 +218,10 @@ fn windows_resize_submission_returns_without_native_acknowledgement() {
 }
 
 #[test]
-fn resize_bursts_keep_only_the_latest_ui_thread_snapshot() {
-    let snapshot = |sequence, width| RuntimeWindowResizeSnapshot {
-        content_metrics: logical_resize_metrics(width, 1_440, 2.0),
-        fullscreen: false,
-        maximized: false,
-        minimized: false,
-        physical_height: 1_440,
-        physical_width: width,
-        received_at: Instant::now(),
-        scale_factor: 2.0,
-        sequence,
-        #[cfg(windows)]
-        native_fast_path: WindowsLiveResizeObservation::default(),
-    };
-    let first = coalesce_pending_resize(None, snapshot(1, 2_560));
-    let second = coalesce_pending_resize(Some(first), snapshot(2, 2_800));
-    let latest = coalesce_pending_resize(Some(second), snapshot(3, 3_000));
-    assert_eq!(latest.snapshot.sequence, 3);
-    assert_eq!(latest.snapshot.physical_width, 3_000);
-    assert_eq!(latest.received_count, 3);
-    assert_eq!(latest.coalesced_count, 2);
-}
-
-#[test]
-fn live_resize_projects_the_active_tab_then_settles_every_tab() {
-    let hydrated = HashSet::from(["active".to_owned(), "hidden".to_owned()]);
-    assert_eq!(
-        resize_projection_tab_ids(Some("active".to_owned()), None, &hydrated),
-        ["active"]
-    );
-    assert_eq!(
-        resize_projection_tab_ids(
-            Some("active".to_owned()),
-            Some(vec!["active".to_owned(), "hidden".to_owned()]),
-            &hydrated,
-        ),
-        ["active", "hidden"]
-    );
-    assert!(resize_projection_tab_ids(
-        Some("reserved".to_owned()),
-        Some(vec!["reserved".to_owned(), "active".to_owned()]),
-        &hydrated,
-    )
-    .iter()
-    .eq(["active"]));
-}
-
-#[test]
-fn resize_settlement_keeps_the_persistence_debounce_out_of_live_projection() {
-    assert!(!resize_snapshot_is_settled(
-        WINDOW_PLACEMENT_PERSIST_DEBOUNCE - Duration::from_millis(1)
-    ));
-    assert!(resize_snapshot_is_settled(
-        WINDOW_PLACEMENT_PERSIST_DEBOUNCE
-    ));
-}
-
-#[test]
 fn resize_metrics_preserve_windows_two_hundred_percent_scaling() {
     let metrics = logical_resize_metrics(3_756, 2_510, 2.0);
     assert_eq!(metrics.width, 1_878.0);
     assert_eq!(metrics.height, 1_255.0);
-    let content = resize_metrics_with_tab_strip(metrics, 44.0);
-    assert_eq!(content.top_inset, 44.0);
-    assert_eq!(content.height, 1_211.0);
-    assert_eq!(resize_snapshot_tab_strip_height(content), 44.0);
 }
 
 #[cfg(windows)]
@@ -389,6 +306,55 @@ fn windows_live_resize_plan_fences_generation_and_revision() {
 
 #[cfg(windows)]
 #[test]
+fn windows_geometry_receipts_are_fenced_by_host_plan_and_epoch() {
+    let submission = WindowsGeometrySubmission {
+        bounds: Vec::new(),
+        key: WindowsGeometryKey {
+            dpi: 144,
+            frame_revision: 8,
+            generation: 7,
+            height: 720,
+            plan_revision: 11,
+            presentation: WindowsGeometryPresentation::Restored,
+            width: 1_280,
+        },
+        last_batch_failed: false,
+        last_surface_bounds: HashMap::new(),
+        plan_epoch: 3,
+        surfaces: Vec::new(),
+        terminal: true,
+    };
+    assert!(windows_geometry_submission_is_current(7, 3, Some(11), &submission));
+    assert!(!windows_geometry_submission_is_current(8, 3, Some(11), &submission));
+    assert!(!windows_geometry_submission_is_current(7, 4, Some(11), &submission));
+    assert!(!windows_geometry_submission_is_current(7, 3, Some(12), &submission));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_geometry_key_fences_size_dpi_and_presentation() {
+    let key = WindowsGeometryKey {
+        dpi: 144,
+        frame_revision: 8,
+        generation: 7,
+        height: 720,
+        plan_revision: 11,
+        presentation: WindowsGeometryPresentation::Restored,
+        width: 1_280,
+    };
+    let mut changed = key;
+    changed.dpi = 192;
+    assert_ne!(key, changed);
+    changed = key;
+    changed.width += 1;
+    assert_ne!(key, changed);
+    changed = key;
+    changed.presentation = WindowsGeometryPresentation::Maximized;
+    assert_ne!(key, changed);
+}
+
+#[cfg(windows)]
+#[test]
 fn equivalent_live_resize_plan_preserves_the_native_frame_epoch() {
     let current = two_column_live_resize_plan();
     let mut next_revision = current.clone();
@@ -408,22 +374,27 @@ fn equivalent_live_resize_plan_preserves_the_native_frame_epoch() {
 fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
     let host = WindowsLiveResizeHost {
         counters: WindowsLiveResizeCounters::default(),
+        flush_posted: false,
         frame_sequence: 9,
         generation: 7,
+        interactive_resize: false,
         last_batch_failed: false,
-        last_native_attempt_at: None,
-        last_applied_frame: Some(WindowsLiveResizeFrame {
+        last_materialized_key: Some(WindowsGeometryKey {
+            dpi: 144,
+            frame_revision: 9,
+            generation: 7,
             height: 720,
-            plan_epoch: 3,
-            sequence: 9,
+            plan_revision: 11,
+            presentation: WindowsGeometryPresentation::Restored,
             width: 1_280,
         }),
+        last_surface_bounds: HashMap::new(),
+        pending_frame: None,
         plan: Some(two_column_live_resize_plan()),
         plan_epoch: 3,
+        receipt_handler: Arc::new(|_| {}),
         subclass_id: 7,
     };
-    // The Tauri event size is deliberately absent from this decision. Only
-    // Win32's current client rect and the applied native frame are compared.
     assert_eq!(
         windows_live_resize_frame_match(&host, Some((1_280, 720))),
         (true, "matched")
@@ -433,7 +404,7 @@ fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
         (false, "size-mismatch")
     );
     let mut fenced = host;
-    fenced.plan_epoch += 1;
+    fenced.plan.as_mut().unwrap().revision += 1;
     assert_eq!(
         windows_live_resize_frame_match(&fenced, Some((1_280, 720))),
         (false, "plan-fence")
@@ -442,24 +413,97 @@ fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
 
 #[cfg(windows)]
 #[test]
-fn live_resize_debounce_limits_native_batches_but_forces_the_final_size() {
-    let started = Instant::now();
-    assert!(windows_live_resize_should_submit(None, started, false));
-    assert!(!windows_live_resize_should_submit(
-        Some(started),
-        started + WINDOW_RESIZE_FRAME_INTERVAL - Duration::from_millis(1),
+fn windows_minimize_messages_never_enter_native_geometry_projection() {
+    assert!(!windows_live_resize_message_is_actionable(
+        SIZE_MINIMIZED as usize,
+        1_280,
+        720,
+    ));
+    assert!(!windows_live_resize_message_is_actionable(0, 0, 720));
+    assert!(!windows_live_resize_message_is_actionable(0, 1_280, 0));
+    assert!(windows_live_resize_message_is_actionable(0, 1_280, 720));
+}
+
+#[cfg(windows)]
+#[test]
+fn unchanged_native_frame_requires_every_surface_to_match() {
+    let labels = ["tabs".to_owned(), "role".to_owned()];
+    let bounds = [
+        WindowsLiveResizeBounds {
+            height: 44,
+            width: 1_280,
+            x: 0,
+            y: 0,
+        },
+        WindowsLiveResizeBounds {
+            height: 676,
+            width: 1_280,
+            x: 0,
+            y: 44,
+        },
+    ];
+    let cache = HashMap::from([
+        (labels[0].clone(), bounds[0]),
+        (labels[1].clone(), bounds[1]),
+    ]);
+    assert!(windows_geometry_cached_bounds_match(
+        &labels,
+        &bounds,
+        &cache,
         false,
     ));
-    assert!(windows_live_resize_should_submit(
-        Some(started),
-        started + WINDOW_RESIZE_FRAME_INTERVAL,
+    assert!(!windows_geometry_cached_bounds_match(
+        &labels[..1],
+        &bounds,
+        &cache,
         false,
     ));
-    assert!(windows_live_resize_should_submit(
-        Some(started),
-        started + Duration::from_millis(1),
+    assert!(!windows_geometry_cached_bounds_match(
+        &labels,
+        &bounds,
+        &cache,
         true,
     ));
+}
+
+#[cfg(windows)]
+#[test]
+fn unchanged_native_diagnostics_exclude_mixed_or_failed_batches() {
+    let mut counters = WindowsLiveResizeCounters {
+        received: 1,
+        unchanged: 1,
+        ..WindowsLiveResizeCounters::default()
+    };
+    assert!(windows_live_resize_counters_are_unchanged(counters, true));
+    assert!(!windows_live_resize_counters_are_unchanged(counters, false));
+
+    counters.received = 2;
+    assert!(!windows_live_resize_counters_are_unchanged(counters, true));
+    counters.received = 1;
+    counters.applied = 1;
+    assert!(!windows_live_resize_counters_are_unchanged(counters, true));
+    counters.applied = 0;
+    counters.errors = 1;
+    assert!(!windows_live_resize_counters_are_unchanged(counters, true));
+}
+
+#[cfg(windows)]
+#[test]
+fn posted_geometry_frames_coalesce_to_the_latest_terminal_revision() {
+    let frame = |revision, width, terminal| WindowsGeometryPendingFrame {
+        dpi: 144,
+        frame_revision: revision,
+        height: 720,
+        presentation: WindowsGeometryPresentation::Restored,
+        terminal,
+        width,
+    };
+    let (pending, coalesced) =
+        windows_geometry_merge_pending(Some(frame(1, 1_280, true)), frame(2, 1_440, false));
+    assert!(coalesced);
+    assert_eq!(pending.frame_revision, 2);
+    assert_eq!(pending.width, 1_440);
+    assert!(pending.terminal);
 }
 
 #[cfg(windows)]

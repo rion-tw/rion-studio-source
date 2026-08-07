@@ -74,6 +74,7 @@ fn query_tab_chrome_window_state_unlocked<State, Snapshot, Output>(
 enum WindowsTabChromeRevealSignal {
     ContentPainted,
     FallbackElapsed,
+    GeometryReady,
     VisibilityRequested,
 }
 
@@ -83,6 +84,7 @@ struct WindowsTabChromeRevealState {
     cloaked: bool,
     content_painted: bool,
     fallback_elapsed: bool,
+    geometry_ready: bool,
     visibility_requested: bool,
 }
 
@@ -93,6 +95,7 @@ impl WindowsTabChromeRevealState {
             cloaked,
             content_painted: false,
             fallback_elapsed: false,
+            geometry_ready: false,
             visibility_requested: false,
         }
     }
@@ -101,11 +104,13 @@ impl WindowsTabChromeRevealState {
         match signal {
             WindowsTabChromeRevealSignal::ContentPainted => self.content_painted = true,
             WindowsTabChromeRevealSignal::FallbackElapsed => self.fallback_elapsed = true,
+            WindowsTabChromeRevealSignal::GeometryReady => self.geometry_ready = true,
             WindowsTabChromeRevealSignal::VisibilityRequested => {
                 self.visibility_requested = true;
             }
         }
         let reveal = self.cloaked
+            && self.geometry_ready
             && self.visibility_requested
             && (self.content_painted || self.fallback_elapsed);
         if reveal {

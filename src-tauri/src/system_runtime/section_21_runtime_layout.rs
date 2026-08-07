@@ -573,6 +573,16 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<(Window, bool)> {
         let existing_host = {
             let mut runtime_state = self.state()?;
+            if runtime_state
+                .retiring_native_window_hosts
+                .values()
+                .any(|host| host.window_id == target.window_id)
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_WINDOW_CLOSING",
+                    "The previous native window generation has not emitted its destroyed event.",
+                ));
+            }
             runtime_state
                 .display_hosts
                 .get_mut(&target.window_id)
@@ -843,6 +853,7 @@ impl SystemRuntimeExecutor {
                 error.message
             );
         }
+        self.tab_close_changed.notify_all();
     }
 
     fn remove_empty_display_host_at_revision_in_lane(
@@ -876,9 +887,15 @@ impl SystemRuntimeExecutor {
             state.retiring_window_tabs.remove(window_id);
             state.retiring_window_revisions.remove(window_id);
             let host = state.display_hosts.remove(window_id)?;
-            state
-                .allow_window_close_labels
-                .insert(host.window.label().to_owned());
+            let label = host.window.label().to_owned();
+            state.allow_window_close_labels.insert(label.clone());
+            state.retiring_native_window_hosts.insert(
+                label,
+                RetiringNativeWindowHost {
+                    generation: host.generation,
+                    window_id: window_id.to_owned(),
+                },
+            );
             Some(host)
         });
         if let Some(host) = host {
@@ -888,12 +905,14 @@ impl SystemRuntimeExecutor {
                 Err(error) => {
                     if let Ok(mut state) = self.state.lock() {
                         state.allow_window_close_labels.remove(&label);
+                        state.retiring_native_window_hosts.remove(&label);
                         state
                             .display_hosts
                             .entry(window_id.to_owned())
                             .or_insert(host);
                     }
                     self.health.mark_unhealthy();
+                    self.tab_close_changed.notify_all();
                     let error_message = error.to_string();
                     let core = Arc::clone(&self.core);
                     let context = json!({
@@ -948,6 +967,12 @@ impl SystemRuntimeExecutor {
                     state
                         .quarantined_window_hosts
                         .insert(window_id.to_owned());
+                } else if expected_retirement_revision.is_some() {
+                    // Keep a continuous close fence until host removal atomically
+                    // replaces this marker with a native-window tombstone.
+                    state
+                        .retiring_window_tabs
+                        .insert(window_id.to_owned(), HashSet::new());
                 }
                 return (false, expected_retirement_revision);
             };
@@ -961,7 +986,6 @@ impl SystemRuntimeExecutor {
             if !all_tabs_terminal {
                 return (false, None);
             }
-            state.retiring_window_tabs.remove(window_id);
             let retirement_revision = state.retiring_window_revisions.remove(window_id);
             let failed = state.retiring_window_cleanup_failed.remove(window_id);
             if failed {

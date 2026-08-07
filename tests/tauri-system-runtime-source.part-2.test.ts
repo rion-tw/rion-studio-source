@@ -58,6 +58,33 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       displayHost.indexOf("let mut state = self.state()?")
     );
     expect(windowsTabStripBuilder).toContain(".disable_drag_drop_handler()");
+    const windowsReveal = runtime.slice(
+      runtime.indexOf("fn prepare_windows_tab_chrome_presentation("),
+      runtime.indexOf("fn schedule_windows_tab_chrome_reveal_fallback(")
+    );
+    expect(windowsReveal).toContain("request_presentation(");
+    expect(windowsReveal).toContain("focus_sequence");
+    expect(windowsReveal).toContain("run_on_main_thread");
+    expect(windowsReveal).toContain("set_windows_runtime_window_cloaked");
+    expect(windowsReveal).toContain("focus_windows_runtime_window_after_reveal");
+    expect(windowsReveal.indexOf("set_windows_runtime_window_cloaked")).toBeLessThan(
+      windowsReveal.indexOf("focus_windows_runtime_window_after_reveal")
+    );
+    const nativePresentationStart = runtime.indexOf("fn apply_native_presentation_batch(");
+    const nativePresentation = runtime.slice(
+      nativePresentationStart,
+      nativePresentationStart + 30_000
+    );
+    expect(nativePresentation).toContain("defer_window_focus_until_reveal");
+    expect(nativePresentation).toContain("focus_broker.mark_submitted(lease)");
+    expect(nativePresentation).toContain("window_focused_after == Some(true)");
+    const liveWindowActivation = runtime.slice(
+      runtime.indexOf("fn live_window_activation_available("),
+      runtime.indexOf("pub(crate) fn reveal_live_runtime_window(")
+    );
+    expect(liveWindowActivation).toContain("empty_host_available");
+    expect(liveWindowActivation).toContain("retiring_window_revisions");
+    expect(liveWindowActivation).toContain("quarantined_window_hosts");
     expect(runtime).toContain("run_serial_runtime_work_loop");
     expect(runtime).toContain("SYSTEM_WEBVIEW_CREATION_STALLED");
     expect(runtime).toContain("PermissionRequestedEventHandler");
@@ -282,7 +309,15 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).not.toContain("last_resize_key");
     expect(runtime).toContain("#[cfg(not(windows))]\n    Bounds {");
     expect(runtime).toContain(".set_bounds(tauri::Rect {");
-    expect(runtime).toContain("WindowsTabChromeRevealSignal::GeometryReady");
+    expect(runtime).not.toContain("WindowsTabChromeRevealSignal::GeometryReady");
+    expect(runtime).toContain("wait_for_windows_tab_chrome_content(");
+    expect(runtime).toContain("WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT");
+    expect(runtime).toContain("retiring_native_window_hosts");
+    const createTabStart = runtime.indexOf("fn create_tab(");
+    const createTab = runtime.slice(createTabStart, createTabStart + 45_000);
+    expect(createTab.indexOf("wait_for_windows_tab_chrome_content(")).toBeLessThan(
+      createTab.indexOf("for role in &tab.roles")
+    );
     const ensureDisplayHost = runtime.slice(
       runtime.indexOf("fn ensure_display_host("),
       runtime.indexOf("fn register_runtime_launcher_window(")

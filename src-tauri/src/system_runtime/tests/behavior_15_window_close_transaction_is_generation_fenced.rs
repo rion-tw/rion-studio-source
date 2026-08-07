@@ -82,3 +82,27 @@ fn post_submission_failure_is_indeterminate_only_after_the_exact_generation_is_g
         );
     }
 }
+
+#[test]
+fn retired_native_host_blocks_reopen_until_destroyed() {
+    let mut state = RuntimeState::default();
+    state
+        .retiring_window_tabs
+        .insert("window-1".to_owned(), HashSet::new());
+    assert!(window_close_in_progress(&state, "window-1"));
+    state.retiring_window_tabs.remove("window-1");
+
+    state.retiring_native_window_hosts.insert(
+        "runtime-window-1".to_owned(),
+        RetiringNativeWindowHost {
+            generation: 7,
+            window_id: "window-1".to_owned(),
+        },
+    );
+
+    assert!(window_close_in_progress(&state, "window-1"));
+    state
+        .retiring_native_window_hosts
+        .remove("runtime-window-1");
+    assert!(!window_close_in_progress(&state, "window-1"));
+}

@@ -161,6 +161,8 @@ impl SystemRuntimeExecutor {
             tab_mutations: Arc::new(TabMutationCoordinator::default()),
             #[cfg(windows)]
             tab_chrome_projections: Arc::new(TabChromeProjectionCoordinator::default()),
+            #[cfg(windows)]
+            tab_chrome_changed: Condvar::new(),
             prewarm_state: AtomicU8::new(0),
             retiring_tab_senders: OnceLock::new(),
             restore_persist_requested: AtomicU64::new(0),

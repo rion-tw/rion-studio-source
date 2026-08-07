@@ -470,6 +470,7 @@ struct RuntimeState {
     native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
     retiring_window_cleanup_failed: HashSet<String>,
+    retiring_native_window_hosts: HashMap<String, RetiringNativeWindowHost>,
     retiring_window_revisions: HashMap<String, u64>,
     retiring_window_tabs: HashMap<String, HashSet<String>>,
     window_closes: WindowCloseLedger,
@@ -500,6 +501,12 @@ struct RuntimeState {
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RetiringNativeWindowHost {
+    generation: u64,
+    window_id: String,
 }
 
 struct InputReadinessRegistry {
@@ -799,6 +806,8 @@ pub struct SystemRuntimeExecutor {
     pending_window_activation: Mutex<Option<PendingWindowActivation>>,
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
+    #[cfg(windows)]
+    tab_chrome_changed: Condvar,
     tab_close_changed: Condvar,
     tab_drag_intents: Arc<TabDragIntentCoordinator>,
     tab_mutations: Arc<TabMutationCoordinator>,

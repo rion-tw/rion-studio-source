@@ -55,6 +55,12 @@ impl SystemRuntimeExecutor {
         if let Some(existing) = existing {
             return Ok(existing);
         }
+        if self.current_window_close_in_progress(&target.window_id) {
+            self.wait_for_window_close_before_reopen(&target.window_id)
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_RUNTIME_WINDOW_CLOSING", message)
+                })?;
+        }
         // An existing game window already owns a fully initialized native tab controller.
         // Reserving another tab must not wait behind an in-flight WKWebView/WebView2 creation:
         // that worker may itself be waiting for the UI thread to attach its controller.

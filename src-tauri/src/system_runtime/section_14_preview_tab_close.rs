@@ -675,12 +675,24 @@ impl SystemRuntimeExecutor {
                     .ok()
                     .and_then(|state| state.selected_tab_id.clone())
             });
-        self.focus_broker.observe_native_focus(
+        let focus_observed = self.focus_broker.observe_native_focus(
             &window_id,
             generation,
             0,
-            selected_tab_id,
+            selected_tab_id.clone(),
         );
+        if focus_observed.is_some() {
+            self.record_presentation_event(
+                LogLevel::Debug,
+                "native.window-focus-observed",
+                "The runtime window received the authoritative native focus event.",
+                &window_id,
+                selected_tab_id.as_deref(),
+                0,
+                "native-focus-event",
+                0,
+            );
+        }
         let is_saved = self.state.lock().ok().is_some_and(|state| {
             state.saved_window_names.contains_key(&window_id)
         });

@@ -8,6 +8,10 @@ enum MainWindowCommand {
 }
 
 impl MainWindowCommand {
+    fn requests_focus(self) -> bool {
+        matches!(self, Self::Show { focus: true })
+    }
+
     fn completion_scope(self) -> SystemRuntimeOperationCompletionScope {
         if matches!(self, Self::StartDragging) {
             SystemRuntimeOperationCompletionScope::NativeSubmission
@@ -37,6 +41,8 @@ struct MainWindowRequest {
 #[derive(Default)]
 struct MainWindowActorState {
     active_operation: Option<NativeOperationContext>,
+    active_focus_operation: Option<NativeOperationContext>,
+    pending_focus: Option<MainWindowRequest>,
     requests: VecDeque<MainWindowRequest>,
     stopped: bool,
 }
@@ -57,6 +63,32 @@ impl MainWindowActorState {
         }
         self.requests.push_back(request);
         Ok(())
+    }
+
+    fn take_focus_operations(&mut self) -> Vec<NativeOperationContext> {
+        let mut operations = Vec::new();
+        let mut operation_ids = HashSet::new();
+        self.requests.retain(|request| {
+            if request.command.requests_focus() {
+                if operation_ids.insert(request.operation.operation_id.clone()) {
+                    operations.push(request.operation.clone());
+                }
+                false
+            } else {
+                true
+            }
+        });
+        if let Some(pending) = self.pending_focus.take()
+            && operation_ids.insert(pending.operation.operation_id.clone())
+        {
+            operations.push(pending.operation);
+        }
+        if let Some(active) = self.active_focus_operation.take()
+            && operation_ids.insert(active.operation_id.clone())
+        {
+            operations.push(active);
+        }
+        operations
     }
 }
 
@@ -155,6 +187,11 @@ struct MainWindowNativeOutcome {
     status: NativeOperationStatus,
 }
 
+enum MainWindowApplyResult {
+    Terminal(MainWindowNativeOutcome),
+    FocusSubmitted,
+}
+
 struct MainWindowActor {
     app: AppHandle,
     focus_broker: Arc<NativeFocusBroker>,
@@ -208,6 +245,10 @@ impl MainWindowActor {
                             continue;
                         };
                         state.active_operation = Some(request.operation.clone());
+                        state.active_focus_operation = request
+                            .command
+                            .requests_focus()
+                            .then(|| request.operation.clone());
                         request
                     };
                     if !worker_operations.mark_in_flight(&request.operation.operation_id) {
@@ -220,12 +261,24 @@ impl MainWindowActor {
                         &worker_focus_broker,
                         &request,
                     );
-                    worker_operations.complete(NativeOperationReceipt::with_status(
-                        request.operation.clone(),
-                        outcome.stage,
-                        outcome.status,
-                        outcome.failure_code,
-                    ));
+                    match outcome {
+                        MainWindowApplyResult::Terminal(outcome) => {
+                            worker_operations.complete(NativeOperationReceipt::with_status(
+                                request.operation.clone(),
+                                outcome.stage,
+                                outcome.status,
+                                outcome.failure_code,
+                            ));
+                        }
+                        MainWindowApplyResult::FocusSubmitted => {
+                            Self::install_pending_focus(
+                                &worker_queue,
+                                &worker_operations,
+                                &worker_focus_broker,
+                                request.clone(),
+                            );
+                        }
+                    }
                     Self::clear_active(&worker_queue, &request.operation.operation_id);
                     if let Ok((record, changed)) = worker_projection.refresh(&worker_window)
                         && changed
@@ -253,6 +306,61 @@ impl MainWindowActor {
                 .is_some_and(|operation| operation.operation_id == operation_id)
         {
             state.active_operation = None;
+            state.active_focus_operation = None;
+        }
+    }
+
+    fn install_pending_focus(
+        queue: &Arc<(Mutex<MainWindowActorState>, Condvar)>,
+        operations: &NativeOperationRegistry,
+        focus_broker: &NativeFocusBroker,
+        request: MainWindowRequest,
+    ) {
+        let Some(lease) = request.focus_lease.as_ref() else {
+            operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowFocusLeaseMissing",
+                NativeOperationStatus::Failed,
+                Some("MAIN_WINDOW_FOCUS_LEASE_MISSING"),
+            ));
+            return;
+        };
+        let Ok(mut state) = queue.0.lock() else {
+            operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowActorUnavailable",
+                NativeOperationStatus::Failed,
+                Some("MAIN_WINDOW_ACTOR_UNAVAILABLE"),
+            ));
+            return;
+        };
+        if state.stopped || !focus_broker.is_current(lease) {
+            drop(state);
+            operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowFocusSuperseded",
+                NativeOperationStatus::Superseded,
+                None,
+            ));
+            return;
+        }
+        if focus_broker.is_confirmed(lease) {
+            drop(state);
+            operations.complete(NativeOperationReceipt::applied(
+                request.operation,
+                "mainWindowFocused",
+            ));
+            return;
+        }
+        let replaced = state.pending_focus.replace(request);
+        drop(state);
+        if let Some(replaced) = replaced {
+            operations.complete(NativeOperationReceipt::with_status(
+                replaced.operation,
+                "mainWindowFocusSuperseded",
+                NativeOperationStatus::Superseded,
+                None,
+            ));
         }
     }
 
@@ -271,6 +379,27 @@ impl MainWindowActor {
             ));
             return;
         };
+        let terminal_status = if request.command.requests_focus() {
+            Some((
+                "mainWindowFocusSuperseded",
+                NativeOperationStatus::Superseded,
+                None,
+            ))
+        } else if request.command == MainWindowCommand::Hide {
+            self.focus_broker.revoke_window("main", self.generation());
+            Some((
+                "mainWindowFocusCancelled",
+                NativeOperationStatus::Cancelled,
+                Some("MAIN_WINDOW_FOCUS_CANCELLED"),
+            ))
+        } else {
+            None
+        };
+        let displaced = if terminal_status.is_some() {
+            state.take_focus_operations()
+        } else {
+            Vec::new()
+        };
         if let Err(error) = state.enqueue(request.clone()) {
             let (stage, code) = match error {
                 MainWindowQueueError::Full => ("mainWindowQueueFull", "MAIN_WINDOW_QUEUE_FULL"),
@@ -278,13 +407,35 @@ impl MainWindowActor {
                     ("mainWindowActorStopped", "MAIN_WINDOW_ACTOR_STOPPED")
                 }
             };
+            drop(state);
             self.operations.complete(NativeOperationReceipt::with_status(
                 request.operation,
                 stage,
                 NativeOperationStatus::Failed,
                 Some(code),
             ));
+            if let Some((displaced_stage, displaced_status, displaced_code)) = terminal_status {
+                for operation in displaced {
+                    self.operations.complete(NativeOperationReceipt::with_status(
+                        operation,
+                        displaced_stage,
+                        displaced_status,
+                        displaced_code,
+                    ));
+                }
+            }
             return;
+        }
+        drop(state);
+        if let Some((stage, status, code)) = terminal_status {
+            for operation in displaced {
+                self.operations.complete(NativeOperationReceipt::with_status(
+                    operation,
+                    stage,
+                    status,
+                    code,
+                ));
+            }
         }
         changed.notify_one();
     }
@@ -305,21 +456,63 @@ impl MainWindowActor {
         self.projection
             .lifecycle_epoch
             .store(epoch, Ordering::Release);
+        self.cancel_focus_continuations(
+            "mainWindowFocusLifecycleCancelled",
+            "MAIN_WINDOW_FOCUS_LIFECYCLE_CANCELLED",
+        );
     }
 
     fn observe_focus(&self, focused: bool) {
         if focused {
-            self.focus_broker.observe_native_focus(
+            let lease = self.focus_broker.observe_native_focus(
                 "main",
                 self.generation(),
                 self.projection.lifecycle_epoch.load(Ordering::Acquire),
                 None,
             );
+            let pending = lease.as_ref().and_then(|lease| {
+                self.queue.0.lock().ok().and_then(|mut state| {
+                    state.pending_focus.take_if(|request| {
+                        request.focus_lease.as_ref() == Some(lease)
+                            && request.operation.window_generation
+                                == Some(lease.window_generation)
+                            && request.operation.lifecycle_epoch == Some(lease.lifecycle_epoch)
+                    })
+                })
+            });
+            if let Some(pending) = pending {
+                self.operations.complete(NativeOperationReceipt::applied(
+                    pending.operation,
+                    "mainWindowFocused",
+                ));
+            }
         } else {
             self.focus_broker
                 .observe_native_blur("main", self.generation());
+            self.cancel_focus_continuations(
+                "mainWindowFocusBlurCancelled",
+                "MAIN_WINDOW_FOCUS_BLUR_CANCELLED",
+            );
         }
         let _ = self.publish_state();
+    }
+
+    fn cancel_focus_continuations(&self, stage: &'static str, code: &'static str) {
+        self.focus_broker.revoke_window("main", self.generation());
+        let operations = self
+            .queue
+            .0
+            .lock()
+            .map(|mut state| state.take_focus_operations())
+            .unwrap_or_default();
+        for operation in operations {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                operation,
+                stage,
+                NativeOperationStatus::Cancelled,
+                Some(code),
+            ));
+        }
     }
 
     fn stop(&self) {
@@ -331,19 +524,40 @@ impl MainWindowActor {
             return;
         }
         state.stopped = true;
+        if let Some(request) = state.pending_focus.take() {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowActorStopped",
+                NativeOperationStatus::Cancelled,
+                Some("MAIN_WINDOW_ACTOR_STOPPED"),
+            ));
+        }
         if let Some(operation) = state.active_operation.take() {
+            let focus_active = state
+                .active_focus_operation
+                .take()
+                .is_some_and(|focus| focus.operation_id == operation.operation_id);
             self.operations.complete(NativeOperationReceipt::with_status(
                 operation,
                 "mainWindowActorStopped",
-                NativeOperationStatus::Failed,
+                if focus_active {
+                    NativeOperationStatus::Cancelled
+                } else {
+                    NativeOperationStatus::Failed
+                },
                 Some("MAIN_WINDOW_ACTOR_STOPPED"),
             ));
         }
         for request in state.requests.drain(..) {
+            let status = if request.command.requests_focus() {
+                NativeOperationStatus::Cancelled
+            } else {
+                NativeOperationStatus::Failed
+            };
             self.operations.complete(NativeOperationReceipt::with_status(
                 request.operation,
                 "mainWindowActorStopped",
-                NativeOperationStatus::Failed,
+                status,
                 Some("MAIN_WINDOW_ACTOR_STOPPED"),
             ));
         }
@@ -362,7 +576,7 @@ fn apply_main_window_request(
     window: &WebviewWindow,
     focus_broker: &Arc<NativeFocusBroker>,
     request: &MainWindowRequest,
-) -> MainWindowNativeOutcome {
+) -> MainWindowApplyResult {
     let (sender, receiver) = mpsc::sync_channel(1);
     let callback_app = app.clone();
     let callback_window = window.clone();
@@ -380,19 +594,19 @@ fn apply_main_window_request(
         let _ = sender.send(result);
     });
     if scheduled.is_err() {
-        return MainWindowNativeOutcome {
+        return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
             failure_code: Some("MAIN_WINDOW_DISPATCH_FAILED"),
             stage: "mainWindowDispatchFailed",
             status: NativeOperationStatus::Failed,
-        };
+        });
     }
     receiver
-        .recv_timeout(request.operation.remaining())
-        .unwrap_or(MainWindowNativeOutcome {
-            failure_code: Some("MAIN_WINDOW_OPERATION_INDETERMINATE"),
-            stage: "mainWindowCallbackTimeout",
-            status: NativeOperationStatus::Indeterminate,
-        })
+        .recv()
+        .unwrap_or(MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+            failure_code: Some("MAIN_WINDOW_ACTOR_STOPPED"),
+            stage: "mainWindowCallbackCancelled",
+            status: NativeOperationStatus::Cancelled,
+        }))
 }
 
 fn apply_main_window_command(
@@ -401,21 +615,62 @@ fn apply_main_window_command(
     focus_broker: &NativeFocusBroker,
     command: MainWindowCommand,
     focus_lease: Option<&NativeFocusLease>,
-) -> MainWindowNativeOutcome {
+) -> MainWindowApplyResult {
     #[cfg(not(target_os = "macos"))]
     let _ = app;
+    if command.requests_focus() {
+        let Some(focus_lease) = focus_lease else {
+            return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                failure_code: Some("MAIN_WINDOW_FOCUS_LEASE_MISSING"),
+                stage: "mainWindowFocusLeaseMissing",
+                status: NativeOperationStatus::Failed,
+            });
+        };
+        let focus_guard = focus_broker.begin_mutation(focus_lease);
+        let Ok(Some(_guard)) = focus_guard else {
+            return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                failure_code: None,
+                stage: "mainWindowFocusSuperseded",
+                status: NativeOperationStatus::Superseded,
+            });
+        };
+        let mut native_failed = false;
+        #[cfg(target_os = "macos")]
+        {
+            native_failed |= app.show().is_err();
+            let _ = crate::quick_menu_macos::activate_application();
+        }
+        native_failed |= window.unminimize().is_err();
+        native_failed |= window.show().is_err();
+        native_failed |= window.set_focus().is_err();
+        let submitted = !native_failed && focus_broker.mark_submitted(focus_lease);
+        return if native_failed {
+            MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                failure_code: Some("MAIN_WINDOW_NATIVE_FAILED"),
+                stage: "mainWindowNativeFailed",
+                status: NativeOperationStatus::Failed,
+            })
+        } else if submitted {
+            MainWindowApplyResult::FocusSubmitted
+        } else {
+            MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                failure_code: None,
+                stage: "mainWindowFocusSuperseded",
+                status: NativeOperationStatus::Superseded,
+            })
+        };
+    }
     let before = match MainWindowStateProjection::capture(window) {
         Ok(before) => before,
         Err(_) => {
-            return MainWindowNativeOutcome {
+            return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
                 failure_code: Some("MAIN_WINDOW_STATE_UNAVAILABLE"),
                 stage: "mainWindowReadbackFailed",
                 status: NativeOperationStatus::Failed,
-            };
+            });
         }
     };
     let mut native_failed = false;
-    let mut focus_superseded = false;
     match command {
         MainWindowCommand::Hide => {
             #[cfg(windows)]
@@ -427,7 +682,7 @@ fn apply_main_window_command(
                 native_failed |= window.hide().is_err();
             }
         }
-        MainWindowCommand::Show { focus } => {
+        MainWindowCommand::Show { focus: false } => {
             #[cfg(target_os = "macos")]
             {
                 native_failed |= app.show().is_err();
@@ -436,29 +691,8 @@ fn apply_main_window_command(
                 native_failed |= window.unminimize().is_err();
             }
             native_failed |= window.show().is_err();
-            if focus {
-                let focus_guard = focus_lease
-                    .map(|lease| focus_broker.begin_mutation(lease))
-                    .transpose();
-                match focus_guard {
-                    Ok(Some(Some(_guard))) => {
-                        #[cfg(target_os = "macos")]
-                        {
-                            let _ = crate::quick_menu_macos::activate_application();
-                        }
-                        native_failed |= window.set_focus().is_err();
-                        if let Some(lease) = focus_lease
-                            && !focus_broker.confirm(lease)
-                        {
-                            focus_superseded = true;
-                        }
-                    }
-                    Ok(Some(None)) => focus_superseded = true,
-                    Ok(None) => native_failed = true,
-                    Err(_) => native_failed = true,
-                }
-            }
         }
+        MainWindowCommand::Show { focus: true } => unreachable!(),
         MainWindowCommand::StartDragging => native_failed |= window.start_dragging().is_err(),
         MainWindowCommand::ToggleFullscreen => {
             native_failed |= window.set_fullscreen(!before.fullscreen).is_err();
@@ -472,31 +706,24 @@ fn apply_main_window_command(
         }
     }
     if native_failed {
-        return MainWindowNativeOutcome {
+        return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
             failure_code: Some("MAIN_WINDOW_NATIVE_FAILED"),
             stage: "mainWindowNativeFailed",
             status: NativeOperationStatus::Failed,
-        };
-    }
-    if focus_superseded {
-        return MainWindowNativeOutcome {
-            failure_code: None,
-            stage: "mainWindowFocusSuperseded",
-            status: NativeOperationStatus::Superseded,
-        };
+        });
     }
     let after = match MainWindowStateProjection::capture(window) {
         Ok(after) => after,
         Err(_) => {
-            return MainWindowNativeOutcome {
+            return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
                 failure_code: Some("MAIN_WINDOW_STATE_UNAVAILABLE"),
                 stage: "mainWindowReadbackFailed",
                 status: NativeOperationStatus::Degraded,
-            };
+            });
         }
     };
     let matches_readback = main_window_readback_matches(command, &before, &after);
-    MainWindowNativeOutcome {
+    MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
         failure_code: (!matches_readback).then_some("MAIN_WINDOW_STATE_UNCONFIRMED"),
         stage: if matches_readback {
             command.success_stage()
@@ -508,7 +735,7 @@ fn apply_main_window_command(
         } else {
             NativeOperationStatus::Degraded
         },
-    }
+    })
 }
 
 fn main_window_readback_matches(
@@ -533,7 +760,10 @@ fn main_window_readback_matches_for_platform(
                 !after.visible
             }
         }
-        MainWindowCommand::Show { focus } => after.visible && (!focus || after.focused),
+        MainWindowCommand::Show { focus: false } => after.visible,
+        MainWindowCommand::Show { focus: true } => {
+            unreachable!("focused show is acknowledged only by WindowEvent::Focused")
+        }
         MainWindowCommand::StartDragging => true,
         MainWindowCommand::ToggleFullscreen => after.fullscreen != before.fullscreen,
         MainWindowCommand::ToggleMaximized => after.maximized != before.maximized,
@@ -547,11 +777,18 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> RuntimeResult<String> {
         self.require_runtime_accepting()?;
-        let operation = NativeOperationContext::new(
-            NativeOperationSubsystem::Presentation,
-            trigger,
-            MAIN_WINDOW_OPERATION_TIMEOUT,
-        )
+        let operation = if command.requests_focus() {
+            NativeOperationContext::new_event_bound(
+                NativeOperationSubsystem::Presentation,
+                trigger,
+            )
+        } else {
+            NativeOperationContext::new(
+                NativeOperationSubsystem::Presentation,
+                trigger,
+                MAIN_WINDOW_OPERATION_TIMEOUT,
+            )
+        }
         .with_completion_scope(command.completion_scope())
         .with_window("main")
         .with_window_generation(self.main_window_actor.generation())

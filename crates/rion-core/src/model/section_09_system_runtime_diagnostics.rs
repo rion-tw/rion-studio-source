@@ -36,7 +36,10 @@ pub struct SystemRuntimeFailureRecord {
 pub struct SystemRuntimeOperationSummaryRecord {
     pub accepted_at: String,
     pub captured_at: String,
-    pub deadline_at: String,
+    pub completion_policy: OperationCompletionPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub deadline_at: Option<String>,
     #[ts(type = "\"macos\" | \"windows\" | \"other\"")]
     pub platform: String,
     pub subsystem: SystemRuntimeOperationSubsystem,
@@ -47,8 +50,9 @@ pub struct SystemRuntimeOperationSummaryRecord {
     pub trigger: String,
     #[ts(type = "number")]
     pub elapsed_ms: u64,
-    #[ts(type = "number")]
-    pub timeout_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub revision: Option<u64>,

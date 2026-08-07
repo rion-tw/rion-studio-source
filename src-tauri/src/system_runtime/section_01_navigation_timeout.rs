@@ -32,7 +32,8 @@ use rion_core::{
     GameWindowTabRecord,
     HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroInputDiagnosticsRecord, MacroInputEpochRecord, RuntimeTabMutationRequestRecord,
+    MacroInputDiagnosticsRecord, MacroInputEpochRecord, OperationCompletionPolicy,
+    RuntimeTabMutationRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, RuntimeRoleSlotRecord, SessionCookieRecord,
     SessionTransferPayloadRecord, StateGameRecord,
@@ -79,7 +80,6 @@ const DIVIDER_HIT_TARGET: f64 = 10.0;
 #[cfg(windows)]
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 40.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
-const SURFACE_ISOLATION_TIMEOUT: Duration = Duration::from_secs(2);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
 const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -694,18 +694,9 @@ enum SurfaceIsolationProgress {
     },
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct SurfaceQuiesceMetrics {
-    callback_queue_wait_ms: u64,
-    close_ms: u64,
-    deadline_exceeded: bool,
-    navigate_ms: u64,
-    stop_ms: u64,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfaceIsolationRequest {
-    Started(SurfaceQuiesceMetrics),
+    Started,
     Joined,
     AlreadyIsolated,
 }
@@ -717,7 +708,7 @@ enum SurfaceIsolationClaim {
     AlreadyIsolated,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct SurfaceReleaseState {
     #[cfg(windows)]
     browser_process_exited: bool,
@@ -725,21 +716,92 @@ struct SurfaceReleaseState {
     isolation_progress: SurfaceIsolationProgress,
     isolated: bool,
     native_surface_released: bool,
+    terminal_failure: Option<SurfaceLifecycleFailure>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SurfaceLifecycleFailure {
+    code: &'static str,
+    message: String,
+}
+
 struct SurfaceLifecycleTracker {
     #[cfg(windows)]
     browser_process_id: AtomicU64,
     #[cfg(windows)]
     controller_identity: AtomicU64,
+    #[cfg(windows)]
+    navigation_id: AtomicU64,
     #[cfg(target_os = "macos")]
     native_token: AtomicU64,
-    changed: Condvar,
+    native_isolation_event: AtomicU8,
+    stale_native_event_count: AtomicU64,
+    changed: watch::Sender<u64>,
     release: Mutex<SurfaceReleaseState>,
 }
 
+impl Default for SurfaceLifecycleTracker {
+    fn default() -> Self {
+        let (changed, _) = watch::channel(0);
+        Self {
+            #[cfg(windows)]
+            browser_process_id: AtomicU64::new(0),
+            #[cfg(windows)]
+            controller_identity: AtomicU64::new(0),
+            #[cfg(windows)]
+            navigation_id: AtomicU64::new(0),
+            #[cfg(target_os = "macos")]
+            native_token: AtomicU64::new(0),
+            native_isolation_event: AtomicU8::new(0),
+            stale_native_event_count: AtomicU64::new(0),
+            changed,
+            release: Mutex::new(SurfaceReleaseState::default()),
+        }
+    }
+}
+
 impl SurfaceLifecycleTracker {
+    fn publish_event(&self) {
+        self.changed.send_modify(|revision| {
+            *revision = revision.saturating_add(1);
+        });
+    }
+
+    fn record_native_isolation_event(&self, event: u8) {
+        self.native_isolation_event.store(event, Ordering::Release);
+    }
+
+    #[cfg(windows)]
+    fn record_windows_navigation_started(&self, navigation_id: u64) {
+        if navigation_id == 0 {
+            return;
+        }
+        let requested = self.release.lock().is_ok_and(|release| {
+            matches!(release.isolation_progress, SurfaceIsolationProgress::Requested)
+        });
+        if requested
+            && self
+                .navigation_id
+                .compare_exchange(0, navigation_id, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            self.record_native_isolation_event(1);
+            self.publish_event();
+        }
+    }
+
+    fn native_isolation_event(&self) -> u8 {
+        self.native_isolation_event.load(Ordering::Acquire)
+    }
+
+    fn record_stale_native_event(&self) {
+        self.stale_native_event_count.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn stale_native_event_count(&self) -> u64 {
+        self.stale_native_event_count.load(Ordering::Acquire)
+    }
+
     fn claim_isolation(&self) -> RuntimeResult<SurfaceIsolationClaim> {
         let mut release = self.release.lock().map_err(|_| {
             RuntimeError::new(
@@ -747,6 +809,9 @@ impl SurfaceLifecycleTracker {
                 "The native surface lifecycle lock was poisoned.",
             )
         })?;
+        if let Some(failure) = release.terminal_failure.as_ref() {
+            return Err(RuntimeError::new(failure.code, failure.message.clone()));
+        }
         if release.isolated || release.native_surface_released {
             release.isolation_progress = SurfaceIsolationProgress::Isolated;
             return Ok(SurfaceIsolationClaim::AlreadyIsolated);
@@ -766,54 +831,143 @@ impl SurfaceLifecycleTracker {
 
     fn fail_isolation(&self, error: &RuntimeError) {
         if let Ok(mut release) = self.release.lock() {
-            if release.isolated || release.native_surface_released {
-                release.isolation_progress = SurfaceIsolationProgress::Isolated;
-            } else {
-                release.isolation_progress = SurfaceIsolationProgress::Failed {
-                    code: error.code,
-                    message: error.message.clone(),
-                };
+            if release.terminal_failure.is_some()
+                || release.isolated
+                || release.native_surface_released
+            {
+                return;
             }
-            self.changed.notify_all();
+            release.isolation_progress = SurfaceIsolationProgress::Failed {
+                code: error.code,
+                message: error.message.clone(),
+            };
+            release.terminal_failure = Some(SurfaceLifecycleFailure {
+                code: error.code,
+                message: error.message.clone(),
+            });
+            drop(release);
+            self.publish_event();
         }
     }
 
-    fn mark_isolated(&self) {
+    fn fail_release(&self, error: &RuntimeError) {
         if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some() || release.native_surface_released {
+                return;
+            }
+            release.terminal_failure = Some(SurfaceLifecycleFailure {
+                code: error.code,
+                message: error.message.clone(),
+            });
+            drop(release);
+            self.publish_event();
+        }
+    }
+
+    fn mark_isolated(&self, native_event: u8) -> bool {
+        if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some()
+                || release.isolated
+                || release.native_surface_released
+                || !matches!(
+                    release.isolation_progress,
+                    SurfaceIsolationProgress::Requested
+                )
+            {
+                return false;
+            }
             release.isolated = true;
             release.isolation_progress = SurfaceIsolationProgress::Isolated;
-            self.changed.notify_all();
+            drop(release);
+            self.record_native_isolation_event(native_event);
+            self.publish_event();
+            return true;
         }
-    }
-
-    fn wait_for_isolation(&self, timeout: Duration) -> bool {
-        self.wait_for(timeout, |release| {
-            release.isolated || release.native_surface_released
-        })
+        false
     }
 
     #[cfg(windows)]
-    fn mark_browser_process_exited(&self) {
+    fn mark_browser_process_exited(&self) -> bool {
         if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some()
+                || release.isolated
+                || release.native_surface_released
+                || !matches!(
+                    release.isolation_progress,
+                    SurfaceIsolationProgress::Requested
+                )
+            {
+                return false;
+            }
             release.browser_process_exited = true;
-            release.native_surface_released = true;
-            self.changed.notify_all();
+            release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            drop(release);
+            self.record_native_isolation_event(5);
+            self.publish_event();
+            return true;
         }
+        false
+    }
+
+    fn mark_process_terminated(&self) -> bool {
+        if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some()
+                || release.isolated
+                || release.native_surface_released
+                || !matches!(
+                    release.isolation_progress,
+                    SurfaceIsolationProgress::Requested
+                )
+            {
+                return false;
+            }
+            release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            drop(release);
+            self.record_native_isolation_event(5);
+            self.publish_event();
+            return true;
+        }
+        false
+    }
+
+    fn close_intent_owns_process_failure(&self) -> bool {
+        self.release.lock().is_ok_and(|release| {
+            !matches!(
+                release.isolation_progress,
+                SurfaceIsolationProgress::Live
+            )
+        })
     }
 
     fn mark_controller_released(&self) {
         if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some()
+                || !release.native_surface_released
+                || release.controller_released
+            {
+                return;
+            }
             release.controller_released = true;
-            self.changed.notify_all();
+            drop(release);
+            self.publish_event();
         }
     }
 
     fn mark_native_surface_released(&self) {
         if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some()
+                || !release.isolated
+                || release.native_surface_released
+            {
+                return;
+            }
             release.isolated = true;
             release.isolation_progress = SurfaceIsolationProgress::Isolated;
             release.native_surface_released = true;
-            self.changed.notify_all();
+            drop(release);
+            self.publish_event();
         }
     }
 
@@ -824,37 +978,109 @@ impl SurfaceLifecycleTracker {
             .unwrap_or(false)
     }
 
-    fn wait_for_store_reusable(&self, platform: &str, timeout: Duration) -> bool {
-        self.wait_for(timeout, |release| surface_store_reusable(platform, release))
+    fn cancel_pending(&self, code: &'static str, message: &str) -> bool {
+        self.cancel_close_intent(code, message, false)
     }
 
-    #[cfg(all(windows, test))]
-    fn wait_for_browser_process_exit(&self, timeout: Duration) -> bool {
-        self.wait_for(timeout, |release| release.browser_process_exited)
+    fn cancel_accepted_intent(&self, code: &'static str, message: &str) -> bool {
+        self.cancel_close_intent(code, message, true)
     }
 
-    fn wait_for(&self, timeout: Duration, complete: impl Fn(&SurfaceReleaseState) -> bool) -> bool {
-        let deadline = Instant::now() + timeout;
+    fn cancel_close_intent(
+        &self,
+        code: &'static str,
+        message: &str,
+        include_live_intent: bool,
+    ) -> bool {
         let Ok(mut release) = self.release.lock() else {
             return false;
         };
-        while !complete(&release) {
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            let Ok((next, timeout)) = self
-                .changed
-                .wait_timeout(release, deadline.saturating_duration_since(now))
-            else {
-                return false;
-            };
-            release = next;
-            if timeout.timed_out() && !complete(&release) {
-                return false;
-            }
+        let pending = release.terminal_failure.is_none()
+            && !release.native_surface_released
+            && (include_live_intent
+                || release.isolated
+                || matches!(
+                    release.isolation_progress,
+                    SurfaceIsolationProgress::Requested
+                ));
+        if !pending {
+            return false;
         }
+        if !release.isolated {
+            release.isolation_progress = SurfaceIsolationProgress::Failed {
+                code,
+                message: message.to_owned(),
+            };
+        }
+        release.terminal_failure = Some(SurfaceLifecycleFailure {
+            code,
+            message: message.to_owned(),
+        });
+        drop(release);
+        self.publish_event();
         true
+    }
+
+    #[cfg(test)]
+    fn process_termination_completed_close(&self) -> bool {
+        self.release.lock().is_ok_and(|release| {
+            matches!(release.isolation_progress, SurfaceIsolationProgress::Isolated)
+                && self.native_isolation_event() == 5
+        })
+    }
+
+    fn store_is_reusable(&self, platform: &str) -> bool {
+        self.release
+            .lock()
+            .is_ok_and(|release| surface_store_reusable(platform, &release))
+    }
+
+    async fn wait_for_isolation_event(&self) -> RuntimeResult<()> {
+        self.wait_for_event(|release| {
+            release.isolated || release.native_surface_released
+        })
+        .await
+    }
+
+    async fn wait_for_native_release_event(&self) -> RuntimeResult<()> {
+        self.wait_for_event(|release| release.native_surface_released)
+            .await
+    }
+
+    async fn wait_for_store_reusable_event(&self, platform: &str) -> RuntimeResult<()> {
+        self.wait_for_event(|release| surface_store_reusable(platform, release))
+            .await
+    }
+
+    async fn wait_for_event(
+        &self,
+        complete: impl Fn(&SurfaceReleaseState) -> bool,
+    ) -> RuntimeResult<()> {
+        let mut changed = self.changed.subscribe();
+        loop {
+            let release = self
+                .release
+                .lock()
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+                        "The native surface lifecycle lock was poisoned.",
+                    )
+                })?
+                .clone();
+            if let Some(failure) = release.terminal_failure.as_ref() {
+                return Err(RuntimeError::new(failure.code, failure.message.clone()));
+            }
+            if complete(&release) {
+                return Ok(());
+            }
+            changed.changed().await.map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_LIFECYCLE_CANCELLED",
+                    "The native surface lifecycle event stream stopped.",
+                )
+            })?;
+        }
     }
 }
 
@@ -866,7 +1092,7 @@ fn quiesce_platform_surface(
         SurfaceIsolationClaim::Joined => Ok(SurfaceIsolationRequest::Joined),
         SurfaceIsolationClaim::AlreadyIsolated => Ok(SurfaceIsolationRequest::AlreadyIsolated),
         SurfaceIsolationClaim::Owner => match perform_platform_surface_quiesce(webview, lifecycle) {
-            Ok(metrics) => Ok(SurfaceIsolationRequest::Started(metrics)),
+            Ok(()) => Ok(SurfaceIsolationRequest::Started),
             Err(error) => {
                 lifecycle.fail_isolation(&error);
                 Err(error)

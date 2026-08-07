@@ -62,6 +62,7 @@ fn export_bindings_index() {
                 "export type { CoreEffectResult } from \"./CoreEffectResult\";\n",
                 "export type { CoreEffectTarget } from \"./CoreEffectTarget\";\n",
                 "export type { CoreEffectTargetKind } from \"./CoreEffectTargetKind\";\n",
+                "export type { OperationCompletionPolicy } from \"./OperationCompletionPolicy\";\n",
                 "export type { CoreEvent } from \"./CoreEvent\";\n",
                 "export type { CoreStateSnapshotRecord } from \"./CoreStateSnapshotRecord\";\n",
                 "export type { CountedLatencySummaryRecord } from \"./CountedLatencySummaryRecord\";\n",

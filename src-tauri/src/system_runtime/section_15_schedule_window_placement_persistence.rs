@@ -629,6 +629,15 @@ impl SystemRuntimeExecutor {
         webview_label: &str,
         reason: &str,
     ) {
+        let completed_close = self.state.lock().ok().is_some_and(|state| {
+            state.surface_registry.values().any(|surface| {
+                surface.webview.label() == webview_label
+                    && surface.lifecycle.close_intent_owns_process_failure()
+            })
+        });
+        if completed_close {
+            return;
+        }
         let Some(target) = self.failure_target_for_webview(webview_label) else {
             return;
         };
@@ -645,6 +654,34 @@ impl SystemRuntimeExecutor {
         reason: String,
         scope: SurfaceFailureScope,
     ) {
+        let closing_lifecycle = self.state.lock().ok().and_then(|state| {
+            state.surface_registry.values().find_map(|surface| {
+                let identity_matches = match &target {
+                    SurfaceFailureTarget::Role {
+                        role_id,
+                        generation,
+                    } => {
+                        surface.role_id.as_deref() == Some(role_id)
+                            && surface.generation == *generation
+                    }
+                    SurfaceFailureTarget::Popup {
+                        label,
+                        role_id,
+                        generation,
+                    } => {
+                        surface.webview.label() == label
+                            && surface.role_id.as_deref() == Some(role_id)
+                            && surface.generation == *generation
+                    }
+                };
+                (identity_matches && surface.lifecycle.close_intent_owns_process_failure())
+                    .then(|| Arc::clone(&surface.lifecycle))
+            })
+        });
+        if let Some(lifecycle) = closing_lifecycle {
+            lifecycle.mark_process_terminated();
+            return;
+        }
         match surface_failure_action(&target, scope) {
             SurfaceFailureAction::RecoverRole => {
                 let (role_id, generation) = match target {

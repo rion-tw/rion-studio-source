@@ -668,6 +668,10 @@ async fn rion_core_invoke(
         CoreCommand::RuntimeThemeSet { theme } => Some(theme.clone()),
         _ => None,
     };
+    let cancelled_operation_id = match &command {
+        CoreCommand::OperationCancel { operation_id } => Some(operation_id.clone()),
+        _ => None,
+    };
     let legal_acceptance_changed = matches!(&command, CoreCommand::LegalAcceptanceAccept { .. });
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
@@ -693,6 +697,13 @@ async fn rion_core_invoke(
         state
             .runtime
             .cancel_tab_launch_preview(&preview.launch_preview_id);
+    }
+    if result
+        .as_ref()
+        .is_ok_and(|value| value.get("cancelled").and_then(Value::as_bool) == Some(true))
+        && let Some(operation_id) = cancelled_operation_id.as_deref()
+    {
+        state.runtime.cancel_surface_close_operation(operation_id);
     }
     if result.is_ok()
         && let Some(language) = menu_language

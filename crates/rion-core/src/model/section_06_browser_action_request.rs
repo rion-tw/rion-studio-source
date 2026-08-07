@@ -107,6 +107,14 @@ pub enum CoreEffectTargetKind {
     WebContents,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum OperationCompletionPolicy {
+    DeadlineBound,
+    EventBound,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -221,6 +229,17 @@ pub enum CoreEffectAction {
     },
 }
 
+impl CoreEffectAction {
+    pub const fn completion_policy(&self) -> OperationCompletionPolicy {
+        match self {
+            Self::EmbeddedDestroyRole { .. } | Self::EmbeddedDestroyTab { .. } => {
+                OperationCompletionPolicy::EventBound
+            }
+            _ => OperationCompletionPolicy::DeadlineBound,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -231,8 +250,10 @@ pub struct CoreEffectRequest {
     #[ts(optional)]
     pub parent_operation_id: Option<String>,
     pub target: CoreEffectTarget,
-    #[ts(type = "number")]
-    pub deadline_ms: u64,
+    pub completion_policy: OperationCompletionPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub deadline_ms: Option<u64>,
     pub action: CoreEffectAction,
 }
 

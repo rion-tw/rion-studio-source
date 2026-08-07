@@ -35,7 +35,8 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
             assert_eq!(summary.platform, platform);
             assert_eq!(summary.status, SystemRuntimeOperationStatus::Applied);
             assert_eq!(summary.completion_scope, completion_scope);
-            assert_eq!(summary.timeout_ms, 750);
+            assert_eq!(summary.completion_policy, OperationCompletionPolicy::DeadlineBound);
+            assert_eq!(summary.timeout_ms, Some(750));
             assert_eq!(summary.surface_generation, Some(9));
             assert!(
                 summary
@@ -43,6 +44,31 @@ fn native_operation_receipts_expose_the_same_terminal_contract_on_both_platforms
                     .starts_with(&format!("native-{}-", summary.subsystem.as_str()))
             );
         }
+    }
+}
+
+#[test]
+fn event_bound_native_operation_has_no_deadline_and_only_an_event_completes_it() {
+    for platform in ["macos", "windows"] {
+        let context = NativeOperationContext::new_event_bound_for_platform(
+            NativeOperationSubsystem::SurfaceLifecycle,
+            "event-bound-test",
+            platform,
+        );
+        let registry = NativeOperationRegistry::default();
+        registry.register(context.clone()).unwrap();
+        assert!(registry.mark_in_flight(&context.operation_id));
+        registry.expire_due_operations();
+        assert!(registry.terminal(&context.operation_id).is_none());
+        let receipt = registry.complete(NativeOperationReceipt::applied(
+            context,
+            "explicitLifecycleEvent",
+        ));
+        let summary = receipt.summary();
+        assert_eq!(summary.completion_policy, OperationCompletionPolicy::EventBound);
+        assert_eq!(summary.deadline_at, None);
+        assert_eq!(summary.timeout_ms, None);
+        assert_eq!(summary.status, NativeOperationStatus::Applied);
     }
 }
 

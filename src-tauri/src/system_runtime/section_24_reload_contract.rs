@@ -158,7 +158,7 @@ impl SystemRuntimeExecutor {
                             &reload.role_id,
                             reload.input_epoch,
                             reload.surface_generation,
-                            reload.operation.deadline,
+                            reload.operation.required_deadline(),
                         )
                         .await,
                 );

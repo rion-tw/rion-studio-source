@@ -721,45 +721,109 @@
         assert!(!windows_surface_identity_matches(41, 41, 700, 701));
         assert!(!windows_surface_identity_matches(0, 0, 700, 700));
         assert!(!windows_surface_identity_matches(41, 41, 0, 0));
+        assert_eq!(
+            windows_surface_navigation_completion(91, 91, true),
+            WindowsSurfaceNavigationCompletion::Isolated
+        );
+        assert_eq!(
+            windows_surface_navigation_completion(91, 91, false),
+            WindowsSurfaceNavigationCompletion::Failed
+        );
+        assert_eq!(
+            windows_surface_navigation_completion(91, 92, true),
+            WindowsSurfaceNavigationCompletion::Stale
+        );
+        assert_eq!(
+            windows_surface_navigation_completion(0, 0, true),
+            WindowsSurfaceNavigationCompletion::Stale
+        );
     }
 
     #[test]
-    fn surface_release_barrier_has_a_bounded_timeout() {
+    fn surface_release_barrier_requires_explicit_release_events() {
         let tracker = SurfaceLifecycleTracker::default();
-        let started = Instant::now();
-        assert!(!tracker.wait_for_store_reusable("windows", Duration::from_millis(5)));
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!tracker.store_is_reusable("windows"));
 
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
         tracker.mark_controller_released();
-        assert!(!tracker.wait_for_store_reusable("macos", Duration::from_millis(5)));
+        assert!(!tracker.store_is_reusable("macos"));
+        assert!(tracker.mark_isolated(2));
         tracker.mark_native_surface_released();
-        assert!(tracker.wait_for_store_reusable("macos", Duration::from_millis(5)));
+        tracker.mark_controller_released();
+        assert!(tracker.store_is_reusable("macos"));
 
         #[cfg(windows)]
         {
-            assert!(tracker.wait_for_store_reusable("windows", Duration::from_millis(5)));
-            assert!(!tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
+            assert!(tracker.store_is_reusable("windows"));
             tracker.mark_browser_process_exited();
-            assert!(tracker.wait_for_browser_process_exit(Duration::from_millis(5)));
         }
     }
 
     #[test]
     fn store_reuse_waiter_is_released_by_exact_lifecycle_events_without_polling() {
         let tracker = Arc::new(SurfaceLifecycleTracker::default());
-        let barrier = Arc::new(std::sync::Barrier::new(2));
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.mark_isolated(2));
         let waiter_tracker = Arc::clone(&tracker);
-        let waiter_barrier = Arc::clone(&barrier);
-        let waiter = std::thread::spawn(move || {
-            waiter_barrier.wait();
-            waiter_tracker.wait_for_store_reusable("macos", Duration::from_secs(1))
+        let callback_tracker = Arc::clone(&tracker);
+        let callback = std::thread::spawn(move || {
+            callback_tracker.mark_native_surface_released();
+            callback_tracker.mark_controller_released();
         });
+        assert!(tauri::async_runtime::block_on(
+            waiter_tracker.wait_for_store_reusable_event("macos")
+        )
+        .is_ok());
+        callback.join().unwrap();
+    }
 
-        barrier.wait();
+    #[test]
+    fn lifecycle_cancellation_is_terminal_and_late_native_events_are_stale() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.cancel_pending(
+            "SYSTEM_SURFACE_LIFECYCLE_CANCELLED",
+            "application lifecycle ended"
+        ));
+        assert!(!tracker.cancel_pending(
+            "SYSTEM_SURFACE_LIFECYCLE_CANCELLED",
+            "duplicate cancellation"
+        ));
+        assert!(!tracker.mark_isolated(2));
         tracker.mark_native_surface_released();
-        assert!(!tracker.wait_for_store_reusable("macos", Duration::ZERO));
         tracker.mark_controller_released();
-        assert!(waiter.join().unwrap());
+        assert!(!tracker.store_is_reusable("macos"));
+        let error = tauri::async_runtime::block_on(tracker.wait_for_isolation_event())
+            .unwrap_err();
+        assert_eq!(error.code, "SYSTEM_SURFACE_LIFECYCLE_CANCELLED");
+        assert_eq!(tracker.native_isolation_event(), 0);
+    }
+
+    #[test]
+    fn close_group_failure_cancels_a_sibling_before_native_submission() {
+        let sibling = SurfaceLifecycleTracker::default();
+        assert!(sibling.cancel_accepted_intent(
+            "SYSTEM_SURFACE_GROUP_CANCELLED",
+            "sibling failed"
+        ));
+        let error = sibling.claim_isolation().unwrap_err();
+        assert_eq!(error.code, "SYSTEM_SURFACE_GROUP_CANCELLED");
+        assert!(!sibling.cancel_accepted_intent(
+            "SYSTEM_SURFACE_GROUP_CANCELLED",
+            "duplicate group event"
+        ));
+    }
+
+    #[test]
+    fn process_termination_is_a_page_stop_only_for_an_accepted_close_intent() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert!(!tracker.close_intent_owns_process_failure());
+        assert!(!tracker.mark_process_terminated());
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.close_intent_owns_process_failure());
+        assert!(tracker.mark_process_terminated());
+        assert!(tracker.process_termination_completed_close());
+        assert_eq!(tracker.native_isolation_event(), 5);
     }
 
     #[test]
@@ -801,18 +865,28 @@
     #[test]
     fn native_isolation_wait_observes_the_exact_lease_callback() {
         let tracker = Arc::new(SurfaceLifecycleTracker::default());
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
         let callback_tracker = Arc::clone(&tracker);
-        let worker = std::thread::spawn(move || callback_tracker.mark_isolated());
-        assert!(tracker.wait_for_isolation(Duration::from_millis(100)));
+        let worker = std::thread::spawn(move || callback_tracker.mark_isolated(2));
+        assert!(tauri::async_runtime::block_on(tracker.wait_for_isolation_event()).is_ok());
         worker.join().unwrap();
     }
 
     #[test]
-    fn native_isolation_wait_is_bounded_without_polling() {
-        let tracker = SurfaceLifecycleTracker::default();
-        let started = Instant::now();
-        assert!(!tracker.wait_for_isolation(Duration::from_millis(5)));
-        assert!(started.elapsed() < Duration::from_secs(1));
+    fn native_isolation_failure_is_an_explicit_terminal_event() {
+        let tracker = Arc::new(SurfaceLifecycleTracker::default());
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        let callback_tracker = Arc::clone(&tracker);
+        let worker = std::thread::spawn(move || {
+            callback_tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_NAVIGATION_FAILED",
+                "exact navigation failed",
+            ));
+        });
+        let error = tauri::async_runtime::block_on(tracker.wait_for_isolation_event())
+            .unwrap_err();
+        assert_eq!(error.code, "SYSTEM_SURFACE_NAVIGATION_FAILED");
+        worker.join().unwrap();
     }
 
     #[test]
@@ -821,7 +895,7 @@
         assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
         assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Joined);
 
-        tracker.mark_isolated();
+        tracker.mark_isolated(2);
         assert_eq!(
             tracker.claim_isolation().unwrap(),
             SurfaceIsolationClaim::AlreadyIsolated

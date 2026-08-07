@@ -11,6 +11,37 @@ fn windows_surface_identity_matches(
         && expected_process_id == actual_process_id
 }
 
+#[cfg(any(windows, test))]
+fn windows_surface_navigation_matches(
+    expected_navigation_id: u64,
+    reported_navigation_id: u64,
+) -> bool {
+    expected_navigation_id != 0 && expected_navigation_id == reported_navigation_id
+}
+
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsSurfaceNavigationCompletion {
+    Failed,
+    Isolated,
+    Stale,
+}
+
+#[cfg(any(windows, test))]
+fn windows_surface_navigation_completion(
+    expected_navigation_id: u64,
+    reported_navigation_id: u64,
+    succeeded: bool,
+) -> WindowsSurfaceNavigationCompletion {
+    if !windows_surface_navigation_matches(expected_navigation_id, reported_navigation_id) {
+        WindowsSurfaceNavigationCompletion::Stale
+    } else if succeeded {
+        WindowsSurfaceNavigationCompletion::Isolated
+    } else {
+        WindowsSurfaceNavigationCompletion::Failed
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ManagedSurfaceKind {
     Divider,
@@ -99,7 +130,7 @@ impl ManagedSurfacePhase {
 
 #[derive(Clone)]
 struct ManagedSurface {
-    close_started_at: Option<Instant>,
+    close_operation_id: Option<String>,
     generation: u64,
     instance_id: String,
     kind: ManagedSurfaceKind,

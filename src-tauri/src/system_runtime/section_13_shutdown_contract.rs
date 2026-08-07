@@ -50,7 +50,12 @@ impl SystemRuntimeExecutor {
         self.operations.mark_in_flight(&operation.operation_id);
         self.main_window_actor.stop();
         self.focus_broker.revoke_all();
-        let deadline = operation.deadline;
+        let cancelled_surface_closes = self.cancel_pending_surface_continuations(
+            None,
+            "SYSTEM_SURFACE_SHUTDOWN_CANCELLED",
+            "Application shutdown ended the pending native close continuation.",
+        );
+        let deadline = operation.required_deadline();
         let initial_role_ids = match self.shutdown_role_ids() {
             Ok(role_ids) => role_ids,
             Err(()) => {
@@ -84,12 +89,7 @@ impl SystemRuntimeExecutor {
         let platform = current_runtime_platform();
         let unreleased_count = surfaces
             .iter()
-            .filter(|surface| {
-                !surface.lifecycle.wait_for_store_reusable(
-                    platform,
-                    deadline.saturating_duration_since(Instant::now()),
-                )
-            })
+            .filter(|surface| !surface.lifecycle.store_is_reusable(platform))
             .count();
         let hosts = match self.take_shutdown_hosts() {
             Ok(snapshot) => snapshot,
@@ -111,7 +111,14 @@ impl SystemRuntimeExecutor {
         drop(hosts.tabs);
         let close_error_count =
             self.close_shutdown_hosts(hosts.display_hosts, hosts.popup_labels);
-        let (state, status, stage, failure_code) = if !native_creation_idle
+        let (state, status, stage, failure_code) = if cancelled_surface_closes > 0 {
+            (
+                RuntimeShutdownState::Indeterminate,
+                NativeOperationStatus::Indeterminate,
+                "shutdownSurfaceContinuationCancelled",
+                Some("SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE"),
+            )
+        } else if !native_creation_idle
             || !native_window_mutations_idle
         {
             (

@@ -89,7 +89,7 @@ impl SystemRuntimeExecutor {
         let issue_guard = match self
             .native_window_mutations
             .issue_gate
-            .lock_until(operation.deadline)
+            .lock_until(operation.required_deadline())
         {
             Ok(guard) => guard,
             Err(code) => {
@@ -156,7 +156,7 @@ impl SystemRuntimeExecutor {
                 }
             }
         }
-        let lane_guards = match lock_lanes_until_deadline(&lanes, operation.deadline) {
+        let lane_guards = match lock_lanes_until_deadline(&lanes, operation.required_deadline()) {
             Ok(guards) => guards,
             Err(code) => {
                 return Ok(self

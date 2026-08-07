@@ -69,7 +69,7 @@ impl NativeOperationRegistry {
                     let next_deadline = state
                         .active
                         .values()
-                        .map(|operation| operation.context.deadline)
+                        .filter_map(|operation| operation.context.deadline)
                         .min();
                     state = match next_deadline {
                         Some(deadline) => {
@@ -163,7 +163,10 @@ impl NativeOperationRegistry {
             return receipt;
         }
         if let Some(operation) = state.active.get(&receipt.context.operation_id).cloned()
-            && operation.context.deadline <= Instant::now()
+            && operation
+                .context
+                .deadline
+                .is_some_and(|deadline| deadline <= Instant::now())
         {
             let timeout_receipt = native_operation_timeout_receipt(operation);
             state.active.remove(&receipt.context.operation_id);
@@ -205,10 +208,14 @@ impl NativeOperationRegistry {
             let Some(operation) = state.active.get(operation_id).cloned() else {
                 return Err("SYSTEM_NATIVE_OPERATION_NOT_FOUND");
             };
-            let remaining = operation
-                .context
-                .deadline
-                .saturating_duration_since(Instant::now());
+            let Some(deadline) = operation.context.deadline else {
+                state = self
+                    .changed
+                    .wait(state)
+                    .map_err(|_| "SYSTEM_NATIVE_OPERATION_REGISTRY_UNAVAILABLE")?;
+                continue;
+            };
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 let receipt = native_operation_timeout_receipt(operation);
                 state.active.remove(operation_id);
@@ -326,7 +333,12 @@ impl NativeOperationRegistry {
         let expired = state
             .active
             .iter()
-            .filter(|(_, operation)| operation.context.deadline <= now)
+            .filter(|(_, operation)| {
+                operation
+                    .context
+                    .deadline
+                    .is_some_and(|deadline| deadline <= now)
+            })
             .map(|(operation_id, operation)| (operation_id.clone(), operation.clone()))
             .collect::<Vec<_>>();
         let expired_any = !expired.is_empty();

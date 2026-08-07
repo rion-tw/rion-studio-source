@@ -15,7 +15,7 @@ use crate::{
     error::{CoreError, CoreErrorPayload, CoreResult},
     model::{
         CoreEffectAction, CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest,
-        CoreEffectResult, CoreEffectTarget,
+        CoreEffectResult, CoreEffectTarget, OperationCompletionPolicy,
     },
 };
 
@@ -98,7 +98,7 @@ struct ActiveOperation {
 
 struct PendingEffect {
     operation_id: String,
-    deadline: Instant,
+    deadline: Option<Instant>,
     enqueued_at: Instant,
     result: oneshot::Sender<CoreEffectResult>,
 }
@@ -264,7 +264,10 @@ impl OperationActor {
     pub fn effect_is_pending(&self, effect_id: &str, operation_id: &str) -> CoreResult<bool> {
         let state = self.state()?;
         Ok(state.pending.get(effect_id).is_some_and(|pending| {
-            pending.operation_id == operation_id && Instant::now() <= pending.deadline
+            pending.operation_id == operation_id
+                && pending
+                    .deadline
+                    .is_none_or(|deadline| Instant::now() <= deadline)
         }))
     }
 
@@ -289,7 +292,10 @@ impl OperationActor {
                     report.operation_mismatch.push(effect_id);
                     continue;
                 }
-                if Instant::now() > pending.deadline {
+                if pending
+                    .deadline
+                    .is_some_and(|deadline| Instant::now() > deadline)
+                {
                     let pending = state
                         .pending
                         .remove(&effect_id)
@@ -516,8 +522,10 @@ fn execute_effect(
     parent_operation_id: Option<&str>,
     effect: OperationEffect,
 ) -> CoreResult<CoreEffectResult> {
+    let completion_policy = effect.action.completion_policy();
     let timeout = effect.timeout.max(Duration::from_millis(1));
-    let deadline = Instant::now() + timeout;
+    let deadline = (completion_policy == OperationCompletionPolicy::DeadlineBound)
+        .then(|| Instant::now() + timeout);
     let effect_id = Uuid::new_v4().to_string();
     let (result_sender, result) = oneshot::channel();
     {
@@ -553,34 +561,44 @@ fn execute_effect(
         }
         state.peak_pending_effect_count = state.peak_pending_effect_count.max(state.pending.len());
     }
-    let deadline_ms = actor
-        .origin
-        .elapsed()
-        .saturating_add(timeout)
-        .as_millis()
-        .min(u128::from(u64::MAX)) as u64;
+    let deadline_ms = (completion_policy == OperationCompletionPolicy::DeadlineBound).then(|| {
+        actor
+            .origin
+            .elapsed()
+            .saturating_add(timeout)
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64
+    });
     (actor.emit)(vec![CoreEffectRequest {
         effect_id: effect_id.clone(),
         operation_id: operation_id.to_owned(),
         parent_operation_id: parent_operation_id.map(str::to_owned),
         target: effect.target,
+        completion_policy,
         deadline_ms,
         action: effect.action,
     }]);
 
-    match runtime.block_on(async move { tokio::time::timeout(timeout, result).await }) {
-        Ok(Ok(result)) => Ok(result),
-        Ok(Err(_)) => Err(CoreError::ShuttingDown),
-        Err(_) => {
-            if let Ok(mut state) = actor.state.lock()
-                && state.pending.remove(&effect_id).is_some()
-            {
-                remember_completed(&mut state, effect_id, CompletedEffect::TimedOut);
+    match completion_policy {
+        OperationCompletionPolicy::EventBound => runtime
+            .block_on(result)
+            .map_err(|_| CoreError::ShuttingDown),
+        OperationCompletionPolicy::DeadlineBound => {
+            match runtime.block_on(async move { tokio::time::timeout(timeout, result).await }) {
+                Ok(Ok(result)) => Ok(result),
+                Ok(Err(_)) => Err(CoreError::ShuttingDown),
+                Err(_) => {
+                    if let Ok(mut state) = actor.state.lock()
+                        && state.pending.remove(&effect_id).is_some()
+                    {
+                        remember_completed(&mut state, effect_id, CompletedEffect::TimedOut);
+                    }
+                    Err(CoreError::Domain {
+                        code: "CORE_EFFECT_TIMEOUT",
+                        message: "The desktop shell effect timed out.".to_owned(),
+                    })
+                }
             }
-            Err(CoreError::Domain {
-                code: "CORE_EFFECT_TIMEOUT",
-                message: "The desktop shell effect timed out.".to_owned(),
-            })
         }
     }
 }

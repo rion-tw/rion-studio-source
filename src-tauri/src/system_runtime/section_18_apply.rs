@@ -1,4 +1,109 @@
 impl SystemRuntimeExecutor {
+    async fn apply_event_bound_close(
+        &self,
+        effect: CoreEffectRequest,
+        presentation_revision: u64,
+    ) -> RuntimeResult<Option<String>> {
+        if effect.completion_policy != OperationCompletionPolicy::EventBound
+            || effect.deadline_ms.is_some()
+        {
+            return Err(RuntimeError::new(
+                "SYSTEM_EFFECT_COMPLETION_POLICY_INVALID",
+                "Surface close effects must use event-bound completion without a deadline.",
+            ));
+        }
+        let effect_id = effect.effect_id.clone();
+        let operation_id = effect.operation_id.clone();
+        match effect.action {
+            CoreEffectAction::EmbeddedDestroyRole { role_id } => {
+                self.bind_role_close_operation(&role_id, &operation_id)?;
+                if !self
+                    .core
+                    .core_effect_is_pending(&effect_id, &operation_id)
+                    .unwrap_or(false)
+                {
+                    self.cancel_surface_close_operation(&operation_id);
+                    self.clear_surface_close_operation(&operation_id);
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_OPERATION_CANCELLED",
+                        "The close effect was cancelled before native isolation began.",
+                    ));
+                }
+                let result = self.destroy_role_event_bound(&role_id).await;
+                self.clear_surface_close_operation(&operation_id);
+                result.map(|()| None)
+            }
+            CoreEffectAction::EmbeddedDestroyTab {
+                tab_id,
+                attempt_generation,
+                next_active_tab_id,
+            } => {
+                let (attempt_is_current, completed_failed_launch_cleanup, runtime_tab_exists) = {
+                    let mut state = self.state()?;
+                    let attempt_is_current = launch_attempt_is_current(
+                        &state,
+                        &tab_id,
+                        attempt_generation.as_deref(),
+                    );
+                    let completed = failed_launch_cleanup_has_completed(
+                        &state,
+                        &tab_id,
+                        attempt_generation.as_deref(),
+                    );
+                    if completed {
+                        state.retryable_failed_launches.insert(tab_id.clone());
+                    }
+                    (attempt_is_current, completed, state.tabs.contains_key(&tab_id))
+                };
+                if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
+                    self.record_presentation_event(
+                        LogLevel::Debug,
+                        "tab.launch-cleanup-compensation-noop",
+                        "The event-bound destroy request was already terminal or stale.",
+                        "",
+                        Some(&tab_id),
+                        presentation_revision,
+                        "compensation",
+                        0,
+                    );
+                    return Ok(None);
+                }
+                self.bind_tab_close_operation(&tab_id, &operation_id)?;
+                if !self
+                    .core
+                    .core_effect_is_pending(&effect_id, &operation_id)
+                    .unwrap_or(false)
+                {
+                    self.cancel_surface_close_operation(&operation_id);
+                    self.clear_surface_close_operation(&operation_id);
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_OPERATION_CANCELLED",
+                        "The close effect was cancelled before native isolation began.",
+                    ));
+                }
+                if self.presentation.tab_window(&tab_id).ok().flatten().is_some() {
+                    let _ = self
+                        .prepare_destroy_tab_presentation(
+                            &tab_id,
+                            next_active_tab_id.as_deref(),
+                        )
+                        .ok();
+                }
+                let result = self.destroy_tab_event_bound(&tab_id).await;
+                self.clear_surface_close_operation(&operation_id);
+                result?;
+                if let Ok(mut state) = self.state.lock() {
+                    state.launch_attempt_generations.remove(&tab_id);
+                }
+                Ok(None)
+            }
+            _ => Err(RuntimeError::new(
+                "SYSTEM_EFFECT_COMPLETION_POLICY_INVALID",
+                "Only native surface destroy effects can enter the close actor.",
+            )),
+        }
+    }
+
     fn apply(
         &self,
         effect: CoreEffectRequest,

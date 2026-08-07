@@ -420,7 +420,7 @@ fn platform_role_surface_setup_inner(
         fn rion_wk_track_surface(
             webview: *mut std::ffi::c_void,
             context: *mut std::ffi::c_void,
-            isolated_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
+            event_callback: unsafe extern "C" fn(*mut std::ffi::c_void, i32),
             released_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
             context_destructor: unsafe extern "C" fn(*mut std::ffi::c_void),
         ) -> u64;
@@ -437,7 +437,7 @@ fn platform_role_surface_setup_inner(
                 rion_wk_track_surface(
                     native,
                     context as *mut std::ffi::c_void,
-                    macos_surface_isolated,
+                    macos_surface_event,
                     macos_surface_released,
                     drop_macos_surface_context,
                 )
@@ -450,15 +450,12 @@ fn platform_role_surface_setup_inner(
         drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
         return Err(RuntimeError::tauri(error));
     }
-    let (security_installed, token) =
-        receiver
-            .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-            .map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_ROLE_SETUP_TIMEOUT",
-                    "WKWebView security and lifecycle setup timed out.",
-                )
-            })?;
+    let (security_installed, token) = receiver.recv().map_err(|_| {
+        RuntimeError::new(
+            "SYSTEM_ROLE_SETUP_FAILED",
+            "WKWebView security and lifecycle setup was cancelled.",
+        )
+    })?;
     if !security_installed || token == 0 {
         drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
         return Err(RuntimeError::new(
@@ -479,13 +476,47 @@ fn platform_role_surface_setup_inner(
 }
 
 #[cfg(target_os = "macos")]
-unsafe extern "C" fn macos_surface_isolated(context: *mut std::ffi::c_void) {
+unsafe extern "C" fn macos_surface_event(context: *mut std::ffi::c_void, event: i32) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if context.is_null() {
             return;
         }
         let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
-        tracker.mark_isolated();
+        match event {
+            1 => tracker.record_native_isolation_event(1),
+            2 => {
+                let _ = tracker.mark_isolated(2);
+            }
+            5 => {
+                let _ = tracker.mark_process_terminated();
+            }
+            3 => tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_NAVIGATION_FAILED",
+                "The exact blank navigation failed.",
+            )),
+            4 => tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_PROVISIONAL_NAVIGATION_FAILED",
+                "The exact provisional blank navigation failed.",
+            )),
+            6 => tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_DATA_STORE_MISMATCH",
+                "The exact surface data-store identity changed during isolation.",
+            )),
+            7 => tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_NAVIGATION_SUBMISSION_FAILED",
+                "WKWebView rejected the exact blank navigation.",
+            )),
+            8 => tracker.fail_release(&RuntimeError::new(
+                "SYSTEM_SURFACE_NATIVE_RELEASE_FAILED",
+                "WKWebView rejected the exact native surface release.",
+            )),
+            9 => tracker.fail_isolation(&RuntimeError::new(
+                "SYSTEM_SURFACE_LEASE_DESTROYED",
+                "The exact WKWebView lifecycle lease was destroyed before isolation completed.",
+            )),
+            10 => tracker.record_stale_native_event(),
+            _ => {}
+        }
     }));
 }
 
@@ -517,7 +548,7 @@ fn platform_surface_lifecycle_tracker(
         fn rion_wk_track_surface(
             webview: *mut std::ffi::c_void,
             context: *mut std::ffi::c_void,
-            isolated_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
+            event_callback: unsafe extern "C" fn(*mut std::ffi::c_void, i32),
             released_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
             context_destructor: unsafe extern "C" fn(*mut std::ffi::c_void),
         ) -> u64;
@@ -531,7 +562,7 @@ fn platform_surface_lifecycle_tracker(
             rion_wk_track_surface(
                 platform_webview.inner(),
                 context as *mut std::ffi::c_void,
-                macos_surface_isolated,
+                macos_surface_event,
                 macos_surface_released,
                 drop_macos_surface_context,
             )
@@ -541,14 +572,12 @@ fn platform_surface_lifecycle_tracker(
         drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
         return Err(RuntimeError::tauri(error));
     }
-    let token = receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT",
-                "WKWebView surface lifecycle registration timed out.",
-            )
-        })?;
+    let token = receiver.recv().map_err(|_| {
+        RuntimeError::new(
+            "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+            "WKWebView surface lifecycle registration was cancelled.",
+        )
+    })?;
     if token == 0 {
         drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
         return Err(RuntimeError::new(
@@ -564,7 +593,7 @@ fn platform_surface_lifecycle_tracker(
 fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<SurfaceQuiesceMetrics> {
+) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_quiesce_surface(token: u64) -> bool;
     }
@@ -575,11 +604,14 @@ fn perform_platform_surface_quiesce(
             "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.",
         ));
     }
-    Ok(SurfaceQuiesceMetrics::default())
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+fn release_platform_surface(
+    _webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_release_surface(token: u64) -> bool;
     }

@@ -305,7 +305,9 @@ impl SystemRuntimeExecutor {
         // Core cancellation removes an unstarted effect from its pending set.
         // The native queue may still contain that envelope, so admit create work
         // only while the exact effect/operation pair remains pending.
-        if created_tab_id.is_some() && !self.create_effect_is_still_pending(&effect) {
+        if (created_tab_id.is_some() || is_surface_close_effect(&effect.action))
+            && !self.create_effect_is_still_pending(&effect)
+        {
             return;
         }
         let shutdown_accepting = RuntimeShutdownState::from_raw(
@@ -353,74 +355,27 @@ impl SystemRuntimeExecutor {
         let started = Instant::now();
         let scope = native_effect_scope(&effect);
         eprintln!("System WebView effect: {action_name} started (effect={effect_id}, {scope}).");
+        if close_effect {
+            let runtime = Arc::clone(self);
+            tauri::async_runtime::spawn(async move {
+                let result = runtime
+                    .execute_event_bound_close(effect, presentation_revision)
+                    .await;
+                runtime.finish_event_bound_close_effect(
+                    action_name,
+                    effect_id,
+                    operation_id,
+                    persist_runtime,
+                    scope,
+                    started,
+                    result,
+                );
+            });
+            return;
+        }
         // Failures quarantine only the exact role/surface generation. An
         // unrelated native error must never turn into a process-wide launch gate.
         let result = self.execute(effect, presentation_revision);
-        if close_effect {
-            let succeeded = result.ok;
-            let error_payload = result.error.clone();
-            eprintln!(
-                "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
-                started.elapsed().as_millis()
-            );
-            // Acknowledge native isolation before any Core/SQLite callback. The
-            // close worker is immediately reusable for the next tab in a burst;
-            // restore-session durability is coalesced on one background worker.
-            match self.core.dispatch_core_effect_results(vec![result]) {
-                Ok(report) => {
-                    let acknowledgement_status =
-                        effect_acknowledgement_status(&report, &effect_id);
-                    let accepted = acknowledgement_status == "accepted";
-                    self.record_effect_outcome_failures(
-                        action_name,
-                        &effect_id,
-                        &operation_id,
-                        error_payload.as_ref(),
-                        acknowledgement_status,
-                        started.elapsed(),
-                        persist_runtime,
-                        &scope,
-                    );
-                    self.record_close_effect_completion(
-                        action_name,
-                        &effect_id,
-                        succeeded,
-                        accepted,
-                        error_payload.as_ref(),
-                        started.elapsed(),
-                    );
-                    if succeeded && accepted {
-                        if persist_runtime {
-                            self.schedule_restore_session_persist();
-                        } else {
-                            self.publish_projection();
-                        }
-                    }
-                }
-                Err(error) => {
-                    let dispatch_error_payload = error.payload();
-                    self.record_effect_outcome_failures(
-                        action_name,
-                        &effect_id,
-                        &operation_id,
-                        error_payload.as_ref(),
-                        "dispatchFailed",
-                        started.elapsed(),
-                        persist_runtime,
-                        &scope,
-                    );
-                    self.record_close_effect_completion(
-                        action_name,
-                        &effect_id,
-                        succeeded,
-                        false,
-                        Some(&dispatch_error_payload),
-                        started.elapsed(),
-                    );
-                }
-            }
-            return;
-        }
         let persistence_error = (result.ok && persist_runtime)
             .then(|| self.persist_restore_session(false).err())
             .flatten();
@@ -472,6 +427,77 @@ impl SystemRuntimeExecutor {
         }
         if dispatch.is_ok() && succeeded && persist_runtime {
             self.publish_projection();
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_event_bound_close_effect(
+        self: &Arc<Self>,
+        action_name: &'static str,
+        effect_id: String,
+        operation_id: String,
+        persist_runtime: bool,
+        scope: String,
+        started: Instant,
+        result: CoreEffectResult,
+    ) {
+        let succeeded = result.ok;
+        let error_payload = result.error.clone();
+        eprintln!(
+            "System WebView effect: {action_name} completed (effect={effect_id}, {scope}, ok={succeeded}, elapsedMs={}).",
+            started.elapsed().as_millis()
+        );
+        match self.core.dispatch_core_effect_results(vec![result]) {
+            Ok(report) => {
+                let acknowledgement_status = effect_acknowledgement_status(&report, &effect_id);
+                let accepted = acknowledgement_status == "accepted";
+                self.record_effect_outcome_failures(
+                    action_name,
+                    &effect_id,
+                    &operation_id,
+                    error_payload.as_ref(),
+                    acknowledgement_status,
+                    started.elapsed(),
+                    persist_runtime,
+                    &scope,
+                );
+                self.record_close_effect_completion(
+                    action_name,
+                    &effect_id,
+                    succeeded,
+                    accepted,
+                    error_payload.as_ref(),
+                    started.elapsed(),
+                );
+                if succeeded && accepted {
+                    if persist_runtime {
+                        self.schedule_restore_session_persist();
+                    } else {
+                        self.publish_projection();
+                    }
+                }
+            }
+            Err(error) => {
+                let dispatch_error_payload = error.payload();
+                self.record_effect_outcome_failures(
+                    action_name,
+                    &effect_id,
+                    &operation_id,
+                    error_payload.as_ref(),
+                    "dispatchFailed",
+                    started.elapsed(),
+                    persist_runtime,
+                    &scope,
+                );
+                self.record_close_effect_completion(
+                    action_name,
+                    &effect_id,
+                    succeeded,
+                    false,
+                    Some(&dispatch_error_payload),
+                    started.elapsed(),
+                );
+            }
         }
     }
 

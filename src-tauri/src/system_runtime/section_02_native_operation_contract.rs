@@ -1,4 +1,4 @@
-const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 11;
+const SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = 12;
 const ACTIVE_NATIVE_OPERATION_CAPACITY: usize = 256;
 const RECENT_NATIVE_OPERATION_CAPACITY: usize = 80;
 static NATIVE_OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -10,9 +10,10 @@ type NativeOperationStatus = SystemRuntimeOperationStatus;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativeOperationContext {
     accepted_at: String,
+    completion_policy: OperationCompletionPolicy,
     completion_scope: SystemRuntimeOperationCompletionScope,
-    deadline: Instant,
-    deadline_at: String,
+    deadline: Option<Instant>,
+    deadline_at: Option<String>,
     lifecycle_epoch: Option<u64>,
     operation_id: String,
     parent_operation_id: Option<String>,
@@ -24,7 +25,7 @@ struct NativeOperationContext {
     surface_generation: Option<u64>,
     session_id: Option<String>,
     tab_id: Option<String>,
-    timeout: Duration,
+    timeout: Option<Duration>,
     trigger: &'static str,
     topology_revision: Option<u64>,
     window_generation: Option<u64>,
@@ -67,9 +68,10 @@ impl NativeOperationContext {
             + chrono::Duration::from_std(timeout).unwrap_or(chrono::Duration::MAX);
         Self {
             accepted_at: accepted_at.to_rfc3339(),
+            completion_policy: OperationCompletionPolicy::DeadlineBound,
             completion_scope: subsystem.default_completion_scope(),
-            deadline: started_at + timeout,
-            deadline_at: deadline_at.to_rfc3339(),
+            deadline: Some(started_at + timeout),
+            deadline_at: Some(deadline_at.to_rfc3339()),
             lifecycle_epoch: match APPLICATION_LIFECYCLE_EPOCH.load(Ordering::Acquire) {
                 0 => None,
                 epoch => Some(epoch),
@@ -84,12 +86,37 @@ impl NativeOperationContext {
             surface_generation: None,
             session_id: None,
             tab_id: None,
-            timeout,
+            timeout: Some(timeout),
             trigger,
             topology_revision: None,
             window_generation: None,
             window_id: None,
         }
+    }
+
+    fn new_event_bound(
+        subsystem: NativeOperationSubsystem,
+        trigger: &'static str,
+    ) -> Self {
+        Self::new_event_bound_for_platform(subsystem, trigger, current_runtime_platform())
+    }
+
+    fn new_event_bound_for_platform(
+        subsystem: NativeOperationSubsystem,
+        trigger: &'static str,
+        platform: &'static str,
+    ) -> Self {
+        let mut context = Self::new_for_platform(
+            subsystem,
+            trigger,
+            Duration::from_millis(1),
+            platform,
+        );
+        context.completion_policy = OperationCompletionPolicy::EventBound;
+        context.deadline = None;
+        context.deadline_at = None;
+        context.timeout = None;
+        context
     }
 
     fn with_completion_scope(
@@ -151,7 +178,14 @@ impl NativeOperationContext {
     }
 
     fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
+            .unwrap_or(Duration::MAX)
+    }
+
+    fn required_deadline(&self) -> Instant {
+        self.deadline
+            .expect("deadline-bound native operation must have a deadline")
     }
 }
 
@@ -181,7 +215,9 @@ impl NativeOperationReceipt {
             .elapsed()
             .as_millis()
             .min(u64::MAX as u128) as u64;
-        let deadline_exceeded = context.remaining().is_zero();
+        let deadline_exceeded = context
+            .deadline
+            .is_some_and(|deadline| deadline <= Instant::now());
         Self {
             completed_at: chrono::Utc::now().to_rfc3339(),
             context,
@@ -229,6 +265,7 @@ impl NativeOperationReceipt {
         SystemRuntimeOperationSummaryRecord {
             accepted_at: self.context.accepted_at.clone(),
             captured_at: self.completed_at.clone(),
+            completion_policy: self.context.completion_policy,
             deadline_at: self.context.deadline_at.clone(),
             platform: self.context.platform.to_owned(),
             subsystem: self.context.subsystem,
@@ -238,11 +275,9 @@ impl NativeOperationReceipt {
             operation_id: self.context.operation_id.clone(),
             trigger: self.context.trigger.to_owned(),
             elapsed_ms: self.elapsed_ms,
-            timeout_ms: self
-                .context
-                .timeout
-                .as_millis()
-                .min(u64::MAX as u128) as u64,
+            timeout_ms: self.context.timeout.map(|timeout| {
+                timeout.as_millis().min(u64::MAX as u128) as u64
+            }),
             revision: self.context.revision,
             topology_revision: self.context.topology_revision,
             window_generation: self.context.window_generation,

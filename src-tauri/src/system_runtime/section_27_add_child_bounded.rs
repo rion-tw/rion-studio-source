@@ -303,6 +303,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_role(&self, role_id: &str) -> RuntimeResult<()> {
+        tauri::async_runtime::block_on(self.destroy_role_event_bound(role_id))
+    }
+
+    async fn destroy_role_event_bound(&self, role_id: &str) -> RuntimeResult<()> {
         {
             let mut state = self.state()?;
             let Some(tab_id) = state.role_tabs.get(role_id) else {
@@ -325,7 +329,7 @@ impl SystemRuntimeExecutor {
         }
         self.advance_role_input_fence_local(role_id)?;
         self.discard_role_navigation_input_fences(role_id, "role-closed");
-        let result = self.destroy_marked_role(role_id, None);
+        let result = self.destroy_marked_role_event_bound(role_id, None).await;
         if let Ok(mut state) = self.state.lock() {
             state.close_coordinator.closing_roles.remove(role_id);
         }
@@ -333,12 +337,14 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn destroy_marked_role(
+    async fn destroy_marked_role_event_bound(
         &self,
         role_id: &str,
         expected_tab_id: Option<&str>,
     ) -> RuntimeResult<()> {
-        let released = self.release_marked_role_surfaces(role_id, expected_tab_id)?;
+        let released = self
+            .release_marked_role_surfaces_event_bound(role_id, expected_tab_id)
+            .await?;
         self.commit_released_role(&released)?;
         if self
             .presentation
@@ -358,7 +364,7 @@ impl SystemRuntimeExecutor {
         self.refresh_role_placeholders(role_id, None)
     }
 
-    fn release_marked_role_surfaces(
+    async fn release_marked_role_surfaces_event_bound(
         &self,
         role_id: &str,
         expected_tab_id: Option<&str>,
@@ -406,40 +412,73 @@ impl SystemRuntimeExecutor {
         self.clear_role_keys(role_id);
         let surface_ids = self.managed_surface_ids_for_role(role_id)?;
         let isolation_result = if surface_ids.is_empty() {
-            self.close_surface_and_wait(&webview, &lifecycle, role_id)?;
+            self.close_surface_event_bound(&webview, &lifecycle, role_id)
+                .await?;
             Ok(())
         } else {
-            // A role page, recovery replacement and its popups are independent
-            // controllers. Request isolation concurrently so a wedged popup cannot
-            // delay the exact game surface or multiply the two-second bound.
-            std::thread::scope(|scope| {
-                let handles = surface_ids
+            let group_surfaces = {
+                let state = self.state()?;
+                surface_ids
                     .iter()
-                    .map(|instance_id| {
-                        scope.spawn(move || {
-                            self.close_managed_surface_and_wait(instance_id, role_id)
-                        })
+                    .filter_map(|instance_id| {
+                        state
+                            .surface_registry
+                            .get(instance_id)
+                            .or_else(|| state.retired_surface_registry.get(instance_id))
+                            .cloned()
                     })
-                    .collect::<Vec<_>>();
-                let mut first_error = None;
-                for handle in handles {
-                    match handle.join() {
-                        Ok(Ok(())) => {}
-                        Ok(Err(error)) => {
-                            first_error.get_or_insert(error);
+                    .collect::<Vec<_>>()
+            };
+            let runtime = self
+                .self_weak
+                .get()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                        "The surface lifecycle actor is unavailable.",
+                    )
+                })?;
+            let mut closes = tokio::task::JoinSet::new();
+            for instance_id in surface_ids {
+                let runtime = Arc::clone(&runtime);
+                let lifecycle_id = role_id.to_owned();
+                closes.spawn(async move {
+                    runtime
+                        .close_managed_surface_event_bound(&instance_id, &lifecycle_id)
+                        .await
+                });
+            }
+            let mut first_error = None;
+            while let Some(result) = closes.join_next().await {
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        if first_error.is_none() {
+                            self.cancel_surface_group_continuations(
+                                group_surfaces.clone(),
+                                "SYSTEM_SURFACE_GROUP_CANCELLED",
+                                "A sibling surface failure ended this close-group continuation.",
+                            );
+                            first_error = Some(error);
                         }
-                        Err(_) => {
-                            first_error.get_or_insert_with(|| {
-                                RuntimeError::new(
-                                    "SYSTEM_SURFACE_CLOSE_WORKER_FAILED",
-                                    "A native role surface close worker panicked.",
-                                )
-                            });
+                    }
+                    Err(_) => {
+                        if first_error.is_none() {
+                            self.cancel_surface_group_continuations(
+                                group_surfaces.clone(),
+                                "SYSTEM_SURFACE_GROUP_CANCELLED",
+                                "A sibling surface actor failure ended this close-group continuation.",
+                            );
+                            first_error = Some(RuntimeError::new(
+                                "SYSTEM_SURFACE_CLOSE_ACTOR_FAILED",
+                                "A surface lifecycle continuation stopped unexpectedly.",
+                            ));
                         }
                     }
                 }
-                first_error.map_or(Ok(()), Err)
-            })
+            }
+            first_error.map_or(Ok(()), Err)
         };
         isolation_result?;
         for label in popup_labels {
@@ -590,6 +629,10 @@ impl SystemRuntimeExecutor {
     }
 
     fn destroy_tab(&self, tab_id: &str) -> RuntimeResult<()> {
+        tauri::async_runtime::block_on(self.destroy_tab_event_bound(tab_id))
+    }
+
+    async fn destroy_tab_event_bound(&self, tab_id: &str) -> RuntimeResult<()> {
         let window_id = self
             .presentation
             .tab_window(tab_id)
@@ -612,6 +655,16 @@ impl SystemRuntimeExecutor {
                 return Ok(());
             };
             (tab.roles.keys().cloned().collect::<Vec<_>>(), window_id)
+        };
+        let tab_group_surfaces = {
+            let state = self.state()?;
+            state
+                .surface_registry
+                .values()
+                .chain(state.retired_surface_registry.values())
+                .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                .cloned()
+                .collect::<Vec<_>>()
         };
         {
             let mut state = self.state()?;
@@ -636,29 +689,64 @@ impl SystemRuntimeExecutor {
             self.discard_role_navigation_input_fences(role_id, "workspace-closed");
         }
         let mut completed_tombstone = None;
-        let result = (|| -> RuntimeResult<()> {
-            // A workspace's game surfaces are independent native controllers. Isolate
-            // them concurrently so one wedged role cannot serialize every sibling.
-            let released_roles = std::thread::scope(|scope| {
-                let handles = role_ids
-                    .iter()
-                    .map(|role_id| {
-                        scope
-                            .spawn(move || self.release_marked_role_surfaces(role_id, Some(tab_id)))
-                    })
-                    .collect::<Vec<_>>();
-                handles
-                    .into_iter()
-                    .map(|handle| {
-                        handle.join().unwrap_or_else(|_| {
-                            Err(RuntimeError::new(
-                                "SYSTEM_SURFACE_CLOSE_WORKER_FAILED",
-                                "A native workspace surface close worker panicked.",
-                            ))
-                        })
-                    })
-                    .collect::<RuntimeResult<Vec<_>>>()
-            })?;
+        let result: RuntimeResult<()> = async {
+            let runtime = self
+                .self_weak
+                .get()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
+                        "The surface lifecycle actor is unavailable.",
+                    )
+                })?;
+            let mut closes = tokio::task::JoinSet::new();
+            for role_id in &role_ids {
+                let runtime = Arc::clone(&runtime);
+                let role_id = role_id.clone();
+                let expected_tab_id = tab_id.to_owned();
+                closes.spawn(async move {
+                    runtime
+                        .release_marked_role_surfaces_event_bound(
+                            &role_id,
+                            Some(&expected_tab_id),
+                        )
+                        .await
+                });
+            }
+            let mut released_roles = Vec::with_capacity(role_ids.len());
+            let mut first_error = None;
+            while let Some(result) = closes.join_next().await {
+                match result {
+                    Ok(Ok(released)) => released_roles.push(released),
+                    Ok(Err(error)) => {
+                        if first_error.is_none() {
+                            self.cancel_surface_group_continuations(
+                                tab_group_surfaces.clone(),
+                                "SYSTEM_SURFACE_GROUP_CANCELLED",
+                                "A workspace sibling failure ended the pending close-group continuations.",
+                            );
+                            first_error = Some(error);
+                        }
+                    }
+                    Err(_) => {
+                        if first_error.is_none() {
+                            self.cancel_surface_group_continuations(
+                                tab_group_surfaces.clone(),
+                                "SYSTEM_SURFACE_GROUP_CANCELLED",
+                                "A workspace sibling actor failure ended the pending close-group continuations.",
+                            );
+                            first_error = Some(RuntimeError::new(
+                                "SYSTEM_SURFACE_CLOSE_ACTOR_FAILED",
+                                "A workspace surface lifecycle continuation stopped unexpectedly.",
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
             let released_dividers = {
                 let state = self.state()?;
                 state
@@ -682,7 +770,8 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>()
             };
             for (_, instance_id, _) in &released_dividers {
-                self.close_managed_divider(instance_id)?;
+                self.close_managed_surface_event_bound(instance_id, instance_id)
+                    .await?;
             }
             let released_placeholders = {
                 let state = self.state()?;
@@ -773,7 +862,8 @@ impl SystemRuntimeExecutor {
                 state.close_coordinator.closing_roles.remove(role_id);
             });
             Ok(())
-        })();
+        }
+        .await;
         if let Ok(mut state) = self.state.lock() {
             state.close_coordinator.closing_tabs.remove(tab_id);
             role_ids.iter().for_each(|role_id| {

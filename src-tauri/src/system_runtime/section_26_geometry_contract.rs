@@ -83,7 +83,7 @@ impl SystemRuntimeExecutor {
         .with_revision(revision)
         .with_tab(tab_id)
         .with_window(&window_id);
-        let _guard = lane.lock_until(operation.deadline).map_err(|_| {
+        let _guard = lane.lock_until(operation.required_deadline()).map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_GEOMETRY_APPLY_FAILED",
                 "The native window mutation lane is unavailable.",
@@ -163,7 +163,7 @@ impl SystemRuntimeExecutor {
         })
         .with_revision(revision)
         .with_window(&target.window_id);
-        let _guard = lane.lock_until(operation.deadline).map_err(|_| {
+        let _guard = lane.lock_until(operation.required_deadline()).map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_GEOMETRY_APPLY_FAILED",
                 "The native window mutation lane is unavailable.",

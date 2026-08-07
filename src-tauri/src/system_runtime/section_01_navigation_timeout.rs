@@ -711,6 +711,7 @@ struct SurfaceReleaseState {
     #[cfg(windows)]
     browser_process_exited: bool,
     controller_released: bool,
+    parent_window_destroyed: bool,
     isolation_progress: SurfaceIsolationProgress,
     isolated: bool,
     native_surface_released: bool,
@@ -951,6 +952,31 @@ impl SurfaceLifecycleTracker {
             drop(release);
             self.publish_event();
         }
+    }
+
+    fn mark_parent_window_destroyed(&self) -> bool {
+        if let Ok(mut release) = self.release.lock() {
+            if release.terminal_failure.is_some() || release.parent_window_destroyed {
+                return false;
+            }
+            release.controller_released = true;
+            release.parent_window_destroyed = true;
+            release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            release.native_surface_released = true;
+            drop(release);
+            self.record_native_isolation_event(11);
+            self.publish_event();
+            return true;
+        }
+        false
+    }
+
+    fn parent_window_destroyed(&self) -> bool {
+        self.release
+            .lock()
+            .map(|release| release.parent_window_destroyed)
+            .unwrap_or(false)
     }
 
     fn mark_native_surface_released(&self) {

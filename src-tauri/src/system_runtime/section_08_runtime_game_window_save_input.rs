@@ -204,6 +204,17 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         generation: u64,
     ) -> RuntimeResult<String> {
+        let window_generation = self
+            .state()?
+            .display_hosts
+            .get(window_id)
+            .map(|host| host.generation)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_WINDOW_NOT_FOUND",
+                    "The native window generation was unavailable while registering its surface.",
+                )
+            })?;
         let mut operation = NativeOperationContext::new(
             NativeOperationSubsystem::SurfaceLifecycle,
             "registerManagedSurface",
@@ -211,6 +222,7 @@ impl SystemRuntimeExecutor {
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_window(window_id)
+        .with_window_generation(window_generation)
         .with_surface_generation(generation);
         if let Some(role_id) = role_id {
             operation = operation.with_role(role_id);
@@ -231,6 +243,7 @@ impl SystemRuntimeExecutor {
                 role_id: role_id.map(str::to_owned),
                 tab_id: tab_id.map(str::to_owned),
                 webview: webview.clone(),
+                window_generation,
                 window_id: window_id.to_owned(),
             };
             let role_fenced = {
@@ -410,6 +423,7 @@ impl SystemRuntimeExecutor {
             "tabId": surface.tab_id,
             "staleNativeEventCount": surface.lifecycle.stale_native_event_count(),
             "webviewLabel": surface.webview.label(),
+            "windowGeneration": surface.window_generation,
             "windowId": surface.window_id,
         });
         tauri::async_runtime::spawn(async move {

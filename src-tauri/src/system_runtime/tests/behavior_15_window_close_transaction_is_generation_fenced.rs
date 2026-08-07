@@ -106,3 +106,28 @@ fn retired_native_host_blocks_reopen_until_destroyed() {
         .remove("runtime-window-1");
     assert!(!window_close_in_progress(&state, "window-1"));
 }
+
+#[test]
+fn destroyed_host_surface_completion_is_window_and_generation_fenced() {
+    assert!(destroyed_host_surface_identity_matches(
+        "window-1", 7, "window-1", 7
+    ));
+    assert!(!destroyed_host_surface_identity_matches(
+        "window-1", 6, "window-1", 7
+    ));
+    assert!(!destroyed_host_surface_identity_matches(
+        "window-2", 7, "window-1", 7
+    ));
+    assert!(destroyed_host_surface_close_is_pending(
+        true,
+        ManagedSurfacePhase::Live
+    ));
+    assert!(destroyed_host_surface_close_is_pending(
+        false,
+        ManagedSurfacePhase::Isolating
+    ));
+    assert!(!destroyed_host_surface_close_is_pending(
+        false,
+        ManagedSurfacePhase::Live
+    ));
+}

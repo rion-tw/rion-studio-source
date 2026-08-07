@@ -197,6 +197,7 @@ use super::*;
                         #[cfg(windows)]
                         browser_process_exited,
                         controller_released,
+                        parent_window_destroyed: false,
                         isolation_progress: if native_surface_released {
                             SurfaceIsolationProgress::Isolated
                         } else {

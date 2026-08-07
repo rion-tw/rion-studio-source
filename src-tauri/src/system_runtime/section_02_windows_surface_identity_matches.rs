@@ -140,7 +140,31 @@ struct ManagedSurface {
     role_id: Option<String>,
     tab_id: Option<String>,
     webview: Webview,
+    window_generation: u64,
     window_id: String,
+}
+
+fn destroyed_host_surface_identity_matches(
+    surface_window_id: &str,
+    surface_window_generation: u64,
+    destroyed_window_id: &str,
+    destroyed_window_generation: u64,
+) -> bool {
+    surface_window_id == destroyed_window_id
+        && surface_window_generation == destroyed_window_generation
+}
+
+fn destroyed_host_surface_close_is_pending(
+    has_close_operation: bool,
+    phase: ManagedSurfacePhase,
+) -> bool {
+    has_close_operation
+        || matches!(
+            phase,
+            ManagedSurfacePhase::CloseRequested
+                | ManagedSurfacePhase::Isolating
+                | ManagedSurfacePhase::Isolated
+        )
 }
 
 fn next_surface_instance_id(label: &str) -> String {

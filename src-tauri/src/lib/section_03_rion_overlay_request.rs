@@ -234,6 +234,13 @@ async fn rion_runtime_tab_action(
                     "runtime tab ID is required",
                 )
             })?;
+        if state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str()) {
+            state.runtime.publish_projection();
+            let receipt = state.runtime.superseded_tab_activation_summary(tab_id);
+            return serde_json::to_value(receipt).map_err(|error| {
+                shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+            });
+        }
         let receipt = preview_and_commit_tab_selection(&app, &state, tab_id)
             .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
         return serde_json::to_value(receipt).map_err(|error| {
@@ -367,7 +374,7 @@ async fn rion_runtime_tab_action(
                 shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
             });
         };
-        if action_type != "move" && live_window_id != window_id {
+        if live_window_id != window_id {
             return Err(shell_error(
                 "TAURI_RUNTIME_TAB_ACTION_FAILED",
                 "runtime tab is outside this tab-strip WebView's window",

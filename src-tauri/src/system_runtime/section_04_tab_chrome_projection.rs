@@ -41,6 +41,15 @@ pub(crate) enum RuntimeTabIntentAdmission {
     },
 }
 
+fn tab_intent_source_identity_is_current(
+    host_generation: u64,
+    host_webview_label: &str,
+    renderer_generation: u64,
+    renderer_webview_label: &str,
+) -> bool {
+    host_generation == renderer_generation && host_webview_label == renderer_webview_label
+}
+
 #[cfg(any(windows, test))]
 #[derive(Default)]
 struct TabChromeProjectionCoordinatorState {
@@ -1252,23 +1261,26 @@ impl SystemRuntimeExecutor {
                 window_generation,
                 window_id,
                 ..
-            } => (window_id, *window_generation),
+            } => (window_id.clone(), *window_generation),
         };
-        let source_is_current = self.lifecycle_epoch() > 0
-            && self.state.lock().ok().is_some_and(|state| {
-                state.display_hosts.get(window_id).is_some_and(|host| {
-                    host.generation == window_generation
-                        && host.tab_strip.label() == webview_label
-                })
-            });
+        let source_is_current = self.state.lock().ok().is_some_and(|state| {
+            state.display_hosts.get(&window_id).is_some_and(|host| {
+                tab_intent_source_identity_is_current(
+                    host.generation,
+                    host.tab_strip.label(),
+                    window_generation,
+                    webview_label,
+                )
+            })
+        });
         let tab_belongs_to_source = self
             .live_tab_window_id(&intent.tab_id)
             .as_deref()
             == Some(window_id.as_str());
-        if matches!(admission, RuntimeTabIntentAdmission::Accepted { .. })
+        let admission = if matches!(admission, RuntimeTabIntentAdmission::Accepted { .. })
             && (!source_is_current || !tab_belongs_to_source)
         {
-            return Ok(RuntimeTabIntentAdmission::Superseded {
+            RuntimeTabIntentAdmission::Superseded {
                 failure_code: if source_is_current {
                     "TAB_INTENT_TAB_OWNER_STALE"
                 } else {
@@ -1276,8 +1288,34 @@ impl SystemRuntimeExecutor {
                 },
                 window_generation,
                 window_id: window_id.clone(),
-            });
-        }
+            }
+        } else {
+            admission
+        };
+        let (level, event, message, trigger) = match &admission {
+            RuntimeTabIntentAdmission::Accepted { .. } => (
+                LogLevel::Debug,
+                "tab.intent-admitted",
+                "The runtime tab intent passed adapter, generation, and ownership fences.",
+                "typed-tab-intent",
+            ),
+            RuntimeTabIntentAdmission::Superseded { failure_code, .. } => (
+                LogLevel::Warn,
+                "tab.intent-superseded",
+                "The runtime tab intent was rejected before the live topology commit.",
+                *failure_code,
+            ),
+        };
+        self.record_presentation_event(
+            level,
+            event,
+            message,
+            &window_id,
+            Some(&intent.tab_id),
+            self.live_topology_revision(),
+            trigger,
+            0,
+        );
         Ok(admission)
     }
 }

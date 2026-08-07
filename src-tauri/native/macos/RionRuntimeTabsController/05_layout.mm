@@ -664,8 +664,10 @@ NS_ASSUME_NONNULL_BEGIN
       [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
       surface.frame = canvasFrame;
     }
+    // RionRuntimeSurfaceView owns the item's frame because edge cropping moves
+    // the full-width tab inside a smaller glass host. Do not reset it here or
+    // AppKit will re-layout the title and accessories at the cropped width.
     [surface layoutSubtreeIfNeeded];
-    item.frame = surface.bounds;
     [item layoutSubtreeIfNeeded];
     x += width + kRionTabSpacing;
   }

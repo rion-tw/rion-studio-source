@@ -26,6 +26,8 @@ static const CGFloat kRionTabMoreButtonWidth = 20.0;
 static const CGFloat kRionTabTrailingPadding = 8.0;
 static const CGFloat kRionTabScrollButtonWidth = 22.0;
 static const CGFloat kRionTabScrollButtonSpacing = 3.0;
+static const CGFloat kRionTabScrollFusionInset =
+    kRionTabScrollButtonWidth + kRionTabScrollButtonSpacing;
 static const CGFloat kRionAddButtonSpacing = 8.0;
 static const CGFloat kRionRootLeadingInset = 4.0;
 static const CGFloat kRionWindowNameMinimumWidth = 150.0;
@@ -49,6 +51,22 @@ static CGFloat RionRuntimeTabsWidthWithExternalGhost(CGFloat tabsWidth,
 static CGFloat RionRuntimeWindowNameWidth(CGFloat intrinsicWidth) {
   return MIN(kRionWindowNameMaximumWidth,
              MAX(kRionWindowNameMinimumWidth, ceil(intrinsicWidth)));
+}
+
+static CGFloat RionRuntimeInsetRevealScrollOrigin(
+    CGFloat itemMinimumX, CGFloat itemMaximumX, CGFloat currentOriginX,
+    CGFloat viewportWidth, CGFloat contentWidth, CGFloat edgeInset) {
+  CGFloat maximumOrigin = MAX(0, contentWidth - viewportWidth);
+  CGFloat boundedInset = MIN(MAX(0, edgeInset), viewportWidth / 2.0);
+  CGFloat originX = currentOriginX;
+  CGFloat safeMinimumX = currentOriginX + boundedInset;
+  CGFloat safeMaximumX = currentOriginX + viewportWidth - boundedInset;
+  if (itemMinimumX < safeMinimumX) {
+    originX = itemMinimumX - boundedInset;
+  } else if (itemMaximumX > safeMaximumX) {
+    originX = itemMaximumX - viewportWidth + boundedInset;
+  }
+  return MIN(maximumOrigin, MAX(0, originX));
 }
 
 static CGFloat RionRuntimeTrailingControlOriginX(

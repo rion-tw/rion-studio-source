@@ -29,7 +29,10 @@ const RETENTION_DELETE_BATCH_SIZE: usize = 1_000;
 const BATCH_INTERVAL: Duration = Duration::from_millis(250);
 const BATCH_MAX_ENTRIES: usize = 50;
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+// Shutdown may need to wait for SQLite's five-second busy timeout before it
+// can flush pending entries and checkpoint the WAL. Leave enough headroom for
+// that durable completion on busy Windows filesystems.
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 const WORKER_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy)]

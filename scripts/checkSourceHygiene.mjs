@@ -3,6 +3,11 @@ import { access, readFile } from "node:fs/promises";
 import { extname, normalize } from "node:path";
 import { promisify } from "node:util";
 
+import {
+  EVENT_TOPOLOGY_LEDGER_PATH,
+  scanEventTopologySources
+} from "./eventTopologyPolicy.mjs";
+
 const execute = promisify(execFile);
 const reportOnly = process.argv.includes("--report");
 const sourceExtensions = new Set([
@@ -105,6 +110,8 @@ const trackedFiles = stdout
   .map((path) => path.replaceAll("\\", "/"));
 
 const failures = [];
+const eventTopologyLedger = JSON.parse(await readFile(EVENT_TOPOLOGY_LEDGER_PATH, "utf8"));
+const eventTopologySources = [];
 for (const path of trackedFiles) {
   if (!sourceExtensions.has(extname(path))) continue;
   if (generatedPrefixes.some((prefix) => path.startsWith(prefix))) continue;
@@ -117,6 +124,7 @@ for (const path of trackedFiles) {
     throw error;
   }
   const sourceText = source.toString("utf8");
+  eventTopologySources.push({ path, source: sourceText });
   const lineCount = source.length === 0
     ? 0
     : sourceText.split(/\r?\n/u).length - (source.at(-1) === 10 ? 1 : 0);
@@ -136,6 +144,8 @@ for (const path of trackedFiles) {
     }
   }
 }
+
+failures.push(...scanEventTopologySources(eventTopologySources, eventTopologyLedger));
 
 for (const path of trackedFiles.filter((candidate) => /^tsconfig(?:\.[^.]+)?\.json$/u.test(candidate))) {
   let config;

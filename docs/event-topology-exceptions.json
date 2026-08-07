@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "id": "renderer-bounded-bridge-wait",
+      "paths": [
+        "src/renderer/src/app/withTimeout.ts",
+        "src/renderer/src/hooks/useAppData.ts",
+        "src/renderer/src/hooks/useLegalAcceptance.ts",
+        "src/renderer/src/tauri/installTauriBridge.ts"
+      ],
+      "mechanism": "One-shot Promise timeout around an external Tauri listener or command response.",
+      "authoritativeEvent": "The listener registration or typed bridge command resolves or rejects.",
+      "reason": "The renderer must expose a retryable startup failure when the external bridge never settles.",
+      "terminalOutcome": "The renderer reports failure; a late snapshot is rejected by request or revision fencing and never becomes timeout-derived success.",
+      "cleanup": "Listener registration marks itself cancelled and unregisters late listeners; request generations ignore late command responses."
+    },
+    {
+      "id": "google-font-preview-load-deadline",
+      "paths": [
+        "src/renderer/src/features/settings/googleFontPreview.ts"
+      ],
+      "mechanism": "One-shot stylesheet load deadline.",
+      "authoritativeEvent": "The link load/error event and document.fonts promise establish the preview result.",
+      "reason": "A remote stylesheet request may never dispatch a terminal browser event.",
+      "terminalOutcome": "The preview is marked as an error and remains explicitly retryable; timeout never reports a loaded font.",
+      "cleanup": "The settle guard accepts the first terminal path and clears the timer."
+    },
+    {
+      "id": "embedded-shortcut-suppression-expiry",
+      "paths": [
+        "src/shared/browser-overlay/macro-overlay-runtime/keyboard-input-guard.js"
+      ],
+      "mechanism": "Bounded expiry of a single synthetic shortcut suppression lease.",
+      "authoritativeEvent": "The matching key event consumes and removes the lease.",
+      "reason": "The remote page may never deliver the matching event after native input handoff.",
+      "terminalOutcome": "Expiry only removes the exact suppression item; it does not infer page or macro state.",
+      "cleanup": "Explicit consume, clear, overlay disposal, and the item-scoped expiry all remove the same lease idempotently."
+    },
+    {
+      "id": "pointer-drag-click-suppression-expiry",
+      "paths": [
+        "src/renderer/src/hooks/usePointerDrag.ts"
+      ],
+      "mechanism": "Bounded expiry of the one-shot click suppression listener after a pointer drag.",
+      "authoritativeEvent": "The next click event consumes the listener once.",
+      "reason": "A platform may omit the post-drag click, so the listener needs bounded cleanup.",
+      "terminalOutcome": "Expiry removes only the listener and never changes drag or domain state.",
+      "cleanup": "The click handler clears the timer; the timer removes the exact capture listener."
+    }
+  ]
+}

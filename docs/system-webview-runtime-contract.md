@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 11 defines the shared semantics for WKWebView on macOS and
+Contract version 12 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -10,11 +10,14 @@ WKWebView APIs themselves are not an implementation template for Windows.
 ## Operation envelope and receipt
 
 Every contract operation has one monotonic operation ID created before it is
-submitted, plus a platform, subsystem, trigger, acceptance time, deadline,
-explicit completion scope, and any available revision, topology revision,
+submitted, plus a platform, subsystem, trigger, acceptance time, explicit
+completion policy, completion scope, and any available revision, topology revision,
 window generation, lifecycle epoch, session, window, tab, role, parent
 operation, or surface-generation fence. Planning, coalescing, failure handling,
 diagnostics, and public API responses retain that same ID and completion scope.
+A deadline-bound operation also carries its accepted deadline. An event-bound
+operation carries no deadline and completes only from its exact authoritative
+event, cancellation, supersede, actor stop, or event-stream failure.
 A terminal receipt uses one of these statuses:
 
 - `applied`: the declared completion scope was reached.
@@ -40,9 +43,11 @@ warning, `failed` exposes its stable code, and `indeterminate` asks the user to
 restart before retrying.
 
 The registry holds at most 256 active operations and 80 recent terminal
-receipts. Active entries are never evicted to make room. A queued operation that
-passes its deadline is `failed`; an operation whose native call started but did
-not confirm before its deadline is `indeterminate`. Lifecycle cancellation is
+receipts. Active entries are never evicted to make room. For deadline-bound
+work, a queued operation that passes its deadline is `failed`; an operation
+whose native call started but did not confirm before its deadline is
+`indeterminate`. Event-bound work never terminalizes because time elapsed.
+Lifecycle cancellation is
 `cancelled` only while work is still queued and becomes `indeterminate` after
 native submission. The first terminal receipt wins, so a late native callback
 cannot replace a timeout, supersede, cancellation, actor-stop, queue-full, or
@@ -395,9 +400,10 @@ superseded, or never-accepted session are idempotent no-ops and never surface a
   native input before allowing the main-frame navigation, asynchronously drain
   that epoch once, then wait for the matching generation's page finish and new
   document proof. Platform adapters may use different native APIs to provide it.
-- A navigation watchdog belongs to one current main-frame or controlled-reload
-  operation. Recovery is valid only while that operation ID, input epoch, and
-  surface generation remain current; resource activity cannot start or reset it.
+- A navigation deadline belongs to one current deadline-bound main-frame or
+  controlled-reload operation. Recovery is valid only while that operation ID,
+  input epoch, and surface generation remain current; resource activity cannot
+  start or reset it.
 - Timeouts never silently become success. A newer operation becomes
   `superseded`; an unknown native result becomes `indeterminate`.
 - Reload is a navigation operation rather than a bare native command. Every role
@@ -510,7 +516,8 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 11. The subsystem, status, and
+Additive fields remain compatible within version 12. The completion policy,
+subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
 Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic
 subsystems, but topology has no convergence receipt and no native/Core sink can

@@ -232,6 +232,7 @@ export function useAppData() {
         throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
       }
 
+      // event-topology-exception: renderer-bounded-bridge-wait
       const snapshot = await withTimeout(
         window.rionStudio.getAppSnapshot(),
         INITIAL_APP_DATA_TIMEOUT_MS,

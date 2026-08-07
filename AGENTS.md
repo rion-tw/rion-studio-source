@@ -27,6 +27,29 @@ substantial work, then follow the scoped `AGENTS.md` nearest the files you edit.
 - The user-consented Chrome Profile import is a bounded one-time transfer of the
   launch origin's cookies and LocalStorage. It is not a runtime fallback.
 
+## Event Topology
+
+- Event topology is the default design for product behavior, cross-boundary
+  communication, completion, and errors: identify the authoritative event
+  source, single state owner, ordered/revision-fenced propagation, consumer,
+  cancellation, and terminal outcome before implementation.
+- Normal correctness is event-bound. Do not add polling, watchdogs, dirty-state
+  scans, or timeout-driven reconciliation unless the requirement deliberately
+  calls for a documented external liveness boundary.
+- System Runtime and Core effects must select `EventBound` or `DeadlineBound`
+  explicitly. Event-bound work has no deadline and completes only from an exact
+  authoritative event, cancellation, supersede, actor stop, or stream failure.
+  Deadline-bound work must terminalize as failed or indeterminate when its
+  external acknowledgement is unknown; elapsed time never becomes success.
+- Presentation timers and event coalescing may delay non-authoritative UI work,
+  but cannot discover state, establish truth, retry toward convergence, or
+  decide a domain error. Mark production JS/TS timers with the event-topology
+  classification required by `docs/event-topology.md`.
+- Any exceptional timer, polling loop, watchdog, dirty check, or generic timeout
+  wrapper requires a source-local `event-topology-exception` ID and a matching
+  entry in `docs/event-topology-exceptions.json`; source hygiene enforces the
+  pairing.
+
 ## Cross-Platform Requirement
 
 - macOS and Windows are both required. Runtime/native/filesystem changes must

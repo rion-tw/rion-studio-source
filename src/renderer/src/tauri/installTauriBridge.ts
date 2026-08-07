@@ -57,6 +57,7 @@ export async function registerBridgeListeners(
   });
 
   try {
+    // event-topology-exception: renderer-bounded-bridge-wait
     await withTimeout(
       Promise.all(pending),
       timeoutMs,

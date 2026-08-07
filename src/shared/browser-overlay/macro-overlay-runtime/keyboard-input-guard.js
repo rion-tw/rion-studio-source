@@ -51,6 +51,7 @@
       expiryTimer: undefined,
       phase
     };
+    // event-topology-exception: embedded-shortcut-suppression-expiry
     item.expiryTimer = setTimeout(() => {
       removeSuppressedShortcutItem(item, true);
     }, Math.max(0, normalizedExpiry - now));

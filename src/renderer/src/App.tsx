@@ -287,6 +287,7 @@ export function App(): JSX.Element {
       return;
     }
 
+    // event-topology: presentation
     const timeoutId = window.setTimeout(() => setError(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeoutId);
   }, [data.error, firstRunOnboarding.isVisible, initialLoadState, setError]);
@@ -301,6 +302,7 @@ export function App(): JSX.Element {
       return;
     }
 
+    // event-topology: presentation
     const timeoutId = window.setTimeout(() => setNotice(null), TOAST_DISMISS_MS);
     return () => window.clearTimeout(timeoutId);
   }, [data.error, firstRunOnboarding.isVisible, initialLoadState, notice]);

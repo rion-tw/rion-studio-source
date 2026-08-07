@@ -93,9 +93,10 @@ NS_ASSUME_NONNULL_BEGIN
   if (!activeItem || !activeSurface) return;
   NSRect activeFrame = activeSurface.frame;
   NSRect visible = _tabScrollView.contentView.bounds;
-  CGFloat originX = RionRuntimeRevealScrollOrigin(
+  CGFloat edgeInset = _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
+  CGFloat originX = RionRuntimeInsetRevealScrollOrigin(
       NSMinX(activeFrame), NSMaxX(activeFrame), visible.origin.x,
-      visible.size.width, _tabCanvas.frame.size.width);
+      visible.size.width, _tabCanvas.frame.size.width, edgeInset);
   if (fabs(originX - visible.origin.x) < 0.5) return;
   [_tabScrollView.contentView scrollToPoint:NSMakePoint(originX, 0)];
   [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
@@ -128,10 +129,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)scrollTabsLeft:(id)sender {
   (void)sender;
   NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat edgeInset = _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
   CGFloat targetX = 0;
   for (NSView *surface in _tabSurfaces) {
-    if (NSMinX(surface.frame) < NSMinX(visible) - 1.0) {
-      targetX = NSMinX(surface.frame);
+    if (NSMinX(surface.frame) < NSMinX(visible) + edgeInset - 1.0) {
+      targetX = NSMinX(surface.frame) - edgeInset;
     } else {
       break;
     }
@@ -144,12 +146,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)scrollTabsRight:(id)sender {
   (void)sender;
   NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat edgeInset = _scrollRightSurface.hidden ? 0 : kRionTabScrollFusionInset;
   CGFloat maximumOrigin =
       MAX(0, _tabCanvas.frame.size.width - visible.size.width);
   CGFloat targetX = maximumOrigin;
   for (NSView *surface in _tabSurfaces) {
-    if (NSMaxX(surface.frame) > NSMaxX(visible) + 1.0) {
-      targetX = NSMaxX(surface.frame) - visible.size.width;
+    if (NSMaxX(surface.frame) > NSMaxX(visible) - edgeInset + 1.0) {
+      targetX = NSMaxX(surface.frame) - visible.size.width + edgeInset;
       break;
     }
   }

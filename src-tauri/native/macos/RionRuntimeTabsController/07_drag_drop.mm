@@ -22,7 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
   NSMutableArray<NSNumber *> *midpoints = [NSMutableArray array];
   NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
   NSUInteger inferredIndex = NSNotFound;
-  CGFloat layoutX = 0;
+  CGFloat layoutX =
+      _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
   for (RionRuntimeTabItemView *item in _tabItems) {
     CGFloat width = item.preferredWidth;
     if ([item.tabIdentifier isEqualToString:tabIdentifier]) {
@@ -203,7 +204,9 @@ NS_ASSUME_NONNULL_BEGIN
     [self stopTabDragEdgeScroll];
     return;
   }
-  NSRect frame = _tabScrollView.frame;
+  NSRect frame = [_accessoryController.view
+      convertRect:_tabScrollView.frame
+        fromView:_tabScrollView.superview];
   CGFloat edgeWidth = MIN(36.0, frame.size.width / 4.0);
   CGFloat delta = RionRuntimeDragScrollDelta(
       _dragScrollRootX, NSMinX(frame), NSMaxX(frame), edgeWidth);

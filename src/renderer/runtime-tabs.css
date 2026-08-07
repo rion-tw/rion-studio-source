@@ -50,12 +50,12 @@ body[data-toolbar-visible="false"] > * {
 #window-identity {
   display: flex;
   min-width: 26px;
-  max-width: 270px;
+  max-width: 286px;
   height: 40px;
   align-items: center;
   gap: var(--space-2);
   flex: 0 1 auto;
-  margin-right: var(--space-2);
+  margin-right: var(--space-3);
   overflow: hidden;
 }
 
@@ -70,7 +70,7 @@ body[data-toolbar-visible="false"] > * {
 
 #window-name {
   min-width: 0;
-  max-width: 240px;
+  max-width: 256px;
   overflow: hidden;
   color: hsl(var(--foreground));
   font-size: var(--type-control-size);
@@ -159,7 +159,7 @@ body[data-window-fullscreen="true"] .window-control [data-window-control-glyph="
   min-width: 0;
   max-width: 100%;
   flex: 0 1 auto;
-  gap: 7px;
+  gap: var(--space-0-5);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -192,8 +192,9 @@ button {
 }
 
 #add {
+  position: relative;
   width: 28px;
-  margin-left: var(--space-0-5);
+  margin-left: calc(var(--space-1) * -1);
   border-radius: var(--radius-pill);
 }
 
@@ -245,16 +246,23 @@ button {
   transition: opacity 90ms ease-out;
 }
 
-.tab + .tab::after {
+.tab + .tab::after,
+#add::before {
   position: absolute;
   top: 7px;
-  left: -4px;
+  left: -1px;
   width: 1px;
   height: 14px;
   border-radius: var(--radius-pill);
   background: hsl(var(--border) / 0.42);
   content: "";
   pointer-events: none;
+}
+
+.tab.active::after,
+.tab.active + .tab::after,
+#tabs:has(> .tab.active:last-child) ~ #add::before {
+  background: transparent;
 }
 
 .tab:hover:not(.active):not(.runtime-tab-sort-ghost) {

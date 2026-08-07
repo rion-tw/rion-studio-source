@@ -8,12 +8,14 @@ use windows::Win32::{
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
             BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect,
-            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
-            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY,
-            WM_SIZE,
+            IsZoomed, PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE,
+            SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP, WM_DPICHANGED,
+            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SIZE,
         },
     },
 };
+
+const WM_RION_GEOMETRY_FLUSH: u32 = WM_APP + 0x52;
 
 #[derive(Clone, Debug)]
 struct WindowsLiveResizeRolePlan {
@@ -43,6 +45,7 @@ struct WindowsLiveResizePlan {
 struct WindowsLiveResizeSurface {
     controller: ICoreWebView2Controller,
     hwnd: HWND,
+    label: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -55,6 +58,7 @@ struct WindowsLiveResizeCounters {
     parent_position_errors: u64,
     parent_position_received: u64,
     received: u64,
+    unchanged: u64,
 }
 
 impl WindowsLiveResizeCounters {
@@ -68,45 +72,76 @@ impl WindowsLiveResizeCounters {
         self.parent_position_errors = self.parent_position_errors.saturating_add(errors);
     }
 
-    fn saturating_add(self, other: Self) -> Self {
-        Self {
-            applied: self.applied.saturating_add(other.applied),
-            deferred: self.deferred.saturating_add(other.deferred),
-            errors: self.errors.saturating_add(other.errors),
-            fallback: self.fallback.saturating_add(other.fallback),
-            parent_position_applied: self
-                .parent_position_applied
-                .saturating_add(other.parent_position_applied),
-            parent_position_errors: self
-                .parent_position_errors
-                .saturating_add(other.parent_position_errors),
-            parent_position_received: self
-                .parent_position_received
-                .saturating_add(other.parent_position_received),
-            received: self.received.saturating_add(other.received),
-        }
-    }
 }
 
-#[derive(Debug)]
 struct WindowsLiveResizeHost {
     counters: WindowsLiveResizeCounters,
+    flush_posted: bool,
     frame_sequence: u64,
     generation: u64,
+    interactive_resize: bool,
     last_batch_failed: bool,
-    last_native_attempt_at: Option<Instant>,
-    last_applied_frame: Option<WindowsLiveResizeFrame>,
+    last_materialized_key: Option<WindowsGeometryKey>,
+    last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
+    pending_frame: Option<WindowsGeometryPendingFrame>,
     plan: Option<WindowsLiveResizePlan>,
     plan_epoch: u64,
+    receipt_handler: WindowsGeometryReceiptHandler,
     subclass_id: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WindowsLiveResizeFrame {
+struct WindowsGeometryKey {
+    dpi: u32,
+    frame_revision: u64,
+    generation: u64,
     height: u32,
-    plan_epoch: u64,
-    sequence: u64,
+    plan_revision: u64,
+    presentation: WindowsGeometryPresentation,
     width: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsGeometryPresentation {
+    Maximized,
+    Restored,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsGeometryStatus {
+    Applied,
+    Failed,
+    Unchanged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowsGeometryReceipt {
+    key: WindowsGeometryKey,
+    status: WindowsGeometryStatus,
+    terminal: bool,
+}
+
+type WindowsGeometryReceiptHandler = Arc<dyn Fn(WindowsGeometryReceipt) + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowsGeometryPendingFrame {
+    dpi: u32,
+    frame_revision: u64,
+    height: u32,
+    presentation: WindowsGeometryPresentation,
+    terminal: bool,
+    width: u32,
+}
+
+#[derive(Clone)]
+struct WindowsGeometrySubmission {
+    bounds: Vec<WindowsLiveResizeBounds>,
+    key: WindowsGeometryKey,
+    last_batch_failed: bool,
+    last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
+    plan_epoch: u64,
+    surfaces: Vec<WindowsLiveResizeSurface>,
+    terminal: bool,
 }
 
 #[derive(Default)]
@@ -124,6 +159,7 @@ struct WindowsLiveResizeObservation {
     event_width: u32,
     frame_sequence: u64,
     native_fast_path_available: bool,
+    native_frame_unchanged: bool,
     matched_latest_frame: bool,
     match_status: &'static str,
     plan_epoch: u64,
@@ -138,7 +174,15 @@ fn windows_hwnd_key(hwnd: HWND) -> usize {
     hwnd.0 as usize
 }
 
-fn windows_live_resize_install_host(window: &Window, generation: u64) -> RuntimeResult<()> {
+fn windows_hwnd_from_key(key: usize) -> HWND {
+    HWND(key as *mut _)
+}
+
+fn windows_live_resize_install_host(
+    window: &Window,
+    generation: u64,
+    receipt_handler: WindowsGeometryReceiptHandler,
+) -> RuntimeResult<()> {
     let install_window = window.clone();
     window
         .run_on_main_thread(move || {
@@ -147,43 +191,48 @@ fn windows_live_resize_install_host(window: &Window, generation: u64) -> Runtime
             };
             let key = windows_hwnd_key(hwnd);
             let subclass_id = generation.max(1) as usize;
-            WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
-                let mut registry = registry.borrow_mut();
-                if let Some(previous) = registry.hosts.remove(&key) {
-                    unsafe {
-                        let _ = RemoveWindowSubclass(
-                            hwnd,
-                            Some(windows_live_resize_subclass_proc),
-                            previous.subclass_id,
-                        );
-                    }
-                }
-                let installed = unsafe {
-                    SetWindowSubclass(
+            let previous = WINDOWS_LIVE_RESIZE_REGISTRY
+                .with(|registry| registry.borrow_mut().hosts.remove(&key));
+            if let Some(previous) = previous {
+                unsafe {
+                    let _ = RemoveWindowSubclass(
                         hwnd,
                         Some(windows_live_resize_subclass_proc),
-                        subclass_id,
-                        generation as usize,
-                    )
-                    .as_bool()
-                };
-                if installed {
-                    registry.hosts.insert(
+                        previous.subclass_id,
+                    );
+                }
+            }
+            let installed = unsafe {
+                SetWindowSubclass(
+                    hwnd,
+                    Some(windows_live_resize_subclass_proc),
+                    subclass_id,
+                    generation as usize,
+                )
+                .as_bool()
+            };
+            if installed {
+                WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+                    registry.borrow_mut().hosts.insert(
                         key,
                         WindowsLiveResizeHost {
                             counters: WindowsLiveResizeCounters::default(),
+                            flush_posted: false,
                             frame_sequence: 0,
                             generation,
+                            interactive_resize: false,
                             last_batch_failed: false,
-                            last_native_attempt_at: None,
-                            last_applied_frame: None,
+                            last_materialized_key: None,
+                            last_surface_bounds: HashMap::new(),
+                            pending_frame: None,
                             plan: None,
                             plan_epoch: 0,
+                            receipt_handler,
                             subclass_id,
                         },
                     );
-                }
-            });
+                });
+            }
         })
         .map_err(RuntimeError::tauri)
 }
@@ -195,14 +244,23 @@ fn windows_live_resize_register_webview(webview: &Webview) -> RuntimeResult<()> 
             let controller = platform_webview.controller();
             let mut hwnd = HWND::default();
             if controller.ParentWindow(&mut hwnd).is_ok() && !hwnd.is_invalid() {
-                WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+                let invalidated = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
                     let mut registry = registry.borrow_mut();
                     registry.surfaces.insert(
                         label.clone(),
-                        WindowsLiveResizeSurface { controller, hwnd },
+                        WindowsLiveResizeSurface {
+                            controller,
+                            hwnd,
+                            label: label.clone(),
+                        },
                     );
-                    windows_live_resize_invalidate_surface_plans(&mut registry, &label);
+                    windows_live_resize_invalidate_surface_plans(&mut registry, &label)
                 });
+                for key in invalidated {
+                    let host = windows_hwnd_from_key(key);
+                    windows_live_resize_queue_current_frame(host, false);
+                    windows_live_resize_flush(host);
+                }
             }
         })
         .map_err(RuntimeError::tauri)
@@ -216,14 +274,23 @@ fn windows_live_resize_register_controller(
     if unsafe { controller.ParentWindow(&mut hwnd) }.is_err() || hwnd.is_invalid() {
         return;
     }
-    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+    let invalidated = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
         registry.surfaces.insert(
             label.clone(),
-            WindowsLiveResizeSurface { controller, hwnd },
+            WindowsLiveResizeSurface {
+                controller,
+                hwnd,
+                label: label.clone(),
+            },
         );
-        windows_live_resize_invalidate_surface_plans(&mut registry, &label);
+        windows_live_resize_invalidate_surface_plans(&mut registry, &label)
     });
+    for key in invalidated {
+        let host = windows_hwnd_from_key(key);
+        windows_live_resize_queue_current_frame(host, false);
+        windows_live_resize_flush(host);
+    }
 }
 
 fn windows_live_resize_unregister_surface(webview: &Webview) {
@@ -233,7 +300,7 @@ fn windows_live_resize_unregister_surface(webview: &Webview) {
         WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
             registry.surfaces.remove(&label);
-            windows_live_resize_invalidate_surface_plans(&mut registry, &label);
+            let _ = windows_live_resize_invalidate_surface_plans(&mut registry, &label);
         });
     });
 }
@@ -245,10 +312,10 @@ fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan
             return;
         };
         let key = windows_hwnd_key(hwnd);
-        WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let accepted = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
             let Some(host) = registry.hosts.get_mut(&key) else {
-                return;
+                return false;
             };
             if !windows_live_resize_plan_is_current(
                 host.generation,
@@ -256,7 +323,7 @@ fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan
                 plan.generation,
                 plan.revision,
             ) {
-                return;
+                return false;
             }
             let topology_changed = host
                 .plan
@@ -266,29 +333,38 @@ fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan
             if topology_changed {
                 windows_live_resize_advance_epoch(host);
             }
+            true
         });
+        if accepted {
+            windows_live_resize_queue_current_frame(hwnd, false);
+            windows_live_resize_flush(hwnd);
+        }
     });
 }
 
 fn windows_live_resize_advance_epoch(host: &mut WindowsLiveResizeHost) {
     host.plan_epoch = host.plan_epoch.saturating_add(1).max(1);
     host.last_batch_failed = false;
-    host.last_applied_frame = None;
+    host.last_materialized_key = None;
 }
 
 fn windows_live_resize_invalidate_surface_plans(
     registry: &mut WindowsLiveResizeRegistry,
     label: &str,
-) {
-    for host in registry.hosts.values_mut() {
+) -> Vec<usize> {
+    let mut invalidated = Vec::new();
+    for (key, host) in &mut registry.hosts {
         if host
             .plan
             .as_ref()
             .is_some_and(|plan| windows_live_resize_plan_contains_label(plan, label))
         {
+            host.last_surface_bounds.remove(label);
             windows_live_resize_advance_epoch(host);
+            invalidated.push(*key);
         }
     }
+    invalidated
 }
 
 fn windows_live_resize_plan_contains_label(plan: &WindowsLiveResizePlan, label: &str) -> bool {
@@ -373,19 +449,39 @@ fn windows_live_resize_observe(
         let (client_width, client_height) = client_size.unwrap_or((event_width, event_height));
         let (matched_latest_frame, match_status) =
             windows_live_resize_frame_match(host, client_size);
+        let native_frame_unchanged = windows_live_resize_counters_are_unchanged(
+            counters,
+            matched_latest_frame,
+        );
         WindowsLiveResizeObservation {
             client_height,
             client_width,
             counters,
             event_height,
             event_width,
-            frame_sequence: host.last_applied_frame.map_or(0, |frame| frame.sequence),
+            frame_sequence: host
+                .last_materialized_key
+                .map_or(0, |frame| frame.frame_revision),
             matched_latest_frame,
             native_fast_path_available,
+            native_frame_unchanged,
             match_status,
             plan_epoch: host.plan_epoch,
         }
     })
+}
+
+fn windows_live_resize_counters_are_unchanged(
+    counters: WindowsLiveResizeCounters,
+    matched_latest_frame: bool,
+) -> bool {
+    matched_latest_frame
+        && counters.received > 0
+        && counters.unchanged == counters.received
+        && counters.applied == 0
+        && counters.deferred == 0
+        && counters.errors == 0
+        && counters.fallback == 0
 }
 
 fn windows_live_resize_frame_match(
@@ -398,10 +494,14 @@ fn windows_live_resize_frame_match(
     if host.plan.is_none() {
         return (false, "plan-unavailable");
     }
-    let Some(frame) = host.last_applied_frame else {
+    let Some(frame) = host.last_materialized_key else {
         return (false, "frame-unavailable");
     };
-    if frame.plan_epoch != host.plan_epoch {
+    if host
+        .plan
+        .as_ref()
+        .is_none_or(|plan| frame.plan_revision != plan.revision)
+    {
         return (false, "plan-fence");
     }
     if (frame.width, frame.height) != client_size {
@@ -421,15 +521,126 @@ fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
         })
 }
 
-fn windows_live_resize_should_submit(
-    last_attempt_at: Option<Instant>,
-    now: Instant,
-    force: bool,
+fn windows_live_resize_message_is_actionable(
+    size_kind: usize,
+    width: u32,
+    height: u32,
 ) -> bool {
-    force
-        || last_attempt_at.is_none_or(|last| {
-            now.saturating_duration_since(last) >= WINDOW_RESIZE_FRAME_INTERVAL
-        })
+    size_kind != SIZE_MINIMIZED as usize && width > 0 && height > 0
+}
+
+fn windows_geometry_presentation(size_kind: usize) -> WindowsGeometryPresentation {
+    if size_kind == SIZE_MAXIMIZED as usize {
+        WindowsGeometryPresentation::Maximized
+    } else {
+        WindowsGeometryPresentation::Restored
+    }
+}
+
+fn windows_live_resize_set_interactive(hwnd: HWND, interactive: bool) {
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
+            host.interactive_resize = interactive;
+        }
+    });
+}
+
+fn windows_live_resize_is_interactive(hwnd: HWND) -> bool {
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        registry
+            .borrow()
+            .hosts
+            .get(&windows_hwnd_key(hwnd))
+            .is_some_and(|host| host.interactive_resize)
+    })
+}
+
+fn windows_live_resize_note_minimized(hwnd: HWND) {
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
+            host.counters.received = host.counters.received.saturating_add(1);
+        }
+    });
+}
+
+fn windows_live_resize_queue_current_frame(hwnd: HWND, terminal: bool) {
+    let Some((width, height)) = windows_live_resize_client_size(hwnd) else {
+        return;
+    };
+    let presentation = if unsafe { IsZoomed(hwnd) }.as_bool() {
+        WindowsGeometryPresentation::Maximized
+    } else {
+        WindowsGeometryPresentation::Restored
+    };
+    windows_live_resize_queue_frame(hwnd, width, height, presentation, terminal);
+}
+
+fn windows_live_resize_queue_frame(
+    hwnd: HWND,
+    width: u32,
+    height: u32,
+    presentation: WindowsGeometryPresentation,
+    terminal: bool,
+) {
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+    let should_post = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let Some(host) = registry.hosts.get_mut(&windows_hwnd_key(hwnd)) else {
+            return false;
+        };
+        host.counters.received = host.counters.received.saturating_add(1);
+        host.frame_sequence = host.frame_sequence.saturating_add(1).max(1);
+        let next = WindowsGeometryPendingFrame {
+            dpi,
+            frame_revision: host.frame_sequence,
+            height,
+            presentation,
+            terminal,
+            width,
+        };
+        let (pending, coalesced) = windows_geometry_merge_pending(host.pending_frame, next);
+        if coalesced {
+            host.counters.deferred = host.counters.deferred.saturating_add(1);
+        }
+        host.pending_frame = Some(pending);
+        if host.flush_posted {
+            false
+        } else {
+            host.flush_posted = true;
+            true
+        }
+    });
+    if should_post
+        && unsafe {
+            PostMessageW(
+                Some(hwnd),
+                WM_RION_GEOMETRY_FLUSH,
+                WPARAM::default(),
+                LPARAM::default(),
+            )
+        }
+        .is_err()
+    {
+        WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+            if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
+                host.flush_posted = false;
+                host.counters.errors = host.counters.errors.saturating_add(1);
+            }
+        });
+        windows_live_resize_flush(hwnd);
+    }
+}
+
+fn windows_geometry_merge_pending(
+    previous: Option<WindowsGeometryPendingFrame>,
+    mut next: WindowsGeometryPendingFrame,
+) -> (WindowsGeometryPendingFrame, bool) {
+    if let Some(previous) = previous {
+        next.terminal |= previous.terminal;
+        (next, true)
+    } else {
+        (next, false)
+    }
 }
 
 unsafe extern "system" fn windows_live_resize_subclass_proc(
@@ -442,19 +653,34 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
 ) -> LRESULT {
     let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     match message {
-        WM_ENTERSIZEMOVE => {}
+        WM_ENTERSIZEMOVE => windows_live_resize_set_interactive(hwnd, true),
         WM_SIZE => {
             let width = lparam.0 as u32 & 0xffff;
             let height = (lparam.0 as u32 >> 16) & 0xffff;
-            if width > 0 && height > 0 {
-                windows_live_resize_apply(hwnd, width, height, false);
+            if windows_live_resize_message_is_actionable(wparam.0, width, height) {
+                windows_live_resize_queue_frame(
+                    hwnd,
+                    width,
+                    height,
+                    windows_geometry_presentation(wparam.0),
+                    !windows_live_resize_is_interactive(hwnd),
+                );
+            } else if wparam.0 == SIZE_MINIMIZED as usize {
+                windows_live_resize_note_minimized(hwnd);
             }
         }
         WM_EXITSIZEMOVE => {
-            if let Some((width, height)) = windows_live_resize_client_size(hwnd) {
-                windows_live_resize_apply(hwnd, width, height, true);
-            }
+            windows_live_resize_set_interactive(hwnd, false);
+            windows_live_resize_queue_current_frame(hwnd, true);
+            windows_live_resize_flush(hwnd);
         }
+        WM_DPICHANGED => {
+            windows_live_resize_queue_current_frame(
+                hwnd,
+                !windows_live_resize_is_interactive(hwnd),
+            );
+        }
+        WM_RION_GEOMETRY_FLUSH => windows_live_resize_flush(hwnd),
         message if message == WM_MOVE || message == WM_MOVING => {
             windows_live_resize_notify_parent_position_changed(hwnd);
         }
@@ -527,74 +753,196 @@ fn windows_live_resize_notify_each<T>(
     (applied, errors)
 }
 
-fn windows_live_resize_apply(
-    hwnd: HWND,
-    physical_width: u32,
-    physical_height: u32,
-    force: bool,
-) {
-    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+fn windows_live_resize_all_surface_bounds_match(
+    surfaces: &[WindowsLiveResizeSurface],
+    bounds: &[WindowsLiveResizeBounds],
+    last_surface_bounds: &HashMap<String, WindowsLiveResizeBounds>,
+    last_batch_failed: bool,
+) -> bool {
+    let labels = surfaces
+        .iter()
+        .map(|surface| surface.label.clone())
+        .collect::<Vec<_>>();
+    windows_geometry_cached_bounds_match(
+        &labels,
+        bounds,
+        last_surface_bounds,
+        last_batch_failed,
+    )
+}
+
+fn windows_geometry_cached_bounds_match(
+    labels: &[String],
+    bounds: &[WindowsLiveResizeBounds],
+    last_surface_bounds: &HashMap<String, WindowsLiveResizeBounds>,
+    last_batch_failed: bool,
+) -> bool {
+    !last_batch_failed
+        && !labels.is_empty()
+        && labels.len() == bounds.len()
+        && labels
+            .iter()
+            .zip(bounds)
+            .all(|(label, bounds)| last_surface_bounds.get(label) == Some(bounds))
+}
+
+fn windows_geometry_submission_is_current(
+    host_generation: u64,
+    host_plan_epoch: u64,
+    host_plan_revision: Option<u64>,
+    submission: &WindowsGeometrySubmission,
+) -> bool {
+    host_generation == submission.key.generation
+        && host_plan_epoch == submission.plan_epoch
+        && host_plan_revision == Some(submission.key.plan_revision)
+}
+
+fn windows_live_resize_prepare_submission(hwnd: HWND) -> Option<WindowsGeometrySubmission> {
+    let prepared = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
         let key = windows_hwnd_key(hwnd);
-        if let Some(host) = registry.hosts.get_mut(&key) {
-            host.counters.received = host.counters.received.saturating_add(1);
-        }
-        let Some(plan) = registry.hosts.get(&key).and_then(|host| host.plan.clone()) else {
-            if let Some(host) = registry.hosts.get_mut(&key) {
-                host.counters.fallback = host.counters.fallback.saturating_add(1);
-            }
-            return;
+        let host = registry.hosts.get_mut(&key)?;
+        host.flush_posted = false;
+        let frame = host.pending_frame.take()?;
+        let Some(plan) = host.plan.clone() else {
+            host.pending_frame = Some(frame);
+            host.counters.fallback = host.counters.fallback.saturating_add(1);
+            return None;
         };
+        let generation = host.generation;
+        let last_batch_failed = host.last_batch_failed;
+        let last_surface_bounds = host.last_surface_bounds.clone();
+        let plan_epoch = host.plan_epoch;
         let Some(surfaces) = windows_live_resize_collect_surfaces(&registry, &plan) else {
             if let Some(host) = registry.hosts.get_mut(&key) {
+                host.pending_frame = Some(frame);
                 host.counters.fallback = host.counters.fallback.saturating_add(1);
             }
-            return;
+            return None;
         };
-        let now = Instant::now();
-        let should_submit = registry.hosts.get(&key).is_some_and(|host| {
-            windows_live_resize_should_submit(host.last_native_attempt_at, now, force)
-        });
-        if !should_submit {
-            if let Some(host) = registry.hosts.get_mut(&key) {
-                host.counters.deferred = host.counters.deferred.saturating_add(1);
-            }
-            return;
-        }
-        if let Some(host) = registry.hosts.get_mut(&key) {
-            host.last_native_attempt_at = Some(now);
-        }
-        let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
-        let scale = f64::from(dpi) / 96.0;
-        let bounds = windows_live_resize_resolve_bounds(
-            &plan,
-            physical_width,
-            physical_height,
-            scale,
+        Some((frame, generation, last_batch_failed, last_surface_bounds, plan, plan_epoch, surfaces))
+    })?;
+    let (frame, generation, last_batch_failed, last_surface_bounds, plan, plan_epoch, surfaces) =
+        prepared;
+    let key = WindowsGeometryKey {
+        dpi: frame.dpi,
+        frame_revision: frame.frame_revision,
+        generation,
+        height: frame.height,
+        plan_revision: plan.revision,
+        presentation: frame.presentation,
+        width: frame.width,
+    };
+    let bounds = windows_live_resize_resolve_bounds(
+        &plan,
+        frame.width,
+        frame.height,
+        f64::from(frame.dpi) / 96.0,
+    );
+    let Ok(bounds) = bounds else {
+        let failed = WindowsGeometrySubmission {
+            bounds: Vec::new(),
+            key,
+            last_batch_failed,
+            last_surface_bounds,
+            plan_epoch,
+            surfaces,
+            terminal: frame.terminal,
+        };
+        windows_live_resize_complete_submission(
+            hwnd,
+            &failed,
+            WindowsGeometryStatus::Failed,
         );
-        match bounds.and_then(|bounds| windows_live_resize_submit_batch(&surfaces, &bounds)) {
-            Ok(()) => {
-                if let Some(host) = registry.hosts.get_mut(&key) {
-                    host.counters.record_native_resize_applied();
-                    host.frame_sequence = host.frame_sequence.saturating_add(1);
-                    host.last_batch_failed = false;
-                    host.last_applied_frame = Some(WindowsLiveResizeFrame {
-                        height: physical_height,
-                        plan_epoch: host.plan_epoch,
-                        sequence: host.frame_sequence,
-                        width: physical_width,
-                    });
+        return None;
+    };
+    Some(WindowsGeometrySubmission {
+        bounds,
+        key,
+        last_batch_failed,
+        last_surface_bounds,
+        plan_epoch,
+        surfaces,
+        terminal: frame.terminal,
+    })
+}
+
+fn windows_live_resize_complete_submission(
+    hwnd: HWND,
+    submission: &WindowsGeometrySubmission,
+    status: WindowsGeometryStatus,
+) {
+    let completion = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let host = registry.hosts.get_mut(&windows_hwnd_key(hwnd))?;
+        let plan_is_current = windows_geometry_submission_is_current(
+            host.generation,
+            host.plan_epoch,
+            host.plan.as_ref().map(|plan| plan.revision),
+            submission,
+        );
+        if !plan_is_current {
+            return None;
+        }
+        match status {
+            WindowsGeometryStatus::Applied => {
+                host.counters.record_native_resize_applied();
+                host.last_batch_failed = false;
+                for (surface, bounds) in submission.surfaces.iter().zip(&submission.bounds) {
+                    host.last_surface_bounds
+                        .insert(surface.label.clone(), *bounds);
                 }
+                host.last_materialized_key = Some(submission.key);
             }
-            Err(()) => {
-                if let Some(host) = registry.hosts.get_mut(&key) {
-                    host.counters.errors = host.counters.errors.saturating_add(1);
-                    host.last_batch_failed = true;
-                    host.last_applied_frame = None;
-                }
+            WindowsGeometryStatus::Unchanged => {
+                host.counters.unchanged = host.counters.unchanged.saturating_add(1);
+                host.last_batch_failed = false;
+                host.last_materialized_key = Some(submission.key);
+            }
+            WindowsGeometryStatus::Failed => {
+                host.counters.errors = host.counters.errors.saturating_add(1);
+                host.last_batch_failed = true;
             }
         }
+        Some((
+            Arc::clone(&host.receipt_handler),
+            WindowsGeometryReceipt {
+                key: submission.key,
+                status,
+                terminal: submission.terminal,
+            },
+        ))
     });
+    if let Some((handler, receipt)) = completion {
+        handler(receipt);
+    }
+}
+
+fn windows_live_resize_flush(hwnd: HWND) {
+    let Some(submission) = windows_live_resize_prepare_submission(hwnd) else {
+        return;
+    };
+    if windows_live_resize_all_surface_bounds_match(
+        &submission.surfaces,
+        &submission.bounds,
+        &submission.last_surface_bounds,
+        submission.last_batch_failed,
+    ) {
+        windows_live_resize_complete_submission(
+            hwnd,
+            &submission,
+            WindowsGeometryStatus::Unchanged,
+        );
+        return;
+    }
+    let status = if windows_live_resize_submit_batch(&submission.surfaces, &submission.bounds)
+        .is_ok()
+    {
+        WindowsGeometryStatus::Applied
+    } else {
+        WindowsGeometryStatus::Failed
+    };
+    windows_live_resize_complete_submission(hwnd, &submission, status);
 }
 
 fn windows_live_resize_collect_surfaces(

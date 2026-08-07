@@ -292,6 +292,7 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    #[cfg(not(windows))]
     pub fn window_id_for_label(&self, label: &str) -> Option<String> {
         self.state.lock().ok().and_then(|state| {
             state.display_hosts.iter().find_map(|(window_id, host)| {

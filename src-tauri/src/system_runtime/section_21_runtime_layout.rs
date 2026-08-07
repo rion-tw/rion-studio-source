@@ -1,4 +1,5 @@
 enum NativeLayoutMutation {
+    #[cfg(not(windows))]
     Bounds {
         next_position: LogicalPosition<f64>,
         next_size: LogicalSize<f64>,
@@ -13,6 +14,7 @@ enum NativeLayoutMutation {
 impl NativeLayoutMutation {
     fn apply(&self) -> Result<(), String> {
         match self {
+            #[cfg(not(windows))]
             Self::Bounds {
                 next_position,
                 next_size,
@@ -32,11 +34,14 @@ impl NativeLayoutMutation {
 
     fn label(&self) -> &str {
         match self {
-            Self::Bounds { webview, .. } | Self::Zoom { webview, .. } => webview.label(),
+            #[cfg(not(windows))]
+            Self::Bounds { webview, .. } => webview.label(),
+            Self::Zoom { webview, .. } => webview.label(),
         }
     }
 }
 
+#[cfg(not(windows))]
 fn native_layout_bounds_mutation(
     webview: Webview,
     position: LogicalPosition<f64>,
@@ -357,6 +362,8 @@ impl SystemRuntimeExecutor {
         }
         let (role_bounds, divider_bounds) =
             self.resolve_runtime_layout(metrics, role_inputs, gap)?;
+        #[cfg(windows)]
+        let _ = (&divider_bounds, skip_active_bounds);
         let mut zoom_updates = Vec::with_capacity(role_views.len());
         for (role_id, webview, current_zoom, zoom_mode, role_surface, _) in &role_views {
             let Some(bounds) = role_bounds.get(role_id) else {
@@ -379,18 +386,10 @@ impl SystemRuntimeExecutor {
         }
         let mut mutations = Vec::new();
         #[cfg(windows)]
-        if !skip_active_bounds
-            && let Some(tab_strip) = tab_strip
-        {
-            let tab_strip_height = resize_snapshot_tab_strip_height(metrics);
-            mutations.push(native_layout_bounds_mutation(
-                tab_strip,
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(metrics.width, tab_strip_height),
-            ));
-        }
+        let _ = tab_strip;
         #[cfg(not(windows))]
         let _ = tab_strip;
+        #[cfg(not(windows))]
         if !skip_active_bounds {
             for (role_id, webview, _, _, _, _) in &role_views {
                 if let Some(bounds) = role_bounds.get(role_id) {
@@ -435,6 +434,7 @@ impl SystemRuntimeExecutor {
                 });
             }
         }
+        #[cfg(not(windows))]
         if !skip_active_bounds {
             for (index, descriptor, bounds) in divider_bounds {
                 if let Some(webview) = divider_views.get(&index) {
@@ -665,13 +665,36 @@ impl SystemRuntimeExecutor {
                 false
             }
         };
+        let window_generation = WINDOW_GENERATION_SEQUENCE
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        #[cfg(windows)]
+        {
+            let runtime = self.self_weak.get().cloned().ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_UNAVAILABLE",
+                    "The Windows geometry coordinator could not bind to the runtime.",
+                )
+            })?;
+            let receipt_window_id = target.window_id.clone();
+            let receipt_handler: WindowsGeometryReceiptHandler = Arc::new(move |receipt| {
+                if let Some(runtime) = runtime.upgrade() {
+                    runtime.observe_windows_geometry_receipt(
+                        receipt_window_id.clone(),
+                        receipt,
+                    );
+                }
+            });
+            windows_live_resize_install_host(
+                &window,
+                window_generation,
+                receipt_handler,
+            )?;
+        }
         if let Err(error) = self.begin_surface_host_initialization(&window, &target.window_id) {
             let _ = window.close();
             return Err(error);
         }
-        let window_generation = WINDOW_GENERATION_SEQUENCE
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
         #[cfg(target_os = "macos")]
         let tabs_controller = match crate::runtime_tabs_macos::MacRuntimeTabsController::create(
             &self.app,
@@ -743,6 +766,8 @@ impl SystemRuntimeExecutor {
                 window: window.clone(),
                 zoom_factor: 1.0,
                 #[cfg(windows)]
+                last_geometry_receipt_revision: 0,
+                #[cfg(windows)]
                 tab_strip,
                 #[cfg(windows)]
                 toolbar_revealed: false,
@@ -753,8 +778,6 @@ impl SystemRuntimeExecutor {
             },
         );
         drop(state);
-        #[cfg(windows)]
-        windows_live_resize_install_host(&window, window_generation)?;
         #[cfg(windows)]
         self.schedule_windows_tab_chrome_reveal_fallback(
             &target.window_id,

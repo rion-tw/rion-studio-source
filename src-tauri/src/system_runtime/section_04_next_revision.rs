@@ -444,6 +444,7 @@ impl PresentationRegistry {
 #[derive(Default)]
 struct RuntimeState {
     active_geometry_windows: HashSet<String>,
+    #[cfg(not(windows))]
     active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
@@ -464,6 +465,7 @@ struct RuntimeState {
     pending_restore_role_slots: HashMap<String, Vec<GameWindowRoleSlotRecord>>,
     pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
+    #[cfg(not(windows))]
     pending_window_resizes: HashMap<String, PendingWindowResize>,
     native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,

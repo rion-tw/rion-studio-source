@@ -49,6 +49,7 @@ impl SystemRuntimeExecutor {
         self.layout_runtime_tab_projection(tab_id, None, false, true)
     }
 
+    #[cfg(not(windows))]
     fn layout_runtime_tab_with_metrics(
         &self,
         tab_id: &str,

@@ -244,6 +244,7 @@ fn normalized_scale_factor(scale: f64) -> f64 {
     }
 }
 
+#[cfg(any(not(windows), test))]
 fn runtime_window_resize_is_actionable(width: u32, height: u32, minimized: bool) -> bool {
     width > 0 && height > 0 && !minimized
 }
@@ -353,6 +354,7 @@ fn logical_window_content_metrics(window: &Window) -> RuntimeResult<WindowConten
     }
 }
 
+#[cfg(not(windows))]
 fn snapshot_window_content_metrics(
     window: &Window,
     physical_width: u32,
@@ -376,6 +378,7 @@ fn snapshot_window_content_metrics(
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
+#[cfg(any(not(windows), test))]
 fn logical_resize_metrics(
     physical_width: u32,
     physical_height: u32,

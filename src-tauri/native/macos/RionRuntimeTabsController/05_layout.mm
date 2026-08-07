@@ -678,6 +678,7 @@ NS_ASSUME_NONNULL_BEGIN
     [self scrollActiveTabIntoView];
   }
   [self updateTabScrollButtonState];
+  [self updateTabEdgeFadeMasks];
 }
 
 NS_ASSUME_NONNULL_END

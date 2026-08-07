@@ -444,6 +444,7 @@ NS_ASSUME_NONNULL_BEGIN
                    queue:NSOperationQueue.mainQueue
               usingBlock:^(__unused NSNotification *notification) {
                 [weakScrollSelf updateTabScrollButtonState];
+                [weakScrollSelf updateTabEdgeFadeMasks];
               }];
   [_windowObservers addObject:scrollObserver];
 

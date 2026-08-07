@@ -105,6 +105,7 @@ NS_ASSUME_NONNULL_BEGIN
   __weak RionRuntimeTabsController *weakSelf = self;
   NSArray<NSNotificationName> *names = @[
     NSWindowDidResizeNotification,
+    NSWindowDidChangeBackingPropertiesNotification,
     NSWindowDidBecomeKeyNotification,
     NSWindowDidResignKeyNotification,
     NSWindowWillEnterFullScreenNotification,
@@ -119,9 +120,13 @@ NS_ASSUME_NONNULL_BEGIN
                                  usingBlock:^(NSNotification *notification) {
       RionRuntimeTabsController *strongSelf = weakSelf;
       if (!strongSelf) return;
-      if ([notification.name isEqualToString:NSWindowDidResizeNotification]) {
+      if ([notification.name isEqualToString:NSWindowDidResizeNotification] ||
+          [notification.name
+              isEqualToString:NSWindowDidChangeBackingPropertiesNotification]) {
         [strongSelf layoutTitlebarContent];
-        [strongSelf scheduleContentLayoutNotification];
+        if ([notification.name isEqualToString:NSWindowDidResizeNotification]) {
+          [strongSelf scheduleContentLayoutNotification];
+        }
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
@@ -561,16 +566,6 @@ NS_ASSUME_NONNULL_BEGIN
   return _stableTrafficLightReserveWidth;
 }
 
-- (CGFloat)tabsContentWidth {
-  CGFloat width = 0;
-  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
-    width += _tabItems[index].preferredWidth;
-    if (index > 0) width += kRionTabSpacing;
-  }
-  return RionRuntimeTabsWidthWithExternalGhost(
-      width, _tabItems.count, _externalDragGhostWidth);
-}
-
 - (NSView *)tabSurfaceOverlayHost {
   return _clusterContent;
 }
@@ -606,13 +601,46 @@ NS_ASSUME_NONNULL_BEGIN
   } else {
     _windowNameField.frame = NSZeroRect;
   }
-  CGFloat tabsWidth = [self tabsContentWidth];
   CGFloat availableWithoutScrollControls = MAX(
       0,
       rootWidth - leadingInset - kRionRootTrailingDraggableWidth -
           kRionTabHeight - kRionAddButtonSpacing);
-  BOOL overflowing =
-      RionRuntimeTabsOverflow(tabsWidth, availableWithoutScrollControls);
+  std::vector<CGFloat> preferredSlotWidths;
+  std::vector<NSInteger> slotTabIndexes;
+  BOOL insertedGhost = NO;
+  for (NSUInteger index = 0; index < _tabItems.count; ++index) {
+    RionRuntimeTabItemView *item = _tabItems[index];
+    if (_externalDragGhostWidth > 0 && !insertedGhost &&
+        [_externalDragGhostBeforeIdentifier
+            isEqualToString:item.tabIdentifier]) {
+      preferredSlotWidths.push_back(_externalDragGhostWidth);
+      slotTabIndexes.push_back(-1);
+      insertedGhost = YES;
+    }
+    preferredSlotWidths.push_back(item.preferredWidth);
+    slotTabIndexes.push_back((NSInteger)index);
+  }
+  if (_externalDragGhostWidth > 0 && !insertedGhost) {
+    preferredSlotWidths.push_back(_externalDragGhostWidth);
+    slotTabIndexes.push_back(-1);
+  }
+  RionRuntimeTabWidthLayout widthLayout = RionRuntimeResolveTabWidths(
+      preferredSlotWidths, availableWithoutScrollControls,
+      _window.backingScaleFactor);
+  std::vector<CGFloat> resolvedTabWidths(
+      _tabItems.count, kRionTabCompactMinimumWidth);
+  CGFloat resolvedGhostWidth = 0;
+  for (size_t slot = 0; slot < slotTabIndexes.size(); ++slot) {
+    NSInteger tabIndex = slotTabIndexes[slot];
+    if (tabIndex < 0) {
+      resolvedGhostWidth = widthLayout.widths[slot];
+    } else {
+      resolvedTabWidths[(NSUInteger)tabIndex] = widthLayout.widths[slot];
+    }
+  }
+  _externalDragGhostLayoutWidth = resolvedGhostWidth;
+  CGFloat tabsWidth = widthLayout.contentWidth;
+  BOOL overflowing = widthLayout.overflowing;
   CGFloat fusionInset = overflowing ? kRionTabScrollFusionInset : 0;
   CGFloat canvasWidth = tabsWidth + 2.0 * fusionInset;
   CGFloat viewportWidth = MIN(canvasWidth, availableWithoutScrollControls);
@@ -642,11 +670,12 @@ NS_ASSUME_NONNULL_BEGIN
   for (NSUInteger index = 0; index < _tabItems.count; ++index) {
     RionRuntimeTabItemView *item = _tabItems[index];
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
-    CGFloat width = item.preferredWidth;
+    CGFloat width = resolvedTabWidths[index];
+    item.layoutWidth = width;
     if (_externalDragGhostWidth > 0 &&
         [_externalDragGhostBeforeIdentifier
             isEqualToString:item.tabIdentifier]) {
-      x += _externalDragGhostWidth + kRionTabSpacing;
+      x += resolvedGhostWidth + kRionTabSpacing;
     }
     BOOL lifted = _dragSurfaceOverlayActive &&
         [_dragPlaceholderTabIdentifier isEqualToString:item.tabIdentifier];

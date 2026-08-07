@@ -434,8 +434,18 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
   @autoreleasepool {
     CGFloat visibleWidth = RionRuntimePreferredTabWidth(160.0, NO);
     CGFloat hiddenWidth = RionRuntimePreferredTabWidth(160.0, YES);
-    CGFloat ghostWidth =
-        RionRuntimeTabsWidthWithExternalGhost(400.0, 3, 144.0);
+    RionRuntimeTabWidthLayout idealWidths = RionRuntimeResolveTabWidths(
+        {144.0, 180.0, 320.0}, 700.0, 2.0);
+    RionRuntimeTabWidthLayout adaptiveWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 320.0}, 550.0, 2.0);
+    RionRuntimeTabWidthLayout pixelWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 355.0, 2.0);
+    RionRuntimeTabWidthLayout minimumWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 348.0, 2.0);
+    RionRuntimeTabWidthLayout overflowingWidths = RionRuntimeResolveTabWidths(
+        {144.0, 144.0, 144.0}, 347.5, 2.0);
+    RionRuntimeTabWidthLayout ghostWidths = RionRuntimeResolveTabWidths(
+        {144.0, 112.0, 144.0}, 370.0, 2.0);
     CGFloat trailingControlOrigin = RionRuntimeTrailingControlOriginX(
         640.0, NSMakeRect(180.0, 0.0, 144.0, kRionTabHeight), YES);
     CGFloat shortWindowNameWidth = RionRuntimeWindowNameWidth(96.0);
@@ -457,7 +467,21 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            RionRuntimeRevealScrollOrigin(620.0, 760.0, 100.0, 400.0,
                                          900.0) == 360.0 &&
            hiddenWidth < visibleWidth &&
-           ghostWidth == 550.0 &&
+           idealWidths.contentWidth == 656.0 &&
+           idealWidths.widths == std::vector<CGFloat>({144.0, 180.0, 320.0}) &&
+           !idealWidths.overflowing &&
+           adaptiveWidths.contentWidth == 550.0 &&
+           adaptiveWidths.widths ==
+               std::vector<CGFloat>({144.0, 144.0, 250.0}) &&
+           pixelWidths.contentWidth == 355.0 &&
+           pixelWidths.widths ==
+               std::vector<CGFloat>({114.5, 114.5, 114.0}) &&
+           minimumWidths.widths ==
+               std::vector<CGFloat>({112.0, 112.0, 112.0}) &&
+           !minimumWidths.overflowing && overflowingWidths.overflowing &&
+           ghostWidths.contentWidth == 370.0 &&
+           ghostWidths.widths ==
+               std::vector<CGFloat>({123.0, 112.0, 123.0}) &&
            trailingControlOrigin == 332.0 &&
            RionRuntimeTrailingControlOriginX(
                640.0, NSMakeRect(180.0, 0.0, 144.0, kRionTabHeight), NO) ==
@@ -465,6 +489,7 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            shortWindowNameWidth == kRionWindowNameMinimumWidth &&
            longWindowNameWidth == kRionWindowNameMaximumWidth &&
            leftRevealOrigin == 0.0 && rightRevealOrigin == 500.0 &&
+           kRionTabCompactMinimumWidth == 112.0 &&
            kRionTabScrollFusionInset == 25.0 &&
            RionRuntimeTabEdgeFadeAlpha(0.0, 450.0, 25.0) == 0.0 &&
            RionRuntimeTabEdgeFadeAlpha(6.25, 450.0, 25.0) == 0.15625 &&
@@ -703,6 +728,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @property(nonatomic, weak) RionRuntimeSurfaceView *surfaceView;
 @property(nonatomic, weak) RionRuntimeTabsController *tabsController;
 @property(nonatomic, copy) NSString *tabIdentifier;
+@property(nonatomic) CGFloat layoutWidth;
 @property(nonatomic, readonly) CGFloat preferredWidth;
 @property(nonatomic, readonly) NSPoint grabRatio;
 

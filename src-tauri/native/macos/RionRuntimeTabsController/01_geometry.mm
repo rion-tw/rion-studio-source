@@ -3,18 +3,21 @@
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 // Unified compact is AppKit's 40pt titlebar host on macOS 12 and newer. Keep
 // the accessory at the exact host height so the blur covers the whole row and
 // never leaves a separator-colored strip above the game content.
 static const CGFloat kRionTitlebarHeight = 40.0;
 static const CGFloat kRionTabHeight = 28.0;
+static const CGFloat kRionTabCompactMinimumWidth = 112.0;
 static const CGFloat kRionTabMinimumWidth = 144.0;
 static const CGFloat kRionTabMaximumWidth = 320.0;
 static const CGFloat kRionTabSpacing = 6.0;
@@ -41,13 +44,6 @@ static NSToolbarItemIdentifier const RionRuntimeToolbarSpacerIdentifier =
     @"com.rionstudio.runtime-tabs.layout-spacer";
 static NSPasteboardType const RionRuntimeTabPasteboardType =
     @"com.rionstudio.runtime-tab";
-
-static CGFloat RionRuntimeTabsWidthWithExternalGhost(CGFloat tabsWidth,
-                                                       NSUInteger tabCount,
-                                                       CGFloat ghostWidth) {
-  if (ghostWidth <= 0) return tabsWidth;
-  return tabsWidth + ghostWidth + (tabCount > 0 ? kRionTabSpacing : 0);
-}
 
 static CGFloat RionRuntimeWindowNameWidth(CGFloat intrinsicWidth) {
   return MIN(kRionWindowNameMaximumWidth,
@@ -218,6 +214,95 @@ static CGFloat RionRuntimePreferredTabWidth(CGFloat labelWidth,
   }
   return MIN(kRionTabMaximumWidth,
              MAX(kRionTabMinimumWidth, ceil(labelWidth) + fixedWidth));
+}
+
+struct RionRuntimeTabWidthLayout {
+  std::vector<CGFloat> widths;
+  CGFloat contentWidth = 0;
+  BOOL overflowing = NO;
+};
+
+static CGFloat RionRuntimeTabWidthsContentWidth(
+    const std::vector<CGFloat> &widths) {
+  CGFloat contentWidth = 0;
+  for (CGFloat width : widths) contentWidth += width;
+  if (widths.size() > 1) {
+    contentWidth += kRionTabSpacing * (widths.size() - 1);
+  }
+  return contentWidth;
+}
+
+static RionRuntimeTabWidthLayout RionRuntimeResolveTabWidths(
+    const std::vector<CGFloat> &preferredWidths, CGFloat availableWidth,
+    CGFloat backingScaleFactor) {
+  RionRuntimeTabWidthLayout layout;
+  if (preferredWidths.empty()) return layout;
+
+  layout.widths.reserve(preferredWidths.size());
+  for (CGFloat preferredWidth : preferredWidths) {
+    layout.widths.push_back(MIN(
+        kRionTabMaximumWidth,
+        MAX(kRionTabCompactMinimumWidth, preferredWidth)));
+  }
+  CGFloat preferredContentWidth =
+      RionRuntimeTabWidthsContentWidth(layout.widths);
+  if (preferredContentWidth <= availableWidth + 0.0001) {
+    layout.contentWidth = preferredContentWidth;
+    return layout;
+  }
+
+  CGFloat gapWidth = kRionTabSpacing * (layout.widths.size() - 1);
+  CGFloat minimumContentWidth =
+      kRionTabCompactMinimumWidth * layout.widths.size() + gapWidth;
+  if (minimumContentWidth > availableWidth + 0.0001) {
+    std::fill(layout.widths.begin(), layout.widths.end(),
+              kRionTabCompactMinimumWidth);
+    layout.contentWidth = minimumContentWidth;
+    layout.overflowing = YES;
+    return layout;
+  }
+
+  std::vector<CGFloat> sortedWidths = layout.widths;
+  std::sort(sortedWidths.begin(), sortedWidths.end());
+  CGFloat remainingWidth = MAX(0, availableWidth - gapWidth);
+  size_t remainingCount = sortedWidths.size();
+  CGFloat sharedCap = kRionTabCompactMinimumWidth;
+  for (CGFloat preferredWidth : sortedWidths) {
+    CGFloat equalShare =
+        remainingWidth / std::max<size_t>(1, remainingCount);
+    if (preferredWidth <= equalShare + 0.0001) {
+      remainingWidth -= preferredWidth;
+      --remainingCount;
+      continue;
+    }
+    sharedCap = MAX(kRionTabCompactMinimumWidth, equalShare);
+    break;
+  }
+
+  CGFloat scale = std::isfinite(backingScaleFactor)
+      ? MAX(1.0, backingScaleFactor)
+      : 1.0;
+  CGFloat quantum = 1.0 / scale;
+  CGFloat roundedWidth = 0;
+  for (size_t index = 0; index < layout.widths.size(); ++index) {
+    CGFloat rawWidth = MAX(kRionTabCompactMinimumWidth,
+                           MIN(layout.widths[index], sharedCap));
+    layout.widths[index] =
+        floor(rawWidth / quantum + 0.0001) * quantum;
+    roundedWidth += layout.widths[index];
+  }
+  CGFloat targetWidth = MAX(0, availableWidth - gapWidth);
+  NSInteger remainingQuanta = (NSInteger)floor(
+      MAX(0, targetWidth - roundedWidth) / quantum + 0.0001);
+  for (size_t index = 0;
+       index < layout.widths.size() && remainingQuanta > 0; ++index) {
+    CGFloat expandedWidth = layout.widths[index] + quantum;
+    if (expandedWidth > preferredWidths[index] + 0.0001) continue;
+    layout.widths[index] = expandedWidth;
+    --remainingQuanta;
+  }
+  layout.contentWidth = RionRuntimeTabWidthsContentWidth(layout.widths);
+  return layout;
 }
 
 static CGFloat RionRuntimeRevealScrollOrigin(

@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        Arc, Condvar, Mutex, OnceLock,
+        Arc, Condvar, Mutex, OnceLock, Weak,
         atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
     },
@@ -117,7 +117,6 @@ static DISPLAY_HOST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static SURFACE_INSTANCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_ZOOM_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-static WINDOW_PLACEMENT_PERSIST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_RETIREMENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -550,6 +549,12 @@ impl Default for NavigationTracker {
 }
 
 impl NavigationTracker {
+    fn wake(&self) {
+        if let Ok(_state) = self.state.lock() {
+            self.changed.notify_all();
+        }
+    }
+
     fn reset(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.active_operation_id = None;
@@ -609,12 +614,7 @@ impl NavigationTracker {
             }
             let (next, timeout) = self
                 .changed
-                .wait_timeout(
-                    state,
-                    deadline
-                        .saturating_duration_since(now)
-                        .min(Duration::from_millis(25)),
-                )
+                .wait_timeout(state, deadline.saturating_duration_since(now))
                 .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
             state = next;
             if timeout.timed_out() && Instant::now() >= deadline && !state.finished {

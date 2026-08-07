@@ -58,6 +58,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)notifyTabShortcutModifierHandoff:(NSString *)actionType;
 - (CGFloat)dragPreviewScreenOriginY;
 - (void)updateTabScrollButtonState;
+- (void)updateTabEdgeFadeMasks;
 - (BOOL)controlRowContainsTopLeftScreenPoint:(NSPoint)point;
 - (BOOL)dragAnchorForTabIdentifier:(NSString *)tabIdentifier
                        grabRatioX:(CGFloat)grabRatioX
@@ -124,7 +125,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 @implementation RionRuntimeSurfaceView {
   BOOL _active;
   CGFloat _cornerRadius;
+  NSView *_contentHostView;
+  NSRect _edgeEffectVisibleRect;
+  CAShapeLayer *_edgeShapeMask;
   NSView *_effectView;
+  BOOL _hasEdgeEffectVisibleRect;
   BOOL _hovered;
   BOOL _usesLiquidGlass;
   BOOL _windowActive;
@@ -136,6 +141,13 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (!self) return nil;
 
   _contentView = contentView;
+  // NSGlassEffectView owns the frame of its direct content view. Keep the tab
+  // itself one level deeper so cropping the glass near a scroll arrow never
+  // changes the tab's layout width (and therefore never reflows its title,
+  // icon, or close button).
+  _contentHostView = [[NSView alloc] initWithFrame:NSZeroRect];
+  _contentHostView.clipsToBounds = YES;
+  [_contentHostView addSubview:contentView];
   _cornerRadius = cornerRadius;
   self.wantsLayer = YES;
 
@@ -144,7 +156,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:NSZeroRect];
     glass.cornerRadius = cornerRadius;
     glass.style = NSGlassEffectViewStyleRegular;
-    glass.contentView = contentView;
+    glass.contentView = _contentHostView;
     _effectView = glass;
     _usesLiquidGlass = YES;
   } else
@@ -158,10 +170,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     material.wantsLayer = YES;
     material.layer.cornerRadius = cornerRadius;
     material.layer.masksToBounds = YES;
-    [material addSubview:contentView];
+    [material addSubview:_contentHostView];
     _effectView = material;
   }
 
+  _effectView.clipsToBounds = YES;
   [self addSubview:_effectView];
   [self updateActive:NO hovered:NO windowActive:YES animate:NO];
   return self;
@@ -171,11 +184,58 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   return YES;
 }
 
+- (void)setEdgeFadeMask:(nullable CAGradientLayer *)mask
+       effectVisibleRect:(NSRect)effectVisibleRect {
+  _contentView.wantsLayer = YES;
+  // The content view remains inside AppKit's promoted glass hierarchy, so its
+  // own layer mask fades tab labels and controls even though a mask on the
+  // outer surface cannot shape NSGlassEffectView itself.
+  _contentView.layer.mask = mask;
+  NSRect boundedVisibleRect = NSIntersectionRect(self.bounds, effectVisibleRect);
+  BOOL geometryChanged = !_hasEdgeEffectVisibleRect ||
+      !NSEqualRects(_edgeEffectVisibleRect, boundedVisibleRect);
+  _edgeEffectVisibleRect = boundedVisibleRect;
+  _hasEdgeEffectVisibleRect = YES;
+  if (geometryChanged) {
+    self.needsLayout = YES;
+    [self layoutSubtreeIfNeeded];
+  }
+}
+
 - (void)layout {
   [super layout];
-  _effectView.frame = self.bounds;
+  NSRect visibleRect = _hasEdgeEffectVisibleRect
+      ? NSIntersectionRect(self.bounds, _edgeEffectVisibleRect)
+      : self.bounds;
+  if (NSEqualRects(visibleRect, self.bounds)) {
+    if (self.layer.mask == _edgeShapeMask) self.layer.mask = nil;
+  } else {
+    if (!_edgeShapeMask) {
+      _edgeShapeMask = [CAShapeLayer layer];
+      _edgeShapeMask.fillColor = NSColor.whiteColor.CGColor;
+    }
+    _edgeShapeMask.frame = self.bounds;
+    CGFloat visibleCornerRadius = MIN(
+        _cornerRadius,
+        MAX(0, MIN(NSWidth(visibleRect), NSHeight(visibleRect)) / 2.0));
+    CGPathRef visiblePath = CGPathCreateWithRoundedRect(
+        NSRectToCGRect(visibleRect), visibleCornerRadius, visibleCornerRadius,
+        nil);
+    _edgeShapeMask.path = visiblePath;
+    CGPathRelease(visiblePath);
+    // The outer surface carries the active/hover fill and border. Shape it to
+    // the same cropped geometry as the glass so it cannot square off the
+    // fixed arrow's exposed outer corners during Liquid Glass merging.
+    self.layer.mask = _edgeShapeMask;
+  }
+  // NSGlassEffectView is promoted outside the normal CALayer hierarchy, so a
+  // layer mask cannot shape the glass. Give the promoted view the actual
+  // visible geometry instead; its rounded edge then meets the fixed arrow.
+  _effectView.frame = visibleRect;
   [_effectView layoutSubtreeIfNeeded];
-  _contentView.frame = _effectView.bounds;
+  _contentHostView.frame = _effectView.bounds;
+  _contentView.frame = NSMakeRect(-NSMinX(visibleRect), -NSMinY(visibleRect),
+                                  NSWidth(self.bounds), NSHeight(self.bounds));
 }
 
 - (void)viewDidChangeEffectiveAppearance {

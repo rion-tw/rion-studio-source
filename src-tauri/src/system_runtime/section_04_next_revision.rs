@@ -444,7 +444,6 @@ impl PresentationRegistry {
 #[derive(Default)]
 struct RuntimeState {
     active_geometry_windows: HashSet<String>,
-    active_window_placement_workers: HashSet<String>,
     active_window_resize_workers: HashSet<String>,
     allow_window_close_labels: HashSet<String>,
     audible_webviews: HashMap<String, bool>,
@@ -465,7 +464,6 @@ struct RuntimeState {
     pending_restore_role_slots: HashMap<String, Vec<GameWindowRoleSlotRecord>>,
     pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
-    pending_window_placement_writes: HashMap<String, u64>,
     pending_window_resizes: HashMap<String, PendingWindowResize>,
     native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
@@ -487,6 +485,10 @@ struct RuntimeState {
     recovery_budgets: HashMap<String, RecoveryBudget>,
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,
+    #[cfg(target_os = "macos")]
+    content_layout_revisions: HashMap<String, u64>,
+    #[cfg(target_os = "macos")]
+    ready_surface_viewports: HashMap<String, ReadySurfaceViewportState>,
     role_tabs: HashMap<String, String>,
     saved_window_names: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
@@ -496,6 +498,44 @@ struct RuntimeState {
     retired_surface_registry: HashMap<String, ManagedSurface>,
     display_hosts: HashMap<String, RuntimeDisplayHost>,
     tabs: HashMap<String, RuntimeTab>,
+}
+
+struct InputReadinessRegistry {
+    changed: watch::Sender<u64>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct ReadySurfaceViewportState {
+    applied_layout_revision: u64,
+    applied_page_revision: u64,
+    instance_id: String,
+    page_revision: u64,
+    tab_id: String,
+    window_id: String,
+}
+
+struct PendingWindowActivation {
+    trigger: &'static str,
+    window_generation: u64,
+    window_id: String,
+}
+
+impl InputReadinessRegistry {
+    fn new() -> Self {
+        let (changed, _) = watch::channel(0);
+        Self { changed }
+    }
+
+    fn subscribe(&self) -> watch::Receiver<u64> {
+        self.changed.subscribe()
+    }
+
+    fn notify(&self) {
+        self.changed.send_modify(|revision| {
+            *revision = revision.wrapping_add(1).max(1);
+        });
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -747,11 +787,14 @@ pub struct SystemRuntimeExecutor {
     main_window_actor: Arc<MainWindowActor>,
     application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
     input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
+    input_readiness: InputReadinessRegistry,
     native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     native_creation_slots: NativeCreationGate,
     operations: Arc<NativeOperationRegistry>,
     native_window_mutations: Arc<NativeWindowMutationRegistry>,
     optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
+    optional_idle_changed: Condvar,
+    pending_window_activation: Mutex<Option<PendingWindowActivation>>,
     presentation: Arc<PresentationRegistry>,
     surface_recoveries: SurfaceRecoveryRegistry,
     tab_close_changed: Condvar,
@@ -763,6 +806,8 @@ pub struct SystemRuntimeExecutor {
     retiring_tab_senders: OnceLock<Vec<mpsc::Sender<(String, String)>>>,
     restore_persist_requested: AtomicU64,
     restore_persist_running: AtomicBool,
+    restore_persist_changed: Condvar,
+    restore_persist_signal: Mutex<()>,
     runtime_projection: RevisionedJsonProjection,
     shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
     self_weak: OnceLock<std::sync::Weak<SystemRuntimeExecutor>>,

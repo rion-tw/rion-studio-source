@@ -1,74 +1,19 @@
 impl SystemRuntimeExecutor {
     fn schedule_window_placement_persistence(self: &Arc<Self>, label: String) {
-        let sequence = WINDOW_PLACEMENT_PERSIST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let should_spawn = self.state.lock().ok().is_some_and(|mut state| {
-            let suppressed = state.display_hosts.iter().any(|(window_id, host)| {
-                host.window.label() == label
-                    && (state
+        let window_id = self.state.lock().ok().and_then(|state| {
+            state.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label
+                    && !state
                         .tab_drag_placement_suppressed_windows
                         .contains(window_id)
-                        || state.active_geometry_windows.contains(window_id))
-            });
-            if suppressed {
-                return false;
-            }
-            state
-                .pending_window_placement_writes
-                .insert(label.clone(), sequence);
-            state.active_window_placement_workers.insert(label.clone())
+                    && !state.active_geometry_windows.contains(window_id))
+                .then(|| window_id.clone())
+            })
         });
-        if !should_spawn {
-            return;
-        }
-        let runtime = Arc::clone(self);
-        let worker_label = label.clone();
-        let spawn_result = thread::Builder::new()
-            .name("rion-runtime-window-placement".to_owned())
-            .spawn(move || {
-                let mut observed = sequence;
-                loop {
-                    thread::sleep(WINDOW_PLACEMENT_PERSIST_DEBOUNCE);
-                    let settled = runtime.state.lock().ok().is_none_or(|mut state| {
-                        let current = state
-                            .pending_window_placement_writes
-                            .get(&worker_label)
-                            .copied();
-                        if current.is_some_and(|current| current != observed) {
-                            observed = current.expect("checked placement sequence");
-                            return false;
-                        }
-                        state.pending_window_placement_writes.remove(&worker_label);
-                        state.active_window_placement_workers.remove(&worker_label);
-                        true
-                    });
-                    if !settled {
-                        continue;
-                    }
-                    let suppressed = runtime.state.lock().ok().is_some_and(|state| {
-                        state.display_hosts.iter().any(|(window_id, host)| {
-                            host.window.label() == worker_label
-                                && state
-                                    .tab_drag_placement_suppressed_windows
-                                    .contains(window_id)
-                        })
-                    });
-                    if suppressed {
-                        break;
-                    }
-                    if let Some(window_id) = runtime.window_id_for_label(&worker_label) {
-                        runtime.schedule_live_window_state_persistence(&window_id);
-                    }
-                    break;
-                }
-            });
-        if spawn_result.is_err() {
-            if let Ok(mut state) = self.state.lock() {
-                state.active_window_placement_workers.remove(&label);
-                state.pending_window_placement_writes.remove(&label);
-            }
-            if let Some(window_id) = self.window_id_for_label(&label) {
-                self.schedule_live_window_state_persistence(&window_id);
-            }
+        if let Some(window_id) = window_id {
+            // The durability coordinator owns the debounce and can be interrupted by a
+            // close/final-flush request; placement no longer needs a sleeping worker.
+            self.schedule_live_window_state_persistence(&window_id);
         }
     }
 

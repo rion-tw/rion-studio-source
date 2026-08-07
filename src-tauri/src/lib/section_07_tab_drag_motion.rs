@@ -118,7 +118,7 @@ fn attach_tab_drag_session(
                 "Live tab destination retained while surface projection retries: tab={} target={} error={message}",
                 session.tab_id, target_window_id
             );
-            state.runtime.schedule_tab_surface_move_retry(
+            state.runtime.schedule_tab_surface_move_projection(
                 session.tab_id.clone(),
                 target_window_id.to_owned(),
             );
@@ -176,7 +176,7 @@ fn float_tab_drag_session(
                 "Detached live tab retained while surface projection retries: tab={} target={} error={message}",
                 session.tab_id, floating_window_id
             );
-            state.runtime.schedule_tab_surface_move_retry(
+            state.runtime.schedule_tab_surface_move_projection(
                 session.tab_id.clone(),
                 floating_window_id.clone(),
             );

@@ -379,17 +379,5 @@ fn start_display_watcher(app: AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<CoreState>() {
         request_display_topology(&app, &state, "startup")?;
     }
-    thread::Builder::new()
-        .name("rion-tauri-display-watcher".to_owned())
-        .spawn(move || loop {
-            thread::sleep(Duration::from_secs(2));
-            let Some(state) = app.try_state::<CoreState>() else {
-                return;
-            };
-            if request_display_topology(&app, &state, "native-notification").is_err() {
-                return;
-            }
-        })
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    Ok(())
 }

@@ -284,6 +284,8 @@ impl SystemRuntimeExecutor {
         self.update_surface_recovery_phase(transaction, "navigating");
         let controlled_label = replacement_label.clone();
         let replacement_surface = self.managed_surface(&replacement_instance_id)?;
+        self.application_lifecycle
+            .register_navigation_waiter(&navigation);
         let navigation_start = (|| -> RuntimeResult<()> {
             let _native_lifecycle_guard = replacement_surface
                 .native_lifecycle_lane

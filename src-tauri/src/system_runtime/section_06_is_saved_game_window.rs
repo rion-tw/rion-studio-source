@@ -144,6 +144,7 @@ impl SystemRuntimeExecutor {
             main_window_actor,
             application_lifecycle,
             input_dispatch_lanes: Mutex::new(HashMap::new()),
+            input_readiness: InputReadinessRegistry::new(),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(
                 current_runtime_platform(),
@@ -151,6 +152,8 @@ impl SystemRuntimeExecutor {
             operations,
             native_window_mutations: Arc::new(NativeWindowMutationRegistry::default()),
             optional_hydration_sender: OnceLock::new(),
+            optional_idle_changed: Condvar::new(),
+            pending_window_activation: Mutex::new(None),
             presentation: Arc::new(PresentationRegistry::default()),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
             tab_close_changed: Condvar::new(),
@@ -162,6 +165,8 @@ impl SystemRuntimeExecutor {
             retiring_tab_senders: OnceLock::new(),
             restore_persist_requested: AtomicU64::new(0),
             restore_persist_running: AtomicBool::new(false),
+            restore_persist_changed: Condvar::new(),
+            restore_persist_signal: Mutex::new(()),
             runtime_projection: RevisionedJsonProjection::default(),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
             self_weak: OnceLock::new(),
@@ -533,17 +538,25 @@ impl SystemRuntimeExecutor {
             .fetch_add(1, Ordering::AcqRel);
         if let Ok(mut last_activity) = self.last_critical_activity.lock() {
             *last_activity = Instant::now();
+            self.optional_idle_changed.notify_all();
         }
     }
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
         let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
         if changed {
+            self.notify_optional_idle_changed();
             self.record_runtime_stage(
                 format!("launch-phase:{tab_id}:{}", phase.as_str()),
                 "completed",
                 Instant::now(),
             );
+        }
+    }
+
+    fn notify_optional_idle_changed(&self) {
+        if let Ok(_idle_guard) = self.last_critical_activity.lock() {
+            self.optional_idle_changed.notify_all();
         }
     }
 
@@ -568,21 +581,15 @@ impl SystemRuntimeExecutor {
         }
         let runtime = Arc::downgrade(self);
         let activity_sequence = self.critical_activity_sequence.load(Ordering::Acquire);
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+        tauri::async_runtime::spawn_blocking(move || {
             let Some(runtime) = runtime.upgrade() else {
                 return;
             };
-            if runtime.critical_activity_sequence.load(Ordering::Acquire) != activity_sequence {
+            if !runtime.wait_for_critical_quiet(activity_sequence, Duration::from_secs(2)) {
                 runtime.prewarm_state.store(3, Ordering::Release);
                 return;
             }
-            let worker_runtime = Arc::clone(&runtime);
-            let outcome = tauri::async_runtime::spawn_blocking(move || {
-                worker_runtime.prewarm_webview_once(activity_sequence)
-            })
-            .await
-            .unwrap_or_else(|error| Err(format!("WebView prewarm worker failed: {error}")));
+            let outcome = runtime.prewarm_webview_once(activity_sequence);
             runtime.prewarm_state.store(2, Ordering::Release);
             runtime.record_runtime_stage(
                 "runtime-prewarm",
@@ -594,6 +601,29 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
         });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn wait_for_critical_quiet(&self, expected_sequence: u64, interval: Duration) -> bool {
+        let Ok(mut last_activity) = self.last_critical_activity.lock() else {
+            return false;
+        };
+        loop {
+            if self.critical_activity_sequence.load(Ordering::Acquire) != expected_sequence {
+                return false;
+            }
+            let remaining = interval.saturating_sub(last_activity.elapsed());
+            if remaining.is_zero() {
+                return true;
+            }
+            last_activity = match self
+                .optional_idle_changed
+                .wait_timeout(last_activity, remaining)
+            {
+                Ok((last_activity, _)) => last_activity,
+                Err(_) => return false,
+            };
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -628,6 +658,9 @@ impl SystemRuntimeExecutor {
     }
 
     fn wait_for_optional_idle(&self) {
+        let Ok(mut last_activity) = self.last_critical_activity.lock() else {
+            return;
+        };
         loop {
             let launch_busy = self
                 .presentation
@@ -636,21 +669,24 @@ impl SystemRuntimeExecutor {
                 .into_iter()
                 .any(LaunchPhase::blocks_optional_idle);
             if launch_busy {
-                std::thread::sleep(Duration::from_millis(50));
+                last_activity = match self.optional_idle_changed.wait(last_activity) {
+                    Ok(last_activity) => last_activity,
+                    Err(_) => return,
+                };
                 continue;
             }
-            let remaining = self
-                .last_critical_activity
-                .lock()
-                .ok()
-                .map(|last_activity| {
-                    OPTIONAL_HYDRATION_IDLE_INTERVAL.saturating_sub(last_activity.elapsed())
-                })
-                .unwrap_or_default();
+            let remaining =
+                OPTIONAL_HYDRATION_IDLE_INTERVAL.saturating_sub(last_activity.elapsed());
             if remaining.is_zero() {
                 return;
             }
-            std::thread::sleep(remaining.min(Duration::from_millis(50)));
+            last_activity = match self
+                .optional_idle_changed
+                .wait_timeout(last_activity, remaining)
+            {
+                Ok((last_activity, _)) => last_activity,
+                Err(_) => return,
+            };
         }
     }
 

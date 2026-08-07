@@ -97,6 +97,7 @@ fn main() {
             .flag("-Werror=nonnull")
             .compile("rion_runtime_tabs");
         println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=WebKit");
         println!("cargo:rerun-if-changed=native/macos/RionWKWebViewInput.m");
         println!("cargo:rerun-if-changed=native/macos/RionDockMenu.m");

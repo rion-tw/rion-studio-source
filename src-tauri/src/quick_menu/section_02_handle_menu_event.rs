@@ -35,22 +35,11 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     .live_window_tab_ids(&window_id)
                     .is_ok_and(|tab_ids| !tab_ids.is_empty());
                 if is_live {
-                    let runtime = Arc::clone(&state.runtime);
-                    let mut failure = None;
-                    for attempt in 0_u64..8 {
-                        match runtime.focus_live_runtime_window(&window_id) {
-                            Ok(()) => return,
-                            Err(error) => failure = Some(error),
-                        }
-                        tokio::time::sleep(Duration::from_millis(
-                            25_u64.saturating_mul(1_u64 << attempt.min(5)),
-                        ))
-                        .await;
+                    if let Err(error) = state.runtime.focus_live_runtime_window(&window_id) {
+                        eprintln!(
+                            "Quick Menu live window activation failed: window={window_id} error={error}"
+                        );
                     }
-                    eprintln!(
-                        "Quick Menu live window focus remains pending: window={window_id} error={}",
-                        failure.unwrap_or_else(|| "native host unavailable".to_owned())
-                    );
                     return;
                 }
                 let Some(window) = app.get_webview_window("main") else {

@@ -732,7 +732,8 @@ it("acknowledges close isolation before coalesced restore persistence", async ()
     expect(regularDispatch).toBeGreaterThan(finalize);
     expect(runtime).toContain("fn schedule_restore_session_persist(");
     expect(runtime).toContain("restore_persist_requested");
-    expect(runtime).toContain("Collapse a rapid close burst into one durable snapshot.");
+    expect(runtime).toContain("restore_persist_changed");
+    expect(runtime).not.toContain("thread::sleep(RESTORE_PERSIST_COALESCE_DELAY)");
     expect(executor).not.toContain("SYSTEM_WEBVIEW_RUNTIME_UNHEALTHY");
     expect(runtime).toContain("SYSTEM_RUNTIME_PERSIST_FAILED");
   });

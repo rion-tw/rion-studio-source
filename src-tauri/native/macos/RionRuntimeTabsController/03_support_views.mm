@@ -64,8 +64,8 @@ NS_ASSUME_NONNULL_BEGIN
   self = [super initWithFrame:frameRect];
   if (self) {
     // macOS 14 and later no longer clip subviews by default. Keep tab surfaces
-    // inside the scroll viewport so Liquid Glass does not render them beneath
-    // the adjacent scroll controls.
+    // inside the scrolling viewport; the viewport intentionally includes the
+    // arrow fusion zones, while its outer container owns the final hard edge.
     self.contentView.clipsToBounds = YES;
   }
   return self;

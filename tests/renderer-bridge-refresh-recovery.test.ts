@@ -30,8 +30,7 @@ afterEach(() => {
 });
 
 describe("Tauri bridge collection refresh recovery", () => {
-  it("retries a failed query and falls back to an authoritative app snapshot", async () => {
-    vi.useFakeTimers();
+  it("performs one immediate authoritative snapshot recovery after a failed query", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}
@@ -80,10 +79,9 @@ describe("Tauri bridge collection refresh recovery", () => {
         changedCollections: ["games"]
       }]
     });
-    await vi.advanceTimersByTimeAsync(600);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(onGamesChanged).toHaveBeenCalledWith(snapshot.games));
 
-    expect(invoke).toHaveBeenCalledTimes(4);
+    expect(invoke).toHaveBeenCalledTimes(2);
     expect(onGamesChanged).toHaveBeenCalledWith(snapshot.games);
     expect(onRolesChanged).toHaveBeenCalledWith(snapshot.roles);
     expect(onRuntimeChanged).toHaveBeenCalledWith(snapshot.embeddedRuntimeState);

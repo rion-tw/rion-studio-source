@@ -197,6 +197,8 @@ impl SystemRuntimeExecutor {
                 label,
             );
         }
+        #[cfg(target_os = "macos")]
+        self.refresh_ready_surface_viewports_for_window(&window_id);
         if settled {
             self.publish_projection();
         }
@@ -265,12 +267,13 @@ impl SystemRuntimeExecutor {
             let settled = resize_snapshot_is_settled(pending.snapshot.received_at.elapsed());
             let requires_projection = pending.snapshot.sequence != last_applied_sequence || settled;
             if requires_projection && self.resize_window_projection_is_busy(&label) {
-                let blocked_for = native_blocked_since
-                    .get_or_insert_with(Instant::now)
-                    .elapsed();
+                let blocked_since = *native_blocked_since.get_or_insert_with(Instant::now);
+                let blocked_for = blocked_since.elapsed();
                 if native_resize_should_retry(true, shutdown_state, blocked_for) {
-                    thread::sleep(WINDOW_RESIZE_FRAME_INTERVAL);
-                    continue;
+                    let deadline = blocked_since + PLATFORM_CALLBACK_TIMEOUT;
+                    if self.wait_for_resize_projection_lane(&label, deadline) {
+                        continue;
+                    }
                 }
                 self.emit_runtime_shell_error(
                     "TAURI_RUNTIME_WINDOW_RESIZE_TIMEOUT",
@@ -358,6 +361,16 @@ impl SystemRuntimeExecutor {
                     state.active_geometry_windows.contains(&window_id)
                 })
         })
+    }
+
+    fn wait_for_resize_projection_lane(&self, label: &str, deadline: Instant) -> bool {
+        let Some(window_id) = self.window_id_for_label(label) else {
+            return false;
+        };
+        let Ok(lane) = self.native_window_mutations.lane(&window_id) else {
+            return false;
+        };
+        lane.lock_until(deadline).is_ok()
     }
 
     fn resize_pending_sequence_matches(&self, label: &str, sequence: u64) -> bool {

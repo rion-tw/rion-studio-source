@@ -281,6 +281,8 @@ impl SystemRuntimeExecutor {
             return;
         }
         self.presentation.remove(window_id);
+        self.cancel_pending_window_activation(window_id);
+        self.notify_optional_idle_changed();
         self.publish_launcher_presence();
         if let Some(host) = host {
             self.focus_broker

@@ -153,6 +153,9 @@ fn register_owned_child(owner: &Arc<InvocationControl>, child: &Arc<InvocationCo
         children.ids.insert(child.id.clone());
         owner.children.1.notify_all();
     }
+    if let Ok(mut owner_signal) = child.owner_signal.lock() {
+        *owner_signal = Some(Arc::downgrade(owner));
+    }
 }
 
 fn remove_owned_child(owner: &Arc<InvocationControl>, child_id: &str) {
@@ -286,7 +289,13 @@ fn perform_actions_with_control(
                 let request_number = shared.next_id.fetch_add(1, Ordering::Relaxed);
                 let request_id = format!("browser-action-{request_number}");
                 let (sender, receiver) = mpsc::sync_channel(1);
-                pending.insert(request_id.clone(), sender);
+                pending.insert(
+                    request_id.clone(),
+                    PendingMacroAction {
+                        result: sender,
+                        signal: Arc::downgrade(control),
+                    },
+                );
                 pending_actions.push((request_id.clone(), role_id.to_owned(), receiver));
                 BrowserActionRequest {
                     request_id,
@@ -303,16 +312,21 @@ fn perform_actions_with_control(
             .collect::<Vec<_>>()
     };
     (shared.events)(vec![CoreEvent::BrowserActions { actions: requests }]);
-    let started = std::time::Instant::now();
+    let deadline = std::time::Instant::now() + shared.action_timeout;
     let mut outcome = Ok(());
     for (_, role_id, receiver) in &pending_actions {
+        let mut signal_guard = control
+            .wake
+            .0
+            .lock()
+            .map_err(|_| "macro wait lock poisoned".to_owned())?;
         loop {
             if cancel_pending_wait && !allow_cancelled && control.cancelled.load(Ordering::Acquire)
             {
                 outcome = Err("macro run cancelled".to_owned());
                 break;
             }
-            match receiver.recv_timeout(Duration::from_millis(25)) {
+            match receiver.try_recv() {
                 Ok(result) if result.ok => break,
                 Ok(result) => {
                     record_action_failure(
@@ -325,8 +339,16 @@ fn perform_actions_with_control(
                     );
                     break;
                 }
-                Err(RecvTimeoutError::Timeout) if started.elapsed() < shared.action_timeout => {}
-                Err(RecvTimeoutError::Timeout) => {
+                Err(TryRecvError::Empty) if Instant::now() < deadline => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    let (next_guard, _) = control
+                        .wake
+                        .1
+                        .wait_timeout(signal_guard, remaining)
+                        .map_err(|_| "macro wait lock poisoned".to_owned())?;
+                    signal_guard = next_guard;
+                }
+                Err(TryRecvError::Empty) => {
                     record_action_failure(
                         control,
                         role_id,
@@ -338,7 +360,7 @@ fn perform_actions_with_control(
                     );
                     break;
                 }
-                Err(RecvTimeoutError::Disconnected) => {
+                Err(TryRecvError::Disconnected) => {
                     record_action_failure(
                         control,
                         role_id,
@@ -349,6 +371,7 @@ fn perform_actions_with_control(
                 }
             }
         }
+        drop(signal_guard);
     }
     if let Ok(mut pending) = shared.pending.lock() {
         for (request_id, _, _) in &pending_actions {
@@ -568,7 +591,7 @@ fn wait_until_role_cancelled(context: &ExecutionContext, role_id: &str) -> Resul
                 .control
                 .wake
                 .1
-                .wait_timeout_while(guard, Duration::from_secs(1), |_| {
+                .wait_while(guard, |_| {
                     !context.control.cancelled.load(Ordering::Acquire)
                         && !is_role_cancelled(&context.control, role_id)
                 })
@@ -669,6 +692,15 @@ fn finish_invocation(
         *finished = true;
         control.finished.1.notify_all();
     }
+    if let Some(owner) = control
+        .owner_signal
+        .lock()
+        .ok()
+        .and_then(|owner| owner.as_ref().and_then(Weak::upgrade))
+    {
+        let _owner_guard = owner.wake.0.lock().ok();
+        owner.wake.1.notify_all();
+    }
 }
 
 fn new_invocation_control(
@@ -690,6 +722,7 @@ fn new_invocation_control(
         id,
         macro_ids: Mutex::new(HashSet::from([macro_id])),
         outcome: Mutex::new(None),
+        owner_signal: Mutex::new(None),
         role_ids,
         start_ready: (Mutex::new(false), Condvar::new()),
         stop_after_first_iteration: AtomicBool::new(false),

@@ -12,6 +12,11 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(target_os = "macos")]
+fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
+    window.show().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
 fn dispatch_key_effect(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,

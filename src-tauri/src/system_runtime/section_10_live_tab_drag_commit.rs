@@ -1,4 +1,8 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn live_topology_revision(&self) -> u64 {
+        self.presentation.current_revision()
+    }
+
     pub(crate) fn live_tab_window_id(&self, tab_id: &str) -> Option<String> {
         self.presentation.tab_window(tab_id).ok().flatten()
     }
@@ -460,7 +464,6 @@ impl SystemRuntimeExecutor {
             return Ok(());
         }
         let revision = receipt.revision;
-        self.schedule_live_projection_membership_follow();
         let selected_after = self.presentation.selected_tabs();
         #[cfg(any(windows, target_os = "macos"))]
         let workspace_template = tab.workspace_template.as_deref();
@@ -611,6 +614,11 @@ impl SystemRuntimeExecutor {
                 }
                 let physical_source_window_id = runtime.native_tab_host_id(&tab_id);
                 if physical_source_window_id.as_deref() == Some(target_window_id.as_str()) {
+                    if let Err(error) = runtime.presentation.follow_live_projection_membership() {
+                        eprintln!(
+                            "Tab surface membership follow failed terminally: tab={tab_id} target={target_window_id} error={error}"
+                        );
+                    }
                     return;
                 }
                 match runtime.provisionally_move_tab_for_live_drag(&tab_id, &target_window_id) {

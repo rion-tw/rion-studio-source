@@ -1,7 +1,38 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeFocusIntentOrigin {
+    NativeObservation,
+    RuntimeContinuation,
+    RuntimeLifecycle,
+    SystemActivation,
+    UserGesture,
+}
+
+fn native_focus_intent_origin(trigger: &str) -> NativeFocusIntentOrigin {
+    match trigger {
+        "pointer" | "native-pointer" | "shortcut" | "launch-preview"
+        | "renderer-game-window-list" | "overlay-open-macro-page" => {
+            NativeFocusIntentOrigin::UserGesture
+        }
+        "application-activation" | "application-reopen" | "exit-guard"
+        | "launcher-external" | "quick-menu" | "quick-menu-live-window"
+        | "saved-window-restore" | "secondary-activation" | "startup-failure"
+        | "startup-page-load" => {
+            NativeFocusIntentOrigin::SystemActivation
+        }
+        "focus-role" | "surface-attached" | "apply-runtime-host" | "chrome-ready"
+        | "renderer-ready" | "role-ready" | "shell-error" => {
+            NativeFocusIntentOrigin::RuntimeLifecycle
+        }
+        _ => NativeFocusIntentOrigin::RuntimeContinuation,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativeFocusLease {
+    foreground_epoch: u64,
     lifecycle_epoch: u64,
     mode: NativePresentationFocus,
+    origin: NativeFocusIntentOrigin,
     sequence: u64,
     tab_id: Option<String>,
     window_generation: u64,
@@ -16,7 +47,9 @@ struct NativeFocusBrokerState {
 
 #[derive(Default)]
 struct NativeFocusBroker {
+    application_foreground: AtomicBool,
     current_sequence: AtomicU64,
+    foreground_epoch: AtomicU64,
     mutation_lane: Mutex<()>,
     next_sequence: AtomicU64,
     submitted_sequence: AtomicU64,
@@ -24,6 +57,7 @@ struct NativeFocusBroker {
 }
 
 impl NativeFocusBroker {
+    #[cfg(test)]
     fn accept(
         &self,
         window_id: impl Into<String>,
@@ -32,14 +66,35 @@ impl NativeFocusBroker {
         tab_id: Option<String>,
         mode: NativePresentationFocus,
     ) -> NativeFocusLease {
+        self.accept_with_origin(
+            window_id,
+            window_generation,
+            lifecycle_epoch,
+            tab_id,
+            mode,
+            NativeFocusIntentOrigin::RuntimeContinuation,
+        )
+    }
+
+    fn accept_with_origin(
+        &self,
+        window_id: impl Into<String>,
+        window_generation: u64,
+        lifecycle_epoch: u64,
+        tab_id: Option<String>,
+        mode: NativePresentationFocus,
+        origin: NativeFocusIntentOrigin,
+    ) -> NativeFocusLease {
         let state = self.state.lock();
         let sequence = self
             .next_sequence
             .fetch_add(1, Ordering::AcqRel)
             .saturating_add(1);
         let lease = NativeFocusLease {
+            foreground_epoch: self.foreground_epoch.load(Ordering::Acquire),
             lifecycle_epoch,
             mode,
+            origin,
             sequence,
             tab_id,
             window_generation,
@@ -67,6 +122,9 @@ impl NativeFocusBroker {
 
     fn is_current(&self, lease: &NativeFocusLease) -> bool {
         lease.sequence != 0
+            && lease.foreground_epoch == self.foreground_epoch.load(Ordering::Acquire)
+            && (lease.mode.focuses_window()
+                || self.application_foreground.load(Ordering::Acquire))
             && self.current_sequence.load(Ordering::Acquire) == lease.sequence
             && self.state.lock().ok().is_some_and(|state| {
                 state.current.as_ref() == Some(lease)
@@ -132,6 +190,7 @@ impl NativeFocusBroker {
         lifecycle_epoch: u64,
         tab_id: Option<String>,
     ) -> Option<NativeFocusLease> {
+        self.application_foreground.store(true, Ordering::Release);
         if let Some(current) = self.state.lock().ok().and_then(|state| {
             state
                 .current
@@ -156,12 +215,13 @@ impl NativeFocusBroker {
         }) {
             return None;
         }
-        let observed = self.accept(
+        let observed = self.accept_with_origin(
             window_id,
             window_generation,
             lifecycle_epoch,
             tab_id,
             NativePresentationFocus::WindowAndContent,
+            NativeFocusIntentOrigin::NativeObservation,
         );
         let _ = self.confirm(&observed);
         Some(observed)
@@ -175,6 +235,61 @@ impl NativeFocusBroker {
         {
             state.confirmed = None;
         }
+    }
+
+    fn observe_application_foreground(&self) {
+        self.application_foreground.store(true, Ordering::Release);
+    }
+
+    fn observe_external_foreground(&self) {
+        if self.application_foreground.swap(false, Ordering::AcqRel) {
+            self.foreground_epoch.fetch_add(1, Ordering::AcqRel);
+            self.revoke_all();
+        }
+    }
+
+    fn admitted_focus(
+        &self,
+        requested: NativePresentationFocus,
+        window_id: &str,
+        window_generation: u64,
+        origin: NativeFocusIntentOrigin,
+    ) -> NativePresentationFocus {
+        if requested == NativePresentationFocus::None
+            || origin == NativeFocusIntentOrigin::RuntimeLifecycle
+        {
+            return NativePresentationFocus::None;
+        }
+        if origin == NativeFocusIntentOrigin::SystemActivation {
+            return requested;
+        }
+        if !self.application_foreground.load(Ordering::Acquire) {
+            return NativePresentationFocus::None;
+        }
+        let confirmed_target = self.state.lock().ok().is_some_and(|state| {
+            state.confirmed.as_ref().is_some_and(|lease| {
+                lease.window_id == window_id && lease.window_generation == window_generation
+            })
+        });
+        match origin {
+            NativeFocusIntentOrigin::UserGesture | NativeFocusIntentOrigin::SystemActivation => {
+                requested
+            }
+            NativeFocusIntentOrigin::RuntimeContinuation
+            | NativeFocusIntentOrigin::NativeObservation => {
+                if confirmed_target {
+                    requested
+                } else {
+                    NativePresentationFocus::None
+                }
+            }
+            NativeFocusIntentOrigin::RuntimeLifecycle => NativePresentationFocus::None,
+        }
+    }
+
+    #[cfg(test)]
+    fn foreground_epoch(&self) -> u64 {
+        self.foreground_epoch.load(Ordering::Acquire)
     }
 
     fn revoke_window(&self, window_id: &str, window_generation: u64) {
@@ -216,6 +331,14 @@ impl NativeFocusBroker {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn observe_application_foreground(&self, foreground: bool) {
+        if foreground {
+            self.focus_broker.observe_application_foreground();
+        } else {
+            self.focus_broker.observe_external_foreground();
+        }
+    }
+
     fn runtime_focus_identity(
         &self,
         window_id: &str,
@@ -282,12 +405,13 @@ impl SystemRuntimeExecutor {
             RuntimeError::new(code, "The native focus operation could not be accepted.")
         })?;
         let _ = self.operations.mark_in_flight(&operation.operation_id);
-        let lease = self.focus_broker.accept(
+        let lease = self.focus_broker.accept_with_origin(
             window_id,
             window_generation,
             self.lifecycle_epoch(),
             tab_id,
             NativePresentationFocus::WindowAndContent,
+            NativeFocusIntentOrigin::UserGesture,
         );
         let guard = self.focus_broker.begin_mutation(&lease).map_err(|code| {
             self.complete_direct_focus(
@@ -381,12 +505,13 @@ impl SystemRuntimeExecutor {
             RuntimeError::new(code, "The overlay focus operation could not be accepted.")
         })?;
         let _ = self.operations.mark_in_flight(&operation.operation_id);
-        let lease = self.focus_broker.accept(
+        let lease = self.focus_broker.accept_with_origin(
             &window_id,
             window_generation,
             self.lifecycle_epoch(),
             tab_id,
             NativePresentationFocus::ContentOnly,
+            NativeFocusIntentOrigin::UserGesture,
         );
         let guard = self.focus_broker.begin_mutation(&lease).map_err(|code| {
             self.complete_direct_focus(

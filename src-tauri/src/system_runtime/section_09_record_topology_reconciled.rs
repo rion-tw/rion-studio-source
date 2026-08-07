@@ -543,6 +543,13 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| state.display_hosts.get(&window_id).map(|host| host.generation))
             .unwrap_or_default();
+        let focus_origin = native_focus_intent_origin(trigger);
+        let focus = self.focus_broker.admitted_focus(
+            focus,
+            &window_id,
+            window_generation,
+            focus_origin,
+        );
         let expected_lifecycle_epoch = self.lifecycle_epoch();
         let mut operation = NativeOperationContext::new_at_for_platform(
             NativeOperationSubsystem::Presentation,
@@ -598,12 +605,13 @@ impl SystemRuntimeExecutor {
             return operation_id;
         };
         let focus_lease = (focus != NativePresentationFocus::None).then(|| {
-            self.focus_broker.accept(
+            self.focus_broker.accept_with_origin(
                 &window_id,
                 window_generation,
-                0,
+                expected_lifecycle_epoch,
                 tab_id.clone(),
                 focus,
+                focus_origin,
             )
         });
         #[cfg(windows)]
@@ -632,7 +640,7 @@ impl SystemRuntimeExecutor {
             .chain(next_surfaces.iter())
             .map(|surface| surface.label().to_owned())
             .collect::<HashSet<_>>();
-        let surface_owner_revisions = self.presentation.surface_owner_revisions(&surface_labels);
+        let surface_owner_tokens = self.presentation.surface_owner_tokens(&surface_labels);
         let actor = match self.presentation.actor(&window_id, window_generation) {
             Ok(actor) => actor,
             Err(message) => {
@@ -675,7 +683,7 @@ impl SystemRuntimeExecutor {
             requested_at,
             revision,
             expected_lifecycle_epoch,
-            surface_owner_revisions,
+            surface_owner_tokens,
             surface_owners: Arc::clone(&self.presentation.surface_owners),
             shutdown_state: Arc::clone(&self.shutdown_state),
             application_lifecycle: Arc::clone(&self.application_lifecycle),
@@ -683,6 +691,7 @@ impl SystemRuntimeExecutor {
             tab_id,
             trigger,
             window,
+            window_generation,
             window_id,
             window_mode,
             window_visibility,

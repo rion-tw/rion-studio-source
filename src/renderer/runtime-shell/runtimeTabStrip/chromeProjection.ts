@@ -14,7 +14,7 @@ export function stateFromChromeProjection(
   const display = projection.displays.find((candidate) => candidate.id === projection.displayId);
   const bounds = display?.bounds ?? { x: 0, y: 0, width: 1, height: 1 };
   return {
-    revision: projection.projectionRevision,
+    revision: projection.topologyRevision,
     capturedAt: new Date().toISOString(),
     alwaysHideTabCloseButton: projection.alwaysHideTabCloseButton,
     alwaysShowToolbarInFullScreen: projection.alwaysShowToolbarInFullScreen,
@@ -95,6 +95,7 @@ export function acknowledgeChromeProjection(
   const acknowledgement: RuntimeTabChromeAcknowledgementRecord = {
     rendererInstanceId,
     projectionRevision: projection.projectionRevision,
+    topologyRevision: projection.topologyRevision,
     observedTabOrder: observed.tabOrder,
     ...(observed.activeTabId ? { observedActiveTabId: observed.activeTabId } : {}),
     status: forcedStatus ?? (observed.tabOrder.length === projection.tabOrder.length

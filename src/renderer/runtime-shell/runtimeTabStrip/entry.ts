@@ -211,8 +211,10 @@ function render(
 
 function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): void {
   if (projection.rendererInstanceId !== runtimeState.rendererInstanceId
-    || projection.projectionRevision < runtimeState.projectionRevision) return;
+    || projection.projectionRevision < runtimeState.projectionRevision
+    || projection.topologyRevision < runtimeState.topologyRevision) return;
   runtimeState.projectionRevision = projection.projectionRevision;
+  runtimeState.topologyRevision = projection.topologyRevision;
   runtimeState.chromeHydrated = true;
   render(stateFromChromeProjection(projection), true);
   const observedOrder = logicalRuntimeTabOrder();

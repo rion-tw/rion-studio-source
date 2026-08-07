@@ -1,6 +1,7 @@
 #[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct TabChromeRendererIdentity {
+    last_intent_sequence: u64,
     lifecycle_epoch: u64,
     renderer_instance_id: String,
     webview_label: String,
@@ -24,6 +25,20 @@ struct TabChromeProjectionDelivery {
     revision: u64,
     tab_order: Vec<String>,
     terminal_status: Option<NativeOperationStatus>,
+    topology_revision: u64,
+}
+
+#[cfg(any(windows, test))]
+pub(crate) enum RuntimeTabIntentAdmission {
+    Accepted {
+        window_generation: u64,
+        window_id: String,
+    },
+    Superseded {
+        failure_code: &'static str,
+        window_generation: u64,
+        window_id: String,
+    },
 }
 
 #[cfg(any(windows, test))]
@@ -72,8 +87,7 @@ fn query_tab_chrome_window_state_unlocked<State, Snapshot, Output>(
 #[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowsTabChromeRevealSignal {
-    ContentPainted,
-    FallbackElapsed,
+    ProjectionApplied,
     RendererReady,
     VisibilityRequested,
 }
@@ -82,9 +96,8 @@ enum WindowsTabChromeRevealSignal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WindowsTabChromeRevealState {
     cloaked: bool,
-    content_painted: bool,
-    fallback_elapsed: bool,
     pending_focus_sequence: Option<u64>,
+    projection_applied: bool,
     renderer_ready: bool,
     visibility_requested: bool,
 }
@@ -102,9 +115,8 @@ impl WindowsTabChromeRevealState {
     fn new(cloaked: bool) -> Self {
         Self {
             cloaked,
-            content_painted: false,
-            fallback_elapsed: false,
             pending_focus_sequence: None,
+            projection_applied: false,
             renderer_ready: false,
             visibility_requested: false,
         }
@@ -115,8 +127,7 @@ impl WindowsTabChromeRevealState {
         signal: WindowsTabChromeRevealSignal,
     ) -> WindowsTabChromeRevealDecision {
         match signal {
-            WindowsTabChromeRevealSignal::ContentPainted => self.content_painted = true,
-            WindowsTabChromeRevealSignal::FallbackElapsed => self.fallback_elapsed = true,
+            WindowsTabChromeRevealSignal::ProjectionApplied => self.projection_applied = true,
             WindowsTabChromeRevealSignal::RendererReady => self.renderer_ready = true,
             WindowsTabChromeRevealSignal::VisibilityRequested => {
                 self.visibility_requested = true;
@@ -141,7 +152,8 @@ impl WindowsTabChromeRevealState {
     fn finish_observation(&mut self, defer_focus: bool) -> WindowsTabChromeRevealDecision {
         let reveal = self.cloaked
             && self.visibility_requested
-            && (self.renderer_ready || self.fallback_elapsed);
+            && self.renderer_ready
+            && self.projection_applied;
         if reveal {
             self.cloaked = false;
         }
@@ -186,9 +198,19 @@ impl TabChromeProjectionCoordinator {
                 current.renderer_instance_id != ready.renderer_instance_id
                     || current.webview_label != webview_label
             });
+        let last_intent_sequence = state
+            .renderers
+            .get(&ready.window_id)
+            .filter(|current| {
+                current.renderer_instance_id == ready.renderer_instance_id
+                    && current.webview_label == webview_label
+            })
+            .map(|current| current.last_intent_sequence)
+            .unwrap_or_default();
         state.renderers.insert(
             ready.window_id.clone(),
             TabChromeRendererIdentity {
+                last_intent_sequence,
                 lifecycle_epoch: ready.lifecycle_epoch,
                 renderer_instance_id: ready.renderer_instance_id.clone(),
                 webview_label: webview_label.to_owned(),
@@ -201,6 +223,53 @@ impl TabChromeProjectionCoordinator {
             self.changed.notify_all();
         }
         Ok(())
+    }
+
+    fn admit_intent(
+        &self,
+        webview_label: &str,
+        intent: &RuntimeTabIntentRecord,
+    ) -> Result<RuntimeTabIntentAdmission, &'static str> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "TAB_CHROME_PROJECTION_COORDINATOR_UNAVAILABLE")?;
+        let Some(renderer) = state
+            .renderers
+            .values_mut()
+            .find(|renderer| renderer.webview_label == webview_label)
+        else {
+            return Ok(RuntimeTabIntentAdmission::Superseded {
+                failure_code: "TAB_INTENT_ADAPTER_REPLACED",
+                window_generation: 0,
+                window_id: String::new(),
+            });
+        };
+        let window_generation = renderer.window_generation;
+        let window_id = renderer.window_id.clone();
+        if intent.intent_kind != "stop"
+            || intent.intent_id.is_empty()
+            || intent.renderer_instance_id != renderer.renderer_instance_id
+            || intent.adapter_sequence == 0
+        {
+            return Ok(RuntimeTabIntentAdmission::Superseded {
+                failure_code: "TAB_INTENT_ADAPTER_STALE",
+                window_generation,
+                window_id,
+            });
+        }
+        if intent.adapter_sequence <= renderer.last_intent_sequence {
+            return Ok(RuntimeTabIntentAdmission::Superseded {
+                failure_code: "TAB_INTENT_SEQUENCE_SUPERSEDED",
+                window_generation,
+                window_id,
+            });
+        }
+        renderer.last_intent_sequence = intent.adapter_sequence;
+        Ok(RuntimeTabIntentAdmission::Accepted {
+            window_generation,
+            window_id,
+        })
     }
 
     fn renderer(&self, window_id: &str) -> Option<TabChromeRendererIdentity> {
@@ -281,6 +350,7 @@ impl TabChromeProjectionCoordinator {
                 revision: projection.projection_revision,
                 tab_order: projection.tab_order.clone(),
                 terminal_status: None,
+                topology_revision: projection.topology_revision,
             },
         );
         self.changed.notify_all();
@@ -311,6 +381,7 @@ impl TabChromeProjectionCoordinator {
             .ok_or("TAB_CHROME_PROJECTION_NOT_PENDING")?;
         if delivery.renderer_instance_id != acknowledgement.renderer_instance_id
             || delivery.revision != acknowledgement.projection_revision
+            || delivery.topology_revision != acknowledgement.topology_revision
         {
             return Err("TAB_CHROME_PROJECTION_STALE");
         }
@@ -512,7 +583,7 @@ impl SystemRuntimeExecutor {
                     "A newer runtime host generation replaced the tab chrome bootstrap.",
                 ));
             }
-            if host.tab_chrome_reveal.content_painted {
+            if host.tab_chrome_reveal.projection_applied {
                 return Ok(());
             }
             let now = Instant::now();
@@ -535,7 +606,7 @@ impl SystemRuntimeExecutor {
             if timeout.timed_out()
                 && !state.display_hosts.get(window_id).is_some_and(|host| {
                     host.generation == window_generation
-                        && host.tab_chrome_reveal.content_painted
+                        && host.tab_chrome_reveal.projection_applied
                 })
             {
                 return Err(RuntimeError::new(
@@ -622,6 +693,46 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn retire_failed_windows_tab_chrome_host(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+    ) {
+        let host = self.state.lock().ok().and_then(|mut state| {
+            let has_attached_content = state
+                .native_tab_hosts
+                .values()
+                .any(|owner_window_id| owner_window_id == window_id)
+                || state
+                    .surface_registry
+                    .values()
+                    .any(|surface| surface.window_id == window_id && surface.tab_id.is_some());
+            if has_attached_content
+                || !state.display_hosts.get(window_id).is_some_and(|host| {
+                    host.generation == window_generation && host.tab_chrome_reveal.cloaked
+                })
+            {
+                return None;
+            }
+            let host = state.display_hosts.remove(window_id)?;
+            state
+                .allow_window_close_labels
+                .insert(host.window.label().to_owned());
+            Some(host)
+        });
+        let Some(host) = host else {
+            return;
+        };
+        self.presentation.remove(window_id);
+        self.focus_broker
+            .revoke_window(window_id, window_generation);
+        self.cancel_pending_window_activation(window_id);
+        self.unregister_runtime_launcher_window(window_id);
+        let _ = request_platform_window_hide(&host.window);
+        let _ = host.window.close();
+        self.publish_launcher_presence();
+    }
+
     fn restore_windows_tab_chrome_reveal(
         &self,
         window_id: &str,
@@ -670,29 +781,6 @@ impl SystemRuntimeExecutor {
         if window.is_focused().unwrap_or(false) {
             let _ = self.focus_broker.confirm(&lease);
         }
-    }
-
-    fn schedule_windows_tab_chrome_reveal_fallback(
-        &self,
-        window_id: &str,
-        window_generation: u64,
-    ) {
-        let Some(runtime) = self.self_weak.get().cloned() else {
-            return;
-        };
-        let window_id = window_id.to_owned();
-        let _ = thread::Builder::new()
-            .name(format!("rion-tab-chrome-reveal-{window_generation}"))
-            .spawn(move || {
-                thread::sleep(WINDOWS_TAB_CHROME_REVEAL_FALLBACK_TIMEOUT);
-                if let Some(runtime) = runtime.upgrade() {
-                    runtime.observe_windows_tab_chrome_reveal(
-                        &window_id,
-                        window_generation,
-                        WindowsTabChromeRevealSignal::FallbackElapsed,
-                    );
-                }
-            });
     }
 
     fn display_records_for_tab_chrome(&self) -> Vec<DisplayInfoRecord> {
@@ -798,7 +886,7 @@ impl SystemRuntimeExecutor {
                         .iter()
                         .filter_map(|presented| {
                             let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
-                            if core_tab.is_some_and(|tab| tab.hidden)
+                            if presentation.hidden_tab_ids.contains(&presented.id)
                                 || state.optimistic_closed_tabs.contains(&presented.id)
                             {
                                 return None;
@@ -907,6 +995,7 @@ impl SystemRuntimeExecutor {
             window_generation: renderer.window_generation,
             lifecycle_epoch: renderer.lifecycle_epoch,
             projection_revision: 0,
+            topology_revision: self.presentation.current_revision(),
             tabs: items,
             tab_order,
             active_tab_id,
@@ -967,7 +1056,25 @@ impl SystemRuntimeExecutor {
             return;
         }
         self.operations.mark_in_flight(&operation.operation_id);
-        let _ = Self::eval_windows_tab_chrome_projection(&tab_strip, &projection);
+        if Self::eval_windows_tab_chrome_projection(&tab_strip, &projection).is_err() {
+            self.tab_chrome_projections.finish(
+                &projection.window_id,
+                &renderer_instance_id,
+                projection.projection_revision,
+                NativeOperationStatus::Failed,
+            );
+            self.operations.complete(NativeOperationReceipt::with_status(
+                operation,
+                "tabChromeProjectionDispatchFailed",
+                NativeOperationStatus::Failed,
+                Some("TAB_CHROME_PROJECTION_DISPATCH_FAILED"),
+            ));
+            self.retire_failed_windows_tab_chrome_host(
+                &projection.window_id,
+                projection.window_generation,
+            );
+            return;
+        }
         let coordinator = Arc::clone(&self.tab_chrome_projections);
         let operations = Arc::clone(&self.operations);
         let worker_operation = operation.clone();
@@ -998,7 +1105,7 @@ impl SystemRuntimeExecutor {
                     TabChromeProjectionWaitOutcome::Failed => (
                         NativeOperationStatus::Failed,
                         "tabChromeProjectionRejected",
-                        Some("TAB_CHROME_PROJECTION_TIMEOUT"),
+                        Some("TAB_CHROME_PROJECTION_REJECTED"),
                     ),
                     TabChromeProjectionWaitOutcome::Timeout => (
                         NativeOperationStatus::Failed,
@@ -1008,12 +1115,23 @@ impl SystemRuntimeExecutor {
                 };
                 if matches!(outcome, TabChromeProjectionWaitOutcome::Applied)
                     && !worker_projection.tab_order.is_empty()
-                    && let Some(runtime) = runtime.and_then(|runtime| runtime.upgrade())
+                    && let Some(runtime) = runtime.as_ref().and_then(|runtime| runtime.upgrade())
                 {
                     runtime.observe_windows_tab_chrome_reveal(
                         &worker_projection.window_id,
                         worker_projection.window_generation,
-                        WindowsTabChromeRevealSignal::ContentPainted,
+                        WindowsTabChromeRevealSignal::ProjectionApplied,
+                    );
+                }
+                if matches!(
+                    outcome,
+                    TabChromeProjectionWaitOutcome::Failed
+                        | TabChromeProjectionWaitOutcome::Timeout
+                ) && let Some(runtime) = runtime.as_ref().and_then(|runtime| runtime.upgrade())
+                {
+                    runtime.retire_failed_windows_tab_chrome_host(
+                        &worker_projection.window_id,
+                        worker_projection.window_generation,
                     );
                 }
                 coordinator.finish(
@@ -1114,5 +1232,52 @@ impl SystemRuntimeExecutor {
         self.tab_chrome_projections
             .acknowledge(webview_label, acknowledgement)
             .map_err(str::to_owned)
+    }
+
+    pub(crate) fn admit_runtime_tab_intent(
+        &self,
+        webview_label: &str,
+        intent: &RuntimeTabIntentRecord,
+    ) -> Result<RuntimeTabIntentAdmission, String> {
+        let admission = self
+            .tab_chrome_projections
+            .admit_intent(webview_label, intent)
+            .map_err(str::to_owned)?;
+        let (window_id, window_generation) = match &admission {
+            RuntimeTabIntentAdmission::Accepted {
+                window_generation,
+                window_id,
+            }
+            | RuntimeTabIntentAdmission::Superseded {
+                window_generation,
+                window_id,
+                ..
+            } => (window_id, *window_generation),
+        };
+        let source_is_current = self.lifecycle_epoch() > 0
+            && self.state.lock().ok().is_some_and(|state| {
+                state.display_hosts.get(window_id).is_some_and(|host| {
+                    host.generation == window_generation
+                        && host.tab_strip.label() == webview_label
+                })
+            });
+        let tab_belongs_to_source = self
+            .live_tab_window_id(&intent.tab_id)
+            .as_deref()
+            == Some(window_id.as_str());
+        if matches!(admission, RuntimeTabIntentAdmission::Accepted { .. })
+            && (!source_is_current || !tab_belongs_to_source)
+        {
+            return Ok(RuntimeTabIntentAdmission::Superseded {
+                failure_code: if source_is_current {
+                    "TAB_INTENT_TAB_OWNER_STALE"
+                } else {
+                    "TAB_INTENT_WINDOW_GENERATION_STALE"
+                },
+                window_generation,
+                window_id: window_id.clone(),
+            });
+        }
+        Ok(admission)
     }
 }

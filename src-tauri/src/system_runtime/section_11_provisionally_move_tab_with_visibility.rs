@@ -12,7 +12,7 @@ impl SystemRuntimeExecutor {
             // projection work is stale and must never move the live tab back.
             return Ok(());
         }
-        let (source_window_id, source_window, target_window, surfaces) = {
+        let (source_window_id, target_window, surfaces) = {
             let state = self
                 .state
                 .lock()
@@ -34,11 +34,6 @@ impl SystemRuntimeExecutor {
                         .map(|surface| surface.window_id.clone())
                 })
                 .unwrap_or_else(|| live_window_id.clone());
-            let source_window = state
-                .display_hosts
-                .get(&source_window_id)
-                .map(|host| host.window.clone())
-                .ok_or_else(|| "Source Game Window was not found.".to_owned())?;
             let target_window = state
                 .display_hosts
                 .get(target_window_id)
@@ -56,7 +51,7 @@ impl SystemRuntimeExecutor {
                     .map(|placeholder| placeholder.webview.clone()),
             );
             surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
-            (source_window_id, source_window, target_window, surfaces)
+            (source_window_id, target_window, surfaces)
         };
         if source_window_id == target_window_id {
             return Ok(());
@@ -65,17 +60,25 @@ impl SystemRuntimeExecutor {
         let tab_was_visible = selected_tabs_before_move
             .get(target_window_id)
             .is_some_and(|active_tab_id| active_tab_id == tab_id);
+        let target_active_after_move = selected_tabs_before_move.get(target_window_id).cloned();
+        let move_revision = self
+            .presentation
+            .existing(target_window_id)
+            .and_then(|live| live.lock().ok().map(|live| live.revision))
+            .unwrap_or_else(|| self.presentation.current_revision());
         let target_window_was_visible = target_window
             .is_visible()
             .map_err(|error| error.to_string())?;
 
-        let hide_surfaces_before_reparent = !(cfg!(target_os = "macos") && live_drag);
-        if hide_surfaces_before_reparent {
-            for surface in &surfaces {
-                if let Err(error) = surface.hide() {
-                    return Err(error.to_string());
-                }
-            }
+        let (_, source_presentation_operation_id) = self
+            .reconcile_window_presentation(&source_window_id, "provisional-move-source")?;
+        let source_receipt =
+            self.wait_native_operation_summary(&source_presentation_operation_id)?;
+        if !matches!(
+            source_receipt.status,
+            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+        ) {
+            return Err("The source presentation was superseded before reparent.".to_owned());
         }
         for surface in &surfaces {
             #[cfg(target_os = "macos")]
@@ -150,6 +153,7 @@ impl SystemRuntimeExecutor {
                 .all(|live_tab_id| live_tab_id == tab_id);
             (source_is_empty, moved_surfaces)
         };
+        self.presentation.follow_live_projection_membership()?;
         for surface in &moved_surfaces {
             self.record_surface_event(
                 LogLevel::Debug,
@@ -158,33 +162,6 @@ impl SystemRuntimeExecutor {
                 surface,
             );
         }
-        let move_revision = self
-            .presentation
-            .existing(target_window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.revision))
-            .unwrap_or_else(|| self.presentation.current_revision());
-        let selected_tabs_after_move = self.presentation.selected_tabs();
-        let source_active_after_move = selected_tabs_after_move.get(&source_window_id).cloned();
-        let target_active_after_move = selected_tabs_after_move.get(target_window_id).cloned();
-        let source_presentation_result = if let Some(source_active_tab_id) =
-            source_active_after_move.as_deref()
-        {
-            self.request_tab_presentation(
-                source_active_tab_id,
-                NativePresentationFocus::None,
-                "provisional-move-source",
-            )
-                .map(|_| ())
-        } else {
-            self.apply_native_active_style(
-                &source_window_id,
-                None,
-                move_revision,
-                "provisional-move-source",
-            );
-            Ok(())
-        };
-        source_presentation_result?;
         self.apply_native_active_style(
             target_window_id,
             target_active_after_move.as_deref(),
@@ -197,31 +174,43 @@ impl SystemRuntimeExecutor {
                     .map_err(|error| error.message)?;
             }
             if tab_was_visible {
-                for surface in &surfaces {
-                    if hide_surfaces_before_reparent {
-                        surface.show().map_err(|error| error.to_string())?;
-                    }
-                }
-                if reveal_hidden_target || target_window_was_visible {
-                    target_window.show().map_err(|error| error.to_string())?;
+                let reveal_window = reveal_hidden_target || target_window_was_visible;
+                let (_, _, operation_id) = self.request_tab_presentation_with_window_visibility(
+                    tab_id,
+                    NativePresentationFocus::None,
+                    "provisional-move-target",
+                    reveal_window.then_some(true),
+                )?;
+                let receipt = self.wait_native_operation_summary(&operation_id)?;
+                if !matches!(
+                    receipt.status,
+                    SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+                ) {
+                    return Err("The target presentation was superseded after reparent.".to_owned());
                 }
             }
             if source_is_empty {
-                source_window.hide().map_err(|error| error.to_string())?;
+                let (_, operation_id) = self
+                    .request_window_contract_presentation(
+                        &source_window_id,
+                        Some(false),
+                        NativePresentationFocus::None,
+                        None,
+                        "provisional-move-empty-source",
+                    )
+                    .map_err(|error| error.message)?;
+                let receipt = self.wait_native_operation_summary(&operation_id)?;
+                if !matches!(
+                    receipt.status,
+                    SystemRuntimeOperationStatus::Applied
+                        | SystemRuntimeOperationStatus::Degraded
+                ) {
+                    return Err("The empty source window hide was superseded.".to_owned());
+                }
             }
             Ok::<(), String>(())
         })();
         reveal_result?;
-        if tab_was_visible
-            && target_active_after_move.as_deref() == Some(tab_id)
-        {
-            self.presentation.record_externally_applied_presentation(
-                target_window_id,
-                move_revision,
-                Some(tab_id),
-                &surfaces,
-            );
-        }
         if cfg!(target_os = "macos") && live_drag {
             self.schedule_live_tab_drag_layout(tab_id.to_owned());
         }
@@ -245,10 +234,24 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn show_tab_drag_window(&self, window_id: &str) -> Result<(), String> {
-        self.window_for_id(window_id)
-            .ok_or_else(|| "Tab drag window was not found.".to_owned())?
-            .show()
-            .map_err(|error| error.to_string())
+        let (_, operation_id) = self
+            .request_window_contract_presentation(
+                window_id,
+                Some(true),
+                NativePresentationFocus::None,
+                None,
+                "tab-drag-target-reveal",
+            )
+            .map_err(|error| error.message)?;
+        let receipt = self.wait_native_operation_summary(&operation_id)?;
+        if matches!(
+            receipt.status,
+            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+        ) {
+            Ok(())
+        } else {
+            Err("The tab drag target reveal was superseded.".to_owned())
+        }
     }
 
     pub fn discard_provisional_game_window(&self, window_id: &str) {

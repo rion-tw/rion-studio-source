@@ -14,10 +14,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({ type: "activate", tabId: "tab-1" })).toBe(true);
     expect(isRuntimeTabAction({
       type: "stop",
-      tabId: "tab-1",
-      orderedTabIds: ["tab-2"],
-      activeTabId: "tab-2",
-      windowGeneration: 4
+      tabId: "tab-1"
     })).toBe(true);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "window-22" })).toBe(true);
     expect(isRuntimeTabAction({
@@ -51,7 +48,7 @@ describe("runtime tab shell-neutral contracts", () => {
     expect(isRuntimeTabAction({
       type: "stop",
       tabId: "tab-1",
-      orderedTabIds: ["tab-2", "tab-2"]
+      orderedTabIds: ["tab-2"]
     })).toBe(false);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", windowId: "" })).toBe(false);
     expect(isRuntimeTabAction({ type: "move", tabId: "tab-1", displayId: 22 })).toBe(false);

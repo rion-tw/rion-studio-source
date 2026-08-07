@@ -109,6 +109,9 @@ impl SystemRuntimeExecutor {
         let main_window = app
             .get_webview_window("main")
             .ok_or_else(|| "The main Tauri window is unavailable.".to_owned())?;
+        if main_window.is_focused().unwrap_or(false) {
+            focus_broker.observe_application_foreground();
+        }
         let main_window_actor = MainWindowActor::start(
             app.clone(),
             main_window,

@@ -506,6 +506,7 @@ enum LiveTopologyCommitStatus {
 }
 
 struct LiveTopologyCommitReceipt {
+    membership_changed: bool,
     revision: u64,
     status: LiveTopologyCommitStatus,
     window_ids: Vec<String>,
@@ -541,8 +542,20 @@ struct PresentationRegistry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SurfacePresentationOwner {
     instance_id: String,
-    revision: u64,
+    owner_epoch: u64,
+    window_generation: u64,
     window_id: String,
+}
+
+fn surface_owner_matches_binding(
+    owner: &SurfacePresentationOwner,
+    instance_id: &str,
+    window_id: &str,
+    window_generation: u64,
+) -> bool {
+    owner.instance_id == instance_id
+        && owner.window_id == window_id
+        && owner.window_generation == window_generation
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -588,10 +601,14 @@ struct NativePresentationPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NativePresentationReceipt {
+    applied_surface_mutation_count: usize,
     applied_revision: Option<u64>,
     focused: Option<bool>,
     operation: NativeOperationReceipt,
+    planned_surface_mutation_count: usize,
+    skipped_surface_mutation_count: usize,
     status: NativePresentationStatus,
+    supersede_reason: Option<&'static str>,
     surface_identities: HashSet<(String, u64)>,
     visible: Option<bool>,
     window_id: String,
@@ -609,7 +626,10 @@ impl NativePresentationReceipt {
         let deadline_exceeded = plan.operation.remaining().is_zero();
         let status = if !outcome.visibility_errors.is_empty() {
             NativePresentationStatus::Failed
-        } else if !outcome.applied || outcome.focus_superseded {
+        } else if !outcome.applied
+            || outcome.focus_superseded
+            || outcome.skipped_surface_count > 0
+        {
             NativePresentationStatus::Superseded
         } else if native_truth_mismatch || deadline_exceeded {
             NativePresentationStatus::Degraded
@@ -621,8 +641,22 @@ impl NativePresentationReceipt {
         } else {
             "nativePresentation"
         };
+        let supersede_reason = if status != NativePresentationStatus::Superseded {
+            None
+        } else if outcome.skipped_surface_count > 0 {
+            Some("surfaceOwnerTokenMismatch")
+        } else if outcome.focus_superseded {
+            Some("focusLeaseSuperseded")
+        } else if !outcome.applied {
+            Some("presentationIntentSuperseded")
+        } else {
+            None
+        };
         Self {
-            applied_revision: outcome.applied.then_some(plan.revision),
+            applied_surface_mutation_count: outcome
+                .hidden_surface_count
+                .saturating_add(outcome.shown_surface_count),
+            applied_revision: outcome.presentation_applied.then_some(plan.revision),
             focused: outcome.window_focused_after,
             operation: NativeOperationReceipt::with_status(
                 plan.operation.clone(),
@@ -630,13 +664,18 @@ impl NativePresentationReceipt {
                 status,
                 if !outcome.visibility_errors.is_empty() {
                     Some("NATIVE_PRESENTATION_FAILED")
+                } else if outcome.skipped_surface_count > 0 {
+                    Some("NATIVE_SURFACE_OWNER_SUPERSEDED")
                 } else if deadline_exceeded {
                     Some("NATIVE_PRESENTATION_DEADLINE_EXCEEDED")
                 } else {
                     None
                 },
             ),
+            planned_surface_mutation_count: outcome.planned_surface_mutation_count,
+            skipped_surface_mutation_count: outcome.skipped_surface_count,
             status,
+            supersede_reason,
             surface_identities: if outcome.presentation_applied {
                 plan.surface_identities.clone()
             } else {
@@ -703,7 +742,7 @@ struct NativePresentationRequest {
     requested_at: Instant,
     revision: u64,
     expected_lifecycle_epoch: u64,
-    surface_owner_revisions: HashMap<String, u64>,
+    surface_owner_tokens: HashMap<String, SurfacePresentationOwner>,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     shutdown_state: Arc<AtomicU8>,
     application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
@@ -711,6 +750,7 @@ struct NativePresentationRequest {
     tab_id: Option<String>,
     trigger: &'static str,
     window: Window,
+    window_generation: u64,
     window_id: String,
     window_mode: Option<NativeWindowMode>,
     window_visibility: Option<bool>,
@@ -748,8 +788,10 @@ struct NativePresentationOutcome {
     main_queue_wait_ms: u64,
     main_thread_ms: u64,
     no_op: bool,
+    planned_surface_mutation_count: usize,
     shown_surface_count: usize,
     show_ms: u64,
+    skipped_surface_count: usize,
     visibility_errors: Vec<String>,
     webview_focus_ms: u64,
     window_focused_after: Option<bool>,

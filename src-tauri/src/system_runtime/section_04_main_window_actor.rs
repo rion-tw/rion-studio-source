@@ -641,7 +641,7 @@ fn apply_main_window_command(
             let _ = crate::quick_menu_macos::activate_application();
         }
         native_failed |= window.unminimize().is_err();
-        native_failed |= window.show().is_err();
+        native_failed |= request_platform_webview_window_show(window).is_err();
         native_failed |= window.set_focus().is_err();
         let submitted = !native_failed && focus_broker.mark_submitted(focus_lease);
         return if native_failed {
@@ -687,10 +687,10 @@ fn apply_main_window_command(
             {
                 native_failed |= app.show().is_err();
             }
-            if before.minimized {
+            if before.minimized && !cfg!(windows) {
                 native_failed |= window.unminimize().is_err();
             }
-            native_failed |= window.show().is_err();
+            native_failed |= request_platform_webview_window_show(window).is_err();
         }
         MainWindowCommand::Show { focus: true } => unreachable!(),
         MainWindowCommand::StartDragging => native_failed |= window.start_dragging().is_err(),
@@ -777,6 +777,20 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> RuntimeResult<String> {
         self.require_runtime_accepting()?;
+        let window_generation = self.main_window_actor.generation();
+        let focus_origin = native_focus_intent_origin(trigger);
+        let command = if matches!(command, MainWindowCommand::Show { focus: true })
+            && self.focus_broker.admitted_focus(
+                NativePresentationFocus::WindowAndContent,
+                "main",
+                window_generation,
+                focus_origin,
+            ) == NativePresentationFocus::None
+        {
+            MainWindowCommand::Show { focus: false }
+        } else {
+            command
+        };
         let operation = if command.requests_focus() {
             NativeOperationContext::new_event_bound(
                 NativeOperationSubsystem::Presentation,
@@ -791,18 +805,19 @@ impl SystemRuntimeExecutor {
         }
         .with_completion_scope(command.completion_scope())
         .with_window("main")
-        .with_window_generation(self.main_window_actor.generation())
+        .with_window_generation(window_generation)
         .with_lifecycle_epoch(self.lifecycle_epoch());
         self.operations.register(operation.clone()).map_err(|code| {
             RuntimeError::new(code, "The main-window operation could not be accepted.")
         })?;
         let focus_lease = matches!(command, MainWindowCommand::Show { focus: true }).then(|| {
-            self.focus_broker.accept(
+            self.focus_broker.accept_with_origin(
                 "main",
-                self.main_window_actor.generation(),
+                window_generation,
                 self.lifecycle_epoch(),
                 None,
                 NativePresentationFocus::WindowAndContent,
+                focus_origin,
             )
         });
         let operation_id = operation.operation_id.clone();

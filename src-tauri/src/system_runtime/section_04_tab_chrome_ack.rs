@@ -152,25 +152,20 @@ impl SystemRuntimeExecutor {
         webview_label: &str,
         revision: u64,
     ) -> Result<(), String> {
-        let host = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
-                (host.tab_strip.label() == webview_label)
-                    .then(|| (window_id.clone(), host.generation))
-            })
+        let authorized = self.state.lock().ok().is_some_and(|state| {
+            state
+                .display_hosts
+                .values()
+                .any(|host| host.tab_strip.label() == webview_label)
         });
-        let Some((window_id, window_generation)) = host else {
+        if !authorized {
             return Err("The Windows tab chrome acknowledgement is invalid.".to_owned());
-        };
+        }
         if revision == 0 {
             return Err("The Windows tab chrome acknowledgement is invalid.".to_owned());
         }
         self.presentation
             .acknowledge_tab_chrome(webview_label, revision);
-        self.observe_windows_tab_chrome_reveal(
-            &window_id,
-            window_generation,
-            WindowsTabChromeRevealSignal::ContentPainted,
-        );
         Ok(())
     }
 

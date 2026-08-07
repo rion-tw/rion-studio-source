@@ -106,7 +106,7 @@ impl SystemRuntimeExecutor {
                 .map(|host| host.window.clone())
                 .ok_or_else(|| "Runtime display host was not found.".to_owned())?
         };
-        set_tab_drag_window_interaction(&window, false, true)?;
+        set_tab_drag_window_interaction(&window, false)?;
         self.request_window_contract_presentation(
             window_id,
             Some(true),

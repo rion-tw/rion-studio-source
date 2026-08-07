@@ -106,6 +106,41 @@ pub struct RuntimeTabMutationRequestRecord {
     pub lifecycle_epoch: u64,
 }
 
+/// An adapter-authenticated tab intent. Window identity, generation, and order
+/// are deliberately absent: the native runtime derives them from the registered
+/// AppKit/WebView adapter that emitted the intent.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabIntentRecord {
+    pub intent_id: String,
+    #[ts(type = "number")]
+    pub adapter_sequence: u64,
+    pub renderer_instance_id: String,
+    #[ts(type = "\"stop\"")]
+    pub intent_kind: String,
+    pub tab_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabIntentReceiptRecord {
+    pub intent_id: String,
+    pub status: SystemRuntimeOperationStatus,
+    pub topology_committed: bool,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cleanup_operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -155,6 +190,8 @@ pub struct RuntimeTabChromeProjectionRecord {
     pub lifecycle_epoch: u64,
     #[ts(type = "number")]
     pub projection_revision: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
     pub tabs: Vec<RuntimeTabChromeItemRecord>,
     pub tab_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,6 +230,8 @@ pub struct RuntimeTabChromeAcknowledgementRecord {
     pub renderer_instance_id: String,
     #[ts(type = "number")]
     pub projection_revision: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
     pub observed_tab_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

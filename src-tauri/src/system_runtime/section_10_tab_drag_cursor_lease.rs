@@ -26,14 +26,13 @@ fn tab_drag_cursor_release_allowed(
 fn set_tab_drag_window_interaction(
     window: &Window,
     pointer_passthrough: bool,
-    focus_window: bool,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         crate::runtime_tabs_macos::set_appkit_window_interaction(
             window,
             pointer_passthrough,
-            focus_window,
+            false,
         )
     }
     #[cfg(not(target_os = "macos"))]
@@ -41,9 +40,6 @@ fn set_tab_drag_window_interaction(
         window
             .set_ignore_cursor_events(pointer_passthrough)
             .map_err(|error| error.to_string())?;
-        if !pointer_passthrough && focus_window {
-            window.set_focus().map_err(|error| error.to_string())?;
-        }
         Ok(())
     }
 }
@@ -62,7 +58,7 @@ impl SystemRuntimeExecutor {
                 .is_some_and(|lease| lease.window_generation == window_generation)
         });
         if leased {
-            set_tab_drag_window_interaction(window, true, false)?;
+            set_tab_drag_window_interaction(window, true)?;
         }
         Ok(())
     }
@@ -98,7 +94,7 @@ impl SystemRuntimeExecutor {
             );
             (window, window_generation)
         };
-        if let Err(error) = set_tab_drag_window_interaction(&window, true, false) {
+        if let Err(error) = set_tab_drag_window_interaction(&window, true) {
             if let Ok(mut state) = self.state.lock()
                 && state
                     .tab_drag_cursor_leases
@@ -109,7 +105,7 @@ impl SystemRuntimeExecutor {
             {
                 state.tab_drag_cursor_leases.remove(window_id);
             }
-            let _ = set_tab_drag_window_interaction(&window, false, false);
+            let _ = set_tab_drag_window_interaction(&window, false);
             return Err(error);
         }
         Ok(())
@@ -191,7 +187,7 @@ impl SystemRuntimeExecutor {
         let Some((window, lease_generation)) = window else {
             return Ok(false);
         };
-        set_tab_drag_window_interaction(&window, false, false)?;
+        set_tab_drag_window_interaction(&window, false)?;
         self.reassert_tab_drag_pointer_passthrough_if_leased(
             window_id,
             lease_generation,

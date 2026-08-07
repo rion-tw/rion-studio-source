@@ -282,7 +282,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain('"windowFocusMs": outcome.window_focus_ms');
     expect(runtime).toContain('"webViewFocusMs": outcome.webview_focus_ms');
     expect(runtime).toContain("struct NativeFocusBroker {");
-    expect(runtime).toContain("focus_broker.accept(");
+    expect(runtime).toContain("focus_broker.accept_with_origin(");
+    expect(runtime).toContain("NativeFocusIntentOrigin::UserGesture");
     expect(runtime).toContain("focus_broker.begin_mutation(lease)");
     expect(runtime).toContain("observe_native_focus(");
     expect(runtime).toContain("revoke_window(window_id, host.generation)");
@@ -684,20 +685,27 @@ it("retains the live destination when native surface projection fails", async ()
       new URL("../src-tauri/src/system_runtime/section_11_provisionally_move_tab_with_visibility.rs", import.meta.url),
       "utf8"
     )]);
-    const hidePhase = move.indexOf("for surface in &surfaces");
+    const sourceProjection = move.indexOf(
+      'reconcile_window_presentation(&source_window_id, "provisional-move-source")'
+    );
+    const sourceReceipt = move.indexOf(
+      "wait_native_operation_summary(&source_presentation_operation_id)"
+    );
     const reparentPhase = move.indexOf("surface.reparent(&target_window)");
     const reparentSyncPhase = move.indexOf("synchronize_windows_reparented_surfaces(");
-    const presentationRead = move.indexOf("let selected_tabs_after_move");
+    const membershipApply = move.indexOf("follow_live_projection_membership()");
     const revealPhase = move.indexOf("let reveal_result");
-    expect(hidePhase).toBeGreaterThan(-1);
-    expect(reparentPhase).toBeGreaterThan(hidePhase);
+    expect(sourceProjection).toBeGreaterThan(-1);
+    expect(sourceReceipt).toBeGreaterThan(sourceProjection);
+    expect(reparentPhase).toBeGreaterThan(sourceReceipt);
     expect(reparentSyncPhase).toBeGreaterThan(reparentPhase);
     expect(move).not.toContain("tab.window_id = target_window_id.to_owned()");
-    expect(presentationRead).toBeGreaterThan(reparentSyncPhase);
-    expect(revealPhase).toBeGreaterThan(presentationRead);
+    expect(membershipApply).toBeGreaterThan(reparentSyncPhase);
+    expect(revealPhase).toBeGreaterThan(membershipApply);
     expect(move).not.toContain("self.relocate_native_tab_reservation(");
     expect(move).not.toContain("commit_live_topology(");
     expect(move).not.toContain("presentation.move_tab(");
+    expect(move).not.toContain("surface.hide()");
     expect(move).toContain('"provisional-move"');
     expect(move).not.toContain("retain_live_destination_after_surface_error(");
     expect(move).not.toContain("surface_projection_error(");

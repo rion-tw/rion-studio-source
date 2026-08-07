@@ -16,6 +16,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtimeTabs";
 import type {
+  RuntimeTabIntentReceiptRecord,
+  RuntimeTabIntentRecord,
   RuntimeTabChromeProjectionRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../shared/generated";
@@ -30,6 +32,7 @@ import {
   installRuntimeTabStrip,
   tabElements
 } from "./runtimeTabStrip/entry";
+import { announceChromeReady } from "./runtimeTabStrip/chromeProjection";
 
 declare global {
   interface Window {
@@ -109,7 +112,9 @@ export const runtimeState = {
   chromeHydrated: false,
   current: undefined as RuntimeTabStripState | undefined,
   optimisticActiveTabId: undefined as string | undefined,
+  intentSequence: 0,
   projectionRevision: 0,
+  topologyRevision: 0,
   rendererInstanceId: globalThis.crypto?.randomUUID?.()
     ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
   renderRevision: 0,
@@ -203,15 +208,21 @@ export const dispatch = (action: RuntimeTabAction): void => {
   if (action.type === "activate") optimisticallyActivateTab(action.tabId);
   else if (action.type === "activateAdjacent") optimisticallyActivateAdjacentTab(action.direction);
   else if (action.type === "stop") optimisticallyCloseTab(action.tabId);
-  const committedAction: RuntimeTabAction = action.type === "stop" ? {
-    ...action,
-    orderedTabIds: logicalRuntimeTabOrder(),
-    ...(runtimeState.activeTabId ? { activeTabId: runtimeState.activeTabId } : {}),
-    ...(window.__rionRuntimeTabChromeIdentity?.windowGeneration
-      ? { windowGeneration: window.__rionRuntimeTabChromeIdentity.windowGeneration }
-      : {})
-  } : action;
-  const invokeAction = () => invoke<SystemRuntimeOperationSummaryRecord | null>(
+  const committedAction = action.type === "stop" ? (() => {
+    runtimeState.intentSequence += 1;
+    const intent: RuntimeTabIntentRecord = {
+      adapterSequence: runtimeState.intentSequence,
+      intentId: globalThis.crypto?.randomUUID?.()
+        ?? `${runtimeState.rendererInstanceId}-${runtimeState.intentSequence}`,
+      intentKind: "stop",
+      rendererInstanceId: runtimeState.rendererInstanceId,
+      tabId: action.tabId
+    };
+    return { type: "stop", intent };
+  })() : action;
+  const invokeAction = () => invoke<
+    RuntimeTabIntentReceiptRecord | SystemRuntimeOperationSummaryRecord | null
+  >(
     "rion_runtime_tab_action",
     { action: committedAction }
   );
@@ -219,28 +230,60 @@ export const dispatch = (action: RuntimeTabAction): void => {
     ? runtimeTabReorderBarrier.then(invokeAction)
     : invokeAction();
   void invocation.then(async (receipt) => {
+    if (action.type === "stop") {
+      const intentReceipt = receipt as RuntimeTabIntentReceiptRecord | null;
+      if (!intentReceipt) return;
+      if (!intentReceipt.topologyCommitted) {
+        announceChromeReady(
+          runtimeState.rendererInstanceId,
+          window.__rionRuntimeTabChromeIdentity
+        );
+      }
+      if (intentReceipt.status === "degraded"
+        || intentReceipt.status === "failed"
+        || intentReceipt.status === "indeterminate") {
+        await emit("rion://shell-error", {
+          code: intentReceipt.failureCode ?? "SYSTEM_TAB_STOP_DEGRADED",
+          message: intentReceipt.topologyCommitted
+            ? "The tab was closed, but native cleanup completed with reduced guarantees."
+            : "The tab close intent was rejected before the live topology commit."
+        });
+      }
+      return;
+    }
+    const operationReceipt = receipt as SystemRuntimeOperationSummaryRecord | null;
     const handlesReceipt = action.type === "hide"
       || action.type === "move"
       || action.type === "reorder"
-      || action.type === "stop"
       || (action.type === "windowControl" && action.control !== "close");
-    if (!handlesReceipt || !receipt || action.type === "stop") return;
+    if (!handlesReceipt || !operationReceipt) return;
     try {
-      handleSystemRuntimeReceipt(receipt);
-      if (receipt.status === "degraded") {
+      handleSystemRuntimeReceipt(operationReceipt);
+      if (operationReceipt.status === "degraded") {
         await emit("rion://shell-error", {
-          code: receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_DEGRADED",
+          code: operationReceipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_DEGRADED",
           message: "The native window operation completed with reduced guarantees."
         });
       }
     } catch (error) {
       const issue = error as { code?: string; message?: string };
       await emit("rion://shell-error", {
-        code: issue.code ?? receipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_FAILED",
+        code: issue.code ?? operationReceipt.failureCode ?? "SYSTEM_NATIVE_OPERATION_FAILED",
         message: issue.message ?? "The native window operation failed."
       });
     }
-  }).catch(() => undefined);
+  }).catch(async (error: unknown) => {
+    if (action.type !== "stop") return;
+    announceChromeReady(
+      runtimeState.rendererInstanceId,
+      window.__rionRuntimeTabChromeIdentity
+    );
+    const issue = error as { code?: string; message?: string };
+    await emit("rion://shell-error", {
+      code: issue.code ?? "SYSTEM_TAB_STOP_RECEIPT_FAILED",
+      message: issue.message ?? "The authoritative tab close receipt was unavailable."
+    });
+  });
 };
 
 async function invokeRuntimeTabReorder(

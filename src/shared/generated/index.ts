@@ -69,6 +69,8 @@ export type { SystemRuntimeOperationStatus } from "./SystemRuntimeOperationStatu
 export type { SystemRuntimeOperationSubsystem } from "./SystemRuntimeOperationSubsystem";
 export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperationSummaryRecord";
 export type { RuntimeTabMutationRequestRecord } from "./RuntimeTabMutationRequestRecord";
+export type { RuntimeTabIntentRecord } from "./RuntimeTabIntentRecord";
+export type { RuntimeTabIntentReceiptRecord } from "./RuntimeTabIntentReceiptRecord";
 export type { RuntimeTabMoveResultRecord } from "./RuntimeTabMoveResultRecord";
 export type { RuntimeTabChromeItemRecord } from "./RuntimeTabChromeItemRecord";
 export type { RuntimeTabChromeProjectionRecord } from "./RuntimeTabChromeProjectionRecord";

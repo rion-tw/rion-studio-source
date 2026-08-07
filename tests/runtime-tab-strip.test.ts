@@ -3,13 +3,18 @@
 import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RuntimeTabChromeProjectionRecord } from "../src/shared/generated";
 import type { RuntimeTabStripState } from "../src/shared/runtimeTabs";
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
+const { emit, invoke } = vi.hoisted(() => ({
+  emit: vi.fn(() => Promise.resolve()),
+  invoke: vi.fn((): Promise<unknown> => Promise.resolve(undefined))
+}));
 let resizeObserverCallback: ResizeObserverCallback | undefined;
 let runtimeTabStripModule: typeof import("../src/renderer/runtime-shell/runtimeTabStrip");
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/event", () => ({ emit }));
 
 const state: RuntimeTabStripState = {
   revision: 1,
@@ -63,6 +68,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   invoke.mockReset();
   invoke.mockResolvedValue(undefined);
+  emit.mockReset();
+  emit.mockResolvedValue(undefined);
   window.__rionRuntimeTabChromeIdentity = undefined;
   installScrollGeometry(1_000, 140);
   window.__rionApplyRuntimeTabState?.(state);
@@ -71,6 +78,63 @@ beforeEach(async () => {
 
 function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function expectStopIntentAt(callIndex: number, tabId: string): void {
+  expect(invoke).toHaveBeenNthCalledWith(callIndex, "rion_runtime_tab_action", {
+    action: {
+      type: "stop",
+      intent: {
+        adapterSequence: expect.any(Number),
+        intentId: expect.any(String),
+        intentKind: "stop",
+        rendererInstanceId: expect.any(String),
+        tabId
+      }
+    }
+  });
+}
+
+function authoritativeSingleTabProjection(
+  projectionRevision: number,
+  topologyRevision: number
+): RuntimeTabChromeProjectionRecord {
+  return {
+    rendererInstanceId: runtimeTabStripModule.runtimeState.rendererInstanceId,
+    windowId: "window-1",
+    windowGeneration: 7,
+    lifecycleEpoch: 3,
+    projectionRevision,
+    topologyRevision,
+    tabs: [{
+      id: "tab-1",
+      name: "Workspace",
+      type: "workspace",
+      hidden: false,
+      audible: false,
+      muted: false,
+      loading: false,
+      degraded: false,
+      closable: true,
+      sourceId: "workspace-1",
+      phase: "ready",
+      roleIds: ["role-1"],
+      roleNames: []
+    }],
+    tabOrder: ["tab-1"],
+    activeTabId: "tab-1",
+    displayId: 11,
+    displays: [],
+    windowName: "Rion Studio",
+    windowMaximized: false,
+    fullscreen: false,
+    windowFullscreen: false,
+    toolbarVisible: true,
+    alwaysHideTabCloseButton: false,
+    alwaysShowToolbarInFullScreen: false,
+    language: "en",
+    theme: "light"
+  };
 }
 
 function installScrollGeometry(
@@ -324,9 +388,7 @@ it("renders workspace detail, audio state, and a stop control", () => {
     tab?.querySelector<HTMLElement>('[aria-label="停止並關閉分頁"]')?.click();
 
     expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
-    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
-      action: { type: "stop", tabId: "tab-1", orderedTabIds: [] }
-    });
+    expectStopIntentAt(1, "tab-1");
   });
 
 it("shows a keyboard-accessible close control only on the active tab", () => {
@@ -541,6 +603,63 @@ it("keeps close intent committed when the scoped native command is rejected", as
     expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
   });
 
+it("requests an authoritative projection and rehydrates a rejected optimistic close", async () => {
+    window.__rionRuntimeTabChromeIdentity = {
+      lifecycleEpoch: 3,
+      windowGeneration: 7,
+      windowId: "window-1"
+    };
+    invoke.mockResolvedValueOnce({
+      intentId: "intent-rejected",
+      status: "superseded",
+      topologyCommitted: false,
+      topologyRevision: 9,
+      windowGeneration: 7
+    });
+
+    document.querySelector<HTMLElement>("[data-tab-id='tab-1'] .close")?.click();
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
+      action: {
+        type: "tabChromeReady",
+        ready: {
+          lifecycleEpoch: 3,
+          rendererInstanceId: runtimeTabStripModule.runtimeState.rendererInstanceId,
+          windowGeneration: 7,
+          windowId: "window-1"
+        }
+      }
+    });
+
+    window.__rionApplyRuntimeTabChromeProjection?.(authoritativeSingleTabProjection(100, 10));
+    expect(document.querySelector('[data-tab-id="tab-1"]')).not.toBeNull();
+    await nextAnimationFrame();
+    await nextAnimationFrame();
+  });
+
+it("keeps a committed close removed when cleanup is degraded", async () => {
+    invoke.mockResolvedValueOnce({
+      cleanupOperationId: "cleanup-1",
+      failureCode: "NATIVE_CLEANUP_DEGRADED",
+      intentId: "intent-committed",
+      status: "degraded",
+      topologyCommitted: true,
+      topologyRevision: 11,
+      windowGeneration: 7
+    });
+
+    document.querySelector<HTMLElement>("[data-tab-id='tab-1'] .close")?.click();
+
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith("rion://shell-error", {
+      code: "NATIVE_CLEANUP_DEGRADED",
+      message: "The tab was closed, but native cleanup completed with reduced guarantees."
+    }));
+    expect(document.querySelector('[data-tab-id="tab-1"]')).toBeNull();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
 it("selects the right tab immediately when closing the active tab", () => {
     window.__rionApplyRuntimeTabState?.(stateWithTabs(1));
 
@@ -639,14 +758,7 @@ it("gives provisional and metadata-created tab controls the same keyboard behavi
     expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
       action: { type: "openTabMenu", tabId: "provisional-1" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
-      action: {
-        type: "stop",
-        tabId: "provisional-1",
-        orderedTabIds: ["tab-1"],
-        activeTabId: "tab-1"
-      }
-    });
+    expectStopIntentAt(2, "provisional-1");
 
     invoke.mockClear();
     window.__rionUpdateRuntimeTabMetadata?.({
@@ -706,9 +818,7 @@ it("removes close controls while preserving context-menu and middle-click stop a
     expect(invoke).toHaveBeenNthCalledWith(1, "rion_runtime_tab_action", {
       action: { type: "openTabMenu", tabId: "tab-1" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(2, "rion_runtime_tab_action", {
-      action: { type: "stop", tabId: "tab-1", orderedTabIds: [] }
-    });
+    expectStopIntentAt(2, "tab-1");
   });
 
 it("removes a presentation-locked tab close control without removing its action menu", () => {

@@ -53,7 +53,7 @@ async fn execute_tab_stop(
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
     let acceptance = state
         .runtime
-        .accept_tab_stop(tab_id, state.display_topology.current_revision())
+        .accept_tab_stop(tab_id, state.runtime.live_topology_revision())
         .map_err(|error| shell_error(error.code, error.message))?;
     let operation = match acceptance {
         RuntimeTabMutationAcceptance::Accepted(operation) => *operation,

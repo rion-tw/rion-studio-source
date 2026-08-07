@@ -218,18 +218,21 @@ fn automatic_role_setup_retry_allowed(
 
 fn native_surface_mutation_is_current(
     owners: &HashMap<String, SurfacePresentationOwner>,
-    expected_revisions: &HashMap<String, u64>,
+    expected_tokens: &HashMap<String, SurfacePresentationOwner>,
     surface_label: &str,
     window_id: &str,
+    window_generation: u64,
 ) -> bool {
-    let expected_revision = expected_revisions
-        .get(surface_label)
-        .copied()
-        .unwrap_or_default();
-    match owners.get(surface_label) {
-        Some(owner) => owner.window_id == window_id && owner.revision == expected_revision,
-        None => expected_revision == 0,
-    }
+    let Some(expected_owner) = expected_tokens.get(surface_label) else {
+        return false;
+    };
+    owners.get(surface_label).is_some_and(|owner| {
+        expected_owner.window_id == window_id
+            && expected_owner.window_generation == window_generation
+            && owner == expected_owner
+            && owner.window_id == window_id
+            && owner.window_generation == window_generation
+    })
 }
 
 fn native_presentation_intent_is_current(
@@ -319,14 +322,17 @@ fn native_window_focus_should_apply(
 
 fn presentation_owner_identities(
     surfaces: &[Webview],
-    revisions: &HashMap<String, u64>,
+    tokens: &HashMap<String, SurfacePresentationOwner>,
 ) -> HashSet<(String, u64)> {
     surfaces
         .iter()
         .map(|surface| {
             (
                 surface.label().to_owned(),
-                revisions.get(surface.label()).copied().unwrap_or_default(),
+                tokens
+                    .get(surface.label())
+                    .map(|owner| owner.owner_epoch)
+                    .unwrap_or_default(),
             )
         })
         .collect()
@@ -367,8 +373,10 @@ fn apply_native_presentation_batch(
             main_queue_wait_ms: 0,
             main_thread_ms: 0,
             no_op: false,
+            planned_surface_mutation_count: 0,
             shown_surface_count: 0,
             show_ms: 0,
+            skipped_surface_count: 0,
             visibility_errors: Vec::new(),
             webview_focus_ms: 0,
             window_focused_after: None,
@@ -382,10 +390,12 @@ fn apply_native_presentation_batch(
     }
     let previous_labels = presentation_surface_labels(&previous_surfaces);
     let next_labels = presentation_surface_labels(&request.next_surfaces);
+    let planned_surface_mutation_count = previous_labels.difference(&next_labels).count()
+        + next_labels.difference(&previous_labels).count();
     let ordered_window_control =
         request.window_mode.is_some() || request.window_visibility.is_some();
     let next_surface_mutation_identities =
-        presentation_owner_identities(&request.next_surfaces, &request.surface_owner_revisions);
+        presentation_owner_identities(&request.next_surfaces, &request.surface_owner_tokens);
     let mutation_plan = native_presentation_mutation_plan(
         previous_tab_id,
         &request.tab_id,
@@ -434,8 +444,10 @@ fn apply_native_presentation_batch(
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
             no_op: applied,
+            planned_surface_mutation_count: 0,
             shown_surface_count: 0,
             show_ms: 0,
+            skipped_surface_count: 0,
             visibility_errors: Vec::new(),
             webview_focus_ms: 0,
             window_focused_after: None,
@@ -455,14 +467,20 @@ fn apply_native_presentation_batch(
     let tab_id = request.tab_id.clone();
     let next_surfaces = request.next_surfaces.clone();
     let next_surface_identities = request.next_surface_identities.clone();
-    let surface_owner_revisions = request.surface_owner_revisions.clone();
+    let surface_owner_tokens = request.surface_owner_tokens.clone();
     let surface_owners = Arc::clone(&request.surface_owners);
     let active_webview = request.active_webview.clone();
     let window = request.window.clone();
+    let window_generation = request.window_generation;
     let window_id = request.window_id.clone();
     let window_mode = request.window_mode;
     let window_visibility = request.window_visibility;
     let mutation_plan = mutation_plan.clone();
+    let planned_surface_mutation_count = if mutation_plan.presentation_changed {
+        planned_surface_mutation_count
+    } else {
+        0
+    };
     let defer_window_focus_until_reveal = request.defer_window_focus_until_reveal;
     let requested_focus = request.focus;
     let focus_broker = Arc::clone(&request.focus_broker);
@@ -491,8 +509,10 @@ fn apply_native_presentation_batch(
                 main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128)
                     as u64,
                 no_op: false,
+                planned_surface_mutation_count: 0,
                 shown_surface_count: 0,
                 show_ms: 0,
+                skipped_surface_count: 0,
                 visibility_errors: Vec::new(),
                 webview_focus_ms: 0,
                 window_focused_after: None,
@@ -537,8 +557,10 @@ fn apply_native_presentation_batch(
                 main_queue_wait_ms,
                 main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
                 no_op: false,
+                planned_surface_mutation_count: 0,
                 shown_surface_count: 0,
                 show_ms: 0,
+                skipped_surface_count: 0,
                 visibility_errors: Vec::new(),
                 webview_focus_ms: 0,
                 window_focused_after: None,
@@ -553,6 +575,7 @@ fn apply_native_presentation_batch(
         }
         let mut visibility_errors = Vec::new();
         let mut hidden_surface_count = 0;
+        let mut skipped_surface_count = 0_usize;
         let mut shown_surface_count = 0;
         let surface_owners = surface_owners.lock().ok().map(|owners| owners.clone());
         if presentation_current && mutation_plan.presentation_changed && surface_owners.is_none() {
@@ -569,10 +592,12 @@ fn apply_native_presentation_batch(
                 }
                 if !native_surface_mutation_is_current(
                     surface_owners,
-                    &surface_owner_revisions,
+                    &surface_owner_tokens,
                     surface.label(),
                     &window_id,
+                    window_generation,
                 ) {
+                    skipped_surface_count = skipped_surface_count.saturating_add(1);
                     continue;
                 }
                 match surface.hide() {
@@ -593,10 +618,12 @@ fn apply_native_presentation_batch(
                 }
                 if !native_surface_mutation_is_current(
                     surface_owners,
-                    &surface_owner_revisions,
+                    &surface_owner_tokens,
                     surface.label(),
                     &window_id,
+                    window_generation,
                 ) {
+                    skipped_surface_count = skipped_surface_count.saturating_add(1);
                     continue;
                 }
                 match surface.show() {
@@ -624,7 +651,7 @@ fn apply_native_presentation_batch(
                 .as_ref()
                 .is_none_or(|lease| focus_broker.mark_submitted(lease));
         let apply_window_focus = native_window_focus_should_apply(
-            presentation_current,
+            presentation_current && skipped_surface_count == 0,
             ordered_window_control,
             mutation_plan.apply_window_focus,
             focus_current && focus_submission_current,
@@ -709,6 +736,7 @@ fn apply_native_presentation_batch(
             .min(u64::MAX as u128) as u64;
         let webview_focus_started_at = Instant::now();
         if presentation_current
+            && skipped_surface_count == 0
             && mutation_plan.apply_content_focus
             && focus_current
             && focus_submission_current
@@ -756,9 +784,14 @@ fn apply_native_presentation_batch(
                 false
             }
         });
+        let mutations_complete = visibility_errors.is_empty() && skipped_surface_count == 0;
+        let presentation_applied = presentation_current && mutations_complete;
+        let applied = (presentation_current || ordered_window_control)
+            && mutations_complete
+            && !focus_superseded;
         let _ = sender.send(NativePresentationOutcome {
-            applied: true,
-            presentation_applied: presentation_current,
+            applied,
+            presentation_applied,
             focus_applied,
             focus_superseded,
             hidden_surface_count,
@@ -766,8 +799,10 @@ fn apply_native_presentation_batch(
             main_queue_wait_ms,
             main_thread_ms: main_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
             no_op: false,
+            planned_surface_mutation_count,
             shown_surface_count,
             show_ms,
+            skipped_surface_count,
             visibility_errors,
             webview_focus_ms,
             window_focused_after,
@@ -801,8 +836,10 @@ fn apply_native_presentation_batch(
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
             no_op: false,
+            planned_surface_mutation_count: 0,
             shown_surface_count: 0,
             show_ms: 0,
+            skipped_surface_count: 0,
             visibility_errors: vec![error.to_string()],
             webview_focus_ms: 0,
             window_focused_after: None,
@@ -830,8 +867,10 @@ fn apply_native_presentation_batch(
                 .min(u64::MAX as u128) as u64,
             main_thread_ms: 0,
             no_op: false,
+            planned_surface_mutation_count: 0,
             shown_surface_count: 0,
             show_ms: 0,
+            skipped_surface_count: 0,
             visibility_errors: vec![
                 "The native presentation callback was disconnected.".to_owned(),
             ],

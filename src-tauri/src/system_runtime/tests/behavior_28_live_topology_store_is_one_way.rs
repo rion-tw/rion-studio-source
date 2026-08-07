@@ -45,6 +45,7 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
         .unwrap();
 
     assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
+    assert!(receipt.membership_changed);
     assert_eq!(receipt.window_ids, ["window-a", "window-b"]);
     let windows = store.windows.lock().unwrap();
     let window_a = windows["window-a"].lock().unwrap();
@@ -54,6 +55,45 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
     assert_eq!(window_b.selected_tab_id.as_deref(), Some("tab-b"));
     assert_eq!(window_a.revision, window_b.revision);
     assert_eq!(window_a.revision, receipt.revision);
+}
+
+#[test]
+fn selection_order_and_metadata_commits_do_not_request_membership_rebinding() {
+    let store = LiveWindowTabStore::default();
+    let commit = |sequence, active: &str, tabs: Vec<LiveTabRecord>| LiveTopologyCommitInput {
+        commit_id: format!("commit-{sequence}"),
+        source: "command",
+        primary_window_id: "window-a".to_owned(),
+        windows: vec![LiveWindowTopologyCommit {
+            active_tab_id: Some(active.to_owned()),
+            hidden_tab_ids: HashSet::new(),
+            tabs,
+            ui_sequence: sequence,
+            window_generation: 3,
+            window_id: "window-a".to_owned(),
+        }],
+    };
+    let initial = store
+        .commit(commit(
+            1,
+            "tab-a",
+            vec![topology_tab("tab-a"), topology_tab("tab-b")],
+        ))
+        .unwrap();
+    assert!(initial.membership_changed);
+
+    let mut renamed = topology_tab("tab-a");
+    renamed.title = "renamed".to_owned();
+    let presentation_only = store
+        .commit(commit(
+            2,
+            "tab-b",
+            vec![topology_tab("tab-b"), renamed],
+        ))
+        .unwrap();
+
+    assert_eq!(presentation_only.status, LiveTopologyCommitStatus::Applied);
+    assert!(!presentation_only.membership_changed);
 }
 
 #[test]

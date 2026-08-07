@@ -14,6 +14,7 @@ impl LiveWindowTabStore {
             .map_err(|_| "The live topology commit lane is unavailable.".to_owned())?;
         if input.windows.is_empty() {
             return Ok(LiveTopologyCommitReceipt {
+                membership_changed: false,
                 revision: self.next_revision.load(Ordering::Acquire),
                 status: LiveTopologyCommitStatus::Superseded,
                 window_ids: Vec::new(),
@@ -54,6 +55,7 @@ impl LiveWindowTabStore {
         });
         if stale {
             return Ok(LiveTopologyCommitReceipt {
+                membership_changed: false,
                 revision: self.next_revision.load(Ordering::Acquire),
                 status: LiveTopologyCommitStatus::Superseded,
                 window_ids: commits
@@ -73,6 +75,11 @@ impl LiveWindowTabStore {
                 }
             }
         }
+        let membership_changed = commits.iter().zip(states.iter()).any(|(commit, state)| {
+            commit.window_generation != state.window_generation
+                || commit.tabs.iter().map(|tab| &tab.id).collect::<HashSet<_>>()
+                    != state.tabs.iter().map(|tab| &tab.id).collect::<HashSet<_>>()
+        });
         let revision = self
             .next_revision
             .fetch_add(1, Ordering::AcqRel)
@@ -120,6 +127,7 @@ impl LiveWindowTabStore {
         }
         drop(states);
         Ok(LiveTopologyCommitReceipt {
+            membership_changed,
             revision,
             status: LiveTopologyCommitStatus::Applied,
             window_ids: commits
@@ -246,9 +254,15 @@ impl PresentationRegistry {
             return Ok((next.selected_tab_id, next.revision));
         }
         let was_selected = next.selected_tab_id.as_deref() == Some(tab_id);
+        let successor = was_selected
+            .then(|| {
+                successor_tab_after_close(&next.tab_ids(), tab_id, |candidate| {
+                    !next.hidden_tab_ids.contains(candidate)
+                })
+            })
+            .flatten();
         next.remove_tab(tab_id, 0);
         if was_selected {
-            let successor = next.tabs.last().map(|tab| tab.id.clone());
             next.select(successor, 0);
         }
         let receipt = self.commit_live_window_record(source, window_id, &next)?;
@@ -260,7 +274,7 @@ impl PresentationRegistry {
         input: LiveTopologyCommitInput,
     ) -> Result<LiveTopologyCommitReceipt, String> {
         let receipt = self.live.commit(input)?;
-        if receipt.status == LiveTopologyCommitStatus::Applied {
+        if receipt.status == LiveTopologyCommitStatus::Applied && receipt.membership_changed {
             self.projection
                 .membership_requested_revision
                 .fetch_max(receipt.revision, Ordering::AcqRel);
@@ -302,7 +316,7 @@ impl PresentationRegistry {
                 .collect::<Vec<_>>()
             })
             .map_err(|_| "The live topology registry is unavailable.".to_owned())?;
-        let mut owner_by_tab = HashMap::<String, String>::new();
+        let mut owner_by_tab = HashMap::<String, (String, u64)>::new();
         let mut live_window_ids = Vec::with_capacity(live_windows.len());
         for (window_id, live) in &live_windows {
             let live = live
@@ -310,7 +324,10 @@ impl PresentationRegistry {
                 .map_err(|_| "A live topology window is unavailable.".to_owned())?;
             live_window_ids.push(window_id.clone());
             for tab in &live.tabs {
-                owner_by_tab.insert(tab.id.clone(), window_id.clone());
+                owner_by_tab.insert(
+                    tab.id.clone(),
+                    (window_id.clone(), live.window_generation),
+                );
             }
         }
         let projection_windows = {
@@ -345,14 +362,26 @@ impl PresentationRegistry {
                     .map_err(|_| "A native projection window is unavailable.".to_owned())?,
             );
         }
-        let mut bindings_by_tab = HashMap::<String, Vec<SurfacePresentationBinding>>::new();
-        for projection in &mut projection_guards {
-            for (tab_id, bindings) in std::mem::take(&mut projection.surface_bindings) {
-                bindings_by_tab.entry(tab_id).or_default().extend(bindings);
+        let mut moved_bindings = HashMap::<String, Vec<SurfacePresentationBinding>>::new();
+        for (index, (current_window_id, _)) in projection_windows.iter().enumerate() {
+            let moving_tab_ids = projection_guards[index]
+                .surface_bindings
+                .keys()
+                .filter(|tab_id| {
+                    owner_by_tab
+                        .get(*tab_id)
+                        .is_some_and(|(owner_window_id, _)| owner_window_id != current_window_id)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for tab_id in moving_tab_ids {
+                if let Some(bindings) = projection_guards[index].surface_bindings.remove(&tab_id) {
+                    moved_bindings.entry(tab_id).or_default().extend(bindings);
+                }
             }
         }
-        for (tab_id, bindings) in bindings_by_tab {
-            let Some(window_id) = owner_by_tab.get(&tab_id) else {
+        for (tab_id, bindings) in moved_bindings {
+            let Some((window_id, _)) = owner_by_tab.get(&tab_id) else {
                 continue;
             };
             let Some(index) = projection_windows
@@ -361,23 +390,49 @@ impl PresentationRegistry {
             else {
                 continue;
             };
-            let owner_revision = self
-                .next_surface_owner_revision
-                .fetch_add(1, Ordering::AcqRel)
-                .saturating_add(1);
-            for binding in &bindings {
-                surface_owners.insert(
-                    binding.webview.label().to_owned(),
-                    SurfacePresentationOwner {
-                        instance_id: binding.instance_id.clone(),
-                        revision: owner_revision,
-                        window_id: window_id.clone(),
-                    },
-                );
-            }
             projection_guards[index]
                 .surface_bindings
-                .insert(tab_id, bindings);
+                .entry(tab_id)
+                .or_default()
+                .extend(bindings);
+        }
+        for (index, (window_id, _)) in projection_windows.iter().enumerate() {
+            for (tab_id, bindings) in &projection_guards[index].surface_bindings {
+                let Some((owner_window_id, window_generation)) = owner_by_tab.get(tab_id) else {
+                    // Destructive isolation owns final unbind. Retain both the
+                    // binding and exact token so close projection can hide it.
+                    continue;
+                };
+                if owner_window_id != window_id {
+                    continue;
+                }
+                for binding in bindings {
+                    let label = binding.webview.label();
+                    let owner_is_unchanged = surface_owners.get(label).is_some_and(|owner| {
+                        surface_owner_matches_binding(
+                            owner,
+                            &binding.instance_id,
+                            owner_window_id,
+                            *window_generation,
+                        )
+                    });
+                    if !owner_is_unchanged {
+                        let owner_epoch = self
+                            .next_surface_owner_revision
+                            .fetch_add(1, Ordering::AcqRel)
+                            .saturating_add(1);
+                        surface_owners.insert(
+                            label.to_owned(),
+                            SurfacePresentationOwner {
+                                instance_id: binding.instance_id.clone(),
+                                owner_epoch,
+                                window_generation: *window_generation,
+                                window_id: owner_window_id.clone(),
+                            },
+                        );
+                    }
+                }
+            }
         }
         self.projection
             .membership_applied_revision

@@ -43,7 +43,9 @@ fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
 
 #[cfg(windows)]
 fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
-    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_SHOW, ShowWindowAsync};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
+    };
 
     let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
     if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
@@ -55,7 +57,21 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
     // Use the same owning-thread queue as retirement hides. An unconditional
     // later show supersedes a hide that was already posted by the old empty
     // host generation, even if synchronous visibility readback is stale.
-    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOW) };
+    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
+    Ok(())
+}
+
+#[cfg(windows)]
+fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 main-window handle is no longer valid.".to_owned());
+    }
+    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
     Ok(())
 }
 

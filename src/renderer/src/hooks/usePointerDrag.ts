@@ -109,6 +109,7 @@ export function usePointerDrag<TPayload>({
       event.stopImmediatePropagation();
       window.clearTimeout(timeoutId);
     };
+    // event-topology-exception: pointer-drag-click-suppression-expiry
     const timeoutId = window.setTimeout(() => {
       source.removeEventListener("click", suppress, true);
     }, CLICK_SUPPRESSION_MS);

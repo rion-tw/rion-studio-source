@@ -67,6 +67,7 @@ export function MacroBadgePositionSettingsRows({
       clearTimeout(saveTimerRef.current);
     }
 
+    // event-topology: coalesce
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
       void flushSave();

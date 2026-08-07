@@ -147,6 +147,7 @@ function loadRequest(request: GoogleFontPreviewRequest): void {
   link.dataset.rionGoogleFontPreview = "true";
   previewLinks.add(link);
   let settled = false;
+  // event-topology-exception: google-font-preview-load-deadline
   const timeout = window.setTimeout(() => settle(false), LOAD_TIMEOUT_MS);
 
   const settle = (loaded: boolean): void => {

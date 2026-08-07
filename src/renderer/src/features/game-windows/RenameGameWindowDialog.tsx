@@ -48,7 +48,9 @@ export function RenameGameWindowDialog({
 
     setName(gameWindow.name);
     if (!dialog.open) dialog.showModal();
+    // event-topology: presentation
     window.setTimeout(() => {
+      // event-topology: presentation
       window.setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();

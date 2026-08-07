@@ -65,6 +65,7 @@ function ConfirmationDialog({
 
     if (pending && !dialog.open) {
       dialog.showModal();
+      // event-topology: presentation
       window.setTimeout(() => cancelButtonRef.current?.focus(), 0);
     } else if (!pending && dialog.open) {
       dialog.close();

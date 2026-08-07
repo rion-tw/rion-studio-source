@@ -76,6 +76,7 @@
     const element = ensureIndicator("zoom");
     element.textContent = String(label || "");
     clearTimeout(zoomTimer);
+    // event-topology: presentation
     zoomTimer = setTimeout(() => {
       element.remove();
       if (zoomIndicator === element) zoomIndicator = undefined;

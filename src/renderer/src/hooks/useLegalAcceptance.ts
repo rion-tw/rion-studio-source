@@ -21,6 +21,7 @@ export function useLegalAcceptance(enabled: boolean) {
     setStatus(null);
     setError(null);
     try {
+      // event-topology-exception: renderer-bounded-bridge-wait
       const nextStatus = await withTimeout(
         window.rionStudio.getLegalAcceptanceStatus(),
         LEGAL_STATUS_TIMEOUT_MS,

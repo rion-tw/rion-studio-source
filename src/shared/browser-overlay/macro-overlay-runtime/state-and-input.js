@@ -354,6 +354,7 @@
 
   function scheduleActionMenuHide() {
     cancelCoordinateMeasureHide();
+    // event-topology: presentation
     coordinateMeasureHideTimer = setTimeout(() => {
       coordinateMeasureHideTimer = undefined;
       setActionMenuVisible(false);
@@ -609,6 +610,7 @@
     const nextExpiry = Math.min(
       ...[...retainedClickStatuses.values()].map((retained) => retained.expiresAt)
     );
+    // event-topology: presentation
     clickStatusRetentionTimer = setTimeout(() => {
       clickStatusRetentionTimer = undefined;
       retainAndApplyClickStatuses();

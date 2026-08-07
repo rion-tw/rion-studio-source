@@ -63,6 +63,37 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    async fn execute_event_bound_close(
+        &self,
+        effect: CoreEffectRequest,
+        presentation_revision: u64,
+    ) -> CoreEffectResult {
+        let effect_id = effect.effect_id.clone();
+        let operation_id = effect.operation_id.clone();
+        match self
+            .apply_event_bound_close(effect, presentation_revision)
+            .await
+        {
+            Ok(value_json) => CoreEffectResult {
+                effect_id,
+                operation_id,
+                ok: true,
+                value_json,
+                error: None,
+            },
+            Err(error) => CoreEffectResult {
+                effect_id,
+                operation_id,
+                ok: false,
+                value_json: None,
+                error: Some(rion_core::CoreErrorPayload {
+                    code: error.code.to_owned(),
+                    message: error.message,
+                }),
+            },
+        }
+    }
+
     fn projection_payload(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
         let role_names = self
             .core

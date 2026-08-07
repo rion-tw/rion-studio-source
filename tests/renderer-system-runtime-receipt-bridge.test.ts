@@ -17,6 +17,7 @@ import { installTauriBridgeIfNeeded } from "../src/renderer/src/tauri/installTau
 const appliedReceipt: SystemRuntimeOperationSummaryRecord = {
   acceptedAt: "2026-08-03T00:00:00Z",
   capturedAt: "2026-08-03T00:00:00Z",
+  completionPolicy: "deadlineBound",
   deadlineAt: "2026-08-03T00:00:10Z",
   platform: "macos",
   subsystem: "presentation",

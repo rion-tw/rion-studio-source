@@ -91,14 +91,17 @@ fn platform_surface_lifecycle_tracker(
 fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<SurfaceQuiesceMetrics> {
+) -> RuntimeResult<()> {
     lifecycle.mark_native_surface_released();
-    lifecycle.mark_isolated();
-    Ok(SurfaceQuiesceMetrics::default())
+    let _ = lifecycle.mark_isolated(2);
+    Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+fn release_platform_surface(
+    _webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
     lifecycle.mark_native_surface_released();
     Ok(())
 }

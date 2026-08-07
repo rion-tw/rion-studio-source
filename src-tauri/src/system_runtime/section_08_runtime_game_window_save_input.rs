@@ -221,7 +221,7 @@ impl SystemRuntimeExecutor {
         let result = (|| {
             let instance_id = next_surface_instance_id(webview.label());
             let surface = ManagedSurface {
-                close_started_at: None,
+                close_operation_id: None,
                 generation,
                 instance_id: instance_id.clone(),
                 kind,
@@ -338,9 +338,6 @@ impl SystemRuntimeExecutor {
                 )
             })?;
             surface.phase = phase;
-            if phase == ManagedSurfacePhase::CloseRequested {
-                surface.close_started_at = Some(Instant::now());
-            }
             surface.clone()
         };
         self.record_surface_event(
@@ -392,20 +389,26 @@ impl SystemRuntimeExecutor {
         surface: &ManagedSurface,
     ) {
         let core = Arc::clone(&self.core);
+        #[cfg(windows)]
+        let native_navigation_id = match surface.lifecycle.navigation_id.load(Ordering::Acquire) {
+            0 => None,
+            navigation_id => Some(navigation_id),
+        };
+        #[cfg(not(windows))]
+        let native_navigation_id: Option<u64> = None;
         let context = json!({
-            "isolationMs": (event == "surface.isolated")
-                .then(|| surface.close_started_at.map(|started| started.elapsed().as_millis()))
-                .flatten(),
-            "releaseMs": (event == "surface.released")
-                .then(|| surface.close_started_at.map(|started| started.elapsed().as_millis()))
-                .flatten(),
+            "closeOperationId": surface.close_operation_id,
             "generation": surface.generation,
             "instanceId": surface.instance_id,
             "kind": surface.kind.as_str(),
+            "nativeIsolationEvent": surface.lifecycle.native_isolation_event(),
+            "nativeNavigationId": native_navigation_id,
+            "navigationMatched": event == "surface.blank-finished",
             "phase": surface.phase.as_str(),
             "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
             "roleId": surface.role_id,
             "tabId": surface.tab_id,
+            "staleNativeEventCount": surface.lifecycle.stale_native_event_count(),
             "webviewLabel": surface.webview.label(),
             "windowId": surface.window_id,
         });

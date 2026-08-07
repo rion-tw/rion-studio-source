@@ -426,7 +426,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn complete_window_destroyed(&self, label: &str) {
-        let (transaction, focus_identity) = self
+        let (transaction, focus_identity, destroyed_window_id) = self
             .state
             .lock()
             .ok()
@@ -437,9 +437,23 @@ impl SystemRuntimeExecutor {
                     (host.window.label() == label)
                         .then(|| (window_id.clone(), host.generation))
                 });
-                (state.window_closes.take_destroyed(label), focus_identity)
+                let destroyed_window_id = focus_identity
+                    .as_ref()
+                    .map(|(window_id, _)| window_id.clone());
+                (
+                    state.window_closes.take_destroyed(label),
+                    focus_identity,
+                    destroyed_window_id,
+                )
             })
             .unwrap_or_default();
+        if let Some(window_id) = destroyed_window_id.as_deref() {
+            self.cancel_pending_surface_continuations(
+                Some(window_id),
+                "SYSTEM_SURFACE_WINDOW_DESTROYED",
+                "Native window destruction ended the pending surface close continuation.",
+            );
+        }
         if let Some((window_id, generation)) = focus_identity {
             self.cancel_pending_window_activation(&window_id);
             self.focus_broker.revoke_window(&window_id, generation);

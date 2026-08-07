@@ -360,6 +360,11 @@ impl SystemRuntimeExecutor {
         self.focus_broker.revoke_all();
         self.transition_application_lifecycle(ApplicationLifecyclePhase::Suspending, epoch, reason);
         self.operations.interrupt_for_lifecycle();
+        self.cancel_pending_surface_continuations(
+            None,
+            "SYSTEM_SURFACE_LIFECYCLE_CANCELLED",
+            "Application suspension ended the pending native close continuation.",
+        );
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Power,
             "applicationSuspend",

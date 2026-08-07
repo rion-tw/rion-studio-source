@@ -67,27 +67,28 @@ it("commits role and tab removal only after native close acknowledgement", async
       "utf8"
     );
     const releaseRole = runtime.slice(
-      runtime.indexOf("fn release_marked_role_surfaces("),
+      runtime.indexOf("async fn release_marked_role_surfaces_event_bound("),
       runtime.indexOf("fn commit_released_role(")
     );
     const commitRole = runtime.slice(
       runtime.indexOf("fn commit_released_role("),
       runtime.indexOf("fn destroy_tab(")
     );
-    const closeRole = releaseRole.indexOf("self.close_managed_surface_and_wait(instance_id, role_id)");
+    const closeRole = releaseRole.indexOf("close_managed_surface_event_bound(&instance_id");
     expect(closeRole).toBeGreaterThan(-1);
     expect(releaseRole).toContain("managed_surface_ids_for_role(role_id)");
-    expect(releaseRole).toContain("std::thread::scope(|scope|");
-    expect(releaseRole).toContain("scope.spawn(move ||");
+    expect(releaseRole).toContain("tokio::task::JoinSet::new()");
+    expect(releaseRole).toContain("closes.spawn(async move");
+    expect(runtime).toContain("wait_for_store_reusable_event");
     expect(commitRole).toContain("state.role_tabs.remove(&released.role_id)");
     expect(releaseRole.indexOf("self.forget_popup(&label)")).toBeGreaterThan(closeRole);
 
     const destroyTab = runtime.slice(
-      runtime.indexOf("fn destroy_tab("),
+      runtime.indexOf("async fn destroy_tab_event_bound("),
       runtime.indexOf("fn prepare_destroy_tab_presentation(")
     );
-    const releaseRoles = destroyTab.indexOf("self.release_marked_role_surfaces(role_id");
-    const releaseDividers = destroyTab.indexOf("self.close_managed_divider(instance_id");
+    const releaseRoles = destroyTab.indexOf("release_marked_role_surfaces_event_bound(");
+    const releaseDividers = destroyTab.indexOf("close_managed_surface_event_bound(instance_id");
     const commitTab = destroyTab.indexOf("state.tabs.remove(tab_id)");
     expect(releaseRoles).toBeGreaterThan(-1);
     expect(releaseDividers).toBeGreaterThan(releaseRoles);
@@ -100,7 +101,8 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(runtime).toContain("closing_webviews");
     expect(runtime).toContain("closing_roles");
     expect(runtime).toContain('"surface.blank-finished"');
-    expect(runtime).toContain('"surface.quiesce-unverified"');
+    expect(runtime).not.toContain('"surface.quiesce-unverified"');
+    expect(runtime).toContain('"surface.navigation-failed"');
     expect(runtime).toContain('"surface.native-released"');
     expect(runtime).toContain('"surface.wrapper-close-accepted"');
     expect(runtime).toContain('"role.store-reusable"');
@@ -108,21 +110,22 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(runtime).not.toContain("schedule_surface_reclamation");
 
     const nativeClose = runtime.slice(
-      runtime.indexOf("fn close_surface_and_wait("),
-      runtime.indexOf("fn close_managed_surface_and_wait(")
+      runtime.indexOf("async fn close_surface_event_bound("),
+      runtime.indexOf("fn close_surface_and_wait(")
     );
     expect(nativeClose).not.toContain("Duration::from_millis(250)");
     expect(nativeClose.indexOf("quiesce_platform_surface(webview, lifecycle)")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
-    expect(nativeClose.indexOf("wait_for_isolation(SURFACE_ISOLATION_TIMEOUT)")).toBeLessThan(
+    expect(nativeClose.indexOf("wait_for_isolation_event().await")).toBeLessThan(
       nativeClose.indexOf("webview.close()")
     );
-    expect(nativeClose).toContain("release_platform_surface(lifecycle)?");
+    expect(nativeClose).toContain("release_platform_surface(webview, lifecycle)?");
     expect(nativeClose).toContain('"surface.native-release-requested"');
-    expect(nativeClose).toContain("SURFACE_ISOLATION_TIMEOUT");
-    expect(nativeClose).toContain("wait_for_store_reusable(platform, Duration::ZERO)");
-    expect(nativeClose).toContain("SYSTEM_SURFACE_RELEASE_UNVERIFIED");
+    expect(nativeClose).not.toContain("SURFACE_ISOLATION_TIMEOUT");
+    expect(nativeClose).toContain("wait_for_store_reusable_event(platform).await");
+    expect(nativeClose).not.toContain("recv_timeout");
+    expect(nativeClose).not.toContain("wait_timeout");
   });
 
 it("routes close around slow effects and keeps failed close intent committed", async () => {
@@ -363,7 +366,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(roleRelaunchFence).not.toContain("retired_surface_registry.values()");
     const macRoleSetup = runtime.slice(
       runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup_inner('),
-      runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_isolated(')
+      runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_event(')
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
@@ -713,9 +716,9 @@ it("acknowledges close isolation before coalesced restore persistence", async ()
       runtime.indexOf("fn execute_effect_work("),
       runtime.indexOf("pub fn registration(")
     );
-    const closeBranch = executor.slice(
-      executor.indexOf("if close_effect {"),
-      executor.indexOf("let persistence_error")
+    const closeBranch = runtime.slice(
+      runtime.indexOf("fn finish_event_bound_close_effect("),
+      runtime.indexOf("fn schedule_restore_session_persist(")
     );
     const closeDispatch = closeBranch.indexOf("dispatch_core_effect_results");
     const closePersist = closeBranch.indexOf("schedule_restore_session_persist");

@@ -19,6 +19,7 @@ struct NativeFocusBroker {
     current_sequence: AtomicU64,
     mutation_lane: Mutex<()>,
     next_sequence: AtomicU64,
+    submitted_sequence: AtomicU64,
     state: Mutex<NativeFocusBrokerState>,
 }
 
@@ -72,6 +73,22 @@ impl NativeFocusBroker {
             })
     }
 
+    fn is_confirmed(&self, lease: &NativeFocusLease) -> bool {
+        self.state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.confirmed.as_ref() == Some(lease))
+    }
+
+    fn mark_submitted(&self, lease: &NativeFocusLease) -> bool {
+        if !self.is_current(lease) {
+            return false;
+        }
+        self.submitted_sequence
+            .store(lease.sequence, Ordering::Release);
+        true
+    }
+
     fn confirm(&self, lease: &NativeFocusLease) -> bool {
         if self.current_sequence.load(Ordering::Acquire) != lease.sequence {
             return false;
@@ -92,7 +109,7 @@ impl NativeFocusBroker {
         window_generation: u64,
         lifecycle_epoch: u64,
         tab_id: Option<String>,
-    ) -> NativeFocusLease {
+    ) -> Option<NativeFocusLease> {
         if let Some(current) = self.state.lock().ok().and_then(|state| {
             state
                 .current
@@ -103,9 +120,19 @@ impl NativeFocusBroker {
                         && lease.lifecycle_epoch == lifecycle_epoch
                 })
                 .cloned()
-        }) && self.confirm(&current)
+        }) && self.submitted_sequence.load(Ordering::Acquire) == current.sequence
+            && self.confirm(&current)
         {
-            return current;
+            return Some(current);
+        }
+        if self.state.lock().ok().is_some_and(|state| {
+            state.current.as_ref().is_some_and(|lease| {
+                lease.window_id == window_id
+                    && lease.window_generation == window_generation
+                    && lease.lifecycle_epoch == lifecycle_epoch
+            })
+        }) {
+            return None;
         }
         let observed = self.accept(
             window_id,
@@ -115,7 +142,7 @@ impl NativeFocusBroker {
             NativePresentationFocus::WindowAndContent,
         );
         let _ = self.confirm(&observed);
-        observed
+        Some(observed)
     }
 
     fn observe_native_blur(&self, window_id: &str, window_generation: u64) {
@@ -135,6 +162,7 @@ impl NativeFocusBroker {
             }) {
                 state.current = None;
                 self.current_sequence.store(0, Ordering::Release);
+                self.submitted_sequence.store(0, Ordering::Release);
             }
             if state.confirmed.as_ref().is_some_and(|lease| {
                 lease.window_id == window_id && lease.window_generation == window_generation
@@ -149,8 +177,10 @@ impl NativeFocusBroker {
             state.current = None;
             state.confirmed = None;
             self.current_sequence.store(0, Ordering::Release);
+            self.submitted_sequence.store(0, Ordering::Release);
         } else {
             self.current_sequence.store(0, Ordering::Release);
+            self.submitted_sequence.store(0, Ordering::Release);
         }
     }
 

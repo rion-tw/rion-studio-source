@@ -64,13 +64,16 @@ fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     use webview2_com::{
-        BrowserProcessExitedEventHandler,
+        take_pwstr, BrowserProcessExitedEventHandler, NavigationCompletedEventHandler,
+        NavigationStartingEventHandler,
         Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Environment5},
     };
     use windows::core::Interface;
 
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
     let callback_tracker = Arc::clone(&tracker);
+    let starting_tracker = Arc::clone(&tracker);
+    let completed_tracker = Arc::clone(&tracker);
     let live_resize_label = webview.label().to_owned();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
@@ -96,7 +99,7 @@ fn platform_surface_lifecycle_tracker(
                     })?;
                 let handler = BrowserProcessExitedEventHandler::create(Box::new(
                     move |_environment, _args| {
-                        callback_tracker.mark_browser_process_exited();
+                        let _ = callback_tracker.mark_browser_process_exited();
                         Ok(())
                     },
                 ));
@@ -105,6 +108,76 @@ fn platform_surface_lifecycle_tracker(
                     .add_BrowserProcessExited(&handler, &mut token)
                     .map_err(|error| {
                         windows_surface_lifecycle_error("lifecycle-process-exit-handler", error)
+                    })?;
+                let starting = NavigationStartingEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut uri = windows::core::PWSTR::null();
+                        args.Uri(&mut uri)?;
+                        if take_pwstr(uri) != "about:blank" {
+                            return Ok(());
+                        }
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        starting_tracker.record_windows_navigation_started(navigation_id);
+                        Ok(())
+                    },
+                ));
+                let mut starting_token = 0;
+                core.add_NavigationStarting(&starting, &mut starting_token)
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error(
+                            "lifecycle-navigation-starting-handler",
+                            error,
+                        )
+                    })?;
+                let completed = NavigationCompletedEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        let mut succeeded = windows::core::BOOL::default();
+                        args.IsSuccess(&mut succeeded)?;
+                        match windows_surface_navigation_completion(
+                            completed_tracker.navigation_id.load(Ordering::Acquire),
+                            navigation_id,
+                            succeeded.as_bool(),
+                        ) {
+                            WindowsSurfaceNavigationCompletion::Stale => {
+                                completed_tracker.record_stale_native_event();
+                                return Ok(());
+                            }
+                            WindowsSurfaceNavigationCompletion::Isolated => {
+                                if !completed_tracker.mark_isolated(2) {
+                                    completed_tracker.record_stale_native_event();
+                                }
+                            }
+                            WindowsSurfaceNavigationCompletion::Failed => {
+                                let mut status = Default::default();
+                                let _ = args.WebErrorStatus(&mut status);
+                                completed_tracker.fail_isolation(&RuntimeError::new(
+                                    "SYSTEM_SURFACE_NAVIGATION_FAILED",
+                                    format!(
+                                        "The exact WebView2 blank navigation failed with status {}.",
+                                        status.0
+                                    ),
+                                ));
+                            }
+                        }
+                        Ok(())
+                    },
+                ));
+                let mut completed_token = 0;
+                core.add_NavigationCompleted(&completed, &mut completed_token)
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error(
+                            "lifecycle-navigation-completed-handler",
+                            error,
+                        )
                     })?;
                 Ok((browser_process_id, controller.as_raw() as usize as u64))
             })();
@@ -117,14 +190,12 @@ fn platform_surface_lifecycle_tracker(
             )
             .with_setup_diagnostic("lifecycle-with-webview", None)
         })?;
-    let (browser_process_id, controller_identity) = receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| {
+    let (browser_process_id, controller_identity) = receiver.recv().map_err(|_| {
             RuntimeError::new(
-                "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT",
-                "WebView2 surface lifecycle registration timed out.",
+                "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+                "WebView2 surface lifecycle registration was cancelled.",
             )
-            .with_setup_diagnostic("lifecycle-timeout", None)
+            .with_setup_diagnostic("lifecycle-cancelled", None)
         })??;
     tracker
         .browser_process_id
@@ -151,33 +222,25 @@ fn windows_surface_lifecycle_error(
 fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
-) -> RuntimeResult<SurfaceQuiesceMetrics> {
+) -> RuntimeResult<()> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
 
     use windows::core::Interface;
 
     let expected_process_id = lifecycle.browser_process_id.load(Ordering::Acquire) as u32;
     let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
-    let requested_at = Instant::now();
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let callback_lifecycle = Arc::clone(lifecycle);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let callback_started_at = Instant::now();
-            let result = (|| -> Result<SurfaceQuiesceMetrics, String> {
+            let result = (|| -> RuntimeResult<()> {
                 let controller = platform_webview.controller();
                 let actual_controller_identity = controller.as_raw() as usize as u64;
                 let core: ICoreWebView2 = controller.CoreWebView2().map_err(|error| {
-                    format!(
-                        "stage=resolve-core code=0x{:08X} error={error}",
-                        error.code().0 as u32
-                    )
+                    windows_surface_lifecycle_error("isolation-resolve-core", error)
                 })?;
                 let mut process_id = 0;
                 core.BrowserProcessId(&mut process_id).map_err(|error| {
-                    format!(
-                        "stage=verify-process code=0x{:08X} error={error}",
-                        error.code().0 as u32
-                    )
+                    windows_surface_lifecycle_error("isolation-process-id", error)
                 })?;
                 if !windows_surface_identity_matches(
                     expected_controller_identity,
@@ -185,87 +248,60 @@ fn perform_platform_surface_quiesce(
                     expected_process_id,
                     process_id,
                 ) {
-                    return Err(
-                        "stage=verify-identity code=0x80004005 error=controller or process mismatch"
-                            .to_owned(),
-                    );
+                    return Err(RuntimeError::new(
+                        "SYSTEM_SURFACE_IDENTITY_MISMATCH",
+                        "The WebView2 controller or process identity changed before isolation.",
+                    ));
                 }
-                let stop_started_at = Instant::now();
                 core.Stop().map_err(|error| {
-                    format!(
-                        "stage=stop code=0x{:08X} error={error}",
-                        error.code().0 as u32
-                    )
+                    windows_surface_lifecycle_error("isolation-stop", error)
                 })?;
-                let stop_ms = stop_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let navigate_started_at = Instant::now();
                 core.Navigate(&windows::core::HSTRING::from("about:blank"))
-                    .map_err(|error| {
-                        format!(
-                            "stage=navigate-blank code=0x{:08X} error={error}",
-                            error.code().0 as u32
-                        )
-                    })?;
-                let navigate_ms = navigate_started_at
-                    .elapsed()
-                    .as_millis()
-                    .min(u64::MAX as u128) as u64;
-                let close_started_at = Instant::now();
-                controller.Close().map_err(|error| {
-                    format!(
-                        "stage=controller-close code=0x{:08X} error={error}",
-                        error.code().0 as u32
-                    )
-                })?;
-                let close_ms = close_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let elapsed = requested_at.elapsed();
-                Ok(SurfaceQuiesceMetrics {
-                    callback_queue_wait_ms: callback_started_at
-                        .duration_since(requested_at)
-                        .as_millis()
-                        .min(u64::MAX as u128) as u64,
-                    close_ms,
-                    deadline_exceeded: elapsed > SURFACE_ISOLATION_TIMEOUT,
-                    navigate_ms,
-                    stop_ms,
-                })
+                    .map_err(|error| windows_surface_lifecycle_error("isolation-navigate", error))?;
+                Ok(())
             })();
-            let _ = sender.send(result);
+            if let Err(error) = result {
+                callback_lifecycle.fail_isolation(&error);
+            }
         })
         .map_err(RuntimeError::tauri)?;
-    let remaining = SURFACE_ISOLATION_TIMEOUT.saturating_sub(requested_at.elapsed());
-    let metrics = receiver
-        .recv_timeout(remaining)
-        .map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                format!(
-                    "WebView2 surface isolation did not complete within {} ms.",
-                    SURFACE_ISOLATION_TIMEOUT.as_millis()
-                ),
-            )
-        })?
-        .map_err(|message| {
-            RuntimeError::new(
-                "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                format!("WebView2 surface identity verification failed: {message}"),
-            )
-        })?;
-    lifecycle.mark_native_surface_released();
-    lifecycle.mark_isolated();
-    Ok(metrics)
+    Ok(())
 }
 
 #[cfg(windows)]
-fn release_platform_surface(lifecycle: &Arc<SurfaceLifecycleTracker>) -> RuntimeResult<()> {
+fn release_platform_surface(
+    webview: &Webview,
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<()> {
     if lifecycle.native_surface_is_released() {
-        Ok(())
-    } else {
-        Err(RuntimeError::new(
-            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            "WebView2 did not acknowledge the exact controller release.",
-        ))
+        return Ok(());
     }
+    use windows::core::Interface;
+    let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
+    let callback_lifecycle = Arc::clone(lifecycle);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let actual_controller_identity = controller.as_raw() as usize as u64;
+            let result = if expected_controller_identity == 0
+                || actual_controller_identity != expected_controller_identity
+            {
+                Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_IDENTITY_MISMATCH",
+                    "The WebView2 controller identity changed before native release.",
+                ))
+            } else {
+                controller.Close().map_err(|error| {
+                    windows_surface_lifecycle_error("controller-close", error)
+                })
+            };
+            match result {
+                Ok(()) => callback_lifecycle.mark_native_surface_released(),
+                Err(error) => callback_lifecycle.fail_release(&error),
+            }
+        })
+        .map_err(RuntimeError::tauri)?;
+    Ok(())
 }
 
 #[cfg(windows)]

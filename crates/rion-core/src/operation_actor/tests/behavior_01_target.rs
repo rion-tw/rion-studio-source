@@ -63,6 +63,41 @@ use std::sync::mpsc;
     }
 
     #[test]
+    fn destroy_effects_are_event_bound_and_have_no_wire_deadline() {
+        let (actor, effects) = actor();
+        let handle = actor
+            .start(OperationPlan {
+                steps: vec![OperationStep {
+                    effect: OperationEffect {
+                        timeout: Duration::from_millis(1),
+                        ..effect(CoreEffectAction::EmbeddedDestroyRole {
+                            role_id: "role-1".to_owned(),
+                        })
+                    },
+                    compensation: None,
+                }],
+            })
+            .unwrap();
+        let request = effects
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            request.completion_policy,
+            OperationCompletionPolicy::EventBound
+        );
+        assert_eq!(request.deadline_ms, None);
+        thread::sleep(Duration::from_millis(10));
+        assert!(
+            actor
+                .effect_is_pending(&request.effect_id, &request.operation_id)
+                .unwrap()
+        );
+        actor.dispatch_results(vec![success(&request)]).unwrap();
+        assert!(handle.outcome.blocking_recv().unwrap().error.is_none());
+    }
+
+    #[test]
     fn cancelled_queued_effect_is_no_longer_admitted_by_the_native_executor() {
         let (actor, effects) = actor();
         let handle = actor

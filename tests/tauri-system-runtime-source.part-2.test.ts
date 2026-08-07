@@ -390,14 +390,22 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(macInput).toContain("rion_wk_track_surface");
     expect(macInput).toContain("rion_wk_quiesce_surface");
     expect(macInput).toContain("evaluateJavaScript:");
-    expect(macInput).toContain("blankNavigationRequested");
+    expect(macInput).toContain("RionWKNavigationDelegateProxy");
+    expect(macInput).toContain("WKNavigation *blankNavigation");
+    expect(macInput).toContain("navigation != _blankNavigation");
+    expect(macInput).toContain("didFinishNavigation:");
+    expect(macInput).toContain("didFailNavigation:");
+    expect(macInput).toContain("didFailProvisionalNavigation:");
+    expect(macInput).toContain("webViewWebContentProcessDidTerminate:");
     expect(macInput).toContain("__rionPrepareForNativeClose");
-    expect(macInput).toContain("rion_wk_surface_quiesced");
     expect(macInput).toContain("rion_wk_release_surface");
     expect(macInput).toContain("[webView removeFromSuperview]");
-    expect(macInput).toContain("rion_wk_surface_released");
-    expect(macInput).toContain("webView.superview || webView.window");
-    expect(macInput).toContain('[url.absoluteString isEqualToString:@"about:blank"]');
+    expect(macInput).not.toContain("addObserver:");
+    expect(macInput).not.toContain("observeValueForKeyPath:");
+    expect(macInput).not.toContain("rion_wk_surface_quiesced");
+    expect(macInput).not.toContain("rion_wk_surface_released");
+    expect(macInput).not.toContain("webView.loading");
+    expect(macInput).not.toContain("webView.URL");
     expect(macInput).toContain("rion_wk_surface_lifecycle_self_test");
     const nativeQuiesce = macInput.slice(
       macInput.indexOf("static bool RionWKQuiesceSurfaceOnMain("),
@@ -554,5 +562,74 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(pendingRoute).toContain("consumePendingMacroPageRequest()");
     expect(pendingRoute.indexOf("openListForRole(request.roleId)"))
       .toBeLessThan(pendingRoute.indexOf("navigateToMacros()"));
+  });
+
+  it("keeps surface close and main focus completion strictly event-bound", async () => {
+    const [surfaceClose, mainWindow, windowsLifecycle, macLifecycle] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_26_sync_native_tab_metadata.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_04_main_window_actor.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/platform/windows/lifecycle.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/native/macos/RionWKWebViewInput/01_surface_lifecycle_security.m",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const surfaceContinuation = surfaceClose.slice(
+      surfaceClose.indexOf("async fn close_surface_event_bound("),
+      surfaceClose.indexOf("fn close_failed_launch_surface_and_wait(")
+    );
+    const focusContinuation = mainWindow.slice(
+      mainWindow.indexOf("fn apply_main_window_request("),
+      mainWindow.indexOf("fn main_window_readback_matches(")
+    );
+    const windowsIsolation = windowsLifecycle.slice(
+      windowsLifecycle.indexOf("fn platform_surface_lifecycle_tracker("),
+      windowsLifecycle.indexOf("fn install_process_failure_monitor(")
+    );
+    for (const source of [surfaceContinuation, focusContinuation, windowsIsolation]) {
+      for (const forbidden of [
+        "polling",
+        "watchdog",
+        "wait_timeout",
+        "recv_timeout",
+        "thread::sleep"
+      ]) {
+        expect(source).not.toContain(forbidden);
+      }
+    }
+    expect(surfaceContinuation).toContain("wait_for_isolation_event().await");
+    expect(surfaceContinuation).toContain("wait_for_native_release_event().await");
+    expect(focusContinuation).toContain("MainWindowApplyResult::FocusSubmitted");
+    expect(focusContinuation).toContain(".recv()");
+    expect(focusContinuation).not.toContain("is_focused");
+    expect(focusContinuation.indexOf("if command.requests_focus()"))
+      .toBeLessThan(focusContinuation.indexOf("MainWindowStateProjection::capture(window)"));
+    expect(windowsIsolation).toContain("add_NavigationStarting");
+    expect(windowsIsolation).toContain("add_NavigationCompleted");
+    expect(windowsIsolation).toContain("windows_surface_navigation_completion");
+    expect(macLifecycle).not.toContain("addObserver:");
+    expect(macLifecycle).not.toContain("webView.loading");
+    expect(macLifecycle).not.toContain("webView.URL");
   });
 });

@@ -36,20 +36,21 @@ fn native_focus_observation_confirms_matching_intent_and_supersedes_other_window
         Some("tab-a".to_owned()),
         NativePresentationFocus::WindowAndContent,
     );
+    assert!(broker.mark_submitted(&requested));
     let matching = broker.observe_native_focus(
         "window-a",
         3,
         9,
         Some("tab-a".to_owned()),
     );
-    assert_eq!(matching, requested);
+    assert_eq!(matching, Some(requested.clone()));
 
     let external = broker.observe_native_focus(
         "window-b",
         8,
         9,
         Some("tab-b".to_owned()),
-    );
+    ).expect("an external native focus event creates a confirmed lease");
     assert_ne!(external.sequence, requested.sequence);
     assert!(!broker.is_current(&requested));
     assert!(broker.is_current(&external));

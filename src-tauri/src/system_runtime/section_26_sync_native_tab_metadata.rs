@@ -287,11 +287,205 @@ impl SystemRuntimeExecutor {
         self.record_native_operation_receipt(receipt);
     }
 
-    fn close_surface_and_wait(
+    fn bind_role_close_operation(&self, role_id: &str, operation_id: &str) -> RuntimeResult<()> {
+        let mut state = self.state()?;
+        for surface in state
+            .surface_registry
+            .values_mut()
+            .filter(|surface| surface.role_id.as_deref() == Some(role_id))
+        {
+            surface.close_operation_id = Some(operation_id.to_owned());
+        }
+        for surface in state
+            .retired_surface_registry
+            .values_mut()
+            .filter(|surface| surface.role_id.as_deref() == Some(role_id))
+        {
+            surface.close_operation_id = Some(operation_id.to_owned());
+        }
+        Ok(())
+    }
+
+    fn bind_tab_close_operation(&self, tab_id: &str, operation_id: &str) -> RuntimeResult<()> {
+        let mut state = self.state()?;
+        for surface in state
+            .surface_registry
+            .values_mut()
+            .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+        {
+            surface.close_operation_id = Some(operation_id.to_owned());
+        }
+        for surface in state
+            .retired_surface_registry
+            .values_mut()
+            .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+        {
+            surface.close_operation_id = Some(operation_id.to_owned());
+        }
+        Ok(())
+    }
+
+    fn clear_surface_close_operation(&self, operation_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            for surface in state.surface_registry.values_mut().filter(|surface| {
+                surface.close_operation_id.as_deref() == Some(operation_id)
+            }) {
+                surface.close_operation_id = None;
+            }
+            for surface in state
+                .retired_surface_registry
+                .values_mut()
+                .filter(|surface| {
+                    surface.close_operation_id.as_deref() == Some(operation_id)
+                })
+            {
+                surface.close_operation_id = None;
+            }
+        }
+    }
+
+    pub(crate) fn cancel_surface_close_operation(&self, operation_id: &str) -> usize {
+        let surfaces = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                state
+                    .surface_registry
+                    .values()
+                    .chain(state.retired_surface_registry.values())
+                    .filter(|surface| {
+                        surface.close_operation_id.as_deref() == Some(operation_id)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.cancel_surface_group_continuations(
+            surfaces,
+            "SYSTEM_SURFACE_OPERATION_CANCELLED",
+            "The explicit Core operation cancellation ended the pending native close continuation.",
+        )
+    }
+
+    fn cancel_pending_surface_continuations(
+        &self,
+        window_id: Option<&str>,
+        code: &'static str,
+        message: &'static str,
+    ) -> usize {
+        let surfaces = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                state
+                    .surface_registry
+                    .values()
+                    .chain(state.retired_surface_registry.values())
+                    .filter(|surface| {
+                        window_id.is_none_or(|window_id| surface.window_id == window_id)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.cancel_surface_continuations(surfaces, code, message)
+    }
+
+    fn cancel_surface_continuations(
+        &self,
+        surfaces: Vec<ManagedSurface>,
+        code: &'static str,
+        message: &'static str,
+    ) -> usize {
+        self.cancel_surface_continuations_inner(surfaces, code, message, false)
+    }
+
+    fn cancel_surface_group_continuations(
+        &self,
+        surfaces: Vec<ManagedSurface>,
+        code: &'static str,
+        message: &'static str,
+    ) -> usize {
+        self.cancel_surface_continuations_inner(surfaces, code, message, true)
+    }
+
+    fn cancel_surface_continuations_inner(
+        &self,
+        surfaces: Vec<ManagedSurface>,
+        code: &'static str,
+        message: &'static str,
+        include_accepted_intent: bool,
+    ) -> usize {
+        let cancelled = surfaces
+            .into_iter()
+            .filter(|surface| {
+                let accepted_intent = include_accepted_intent
+                    || surface.close_operation_id.is_some()
+                    || matches!(
+                        surface.phase,
+                        ManagedSurfacePhase::CloseRequested
+                            | ManagedSurfacePhase::Isolating
+                            | ManagedSurfacePhase::Isolated
+                    );
+                if accepted_intent {
+                    surface.lifecycle.cancel_accepted_intent(code, message)
+                } else {
+                    surface.lifecycle.cancel_pending(code, message)
+                }
+            })
+            .collect::<Vec<_>>();
+        if cancelled.is_empty() {
+            return 0;
+        }
+        if let Ok(mut state) = self.state.lock() {
+            for surface in &cancelled {
+                if let Some(current) = state.surface_registry.get_mut(&surface.instance_id)
+                    && current.generation == surface.generation
+                {
+                    current.phase = ManagedSurfacePhase::Quarantined;
+                }
+                if let Some(current) = state
+                    .retired_surface_registry
+                    .get_mut(&surface.instance_id)
+                    && current.generation == surface.generation
+                {
+                    current.phase = ManagedSurfacePhase::Quarantined;
+                }
+                if let Some(role_id) = surface.role_id.as_ref() {
+                    state
+                        .close_coordinator
+                        .quarantined_roles
+                        .insert(role_id.clone());
+                }
+                if !state
+                    .recovery_interrupted_window_ids
+                    .contains(&surface.window_id)
+                {
+                    state
+                        .recovery_interrupted_window_ids
+                        .push(surface.window_id.clone());
+                }
+            }
+            state.recovery_required = true;
+        }
+        for surface in &cancelled {
+            self.record_surface_event(
+                LogLevel::Warn,
+                "surface.lifecycle-cancelled",
+                "A terminal lifecycle event cancelled the exact pending close continuation.",
+                surface,
+            );
+        }
+        cancelled.len()
+    }
+
+    async fn close_surface_event_bound(
         &self,
         webview: &Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
-        role_id: &str,
+        _role_id: &str,
     ) -> RuntimeResult<SurfaceCloseOutcome> {
         let label = webview.label().to_owned();
         {
@@ -307,14 +501,8 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
-        let result = (|| -> RuntimeResult<SurfaceCloseOutcome> {
-            let platform = if cfg!(windows) {
-                "windows"
-            } else if cfg!(target_os = "macos") {
-                "macos"
-            } else {
-                "other"
-            };
+        let result: RuntimeResult<SurfaceCloseOutcome> = async {
+            let platform = current_runtime_platform();
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.blank-requested",
@@ -322,7 +510,6 @@ impl SystemRuntimeExecutor {
                 &label,
             );
             let quiesce_result = if lifecycle.native_surface_is_released() {
-                lifecycle.mark_isolated();
                 Ok(SurfaceIsolationRequest::AlreadyIsolated)
             } else {
                 quiesce_platform_surface(webview, lifecycle)
@@ -330,56 +517,47 @@ impl SystemRuntimeExecutor {
             if let Ok(request) = quiesce_result.as_ref() {
                 self.record_surface_isolation_request(&label, *request);
             }
-            let isolated = quiesce_result.is_ok()
-                && lifecycle.wait_for_isolation(SURFACE_ISOLATION_TIMEOUT);
-            if !isolated {
+            if let Err(error) = quiesce_result {
                 self.record_surface_stage_by_label(
                     LogLevel::Error,
-                    "surface.quiesce-unverified",
-                    "Native surface isolation could not be verified.",
+                    "surface.navigation-failed",
+                    "Native blank navigation submission failed.",
                     &label,
                 );
-                let quiesce_error = quiesce_result.err().map(|error| error.message);
-                let message = "Rion Studio could not verify that the native game page stopped. The tab remains closed; restart Rion Studio before reopening this role.".to_owned();
-                let _ = self.app.emit(
-                    "rion://shell-error",
-                    json!({
-                        "code": "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                        "failureKind": "native-isolation-timeout",
-                        "message": message,
-                        "roleId": role_id,
-                        "webviewLabel": label,
-                        "quiesceError": quiesce_error,
-                        "isolationWaitMs": SURFACE_ISOLATION_TIMEOUT.as_millis()
-                    }),
-                );
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                    message,
-                ));
+                return Err(error);
             }
-            self.record_surface_stage_by_label(
-                LogLevel::Debug,
-                "surface.blank-finished",
-                "Native blank isolation was confirmed for the exact surface.",
-                &label,
-            );
+            lifecycle.wait_for_isolation_event().await?;
+            if lifecycle.native_isolation_event() == 5 {
+                self.record_surface_stage_by_label(
+                    LogLevel::Info,
+                    "surface.process-terminated",
+                    "The exact WebContent process termination stopped the page.",
+                    &label,
+                );
+            } else {
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.blank-finished",
+                    "Native blank isolation was confirmed for the exact navigation.",
+                    &label,
+                );
+            }
+            if lifecycle.stale_native_event_count() > 0 {
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.stale-native-event",
+                    "A native lifecycle event for another or terminal surface generation was ignored.",
+                    &label,
+                );
+            }
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.native-release-requested",
                 "The exact isolated native surface release was requested.",
                 &label,
             );
-            release_platform_surface(lifecycle)?;
-            if !lifecycle.wait_for(
-                SURFACE_RECLAMATION_TIMEOUT,
-                |release| release.native_surface_released,
-            ) {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                    "The native surface did not acknowledge its exact release before the watchdog deadline.",
-                ));
-            }
+            release_platform_surface(webview, lifecycle)?;
+            lifecycle.wait_for_native_release_event().await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
                 "surface.native-released",
@@ -394,13 +572,7 @@ impl SystemRuntimeExecutor {
                 "Tauri accepted the wrapper close and unregistered its manager entry.",
                 &label,
             );
-            let store_reusable = lifecycle.wait_for_store_reusable(platform, Duration::ZERO);
-            if !store_reusable {
-                return Err(RuntimeError::new(
-                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-                    "The exact surface generation did not reach the store-reusable milestone.",
-                ));
-            }
+            lifecycle.wait_for_store_reusable_event(platform).await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
                 "role.store-reusable",
@@ -408,10 +580,11 @@ impl SystemRuntimeExecutor {
                 &label,
             );
             Ok(SurfaceCloseOutcome {
-                isolated,
-                store_reusable,
+                isolated: true,
+                store_reusable: true,
             })
-        })();
+        }
+        .await;
         if result.is_ok() {
             self.revoke_overlay_capability(&label);
         }
@@ -419,6 +592,19 @@ impl SystemRuntimeExecutor {
             state.close_coordinator.closing_webviews.remove(&label);
         }
         result
+    }
+
+    fn close_surface_and_wait(
+        &self,
+        webview: &Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        role_id: &str,
+    ) -> RuntimeResult<SurfaceCloseOutcome> {
+        tauri::async_runtime::block_on(self.close_surface_event_bound(
+            webview,
+            lifecycle,
+            role_id,
+        ))
     }
 
     fn close_failed_launch_surface_and_wait(
@@ -433,7 +619,7 @@ impl SystemRuntimeExecutor {
             return Ok(());
         }
         let platform = current_runtime_platform();
-        if lifecycle.wait_for_store_reusable(platform, Duration::ZERO) {
+        if lifecycle.store_is_reusable(platform) {
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.failed-launch-release-verified",
@@ -481,16 +667,15 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn close_managed_surface_and_wait(
+    async fn close_managed_surface_event_bound(
         &self,
         instance_id: &str,
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
         let surface = self.managed_surface(instance_id)?;
-        let mut operation = NativeOperationContext::new(
+        let mut operation = NativeOperationContext::new_event_bound(
             NativeOperationSubsystem::SurfaceLifecycle,
             "closeManagedSurface",
-            SURFACE_RECLAMATION_TIMEOUT,
         )
         .with_surface_generation(surface.generation)
         .with_window(&surface.window_id);
@@ -500,26 +685,20 @@ impl SystemRuntimeExecutor {
         if let Some(tab_id) = surface.tab_id.as_ref() {
             operation = operation.with_tab(tab_id);
         }
-        let result = (|| {
+        let result: RuntimeResult<()> = async {
             match surface.phase {
                 ManagedSurfacePhase::Released => return Ok(()),
                 ManagedSurfacePhase::CloseRequested
                 | ManagedSurfacePhase::Isolating
                 | ManagedSurfacePhase::Isolated
                 => {
-                    return self.wait_for_managed_surface_release(instance_id, &surface);
+                    return self.wait_for_managed_surface_release(instance_id, &surface).await;
                 }
                 ManagedSurfacePhase::Live
                 | ManagedSurfacePhase::Provisional
                 | ManagedSurfacePhase::Quarantined
                 | ManagedSurfacePhase::Retired => {}
             }
-            let native_lifecycle_guard = surface.native_lifecycle_lane.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_SURFACE_LIFECYCLE_UNAVAILABLE",
-                    "The native surface lifecycle lane is unavailable.",
-                )
-            })?;
             let (surface, owns_close) = {
                 let mut state = self.state()?;
                 let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
@@ -539,15 +718,13 @@ impl SystemRuntimeExecutor {
                     | ManagedSurfacePhase::Quarantined
                     | ManagedSurfacePhase::Retired => {
                         surface.phase = ManagedSurfacePhase::CloseRequested;
-                        surface.close_started_at = Some(Instant::now());
                         true
                     }
                 };
                 (surface.clone(), owns_close)
             };
             if !owns_close {
-                drop(native_lifecycle_guard);
-                return self.wait_for_managed_surface_release(instance_id, &surface);
+                return self.wait_for_managed_surface_release(instance_id, &surface).await;
             }
             self.record_surface_event(
                 LogLevel::Debug,
@@ -562,8 +739,9 @@ impl SystemRuntimeExecutor {
                 "Native surface close requested.",
                 &surface,
             );
-            let close_result =
-                self.close_surface_and_wait(&surface.webview, &surface.lifecycle, lifecycle_id);
+            let close_result = self
+                .close_surface_event_bound(&surface.webview, &surface.lifecycle, lifecycle_id)
+                .await;
             match close_result {
                 Ok(outcome) => {
                     self.set_managed_surface_phase(instance_id, ManagedSurfacePhase::Isolated)?;
@@ -598,7 +776,8 @@ impl SystemRuntimeExecutor {
                     Err(RuntimeError::new(error.code, error.message))
                 }
             }
-        })();
+        }
+        .await;
         let receipt = match result.as_ref() {
             Ok(()) => NativeOperationReceipt::applied(operation, "surfaceIsolated"),
             Err(error) if error.code == "SYSTEM_SURFACE_RELEASE_UNVERIFIED" => {
@@ -620,44 +799,25 @@ impl SystemRuntimeExecutor {
         result
     }
 
-    fn wait_for_managed_surface_release(
+    fn close_managed_surface_and_wait(
         &self,
         instance_id: &str,
+        lifecycle_id: &str,
+    ) -> RuntimeResult<()> {
+        tauri::async_runtime::block_on(
+            self.close_managed_surface_event_bound(instance_id, lifecycle_id),
+        )
+    }
+
+    async fn wait_for_managed_surface_release(
+        &self,
+        _instance_id: &str,
         surface: &ManagedSurface,
     ) -> RuntimeResult<()> {
-        let deadline = surface
-            .close_started_at
-            .unwrap_or_else(Instant::now)
-            .checked_add(SURFACE_RECLAMATION_TIMEOUT)
-            .unwrap_or_else(Instant::now);
-        if surface
+        surface
             .lifecycle
-            .wait_for_store_reusable(
-                current_runtime_platform(),
-                deadline.saturating_duration_since(Instant::now()),
-            )
-        {
-            return Ok(());
-        }
-        let phase = self
-            .state()?
-            .surface_registry
-            .get(instance_id)
-            .map(|surface| surface.phase);
-        if phase.is_none()
-            || matches!(
-                phase,
-                Some(
-                    ManagedSurfacePhase::Released
-                )
-            )
-        {
-            return Ok(());
-        }
-        Err(RuntimeError::new(
-            "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
-            "Rion Studio could not verify the exact native surface release. The tab remains closed; restart Rion Studio before reopening this role.",
-        ))
+            .wait_for_store_reusable_event(current_runtime_platform())
+            .await
     }
 
     fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {

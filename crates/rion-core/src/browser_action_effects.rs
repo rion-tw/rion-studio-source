@@ -128,7 +128,8 @@ fn effect_request(request: BrowserActionRequest) -> CoreEffectRequest {
             kind: CoreEffectTargetKind::WebContents,
             handle_id: request.role_id.clone(),
         },
-        deadline_ms: request.deadline_ms,
+        completion_policy: crate::model::OperationCompletionPolicy::DeadlineBound,
+        deadline_ms: Some(request.deadline_ms),
         action: CoreEffectAction::BrowserAction {
             request: Box::new(request),
         },

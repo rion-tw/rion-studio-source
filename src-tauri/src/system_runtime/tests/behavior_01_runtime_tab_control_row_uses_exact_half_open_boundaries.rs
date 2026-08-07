@@ -204,6 +204,7 @@ use super::*;
                         },
                         isolated: native_surface_released,
                         native_surface_released,
+                        terminal_failure: None,
                     }
                 ),
                 expected,

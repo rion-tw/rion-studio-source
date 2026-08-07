@@ -69,7 +69,8 @@ describe("generated Rust core contracts", () => {
     expect(event).toContain('{ "type": "coreEffects"');
     expect(request).toContain("effectId: string");
     expect(request).toContain("operationId: string");
-    expect(request).toContain("deadlineMs: number");
+    expect(request).toContain("completionPolicy: OperationCompletionPolicy");
+    expect(request).toContain("deadlineMs?: number");
     expect(action).toContain('{ "type": "embeddedCreateTab"');
     expect(action).toContain('{ "type": "browserAction"');
     expect(action).not.toContain('{ "type": "createWindow"');

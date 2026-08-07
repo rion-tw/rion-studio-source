@@ -78,3 +78,39 @@ fn focus_revocation_is_scoped_to_the_exact_window_generation() {
     assert_eq!(broker.snapshot(), (None, None));
     assert!(!broker.is_current(&replacement));
 }
+
+#[test]
+fn delayed_reveal_focus_resolves_only_the_exact_current_sequence_and_generation() {
+    let broker = NativeFocusBroker::default();
+    let requested = broker.accept(
+        "window-a",
+        12,
+        5,
+        Some("tab-a".to_owned()),
+        NativePresentationFocus::WindowAndContent,
+    );
+    assert_eq!(
+        broker.current_lease_for(requested.sequence, "window-a", 12),
+        Some(requested.clone())
+    );
+    assert_eq!(
+        broker.current_lease_for(requested.sequence, "window-a", 11),
+        None
+    );
+
+    let replacement = broker.accept(
+        "window-b",
+        7,
+        5,
+        Some("tab-b".to_owned()),
+        NativePresentationFocus::WindowAndContent,
+    );
+    assert_eq!(
+        broker.current_lease_for(requested.sequence, "window-a", 12),
+        None
+    );
+    assert_eq!(
+        broker.current_lease_for(replacement.sequence, "window-b", 7),
+        Some(replacement)
+    );
+}

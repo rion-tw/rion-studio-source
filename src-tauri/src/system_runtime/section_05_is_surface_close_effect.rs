@@ -463,6 +463,8 @@ fn apply_native_presentation_batch(
     let window_mode = request.window_mode;
     let window_visibility = request.window_visibility;
     let mutation_plan = mutation_plan.clone();
+    let defer_window_focus_until_reveal = request.defer_window_focus_until_reveal;
+    let requested_focus = request.focus;
     let focus_broker = Arc::clone(&request.focus_broker);
     let focus_lease = request.focus_lease.clone();
     let shutdown_state = Arc::clone(&request.shutdown_state);
@@ -617,12 +619,16 @@ fn apply_native_presentation_batch(
             None => None,
         };
         let focus_current = focus_lease.is_none() || focus_guard.is_some();
+        let focus_submission_current = defer_window_focus_until_reveal
+            || focus_lease
+                .as_ref()
+                .is_none_or(|lease| focus_broker.mark_submitted(lease));
         let apply_window_focus = native_window_focus_should_apply(
             presentation_current,
             ordered_window_control,
             mutation_plan.apply_window_focus,
-            focus_current,
-        );
+            focus_current && focus_submission_current,
+        ) && !defer_window_focus_until_reveal;
         let window_was_minimized = apply_window_focus
             .then(|| window.is_minimized().ok())
             .flatten();
@@ -705,6 +711,8 @@ fn apply_native_presentation_batch(
         if presentation_current
             && mutation_plan.apply_content_focus
             && focus_current
+            && focus_submission_current
+            && !defer_window_focus_until_reveal
             && let Some(webview) = active_webview
         {
             match webview.set_focus() {
@@ -716,7 +724,11 @@ fn apply_native_presentation_batch(
             .elapsed()
             .as_millis()
             .min(u64::MAX as u128) as u64;
-        let window_focused_after = window.is_focused().ok();
+        let window_focused_after = if defer_window_focus_until_reveal {
+            None
+        } else {
+            window.is_focused().ok()
+        };
         // A retirement hide is intentionally submission-based. Synchronous
         // visibility readback can marshal behind slow WebView2/AppKit teardown
         // and would recreate the last-tab loading delay.
@@ -731,7 +743,14 @@ fn apply_native_presentation_batch(
             if !focus_broker.is_current(lease) {
                 true
             } else {
-                if visibility_errors.is_empty() {
+                let focus_confirmed = match requested_focus {
+                    NativePresentationFocus::None => true,
+                    NativePresentationFocus::ContentOnly => focus_applied,
+                    NativePresentationFocus::WindowAndContent => {
+                        window_focused_after == Some(true)
+                    }
+                };
+                if visibility_errors.is_empty() && focus_confirmed {
                     let _ = focus_broker.confirm(lease);
                 }
                 false

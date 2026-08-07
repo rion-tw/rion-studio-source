@@ -113,11 +113,6 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
-        self.observe_windows_tab_chrome_reveal(
-            &window_id,
-            receipt.key.generation,
-            WindowsTabChromeRevealSignal::GeometryReady,
-        );
         if !receipt.terminal {
             return;
         }

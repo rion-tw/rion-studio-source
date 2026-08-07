@@ -1,5 +1,8 @@
-fn live_window_activation_available(live_tab_count: Option<usize>) -> bool {
-    live_tab_count.is_some_and(|tab_count| tab_count > 0)
+fn live_window_activation_available(
+    live_tab_count: Option<usize>,
+    empty_host_available: bool,
+) -> bool {
+    live_tab_count.is_some_and(|tab_count| tab_count > 0 || empty_host_available)
 }
 
 impl SystemRuntimeExecutor {
@@ -88,11 +91,14 @@ impl SystemRuntimeExecutor {
                     .map_err(|_| "Live runtime window state is unavailable.".to_owned())
             })
             .transpose()?;
-        if !live_window_activation_available(live_tab_count) {
-            return Ok(false);
-        }
         let window = {
             let mut state = self.state().map_err(|error| error.message)?;
+            let empty_host_available = state.display_hosts.contains_key(window_id)
+                && !state.retiring_window_revisions.contains_key(window_id)
+                && !state.quarantined_window_hosts.contains(window_id);
+            if !live_window_activation_available(live_tab_count, empty_host_available) {
+                return Ok(false);
+            }
             state.tab_drag_cursor_leases.remove(window_id);
             state
                 .display_hosts
@@ -127,7 +133,7 @@ impl SystemRuntimeExecutor {
                     .map_err(|_| "Live runtime window state is unavailable.".to_owned())
             })
             .transpose()?;
-        if !live_window_activation_available(live_tab_count) {
+        if !live_window_activation_available(live_tab_count, false) {
             return Ok(false);
         }
         self.request_window_contract_presentation(

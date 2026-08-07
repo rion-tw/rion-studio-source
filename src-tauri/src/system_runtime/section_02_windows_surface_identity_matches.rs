@@ -689,6 +689,7 @@ struct NativePresentationRequest {
     actor_liveness: Arc<AtomicBool>,
     coordinator: Arc<Mutex<NativeTabProjectionState>>,
     core: Arc<AppCore>,
+    defer_window_focus_until_reveal: bool,
     focus: NativePresentationFocus,
     focus_broker: Arc<NativeFocusBroker>,
     focus_lease: Option<NativeFocusLease>,

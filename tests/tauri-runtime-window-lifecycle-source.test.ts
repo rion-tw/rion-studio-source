@@ -565,7 +565,7 @@ describe("runtime window lifecycle authority", () => {
   });
 
   it("waits for the old window generation without rebuilding live topology from Core", async () => {
-    const [restore, activation, applyRuntime, liveSnapshot] = await Promise.all([
+    const [restore, activation, applyRuntime, liveSnapshot, nativeClose, runtimeLayout, launch] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/lib/section_05_invoke_core_async.rs",
@@ -588,9 +588,26 @@ describe("runtime window lifecycle authority", () => {
         new URL("../src-tauri/src/system_runtime/section_14_preview_tab_close.rs", import.meta.url),
         "utf8"
       ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_14_window_close_contract.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_21_runtime_layout.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_22_with_native_creation_lane.rs", import.meta.url),
+        "utf8"
+      ),
     ]);
 
     expect(restore).toContain("wait_for_window_close_before_reopen");
+    expect(nativeClose).toContain("retiring_native_window_hosts");
+    expect(nativeClose).toContain("complete_window_destroyed");
+    expect(nativeClose).toContain("self.tab_close_changed.notify_all()");
+    expect(runtimeLayout).toContain("RetiringNativeWindowHost");
+    expect(launch).toContain("wait_for_window_close_before_reopen");
     expect(activation).not.toContain("repair_missing_tab_presentation");
     expect(activation).toContain(".tab_window(tab_id)?");
     expect(applyRuntime).toContain(".compose_live_runtime_snapshot(roles)");

@@ -73,6 +73,28 @@ impl NativeFocusBroker {
             })
     }
 
+    fn current_lease_for(
+        &self,
+        sequence: u64,
+        window_id: &str,
+        window_generation: u64,
+    ) -> Option<NativeFocusLease> {
+        if sequence == 0 || self.current_sequence.load(Ordering::Acquire) != sequence {
+            return None;
+        }
+        self.state.lock().ok().and_then(|state| {
+            state
+                .current
+                .as_ref()
+                .filter(|lease| {
+                    lease.sequence == sequence
+                        && lease.window_id == window_id
+                        && lease.window_generation == window_generation
+                })
+                .cloned()
+        })
+    }
+
     fn is_confirmed(&self, lease: &NativeFocusLease) -> bool {
         self.state
             .lock()

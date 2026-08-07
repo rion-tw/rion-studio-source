@@ -74,7 +74,7 @@ fn query_tab_chrome_window_state_unlocked<State, Snapshot, Output>(
 enum WindowsTabChromeRevealSignal {
     ContentPainted,
     FallbackElapsed,
-    GeometryReady,
+    RendererReady,
     VisibilityRequested,
 }
 
@@ -84,8 +84,17 @@ struct WindowsTabChromeRevealState {
     cloaked: bool,
     content_painted: bool,
     fallback_elapsed: bool,
-    geometry_ready: bool,
+    pending_focus_sequence: Option<u64>,
+    renderer_ready: bool,
     visibility_requested: bool,
+}
+
+#[cfg(any(windows, test))]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WindowsTabChromeRevealDecision {
+    defer_focus: bool,
+    focus_sequence: Option<u64>,
+    reveal: bool,
 }
 
 #[cfg(any(windows, test))]
@@ -95,28 +104,61 @@ impl WindowsTabChromeRevealState {
             cloaked,
             content_painted: false,
             fallback_elapsed: false,
-            geometry_ready: false,
+            pending_focus_sequence: None,
+            renderer_ready: false,
             visibility_requested: false,
         }
     }
 
-    fn observe(&mut self, signal: WindowsTabChromeRevealSignal) -> bool {
+    fn observe(
+        &mut self,
+        signal: WindowsTabChromeRevealSignal,
+    ) -> WindowsTabChromeRevealDecision {
         match signal {
             WindowsTabChromeRevealSignal::ContentPainted => self.content_painted = true,
             WindowsTabChromeRevealSignal::FallbackElapsed => self.fallback_elapsed = true,
-            WindowsTabChromeRevealSignal::GeometryReady => self.geometry_ready = true,
+            WindowsTabChromeRevealSignal::RendererReady => self.renderer_ready = true,
             WindowsTabChromeRevealSignal::VisibilityRequested => {
                 self.visibility_requested = true;
             }
         }
+        self.finish_observation(false)
+    }
+
+    fn request_presentation(
+        &mut self,
+        focus_sequence: Option<u64>,
+    ) -> WindowsTabChromeRevealDecision {
+        let defer_focus = self.cloaked && focus_sequence.is_some();
+        if defer_focus {
+            self.pending_focus_sequence = focus_sequence;
+        }
+        let mut decision = self.observe(WindowsTabChromeRevealSignal::VisibilityRequested);
+        decision.defer_focus = defer_focus;
+        decision
+    }
+
+    fn finish_observation(&mut self, defer_focus: bool) -> WindowsTabChromeRevealDecision {
         let reveal = self.cloaked
-            && self.geometry_ready
             && self.visibility_requested
-            && (self.content_painted || self.fallback_elapsed);
+            && (self.renderer_ready || self.fallback_elapsed);
         if reveal {
             self.cloaked = false;
         }
-        reveal
+        WindowsTabChromeRevealDecision {
+            defer_focus,
+            focus_sequence: reveal
+                .then(|| self.pending_focus_sequence.take())
+                .flatten(),
+            reveal,
+        }
+    }
+
+    fn restore_failed_reveal(&mut self, focus_sequence: Option<u64>) {
+        self.cloaked = true;
+        if focus_sequence.is_some() {
+            self.pending_focus_sequence = focus_sequence;
+        }
     }
 }
 
@@ -406,24 +448,214 @@ impl SystemRuntimeExecutor {
         window_generation: u64,
         signal: WindowsTabChromeRevealSignal,
     ) {
-        let window = self.state.lock().ok().and_then(|mut state| {
+        let decision = self.state.lock().ok().and_then(|mut state| {
             let host = state.display_hosts.get_mut(window_id)?;
-            if host.generation != window_generation || !host.tab_chrome_reveal.observe(signal) {
+            if host.generation != window_generation {
                 return None;
             }
-            Some(host.window.clone())
+            Some(host.tab_chrome_reveal.observe(signal))
+        });
+        self.tab_chrome_changed.notify_all();
+        if let Some(decision) = decision {
+            self.apply_windows_tab_chrome_reveal_decision(
+                window_id,
+                window_generation,
+                decision,
+            );
+        }
+    }
+
+    fn prepare_windows_tab_chrome_presentation(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        focus_lease: Option<&NativeFocusLease>,
+    ) -> bool {
+        let decision = self.state.lock().ok().and_then(|mut state| {
+            let host = state.display_hosts.get_mut(window_id)?;
+            if host.generation != window_generation {
+                return None;
+            }
+            Some(
+                host.tab_chrome_reveal
+                    .request_presentation(focus_lease.map(|lease| lease.sequence)),
+            )
+        });
+        let Some(decision) = decision else {
+            return false;
+        };
+        self.apply_windows_tab_chrome_reveal_decision(
+            window_id,
+            window_generation,
+            decision,
+        );
+        decision.defer_focus
+    }
+
+    fn wait_for_windows_tab_chrome_content(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+    ) -> RuntimeResult<()> {
+        let deadline = Instant::now() + WINDOWS_TAB_CHROME_ACK_TIMEOUT;
+        let mut state = self.state()?;
+        loop {
+            let host = state.display_hosts.get(window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime host retired before its tab chrome became ready.",
+                )
+            })?;
+            if host.generation != window_generation {
+                return Err(RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_SUPERSEDED",
+                    "A newer runtime host generation replaced the tab chrome bootstrap.",
+                ));
+            }
+            if host.tab_chrome_reveal.content_painted {
+                return Ok(());
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(RuntimeError::new(
+                    "WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT",
+                    "The Windows tab chrome did not become ready before role WebView creation.",
+                ));
+            }
+            let (next, timeout) = self
+                .tab_chrome_changed
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                        "The Windows tab chrome readiness coordinator is unavailable.",
+                    )
+                })?;
+            state = next;
+            if timeout.timed_out()
+                && !state.display_hosts.get(window_id).is_some_and(|host| {
+                    host.generation == window_generation
+                        && host.tab_chrome_reveal.content_painted
+                })
+            {
+                return Err(RuntimeError::new(
+                    "WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT",
+                    "The Windows tab chrome did not become ready before role WebView creation.",
+                ));
+            }
+        }
+    }
+
+    fn apply_windows_tab_chrome_reveal_decision(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        decision: WindowsTabChromeRevealDecision,
+    ) {
+        if !decision.reveal {
+            return;
+        }
+        let window = self.state.lock().ok().and_then(|state| {
+            state
+                .display_hosts
+                .get(window_id)
+                .filter(|host| host.generation == window_generation)
+                .map(|host| host.window.clone())
         });
         let Some(window) = window else {
             return;
         };
-        if let Err(error) = set_windows_runtime_window_cloaked(&window, false) {
-            if let Ok(mut state) = self.state.lock()
-                && let Some(host) = state.display_hosts.get_mut(window_id)
-                && host.generation == window_generation
-            {
-                host.tab_chrome_reveal.cloaked = true;
+        let Some(runtime) = self.self_weak.get().cloned() else {
+            self.restore_windows_tab_chrome_reveal(
+                window_id,
+                window_generation,
+                decision.focus_sequence,
+            );
+            return;
+        };
+        let reveal_window = window.clone();
+        let reveal_window_id = window_id.to_owned();
+        let scheduling = window.run_on_main_thread(move || {
+            let Some(runtime) = runtime.upgrade() else {
+                return;
+            };
+            if let Err(error) = set_windows_runtime_window_cloaked(&reveal_window, false) {
+                runtime.restore_windows_tab_chrome_reveal(
+                    &reveal_window_id,
+                    window_generation,
+                    decision.focus_sequence,
+                );
+                eprintln!(
+                    "Windows runtime window could not be revealed after tab chrome paint: {error:?}"
+                );
+                return;
             }
-            eprintln!("Windows runtime window could not be revealed after tab chrome paint: {error:?}");
+            if let Some(sequence) = decision.focus_sequence {
+                runtime.focus_windows_runtime_window_after_reveal(
+                    &reveal_window_id,
+                    window_generation,
+                    sequence,
+                    &reveal_window,
+                );
+            }
+        });
+        if let Err(error) = scheduling {
+            self.restore_windows_tab_chrome_reveal(
+                window_id,
+                window_generation,
+                decision.focus_sequence,
+            );
+            eprintln!("Windows runtime window reveal could not reach the UI thread: {error}");
+        }
+    }
+
+    fn restore_windows_tab_chrome_reveal(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        focus_sequence: Option<u64>,
+    ) {
+        if let Ok(mut state) = self.state.lock()
+            && let Some(host) = state.display_hosts.get_mut(window_id)
+            && host.generation == window_generation
+        {
+            host.tab_chrome_reveal
+                .restore_failed_reveal(focus_sequence);
+        }
+    }
+
+    fn focus_windows_runtime_window_after_reveal(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        focus_sequence: u64,
+        window: &Window,
+    ) {
+        let Some(lease) = self.focus_broker.current_lease_for(
+            focus_sequence,
+            window_id,
+            window_generation,
+        ) else {
+            return;
+        };
+        let Ok(Some(_guard)) = self.focus_broker.begin_mutation(&lease) else {
+            return;
+        };
+        if window.is_minimized().unwrap_or(false)
+            && let Err(error) = window.unminimize()
+        {
+            eprintln!("Windows runtime window could not restore before reveal focus: {error}");
+            return;
+        }
+        if !self.focus_broker.mark_submitted(&lease) {
+            return;
+        }
+        if let Err(error) = window.set_focus() {
+            eprintln!("Windows runtime window could not focus after reveal: {error}");
+            return;
+        }
+        if window.is_focused().unwrap_or(false) {
+            let _ = self.focus_broker.confirm(&lease);
         }
     }
 
@@ -852,6 +1084,11 @@ impl SystemRuntimeExecutor {
         self.tab_chrome_projections
             .register_renderer(webview_label, &ready)
             .map_err(str::to_owned)?;
+        self.observe_windows_tab_chrome_reveal(
+            &window_id,
+            window_generation,
+            WindowsTabChromeRevealSignal::RendererReady,
+        );
         self.publish_projection();
         Ok(())
     }

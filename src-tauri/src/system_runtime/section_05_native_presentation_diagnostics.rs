@@ -69,6 +69,7 @@ fn capture_presentation_batch_events(
         "windowId": request.window_id,
         "windowFocusedAfter": outcome.window_focused_after,
         "windowFocusApplied": outcome.window_focus_applied,
+        "windowFocusDeferred": request.defer_window_focus_until_reveal,
         "windowFocusMs": outcome.window_focus_ms,
         "windowRestoreApplied": outcome.window_restore_applied,
         "windowVisibleAfter": outcome.window_visible_after,

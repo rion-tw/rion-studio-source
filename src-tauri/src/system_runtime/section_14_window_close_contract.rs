@@ -23,7 +23,15 @@ fn window_close_failure_status(
 }
 
 fn window_close_in_progress(state: &RuntimeState, window_id: &str) -> bool {
-    if state.retiring_window_tabs.contains_key(window_id) {
+    if state.retiring_window_tabs.contains_key(window_id)
+        || state
+            .retiring_native_window_hosts
+            .values()
+            .any(|host| host.window_id == window_id)
+        || state.close_previews.values().any(|preview| {
+            preview.window_id == window_id && preview.retirement_revision.is_some()
+        })
+    {
         return true;
     }
     let Some(generation) = state
@@ -426,7 +434,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn complete_window_destroyed(&self, label: &str) {
-        let (transaction, focus_identity, destroyed_window_id) = self
+        let (transaction, focus_identity, destroyed_window_id, retired_identity) = self
             .state
             .lock()
             .ok()
@@ -436,20 +444,39 @@ impl SystemRuntimeExecutor {
                     state.pending_window_resizes.remove(label);
                     state.active_window_resize_workers.remove(label);
                 }
-                let focus_identity = state.display_hosts.iter().find_map(|(window_id, host)| {
+                let live_focus_identity = state.display_hosts.iter().find_map(|(window_id, host)| {
                     (host.window.label() == label)
                         .then(|| (window_id.clone(), host.generation))
                 });
-                let destroyed_window_id = focus_identity
+                let destroyed_window_id = live_focus_identity
                     .as_ref()
                     .map(|(window_id, _)| window_id.clone());
+                let retired_focus_identity = state
+                    .retiring_native_window_hosts
+                    .remove(label)
+                    .map(|host| (host.window_id, host.generation));
+                state.allow_window_close_labels.remove(label);
                 (
                     state.window_closes.take_destroyed(label),
-                    focus_identity,
+                    live_focus_identity.or(retired_focus_identity.clone()),
                     destroyed_window_id,
+                    retired_focus_identity,
                 )
             })
             .unwrap_or_default();
+        self.tab_close_changed.notify_all();
+        if let Some((window_id, generation)) = retired_identity.as_ref() {
+            self.record_presentation_event(
+                LogLevel::Debug,
+                "native.window-destroyed",
+                "The retired native window generation emitted its authoritative destroyed event.",
+                window_id,
+                None,
+                *generation,
+                "window-destroyed",
+                0,
+            );
+        }
         if let Some(window_id) = destroyed_window_id.as_deref() {
             self.cancel_pending_surface_continuations(
                 Some(window_id),

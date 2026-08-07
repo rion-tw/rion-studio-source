@@ -543,14 +543,6 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| state.display_hosts.get(&window_id).map(|host| host.generation))
             .unwrap_or_default();
-        #[cfg(windows)]
-        if window_visibility == Some(true) && window_generation != 0 {
-            self.observe_windows_tab_chrome_reveal(
-                &window_id,
-                window_generation,
-                WindowsTabChromeRevealSignal::VisibilityRequested,
-            );
-        }
         let expected_lifecycle_epoch = self.lifecycle_epoch();
         let mut operation = NativeOperationContext::new_at_for_platform(
             NativeOperationSubsystem::Presentation,
@@ -614,6 +606,16 @@ impl SystemRuntimeExecutor {
                 focus,
             )
         });
+        #[cfg(windows)]
+        let defer_window_focus_until_reveal = window_visibility == Some(true)
+            && window_generation != 0
+            && self.prepare_windows_tab_chrome_presentation(
+                &window_id,
+                window_generation,
+                focus_lease.as_ref(),
+            );
+        #[cfg(not(windows))]
+        let defer_window_focus_until_reveal = false;
         let next_surface_identities = presentation
             .lock()
             .ok()
@@ -659,6 +661,7 @@ impl SystemRuntimeExecutor {
             actor_liveness: actor.liveness(),
             coordinator: presentation,
             core: Arc::clone(&self.core),
+            defer_window_focus_until_reveal,
             focus,
             focus_broker: Arc::clone(&self.focus_broker),
             focus_lease,

@@ -299,6 +299,36 @@ impl SystemRuntimeExecutor {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
         self.wait_for_presentation_paint_barrier(&target.window_id, projection_revision);
+        #[cfg(windows)]
+        {
+            let window_generation = self
+                .state()?
+                .display_hosts
+                .get(&target.window_id)
+                .map(|host| host.generation)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                        "The runtime host retired before role WebView creation.",
+                    )
+                })?;
+            let tab_chrome_started = Instant::now();
+            let tab_chrome_stage = format!(
+                "tab-chrome-ready:{}:{window_generation}",
+                target.window_id
+            );
+            if let Err(error) = self
+                .wait_for_windows_tab_chrome_content(&target.window_id, window_generation)
+            {
+                self.record_runtime_stage_failure(
+                    tab_chrome_stage,
+                    tab_chrome_started,
+                    &error,
+                );
+                return Err(error);
+            }
+            self.record_runtime_stage(tab_chrome_stage, "completed", tab_chrome_started);
+        }
         let window_zoom_factor = self
             .state()?
             .display_hosts
@@ -666,6 +696,11 @@ impl SystemRuntimeExecutor {
                 .iter()
                 .map(|role| role.role.id.clone())
                 .collect::<Vec<_>>();
+            for role_id in &failed_role_ids {
+                self.clear_role_keys(role_id);
+                let _ = self.advance_role_input_fence_local(role_id);
+                self.discard_role_navigation_input_fences(role_id, "launch-failed");
+            }
             let mut cleanup_error = None;
             for (surface_id, webview, lifecycle, instance_id) in created_surfaces {
                 let cleanup = if let Some(instance_id) = instance_id {

@@ -4,8 +4,8 @@ enum ApplicationActivationTarget {
 }
 
 fn application_activation_target() -> ApplicationActivationTarget {
-    // The Dock/taskbar entry represents the Rion Studio control surface, not a
-    // previously focused game-runtime window.
+    // App-level activation without a native window selection targets the control surface.
+    // Platform window switchers may still select an individual game-runtime window.
     ApplicationActivationTarget::MainWindow
 }
 

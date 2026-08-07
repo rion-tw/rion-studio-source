@@ -534,6 +534,19 @@ fn set_windows_runtime_window_cloaked(window: &Window, cloaked: bool) -> Runtime
 }
 
 #[cfg(windows)]
+fn register_windows_runtime_window_with_taskbar(window: &Window) -> RuntimeResult<()> {
+    use windows::Win32::{
+        System::Com::{CLSCTX_SERVER, CoCreateInstance},
+        UI::Shell::{ITaskbarList, TaskbarList},
+    };
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let taskbar: ITaskbarList = unsafe { CoCreateInstance(&TaskbarList, None, CLSCTX_SERVER) }
+        .map_err(RuntimeError::tauri)?;
+    unsafe { taskbar.AddTab(hwnd) }.map_err(RuntimeError::tauri)
+}
+
+#[cfg(windows)]
 fn set_windows_surface_host_initialization_visibility(
     window: &Window,
     visible: bool,

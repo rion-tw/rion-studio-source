@@ -590,6 +590,19 @@ impl SystemRuntimeExecutor {
                 );
                 return;
             }
+            // The initialization show happens while DWM-cloaked. Register the host only after
+            // reveal so Windows contributes it to the application's grouped taskbar previews.
+            if let Err(error) = register_windows_runtime_window_with_taskbar(&reveal_window) {
+                runtime.restore_windows_tab_chrome_reveal(
+                    &reveal_window_id,
+                    window_generation,
+                    decision.focus_sequence,
+                );
+                eprintln!(
+                    "Windows runtime window could not be registered with the taskbar after tab chrome paint: {error:?}"
+                );
+                return;
+            }
             if let Some(sequence) = decision.focus_sequence {
                 runtime.focus_windows_runtime_window_after_reveal(
                     &reveal_window_id,

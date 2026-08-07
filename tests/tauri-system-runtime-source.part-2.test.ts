@@ -66,10 +66,20 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsReveal).toContain("focus_sequence");
     expect(windowsReveal).toContain("run_on_main_thread");
     expect(windowsReveal).toContain("set_windows_runtime_window_cloaked");
+    expect(windowsReveal).toContain("register_windows_runtime_window_with_taskbar");
     expect(windowsReveal).toContain("focus_windows_runtime_window_after_reveal");
     expect(windowsReveal.indexOf("set_windows_runtime_window_cloaked")).toBeLessThan(
+      windowsReveal.indexOf("register_windows_runtime_window_with_taskbar")
+    );
+    expect(windowsReveal.indexOf("register_windows_runtime_window_with_taskbar")).toBeLessThan(
       windowsReveal.indexOf("focus_windows_runtime_window_after_reveal")
     );
+    const windowsTaskbarRegistration = runtime.slice(
+      runtime.indexOf("fn register_windows_runtime_window_with_taskbar("),
+      runtime.indexOf("fn set_windows_surface_host_initialization_visibility(")
+    );
+    expect(windowsTaskbarRegistration).toContain("CoCreateInstance");
+    expect(windowsTaskbarRegistration).toContain("taskbar.AddTab(hwnd)");
     const nativePresentationStart = runtime.indexOf("fn apply_native_presentation_batch(");
     const nativePresentation = runtime.slice(
       nativePresentationStart,

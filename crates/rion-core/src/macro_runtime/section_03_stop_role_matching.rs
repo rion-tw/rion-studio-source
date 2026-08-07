@@ -479,11 +479,10 @@ fn run_synchronous_child_at_barrier(
         if context.control.cancelled.load(Ordering::Acquire) {
             break Err("macro run cancelled".to_owned());
         }
-        let (next, _) = barrier
+        state = barrier
             .ready
-            .wait_timeout(state, Duration::from_millis(25))
+            .wait(state)
             .map_err(|_| "macro barrier lock poisoned".to_owned())?;
-        state = next;
     };
     state.departed_role_ids.insert(role_id.to_owned());
     let should_remove = state.departed_role_ids.len() >= invocation_role_ids.len();
@@ -523,29 +522,37 @@ fn run_synchronous_child(
         format!("Called macro \"{name}\" is already running.")
     })?;
     loop {
+        let wake = context
+            .control
+            .wake
+            .0
+            .lock()
+            .map_err(|_| "macro wait lock poisoned".to_owned())?;
         if context.control.cancelled.load(Ordering::Acquire) {
+            drop(wake);
             cancel_control(&child);
             let wait_result = wait_finished(&child);
             remove_owned_child(&context.control, &child.id);
             wait_result.map_err(|error| error.to_string())?;
             return Err("macro run cancelled".to_owned());
         }
-        let finished = child
+        if child
             .finished
             .0
             .lock()
-            .map_err(|_| "child macro completion lock poisoned".to_owned())?;
-        if *finished {
+            .map_err(|_| "child macro completion lock poisoned".to_owned())?
+            .to_owned()
+        {
             break;
         }
-        let (finished, _) = child
-            .finished
-            .1
-            .wait_timeout(finished, Duration::from_millis(25))
-            .map_err(|_| "child macro completion lock poisoned".to_owned())?;
-        if *finished {
-            break;
-        }
+        drop(
+            context
+                .control
+                .wake
+                .1
+                .wait(wake)
+                .map_err(|_| "macro wait lock poisoned".to_owned())?,
+        );
     }
     remove_owned_child(&context.control, &child.id);
     match child

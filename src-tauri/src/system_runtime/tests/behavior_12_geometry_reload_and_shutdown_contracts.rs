@@ -119,6 +119,19 @@ fn shutdown_drain_observes_creation_and_window_mutation_lanes() {
     assert!(mutations.wait_for_idle(Instant::now() + Duration::from_millis(10)));
 }
 
+#[tokio::test]
+async fn input_readiness_revision_wakes_ready_before_and_after_subscribe() {
+    let registry = InputReadinessRegistry::new();
+    registry.notify();
+    let before = registry.subscribe();
+    assert_eq!(*before.borrow(), 1);
+
+    let mut after = registry.subscribe();
+    registry.notify();
+    after.changed().await.unwrap();
+    assert_eq!(*after.borrow_and_update(), 2);
+}
+
 #[test]
 fn reload_aggregate_reports_partial_and_unknown_terminal_states_honestly() {
     for _platform in ["macos", "windows"] {

@@ -93,9 +93,10 @@ NS_ASSUME_NONNULL_BEGIN
   if (!activeItem || !activeSurface) return;
   NSRect activeFrame = activeSurface.frame;
   NSRect visible = _tabScrollView.contentView.bounds;
-  CGFloat originX = RionRuntimeRevealScrollOrigin(
+  CGFloat edgeInset = _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
+  CGFloat originX = RionRuntimeInsetRevealScrollOrigin(
       NSMinX(activeFrame), NSMaxX(activeFrame), visible.origin.x,
-      visible.size.width, _tabCanvas.frame.size.width);
+      visible.size.width, _tabCanvas.frame.size.width, edgeInset);
   if (fabs(originX - visible.origin.x) < 0.5) return;
   [_tabScrollView.contentView scrollToPoint:NSMakePoint(originX, 0)];
   [_tabScrollView reflectScrolledClipView:_tabScrollView.contentView];
@@ -125,13 +126,103 @@ NS_ASSUME_NONNULL_BEGIN
   }
 }
 
+- (void)updateTabEdgeFadeMasks {
+  if (_destroyed) return;
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+  if (@available(macOS 26.0, *)) {
+    NSRect visible = _tabScrollView.contentView.bounds;
+    CGFloat viewportWidth = visible.size.width;
+    CGFloat edgeInset =
+        _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
+    CGFloat arrowCenterInset = kRionTabScrollButtonWidth / 2.0;
+    CGFloat fadeInset = MAX(0, edgeInset - arrowCenterInset);
+    CGFloat fadeViewportWidth = MAX(0, viewportWidth - 2.0 * arrowCenterInset);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    for (RionRuntimeSurfaceView *surface in _tabSurfaces) {
+      if (surface.superview != _tabCanvas || edgeInset <= 0 ||
+          viewportWidth <= 0) {
+        [surface setEdgeFadeMask:nil effectVisibleRect:surface.bounds];
+        continue;
+      }
+      CGFloat surfaceWidth = NSWidth(surface.bounds);
+      if (surfaceWidth <= 0) {
+        [surface setEdgeFadeMask:nil effectVisibleRect:surface.bounds];
+        continue;
+      }
+      CGFloat viewportMinimumX = NSMinX(surface.frame) - visible.origin.x;
+      CGFloat viewportMaximumX = viewportMinimumX + surfaceWidth;
+      if (viewportMinimumX >= edgeInset &&
+          viewportMaximumX <= viewportWidth - edgeInset) {
+        [surface setEdgeFadeMask:nil effectVisibleRect:surface.bounds];
+        continue;
+      }
+
+      NSRect effectVisibleRect = RionRuntimeTabEdgeEffectVisibleRect(
+          surfaceWidth, NSHeight(surface.bounds), viewportMinimumX,
+          viewportWidth, arrowCenterInset);
+
+      NSMutableArray<NSNumber *> *positions =
+          [NSMutableArray arrayWithObjects:@0, @(surfaceWidth), nil];
+      for (NSNumber *fractionValue in @[@0, @0.25, @0.5, @0.75, @1]) {
+        CGFloat fadeOffset = fadeInset * fractionValue.doubleValue;
+        for (NSNumber *boundary in @[
+               @(arrowCenterInset + fadeOffset - viewportMinimumX),
+               @(viewportWidth - arrowCenterInset - fadeOffset -
+                 viewportMinimumX)
+             ]) {
+          CGFloat position = boundary.doubleValue;
+          if (position > 0 && position < surfaceWidth) {
+            [positions addObject:@(position)];
+          }
+        }
+      }
+      [positions sortUsingComparator:^NSComparisonResult(NSNumber *left,
+                                                          NSNumber *right) {
+        return [left compare:right];
+      }];
+
+      NSMutableArray *colors = [NSMutableArray arrayWithCapacity:positions.count];
+      NSMutableArray<NSNumber *> *locations =
+          [NSMutableArray arrayWithCapacity:positions.count];
+      CGFloat previousPosition = -CGFLOAT_MAX;
+      for (NSNumber *positionValue in positions) {
+        CGFloat position = positionValue.doubleValue;
+        if (fabs(position - previousPosition) < 0.01) continue;
+        previousPosition = position;
+        CGFloat alpha = RionRuntimeTabEdgeFadeAlpha(
+            viewportMinimumX + position - arrowCenterInset,
+            fadeViewportWidth, fadeInset);
+        CGColorRef color =
+            [NSColor colorWithCalibratedWhite:1.0 alpha:alpha].CGColor;
+        [colors addObject:(__bridge id)color];
+        [locations addObject:@(position / surfaceWidth)];
+      }
+      CAGradientLayer *mask = [CAGradientLayer layer];
+      mask.frame = surface.bounds;
+      mask.startPoint = CGPointMake(0, 0.5);
+      mask.endPoint = CGPointMake(1, 0.5);
+      mask.colors = colors;
+      mask.locations = locations;
+      [surface setEdgeFadeMask:mask effectVisibleRect:effectVisibleRect];
+    }
+    [CATransaction commit];
+    return;
+  }
+#endif
+  for (RionRuntimeSurfaceView *surface in _tabSurfaces) {
+    [surface setEdgeFadeMask:nil effectVisibleRect:surface.bounds];
+  }
+}
+
 - (void)scrollTabsLeft:(id)sender {
   (void)sender;
   NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat edgeInset = _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
   CGFloat targetX = 0;
   for (NSView *surface in _tabSurfaces) {
-    if (NSMinX(surface.frame) < NSMinX(visible) - 1.0) {
-      targetX = NSMinX(surface.frame);
+    if (NSMinX(surface.frame) < NSMinX(visible) + edgeInset - 1.0) {
+      targetX = NSMinX(surface.frame) - edgeInset;
     } else {
       break;
     }
@@ -144,12 +235,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)scrollTabsRight:(id)sender {
   (void)sender;
   NSRect visible = _tabScrollView.contentView.bounds;
+  CGFloat edgeInset = _scrollRightSurface.hidden ? 0 : kRionTabScrollFusionInset;
   CGFloat maximumOrigin =
       MAX(0, _tabCanvas.frame.size.width - visible.size.width);
   CGFloat targetX = maximumOrigin;
   for (NSView *surface in _tabSurfaces) {
-    if (NSMaxX(surface.frame) > NSMaxX(visible) + 1.0) {
-      targetX = NSMaxX(surface.frame) - visible.size.width;
+    if (NSMaxX(surface.frame) > NSMaxX(visible) - edgeInset + 1.0) {
+      targetX = NSMaxX(surface.frame) - visible.size.width + edgeInset;
       break;
     }
   }

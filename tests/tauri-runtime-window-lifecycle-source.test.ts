@@ -625,8 +625,10 @@ describe("runtime window lifecycle authority", () => {
       'window.dispatchEvent(new Event("resize"))'
     );
     expect(viewportRefresh).toContain(
-      "surface.webview.label() == surface_label.as_str()"
+      "surface.webview.label() == surface_label"
     );
+    expect(viewportRefresh).toContain("ready_viewport_pair_needs_apply(");
+    expect(viewportRefresh).not.toContain("Duration::from_millis(120)");
   });
 
   it("keeps a disconnected tab surface outside the native window geometry transaction", async () => {

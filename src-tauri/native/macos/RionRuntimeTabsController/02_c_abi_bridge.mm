@@ -440,6 +440,10 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
         640.0, NSMakeRect(180.0, 0.0, 144.0, kRionTabHeight), YES);
     CGFloat shortWindowNameWidth = RionRuntimeWindowNameWidth(96.0);
     CGFloat longWindowNameWidth = RionRuntimeWindowNameWidth(420.0);
+    CGFloat leftRevealOrigin = RionRuntimeInsetRevealScrollOrigin(
+        25.0, 169.0, 120.0, 450.0, 950.0, 25.0);
+    CGFloat rightRevealOrigin = RionRuntimeInsetRevealScrollOrigin(
+        781.0, 925.0, 0.0, 450.0, 950.0, 25.0);
     CGFloat minimumWindowTabsWidth =
         640.0 - kRionTrafficLightFallbackWidth - kRionRootLeadingInset -
         longWindowNameWidth - kRionWindowNameTrailingSpacing -
@@ -460,6 +464,22 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
                640.0 &&
            shortWindowNameWidth == kRionWindowNameMinimumWidth &&
            longWindowNameWidth == kRionWindowNameMaximumWidth &&
+           leftRevealOrigin == 0.0 && rightRevealOrigin == 500.0 &&
+           kRionTabScrollFusionInset == 25.0 &&
+           RionRuntimeTabEdgeFadeAlpha(0.0, 450.0, 25.0) == 0.0 &&
+           RionRuntimeTabEdgeFadeAlpha(6.25, 450.0, 25.0) == 0.15625 &&
+           RionRuntimeTabEdgeFadeAlpha(12.5, 450.0, 25.0) == 0.5 &&
+           RionRuntimeTabEdgeFadeAlpha(18.75, 450.0, 25.0) == 0.84375 &&
+           RionRuntimeTabEdgeFadeAlpha(25.0, 450.0, 25.0) == 1.0 &&
+           RionRuntimeTabEdgeFadeAlpha(425.0, 450.0, 25.0) == 1.0 &&
+           RionRuntimeTabEdgeFadeAlpha(437.5, 450.0, 25.0) == 0.5 &&
+           RionRuntimeTabEdgeFadeAlpha(450.0, 450.0, 25.0) == 0.0 &&
+           NSEqualRects(RionRuntimeTabEdgeEffectVisibleRect(
+                            144.0, 28.0, -50.0, 450.0, 11.0),
+                        NSMakeRect(61.0, 0.0, 83.0, 28.0)) &&
+           NSEqualRects(RionRuntimeTabEdgeEffectVisibleRect(
+                            144.0, 28.0, 400.0, 450.0, 11.0),
+                        NSMakeRect(0.0, 0.0, 39.0, 28.0)) &&
            minimumWindowTabsWidth > kRionTabMinimumWidth &&
            kRionTitlebarHeight == 40.0 &&
            RionRuntimePointInHalfOpenRect(NSMakePoint(-120.0, 80.0),
@@ -665,6 +685,8 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 
 - (instancetype)initWithContentView:(NSView *)contentView
                        cornerRadius:(CGFloat)cornerRadius;
+- (void)setEdgeFadeMask:(nullable CAGradientLayer *)mask
+       effectVisibleRect:(NSRect)effectVisibleRect;
 - (void)updateActive:(BOOL)active
              hovered:(BOOL)hovered
         windowActive:(BOOL)windowActive

@@ -33,7 +33,6 @@ type Unlisten = () => void;
 type ListenerRegistration = () => Promise<Unlisten>;
 
 const TAURI_BRIDGE_TIMEOUT_MS = 10_000;
-const COLLECTION_REFRESH_RETRY_DELAYS_MS = [100, 500] as const;
 const SNAPSHOT_COLLECTIONS = [
   "games",
   "roles",
@@ -41,10 +40,6 @@ const SNAPSHOT_COLLECTIONS = [
   "gameWindows",
   "macros"
 ] as const;
-
-function wait(delayMs: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delayMs));
-}
 
 export async function registerBridgeListeners(
   registrations: ListenerRegistration[],
@@ -244,12 +239,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     }
   };
 
-  const latestRevisionByCollection = new Map<string, number>();
-  const refreshSequenceByCollection = new Map<string, number>();
   let runtimeStateRefreshSequence = 0;
   let roleStatusesRefreshSequence = 0;
   let macroStatusesRefreshSequence = 0;
   let displaysRefreshSequence = 0;
+  let collectionRequestSequence = 0;
   const refreshRuntimeState = (): void => {
     const sequence = ++runtimeStateRefreshSequence;
     void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
@@ -266,116 +260,48 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         }
       });
   };
-  const refreshCollections = async (
-    collections: string[],
-    revision?: number
-  ): Promise<void> => {
-    const requested = new Map<string, number>();
-    for (const collection of new Set(collections)) {
-      if (revision !== undefined) {
-        const latestRevision = latestRevisionByCollection.get(collection) ?? 0;
-        if (revision < latestRevision) continue;
-        latestRevisionByCollection.set(collection, revision);
-      }
-      const sequence = (refreshSequenceByCollection.get(collection) ?? 0) + 1;
-      refreshSequenceByCollection.set(collection, sequence);
-      requested.set(collection, sequence);
-    }
-    const isCurrent = (collection: string): boolean =>
-      requested.has(collection)
-      && refreshSequenceByCollection.get(collection) === requested.get(collection);
-    const refreshCollection = async <T>(
-      collection: string,
-      query: () => Promise<T>,
-      event: string
-    ): Promise<void> => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt <= COLLECTION_REFRESH_RETRY_DELAYS_MS.length; attempt += 1) {
-        if (!isCurrent(collection)) return;
-        if (attempt > 0) {
-          await wait(COLLECTION_REFRESH_RETRY_DELAYS_MS[attempt - 1]);
-          if (!isCurrent(collection)) return;
-        }
-        try {
-          const value = await query();
-          if (isCurrent(collection)) emit(event, value);
-          return;
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      if (isCurrent(collection)) throw lastError;
-    };
-    const jobs: Array<{ collection: string; promise: Promise<void> }> = [];
-    if (requested.has("games")) {
-      jobs.push({
-        collection: "games",
-        promise: refreshCollection("games", () => invokeCore({ type: "gamesList" }), "games")
-      });
-    }
-    if (requested.has("roles")) {
-      jobs.push({
-        collection: "roles",
-        promise: refreshCollection("roles", () => invokeCore({ type: "rolesList" }), "roles")
-      });
-    }
-    if (requested.has("launchWorkspaces")) {
-      jobs.push({
-        collection: "launchWorkspaces",
-        promise: refreshCollection(
-          "launchWorkspaces",
-          () => invokeCore({ type: "workspacesList" }),
-          "workspaces"
-        )
-      });
-    }
-    if (requested.has("gameWindows")) {
-      jobs.push({
-        collection: "gameWindows",
-        promise: refreshCollection(
-          "gameWindows",
-          () => invokeCore({ type: "gameWindowsList" }),
-          "gameWindows"
-        )
-      });
-    }
-    if (requested.has("macros")) {
-      jobs.push({
-        collection: "macros",
-        promise: refreshCollection("macros", () => invokeCore({ type: "macrosList" }), "macros")
-      });
-    }
-    const results = await Promise.allSettled(jobs.map(({ promise }) => promise));
-    const hasCurrentFailure = results.some(
-      (result, index) => result.status === "rejected" && isCurrent(jobs[index].collection)
-    );
-    if (!hasCurrentFailure) return;
-
-    const snapshotSequences = new Map<string, number>();
-    for (const collection of SNAPSHOT_COLLECTIONS) {
-      if (revision !== undefined) {
-        const latestRevision = latestRevisionByCollection.get(collection) ?? 0;
-        latestRevisionByCollection.set(collection, Math.max(latestRevision, revision));
-      }
-      const sequence = (refreshSequenceByCollection.get(collection) ?? 0) + 1;
-      refreshSequenceByCollection.set(collection, sequence);
-      snapshotSequences.set(collection, sequence);
-    }
+  type CollectionName = typeof SNAPSHOT_COLLECTIONS[number];
+  interface CollectionFollower {
+    recoveryAttemptedRevision: number;
+    requestedRevision: number;
+    running: boolean;
+  }
+  const collectionFollowers = new Map<CollectionName, CollectionFollower>();
+  const collectionQueries: Record<CollectionName, {
+    event: string;
+    query: () => Promise<unknown>;
+  }> = {
+    games: { event: "games", query: () => invokeCore({ type: "gamesList" }) },
+    roles: { event: "roles", query: () => invokeCore({ type: "rolesList" }) },
+    launchWorkspaces: {
+      event: "workspaces",
+      query: () => invokeCore({ type: "workspacesList" })
+    },
+    gameWindows: {
+      event: "gameWindows",
+      query: () => invokeCore({ type: "gameWindowsList" })
+    },
+    macros: { event: "macros", query: () => invokeCore({ type: "macrosList" }) }
+  };
+  const isCollectionName = (collection: string): collection is CollectionName =>
+    SNAPSHOT_COLLECTIONS.some((candidate) => candidate === collection);
+  let snapshotRecovery: Promise<void> | undefined;
+  const recoverSnapshot = (revision: number): Promise<void> => {
+    if (snapshotRecovery) return snapshotRecovery;
     const runtimeSequence = ++runtimeStateRefreshSequence;
     const roleStatusesSequence = ++roleStatusesRefreshSequence;
     const macroStatusesSequence = ++macroStatusesRefreshSequence;
     const displaySequence = ++displaysRefreshSequence;
-    try {
-      const snapshot = await invokeShell<Awaited<ReturnType<RionStudioApi["getAppSnapshot"]>>>(
-        "appSnapshot"
-      );
-      const snapshotIsCurrent = (collection: string): boolean =>
-        refreshSequenceByCollection.get(collection) === snapshotSequences.get(collection);
-      if (snapshotIsCurrent("games")) emit("games", snapshot.games);
-      if (snapshotIsCurrent("roles")) emit("roles", snapshot.roles);
-      if (snapshotIsCurrent("launchWorkspaces")) emit("workspaces", snapshot.launchWorkspaces);
-      if (snapshotIsCurrent("gameWindows")) emit("gameWindows", snapshot.gameWindows);
-      if (snapshotIsCurrent("macros")) emit("macros", snapshot.macros);
+    snapshotRecovery = invokeShell<Awaited<ReturnType<RionStudioApi["getAppSnapshot"]>>>(
+      "appSnapshot"
+    ).then((snapshot) => {
+      const current = (collection: CollectionName): boolean =>
+        (collectionFollowers.get(collection)?.requestedRevision ?? 0) <= revision;
+      if (current("games")) emit("games", snapshot.games);
+      if (current("roles")) emit("roles", snapshot.roles);
+      if (current("launchWorkspaces")) emit("workspaces", snapshot.launchWorkspaces);
+      if (current("gameWindows")) emit("gameWindows", snapshot.gameWindows);
+      if (current("macros")) emit("macros", snapshot.macros);
       if (roleStatusesSequence === roleStatusesRefreshSequence) {
         emit("roleStatuses", snapshot.roleStatuses);
       }
@@ -388,8 +314,53 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       if (runtimeSequence === runtimeStateRefreshSequence) {
         emitRevisioned("runtimeState", snapshot.embeddedRuntimeState);
       }
-    } catch (error) {
+    }).catch((error) => {
       console.error("Renderer state snapshot recovery failed.", error);
+    }).finally(() => {
+      snapshotRecovery = undefined;
+    });
+    return snapshotRecovery;
+  };
+  const followCollection = async (collection: CollectionName): Promise<void> => {
+    const follower = collectionFollowers.get(collection);
+    if (!follower || follower.running) return;
+    follower.running = true;
+    while (true) {
+      const requestedRevision = follower.requestedRevision;
+      try {
+        const value = await collectionQueries[collection].query();
+        if (follower.requestedRevision === requestedRevision) {
+          emit(collectionQueries[collection].event, value);
+        }
+      } catch (error) {
+        if (follower.requestedRevision === requestedRevision
+          && follower.recoveryAttemptedRevision !== requestedRevision) {
+          follower.recoveryAttemptedRevision = requestedRevision;
+          await recoverSnapshot(requestedRevision);
+        } else if (follower.requestedRevision === requestedRevision) {
+          console.error(`Renderer ${collection} refresh failed.`, error);
+        }
+      }
+      if (follower.requestedRevision === requestedRevision) {
+        follower.running = false;
+        return;
+      }
+    }
+  };
+  const refreshCollections = (collections: string[], revision?: number): void => {
+    const requestedRevision = revision ?? collectionRequestSequence + 1;
+    collectionRequestSequence = Math.max(collectionRequestSequence, requestedRevision);
+    for (const collection of new Set(collections)) {
+      if (!isCollectionName(collection)) continue;
+      const follower = collectionFollowers.get(collection) ?? {
+        recoveryAttemptedRevision: 0,
+        requestedRevision: 0,
+        running: false
+      };
+      if (requestedRevision <= follower.requestedRevision) continue;
+      follower.requestedRevision = requestedRevision;
+      collectionFollowers.set(collection, follower);
+      void followCollection(collection);
     }
   };
 

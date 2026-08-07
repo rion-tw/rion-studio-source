@@ -9,7 +9,68 @@ impl SystemRuntimeExecutor {
             Ok(false) => Err(
                 "Live runtime window state was not found or contains no tabs.".to_owned(),
             ),
+            Err(error) if error == "Runtime display host was not found." => {
+                self.queue_live_runtime_window_activation(window_id, "quick-menu-live-window")
+            }
             Err(error) => Err(error),
+        }
+    }
+
+    fn queue_live_runtime_window_activation(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+    ) -> Result<(), String> {
+        let window_generation = self
+            .presentation
+            .existing(window_id)
+            .and_then(|live| {
+                live.lock().ok().and_then(|live| {
+                    (!live.tabs.is_empty() && live.window_generation > 0)
+                        .then_some(live.window_generation)
+                })
+            })
+            .ok_or_else(|| "Live runtime window state was not found or contains no tabs.".to_owned())?;
+        *self
+            .pending_window_activation
+            .lock()
+            .map_err(|_| "Runtime window activation intent is unavailable.".to_owned())? =
+            Some(PendingWindowActivation {
+                trigger,
+                window_generation,
+                window_id: window_id.to_owned(),
+            });
+        self.complete_pending_window_activation(window_id, window_generation);
+        Ok(())
+    }
+
+    fn complete_pending_window_activation(&self, window_id: &str, window_generation: u64) {
+        let intent = self.pending_window_activation.lock().ok().and_then(|mut pending| {
+            let current = pending.as_ref()?;
+            if current.window_id != window_id {
+                return None;
+            }
+            let intent = pending.take()?;
+            (intent.window_generation == window_generation).then_some(intent)
+        });
+        let Some(intent) = intent else {
+            return;
+        };
+        if let Err(error) = self.activate_live_runtime_window(&intent.window_id, intent.trigger) {
+            eprintln!(
+                "Generation-fenced runtime window activation failed: window={} generation={} error={error}",
+                intent.window_id, intent.window_generation
+            );
+        }
+    }
+
+    fn cancel_pending_window_activation(&self, window_id: &str) {
+        if let Ok(mut pending) = self.pending_window_activation.lock()
+            && pending
+                .as_ref()
+                .is_some_and(|intent| intent.window_id == window_id)
+        {
+            *pending = None;
         }
     }
 

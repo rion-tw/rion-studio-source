@@ -264,9 +264,6 @@ impl PresentationRegistry {
             self.projection
                 .membership_requested_revision
                 .fetch_max(receipt.revision, Ordering::AcqRel);
-            // This is deliberately a non-blocking fast path. A busy native
-            // follower must never hold up the AppKit/HTML live commit.
-            let _ = self.try_follow_live_projection_membership();
         }
         Ok(receipt)
     }
@@ -281,7 +278,7 @@ impl PresentationRegistry {
                 .load(Ordering::Acquire)
     }
 
-    fn try_follow_live_projection_membership(&self) -> bool {
+    fn follow_live_projection_membership(&self) -> Result<(), String> {
         let requested_revision = self
             .projection
             .membership_requested_revision
@@ -292,32 +289,36 @@ impl PresentationRegistry {
                 .membership_applied_revision
                 .load(Ordering::Acquire)
         {
-            return true;
+            return Ok(());
         }
-        let live_windows = match self.live.windows.try_lock() {
-            Ok(windows) => windows
+        let live_windows = self
+            .live
+            .windows
+            .lock()
+            .map(|windows| {
+                windows
                 .iter()
                 .map(|(window_id, live)| (window_id.clone(), Arc::clone(live)))
-                .collect::<Vec<_>>(),
-            Err(_) => return false,
-        };
+                .collect::<Vec<_>>()
+            })
+            .map_err(|_| "The live topology registry is unavailable.".to_owned())?;
         let mut owner_by_tab = HashMap::<String, String>::new();
         let mut live_window_ids = Vec::with_capacity(live_windows.len());
         for (window_id, live) in &live_windows {
-            let live = match live.try_lock() {
-                Ok(live) => live,
-                Err(_) => return false,
-            };
+            let live = live
+                .lock()
+                .map_err(|_| "A live topology window is unavailable.".to_owned())?;
             live_window_ids.push(window_id.clone());
             for tab in &live.tabs {
                 owner_by_tab.insert(tab.id.clone(), window_id.clone());
             }
         }
         let projection_windows = {
-            let mut projections = match self.projection.windows.try_lock() {
-                Ok(projections) => projections,
-                Err(_) => return false,
-            };
+            let mut projections = self
+                .projection
+                .windows
+                .lock()
+                .map_err(|_| "The native projection registry is unavailable.".to_owned())?;
             for window_id in live_window_ids {
                 projections
                     .entry(window_id)
@@ -330,17 +331,20 @@ impl PresentationRegistry {
             windows.sort_by(|left, right| left.0.cmp(&right.0));
             windows
         };
+        // Surface ownership is always acquired before individual projection windows,
+        // matching unbind/readback paths and making this follower safe to block on events.
+        let mut surface_owners = self
+            .surface_owners
+            .lock()
+            .map_err(|_| "The native surface ownership registry is unavailable.".to_owned())?;
         let mut projection_guards = Vec::with_capacity(projection_windows.len());
         for (_, projection) in &projection_windows {
-            match projection.try_lock() {
-                Ok(projection) => projection_guards.push(projection),
-                Err(_) => return false,
-            }
+            projection_guards.push(
+                projection
+                    .lock()
+                    .map_err(|_| "A native projection window is unavailable.".to_owned())?,
+            );
         }
-        let mut surface_owners = match self.surface_owners.try_lock() {
-            Ok(owners) => owners,
-            Err(_) => return false,
-        };
         let mut bindings_by_tab = HashMap::<String, Vec<SurfacePresentationBinding>>::new();
         for projection in &mut projection_guards {
             for (tab_id, bindings) in std::mem::take(&mut projection.surface_bindings) {
@@ -378,7 +382,7 @@ impl PresentationRegistry {
         self.projection
             .membership_applied_revision
             .fetch_max(requested_revision, Ordering::AcqRel);
-        true
+        Ok(())
     }
 }
 
@@ -404,28 +408,27 @@ impl SystemRuntimeExecutor {
         let spawn = thread::Builder::new()
             .name("rion-live-projection-membership".to_owned())
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    if !runtime.presentation.projection_membership_needs_follow()
-                        || runtime
-                            .presentation
-                            .try_follow_live_projection_membership()
-                    {
-                        runtime
-                            .presentation
-                            .projection
-                            .membership_retry_running
-                            .store(false, Ordering::Release);
-                        if runtime.presentation.projection_membership_needs_follow() {
-                            runtime.schedule_live_projection_membership_follow();
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                let succeeded = if runtime.presentation.projection_membership_needs_follow() {
+                    match runtime.presentation.follow_live_projection_membership() {
+                        Ok(()) => true,
+                        Err(error) => {
+                            eprintln!("Live projection membership follower failed: {error}");
+                            false
                         }
-                        return;
                     }
-                    thread::sleep(tab_move_retry_delay(failure_count));
-                    failure_count = failure_count.saturating_add(1);
+                } else {
+                    true
+                };
+                runtime
+                    .presentation
+                    .projection
+                    .membership_retry_running
+                    .store(false, Ordering::Release);
+                if succeeded && runtime.presentation.projection_membership_needs_follow() {
+                    runtime.schedule_live_projection_membership_follow();
                 }
             });
         if spawn.is_err() {

@@ -210,7 +210,9 @@ fn cancel_control(control: &InvocationControl) {
     control.first_iteration_roles.1.notify_all();
     if let Ok(barriers) = control.barriers.lock() {
         for barrier in barriers.values() {
-            barrier.ready.notify_all();
+            if let Ok(_state) = barrier.state.lock() {
+                barrier.ready.notify_all();
+            }
         }
     }
 }

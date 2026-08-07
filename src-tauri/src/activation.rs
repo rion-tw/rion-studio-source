@@ -35,6 +35,7 @@ struct ActivationRequest {
 }
 
 pub struct ActivationServer {
+    address: SocketAddr,
     endpoint_path: PathBuf,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
@@ -47,8 +48,8 @@ impl ActivationServer {
         on_activate: impl Fn() + Send + Sync + 'static,
     ) -> io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        listener.set_nonblocking(true)?;
-        let port = listener.local_addr()?.port();
+        let address = listener.local_addr()?;
+        let port = address.port();
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let endpoint_path = user_data_dir.join(ACTIVATION_ENDPOINT_FILE);
         write_endpoint(
@@ -70,10 +71,14 @@ impl ActivationServer {
             .name("rion-cross-shell-activation".to_owned())
             .spawn(move || {
                 let mut connections = Vec::<JoinHandle<()>>::new();
-                while !thread_stop.load(Ordering::Acquire) {
+                loop {
                     reap_finished_connections(&mut connections);
                     match listener.accept() {
                         Ok((stream, _)) => {
+                            if thread_stop.load(Ordering::Acquire) {
+                                acknowledge_shutdown(stream, &thread_token);
+                                break;
+                            }
                             if connections.len() >= MAX_CONCURRENT_CONNECTIONS {
                                 continue;
                             }
@@ -94,9 +99,6 @@ impl ActivationServer {
                                 connections.push(connection);
                             }
                         }
-                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                            thread::sleep(Duration::from_millis(25));
-                        }
                         Err(_) => break,
                     }
                 }
@@ -106,6 +108,7 @@ impl ActivationServer {
             })?;
 
         Ok(Self {
+            address,
             endpoint_path,
             stop,
             thread: Some(thread),
@@ -117,6 +120,7 @@ impl ActivationServer {
 impl Drop for ActivationServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        request_shutdown(self.address, &self.token);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -124,6 +128,36 @@ impl Drop for ActivationServer {
             let _ = fs::remove_file(&self.endpoint_path);
         }
     }
+}
+
+fn request_shutdown(address: SocketAddr, token: &str) {
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, ACTIVATION_TIMEOUT) else {
+        return;
+    };
+    let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
+    let request = ActivationRequest {
+        operation: "shutdown".to_owned(),
+        token: token.to_owned(),
+    };
+    if let Ok(mut body) = serde_json::to_vec(&request) {
+        body.push(b'\n');
+        let _ = stream.write_all(&body);
+    }
+}
+
+fn acknowledge_shutdown(mut stream: TcpStream, expected_token: &str) {
+    let _ = stream.set_read_timeout(Some(ACTIVATION_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(ACTIVATION_TIMEOUT));
+    let accepted = read_message(&mut stream)
+        .ok()
+        .and_then(|body| serde_json::from_slice::<ActivationRequest>(&body).ok())
+        .is_some_and(|request| request.operation == "shutdown" && request.token == expected_token);
+    let response = if accepted {
+        b"{\"ok\":true}\n".as_slice()
+    } else {
+        b"{\"ok\":false}\n".as_slice()
+    };
+    let _ = stream.write_all(response);
 }
 
 pub fn forward_activation(user_data_dir: &Path) -> bool {
@@ -327,7 +361,6 @@ mod tests {
             .unwrap();
         let mut slow_client = TcpStream::connect(address).unwrap();
         slow_client.write_all(b"{").unwrap();
-        thread::sleep(Duration::from_millis(75));
 
         assert!(forward_activation(user_data_dir.path()));
         assert_eq!(activations.load(Ordering::SeqCst), 1);

@@ -342,6 +342,10 @@ NS_ASSUME_NONNULL_BEGIN
   {
     _clusterContainer = _clusterContent;
   }
+  // This container is laid out to the outer edges of the scroll arrows. Its
+  // own bounds are the final hard stop for glass surfaces, while the area
+  // beneath the arrows remains available for Liquid Glass merging.
+  _clusterContainer.clipsToBounds = YES;
   [root addSubview:_clusterContainer];
 
   _tabScrollView = [[RionRuntimeHorizontalScrollView alloc] initWithFrame:NSZeroRect];
@@ -423,20 +427,15 @@ NS_ASSUME_NONNULL_BEGIN
                                                        cornerRadius:14.0];
   _addButton.surfaceView = _addSurface;
 
-  [_clusterContent addSubview:_scrollLeftSurface];
-  [_clusterContent addSubview:_windowNameField];
-  if (_clusterContainer != _clusterContent) {
-    // NSGlassEffectContainerView promotes every descendant glass surface above
-    // its content view. Keep scrolling tabs outside that hierarchy so the
-    // NSClipView remains their final compositing boundary on macOS 26.
-    [root addSubview:_tabScrollView
-          positioned:NSWindowAbove
-          relativeTo:_clusterContainer];
-  } else {
-    [_clusterContent addSubview:_tabScrollView];
-  }
-  [_clusterContent addSubview:_scrollRightSurface];
-  [_clusterContent addSubview:_addSurface];
+  [_clusterContent addSubview:_tabScrollView];
+  [_clusterContent addSubview:_scrollLeftSurface
+                   positioned:NSWindowAbove
+                   relativeTo:_tabScrollView];
+  [_clusterContent addSubview:_scrollRightSurface
+                   positioned:NSWindowAbove
+                   relativeTo:_tabScrollView];
+  [root addSubview:_windowNameField positioned:NSWindowAbove relativeTo:nil];
+  [root addSubview:_addSurface positioned:NSWindowAbove relativeTo:nil];
 
   __weak RionRuntimeTabsController *weakScrollSelf = self;
   id scrollObserver = [NSNotificationCenter.defaultCenter
@@ -445,6 +444,7 @@ NS_ASSUME_NONNULL_BEGIN
                    queue:NSOperationQueue.mainQueue
               usingBlock:^(__unused NSNotification *notification) {
                 [weakScrollSelf updateTabScrollButtonState];
+                [weakScrollSelf updateTabEdgeFadeMasks];
               }];
   [_windowObservers addObject:scrollObserver];
 

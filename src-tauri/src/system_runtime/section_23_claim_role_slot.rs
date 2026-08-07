@@ -159,6 +159,7 @@ impl SystemRuntimeExecutor {
                 );
                 state.role_tabs.insert(role.role.id.clone(), tab_id.to_owned());
             }
+            self.input_readiness.notify();
             self.set_role_input_surface(&role.role.id, native_generation, true, true)?;
             let bound = self.presentation.bind_surface(
                 &window_id,
@@ -208,6 +209,7 @@ impl SystemRuntimeExecutor {
                     }
                 }
             }
+            self.input_readiness.notify();
             if let Some(instance_id) = surface_instance_id {
                 let _ = self.close_managed_surface_and_wait(&instance_id, &role.role.id);
             } else if let Some(lifecycle) = lifecycle {

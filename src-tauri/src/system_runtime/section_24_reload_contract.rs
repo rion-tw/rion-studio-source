@@ -217,6 +217,7 @@ impl SystemRuntimeExecutor {
         surface_generation: u64,
         deadline: Instant,
     ) -> NativeOperationStatus {
+        let mut readiness_changed = self.input_readiness.subscribe();
         loop {
             let readiness = match self.state.lock() {
                 Ok(state) => {
@@ -251,7 +252,12 @@ impl SystemRuntimeExecutor {
             if Instant::now() >= deadline {
                 return NativeOperationStatus::Failed;
             }
-            tokio::time::sleep(Duration::from_millis(25)).await;
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(remaining, readiness_changed.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return NativeOperationStatus::Indeterminate,
+                Err(_) => return NativeOperationStatus::Failed,
+            }
         }
     }
 }

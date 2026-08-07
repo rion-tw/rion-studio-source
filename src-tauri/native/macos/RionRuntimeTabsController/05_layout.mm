@@ -572,8 +572,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (NSView *)tabSurfaceOverlayHost {
-  NSView *root = _accessoryController.view;
-  return _clusterContainer != _clusterContent && root ? root : _clusterContent;
+  return _clusterContent;
 }
 
 - (void)setWindowName:(nullable NSString *)windowName {
@@ -594,8 +593,6 @@ NS_ASSUME_NONNULL_BEGIN
   CGFloat rootHeight = kRionTitlebarHeight;
   root.frame = NSMakeRect(0, 0, rootWidth, rootHeight);
   _titlebarBackdrop.frame = root.bounds;
-  _clusterContainer.frame = root.bounds;
-  _clusterContent.frame = root.bounds;
 
   CGFloat leadingInset = [self trafficLightReserveWidth] + kRionRootLeadingInset;
   CGFloat windowNameWidth = 0;
@@ -616,31 +613,32 @@ NS_ASSUME_NONNULL_BEGIN
           kRionTabHeight - kRionAddButtonSpacing);
   BOOL overflowing =
       RionRuntimeTabsOverflow(tabsWidth, availableWithoutScrollControls);
-  CGFloat scrollControlsWidth = overflowing
-      ? 2.0 * (kRionTabScrollButtonWidth + kRionTabScrollButtonSpacing)
-      : 0.0;
-  CGFloat maximumViewportWidth =
-      MAX(0, availableWithoutScrollControls - scrollControlsWidth);
-  CGFloat viewportWidth = MIN(tabsWidth, maximumViewportWidth);
+  CGFloat fusionInset = overflowing ? kRionTabScrollFusionInset : 0;
+  CGFloat canvasWidth = tabsWidth + 2.0 * fusionInset;
+  CGFloat viewportWidth = MIN(canvasWidth, availableWithoutScrollControls);
   CGFloat verticalInset = MAX(0, (rootHeight - kRionTabHeight) / 2.0);
-  CGFloat scrollViewX = leadingInset;
+  _clusterContainer.frame = NSMakeRect(
+      leadingInset, verticalInset, viewportWidth, kRionTabHeight);
+  _clusterContent.frame = _clusterContainer.bounds;
   _scrollLeftSurface.hidden = !overflowing;
   _scrollRightSurface.hidden = !overflowing;
   if (overflowing) {
     _scrollLeftSurface.frame =
-        NSMakeRect(leadingInset, verticalInset, kRionTabScrollButtonWidth,
-                   kRionTabHeight);
+        NSMakeRect(0, 0, kRionTabScrollButtonWidth, kRionTabHeight);
     _scrollLeftButton.frame = _scrollLeftSurface.bounds;
-    scrollViewX += kRionTabScrollButtonWidth + kRionTabScrollButtonSpacing;
+    _scrollRightSurface.frame =
+        NSMakeRect(MAX(0, viewportWidth - kRionTabScrollButtonWidth), 0,
+                   kRionTabScrollButtonWidth, kRionTabHeight);
+    _scrollRightButton.frame = _scrollRightSurface.bounds;
   } else {
     _scrollLeftSurface.frame = NSZeroRect;
     _scrollRightSurface.frame = NSZeroRect;
   }
-  _tabScrollView.frame = NSMakeRect(scrollViewX, verticalInset,
-                                    viewportWidth, kRionTabHeight);
-  _tabCanvas.frame = NSMakeRect(0, 0, MAX(tabsWidth, viewportWidth), kRionTabHeight);
+  _tabScrollView.frame = _clusterContent.bounds;
+  _tabCanvas.frame = NSMakeRect(0, 0, MAX(canvasWidth, viewportWidth),
+                                kRionTabHeight);
 
-  CGFloat x = 0;
+  CGFloat x = fusionInset;
   for (NSUInteger index = 0; index < _tabItems.count; ++index) {
     RionRuntimeTabItemView *item = _tabItems[index];
     RionRuntimeSurfaceView *surface = _tabSurfaces[index];
@@ -666,19 +664,14 @@ NS_ASSUME_NONNULL_BEGIN
       [_tabCanvas addSubview:surface positioned:NSWindowAbove relativeTo:nil];
       surface.frame = canvasFrame;
     }
+    // RionRuntimeSurfaceView owns the item's frame because edge cropping moves
+    // the full-width tab inside a smaller glass host. Do not reset it here or
+    // AppKit will re-layout the title and accessories at the cropped width.
     [surface layoutSubtreeIfNeeded];
-    item.frame = surface.bounds;
     [item layoutSubtreeIfNeeded];
     x += width + kRionTabSpacing;
   }
-  CGFloat tabsEndX = scrollViewX + viewportWidth;
-  if (overflowing) {
-    _scrollRightSurface.frame =
-        NSMakeRect(tabsEndX + kRionTabScrollButtonSpacing, verticalInset,
-                   kRionTabScrollButtonWidth, kRionTabHeight);
-    _scrollRightButton.frame = _scrollRightSurface.bounds;
-    tabsEndX = NSMaxX(_scrollRightSurface.frame);
-  }
+  CGFloat tabsEndX = leadingInset + viewportWidth;
   _addSurface.frame = NSMakeRect(tabsEndX + kRionAddButtonSpacing,
                                  verticalInset, kRionTabHeight, kRionTabHeight);
   _addButton.frame = _addSurface.bounds;
@@ -687,6 +680,7 @@ NS_ASSUME_NONNULL_BEGIN
     [self scrollActiveTabIntoView];
   }
   [self updateTabScrollButtonState];
+  [self updateTabEdgeFadeMasks];
 }
 
 NS_ASSUME_NONNULL_END

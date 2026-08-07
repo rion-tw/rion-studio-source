@@ -203,6 +203,7 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_externalDragGhostBeforeIdentifier;
   NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
+  CGFloat _externalDragGhostLayoutWidth;
   CGFloat _dragSurfaceCanvasX;
   NSString *_dragSurfacePositionTabIdentifier;
   BOOL _dragSurfaceOverlayActive;

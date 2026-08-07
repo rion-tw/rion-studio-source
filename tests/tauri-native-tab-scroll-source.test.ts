@@ -4,8 +4,22 @@ import { describe, expect, it } from "vitest";
 
 describe("native tab scroll viewport", () => {
   it("clips at the outer controls while preserving arrow fusion zones", async () => {
-    const [surfaceViews, supportViews, viewModel, layout, scrolling, dragDrop] =
-      await Promise.all([
+    const [
+      geometry,
+      surfaceViews,
+      supportViews,
+      viewModel,
+      layout,
+      scrolling,
+      dragDrop,
+    ] = await Promise.all([
+        readFile(
+          new URL(
+            "../src-tauri/native/macos/RionRuntimeTabsController/01_geometry.mm",
+            import.meta.url
+          ),
+          "utf8"
+        ),
         readFile(
           new URL(
             "../src-tauri/native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
@@ -69,6 +83,14 @@ describe("native tab scroll viewport", () => {
     expect(viewModel).toContain("[root addSubview:_addSurface");
     expect(layout).toContain("- (NSView *)tabSurfaceOverlayHost");
     expect(layout).toContain("return _clusterContent;");
+    expect(geometry).toContain("kRionTabCompactMinimumWidth = 112.0;");
+    expect(geometry).toContain("RionRuntimeResolveTabWidths(");
+    expect(geometry).toContain("std::sort(sortedWidths.begin(), sortedWidths.end())");
+    expect(layout).toContain("RionRuntimeTabWidthLayout widthLayout");
+    expect(layout).toContain("_window.backingScaleFactor");
+    expect(layout).toContain("NSWindowDidChangeBackingPropertiesNotification");
+    expect(layout).toContain("item.layoutWidth = width;");
+    expect(layout).toContain("BOOL overflowing = widthLayout.overflowing;");
     expect(layout).toContain("overflowing ? kRionTabScrollFusionInset : 0");
     expect(layout).toContain("tabsWidth + 2.0 * fusionInset");
     expect(layout).toContain("_clusterContainer.frame = NSMakeRect(");
@@ -92,6 +114,10 @@ describe("native tab scroll viewport", () => {
     expect(layout).not.toContain("item.frame = surface.bounds;");
     expect(layout).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
     expect(dragDrop).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
+    expect(dragDrop).toContain("RionRuntimeTabItemLayoutWidth(");
+    expect(dragDrop).toContain("resolvedDragWidthForTabIdentifier:");
+    expect(dragDrop).toContain("return _externalDragGhostLayoutWidth;");
+    expect(dragDrop).toContain("MAX(kRionTabCompactMinimumWidth, width)");
     expect(dragDrop).toContain("_scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset");
     expect(dragDrop).toContain("convertRect:_tabScrollView.frame");
   });

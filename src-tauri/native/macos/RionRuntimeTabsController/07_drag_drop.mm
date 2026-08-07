@@ -1,5 +1,22 @@
 NS_ASSUME_NONNULL_BEGIN
 
+static CGFloat RionRuntimeTabItemLayoutWidth(
+    RionRuntimeTabItemView *item) {
+  return item.layoutWidth > 0 ? item.layoutWidth : item.preferredWidth;
+}
+
+- (CGFloat)resolvedDragWidthForTabIdentifier:(NSString *)tabIdentifier
+                              sourceTabWidth:(CGFloat)sourceTabWidth {
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  if (item) return RionRuntimeTabItemLayoutWidth(item);
+  if (_externalDragGhostLayoutWidth > 0 &&
+      [_externalDragGhostTabIdentifier isEqualToString:tabIdentifier]) {
+    return _externalDragGhostLayoutWidth;
+  }
+  return MIN(kRionTabMaximumWidth,
+             MAX(kRionTabCompactMinimumWidth, sourceTabWidth));
+}
+
 - (nullable NSString *)stableTabIdentifierBeforePoint:(NSPoint)point
                                                inView:(NSView *)view
                                  draggedTabIdentifier:(NSString *)tabIdentifier
@@ -7,10 +24,9 @@ NS_ASSUME_NONNULL_BEGIN
                                            grabRatioX:(CGFloat)grabRatioX
                                        sourceTabWidth:(CGFloat)sourceTabWidth {
   NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
-  RionRuntimeTabItemView *draggedItem = _tabItemsByIdentifier[tabIdentifier];
-  CGFloat draggedWidth = draggedItem
-      ? draggedItem.preferredWidth
-      : sourceTabWidth;
+  CGFloat draggedWidth =
+      [self resolvedDragWidthForTabIdentifier:tabIdentifier
+                               sourceTabWidth:sourceTabWidth];
   // Always use the source session's grab ratio. A tab item materialized in a
   // different window has never received mouseDown: and therefore cannot
   // reconstruct the original pointer-to-tab anchor.
@@ -25,7 +41,7 @@ NS_ASSUME_NONNULL_BEGIN
   CGFloat layoutX =
       _scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset;
   for (RionRuntimeTabItemView *item in _tabItems) {
-    CGFloat width = item.preferredWidth;
+    CGFloat width = RionRuntimeTabItemLayoutWidth(item);
     if ([item.tabIdentifier isEqualToString:tabIdentifier]) {
       inferredIndex = candidates.count;
     } else {
@@ -128,9 +144,9 @@ NS_ASSUME_NONNULL_BEGIN
                               sourceTabWidth:(CGFloat)sourceTabWidth {
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
   RionRuntimeSurfaceView *surface = item.surfaceView;
-  CGFloat width = item
-      ? item.preferredWidth
-      : MIN(kRionTabMaximumWidth, MAX(kRionTabMinimumWidth, sourceTabWidth));
+  CGFloat width =
+      [self resolvedDragWidthForTabIdentifier:tabIdentifier
+                               sourceTabWidth:sourceTabWidth];
   NSPoint canvasPoint = [_tabCanvas convertPoint:point fromView:view];
   _dragSurfaceCanvasX = canvasPoint.x - grabRatioX * width;
   _dragSurfacePositionTabIdentifier = [tabIdentifier copy];
@@ -316,7 +332,7 @@ NS_ASSUME_NONNULL_BEGIN
                              beforeIdentifier:(nullable NSString *)identifier
                                          width:(CGFloat)width {
   CGFloat boundedWidth =
-      MIN(kRionTabMaximumWidth, MAX(kRionTabMinimumWidth, width));
+      MIN(kRionTabMaximumWidth, MAX(kRionTabCompactMinimumWidth, width));
   BOOL sameIdentifier =
       (_externalDragGhostBeforeIdentifier == identifier) ||
       [_externalDragGhostBeforeIdentifier isEqualToString:identifier];
@@ -411,7 +427,8 @@ NS_ASSUME_NONNULL_BEGIN
     @"windowId" : _windowID,
     @"screenX" : @(point.x),
     @"screenY" : @(point.y),
-    @"tabWidth" : @(item ? item.preferredWidth : kRionTabMinimumWidth),
+    @"tabWidth" : @(item ? RionRuntimeTabItemLayoutWidth(item)
+                          : kRionTabCompactMinimumWidth),
     @"tabHeight" : @(kRionTabHeight),
     @"orderedTabIds" : orderedTabIDs
   } mutableCopy];

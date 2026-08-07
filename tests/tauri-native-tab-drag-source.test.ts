@@ -68,7 +68,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("[self.tabsController hideInsertionIndicator]");
     expect(macController).toContain("BOOL needsLayout = _dragSurfaceOverlayActive");
     expect(macController).toContain("_dragSurfaceOverlayActive = NO;");
-    expect(macController).toContain("_externalDragGhostWidth + kRionTabSpacing");
+    expect(macController).toContain("resolvedGhostWidth + kRionTabSpacing");
     expect(macController).toContain('@"orderedTabIds" : orderedTabIDs');
     expect(macController).toContain("if (_tabItems.count < 2) return YES;");
     expect(macController).toContain("animatesToStartingPositionsOnCancelOrFail = NO");

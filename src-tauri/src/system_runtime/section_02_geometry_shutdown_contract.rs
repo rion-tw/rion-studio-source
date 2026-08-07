@@ -29,14 +29,80 @@ impl RuntimeShutdownState {
 
 #[derive(Default)]
 struct NativeWindowMutationRegistry {
-    issue_gate: Mutex<()>,
-    lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    issue_gate: NativeWindowMutationLane,
+    lanes: Mutex<HashMap<String, Arc<NativeWindowMutationLane>>>,
     latest_revisions: Mutex<HashMap<String, u64>>,
     next_revision: AtomicU64,
 }
 
+#[derive(Default)]
+struct NativeWindowMutationLane {
+    active: Mutex<bool>,
+    changed: Condvar,
+}
+
+struct NativeWindowMutationPermit<'a> {
+    lane: &'a NativeWindowMutationLane,
+}
+
+impl NativeWindowMutationLane {
+    fn lock(&self) -> Result<NativeWindowMutationPermit<'_>, &'static str> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| "SYSTEM_WINDOW_MUTATION_LANE_UNAVAILABLE")?;
+        while *active {
+            active = self
+                .changed
+                .wait(active)
+                .map_err(|_| "SYSTEM_WINDOW_MUTATION_LANE_UNAVAILABLE")?;
+        }
+        *active = true;
+        Ok(NativeWindowMutationPermit { lane: self })
+    }
+
+    fn lock_until(
+        &self,
+        deadline: Instant,
+    ) -> Result<NativeWindowMutationPermit<'_>, &'static str> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| "SYSTEM_DISPLAY_TOPOLOGY_LANE_UNAVAILABLE")?;
+        while *active {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("SYSTEM_DISPLAY_TOPOLOGY_DEADLINE_EXCEEDED");
+            }
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(active, remaining)
+                .map_err(|_| "SYSTEM_DISPLAY_TOPOLOGY_LANE_UNAVAILABLE")?;
+            active = next;
+            if timeout.timed_out() && *active {
+                return Err("SYSTEM_DISPLAY_TOPOLOGY_DEADLINE_EXCEEDED");
+            }
+        }
+        *active = true;
+        Ok(NativeWindowMutationPermit { lane: self })
+    }
+
+    fn is_busy(&self) -> bool {
+        self.active.lock().map(|active| *active).unwrap_or(true)
+    }
+}
+
+impl Drop for NativeWindowMutationPermit<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.lane.active.lock() {
+            *active = false;
+            self.lane.changed.notify_all();
+        }
+    }
+}
+
 impl NativeWindowMutationRegistry {
-    fn issue(&self, window_id: &str) -> RuntimeResult<(u64, Arc<Mutex<()>>)> {
+    fn issue(&self, window_id: &str) -> RuntimeResult<(u64, Arc<NativeWindowMutationLane>)> {
         let _guard = self.issue_gate.lock().map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_GEOMETRY_APPLY_FAILED",
@@ -46,7 +112,10 @@ impl NativeWindowMutationRegistry {
         self.issue_under_gate(window_id)
     }
 
-    fn issue_under_gate(&self, window_id: &str) -> RuntimeResult<(u64, Arc<Mutex<()>>)> {
+    fn issue_under_gate(
+        &self,
+        window_id: &str,
+    ) -> RuntimeResult<(u64, Arc<NativeWindowMutationLane>)> {
         let revision = self
             .next_revision
             .fetch_add(1, Ordering::AcqRel)
@@ -64,7 +133,7 @@ impl NativeWindowMutationRegistry {
         Ok((revision, lane))
     }
 
-    fn lane(&self, window_id: &str) -> RuntimeResult<Arc<Mutex<()>>> {
+    fn lane(&self, window_id: &str) -> RuntimeResult<Arc<NativeWindowMutationLane>> {
         Ok(Arc::clone(
             self.lanes
                 .lock()
@@ -75,7 +144,7 @@ impl NativeWindowMutationRegistry {
                     )
                 })?
                 .entry(window_id.to_owned())
-                .or_insert_with(|| Arc::new(Mutex::new(()))),
+                .or_insert_with(|| Arc::new(NativeWindowMutationLane::default())),
         ))
     }
 
@@ -93,23 +162,20 @@ impl NativeWindowMutationRegistry {
             .lock()
             .ok()
             .and_then(|lanes| lanes.get(window_id).cloned());
-        lane.is_some_and(|lane| lane.try_lock().is_err())
+        lane.is_some_and(|lane| lane.is_busy())
     }
 
     fn wait_for_idle(&self, deadline: Instant) -> bool {
-        loop {
-            let lanes = match self.lanes.lock() {
-                Ok(lanes) => lanes.values().cloned().collect::<Vec<_>>(),
-                Err(_) => return false,
-            };
-            if lanes.iter().all(|lane| lane.try_lock().is_ok()) {
-                return true;
-            }
-            if Instant::now() >= deadline {
-                return false;
-            }
-            thread::sleep(Duration::from_millis(2));
-        }
+        let mut lanes = match self.lanes.lock() {
+            Ok(lanes) => lanes
+                .iter()
+                .map(|(window_id, lane)| (window_id.clone(), Arc::clone(lane)))
+                .collect::<Vec<_>>(),
+            Err(_) => return false,
+        };
+        lanes.sort_by(|left, right| left.0.cmp(&right.0));
+        let lane_refs = lanes.iter().map(|(_, lane)| Arc::clone(lane)).collect::<Vec<_>>();
+        lock_lanes_until_deadline(&lane_refs, deadline).is_ok()
     }
 
     fn forget(&self, window_id: &str) {

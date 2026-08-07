@@ -63,7 +63,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macController).toContain("showExternalDragGhostForTabIdentifier:");
     expect(macController).toContain("_dragSurfacePositionTabIdentifier");
     expect(macController).toContain("sourceTabWidth:(CGFloat)sourceTabWidth");
-    expect(macController).toContain("[_clusterContent addSubview:surface");
+    expect(macController).toContain("[overlayHost addSubview:surface");
     expect(macController).toContain("surface.superview != _tabCanvas");
     expect(macController).toContain("[self.tabsController hideInsertionIndicator]");
     expect(macController).toContain("BOOL needsLayout = _dragSurfaceOverlayActive");
@@ -192,15 +192,18 @@ describe("native tab drag latest-intent transaction", () => {
     expect(handler).toContain("finish_deferred_tab_drag_session(");
     expect(commit).toContain("self.presentation.commit_live_topology(LiveTopologyCommitInput");
     expect(commit).toContain("primary_window_id: target_window_id.to_owned()");
-    expect(commit).toContain("schedule_native_tab_drag_chrome_retry(");
-    expect(commit).toContain("schedule_tab_surface_move_retry(");
+    expect(commit).toContain("schedule_native_tab_drag_chrome_projection(");
+    expect(commit).toContain("schedule_tab_surface_move_projection(");
+    expect(commit).not.toContain("thread::sleep");
     expect(commit).toContain("runtime.native_tab_host_id(&tab_id)");
     expect(commit).toContain("self.relocate_native_tab_reservation(");
     expect(nativeChrome).toContain(
       "self.reorder_native_tabs(target_window_id, target_ordered_tab_ids)?;"
     );
     expect(commit).toContain("let Some(target_ordered_tab_ids) = runtime");
-    expect(commit).toContain("if !target_order_is_current");
+    expect(commit).toContain(
+      "is_some_and(|live_order| live_order == target_ordered_tab_ids)"
+    );
     expect(actor).toContain("for surface in &state.applied_surfaces");
     expect(actor).toContain("request.surface_owner_revisions");
     expect(motion).toContain(".commit_live_tab_drag_destination(");

@@ -476,8 +476,11 @@ impl SystemRuntimeExecutor {
     }
 
     fn schedule_restore_session_persist(self: &Arc<Self>) {
-        self.restore_persist_requested
-            .fetch_add(1, Ordering::AcqRel);
+        if let Ok(_signal) = self.restore_persist_signal.lock() {
+            self.restore_persist_requested
+                .fetch_add(1, Ordering::AcqRel);
+            self.restore_persist_changed.notify_all();
+        }
         if self
             .restore_persist_running
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -488,16 +491,26 @@ impl SystemRuntimeExecutor {
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn_blocking(move || {
             let mut failure_count = 0usize;
+            let mut target = runtime.restore_persist_requested.load(Ordering::Acquire);
+            let mut due_at = Instant::now() + Duration::from_millis(50);
             loop {
-                // Collapse a rapid close burst into one durable snapshot.
-                let delay = match failure_count {
-                    0 => Duration::from_millis(50),
-                    1 => Duration::from_secs(1),
-                    2 => Duration::from_secs(5),
-                    _ => Duration::from_secs(30),
+                let Ok(mut signal) = runtime.restore_persist_signal.lock() else {
+                    return;
                 };
-                std::thread::sleep(delay);
-                let target = runtime.restore_persist_requested.load(Ordering::Acquire);
+                while Instant::now() < due_at {
+                    let wait = due_at.saturating_duration_since(Instant::now());
+                    signal = match runtime.restore_persist_changed.wait_timeout(signal, wait) {
+                        Ok((signal, _)) => signal,
+                        Err(_) => return,
+                    };
+                    let latest = runtime.restore_persist_requested.load(Ordering::Acquire);
+                    if latest != target {
+                        target = latest;
+                        failure_count = 0;
+                        due_at = Instant::now() + Duration::from_millis(50);
+                    }
+                }
+                drop(signal);
                 match runtime.persist_restore_session(false) {
                     Ok(()) => {
                         failure_count = 0;
@@ -507,6 +520,12 @@ impl SystemRuntimeExecutor {
                         failure_count = failure_count.saturating_add(1);
                         eprintln!("Runtime close durability retry failed: {error}");
                         if failure_count < 4 {
+                            due_at = Instant::now()
+                                + match failure_count {
+                                    1 => Duration::from_secs(1),
+                                    2 => Duration::from_secs(5),
+                                    _ => Duration::from_secs(30),
+                                };
                             continue;
                         }
                         let _ = runtime.app.emit(
@@ -520,19 +539,27 @@ impl SystemRuntimeExecutor {
                     }
                 }
                 if runtime.restore_persist_requested.load(Ordering::Acquire) != target {
+                    target = runtime.restore_persist_requested.load(Ordering::Acquire);
+                    due_at = Instant::now() + Duration::from_millis(50);
                     continue;
                 }
-                runtime
-                    .restore_persist_running
-                    .store(false, Ordering::Release);
-                if runtime.restore_persist_requested.load(Ordering::Acquire) == target
-                    || runtime
-                        .restore_persist_running
-                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                        .is_err()
-                {
-                    break;
+                let Ok(_signal) = runtime.restore_persist_signal.lock() else {
+                    return;
+                };
+                runtime.restore_persist_running.store(false, Ordering::Release);
+                let latest = runtime.restore_persist_requested.load(Ordering::Acquire);
+                if latest == target {
+                    return;
                 }
+                if runtime
+                    .restore_persist_running
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    return;
+                }
+                target = latest;
+                due_at = Instant::now() + Duration::from_millis(50);
             }
         });
     }

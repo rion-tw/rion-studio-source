@@ -506,6 +506,8 @@ impl SystemRuntimeExecutor {
             .expect("the close transaction validated the runtime tab")
             .roles
             .remove(&released.role_id);
+        drop(state);
+        self.input_readiness.notify();
         Ok(())
     }
 
@@ -759,6 +761,7 @@ impl SystemRuntimeExecutor {
             state.tabs.remove(tab_id);
             state.native_tab_hosts.remove(tab_id);
             self.presentation.statuses.remove(tab_id);
+            self.notify_optional_idle_changed();
             // A successful native destroy is the authoritative close boundary,
             // including when it came from BrowserWindowStop rather than the
             // per-tab command. Retire the live tombstone in the same state commit
@@ -778,6 +781,7 @@ impl SystemRuntimeExecutor {
             });
         }
         self.tab_close_changed.notify_all();
+        self.input_readiness.notify();
         if result.is_ok() {
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(tab_id, tombstone, true);

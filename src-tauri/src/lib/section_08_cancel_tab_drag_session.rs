@@ -138,10 +138,10 @@ fn apply_deferred_tab_drag_destination(
     );
     if let Err(error) = materialized {
         eprintln!(
-            "Committed tab drag surface will retry in place: tab={} target={} error={}",
+            "Committed tab drag surface queued one projection follow: tab={} target={} error={}",
             session.tab_id, target_window_id, error.message
         );
-        state.runtime.schedule_tab_surface_move_retry(
+        state.runtime.schedule_tab_surface_move_projection(
             session.tab_id.clone(),
             target_window_id.clone(),
         );

@@ -57,17 +57,37 @@ fn native_operation_timeout_receipt(
 
 impl NativeOperationRegistry {
     fn start_deadline_worker(registry: &Arc<Self>) -> Result<(), String> {
-        let registry = Arc::downgrade(registry);
+        let registry = Arc::clone(registry);
         thread::Builder::new()
             .name("rion-native-operation-deadlines".to_owned())
             .spawn(move || {
                 loop {
-                    let Some(registry) = registry.upgrade() else {
+                    let Ok(mut state) = registry.state.lock() else {
                         return;
                     };
-                    registry.expire_due_operations();
-                    drop(registry);
-                    thread::sleep(Duration::from_millis(25));
+                    Self::expire_due_operations_locked(&mut state);
+                    let next_deadline = state
+                        .active
+                        .values()
+                        .map(|operation| operation.context.deadline)
+                        .min();
+                    state = match next_deadline {
+                        Some(deadline) => {
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+                            if remaining.is_zero() {
+                                continue;
+                            }
+                            match registry.changed.wait_timeout(state, remaining) {
+                                Ok((next, _)) => next,
+                                Err(_) => return,
+                            }
+                        }
+                        None => match registry.changed.wait(state) {
+                            Ok(next) => next,
+                            Err(_) => return,
+                        },
+                    };
+                    drop(state);
                 }
             })
             .map(|_| ())
@@ -94,6 +114,7 @@ impl NativeOperationRegistry {
                 phase: NativeOperationPhase::Queued,
             },
         );
+        self.changed.notify_all();
         Ok(())
     }
 
@@ -294,6 +315,13 @@ impl NativeOperationRegistry {
         let Ok(mut state) = self.state.lock() else {
             return;
         };
+        let expired_any = Self::expire_due_operations_locked(&mut state);
+        if expired_any {
+            self.changed.notify_all();
+        }
+    }
+
+    fn expire_due_operations_locked(state: &mut NativeOperationRegistryState) -> bool {
         let now = Instant::now();
         let expired = state
             .active
@@ -305,11 +333,9 @@ impl NativeOperationRegistry {
         for (operation_id, operation) in expired {
             state.active.remove(&operation_id);
             let receipt = native_operation_timeout_receipt(operation);
-            Self::insert_terminal(&mut state, receipt);
+            Self::insert_terminal(state, receipt);
         }
-        if expired_any {
-            self.changed.notify_all();
-        }
+        expired_any
     }
 }
 

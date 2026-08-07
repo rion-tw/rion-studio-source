@@ -3,7 +3,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, RecvTimeoutError},
+        mpsc::{self, TryRecvError},
     },
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -50,12 +50,17 @@ struct Shared {
     events: EventSink,
     inner: Mutex<Inner>,
     next_id: AtomicU64,
-    pending: Mutex<HashMap<String, mpsc::SyncSender<BrowserActionResult>>>,
+    pending: Mutex<HashMap<String, PendingMacroAction>>,
     last_presentation_status_emit: Mutex<Option<Instant>>,
     macro_run_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     shutting_down: AtomicBool,
     input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     waiter: Waiter,
+}
+
+struct PendingMacroAction {
+    result: mpsc::SyncSender<BrowserActionResult>,
+    signal: Weak<InvocationControl>,
 }
 
 #[derive(Default)]
@@ -91,6 +96,7 @@ struct InvocationControl {
     id: String,
     macro_ids: Mutex<HashSet<String>>,
     outcome: Mutex<Option<Result<(), String>>>,
+    owner_signal: Mutex<Option<Weak<InvocationControl>>>,
     role_ids: HashSet<String>,
     start_ready: (Mutex<bool>, Condvar),
     stop_after_first_iteration: AtomicBool,

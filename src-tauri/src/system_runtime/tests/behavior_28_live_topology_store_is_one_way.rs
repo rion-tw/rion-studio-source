@@ -203,7 +203,7 @@ fn busy_native_projection_never_blocks_or_rolls_back_a_live_commit() {
     );
     assert!(registry.projection_membership_needs_follow());
     drop(projection_guard);
-    assert!(registry.try_follow_live_projection_membership());
+    registry.follow_live_projection_membership().unwrap();
     assert!(!registry.projection_membership_needs_follow());
 }
 

@@ -124,6 +124,7 @@ impl SystemRuntimeExecutor {
             let _ = self.close_role_placeholder_surface(placeholder);
         }
         self.presentation.statuses.remove(tab_id);
+        self.notify_optional_idle_changed();
         if let Some(tombstone) = tombstone.as_ref() {
             self.record_tab_close_tombstone_resolution(tab_id, tombstone, false);
         }

@@ -482,6 +482,7 @@ impl SystemRuntimeExecutor {
                         },
                     );
                 }
+                self.input_readiness.notify();
                 self.set_role_input_surface(&role_id, generation, true, true)?;
                 let bound = self.presentation.bind_surface(
                     &target.window_id,

@@ -17,13 +17,15 @@ fn operation_id_is_stable_and_wait_works_before_and_after_completion() {
 
     let completing_registry = Arc::clone(&registry);
     let completing_operation = operation.clone();
+    let (release, released) = mpsc::channel();
     let worker = thread::spawn(move || {
-        thread::sleep(Duration::from_millis(10));
+        released.recv().unwrap();
         completing_registry.complete(NativeOperationReceipt::applied(
             completing_operation,
             "nativePresentation",
         ));
     });
+    release.send(()).unwrap();
     let first = registry.wait(&operation_id).unwrap();
     worker.join().unwrap();
     let second = registry.wait(&operation_id).unwrap();

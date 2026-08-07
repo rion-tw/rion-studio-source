@@ -343,7 +343,7 @@ fn apply_native_presentation_batch(
         Ok(lane) => lane,
         Err(error) => return failed_native_presentation_outcome(error.message),
     };
-    let _mutation_guard = match mutation_lane.lock() {
+    let _mutation_guard = match mutation_lane.lock_until(request.operation.deadline) {
         Ok(guard) => guard,
         Err(_) => {
             return failed_native_presentation_outcome(

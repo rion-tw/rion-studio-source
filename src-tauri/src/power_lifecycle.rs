@@ -9,11 +9,13 @@ mod platform {
     use super::*;
 
     type PowerCallback = unsafe extern "C" fn(*mut c_void, bool, *const std::ffi::c_char);
+    type DisplayCallback = unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char);
     type ContextDestructor = unsafe extern "C" fn(*mut c_void);
 
     unsafe extern "C" {
         fn rion_power_monitor_create(
             callback: PowerCallback,
+            display_callback: DisplayCallback,
             context: *mut c_void,
             context_destructor: ContextDestructor,
         ) -> *mut c_void;
@@ -48,6 +50,20 @@ mod platform {
         }
     }
 
+    unsafe extern "C" fn display_callback(context: *mut c_void, reason: *const std::ffi::c_char) {
+        if context.is_null() || reason.is_null() {
+            return;
+        }
+        let context = unsafe { &*(context as *const CallbackContext) };
+        let Some(runtime) = context.runtime.upgrade() else {
+            return;
+        };
+        let reason = unsafe { std::ffi::CStr::from_ptr(reason) }
+            .to_string_lossy()
+            .into_owned();
+        runtime.request_display_topology_refresh(&reason);
+    }
+
     pub(crate) struct PowerMonitor {
         raw: Mutex<usize>,
     }
@@ -56,7 +72,12 @@ mod platform {
         pub(crate) fn install(runtime: Weak<SystemRuntimeExecutor>) -> Result<Self, String> {
             let context = Box::into_raw(Box::new(CallbackContext { runtime })) as *mut c_void;
             let raw = unsafe {
-                rion_power_monitor_create(power_callback, context, drop_callback_context)
+                rion_power_monitor_create(
+                    power_callback,
+                    display_callback,
+                    context,
+                    drop_callback_context,
+                )
             };
             if raw.is_null() {
                 unsafe { drop_callback_context(context) };
@@ -91,11 +112,11 @@ mod platform {
             Foundation::{HWND, LPARAM, LRESULT, WPARAM},
             System::LibraryLoader::GetModuleHandleW,
             UI::WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-                HWND_MESSAGE, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMECRITICAL,
-                PBT_APMRESUMESTANDBY, PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PostMessageW,
-                PostQuitMessage, RegisterClassW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE,
-                WM_CLOSE, WM_DESTROY, WM_POWERBROADCAST, WNDCLASSW,
+                CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
+                PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMECRITICAL, PBT_APMRESUMESTANDBY,
+                PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PostMessageW, PostQuitMessage,
+                RegisterClassW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
+                WM_DESTROY, WM_DISPLAYCHANGE, WM_POWERBROADCAST, WNDCLASSW,
             },
         },
         core::w,
@@ -110,6 +131,17 @@ mod platform {
         lparam: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_DISPLAYCHANGE => {
+                let runtime = POWER_RUNTIME
+                    .get()
+                    .and_then(|runtime| runtime.lock().ok())
+                    .and_then(|runtime| runtime.as_ref().cloned())
+                    .and_then(|runtime| runtime.upgrade());
+                if let Some(runtime) = runtime {
+                    runtime.request_display_topology_refresh("windows-display-change");
+                }
+                LRESULT(0)
+            }
             WM_POWERBROADCAST => {
                 let event = wparam.0 as u32;
                 let signal = match event {
@@ -180,7 +212,7 @@ mod platform {
                             0,
                             0,
                             0,
-                            Some(HWND_MESSAGE),
+                            None,
                             None,
                             instance.map(Into::into),
                             None,

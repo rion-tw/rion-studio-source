@@ -110,18 +110,17 @@ export function acknowledgeChromeProjection(
 
 export function announceChromeReady(
   rendererInstanceId: string,
-  identity: Window["__rionRuntimeTabChromeIdentity"],
-  attempt = 0
+  identity: Window["__rionRuntimeTabChromeIdentity"]
 ): void {
   if (!identity) return;
   const ready: RuntimeTabChromeReadyRecord = { rendererInstanceId, ...identity };
   void invoke("rion_runtime_tab_action", {
     action: { type: "tabChromeReady", ready }
-  }).catch(() => {
-    if (attempt >= 3) return;
-    setTimeout(
-      () => announceChromeReady(rendererInstanceId, identity, attempt + 1),
-      [50, 150, 400][attempt] ?? 400
-    );
+  }).catch((error) => {
+    console.error("Runtime tab chrome ready handshake failed.", {
+      error,
+      rendererInstanceId,
+      windowId: identity.windowId
+    });
   });
 }

@@ -240,20 +240,6 @@ impl TabChromeProjectionCoordinator {
         true
     }
 
-    fn prepare_retry(&self, window_id: &str, renderer_instance_id: &str, revision: u64) -> bool {
-        let Ok(mut state) = self.state.lock() else {
-            return false;
-        };
-        let Some(delivery) = state.deliveries.get_mut(window_id) else {
-            return false;
-        };
-        if delivery.renderer_instance_id != renderer_instance_id || delivery.revision != revision {
-            return false;
-        }
-        delivery.acknowledgement = None;
-        true
-    }
-
     fn acknowledge(
         &self,
         webview_label: &str,
@@ -744,30 +730,12 @@ impl SystemRuntimeExecutor {
                 projection.projection_revision
             ))
             .spawn(move || {
-                let mut outcome = coordinator.wait(
+                let outcome = coordinator.wait(
                     &worker_projection.window_id,
                     &worker_renderer_instance_id,
                     worker_projection.projection_revision,
                     WINDOWS_TAB_CHROME_ACK_TIMEOUT,
                 );
-                if matches!(outcome, TabChromeProjectionWaitOutcome::Timeout)
-                    && coordinator.prepare_retry(
-                        &worker_projection.window_id,
-                        &worker_renderer_instance_id,
-                        worker_projection.projection_revision,
-                    )
-                {
-                    let _ = SystemRuntimeExecutor::eval_windows_tab_chrome_projection(
-                        &tab_strip,
-                        &worker_projection,
-                    );
-                    outcome = coordinator.wait(
-                        &worker_projection.window_id,
-                        &worker_renderer_instance_id,
-                        worker_projection.projection_revision,
-                        WINDOWS_TAB_CHROME_ACK_TIMEOUT,
-                    );
-                }
                 let (status, stage, failure_code) = match outcome {
                     TabChromeProjectionWaitOutcome::Applied => {
                         (NativeOperationStatus::Applied, "tabChromeProjectionConverged", None)

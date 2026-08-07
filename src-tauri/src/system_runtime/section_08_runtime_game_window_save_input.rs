@@ -56,8 +56,8 @@ impl SystemRuntimeExecutor {
     ) -> Result<(Window, EmbeddedLaunchTargetRecord), String> {
         let state = self
             .state
-            .try_lock()
-            .map_err(|_| "The live game-window launch context is temporarily busy.".to_owned())?;
+            .lock()
+            .map_err(|_| "The live game-window launch context is unavailable.".to_owned())?;
         let host = state
             .display_hosts
             .get(window_id)

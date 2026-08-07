@@ -82,10 +82,10 @@ impl SystemRuntimeExecutor {
                     false,
                 ) {
                     eprintln!(
-                        "Live tab surface move will retry without rolling back topology: tab={tab_id} target={} error={error}",
+                        "Live tab surface move queued one event-driven projection follow: tab={tab_id} target={} error={error}",
                         target.window_id
                     );
-                    self.schedule_tab_surface_move_retry(
+                    self.schedule_tab_surface_move_projection(
                         tab_id.to_owned(),
                         target.window_id.clone(),
                     );
@@ -187,46 +187,32 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name(format!("rion-tab-hide-{tab_id}"))
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    let still_hidden = runtime
-                        .presentation
-                        .existing(&window_id)
-                        .and_then(|live| {
-                            live.lock()
-                                .ok()
-                                .map(|live| live.tab_is_hidden(&tab_id))
-                        })
-                        .unwrap_or(false);
-                    if !still_hidden {
-                        return;
-                    }
-                    match runtime.try_remove_native_tab_reservation(
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                let still_hidden = runtime
+                    .presentation
+                    .existing(&window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.tab_is_hidden(&tab_id)))
+                    .unwrap_or(false);
+                if !still_hidden {
+                    return;
+                }
+                match runtime.try_remove_native_tab_reservation(
+                    &window_id,
+                    &tab_id,
+                    next_tab_id.as_deref(),
+                ) {
+                    Ok(()) => runtime.apply_native_active_style(
                         &window_id,
-                        &tab_id,
                         next_tab_id.as_deref(),
-                    ) {
-                        Ok(()) => {
-                            runtime.apply_native_active_style(
-                                &window_id,
-                                next_tab_id.as_deref(),
-                                revision,
-                                "tab-hide-follower",
-                            );
-                            return;
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "Hidden native tab follower remains pending: tab={tab_id} window={window_id} attempt={failure_count} error={}",
-                                error.message
-                            );
-                            thread::sleep(tab_move_retry_delay(failure_count));
-                            failure_count = failure_count.saturating_add(1);
-                        }
-                    }
+                        revision,
+                        "tab-hide-follower",
+                    ),
+                    Err(error) => eprintln!(
+                        "Hidden native tab projection failed terminally: tab={tab_id} window={window_id} error={}",
+                        error.message
+                    ),
                 }
             });
     }
@@ -244,63 +230,50 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name(format!("rion-tab-unhide-{}", tab.id))
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    let still_visible = runtime
-                        .presentation
-                        .existing(&window_id)
-                        .and_then(|live| {
-                            live.lock().ok().map(|live| {
-                                live.contains_tab(&tab.id) && !live.tab_is_hidden(&tab.id)
-                            })
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                let still_visible = runtime
+                    .presentation
+                    .existing(&window_id)
+                    .and_then(|live| {
+                        live.lock().ok().map(|live| {
+                            live.contains_tab(&tab.id) && !live.tab_is_hidden(&tab.id)
                         })
-                        .unwrap_or(false);
-                    if !still_visible {
-                        return;
-                    }
-                    #[cfg(any(windows, target_os = "macos"))]
-                    let workspace_template = tab.workspace_template.as_deref();
-                    #[cfg(not(any(windows, target_os = "macos")))]
-                    let workspace_template: Option<&str> = None;
-                    let result = runtime
-                        .try_ensure_native_tab(
+                    })
+                    .unwrap_or(false);
+                if !still_visible {
+                    return;
+                }
+                #[cfg(any(windows, target_os = "macos"))]
+                let workspace_template = tab.workspace_template.as_deref();
+                #[cfg(not(any(windows, target_os = "macos")))]
+                let workspace_template: Option<&str> = None;
+                let result = runtime
+                    .try_ensure_native_tab(
+                        &window_id,
+                        &tab.id,
+                        &tab.title,
+                        &tab.tab_type,
+                        workspace_template,
+                    )
+                    .and_then(|()| runtime.reorder_native_tabs(&window_id, &ordered_tab_ids));
+                match result {
+                    Ok(()) => {
+                        let active_tab_id = runtime.presentation.existing(&window_id).and_then(
+                            |live| live.lock().ok().and_then(|live| live.selected_tab_id.clone()),
+                        );
+                        runtime.apply_native_active_style(
                             &window_id,
-                            &tab.id,
-                            &tab.title,
-                            &tab.tab_type,
-                            workspace_template,
-                        )
-                        .and_then(|()| runtime.reorder_native_tabs(&window_id, &ordered_tab_ids));
-                    match result {
-                        Ok(()) => {
-                            let active_tab_id = runtime
-                                .presentation
-                                .existing(&window_id)
-                                .and_then(|live| {
-                                    live.lock()
-                                        .ok()
-                                        .and_then(|live| live.selected_tab_id.clone())
-                                });
-                            runtime.apply_native_active_style(
-                                &window_id,
-                                active_tab_id.as_deref(),
-                                revision,
-                                "tab-unhide-follower",
-                            );
-                            return;
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "Unhidden native tab follower remains pending: tab={} window={window_id} attempt={failure_count} error={}",
-                                tab.id, error.message
-                            );
-                            thread::sleep(tab_move_retry_delay(failure_count));
-                            failure_count = failure_count.saturating_add(1);
-                        }
+                            active_tab_id.as_deref(),
+                            revision,
+                            "tab-unhide-follower",
+                        );
                     }
+                    Err(error) => eprintln!(
+                        "Unhidden native tab projection failed terminally: tab={} window={window_id} error={}",
+                        tab.id, error.message
+                    ),
                 }
             });
     }
@@ -382,30 +355,22 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name(format!("rion-tab-order-{window_id}"))
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    let is_latest = runtime
-                        .presentation
-                        .existing(&window_id)
-                        .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
-                        .is_some_and(|live_order| live_order == ordered_tab_ids);
-                    if !is_latest {
-                        return;
-                    }
-                    match runtime.reorder_native_tabs(&window_id, &ordered_tab_ids) {
-                        Ok(()) => return,
-                        Err(error) => {
-                            eprintln!(
-                                "Native tab order follower remains pending: window={window_id} attempt={failure_count} error={}",
-                                error.message
-                            );
-                            thread::sleep(tab_move_retry_delay(failure_count));
-                            failure_count = failure_count.saturating_add(1);
-                        }
-                    }
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                let is_latest = runtime
+                    .presentation
+                    .existing(&window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .is_some_and(|live_order| live_order == ordered_tab_ids);
+                if !is_latest {
+                    return;
+                }
+                if let Err(error) = runtime.reorder_native_tabs(&window_id, &ordered_tab_ids) {
+                    eprintln!(
+                        "Native tab order projection failed terminally: window={window_id} error={}",
+                        error.message
+                    );
                 }
             });
     }
@@ -515,10 +480,10 @@ impl SystemRuntimeExecutor {
             revision,
         ) {
             eprintln!(
-                "Live tab chrome projection will retry after drag commit: tab={tab_id} source={actual_source_window_id} target={target_window_id} error={}",
+                "Live tab chrome queued one event-driven projection follow: tab={tab_id} source={actual_source_window_id} target={target_window_id} error={}",
                 error.message
             );
-            self.schedule_native_tab_drag_chrome_retry(
+            self.schedule_native_tab_drag_chrome_projection(
                 actual_source_window_id.clone(),
                 target_window_id.to_owned(),
                 tab.clone(),
@@ -547,7 +512,7 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn schedule_native_tab_drag_chrome_retry(
+    fn schedule_native_tab_drag_chrome_projection(
         &self,
         source_window_id: String,
         target_window_id: String,
@@ -561,47 +526,43 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name(format!("rion-tab-chrome-move-{}", tab.id))
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    if runtime.presentation.tab_window(&tab.id).ok().flatten().as_deref()
-                        != Some(target_window_id.as_str())
-                    {
-                        return;
-                    }
-                    #[cfg(any(windows, target_os = "macos"))]
-                    let workspace_template = tab.workspace_template.as_deref();
-                    #[cfg(not(any(windows, target_os = "macos")))]
-                    let workspace_template: Option<&str> = None;
-                    let Some(target_ordered_tab_ids) = runtime
-                        .presentation
-                        .existing(&target_window_id)
-                        .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
-                    else {
-                        return;
-                    };
-                    match runtime.relocate_native_tab_reservation(
-                        &source_window_id,
-                        &target_window_id,
-                        &tab.id,
-                        &tab.title,
-                        &tab.tab_type,
-                        workspace_template,
-                        source_active_tab_id.as_deref(),
-                        &target_ordered_tab_ids,
-                        revision,
-                    ) {
-                        Ok(()) => {
-                            let target_order_is_current = runtime
-                                .presentation
-                                .existing(&target_window_id)
-                                .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
-                                .is_some_and(|live_order| live_order == target_ordered_tab_ids);
-                            if !target_order_is_current {
-                                continue;
-                            }
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                if runtime.presentation.tab_window(&tab.id).ok().flatten().as_deref()
+                    != Some(target_window_id.as_str())
+                {
+                    return;
+                }
+                #[cfg(any(windows, target_os = "macos"))]
+                let workspace_template = tab.workspace_template.as_deref();
+                #[cfg(not(any(windows, target_os = "macos")))]
+                let workspace_template: Option<&str> = None;
+                let Some(target_ordered_tab_ids) = runtime
+                    .presentation
+                    .existing(&target_window_id)
+                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                else {
+                    return;
+                };
+                match runtime.relocate_native_tab_reservation(
+                    &source_window_id,
+                    &target_window_id,
+                    &tab.id,
+                    &tab.title,
+                    &tab.tab_type,
+                    workspace_template,
+                    source_active_tab_id.as_deref(),
+                    &target_ordered_tab_ids,
+                    revision,
+                ) {
+                    Ok(()) => {
+                        if runtime
+                            .presentation
+                            .existing(&target_window_id)
+                            .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                            .is_some_and(|live_order| live_order == target_ordered_tab_ids)
+                        {
                             runtime.apply_native_active_style(
                                 &source_window_id,
                                 source_active_tab_id.as_deref(),
@@ -612,24 +573,19 @@ impl SystemRuntimeExecutor {
                                 &target_window_id,
                                 Some(&tab.id),
                                 revision,
-                                "tab-drag-chrome-retry",
+                                "tab-drag-chrome-event",
                             );
-                            return;
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "Live tab chrome move remains pending: tab={} target={} attempt={} error={}",
-                                tab.id, target_window_id, failure_count, error.message
-                            );
-                            thread::sleep(tab_move_retry_delay(failure_count));
-                            failure_count = failure_count.saturating_add(1);
                         }
                     }
+                    Err(error) => eprintln!(
+                        "Live tab chrome move failed terminally: tab={} target={} error={}",
+                        tab.id, target_window_id, error.message
+                    ),
                 }
             });
     }
 
-    pub(crate) fn schedule_tab_surface_move_retry(
+    pub(crate) fn schedule_tab_surface_move_projection(
         &self,
         tab_id: String,
         target_window_id: String,
@@ -640,56 +596,36 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name(format!("rion-tab-surface-move-{tab_id}"))
             .spawn(move || {
-                let mut failure_count = 0_u32;
-                loop {
-                    let Some(runtime) = runtime.upgrade() else {
-                        return;
-                    };
-                    if runtime
-                        .presentation
-                        .tab_window(&tab_id)
-                        .ok()
-                        .flatten()
-                        .as_deref()
-                        != Some(target_window_id.as_str())
-                    {
-                        return;
-                    }
-                    let physical_source_window_id = runtime.native_tab_host_id(&tab_id);
-                    if physical_source_window_id.as_deref() == Some(target_window_id.as_str()) {
-                        return;
-                    }
-                    match runtime
-                        .provisionally_move_tab_for_live_drag(&tab_id, &target_window_id)
-                    {
-                        Ok(()) => {
-                            runtime.schedule_live_window_state_persistence(&target_window_id);
-                            if let Some(source_window_id) = physical_source_window_id
-                                .filter(|source_window_id| source_window_id != &target_window_id)
-                            {
-                                runtime.discard_provisional_game_window(&source_window_id);
-                            }
-                            return;
-                        }
-                        Err(error) => {
-                            eprintln!(
-                                "Tab surface move retry remains pending: tab={tab_id} target={target_window_id} attempt={failure_count} error={error}"
-                            );
-                            thread::sleep(tab_move_retry_delay(failure_count));
-                            failure_count = failure_count.saturating_add(1);
+                let Some(runtime) = runtime.upgrade() else {
+                    return;
+                };
+                if runtime
+                    .presentation
+                    .tab_window(&tab_id)
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    != Some(target_window_id.as_str())
+                {
+                    return;
+                }
+                let physical_source_window_id = runtime.native_tab_host_id(&tab_id);
+                if physical_source_window_id.as_deref() == Some(target_window_id.as_str()) {
+                    return;
+                }
+                match runtime.provisionally_move_tab_for_live_drag(&tab_id, &target_window_id) {
+                    Ok(()) => {
+                        runtime.schedule_live_window_state_persistence(&target_window_id);
+                        if let Some(source_window_id) = physical_source_window_id
+                            .filter(|source_window_id| source_window_id != &target_window_id)
+                        {
+                            runtime.discard_provisional_game_window(&source_window_id);
                         }
                     }
+                    Err(error) => eprintln!(
+                        "Tab surface move failed terminally: tab={tab_id} target={target_window_id} error={error}"
+                    ),
                 }
             });
-    }
-}
-
-fn tab_move_retry_delay(failure_count: u32) -> Duration {
-    match failure_count {
-        0 => Duration::from_millis(50),
-        1 => Duration::from_millis(250),
-        2 => Duration::from_secs(1),
-        3 => Duration::from_secs(5),
-        _ => Duration::from_secs(30),
     }
 }

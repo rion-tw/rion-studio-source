@@ -54,7 +54,9 @@ impl SystemRuntimeExecutor {
                 .presentation
                 .surfaces(&window_id, original_active_tab_id.as_deref());
             let next_tab_id = if original_active_tab_id.as_deref() == Some(tab_id) {
-                successor_tab_after_close(&next.tab_ids(), tab_id, |_| true)
+                successor_tab_after_close(&next.tab_ids(), tab_id, |candidate| {
+                    !next.hidden_tab_ids.contains(candidate)
+                })
             } else {
                 original_active_tab_id.clone()
             };

@@ -2,6 +2,8 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { RuntimeTabChromeProjectionRecord } from "../src/shared/generated";
+
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -31,12 +33,13 @@ beforeEach(() => {
 describe("Windows runtime tab chrome projection", () => {
   it("atomically rehydrates order, active ARIA state, metadata, and removes stale tabs", async () => {
     window.__rionEnsureRuntimeTab?.({ id: "stale-tab", name: "Stale", type: "role" });
-    window.__rionApplyRuntimeTabChromeProjection?.({
+    const authoritativeProjection: RuntimeTabChromeProjectionRecord = {
       rendererInstanceId,
       windowId: "window-1",
       windowGeneration: 7,
       lifecycleEpoch: 3,
       projectionRevision: 9,
+      topologyRevision: 21,
       tabs: [
         {
           id: "tab-2",
@@ -83,7 +86,8 @@ describe("Windows runtime tab chrome projection", () => {
       alwaysShowToolbarInFullScreen: false,
       language: "en",
       theme: "dark"
-    });
+    };
+    window.__rionApplyRuntimeTabChromeProjection?.(authoritativeProjection);
 
     const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>("button.tab"));
     expect(tabs.map((tab) => tab.dataset.tabId)).toEqual(["tab-2", "tab-1"]);
@@ -102,12 +106,27 @@ describe("Windows runtime tab chrome projection", () => {
         acknowledgement: {
           rendererInstanceId,
           projectionRevision: 9,
+          topologyRevision: 21,
           observedTabOrder: ["tab-2", "tab-1"],
           observedActiveTabId: "tab-2",
           status: "applied"
         }
       }
     });
+
+    invoke.mockClear();
+    const beforeStaleProjection = document.querySelector("#tabs")?.innerHTML;
+    window.__rionApplyRuntimeTabChromeProjection?.({
+      ...authoritativeProjection,
+      projectionRevision: 8,
+      topologyRevision: 20,
+      tabs: [],
+      tabOrder: [],
+      activeTabId: undefined
+    });
+    expect(document.querySelector("#tabs")?.innerHTML).toBe(beforeStaleProjection);
+    await nextPaint();
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it("rejects projections for an obsolete renderer instance without mutating the DOM", () => {
@@ -118,6 +137,7 @@ describe("Windows runtime tab chrome projection", () => {
       windowGeneration: 7,
       lifecycleEpoch: 3,
       projectionRevision: 10,
+      topologyRevision: 22,
       tabs: [],
       tabOrder: [],
       displayId: 11,

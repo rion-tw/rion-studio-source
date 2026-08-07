@@ -263,6 +263,55 @@ async fn rion_runtime_tab_action(
         });
     }
     if action.get("type").and_then(Value::as_str) == Some("stop") {
+        #[cfg(windows)]
+        let intent = action
+            .get("intent")
+            .cloned()
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_INTENT_INVALID",
+                    "The typed runtime tab intent is required.",
+                )
+            })
+            .and_then(|value| {
+                serde_json::from_value::<rion_core::RuntimeTabIntentRecord>(value).map_err(|error| {
+                    shell_error("TAURI_RUNTIME_TAB_INTENT_INVALID", error.to_string())
+                })
+            })?;
+        #[cfg(windows)]
+        let (intent_window_generation, intent_window_id) =
+            match state
+                .runtime
+                .admit_runtime_tab_intent(webview.label(), &intent)
+                .map_err(|message| shell_error("TAURI_RUNTIME_TAB_INTENT_FAILED", message))?
+            {
+                system_runtime::RuntimeTabIntentAdmission::Accepted {
+                    window_generation,
+                    window_id,
+                } => (window_generation, window_id),
+                system_runtime::RuntimeTabIntentAdmission::Superseded {
+                    failure_code,
+                    window_generation,
+                    window_id: _,
+                } => {
+                    state.runtime.publish_projection();
+                    let receipt = rion_core::RuntimeTabIntentReceiptRecord {
+                        intent_id: intent.intent_id,
+                        status: rion_core::SystemRuntimeOperationStatus::Superseded,
+                        topology_committed: false,
+                        window_generation,
+                        topology_revision: state.runtime.live_topology_revision(),
+                        cleanup_operation_id: None,
+                        failure_code: Some(failure_code.to_owned()),
+                    };
+                    return serde_json::to_value(receipt).map_err(|error| {
+                        shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+                    });
+                }
+            };
+        #[cfg(windows)]
+        let tab_id = intent.tab_id.as_str();
+        #[cfg(not(windows))]
         let tab_id = action["tabId"]
             .as_str()
             .filter(|tab_id| !tab_id.is_empty())
@@ -273,6 +322,25 @@ async fn rion_runtime_tab_action(
                 )
             })?;
         let receipt = execute_tab_stop(&state, tab_id).await?;
+        #[cfg(windows)]
+        {
+            let intent_receipt = rion_core::RuntimeTabIntentReceiptRecord {
+                intent_id: intent.intent_id,
+                status: receipt.status,
+                topology_committed: state.runtime.live_tab_window_id(tab_id).is_none(),
+                window_generation: intent_window_generation,
+                topology_revision: receipt
+                    .topology_revision
+                    .unwrap_or_else(|| state.runtime.live_topology_revision()),
+                cleanup_operation_id: Some(receipt.operation_id),
+                failure_code: receipt.failure_code,
+            };
+            debug_assert_eq!(intent_window_id, window_id);
+            return serde_json::to_value(intent_receipt).map_err(|error| {
+                shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+            });
+        }
+        #[cfg(not(windows))]
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });

@@ -143,6 +143,15 @@ unsafe extern "C" fn action_callback(
             // AppKit already removed the visible tab. Commit its tombstone to the live
             // topology in this callback turn; Core stop and surface release continue on the
             // background action lane and cannot restore the visible tab.
+            let registered_window_id = state.runtime.window_id_for_label(&context.window_label);
+            if registered_window_id.as_deref() != state.runtime.live_tab_window_id(tab_id).as_deref()
+            {
+                eprintln!(
+                    "Stale AppKit tab close intent was fenced: tab={tab_id} adapter={}",
+                    context.window_label
+                );
+                return;
+            }
             if let Err(error) = state.runtime.preview_tab_close(tab_id) {
                 eprintln!("Live AppKit tab close intent will retry in background: tab={tab_id} error={error}");
             }
@@ -512,7 +521,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         }
         return;
     }
-    let target_window_id = target_window_id.or(host_window_id);
+    let target_window_id = target_window_id.or_else(|| host_window_id.clone());
     if matches!(
         action_type.as_str(),
         "activate" | "hide" | "reorder" | "move" | "stop" | "openTabMenu"
@@ -543,6 +552,14 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         let Some(tab_id) = tab_id.as_deref() else {
             return;
         };
+        if action_type != "move"
+            && host_window_id.as_deref() != state.runtime.live_tab_window_id(tab_id).as_deref()
+        {
+            eprintln!(
+                "Stale AppKit tab intent was fenced: action={action_type} tab={tab_id}"
+            );
+            return;
+        }
         let target = if action_type == "move" {
             let Some(window_id) = target_window_id.as_deref() else {
                 crate::reveal_shell_error(

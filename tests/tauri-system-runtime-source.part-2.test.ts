@@ -42,11 +42,11 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       runtime.indexOf("struct SessionPaths")
     );
     expect(windowsSurfaceHostVisibility).toContain(".run_on_main_thread");
-    expect(windowsSurfaceHostVisibility).toContain("callback_window.show()");
-    expect(windowsSurfaceHostVisibility).toContain("callback_window.hide()");
-    expect(windowsSurfaceHostVisibility).not.toContain("ShowWindow");
-    expect(windowsSurfaceHostVisibility).not.toContain("SW_SHOWNOACTIVATE");
-    expect(windowsSurfaceHostVisibility).not.toContain("window.hwnd()");
+    expect(windowsSurfaceHostVisibility).toContain("ShowWindow(hwnd, command)");
+    expect(windowsSurfaceHostVisibility).toContain("SW_SHOWNOACTIVATE");
+    expect(windowsSurfaceHostVisibility).toContain("SW_HIDE");
+    expect(windowsSurfaceHostVisibility).not.toContain("callback_window.show()");
+    expect(windowsSurfaceHostVisibility).not.toContain("callback_window.set_focus()");
     expect(runtime).not.toContain("surface-host-main-thread-flush");
     expect(runtime).toContain("WINDOWS_RUNTIME_TAB_RESERVATION_SCRIPT");
     const displayHost = runtime.slice(

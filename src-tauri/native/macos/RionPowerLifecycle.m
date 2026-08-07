@@ -5,11 +5,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void (*RionPowerLifecycleCallback)(void *context, bool suspended, const char *reason);
 typedef void (*RionDisplayTopologyCallback)(void *context, const char *reason);
+typedef void (*RionApplicationForegroundCallback)(void *context, bool foreground);
 typedef void (*RionPowerLifecycleDestructor)(void *context);
 
 @interface RionPowerLifecycleMonitor : NSObject
 @property(nonatomic, assign) RionPowerLifecycleCallback callback;
 @property(nonatomic, assign) RionDisplayTopologyCallback displayCallback;
+@property(nonatomic, assign) RionApplicationForegroundCallback foregroundCallback;
 @property(nonatomic, assign) void *context;
 @property(nonatomic, assign) RionPowerLifecycleDestructor contextDestructor;
 @end
@@ -18,12 +20,14 @@ typedef void (*RionPowerLifecycleDestructor)(void *context);
 
 - (instancetype)initWithCallback:(RionPowerLifecycleCallback)callback
                  displayCallback:(RionDisplayTopologyCallback)displayCallback
+              foregroundCallback:(RionApplicationForegroundCallback)foregroundCallback
                           context:(void *)context
                 contextDestructor:(RionPowerLifecycleDestructor)contextDestructor {
     self = [super init];
     if (self) {
         _callback = callback;
         _displayCallback = displayCallback;
+        _foregroundCallback = foregroundCallback;
         _context = context;
         _contextDestructor = contextDestructor;
         NSNotificationCenter *notifications = NSWorkspace.sharedWorkspace.notificationCenter;
@@ -36,12 +40,32 @@ typedef void (*RionPowerLifecycleDestructor)(void *context);
                selector:@selector(screenParametersChanged:)
                    name:NSApplicationDidChangeScreenParametersNotification
                  object:nil];
+        [NSNotificationCenter.defaultCenter
+            addObserver:self
+               selector:@selector(applicationDidBecomeActive:)
+                   name:NSApplicationDidBecomeActiveNotification
+                 object:nil];
+        [NSNotificationCenter.defaultCenter
+            addObserver:self
+               selector:@selector(applicationDidResignActive:)
+                   name:NSApplicationDidResignActiveNotification
+                 object:nil];
         [notifications addObserver:self
                           selector:@selector(workspaceDidWake:)
                               name:NSWorkspaceDidWakeNotification
                             object:nil];
     }
     return self;
+}
+
+- (void)applicationDidBecomeActive:(NSNotification *)notification {
+    (void)notification;
+    self.foregroundCallback(self.context, true);
+}
+
+- (void)applicationDidResignActive:(NSNotification *)notification {
+    (void)notification;
+    self.foregroundCallback(self.context, false);
 }
 
 - (void)screenParametersChanged:(NSNotification *)notification {
@@ -73,12 +97,14 @@ typedef void (*RionPowerLifecycleDestructor)(void *context);
 void * _Nullable rion_power_monitor_create(
     RionPowerLifecycleCallback callback,
     RionDisplayTopologyCallback displayCallback,
+    RionApplicationForegroundCallback foregroundCallback,
     void *context,
     RionPowerLifecycleDestructor contextDestructor
 ) {
     RionPowerLifecycleMonitor *monitor =
         [[RionPowerLifecycleMonitor alloc] initWithCallback:callback
                                            displayCallback:displayCallback
+                                        foregroundCallback:foregroundCallback
                                                    context:context
                                          contextDestructor:contextDestructor];
     return (__bridge_retained void *)monitor;

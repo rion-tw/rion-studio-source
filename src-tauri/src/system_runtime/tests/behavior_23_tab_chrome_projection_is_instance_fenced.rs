@@ -14,6 +14,7 @@ fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> Runtime
         window_generation: 7,
         lifecycle_epoch: 3,
         projection_revision: 0,
+        topology_revision: 19,
         tabs: Vec::new(),
         tab_order: vec!["tab-1".to_owned(), "tab-2".to_owned()],
         active_tab_id: active_tab_id.map(str::to_owned),
@@ -28,6 +29,16 @@ fn tab_chrome_projection(instance: &str, active_tab_id: Option<&str>) -> Runtime
         always_show_toolbar_in_full_screen: false,
         language: "en".to_owned(),
         theme: "light".to_owned(),
+    }
+}
+
+fn tab_intent(instance: &str, sequence: u64) -> RuntimeTabIntentRecord {
+    RuntimeTabIntentRecord {
+        intent_id: format!("intent-{sequence}"),
+        adapter_sequence: sequence,
+        renderer_instance_id: instance.to_owned(),
+        intent_kind: "stop".to_owned(),
+        tab_id: "tab-1".to_owned(),
     }
 }
 
@@ -71,29 +82,25 @@ fn windows_tab_chrome_reveal_waits_for_visibility_and_renderer_readiness() {
         [
             WindowsTabChromeRevealSignal::VisibilityRequested,
             WindowsTabChromeRevealSignal::RendererReady,
+            WindowsTabChromeRevealSignal::ProjectionApplied,
         ],
         [
             WindowsTabChromeRevealSignal::RendererReady,
+            WindowsTabChromeRevealSignal::ProjectionApplied,
             WindowsTabChromeRevealSignal::VisibilityRequested,
+        ],
+        [
+            WindowsTabChromeRevealSignal::ProjectionApplied,
+            WindowsTabChromeRevealSignal::VisibilityRequested,
+            WindowsTabChromeRevealSignal::RendererReady,
         ],
     ] {
         let mut reveal = WindowsTabChromeRevealState::new(true);
         assert!(!reveal.observe(signals[0]).reveal);
-        assert!(reveal.observe(signals[1]).reveal);
         assert!(!reveal.observe(signals[1]).reveal);
+        assert!(reveal.observe(signals[2]).reveal);
+        assert!(!reveal.observe(signals[2]).reveal);
     }
-
-    let mut fallback = WindowsTabChromeRevealState::new(true);
-    assert!(
-        !fallback
-            .observe(WindowsTabChromeRevealSignal::FallbackElapsed)
-            .reveal
-    );
-    assert!(
-        fallback
-            .observe(WindowsTabChromeRevealSignal::VisibilityRequested)
-            .reveal
-    );
 
     let mut uncloaked = WindowsTabChromeRevealState::new(false);
     assert!(
@@ -104,6 +111,11 @@ fn windows_tab_chrome_reveal_waits_for_visibility_and_renderer_readiness() {
     assert!(
         !uncloaked
             .observe(WindowsTabChromeRevealSignal::RendererReady)
+            .reveal
+    );
+    assert!(
+        !uncloaked
+            .observe(WindowsTabChromeRevealSignal::ProjectionApplied)
             .reveal
     );
 }
@@ -119,7 +131,7 @@ fn windows_tab_chrome_reveal_defers_the_latest_focus_intent_until_uncloaked() {
     assert!(!replacement.reveal);
     assert!(
         !reveal
-            .observe(WindowsTabChromeRevealSignal::ContentPainted)
+            .observe(WindowsTabChromeRevealSignal::ProjectionApplied)
             .reveal
     );
     let ready = reveal.observe(WindowsTabChromeRevealSignal::RendererReady);
@@ -132,7 +144,7 @@ fn windows_host_reveal_does_not_wait_for_role_geometry() {
     let mut reveal = WindowsTabChromeRevealState::new(true);
     assert!(
         !reveal
-            .observe(WindowsTabChromeRevealSignal::ContentPainted)
+            .observe(WindowsTabChromeRevealSignal::ProjectionApplied)
             .reveal
     );
     let presentation = reveal.request_presentation(Some(17));
@@ -181,6 +193,36 @@ fn semantic_projection_revision_survives_a_renderer_reload() {
 }
 
 #[test]
+fn tab_intent_is_renderer_instance_and_adapter_sequence_fenced() {
+    let coordinator = TabChromeProjectionCoordinator::default();
+    coordinator
+        .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+        .unwrap();
+
+    assert!(matches!(
+        coordinator.admit_intent("tab-strip-1", &tab_intent("renderer-1", 1)),
+        Ok(RuntimeTabIntentAdmission::Accepted {
+            window_generation: 7,
+            ref window_id,
+        }) if window_id == "window-1"
+    ));
+    assert!(matches!(
+        coordinator.admit_intent("tab-strip-1", &tab_intent("renderer-1", 1)),
+        Ok(RuntimeTabIntentAdmission::Superseded {
+            failure_code: "TAB_INTENT_SEQUENCE_SUPERSEDED",
+            ..
+        })
+    ));
+    assert!(matches!(
+        coordinator.admit_intent("tab-strip-1", &tab_intent("renderer-stale", 2)),
+        Ok(RuntimeTabIntentAdmission::Superseded {
+            failure_code: "TAB_INTENT_ADAPTER_STALE",
+            ..
+        })
+    ));
+}
+
+#[test]
 fn window_chrome_identity_and_maximize_state_advance_the_projection_revision() {
     let coordinator = TabChromeProjectionCoordinator::default();
     coordinator
@@ -219,6 +261,22 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
                 RuntimeTabChromeAcknowledgementRecord {
                     renderer_instance_id: "renderer-1".to_owned(),
                     projection_revision: projection.projection_revision,
+                    topology_revision: projection.topology_revision.saturating_add(1),
+                    observed_tab_order: projection.tab_order.clone(),
+                    observed_active_tab_id: projection.active_tab_id.clone(),
+                    status: "applied".to_owned(),
+                },
+            ),
+            Err("TAB_CHROME_PROJECTION_STALE"),
+            "{platform}"
+        );
+        assert_eq!(
+            coordinator.acknowledge(
+                "tab-strip-1",
+                RuntimeTabChromeAcknowledgementRecord {
+                    renderer_instance_id: "renderer-1".to_owned(),
+                    projection_revision: projection.projection_revision,
+                    topology_revision: projection.topology_revision,
                     observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
                     observed_active_tab_id: Some("tab-1".to_owned()),
                     status: "applied".to_owned(),
@@ -233,6 +291,7 @@ fn renderer_instance_and_projection_readback_are_exactly_fenced() {
                 RuntimeTabChromeAcknowledgementRecord {
                     renderer_instance_id: "renderer-1".to_owned(),
                     projection_revision: projection.projection_revision,
+                    topology_revision: projection.topology_revision,
                     observed_tab_order: projection.tab_order.clone(),
                     observed_active_tab_id: projection.active_tab_id.clone(),
                     status: "applied".to_owned(),
@@ -294,6 +353,7 @@ fn superseded_and_failed_projection_acknowledgements_allow_observed_intent_misma
                 RuntimeTabChromeAcknowledgementRecord {
                     renderer_instance_id: "renderer-1".to_owned(),
                     projection_revision: projection.projection_revision,
+                    topology_revision: projection.topology_revision,
                     observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
                     observed_active_tab_id: Some("tab-2".to_owned()),
                     status: status.to_owned(),
@@ -329,6 +389,7 @@ fn projection_acknowledgement_rejects_a_stale_revision() {
             RuntimeTabChromeAcknowledgementRecord {
                 renderer_instance_id: "renderer-1".to_owned(),
                 projection_revision: projection.projection_revision.saturating_add(1),
+                topology_revision: projection.topology_revision,
                 observed_tab_order: vec!["tab-2".to_owned(), "tab-1".to_owned()],
                 observed_active_tab_id: Some("tab-2".to_owned()),
                 status: "superseded".to_owned(),
@@ -378,6 +439,7 @@ fn a_new_renderer_supersedes_the_old_pending_projection() {
                 RuntimeTabChromeAcknowledgementRecord {
                     renderer_instance_id: "renderer-1".to_owned(),
                     projection_revision: projection.projection_revision,
+                    topology_revision: projection.topology_revision,
                     observed_tab_order: projection.tab_order,
                     observed_active_tab_id: projection.active_tab_id,
                     status: "applied".to_owned(),

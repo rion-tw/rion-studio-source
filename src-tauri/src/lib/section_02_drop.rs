@@ -176,11 +176,21 @@ fn request_main_window_show(app: &AppHandle, focus: bool, trigger: &'static str)
         return;
     }
     if let Some(window) = app.get_webview_window("main") {
+        #[cfg(not(windows))]
         let _ = window.unminimize();
+        #[cfg(windows)]
+        if let Ok(hwnd) = window.hwnd() {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SW_SHOWNOACTIVATE, ShowWindowAsync,
+            };
+            let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
+        }
+        #[cfg(not(windows))]
         let _ = window.show();
         if focus {
             #[cfg(target_os = "macos")]
             let _ = crate::quick_menu_macos::activate_application();
+            #[cfg(not(windows))]
             let _ = window.set_focus();
         }
     }

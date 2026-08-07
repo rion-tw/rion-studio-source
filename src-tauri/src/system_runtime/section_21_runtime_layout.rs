@@ -788,11 +788,6 @@ impl SystemRuntimeExecutor {
             },
         );
         drop(state);
-        #[cfg(windows)]
-        self.schedule_windows_tab_chrome_reveal_fallback(
-            &target.window_id,
-            window_generation,
-        );
         self.presentation
             .set_window_generation(&target.window_id, window_generation)
             .map_err(|message| {

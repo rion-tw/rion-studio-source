@@ -16,10 +16,14 @@ impl PresentationRegistry {
         instance_id: &str,
         window_id: &str,
     ) -> Result<u64, String> {
-        let revision = self
+        let owner_epoch = self
             .next_surface_owner_revision
             .fetch_add(1, Ordering::AcqRel)
             .saturating_add(1);
+        let window_generation = self
+            .existing(window_id)
+            .and_then(|live| live.lock().ok().map(|live| live.window_generation))
+            .unwrap_or_default();
         self.surface_owners
             .lock()
             .map_err(|_| "The native surface ownership registry is unavailable.".to_owned())?
@@ -27,28 +31,29 @@ impl PresentationRegistry {
                 surface_label.to_owned(),
                 SurfacePresentationOwner {
                     instance_id: instance_id.to_owned(),
-                    revision,
+                    owner_epoch,
+                    window_generation,
                     window_id: window_id.to_owned(),
                 },
             );
-        Ok(revision)
+        Ok(owner_epoch)
     }
 
-    fn surface_owner_revisions(&self, surface_labels: &HashSet<String>) -> HashMap<String, u64> {
+    fn surface_owner_tokens(
+        &self,
+        surface_labels: &HashSet<String>,
+    ) -> HashMap<String, SurfacePresentationOwner> {
         self.surface_owners
             .lock()
             .ok()
             .map(|owners| {
                 surface_labels
                     .iter()
-                    .map(|label| {
-                        (
-                            label.clone(),
-                            owners
-                                .get(label)
-                                .map(|owner| owner.revision)
-                                .unwrap_or_default(),
-                        )
+                    .filter_map(|label| {
+                        owners
+                            .get(label)
+                            .cloned()
+                            .map(|owner| (label.clone(), owner))
                     })
                     .collect()
             })
@@ -348,39 +353,6 @@ impl PresentationRegistry {
             .ok()
             .and_then(|actors| actors.get(window_id).cloned())
             .and_then(|actor| actor.applied_window_visibility())
-    }
-
-    fn record_externally_applied_presentation(
-        &self,
-        window_id: &str,
-        revision: u64,
-        tab_id: Option<&str>,
-        surfaces: &[Webview],
-    ) {
-        let surface_labels = presentation_surface_labels(surfaces);
-        let surface_owner_revisions = self.surface_owner_revisions(&surface_labels);
-        let surface_identities =
-            presentation_owner_identities(surfaces, &surface_owner_revisions);
-        if let Ok(projection) = self.projection_coordinator(window_id)
-            && let Ok(mut projection) = projection.lock()
-            && revision >= projection.applied_revision
-        {
-            projection.applied_revision = revision;
-            projection.applied_tab_id = tab_id.map(str::to_owned);
-        }
-        let actor = self
-            .actors
-            .lock()
-            .ok()
-            .and_then(|actors| actors.get(window_id).cloned());
-        if let Some(actor) = actor {
-            actor.record_externally_applied_presentation(
-                revision,
-                tab_id.map(str::to_owned),
-                surface_identities,
-                surfaces.to_vec(),
-            );
-        }
     }
 
     fn unbind_surface(&self, instance_id: &str, surface_label: &str) -> Option<String> {

@@ -555,12 +555,16 @@ fn set_windows_surface_host_initialization_visibility(
     let callback_window = window.clone();
     window
         .run_on_main_thread(move || {
-            let result = if visible {
-                callback_window.show()
-            } else {
-                callback_window.hide()
-            }
-            .map_err(|error| error.to_string());
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SW_HIDE, SW_SHOWNOACTIVATE, ShowWindow,
+            };
+            let result = callback_window
+                .hwnd()
+                .map_err(|error| error.to_string())
+                .map(|hwnd| {
+                    let command = if visible { SW_SHOWNOACTIVATE } else { SW_HIDE };
+                    let _ = unsafe { ShowWindow(hwnd, command) };
+                });
             let _ = sender.send(result);
         })
         .map_err(RuntimeError::tauri)?;

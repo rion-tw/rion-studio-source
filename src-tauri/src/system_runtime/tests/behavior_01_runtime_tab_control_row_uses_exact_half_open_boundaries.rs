@@ -452,6 +452,55 @@ use super::*;
     }
 
     #[test]
+    fn closing_the_selected_third_tab_commits_the_second_tab_as_successor() {
+        let registry = PresentationRegistry::default();
+        let window = registry.coordinator("window-a").unwrap();
+        {
+            let mut window = window.lock().unwrap();
+            for (revision, tab_id) in [(1, "tab-a"), (2, "tab-b"), (3, "tab-c")] {
+                window.insert_tab(
+                    presentation_tab(tab_id, TabRuntimePhase::Ready),
+                    revision,
+                    tab_id == "tab-c",
+                );
+            }
+        }
+
+        let (successor, revision) = registry
+            .commit_live_tab_removal("command", "window-a", "tab-c")
+            .unwrap();
+
+        assert_eq!(successor.as_deref(), Some("tab-b"));
+        let window = registry.existing("window-a").unwrap();
+        let window = window.lock().unwrap();
+        assert_eq!(window.selected_tab_id.as_deref(), Some("tab-b"));
+        assert_eq!(window.tab_ids(), ["tab-a", "tab-b"]);
+        assert_eq!(window.revision, revision);
+    }
+
+    #[test]
+    fn closing_a_middle_selected_tab_prefers_the_visible_tab_to_its_right() {
+        let registry = PresentationRegistry::default();
+        let window = registry.coordinator("window-a").unwrap();
+        {
+            let mut window = window.lock().unwrap();
+            for (revision, tab_id) in [(1, "tab-a"), (2, "tab-b"), (3, "tab-c")] {
+                window.insert_tab(
+                    presentation_tab(tab_id, TabRuntimePhase::Ready),
+                    revision,
+                    tab_id == "tab-b",
+                );
+            }
+        }
+
+        let (successor, _) = registry
+            .commit_live_tab_removal("command", "window-a", "tab-b")
+            .unwrap();
+
+        assert_eq!(successor.as_deref(), Some("tab-c"));
+    }
+
+    #[test]
     fn tab_drag_presentation_can_detach_attach_and_return_repeatedly() {
         let registry = PresentationRegistry::default();
         let source = registry.coordinator("window-a").unwrap();
@@ -578,56 +627,94 @@ use super::*;
     #[test]
     fn native_surface_ownership_fences_stale_cross_window_visibility_work() {
         let mut owners = HashMap::new();
-        let mut expected_revisions = HashMap::new();
-        assert!(native_surface_mutation_is_current(
-            &owners,
-            &expected_revisions,
-            "surface-a",
-            "window-a",
-        ));
-
-        owners.insert(
-            "surface-a".to_owned(),
-            SurfacePresentationOwner {
-                instance_id: "surface-a:1".to_owned(),
-                revision: 1,
-                window_id: "window-b".to_owned(),
-            },
-        );
-        expected_revisions.insert("surface-a".to_owned(), 1);
+        let mut expected_tokens = HashMap::new();
         assert!(!native_surface_mutation_is_current(
             &owners,
-            &expected_revisions,
+            &expected_tokens,
             "surface-a",
             "window-a",
+            4,
+        ));
+
+        let first_owner = SurfacePresentationOwner {
+            instance_id: "surface-a:1".to_owned(),
+            owner_epoch: 1,
+            window_generation: 4,
+            window_id: "window-b".to_owned(),
+        };
+        owners.insert("surface-a".to_owned(), first_owner.clone());
+        expected_tokens.insert("surface-a".to_owned(), first_owner);
+        assert!(!native_surface_mutation_is_current(
+            &owners,
+            &expected_tokens,
+            "surface-a",
+            "window-a",
+            4,
         ));
         assert!(native_surface_mutation_is_current(
             &owners,
-            &expected_revisions,
+            &expected_tokens,
             "surface-a",
             "window-b",
+            4,
         ));
 
-        owners.insert(
-            "surface-a".to_owned(),
-            SurfacePresentationOwner {
-                instance_id: "surface-a:1".to_owned(),
-                revision: 2,
-                window_id: "window-a".to_owned(),
-            },
-        );
+        let replacement_owner = SurfacePresentationOwner {
+            instance_id: "surface-a:1".to_owned(),
+            owner_epoch: 2,
+            window_generation: 4,
+            window_id: "window-a".to_owned(),
+        };
+        owners.insert("surface-a".to_owned(), replacement_owner.clone());
         assert!(!native_surface_mutation_is_current(
             &owners,
-            &expected_revisions,
+            &expected_tokens,
             "surface-a",
             "window-a",
+            4,
         ));
-        expected_revisions.insert("surface-a".to_owned(), 2);
+        expected_tokens.insert("surface-a".to_owned(), replacement_owner);
         assert!(native_surface_mutation_is_current(
             &owners,
-            &expected_revisions,
+            &expected_tokens,
             "surface-a",
             "window-a",
+            4,
+        ));
+    }
+
+    #[test]
+    fn surface_owner_epoch_changes_only_for_rebind_replacement_or_reparent() {
+        let owner = SurfacePresentationOwner {
+            instance_id: "surface-a:17".to_owned(),
+            owner_epoch: 41,
+            window_generation: 9,
+            window_id: "window-a".to_owned(),
+        };
+
+        assert!(surface_owner_matches_binding(
+            &owner,
+            "surface-a:17",
+            "window-a",
+            9,
+        ));
+        assert!(!surface_owner_matches_binding(
+            &owner,
+            "surface-a:18",
+            "window-a",
+            9,
+        ));
+        assert!(!surface_owner_matches_binding(
+            &owner,
+            "surface-a:17",
+            "window-b",
+            9,
+        ));
+        assert!(!surface_owner_matches_binding(
+            &owner,
+            "surface-a:17",
+            "window-a",
+            10,
         ));
     }
 

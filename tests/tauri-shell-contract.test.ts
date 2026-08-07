@@ -181,7 +181,7 @@ describe("Tauri shell contract guard", () => {
     expect(nativeTabs).toContain('@"sourceWindowId"');
     expect(nativeTabsHeader).toContain("sourceWindowID");
     expect(nativeTabsBridge).toContain("TAURI_RUNTIME_TAB_MENU_FAILED");
-    expect(nativeTabsBridge).toContain("target_window_id.or(host_window_id)");
+    expect(nativeTabsBridge).toContain("target_window_id.or_else(|| host_window_id.clone())");
     expect(nativeTabsBridge).toContain("open_launcher(&app, window_id)");
     expect(nativeTabs).toContain('@"type" : @"tabDragStart"');
     expect(nativeTabs).toContain('@"type" : @"tabDragMove"');

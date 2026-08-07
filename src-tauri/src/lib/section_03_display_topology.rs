@@ -30,10 +30,6 @@ struct DisplayTopologyRemapPlan {
 }
 
 impl DisplayTopologyCoordinator {
-    fn current_revision(&self) -> u64 {
-        self.inner.projection.current_revision()
-    }
-
     fn request(&self, app: AppHandle, cause: &str) -> Result<(), String> {
         let should_spawn = {
             let mut state = self

@@ -450,6 +450,7 @@ pub fn run() {
                     };
                     if matches!(event, tauri::WindowEvent::Focused(true)) {
                         state.updates.notify_foregrounded();
+                        state.runtime.observe_application_foreground(true);
                     }
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {

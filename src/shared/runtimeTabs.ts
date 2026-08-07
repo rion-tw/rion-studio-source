@@ -20,13 +20,7 @@ export function formatRuntimeTabTooltip(
 export type RuntimeTabAction =
   | { type: "activate"; tabId: string }
   | { type: "hide"; tabId: string }
-  | {
-      type: "stop";
-      tabId: string;
-      orderedTabIds?: string[];
-      activeTabId?: string;
-      windowGeneration?: number;
-    }
+  | { type: "stop"; tabId: string }
   | { type: "move"; tabId: string; windowId: string }
   | {
       type: "tabDragStart";
@@ -130,23 +124,8 @@ export function isRuntimeTabAction(value: unknown): value is RuntimeTabAction {
       Object.keys(action).length === 2;
   }
   if (action.type === "stop") {
-    const orderedTabIds = action.orderedTabIds;
-    const validOrder = orderedTabIds === undefined || (
-      Array.isArray(orderedTabIds) && orderedTabIds.length <= MAX_RUNTIME_TAB_ORDER &&
-      new Set(orderedTabIds).size === orderedTabIds.length &&
-      orderedTabIds.every((tabId) => typeof tabId === "string" && tabId.length > 0)
-    );
-    return typeof action.tabId === "string" && action.tabId.length > 0 && validOrder &&
-      (action.activeTabId === undefined || (
-        typeof action.activeTabId === "string" && action.activeTabId.length > 0
-      )) &&
-      (action.windowGeneration === undefined || (
-        typeof action.windowGeneration === "number" &&
-        Number.isSafeInteger(action.windowGeneration) && action.windowGeneration > 0
-      )) &&
-      Object.keys(action).every((key) => [
-        "type", "tabId", "orderedTabIds", "activeTabId", "windowGeneration"
-      ].includes(key));
+    return typeof action.tabId === "string" && action.tabId.length > 0 &&
+      Object.keys(action).length === 2;
   }
   if (action.type === "move") {
     return typeof action.tabId === "string" && action.tabId.length > 0 &&

@@ -10,12 +10,14 @@ mod platform {
 
     type PowerCallback = unsafe extern "C" fn(*mut c_void, bool, *const std::ffi::c_char);
     type DisplayCallback = unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char);
+    type ForegroundCallback = unsafe extern "C" fn(*mut c_void, bool);
     type ContextDestructor = unsafe extern "C" fn(*mut c_void);
 
     unsafe extern "C" {
         fn rion_power_monitor_create(
             callback: PowerCallback,
             display_callback: DisplayCallback,
+            foreground_callback: ForegroundCallback,
             context: *mut c_void,
             context_destructor: ContextDestructor,
         ) -> *mut c_void;
@@ -64,6 +66,16 @@ mod platform {
         runtime.request_display_topology_refresh(&reason);
     }
 
+    unsafe extern "C" fn foreground_callback(context: *mut c_void, foreground: bool) {
+        if context.is_null() {
+            return;
+        }
+        let context = unsafe { &*(context as *const CallbackContext) };
+        if let Some(runtime) = context.runtime.upgrade() {
+            runtime.observe_application_foreground(foreground);
+        }
+    }
+
     pub(crate) struct PowerMonitor {
         raw: Mutex<usize>,
     }
@@ -75,6 +87,7 @@ mod platform {
                 rion_power_monitor_create(
                     power_callback,
                     display_callback,
+                    foreground_callback,
                     context,
                     drop_callback_context,
                 )
@@ -111,18 +124,46 @@ mod platform {
         Win32::{
             Foundation::{HWND, LPARAM, LRESULT, WPARAM},
             System::LibraryLoader::GetModuleHandleW,
-            UI::WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
-                PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMECRITICAL, PBT_APMRESUMESTANDBY,
-                PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PostMessageW, PostQuitMessage,
-                RegisterClassW, TranslateMessage, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
-                WM_DESTROY, WM_DISPLAYCHANGE, WM_POWERBROADCAST, WNDCLASSW,
+            UI::{
+                Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent},
+                WindowsAndMessaging::{
+                    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+                    EVENT_SYSTEM_FOREGROUND, GetForegroundWindow, GetMessageW,
+                    GetWindowThreadProcessId, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMECRITICAL,
+                    PBT_APMRESUMESTANDBY, PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PostMessageW,
+                    PostQuitMessage, RegisterClassW, TranslateMessage, WINDOW_EX_STYLE,
+                    WINDOW_STYLE, WINEVENT_OUTOFCONTEXT, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE,
+                    WM_POWERBROADCAST, WNDCLASSW,
+                },
             },
         },
         core::w,
     };
 
     static POWER_RUNTIME: OnceLock<Mutex<Option<Weak<SystemRuntimeExecutor>>>> = OnceLock::new();
+
+    unsafe extern "system" fn foreground_event_callback(
+        _hook: HWINEVENTHOOK,
+        _event: u32,
+        window: HWND,
+        _object_id: i32,
+        _child_id: i32,
+        _event_thread: u32,
+        _event_time: u32,
+    ) {
+        let mut process_id = 0_u32;
+        if !window.0.is_null() {
+            unsafe { GetWindowThreadProcessId(window, Some(&mut process_id)) };
+        }
+        let runtime = POWER_RUNTIME
+            .get()
+            .and_then(|runtime| runtime.lock().ok())
+            .and_then(|runtime| runtime.as_ref().cloned())
+            .and_then(|runtime| runtime.upgrade());
+        if let Some(runtime) = runtime {
+            runtime.observe_application_foreground(process_id == std::process::id());
+        }
+    }
 
     unsafe extern "system" fn power_window_proc(
         window: HWND,
@@ -224,6 +265,36 @@ mod platform {
                         ));
                         return;
                     };
+                    let foreground_hook = unsafe {
+                        SetWinEventHook(
+                            EVENT_SYSTEM_FOREGROUND,
+                            EVENT_SYSTEM_FOREGROUND,
+                            None,
+                            Some(foreground_event_callback),
+                            0,
+                            0,
+                            WINEVENT_OUTOFCONTEXT,
+                        )
+                    };
+                    if foreground_hook.0.is_null() {
+                        let _ = unsafe { DestroyWindow(window) };
+                        let _ = sender.send(Err(
+                            "Windows foreground event hook installation failed.".to_owned(),
+                        ));
+                        return;
+                    }
+                    let foreground = unsafe { GetForegroundWindow() };
+                    unsafe {
+                        foreground_event_callback(
+                            foreground_hook,
+                            EVENT_SYSTEM_FOREGROUND,
+                            foreground,
+                            0,
+                            0,
+                            0,
+                            0,
+                        );
+                    }
                     let _ = sender.send(Ok(window.0 as isize));
                     let mut message = MSG::default();
                     loop {
@@ -236,6 +307,7 @@ mod platform {
                             DispatchMessageW(&message);
                         }
                     }
+                    let _ = unsafe { UnhookWinEvent(foreground_hook) };
                 })
                 .map_err(|error| error.to_string())?;
             let window = receiver

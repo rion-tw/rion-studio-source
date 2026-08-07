@@ -46,6 +46,7 @@ function projection(rendererInstanceId: string): RuntimeTabChromeProjectionRecor
     language: "en",
     lifecycleEpoch: identity.lifecycleEpoch,
     projectionRevision: 1,
+    topologyRevision: 1,
     rendererInstanceId,
     tabOrder: [],
     tabs: [],

@@ -14,8 +14,10 @@ fn presentation_outcome(
         main_queue_wait_ms: 0,
         main_thread_ms: 0,
         no_op: false,
+        planned_surface_mutation_count: 0,
         shown_surface_count: 0,
         show_ms: 0,
+        skipped_surface_count: 0,
         visibility_errors: errors,
         webview_focus_ms: 0,
         window_focused_after: focused,
@@ -93,6 +95,31 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
             NativePresentationStatus::Superseded,
             "{platform}"
         );
+        let mut owner_superseded = presentation_outcome(false, None, None, Vec::new());
+        owner_superseded.planned_surface_mutation_count = 3;
+        owner_superseded.skipped_surface_count = 1;
+        let owner_superseded =
+            NativePresentationReceipt::from_outcome(&plan, &owner_superseded);
+        assert_eq!(
+            owner_superseded.status,
+            NativePresentationStatus::Superseded,
+            "{platform}"
+        );
+        assert_eq!(owner_superseded.applied_revision, None, "{platform}");
+        assert_eq!(owner_superseded.planned_surface_mutation_count, 3, "{platform}");
+        assert_eq!(owner_superseded.applied_surface_mutation_count, 0, "{platform}");
+        assert_eq!(owner_superseded.skipped_surface_mutation_count, 1, "{platform}");
+        assert_eq!(
+            owner_superseded.supersede_reason,
+            Some("surfaceOwnerTokenMismatch"),
+            "{platform}"
+        );
+        assert!(owner_superseded.surface_identities.is_empty(), "{platform}");
+        assert_eq!(
+            owner_superseded.operation.failure_code.as_deref(),
+            Some("NATIVE_SURFACE_OWNER_SUPERSEDED"),
+            "{platform}"
+        );
         let mut cross_window_focus =
             presentation_outcome(true, Some(true), Some(true), Vec::new());
         cross_window_focus.focus_superseded = true;
@@ -117,13 +144,14 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         let failed = NativePresentationReceipt::from_outcome(
             &plan,
             &presentation_outcome(
-                true,
+                false,
                 Some(true),
                 Some(true),
                 vec!["native failure".to_owned()],
             ),
         );
         assert_eq!(failed.status, NativePresentationStatus::Failed, "{platform}");
+        assert_eq!(failed.applied_revision, None, "{platform}");
     }
 }
 

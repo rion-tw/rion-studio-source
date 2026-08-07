@@ -124,7 +124,7 @@ impl NativeWindowActor {
                         state.applied_tab_id = batch.request.tab_id.clone();
                         state.applied_surface_identities = presentation_owner_identities(
                             &batch.request.next_surfaces,
-                            &batch.request.surface_owner_revisions,
+                            &batch.request.surface_owner_tokens,
                         );
                         state.applied_surfaces = batch.request.next_surfaces.clone();
                     }
@@ -195,9 +195,9 @@ impl NativeWindowActor {
             for surface in &state.applied_surfaces {
                 if let Some(owner) = surface_owners.get(surface.label()) {
                     request
-                        .surface_owner_revisions
+                        .surface_owner_tokens
                         .entry(surface.label().to_owned())
-                        .or_insert(owner.revision);
+                        .or_insert_with(|| owner.clone());
                 }
             }
         }
@@ -209,7 +209,7 @@ impl NativeWindowActor {
             state.applied_tab_id = request.observed_previous_tab_id.clone();
             state.applied_surface_identities = presentation_owner_identities(
                 &request.observed_previous_surfaces,
-                &request.surface_owner_revisions,
+                &request.surface_owner_tokens,
             );
             state.applied_surfaces = request.observed_previous_surfaces.clone();
         }
@@ -295,25 +295,6 @@ impl NativeWindowActor {
             .and_then(|state| state.applied_window_visibility)
     }
 
-    fn record_externally_applied_presentation(
-        &self,
-        revision: u64,
-        tab_id: Option<String>,
-        surface_identities: HashSet<(String, u64)>,
-        surfaces: Vec<Webview>,
-    ) {
-        let (lock, changed) = &*self.queue;
-        if let Ok(mut state) = lock.lock() {
-            state.record_externally_applied_presentation(
-                revision,
-                tab_id,
-                surface_identities,
-                surfaces,
-            );
-            changed.notify_all();
-        }
-    }
-
     fn forget_surface(&self, instance_id: &str, surface_label: &str) {
         let (lock, changed) = &*self.queue;
         if let Ok(mut state) = lock.lock() {
@@ -346,6 +327,7 @@ impl NativeWindowActor {
     }
 }
 
+#[cfg(test)]
 impl NativeWindowActorState {
     fn record_externally_applied_presentation(
         &mut self,
@@ -359,11 +341,6 @@ impl NativeWindowActorState {
         }
         self.applied_revision = revision;
         self.applied_tab_id = tab_id;
-        // A live AppKit reparent reveals the moved tab but does not perform the
-        // presentation actor's normal hide pass for the tab that was already
-        // visible in the destination. Preserve both sets so the next selection
-        // hides every surface that is actually visible, including the covered
-        // destination tab.
         let replaced_instance_ids = surface_identities
             .iter()
             .map(|(instance_id, _)| instance_id.clone())

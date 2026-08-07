@@ -697,7 +697,7 @@ impl SystemRuntimeExecutor {
             .ensure_display_host(target, title)
             .map_err(|error| error.message)?;
         #[cfg(not(windows))]
-        set_tab_drag_window_interaction(&window, true, false)?;
+        set_tab_drag_window_interaction(&window, true)?;
         window.hide().map_err(|error| error.to_string())
     }
 
@@ -723,10 +723,10 @@ impl SystemRuntimeExecutor {
                 .is_some_and(|lease| lease.window_generation == generation)
         });
         if pointer_passthrough_leased {
-            set_tab_drag_window_interaction(&window, true, false)?;
+            set_tab_drag_window_interaction(&window, true)?;
             return Ok(());
         }
-        set_tab_drag_window_interaction(&window, false, true)?;
+        set_tab_drag_window_interaction(&window, false)?;
         self.focus_runtime_window_direct(
             window_id,
             &window,

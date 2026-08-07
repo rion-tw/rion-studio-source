@@ -1,6 +1,7 @@
 #[test]
 fn focus_broker_latest_intent_wins_across_runtime_windows() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let first = broker.accept(
         "window-a",
         4,
@@ -24,6 +25,103 @@ fn focus_broker_latest_intent_wins_across_runtime_windows() {
     let (current, confirmed) = broker.snapshot();
     assert_eq!(current, Some(second.clone()));
     assert_eq!(confirmed, Some(second));
+}
+
+#[test]
+fn external_foreground_event_revokes_deferred_focus_by_epoch() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    let requested = broker.accept(
+        "window-a",
+        12,
+        5,
+        Some("tab-a".to_owned()),
+        NativePresentationFocus::WindowAndContent,
+    );
+    assert_eq!(requested.foreground_epoch, 0);
+    assert!(broker.begin_mutation(&requested).unwrap().is_some());
+
+    broker.observe_external_foreground();
+    assert_eq!(broker.foreground_epoch(), 1);
+    assert_eq!(broker.snapshot(), (None, None));
+    assert!(broker.begin_mutation(&requested).unwrap().is_none());
+    broker.observe_external_foreground();
+    assert_eq!(broker.foreground_epoch(), 1);
+
+    broker.observe_application_foreground();
+    assert!(broker.begin_mutation(&requested).unwrap().is_none());
+}
+
+#[test]
+fn background_content_focus_is_not_admitted_without_the_active_window() {
+    let broker = NativeFocusBroker::default();
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::ContentOnly,
+            "window-a",
+            3,
+            NativeFocusIntentOrigin::RuntimeContinuation,
+        ),
+        NativePresentationFocus::None
+    );
+
+    let observed = broker
+        .observe_native_focus("window-a", 3, 2, Some("tab-a".to_owned()))
+        .expect("native focus establishes the active runtime window");
+    assert!(broker.is_confirmed(&observed));
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::ContentOnly,
+            "window-a",
+            3,
+            NativeFocusIntentOrigin::RuntimeContinuation,
+        ),
+        NativePresentationFocus::ContentOnly
+    );
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::ContentOnly,
+            "window-b",
+            3,
+            NativeFocusIntentOrigin::RuntimeContinuation,
+        ),
+        NativePresentationFocus::None
+    );
+}
+
+#[test]
+fn lifecycle_readiness_never_creates_focus_and_external_foreground_blocks_user_focus() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::WindowAndContent,
+            "window-a",
+            3,
+            NativeFocusIntentOrigin::RuntimeLifecycle,
+        ),
+        NativePresentationFocus::None
+    );
+
+    broker.observe_external_foreground();
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::WindowAndContent,
+            "window-a",
+            3,
+            NativeFocusIntentOrigin::UserGesture,
+        ),
+        NativePresentationFocus::None
+    );
+    assert_eq!(
+        broker.admitted_focus(
+            NativePresentationFocus::WindowAndContent,
+            "window-a",
+            3,
+            NativeFocusIntentOrigin::SystemActivation,
+        ),
+        NativePresentationFocus::WindowAndContent
+    );
 }
 
 #[test]

@@ -205,7 +205,7 @@ describe("native tab drag latest-intent transaction", () => {
       "is_some_and(|live_order| live_order == target_ordered_tab_ids)"
     );
     expect(actor).toContain("for surface in &state.applied_surfaces");
-    expect(actor).toContain("request.surface_owner_revisions");
+    expect(actor).toContain("request.surface_owner_tokens");
     expect(motion).toContain(".commit_live_tab_drag_destination(");
     expect(motion).toContain(".provisionally_move_tab_for_live_drag(");
     expect(motion.indexOf(".commit_live_tab_drag_destination(")).toBeLessThan(
@@ -219,7 +219,9 @@ describe("native tab drag latest-intent transaction", () => {
     expect(move).toContain("still_hosts_native_tab");
     expect(move).toContain("surface.window_id == window_id && surface.tab_id.is_some()");
     expect(move).toContain("slot.placeholder.as_ref()");
-    expect(move).toContain("surface.show()");
+    expect(move).not.toContain("surface.show()");
+    expect(move).toContain("request_tab_presentation_with_window_visibility(");
+    expect(move).toContain("follow_live_projection_membership()");
     expect(move).toContain('cfg!(target_os = "macos") && live_drag');
     expect(move).toContain("schedule_live_tab_drag_layout(tab_id.to_owned())");
     expect(handler).not.toContain("provisionally_move_tab_for_live_drag(");
@@ -298,7 +300,9 @@ describe("native tab drag latest-intent transaction", () => {
     expect(macBridge).toContain('action.action_type == "tabDragHover"');
     expect(macBridge).toContain("commit_live_tab_order_intent(window_id, ordered_tab_ids)");
     expect(handler).toContain("commit_live_tab_order_intent(target_window_id, &ordered_tab_ids)");
-    expect(windowsDrag).toContain("orderedTabIds: logicalRuntimeTabOrder()");
+    expect(windowsDrag).not.toContain("orderedTabIds: logicalRuntimeTabOrder()");
+    expect(windowsDrag).toContain('intentKind: "stop"');
+    expect(windowsDrag).toContain("return { type: \"stop\", intent }");
     expect(liveCommit).toContain("commit_live_tab_order_intent(target_window_id, ordered_tab_ids)");
     expect(liveCommit).not.toContain("preview_tab_drag_order_exact(target_window_id, ordered_tab_ids, true)");
   });

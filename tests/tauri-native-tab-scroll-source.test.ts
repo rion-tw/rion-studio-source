@@ -81,9 +81,15 @@ describe("native tab scroll viewport", () => {
     expect(scrolling).toContain("[surface setEdgeFadeMask:mask effectVisibleRect:effectVisibleRect]");
     expect(scrolling).toContain("viewportWidth - edgeInset");
     expect(surfaceViews).toContain("- (void)setEdgeFadeMask:(nullable CAGradientLayer *)mask");
+    expect(surfaceViews).toContain("glass.contentView = _contentHostView;");
+    expect(surfaceViews).toContain("_contentHostView.clipsToBounds = YES;");
     expect(surfaceViews).toContain("_contentView.layer.mask = mask;");
+    expect(surfaceViews).toContain("CGPathCreateWithRoundedRect(");
+    expect(surfaceViews).toContain("self.layer.mask = _edgeShapeMask;");
     expect(surfaceViews).toContain("_effectView.frame = visibleRect;");
+    expect(surfaceViews).toContain("_contentHostView.frame = _effectView.bounds;");
     expect(surfaceViews).toContain("_contentView.frame = NSMakeRect(-NSMinX(visibleRect)");
+    expect(layout).not.toContain("item.frame = surface.bounds;");
     expect(layout).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
     expect(dragDrop).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
     expect(dragDrop).toContain("_scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset");

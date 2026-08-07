@@ -1,6 +1,7 @@
 #import "../RionRuntimeTabsController.h"
 #import <objc/message.h>
 #import <objc/runtime.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <cmath>
 #include <cstdlib>
@@ -67,6 +68,38 @@ static CGFloat RionRuntimeInsetRevealScrollOrigin(
     originX = itemMaximumX - viewportWidth + boundedInset;
   }
   return MIN(maximumOrigin, MAX(0, originX));
+}
+
+static CGFloat RionRuntimeTabEdgeFadeAlpha(CGFloat viewportX,
+                                           CGFloat viewportWidth,
+                                           CGFloat edgeInset) {
+  if (viewportWidth <= 0 || viewportX <= 0 || viewportX >= viewportWidth) {
+    return 0;
+  }
+  CGFloat boundedInset = MIN(MAX(0, edgeInset), viewportWidth / 2.0);
+  if (boundedInset <= 0) return 1;
+  CGFloat normalizedAlpha = 1;
+  if (viewportX < boundedInset) {
+    normalizedAlpha = viewportX / boundedInset;
+  }
+  if (viewportX > viewportWidth - boundedInset) {
+    normalizedAlpha = (viewportWidth - viewportX) / boundedInset;
+  }
+  // Smoothstep avoids a visible change in slope where a tab enters or leaves
+  // an arrow's fusion zone.
+  return normalizedAlpha * normalizedAlpha * (3.0 - 2.0 * normalizedAlpha);
+}
+
+static NSRect RionRuntimeTabEdgeEffectVisibleRect(
+    CGFloat surfaceWidth, CGFloat surfaceHeight, CGFloat viewportMinimumX,
+    CGFloat viewportWidth, CGFloat arrowCenterInset) {
+  CGFloat localMinimumX = MIN(
+      surfaceWidth, MAX(0, arrowCenterInset - viewportMinimumX));
+  CGFloat localMaximumX = MIN(
+      surfaceWidth,
+      MAX(0, viewportWidth - arrowCenterInset - viewportMinimumX));
+  return NSMakeRect(localMinimumX, 0,
+                    MAX(0, localMaximumX - localMinimumX), surfaceHeight);
 }
 
 static CGFloat RionRuntimeTrailingControlOriginX(

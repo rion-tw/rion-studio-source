@@ -4,8 +4,15 @@ import { describe, expect, it } from "vitest";
 
 describe("native tab scroll viewport", () => {
   it("clips at the outer controls while preserving arrow fusion zones", async () => {
-    const [supportViews, viewModel, layout, dragDrop] =
+    const [surfaceViews, supportViews, viewModel, layout, scrolling, dragDrop] =
       await Promise.all([
+        readFile(
+          new URL(
+            "../src-tauri/native/macos/RionRuntimeTabsController/03_shortcut_model.mm",
+            import.meta.url
+          ),
+          "utf8"
+        ),
         readFile(
           new URL(
             "../src-tauri/native/macos/RionRuntimeTabsController/03_support_views.mm",
@@ -23,6 +30,13 @@ describe("native tab scroll viewport", () => {
         readFile(
           new URL(
             "../src-tauri/native/macos/RionRuntimeTabsController/05_layout.mm",
+            import.meta.url
+          ),
+          "utf8"
+        ),
+        readFile(
+          new URL(
+            "../src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
             import.meta.url
           ),
           "utf8"
@@ -60,6 +74,16 @@ describe("native tab scroll viewport", () => {
     expect(layout).toContain("_clusterContainer.frame = NSMakeRect(");
     expect(layout).toContain("_tabScrollView.frame = _clusterContent.bounds;");
     expect(layout).toContain("CGFloat x = fusionInset;");
+    expect(layout).toContain("[self updateTabEdgeFadeMasks]");
+    expect(scrolling).toContain("- (void)updateTabEdgeFadeMasks");
+    expect(scrolling).toContain("RionRuntimeTabEdgeFadeAlpha(");
+    expect(scrolling).toContain("CAGradientLayer *mask");
+    expect(scrolling).toContain("[surface setEdgeFadeMask:mask effectVisibleRect:effectVisibleRect]");
+    expect(scrolling).toContain("viewportWidth - edgeInset");
+    expect(surfaceViews).toContain("- (void)setEdgeFadeMask:(nullable CAGradientLayer *)mask");
+    expect(surfaceViews).toContain("_contentView.layer.mask = mask;");
+    expect(surfaceViews).toContain("_effectView.frame = visibleRect;");
+    expect(surfaceViews).toContain("_contentView.frame = NSMakeRect(-NSMinX(visibleRect)");
     expect(layout).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
     expect(dragDrop).toContain("NSView *overlayHost = [self tabSurfaceOverlayHost]");
     expect(dragDrop).toContain("_scrollLeftSurface.hidden ? 0 : kRionTabScrollFusionInset");

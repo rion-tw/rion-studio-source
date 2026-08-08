@@ -94,6 +94,30 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsForeground).toContain("SW_RESTORE");
     expect(windowsForeground).toContain("SW_SHOW");
     expect(windowsForeground).not.toContain("HWND_TOPMOST");
+    const windowsMainForegroundStart = runtime.indexOf(
+      "fn request_platform_webview_window_show_foreground("
+    );
+    const windowsMainForeground = runtime.slice(
+      windowsMainForegroundStart,
+      runtime.indexOf("fn platform_surface_lifecycle_tracker(", windowsMainForegroundStart)
+    );
+    expect(windowsMainForeground).toContain("ShowWindow(hwnd, command)");
+    expect(windowsMainForeground).toContain("SetForegroundWindow(hwnd)");
+    expect(windowsMainForeground).toContain("GetForegroundWindow()");
+    expect(windowsMainForeground).toContain("SW_RESTORE");
+    expect(windowsMainForeground).toContain("SW_SHOW");
+    expect(windowsMainForeground).not.toContain("SW_SHOWNOACTIVATE");
+    expect(windowsMainForeground).not.toContain("ShowWindowAsync");
+    const focusedMainWindowApply = runtime.slice(
+      runtime.indexOf("if command.requests_focus() {"),
+      runtime.indexOf("let before = match MainWindowStateProjection::capture(window)")
+    );
+    expect(focusedMainWindowApply.indexOf("focus_broker.mark_submitted(focus_lease)"))
+      .toBeLessThan(focusedMainWindowApply.indexOf(
+        "request_platform_webview_window_show_foreground(window)"
+      ));
+    expect(focusedMainWindowApply).toContain("focus_broker.revoke_lease(focus_lease)");
+    expect(focusedMainWindowApply).not.toContain("request_platform_webview_window_show(window)");
     expect(runtime).toContain("set_appkit_window_interaction(window, false, true)");
     const windowsTaskbarRegistration = runtime.slice(
       runtime.indexOf("fn register_windows_runtime_window_with_taskbar("),
@@ -600,11 +624,34 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       runtime.indexOf("CoreEffectAction::OverlayCopyCoordinate")
     );
     expect(openMacroPage.indexOf("pending_macro_page_request = Some(request.clone())"))
-      .toBeLessThan(openMacroPage.indexOf("run_on_main_thread"));
-    expect(openMacroPage).toContain('show_main_window(true, "overlay-open-macro-page")');
-    expect(openMacroPage).not.toContain("window.set_focus()");
-    expect(openMacroPage.indexOf("show_main_window(true"))
+      .toBeLessThan(openMacroPage.indexOf("request_main_window_show"));
+    expect(openMacroPage).toContain(
+      'request_main_window_show(true, "overlay-open-macro-page")'
+    );
+    expect(openMacroPage.indexOf("request_main_window_show"))
       .toBeLessThan(openMacroPage.indexOf('emit("rion://macro-page-request", request)'));
+    expect(openMacroPage).toContain("observe_main_window_presentation(operation_id)");
+    expect(openMacroPage).not.toContain("show_main_window(");
+    expect(openMacroPage).not.toContain("wait_main_window_operation");
+    expect(openMacroPage).not.toContain("operations.wait");
+    expect(openMacroPage).not.toContain("window.set_focus()");
+    const presentationObserver = runtime.slice(
+      runtime.indexOf("fn wait_main_window_presentation_failure("),
+      runtime.indexOf("fn resolve_main_window_command(")
+    );
+    expect(presentationObserver).toContain("operations.wait(operation_id)");
+    expect(presentationObserver).not.toContain("wait_timeout");
+    expect(presentationObserver).not.toContain("is_focused");
+    expect(presentationObserver).not.toContain("GetForegroundWindow");
+    const mainWindowCommandResolution = runtime.slice(
+      runtime.indexOf("fn resolve_main_window_command("),
+      runtime.indexOf("impl SystemRuntimeExecutor {", runtime.indexOf(
+        "fn resolve_main_window_command("
+      ))
+    );
+    expect(mainWindowCommandResolution).toContain("focus_broker.is_confirmed_target(");
+    expect(mainWindowCommandResolution).not.toContain("window.is_focused");
+    expect(mainWindowCommandResolution).not.toContain("GetForegroundWindow");
 
     const mainNavigation = runtime.slice(
       runtime.indexOf(".on_navigation(move |url| {"),

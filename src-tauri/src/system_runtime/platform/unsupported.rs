@@ -35,6 +35,15 @@ fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), St
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn request_platform_webview_window_show_foreground(
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn dispatch_key_effect(
     _webview: &Webview,
     _effect: &EmbeddedKeyEffectRecord,

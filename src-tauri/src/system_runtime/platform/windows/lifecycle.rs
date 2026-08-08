@@ -148,6 +148,44 @@ fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), St
 }
 
 #[cfg(windows)]
+fn request_platform_webview_window_show_foreground(
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsIconic, IsWindow, SW_RESTORE, SW_SHOW, SetForegroundWindow,
+        ShowWindow,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 main-window handle is no longer valid.".to_owned());
+    }
+    let command = if unsafe { IsIconic(hwnd) }.as_bool() {
+        SW_RESTORE
+    } else {
+        SW_SHOW
+    };
+    // The main-window actor invokes this on the HWND's owning UI thread. The
+    // show must be synchronous so focus is never submitted against a restore
+    // that is still queued behind this callback.
+    let _ = unsafe { ShowWindow(hwnd, command) };
+    let _ = unsafe { SetForegroundWindow(hwnd) };
+    if unsafe { GetForegroundWindow() } == hwnd {
+        return Ok(());
+    }
+
+    // This is an immediate fallback in the same native submission callback,
+    // not a retry or source of operation truth. WindowEvent::Focused remains
+    // the authoritative event-bound completion.
+    window.set_focus().map_err(|error| error.to_string())?;
+    if unsafe { GetForegroundWindow() } == hwnd {
+        Ok(())
+    } else {
+        Err("Windows did not acknowledge the main window as foreground.".to_owned())
+    }
+}
+
+#[cfg(windows)]
 fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {

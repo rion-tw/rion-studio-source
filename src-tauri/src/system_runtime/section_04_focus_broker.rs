@@ -162,6 +162,22 @@ impl NativeFocusBroker {
             .is_some_and(|state| state.confirmed.as_ref() == Some(lease))
     }
 
+    fn is_confirmed_target(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        lifecycle_epoch: u64,
+    ) -> bool {
+        self.state.lock().ok().is_some_and(|state| {
+            state.confirmed.as_ref().is_some_and(|confirmed| {
+                confirmed.window_id == window_id
+                    && confirmed.window_generation == window_generation
+                    && confirmed.lifecycle_epoch == lifecycle_epoch
+                    && state.current.as_ref() == Some(confirmed)
+            })
+        })
+    }
+
     fn mark_submitted(&self, lease: &NativeFocusLease) -> bool {
         if !self.is_current(lease) {
             return false;
@@ -321,6 +337,22 @@ impl NativeFocusBroker {
                 state.last_observed = None;
             }
         }
+    }
+
+    fn revoke_lease(&self, lease: &NativeFocusLease) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if state.current.as_ref() != Some(lease) {
+            return false;
+        }
+        state.current = None;
+        self.current_sequence.store(0, Ordering::Release);
+        self.submitted_sequence.store(0, Ordering::Release);
+        if state.confirmed.as_ref() == Some(lease) {
+            state.confirmed = None;
+        }
+        true
     }
 
     fn revoke_all(&self) {

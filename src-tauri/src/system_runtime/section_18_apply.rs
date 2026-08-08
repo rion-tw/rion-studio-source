@@ -300,13 +300,9 @@ impl SystemRuntimeExecutor {
                 {
                     self.state()?.pending_macro_page_request = Some(request.clone());
                 }
-                let receipt = self.show_main_window(true, "overlay-open-macro-page")?;
-                crate::runtime_operation_receipt_result(receipt).map_err(|code| {
-                    RuntimeError::new(
-                        "MAIN_WINDOW_PRESENTATION_FAILED",
-                        format!("The macro page could not reveal the main window: {code}"),
-                    )
-                })?;
+                let operation_id =
+                    self.request_main_window_show(true, "overlay-open-macro-page")?;
+                self.observe_main_window_presentation(operation_id);
                 let dispatch_app = self.app.clone();
                 let window_app = dispatch_app.clone();
                 dispatch_app

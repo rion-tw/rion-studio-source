@@ -57,6 +57,22 @@ fn c_string(value: &str) -> CString {
     CString::new(value.replace('\0', "")).expect("sanitized string contains no NUL")
 }
 
+fn is_live_tab_owner(registered_window_id: Option<&str>, live_window_id: Option<&str>) -> bool {
+    matches!(
+        (registered_window_id, live_window_id),
+        (Some(registered_window_id), Some(live_window_id))
+            if registered_window_id == live_window_id
+    )
+}
+
+fn should_fence_background_tab_action(
+    action_type: &str,
+    host_window_id: Option<&str>,
+    live_window_id: Option<&str>,
+) -> bool {
+    matches!(action_type, "hide" | "reorder") && host_window_id != live_window_id
+}
+
 unsafe extern "C" fn action_callback(
     context: *mut c_void,
     action_type: *const c_char,
@@ -144,8 +160,11 @@ unsafe extern "C" fn action_callback(
             // topology in this callback turn; Core stop and surface release continue on the
             // background action lane and cannot restore the visible tab.
             let registered_window_id = state.runtime.window_id_for_label(&context.window_label);
-            if registered_window_id.as_deref() != state.runtime.live_tab_window_id(tab_id).as_deref()
-            {
+            let live_window_id = state.runtime.live_tab_window_id(tab_id);
+            if !is_live_tab_owner(
+                registered_window_id.as_deref(),
+                live_window_id.as_deref(),
+            ) {
                 eprintln!(
                     "Stale AppKit tab close intent was fenced: tab={tab_id} adapter={}",
                     context.window_label
@@ -552,9 +571,12 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         let Some(tab_id) = tab_id.as_deref() else {
             return;
         };
-        if action_type != "move"
-            && host_window_id.as_deref() != state.runtime.live_tab_window_id(tab_id).as_deref()
-        {
+        let live_window_id = state.runtime.live_tab_window_id(tab_id);
+        if should_fence_background_tab_action(
+            &action_type,
+            host_window_id.as_deref(),
+            live_window_id.as_deref(),
+        ) {
             eprintln!(
                 "Stale AppKit tab intent was fenced: action={action_type} tab={tab_id}"
             );

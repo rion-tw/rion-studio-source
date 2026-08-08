@@ -62,8 +62,17 @@ impl LaunchIntentDispatcher {
     ) -> Self {
         let (sender, mut receiver) =
             tokio::sync::mpsc::channel::<LaunchIntent>(LAUNCH_INTENT_CAPACITY);
+        let (launch_log_sender, mut launch_log_receiver) =
+            tokio::sync::mpsc::unbounded_channel::<Vec<rion_core::LogCaptureRecord>>();
+        let launch_log_core = Arc::clone(&core);
+        tauri::async_runtime::spawn(async move {
+            while let Some(entries) = launch_log_receiver.recv().await {
+                let _ = launch_log_core
+                    .invoke_async(CoreCommand::LogsCapture { entries })
+                    .await;
+            }
+        });
         let launch_app = app.clone();
-        let launch_core = Arc::clone(&core);
         tauri::async_runtime::spawn(async move {
             while let Some(intent) = receiver.recv().await {
                 let terminal_intent = intent.record.clone();
@@ -72,17 +81,19 @@ impl LaunchIntentDispatcher {
                     intent.record,
                     intent.exact_window_id,
                     intent.origin,
+                    &launch_log_sender,
                 )
                 .await;
                 if let Err(error) = result.as_ref() {
-                    crate::record_runtime_launch_event(
-                        &launch_core,
+                    let mut events = crate::RuntimeLaunchEventBatch::new(
+                        launch_log_sender.clone(),
+                    );
+                    events.record(
                         "launch.intent-terminal",
                         &terminal_intent,
                         None,
                         Some(&error.code),
-                    )
-                    .await;
+                    );
                 }
                 if let Some(reply) = intent.reply {
                     let _ = reply.send(result);

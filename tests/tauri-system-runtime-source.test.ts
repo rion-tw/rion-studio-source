@@ -407,9 +407,25 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).toContain("schedule_live_window_state_persistence(window_id)");
     expect(shell).toContain("execute_runtime_launch_intent(");
     expect(shell).toContain(".preview_tab_launch(&target, &intent.source_id, &intent.source_type)");
+    const launchMatch = shell.indexOf(
+      "match destination {",
+      shell.indexOf("execute_runtime_launch_intent(")
+    );
+    const liveLaunch = shell.slice(
+      shell.indexOf("RuntimeLaunchDestination::Live { reason, target }", launchMatch),
+      shell.indexOf("RuntimeLaunchDestination::Dormant {", launchMatch)
+    );
+    expect(liveLaunch.indexOf(".preview_tab_launch(")).toBeLessThan(
+      liveLaunch.indexOf('"launch.destination-resolved"')
+    );
+    expect(liveLaunch.indexOf('"launch.destination-resolved"')).toBeLessThan(
+      liveLaunch.indexOf("events.submit()")
+    );
     expect(shell).not.toContain("TAURI_RUNTIME_LAUNCH_UNRECONCILED");
-    expect(shell).toContain("Core acceptance is not native completion");
+    expect(shell).toContain("BrowserLaunchAdmissionCompletion::PendingNativeCompletion");
+    expect(shell).toContain("TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED");
     expect(menu).toContain("while let Some(intent) = receiver.recv().await");
+    expect(menu).toContain("unbounded_channel::<Vec<rion_core::LogCaptureRecord>>");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
     expect(runtime).toContain('"launch-preview"');

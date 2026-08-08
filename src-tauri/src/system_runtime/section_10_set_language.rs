@@ -75,13 +75,25 @@ impl SystemRuntimeExecutor {
         source_id: &str,
         tab_type: &str,
     ) -> Option<String> {
-        self.presented_stable_tab_for_launcher_source(source_id, tab_type)
-            .or_else(|| {
-                self.state.lock().ok().and_then(|state| {
-                    active_provisional_launch(&state, source_id, tab_type)
-                        .map(|launch| launch.id.clone())
-                })
-            })
+        if let Some(tab_id) = self.presented_stable_tab_for_launcher_source(source_id, tab_type) {
+            return Some(tab_id);
+        }
+        let provisional = self.state.lock().ok().and_then(|state| {
+            active_provisional_launch(&state, source_id, tab_type).cloned()
+        })?;
+        let presented_window_id = self
+            .presentation
+            .tab_window(&provisional.id)
+            .ok()
+            .flatten();
+        if provisional_launch_has_live_presentation(
+            &provisional,
+            presented_window_id.as_deref(),
+        ) {
+            return Some(provisional.id);
+        }
+        self.cancel_tab_launch_preview(&provisional.launch_preview_id);
+        None
     }
 
     pub(crate) fn presented_stable_tab_for_launcher_source(
@@ -107,15 +119,6 @@ impl SystemRuntimeExecutor {
         let state = self.state.lock().ok()?;
         candidates.into_iter().find(|tab_id| {
             state.tabs.contains_key(tab_id) && !state.optimistic_closed_tabs.contains(tab_id)
-        })
-    }
-
-    pub(crate) fn launch_preview_is_pending(&self, launch_preview_id: &str) -> bool {
-        self.state.lock().ok().is_some_and(|state| {
-            state
-                .provisional_launches
-                .get(launch_preview_id)
-                .is_some_and(|launch| !launch.cancelled)
         })
     }
 

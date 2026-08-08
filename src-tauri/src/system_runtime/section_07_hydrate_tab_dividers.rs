@@ -197,6 +197,8 @@ impl SystemRuntimeExecutor {
             Ok(inserted)
         })?;
         if inserted {
+            #[cfg(windows)]
+            self.layout_runtime_tab_inner(tab_id)?;
             self.reconcile_surface_membership(&window_id, "optional-dividers-attached");
         }
         Ok(())

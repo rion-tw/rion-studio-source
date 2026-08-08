@@ -336,13 +336,14 @@ impl SystemRuntimeExecutor {
                     dividers: descriptors
                         .iter()
                         .enumerate()
-                        .map(|(index, descriptor)| WindowsLiveResizeDividerPlan {
-                            axis: descriptor.axis.clone(),
-                            index: index as u32,
-                            label: divider_views
-                                .get(&(index as u32))
-                                .map(|webview| webview.label().to_owned())
-                                .unwrap_or_else(|| format!("missing-divider-{index}")),
+                        .filter_map(|(index, descriptor)| {
+                            divider_views.get(&(index as u32)).map(|webview| {
+                                WindowsLiveResizeDividerPlan {
+                                    axis: descriptor.axis.clone(),
+                                    index: index as u32,
+                                    label: webview.label().to_owned(),
+                                }
+                            })
                         })
                         .collect(),
                     gap,

@@ -399,26 +399,6 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.message)
     }
 
-    pub(crate) fn retarget_prepared_restored_window_active_tab(
-        &self,
-        window_id: &str,
-        tab_id: &str,
-    ) -> Result<(), String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        let restore = state
-            .pending_window_tab_restores
-            .get_mut(window_id)
-            .ok_or_else(|| "The saved window hydration fence is unavailable.".to_owned())?;
-        if !restore.ordered_tab_ids.iter().any(|saved| saved == tab_id) {
-            return Err("The requested active tab is outside the saved window topology.".to_owned());
-        }
-        restore.active_tab_id = Some(tab_id.to_owned());
-        Ok(())
-    }
-
     fn reconcile_prepared_restored_window_tabs(&self, window_id: &str) -> RuntimeResult<()> {
         let Some(prepared) = self.pending_window_tab_restore(window_id) else {
             return Ok(());

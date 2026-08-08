@@ -407,6 +407,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).toContain("schedule_live_window_state_persistence(window_id)");
     expect(shell).toContain("execute_runtime_launch_intent(");
     expect(shell).toContain(".preview_tab_launch(&target, &intent.source_id, &intent.source_type)");
+    expect(shell).not.toContain("TAURI_RUNTIME_LAUNCH_UNRECONCILED");
+    expect(shell).toContain("Core acceptance is not native completion");
     expect(menu).toContain("while let Some(intent) = receiver.recv().await");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
@@ -594,6 +596,17 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     );
     expect(createTab.indexOf("take_tab_launch_preview(")).toBeLessThan(
       createTab.indexOf("with_native_creation_lane")
+    );
+    expect(createTab.indexOf('format!("all-surfaces-attached:')).toBeLessThan(
+      createTab.indexOf("self.layout_runtime_tab_inner(&tab.tab_id)?")
+    );
+    expect(runtime).not.toContain("missing-divider-");
+    const optionalDividers = runtime.slice(
+      runtime.indexOf("fn hydrate_tab_dividers("),
+      runtime.indexOf("fn execute_serial_work(")
+    );
+    expect(optionalDividers.indexOf("self.layout_runtime_tab_inner(tab_id)?")).toBeLessThan(
+      optionalDividers.indexOf('"optional-dividers-attached"')
     );
     expect(runtime).toContain("pub(crate) fn cancel_provisional_tab_launch(");
     expect(runtime).toContain("cancel_provisional_launch_state(&mut state, tab_id)");

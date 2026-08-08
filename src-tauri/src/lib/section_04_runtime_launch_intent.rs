@@ -202,7 +202,6 @@ fn statuses_for_launch_source(
 }
 
 async fn hydrate_saved_window_for_launch(
-    app: &AppHandle,
     state: &CoreState,
     saved: &StateGameWindowRecord,
     target: &EmbeddedLaunchTargetRecord,
@@ -215,7 +214,7 @@ async fn hydrate_saved_window_for_launch(
         &intent.source_type,
     )
     .cloned();
-    let mut resolved_existing_tab_id = existing_saved_tab.as_ref().map(|tab| tab.id.clone());
+    let resolved_existing_tab_id = existing_saved_tab.as_ref().map(|tab| tab.id.clone());
     let mut hydrated = saved.clone();
     let launch_preview = if let Some(existing) = existing_saved_tab.as_ref() {
         hydrated.active_tab_id = Some(existing.id.clone());
@@ -319,52 +318,10 @@ async fn hydrate_saved_window_for_launch(
                 return Err(error);
             }
         };
-        if state
-            .runtime
-            .launch_preview_is_pending(&preview.launch_preview_id)
-        {
-            let stable_owner = state
-                .runtime
-                .presented_stable_tab_for_launcher_source(
-                    &intent.source_id,
-                    &intent.source_type,
-                )
-                .filter(|tab_id| {
-                    state.runtime.live_tab_window_id(tab_id).as_deref()
-                        == Some(saved.id.as_str())
-                });
-            let Some(stable_owner) = stable_owner else {
-                state
-                    .runtime
-                    .cancel_tab_launch_preview(&preview.launch_preview_id);
-                state
-                    .runtime
-                    .discard_prepared_restored_window_tabs(&saved.id);
-                return Err(shell_error(
-                    "TAURI_RUNTIME_LAUNCH_UNRECONCILED",
-                    "Core completed the launch intent without producing or identifying its authoritative live tab.",
-                ));
-            };
-            state
-                .runtime
-                .retarget_prepared_restored_window_active_tab(&saved.id, &stable_owner)
-                .map_err(|message| {
-                    shell_error("TAURI_RESTORE_SELECTION_FAILED", message)
-                })?;
-            state
-                .runtime
-                .cancel_tab_launch_preview(&preview.launch_preview_id);
-            preview_and_schedule_launcher_tab_selection(app, state, &stable_owner)
-                .map_err(|message| {
-                    shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
-                })?;
-            resolved_existing_tab_id = Some(stable_owner);
-            requested_statuses = statuses_for_launch_source(
-                requested_statuses,
-                &intent.source_id,
-                &intent.source_type,
-            );
-        }
+        // Core acceptance is not native completion. The create effect owns the exact
+        // preview-to-stable replacement and the pending restore fence reconciles from that
+        // authoritative event. Cancelling a still-pending preview here races the serial native
+        // creation lane and turns a valid accepted launch into LAUNCH_PREVIEW_STALE.
     }
     state
         .runtime
@@ -510,60 +467,56 @@ pub(crate) async fn execute_runtime_launch_intent(
                     return Err(error);
                 }
             };
-            if state
+            let concurrent_stable_owner = state
                 .runtime
                 .launch_preview_is_pending(&preview.launch_preview_id)
-            {
-                if let Some(stable_owner) = state
-                    .runtime
-                    .presented_stable_tab_for_launcher_source(
+                .then(|| {
+                    state.runtime.presented_stable_tab_for_launcher_source(
                         &intent.source_id,
                         &intent.source_type,
                     )
-                {
-                    state
-                        .runtime
-                        .cancel_tab_launch_preview(&preview.launch_preview_id);
-                    preview_and_schedule_launcher_tab_selection(app, &state, &stable_owner)
-                        .map_err(|message| {
-                            shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
-                        })?;
-                    let window_id = state
-                        .runtime
-                        .live_tab_window_id(&stable_owner)
-                        .ok_or_else(|| {
-                            shell_error(
-                                "TAURI_RUNTIME_TAB_ACTIVATION_FAILED",
-                                "The authoritative live source owner disappeared.",
-                            )
-                        })?;
-                    let receipt = runtime_launch_receipt(
-                        &intent,
-                        &state.runtime,
-                        window_id.clone(),
-                        "existing-live-owner-after-admission",
-                        Some(stable_owner),
-                        None,
-                        None,
-                    );
-                    record_runtime_launch_event(
-                        &state.core,
-                        "launch.intent-terminal",
-                        &intent,
-                        Some(&window_id),
-                        Some("existing-live-owner-after-admission"),
-                    )
-                    .await;
-                    return Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses });
-                }
+                })
+                .flatten();
+            if let Some(stable_owner) = concurrent_stable_owner {
                 state
                     .runtime
                     .cancel_tab_launch_preview(&preview.launch_preview_id);
-                return Err(shell_error(
-                    "TAURI_RUNTIME_LAUNCH_UNRECONCILED",
-                    "Core completed the launch intent without producing or identifying its authoritative live tab.",
-                ));
+                preview_and_schedule_launcher_tab_selection(app, &state, &stable_owner)
+                    .map_err(|message| {
+                        shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
+                    })?;
+                let window_id = state
+                    .runtime
+                    .live_tab_window_id(&stable_owner)
+                    .ok_or_else(|| {
+                        shell_error(
+                            "TAURI_RUNTIME_TAB_ACTIVATION_FAILED",
+                            "The authoritative live source owner disappeared.",
+                        )
+                    })?;
+                let receipt = runtime_launch_receipt(
+                    &intent,
+                    &state.runtime,
+                    window_id.clone(),
+                    "existing-live-owner-after-admission",
+                    Some(stable_owner),
+                    None,
+                    None,
+                );
+                record_runtime_launch_event(
+                    &state.core,
+                    "launch.intent-terminal",
+                    &intent,
+                    Some(&window_id),
+                    Some("existing-live-owner-after-admission"),
+                )
+                .await;
+                return Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses });
             }
+            // A pending preview without a stable owner means Core admitted the launch before
+            // the serial native creation lane consumed its effect. The provisional Live tab is
+            // already authoritative; its identity-fenced effect will replace it or report the
+            // actual terminal failure asynchronously.
             let receipt = runtime_launch_receipt(
                 &intent,
                 &state.runtime,
@@ -605,7 +558,7 @@ pub(crate) async fn execute_runtime_launch_intent(
             .map_err(|error| shell_error("TAURI_RESTORE_WINDOW_FAILED", error.to_string()))?
             .map_err(|message| shell_error("TAURI_RESTORE_WINDOW_CLOSE_PENDING", message))?;
             let (statuses, existing_tab_id, hydration_operation_id) =
-                hydrate_saved_window_for_launch(app, &state, &saved, &target, &intent).await?;
+                hydrate_saved_window_for_launch(&state, &saved, &target, &intent).await?;
             record_runtime_launch_event(
                 &state.core,
                 "saved-window.hydration-committed",

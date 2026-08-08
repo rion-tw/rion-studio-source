@@ -1,6 +1,14 @@
 import type { MacroSettings } from "./types";
 
 export const MACRO_DELAY_MAX_MS = 86_400_000;
+export const MACRO_KEY_HOLD_DURATION_MIN_MS = 20;
+export const DEFAULT_MACRO_KEY_HOLD_DURATION_MS = 1_000;
+
+export function isValidMacroKeyHoldDuration(value: number): boolean {
+  return Number.isInteger(value) &&
+    value >= MACRO_KEY_HOLD_DURATION_MIN_MS &&
+    value <= MACRO_DELAY_MAX_MS;
+}
 
 export const MACRO_SETTINGS_CONSTRAINTS = {
   startupDelayMs: { min: 0, max: 10_000, recommendedMin: 100 },

@@ -11,6 +11,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
             MacroStepDefinition::Macro {
                 id: "call-child".to_owned(),
@@ -40,6 +41,7 @@
                     modifiers: None,
                     action: Some("tap".to_owned()),
                     label: None,
+                    duration_ms: None,
                 },
                 MacroStepDefinition::Macro {
                     id: "call-grandchild".to_owned(),
@@ -63,6 +65,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         });
         start
@@ -181,6 +184,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         });
         start.active_role_ids.push("r2".to_owned());
@@ -322,6 +326,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.active_role_ids.push("r2".to_owned());
@@ -444,6 +449,7 @@
                 modifiers: Some(vec!["primary".to_owned(), "shift".to_owned()]),
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
             MacroStepDefinition::Click {
                 id: "s2".to_owned(),
@@ -536,6 +542,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.active_role_ids.push("r2".to_owned());
@@ -597,6 +604,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.active_role_ids.push("r2".to_owned());
@@ -637,6 +645,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }]),
         );
         let hung_hold = next_browser_actions(&receiver);

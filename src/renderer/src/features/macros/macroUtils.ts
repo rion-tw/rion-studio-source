@@ -385,9 +385,14 @@ export function formatMacroStep(
 ): string {
   switch (step.type) {
     case "key":
-      return step.action === "hold_until_stop"
-        ? `${t("macro.step.hold")}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`
-        : `${t(macroStepLabelKeys.key)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
+      if (step.action === "hold_until_stop") {
+        return `${t("macro.step.hold")}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
+      }
+      if (step.action === "hold_for_duration") {
+        const duration = formatMacroIntervalPreset(step.durationMs ?? 0, t);
+        return `${t("macro.step.timedHold").replace("{duration}", duration)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
+      }
+      return `${t(macroStepLabelKeys.key)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
     case "click":
       if (step.unit === "px") {
         return `${t(macroStepLabelKeys.click)}:X ${step.xPx}px, Y ${step.yPx}px · ${t("macroForm.clickUnit.legacyCssPx")}`;

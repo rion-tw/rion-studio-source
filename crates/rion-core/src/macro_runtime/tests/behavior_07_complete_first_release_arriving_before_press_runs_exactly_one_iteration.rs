@@ -18,6 +18,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].activation_mode = Some("while_held".to_owned());
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };

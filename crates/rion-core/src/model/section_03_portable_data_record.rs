@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "16")]
+    #[ts(type = "17")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -500,6 +500,13 @@ pub enum MacroStepInputRecord {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         action: Option<String>,
+        #[serde(
+            rename = "durationMs",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[ts(rename = "durationMs", optional)]
+        duration_ms: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         label: Option<String>,

@@ -187,6 +187,7 @@ fn list_parent_with_nested_descendants() -> MacroStartRequest {
                     modifiers: None,
                     action: Some("hold_until_stop".to_owned()),
                     label: None,
+                    duration_ms: None,
                 }],
             },
         ],
@@ -225,6 +226,7 @@ fn independent_child_definitions() -> Vec<MacroDefinition> {
                     modifiers: None,
                     action: Some("tap".to_owned()),
                     label: None,
+                    duration_ms: None,
                 },
                 MacroStepDefinition::Delay {
                     id: "parent-wait".to_owned(),

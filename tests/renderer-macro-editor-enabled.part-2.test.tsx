@@ -86,7 +86,8 @@ it.each([
     expect(macroHelps[1].textContent).toContain("when the parent completes normally");
     expect(macroHelps[1].textContent).toContain("already running does not start or create another run");
     expect(macroHelps[2].textContent).toContain("Stopping and held keys");
-    expect(macroHelps[2].textContent).toContain("releases keys held by that macro");
+    expect(macroHelps[2].textContent).toContain("Timed holds release automatically");
+    expect(macroHelps[2].textContent).toContain("Stopping or cancelling a macro releases");
     expect(macroHelps[2].textContent).toContain("cancels the parent");
     expect(macroHelps[2].textContent).toContain("does not stop the parent");
     expect(macroHelps[2].textContent).toContain("Closing any participating role stops the entire multi-role macro run");

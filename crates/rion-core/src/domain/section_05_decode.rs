@@ -133,10 +133,31 @@ fn validate_macro(macro_record: MacroRecord) -> CoreResult<()> {
             ));
         }
         match step {
-            MacroStep::Key { code, action, .. } => {
+            MacroStep::Key {
+                code,
+                action,
+                duration_ms,
+                ..
+            } => {
                 non_empty(&code, "macro key code")?;
-                if let Some(action) = action {
-                    one_of(&action, &["tap", "hold_until_stop"], "macro key action")?;
+                let action = action.as_deref().unwrap_or("tap");
+                one_of(
+                    action,
+                    &["tap", "hold_for_duration", "hold_until_stop"],
+                    "macro key action",
+                )?;
+                match (action, duration_ms) {
+                    ("hold_for_duration", Some(20..=86_400_000)) | (_, None) => {}
+                    ("hold_for_duration", _) => {
+                        return Err(CoreError::InvalidInput(
+                            "macro key hold duration is out of range".to_owned(),
+                        ));
+                    }
+                    (_, Some(_)) => {
+                        return Err(CoreError::InvalidInput(
+                            "macro key hold duration is only valid for timed holds".to_owned(),
+                        ));
+                    }
                 }
             }
             MacroStep::Click {

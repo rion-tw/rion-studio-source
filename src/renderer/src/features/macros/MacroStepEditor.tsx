@@ -15,6 +15,8 @@ import { canonicalizeMacroKeyModifiers } from "../../../../shared/macroKeys";
 
 import { convertMacroCoordinateToOffset, DEFAULT_MACRO_CLICK_ANCHOR, findNearestMacroClickAnchor, MACRO_CLICK_ANCHORS, parseMacroCoordinateClipboard } from "../../../../shared/macroCoordinates";
 
+import { DEFAULT_MACRO_KEY_HOLD_DURATION_MS, MACRO_KEY_HOLD_DURATION_MIN_MS } from "../../../../shared/macroSettings";
+
 import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroStep } from "../../../../shared/types";
 
 import { commonMacroKeyCodes, createClientId, formatMacroCode, formatMacroKeyCombination, formatMacroModifierLabel, type MacroTargetOption, isPureModifierCode } from "./macroUtils";
@@ -384,16 +386,30 @@ function MacroStepFields({
           <Select
             disabled={isSaving}
             value={step.action ?? "tap"}
-            onValueChange={(action) => onUpdate({
-              ...step,
-              action: action as Extract<MacroStep, { type: "key" }>["action"]
-            })}
+            onValueChange={(action) => {
+              const nextAction = action as MacroKeyAction;
+              const { durationMs: _durationMs, ...stepWithoutDuration } = step;
+              onUpdate(nextAction === "hold_for_duration"
+                ? {
+                    ...stepWithoutDuration,
+                    action: nextAction,
+                    durationMs: step.action === "hold_for_duration"
+                      ? step.durationMs ?? DEFAULT_MACRO_KEY_HOLD_DURATION_MS
+                      : DEFAULT_MACRO_KEY_HOLD_DURATION_MS
+                  }
+                : { ...stepWithoutDuration, action: nextAction });
+            }}
           >
             <SelectTrigger className="w-fit shrink-0" aria-label={t("macroForm.keyAction")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="tap">{t("macroForm.keyAction.tap")}</SelectItem>
+              <SelectItem value="hold_for_duration">
+                {canonicalModifiers.length > 0
+                  ? t("macroForm.keyAction.holdCombinationForDuration")
+                  : t("macroForm.keyAction.holdForDuration")}
+              </SelectItem>
               <SelectItem value="hold_until_stop">
                 {canonicalModifiers.length > 0
                   ? t("macroForm.keyAction.holdCombination")
@@ -402,6 +418,33 @@ function MacroStepFields({
             </SelectContent>
           </Select>
         </div>
+        {step.action === "hold_for_duration" ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <AffixedInput
+              aria-label={t("macroForm.holdDuration")}
+              disabled={isSaving}
+              max={getTimeUnitMax(timeUnit)}
+              min={toDisplayTime(MACRO_KEY_HOLD_DURATION_MIN_MS, timeUnit)}
+              step={getTimeUnitStep(timeUnit)}
+              suffix={timeUnit}
+              value={toDisplayTime(
+                step.durationMs ?? DEFAULT_MACRO_KEY_HOLD_DURATION_MS,
+                timeUnit
+              )}
+              widthClassName="w-fit shrink-0"
+              onChange={(value) => onUpdate({
+                ...step,
+                durationMs: fromDisplayTime(value, timeUnit)
+              })}
+            />
+            <TimeUnitSelect
+              disabled={isSaving}
+              t={t}
+              unit={timeUnit}
+              onChange={setTimeUnit}
+            />
+          </div>
+        ) : null}
         {mainKeyIsModifier ? (
           <p className="text-caption text-muted-foreground">
             {t("macroForm.modifiersNeedMainKey")}
@@ -705,6 +748,9 @@ export function createStep(
         type: "key",
         code: "Tab",
         action: keyAction ?? (activationMode === "while_held" ? "hold_until_stop" : "tap"),
+        ...(keyAction === "hold_for_duration"
+          ? { durationMs: DEFAULT_MACRO_KEY_HOLD_DURATION_MS }
+          : {}),
         label: "Tab"
       };
     case "click":

@@ -10,6 +10,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         first.macros[0].trigger = Some(crate::model::MacroTrigger {
             code: "KeyQ".to_owned(),
@@ -94,6 +95,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         first.macros[0].trigger = Some(crate::model::MacroTrigger {
             code: "KeyQ".to_owned(),
@@ -124,6 +126,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         second.macro_id = "m2".to_owned();
         second.macros[0].id = "m2".to_owned();
@@ -187,6 +190,7 @@
                 modifiers: None,
                 action: Some("hold_until_stop".to_owned()),
                 label: None,
+                duration_ms: None,
             }]),
         );
         let held_startup = next_wait(&waits);
@@ -209,6 +213,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         second.macro_id = "m2".to_owned();
         second.macros[0].id = "m2".to_owned();
@@ -290,6 +295,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         request.macros[0].role_ids.push("r2".to_owned());
         request.active_role_ids.push("r2".to_owned());
@@ -327,6 +333,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         request.macros[0].role_ids.push("r2".to_owned());
         request.active_role_ids.push("r2".to_owned());
@@ -411,6 +418,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1 };
         let (_, focus) = start_and_ack_focus(&runtime, &receiver, start);
@@ -491,6 +499,7 @@
                 modifiers: None,
                 action: Some("hold_until_stop".to_owned()),
                 label: None,
+                duration_ms: None,
             }]),
         );
         let hold = next_browser_actions(&receiver);
@@ -539,6 +548,7 @@
                     modifiers: Some(vec!["primary".to_owned()]),
                     action: Some("hold_until_stop".to_owned()),
                     label: None,
+                    duration_ms: None,
                 },
                 MacroStepDefinition::Key {
                     id: "second".to_owned(),
@@ -546,6 +556,7 @@
                     modifiers: Some(vec!["primary".to_owned()]),
                     action: Some("hold_until_stop".to_owned()),
                     label: None,
+                    duration_ms: None,
                 },
             ]),
         );
@@ -596,6 +607,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         let mut second_macro = first.macros[0].clone();
         second_macro.id = "m2".to_owned();
@@ -606,6 +618,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }];
         first.macros.push(second_macro);
         let second = MacroStartRequest {

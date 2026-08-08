@@ -634,30 +634,29 @@ fn apply_main_window_command(
                 status: NativeOperationStatus::Superseded,
             });
         };
+        if !focus_broker.mark_submitted(focus_lease) {
+            return MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                failure_code: None,
+                stage: "mainWindowFocusSuperseded",
+                status: NativeOperationStatus::Superseded,
+            });
+        }
         let mut native_failed = false;
         #[cfg(target_os = "macos")]
         {
             native_failed |= app.show().is_err();
             let _ = crate::quick_menu_macos::activate_application();
         }
-        native_failed |= window.unminimize().is_err();
-        native_failed |= request_platform_webview_window_show(window).is_err();
-        native_failed |= window.set_focus().is_err();
-        let submitted = !native_failed && focus_broker.mark_submitted(focus_lease);
+        native_failed |= request_platform_webview_window_show_foreground(window).is_err();
         return if native_failed {
+            focus_broker.revoke_lease(focus_lease);
             MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
                 failure_code: Some("MAIN_WINDOW_NATIVE_FAILED"),
                 stage: "mainWindowNativeFailed",
                 status: NativeOperationStatus::Failed,
             })
-        } else if submitted {
-            MainWindowApplyResult::FocusSubmitted
         } else {
-            MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
-                failure_code: None,
-                stage: "mainWindowFocusSuperseded",
-                status: NativeOperationStatus::Superseded,
-            })
+            MainWindowApplyResult::FocusSubmitted
         };
     }
     let before = match MainWindowStateProjection::capture(window) {
@@ -770,6 +769,64 @@ fn main_window_readback_matches_for_platform(
     }
 }
 
+fn wait_main_window_presentation_failure(
+    operations: &NativeOperationRegistry,
+    operation_id: &str,
+) -> Option<String> {
+    match operations.wait(operation_id) {
+        Ok(receipt)
+            if matches!(
+                receipt.status,
+                NativeOperationStatus::Applied | NativeOperationStatus::Superseded
+            ) =>
+        {
+            None
+        }
+        Ok(receipt) => Some(receipt.failure_code.unwrap_or_else(|| {
+            format!(
+                "The main-window operation completed as {}.",
+                receipt.status.as_str()
+            )
+        })),
+        Err(code) => Some(code.to_owned()),
+    }
+}
+
+fn emit_main_window_presentation_failure(app: &AppHandle, cause: &str) {
+    let _ = app.emit(
+        "rion://shell-error",
+        json!({
+            "code": "MAIN_WINDOW_PRESENTATION_FAILED",
+            "message": format!("The macro page could not reveal the main window: {cause}")
+        }),
+    );
+}
+
+fn resolve_main_window_command(
+    focus_broker: &NativeFocusBroker,
+    command: MainWindowCommand,
+    window_generation: u64,
+    lifecycle_epoch: u64,
+    focus_origin: NativeFocusIntentOrigin,
+) -> MainWindowCommand {
+    if !matches!(command, MainWindowCommand::Show { focus: true }) {
+        return command;
+    }
+    let admitted = focus_broker.admitted_focus(
+        NativePresentationFocus::WindowAndContent,
+        "main",
+        window_generation,
+        focus_origin,
+    );
+    if admitted == NativePresentationFocus::None
+        || focus_broker.is_confirmed_target("main", window_generation, lifecycle_epoch)
+    {
+        MainWindowCommand::Show { focus: false }
+    } else {
+        command
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn submit_main_window_operation(
         &self,
@@ -779,18 +836,14 @@ impl SystemRuntimeExecutor {
         self.require_runtime_accepting()?;
         let window_generation = self.main_window_actor.generation();
         let focus_origin = native_focus_intent_origin(trigger);
-        let command = if matches!(command, MainWindowCommand::Show { focus: true })
-            && self.focus_broker.admitted_focus(
-                NativePresentationFocus::WindowAndContent,
-                "main",
-                window_generation,
-                focus_origin,
-            ) == NativePresentationFocus::None
-        {
-            MainWindowCommand::Show { focus: false }
-        } else {
-            command
-        };
+        let lifecycle_epoch = self.lifecycle_epoch();
+        let command = resolve_main_window_command(
+            &self.focus_broker,
+            command,
+            window_generation,
+            lifecycle_epoch,
+            focus_origin,
+        );
         let operation = if command.requests_focus() {
             NativeOperationContext::new_event_bound(
                 NativeOperationSubsystem::Presentation,
@@ -806,7 +859,7 @@ impl SystemRuntimeExecutor {
         .with_completion_scope(command.completion_scope())
         .with_window("main")
         .with_window_generation(window_generation)
-        .with_lifecycle_epoch(self.lifecycle_epoch());
+        .with_lifecycle_epoch(lifecycle_epoch);
         self.operations.register(operation.clone()).map_err(|code| {
             RuntimeError::new(code, "The main-window operation could not be accepted.")
         })?;
@@ -814,7 +867,7 @@ impl SystemRuntimeExecutor {
             self.focus_broker.accept_with_origin(
                 "main",
                 window_generation,
-                self.lifecycle_epoch(),
+                lifecycle_epoch,
                 None,
                 NativePresentationFocus::WindowAndContent,
                 focus_origin,
@@ -837,6 +890,25 @@ impl SystemRuntimeExecutor {
             .wait(operation_id)
             .map(|receipt| receipt.summary())
             .map_err(|code| RuntimeError::new(code, "The main-window receipt is unavailable."))
+    }
+
+    pub(crate) fn observe_main_window_presentation(&self, operation_id: String) {
+        let operations = Arc::clone(&self.operations);
+        let observer_app = self.app.clone();
+        let fallback_app = self.app.clone();
+        let spawn = thread::Builder::new()
+            .name("rion-main-window-presentation-observer".to_owned())
+            .spawn(move || {
+                if let Some(cause) = wait_main_window_presentation_failure(
+                    operations.as_ref(),
+                    &operation_id,
+                ) {
+                    emit_main_window_presentation_failure(&observer_app, &cause);
+                }
+            });
+        if let Err(error) = spawn {
+            emit_main_window_presentation_failure(&fallback_app, &error.to_string());
+        }
     }
 
     pub(crate) fn request_main_window_show(

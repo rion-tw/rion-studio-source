@@ -219,6 +219,54 @@ it("opens the app once from a physical trigger click while keeping the action me
     expect(root.querySelector<HTMLElement>(".action-menu")?.hidden).toBe(true);
   });
 
+it("copies and closes the coordinate picker while the open request remains pending", async () => {
+    const openRequest = _createDeferred<unknown>();
+    createGameSurface(document);
+    const binding = vi.fn((request: unknown) => {
+      if (isRecord(request) && request.type === "open") {
+        return openRequest.promise;
+      }
+      return Promise.resolve({
+        macros: [assignedMacro],
+        statuses: [],
+        ...(isRecord(request) && request.type === "copy-coordinate" ? { copied: true } : {})
+      });
+    });
+    installOverlay(window, binding);
+    await vi.waitFor(() => expect(getOverlayRoot(document).querySelector(".trigger")).not.toBeNull());
+
+    const root = getOverlayRoot(document);
+    const trigger = root.querySelector<HTMLButtonElement>(".trigger");
+    const measureAction = root.querySelector<HTMLButtonElement>(".action-menu-item");
+    if (!trigger || !measureAction) throw new Error("Expected coordinate menu controls.");
+
+    trigger.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "open" }));
+    trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    measureAction.dispatchEvent(createMouseEvent(window, "click"));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+
+    const picker = root.querySelector<HTMLElement>(".coordinate-picker");
+    if (!picker) throw new Error("Expected coordinate picker.");
+    picker.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: 144,
+      clientY: 108
+    }));
+
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "copy-coordinate",
+      xPx: 144,
+      yPx: 108
+    })));
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).toBeNull());
+    expect(picker.isConnected).toBe(false);
+    expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "open"
+    )).toHaveLength(1);
+  });
+
 it("opens the coordinate action on hover and copies a measured viewport point", async () => {
     let nextFrame: FrameRequestCallback | undefined;
     const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {

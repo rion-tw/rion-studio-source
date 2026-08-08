@@ -210,6 +210,33 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
 }
 
 #[test]
+fn already_focused_main_window_resolves_without_a_new_event_bound_focus_operation() {
+    let broker = NativeFocusBroker::default();
+    broker
+        .observe_native_focus("main", 17, 4, None)
+        .expect("the authoritative focus event establishes the main-window projection");
+
+    let command = resolve_main_window_command(
+        &broker,
+        MainWindowCommand::Show { focus: true },
+        17,
+        4,
+        NativeFocusIntentOrigin::UserGesture,
+    );
+    assert_eq!(command, MainWindowCommand::Show { focus: false });
+    assert!(!command.requests_focus());
+
+    let stale_generation = resolve_main_window_command(
+        &broker,
+        MainWindowCommand::Show { focus: true },
+        18,
+        4,
+        NativeFocusIntentOrigin::UserGesture,
+    );
+    assert!(stale_generation.requests_focus());
+}
+
+#[test]
 fn delayed_focus_event_completes_the_exact_event_bound_lease_once() {
     let broker = NativeFocusBroker::default();
     broker.observe_application_foreground();
@@ -252,6 +279,128 @@ fn delayed_focus_event_completes_the_exact_event_bound_lease_once() {
     ));
     assert_eq!(late.status, NativeOperationStatus::Applied);
     assert_eq!(late.stage, "mainWindowFocused");
+}
+
+#[test]
+fn reentrant_focus_event_before_pending_install_completes_the_exact_operation() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    let lease = broker.accept(
+        "main",
+        17,
+        4,
+        None,
+        NativePresentationFocus::WindowAndContent,
+    );
+    let mut request = main_window_request_for_test(
+        MainWindowCommand::Show { focus: true },
+        301,
+    );
+    request.focus_lease = Some(lease.clone());
+    request.operation.window_id = Some("main".to_owned());
+    request.operation.window_generation = Some(17);
+    request.operation.lifecycle_epoch = Some(4);
+    let registry = NativeOperationRegistry::default();
+    registry.register(request.operation.clone()).unwrap();
+    assert!(registry.mark_in_flight(&request.operation.operation_id));
+
+    assert!(broker.mark_submitted(&lease));
+    assert_eq!(
+        broker.observe_native_focus("main", 17, 4, None),
+        Some(lease)
+    );
+    let queue = Arc::new((
+        Mutex::new(MainWindowActorState::default()),
+        Condvar::new(),
+    ));
+    MainWindowActor::install_pending_focus(&queue, &registry, &broker, request.clone());
+
+    let receipt = registry
+        .terminal(&request.operation.operation_id)
+        .expect("the early authoritative event completes after pending installation");
+    assert_eq!(receipt.status, NativeOperationStatus::Applied);
+    assert_eq!(receipt.stage, "mainWindowFocused");
+    assert!(queue.0.lock().unwrap().pending_focus.is_none());
+}
+
+#[test]
+fn pending_main_window_observer_does_not_occupy_following_operation_work() {
+    let registry = Arc::new(NativeOperationRegistry::default());
+    let mut open = NativeOperationContext::new_event_bound_for_platform(
+        NativeOperationSubsystem::Presentation,
+        "overlay-open-macro-page",
+        "windows",
+    );
+    open.operation_id = "pending-overlay-open".to_owned();
+    registry.register(open.clone()).unwrap();
+    assert!(registry.mark_in_flight(&open.operation_id));
+
+    let observer_registry = Arc::clone(&registry);
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let observer_barrier = Arc::clone(&barrier);
+    let open_operation_id = open.operation_id.clone();
+    let observer = thread::spawn(move || {
+        observer_barrier.wait();
+        wait_main_window_presentation_failure(&observer_registry, &open_operation_id)
+    });
+    barrier.wait();
+
+    let mut copy = NativeOperationContext::new_for_platform(
+        NativeOperationSubsystem::Presentation,
+        "overlay-copy-coordinate",
+        Duration::from_secs(1),
+        "windows",
+    );
+    copy.operation_id = "following-overlay-copy".to_owned();
+    registry.register(copy.clone()).unwrap();
+    assert!(registry.mark_in_flight(&copy.operation_id));
+    let copy_receipt = registry.complete(NativeOperationReceipt::applied(
+        copy,
+        "overlayCoordinateCopied",
+    ));
+    assert_eq!(copy_receipt.status, NativeOperationStatus::Applied);
+    assert!(registry.terminal(&open.operation_id).is_none());
+
+    registry.complete(NativeOperationReceipt::applied(open, "mainWindowFocused"));
+    assert_eq!(observer.join().unwrap(), None);
+}
+
+#[test]
+fn main_window_presentation_observer_handles_every_terminal_status() {
+    let statuses = [
+        (NativeOperationStatus::Applied, false),
+        (NativeOperationStatus::Superseded, false),
+        (NativeOperationStatus::Cancelled, true),
+        (NativeOperationStatus::Degraded, true),
+        (NativeOperationStatus::Failed, true),
+        (NativeOperationStatus::Indeterminate, true),
+    ];
+    for (index, (status, fails)) in statuses.into_iter().enumerate() {
+        let registry = NativeOperationRegistry::default();
+        let mut operation = NativeOperationContext::new_event_bound_for_platform(
+            NativeOperationSubsystem::Presentation,
+            "overlay-open-macro-page",
+            "windows",
+        );
+        operation.operation_id = format!("presentation-terminal-{index}");
+        registry.register(operation.clone()).unwrap();
+        registry.complete(NativeOperationReceipt::with_status(
+            operation.clone(),
+            "presentationTerminal",
+            status,
+            fails.then_some("PRESENTATION_TERMINAL_FAILURE"),
+        ));
+        assert_eq!(
+            wait_main_window_presentation_failure(&registry, &operation.operation_id),
+            fails.then(|| "PRESENTATION_TERMINAL_FAILURE".to_owned())
+        );
+    }
+
+    let registry = NativeOperationRegistry::default();
+    assert_eq!(
+        wait_main_window_presentation_failure(&registry, "missing-operation"),
+        Some("SYSTEM_NATIVE_OPERATION_NOT_FOUND".to_owned())
+    );
 }
 
 #[test]

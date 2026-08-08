@@ -204,6 +204,54 @@ fn focus_revocation_is_scoped_to_the_exact_window_generation() {
 }
 
 #[test]
+fn failed_native_submission_revokes_only_the_exact_focus_lease() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    let failed = broker.accept(
+        "main",
+        12,
+        5,
+        None,
+        NativePresentationFocus::WindowAndContent,
+    );
+    assert!(broker.mark_submitted(&failed));
+    let replacement = broker.accept(
+        "main",
+        12,
+        5,
+        None,
+        NativePresentationFocus::WindowAndContent,
+    );
+
+    assert!(!broker.revoke_lease(&failed));
+    assert!(broker.is_current(&replacement));
+    assert!(broker.mark_submitted(&replacement));
+    assert_eq!(
+        broker.observe_native_focus("main", 12, 5, None),
+        Some(replacement.clone())
+    );
+    assert!(broker.is_confirmed_target("main", 12, 5));
+
+    assert!(broker.revoke_lease(&replacement));
+    assert_eq!(broker.snapshot(), (None, None));
+}
+
+#[test]
+fn confirmed_target_projection_is_exact_and_cleared_by_authoritative_blur() {
+    let broker = NativeFocusBroker::default();
+    let observed = broker
+        .observe_native_focus("main", 17, 4, None)
+        .expect("the native focus event establishes the projection");
+    assert!(broker.is_confirmed(&observed));
+    assert!(broker.is_confirmed_target("main", 17, 4));
+    assert!(!broker.is_confirmed_target("main", 16, 4));
+    assert!(!broker.is_confirmed_target("main", 17, 3));
+
+    broker.observe_native_blur("main", 17);
+    assert!(!broker.is_confirmed_target("main", 17, 4));
+}
+
+#[test]
 fn delayed_reveal_focus_resolves_only_the_exact_current_sequence_and_generation() {
     let broker = NativeFocusBroker::default();
     broker.observe_application_foreground();

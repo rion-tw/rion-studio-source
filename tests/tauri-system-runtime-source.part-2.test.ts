@@ -67,13 +67,33 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsReveal).toContain("run_on_main_thread");
     expect(windowsReveal).toContain("set_windows_runtime_window_cloaked");
     expect(windowsReveal).toContain("register_windows_runtime_window_with_taskbar");
-    expect(windowsReveal).toContain("focus_windows_runtime_window_after_reveal");
-    expect(windowsReveal.indexOf("set_windows_runtime_window_cloaked")).toBeLessThan(
+    expect(windowsReveal).toContain("reveal_windows_runtime_window_with_focus");
+    expect(windowsReveal.indexOf("reveal_windows_runtime_window_with_focus")).toBeLessThan(
       windowsReveal.indexOf("register_windows_runtime_window_with_taskbar")
     );
-    expect(windowsReveal.indexOf("register_windows_runtime_window_with_taskbar")).toBeLessThan(
-      windowsReveal.indexOf("focus_windows_runtime_window_after_reveal")
+    const windowsRevealForeground = windowsReveal.slice(
+      windowsReveal.indexOf("fn reveal_windows_runtime_window_with_focus("),
+      windowsReveal.indexOf("fn display_records_for_tab_chrome(")
     );
+    expect(windowsRevealForeground.indexOf("prepare_platform_window_foreground")).toBeLessThan(
+      windowsRevealForeground.indexOf("set_windows_runtime_window_cloaked")
+    );
+    expect(windowsRevealForeground.indexOf("set_windows_runtime_window_cloaked")).toBeLessThan(
+      windowsRevealForeground.indexOf("request_platform_window_show_foreground")
+    );
+    const windowsForegroundStart = runtime.indexOf("fn prepare_platform_window_foreground(");
+    const windowsForeground = runtime.slice(
+      windowsForegroundStart,
+      runtime.indexOf("fn request_platform_webview_window_show(", windowsForegroundStart)
+    );
+    expect(windowsForeground).toContain("Some(HWND_TOP)");
+    expect(windowsForeground).toContain("SWP_NOACTIVATE");
+    expect(windowsForeground).toContain("SetForegroundWindow(hwnd)");
+    expect(windowsForeground).toContain("ShowWindowAsync(hwnd, command)");
+    expect(windowsForeground).toContain("SW_RESTORE");
+    expect(windowsForeground).toContain("SW_SHOW");
+    expect(windowsForeground).not.toContain("HWND_TOPMOST");
+    expect(runtime).toContain("set_appkit_window_interaction(window, false, true)");
     const windowsTaskbarRegistration = runtime.slice(
       runtime.indexOf("fn register_windows_runtime_window_with_taskbar("),
       runtime.indexOf("fn set_windows_surface_host_initialization_visibility(")

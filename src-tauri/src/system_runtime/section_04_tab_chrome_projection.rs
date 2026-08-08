@@ -659,7 +659,12 @@ impl SystemRuntimeExecutor {
             let Some(runtime) = runtime.upgrade() else {
                 return;
             };
-            if let Err(error) = set_windows_runtime_window_cloaked(&reveal_window, false) {
+            if let Err(error) = runtime.reveal_windows_runtime_window_with_focus(
+                &reveal_window_id,
+                window_generation,
+                decision.focus_sequence,
+                &reveal_window,
+            ) {
                 runtime.restore_windows_tab_chrome_reveal(
                     &reveal_window_id,
                     window_generation,
@@ -680,15 +685,6 @@ impl SystemRuntimeExecutor {
                 );
                 eprintln!(
                     "Windows runtime window could not be registered with the taskbar after tab chrome paint: {error:?}"
-                );
-                return;
-            }
-            if let Some(sequence) = decision.focus_sequence {
-                runtime.focus_windows_runtime_window_after_reveal(
-                    &reveal_window_id,
-                    window_generation,
-                    sequence,
-                    &reveal_window,
                 );
             }
         });
@@ -757,39 +753,53 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    fn focus_windows_runtime_window_after_reveal(
+    fn reveal_windows_runtime_window_with_focus(
         &self,
         window_id: &str,
         window_generation: u64,
-        focus_sequence: u64,
+        focus_sequence: Option<u64>,
         window: &Window,
-    ) {
-        let Some(lease) = self.focus_broker.current_lease_for(
-            focus_sequence,
-            window_id,
-            window_generation,
-        ) else {
-            return;
-        };
-        let Ok(Some(_guard)) = self.focus_broker.begin_mutation(&lease) else {
-            return;
-        };
-        if window.is_minimized().unwrap_or(false)
-            && let Err(error) = window.unminimize()
+    ) -> RuntimeResult<()> {
+        let lease = focus_sequence.and_then(|sequence| {
+            self.focus_broker
+                .current_lease_for(sequence, window_id, window_generation)
+        });
+        let focus_guard = lease.as_ref().and_then(|lease| {
+            match self.focus_broker.begin_mutation(lease) {
+                Ok(guard) => guard,
+                Err(error) => {
+                    eprintln!("Windows runtime reveal focus broker failed: {error}");
+                    None
+                }
+            }
+        });
+        let submit_focus = lease.as_ref().is_some_and(|lease| {
+            focus_guard.is_some() && self.focus_broker.mark_submitted(lease)
+        });
+        if submit_focus
+            && let Err(error) = prepare_platform_window_foreground(window)
         {
-            eprintln!("Windows runtime window could not restore before reveal focus: {error}");
-            return;
+            eprintln!(
+                "Windows runtime window could not prepare its foreground Z-order before reveal: {}",
+                error.message
+            );
         }
-        if !self.focus_broker.mark_submitted(&lease) {
-            return;
+
+        set_windows_runtime_window_cloaked(window, false)?;
+
+        if submit_focus {
+            if let Err(error) = request_platform_window_show_foreground(window) {
+                eprintln!(
+                    "Windows runtime window could not enter the foreground during reveal: {}",
+                    error.message
+                );
+            } else if platform_window_is_focused(window).unwrap_or(false)
+                && let Some(lease) = lease.as_ref()
+            {
+                let _ = self.focus_broker.confirm(lease);
+            }
         }
-        if let Err(error) = window.set_focus() {
-            eprintln!("Windows runtime window could not focus after reveal: {error}");
-            return;
-        }
-        if window.is_focused().unwrap_or(false) {
-            let _ = self.focus_broker.confirm(&lease);
-        }
+        Ok(())
     }
 
     fn display_records_for_tab_chrome(&self) -> Vec<DisplayInfoRecord> {

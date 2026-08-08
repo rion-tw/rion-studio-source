@@ -291,12 +291,14 @@ it("opens the coordinate action on hover and copies a measured viewport point", 
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "copy-coordinate",
       xPx: 256,
-      yPx: 192
+      xReferencePx: 256,
+      yPx: 192,
+      yReferencePx: 192
     })));
     const copyRequest = binding.mock.calls
       .map(([request]) => request)
       .find((request) => isRecord(request) && request.type === "copy-coordinate");
-    expect(copyRequest).not.toHaveProperty("anchor");
+    expect(copyRequest).toHaveProperty("anchor", "top-left");
     await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).toBeNull());
     expect(picker.isConnected).toBe(false);
 
@@ -490,11 +492,11 @@ it("renders nine non-interactive anchor markers and repositions them after resiz
       Object.defineProperty(window, "innerWidth", { configurable: true, value: 1200 });
       Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
       window.dispatchEvent(new Event("resize"));
-      expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
+      await vi.waitFor(() => expect(markers.map((marker) => [marker.style.left, marker.style.top])).toEqual([
         ["0px", "0px"], ["600px", "0px"], ["1199px", "0px"],
         ["0px", "300px"], ["600px", "300px"], ["1199px", "300px"],
         ["0px", "599px"], ["600px", "599px"], ["1199px", "599px"]
-      ]);
+      ]));
 
       markers[4]?.dispatchEvent(new MouseEvent("click", {
         bubbles: true,
@@ -625,6 +627,7 @@ it("cleans up a failed lazy import and retries from the coordinate action", asyn
     expect(root.querySelector(".coordinate-picker")).toBeNull();
 
     trigger.dispatchEvent(createMouseEvent(window, "pointerenter"));
+    await vi.waitFor(() => expect(root.querySelector<HTMLElement>(".action-menu")?.hidden).toBe(false));
     measureAction.dispatchEvent(createMouseEvent(window, "click"));
     await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
     expect(importer).toHaveBeenCalledTimes(2);
@@ -681,7 +684,9 @@ function installOverlay(
   const overlayWindow = targetWindow as OverlayTestWindow;
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
-    value: binding
+    value: async (request: unknown) => isRecord(request) && request.type === "coordinate-context"
+      ? { appliedPageZoom: 1, surfaceGeneration: 3, topologyRevision: 5 }
+      : binding(request)
   });
   (targetWindow as unknown as { eval: (source: string) => unknown }).eval(MACRO_OVERLAY_SCRIPT);
   if (!overlayWindow.__rionStudioMacroOverlay) {

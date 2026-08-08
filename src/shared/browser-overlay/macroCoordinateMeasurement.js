@@ -13,6 +13,12 @@ const coordinateAnchorDefinitions = [
 export function createMacroCoordinateMeasurement({
   copyCoordinate,
   getText,
+  initialCoordinateContext = {
+    appliedPageZoom: 1,
+    surfaceGeneration: 0,
+    topologyRevision: 0
+  },
+  getCoordinateContext = async () => initialCoordinateContext,
   isTrustedUserEvent,
   onCancel,
   onComplete,
@@ -25,6 +31,8 @@ export function createMacroCoordinateMeasurement({
   let frameId = undefined;
   let measurement = null;
   let pendingMeasurement = null;
+  let coordinateContext = normalizeCoordinateContext(initialCoordinateContext);
+  let coordinateContextRequestRevision = 0;
 
   const picker = ownerDocument.createElement("div");
   picker.className = "coordinate-picker";
@@ -77,6 +85,31 @@ export function createMacroCoordinateMeasurement({
     return Math.round(value * 100) / 100;
   }
 
+  function normalizeCoordinateContext(value) {
+    const appliedPageZoom = Number(value?.appliedPageZoom);
+    const surfaceGeneration = Number(value?.surfaceGeneration);
+    const topologyRevision = Number(value?.topologyRevision);
+    if (
+      !Number.isFinite(appliedPageZoom) ||
+      appliedPageZoom <= 0 ||
+      !Number.isSafeInteger(surfaceGeneration) ||
+      surfaceGeneration < 0 ||
+      !Number.isSafeInteger(topologyRevision) ||
+      topologyRevision < 0
+    ) {
+      throw new Error("Rion Studio coordinate context is invalid.");
+    }
+    return { appliedPageZoom, surfaceGeneration, topologyRevision };
+  }
+
+  async function refreshCoordinateContext() {
+    const requestRevision = ++coordinateContextRequestRevision;
+    const nextContext = normalizeCoordinateContext(await getCoordinateContext());
+    if (destroyed || requestRevision !== coordinateContextRequestRevision) return null;
+    coordinateContext = nextContext;
+    return nextContext;
+  }
+
   function resolveCoordinateAnchor(value, viewport) {
     let nearestAnchor = coordinateAnchorDefinitions[0].anchor;
     let nearestDistanceSquared = Number.POSITIVE_INFINITY;
@@ -104,13 +137,21 @@ export function createMacroCoordinateMeasurement({
   }
 
   function measurementFromPoint(xPx, yPx, viewport = getVisualViewportSize()) {
+    const appliedPageZoom = coordinateContext.appliedPageZoom;
+    const referenceViewportWidthPx = Math.max(1, Math.round(viewport.width * appliedPageZoom));
+    const referenceViewportHeightPx = Math.max(1, Math.round(viewport.height * appliedPageZoom));
     const value = {
+      appliedPageZoom,
+      referenceViewportHeightPx,
+      referenceViewportWidthPx,
       xPercent: roundCoordinatePercent((xPx / viewport.width) * 100),
       xPx,
+      xReferencePx: clampCoordinate(xPx * appliedPageZoom, referenceViewportWidthPx),
       viewportHeightPx: viewport.height,
       viewportWidthPx: viewport.width,
       yPercent: roundCoordinatePercent((yPx / viewport.height) * 100),
-      yPx
+      yPx,
+      yReferencePx: clampCoordinate(yPx * appliedPageZoom, referenceViewportHeightPx)
     };
     return {
       ...value,
@@ -130,17 +171,24 @@ export function createMacroCoordinateMeasurement({
   function formatMeasurement(value) {
     return [
       "X: ",
-      String(value.xPx),
+      String(value.xReferencePx),
       "px (",
       String(roundCoordinatePercent(value.xPercent)),
       "%), Y: ",
-      String(value.yPx),
+      String(value.yReferencePx),
       "px (",
       String(roundCoordinatePercent(value.yPercent)),
       "%), ",
       getText().coordinateAnchor,
       ": ",
-      String(value.anchor || coordinateAnchorDefinitions[0].anchor)
+      String(value.anchor || coordinateAnchorDefinitions[0].anchor),
+      " · CSS X: ",
+      String(value.xPx),
+      "px, Y: ",
+      String(value.yPx),
+      "px @",
+      String(roundCoordinatePercent(value.appliedPageZoom * 100)),
+      "%"
     ].join("");
   }
 
@@ -262,8 +310,16 @@ export function createMacroCoordinateMeasurement({
     });
   }
 
-  function handleViewportResize() {
+  async function refreshMeasurementAfterViewportResize() {
     if (destroyed) return;
+    try {
+      const nextContext = await refreshCoordinateContext();
+      if (!nextContext || destroyed) return;
+    } catch (error) {
+      if (!destroyed && !copyInFlight) setReadoutStatus("failed");
+      console.warn("Unable to refresh Rion Studio coordinate context.", error);
+      return;
+    }
     if (measurement) {
       const viewport = getVisualViewportSize();
       updateMeasurement(measurementFromPoint(
@@ -274,6 +330,10 @@ export function createMacroCoordinateMeasurement({
       return;
     }
     updateAnchorGuides();
+  }
+
+  function handleViewportResize() {
+    void refreshMeasurementAfterViewportResize();
   }
 
   function handlePointerMove(event) {
@@ -293,15 +353,18 @@ export function createMacroCoordinateMeasurement({
     if (destroyed || copyInFlight || !isTrustedUserEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
-    pendingMeasurement = measurementFromEvent(event);
-    flushMeasurement();
-    if (!measurement) return;
     copyInFlight = true;
     setReadoutStatus("copying");
     try {
-      const coordinate = { ...measurement };
-      delete coordinate.anchor;
-      await copyCoordinate(coordinate);
+      const nextContext = await refreshCoordinateContext();
+      if (!nextContext || destroyed) {
+        throw new Error("Rion Studio coordinate context was superseded.");
+      }
+      pendingMeasurement = measurementFromEvent(event);
+      flushMeasurement();
+      if (!measurement) throw new Error("Rion Studio coordinate measurement is unavailable.");
+      setReadoutStatus("copying");
+      await copyCoordinate({ ...measurement });
       if (!destroyed) onComplete();
     } catch (error) {
       if (destroyed) return;
@@ -342,6 +405,7 @@ export function createMacroCoordinateMeasurement({
   function destroy() {
     if (destroyed) return;
     destroyed = true;
+    coordinateContextRequestRevision += 1;
     copyInFlight = false;
     measurement = null;
     cancelMeasurementFrame();

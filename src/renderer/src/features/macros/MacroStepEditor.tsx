@@ -413,18 +413,65 @@ function MacroStepFields({
 
   if (step.type === "click") {
     const unit: MacroClickUnit = step.unit ?? "percent";
-    const isPixel = unit === "px";
+    const isLegacyPixel = unit === "px";
+    const isPixel = unit !== "percent";
     const anchor = step.anchor ?? DEFAULT_MACRO_CLICK_ANCHOR;
     const storedAnchor = anchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor };
-    const x = step.unit === "px" ? step.xPx : step.xPercent;
-    const y = step.unit === "px" ? step.yPx : step.yPercent;
+    const x = step.unit === "px"
+      ? step.xPx
+      : step.unit === "reference-px"
+        ? step.xReferencePx
+        : step.xPercent;
+    const y = step.unit === "px"
+      ? step.yPx
+      : step.unit === "reference-px"
+        ? step.yReferencePx
+        : step.yPercent;
+    const createClickStep = (
+      nextUnit: MacroClickUnit,
+      nextStoredAnchor: { anchor?: MacroClickAnchor },
+      nextX: number,
+      nextY: number
+    ): Extract<MacroStep, { type: "click" }> => {
+      if (nextUnit === "px") {
+        return {
+          id: step.id,
+          type: "click",
+          unit: "px",
+          ...nextStoredAnchor,
+          xPx: nextX,
+          yPx: nextY
+        };
+      }
+      if (nextUnit === "reference-px") {
+        return {
+          id: step.id,
+          type: "click",
+          unit: "reference-px",
+          ...nextStoredAnchor,
+          xReferencePx: nextX,
+          yReferencePx: nextY
+        };
+      }
+      return {
+        id: step.id,
+        type: "click",
+        ...nextStoredAnchor,
+        xPercent: nextX,
+        yPercent: nextY
+      };
+    };
     const handleCoordinatePaste = (event: ClipboardEvent<HTMLInputElement>): void => {
       const measurement = parseMacroCoordinateClipboard(event.clipboardData.getData("text"));
+      const pastedUnit: MacroClickUnit = measurement?.xReferencePx !== undefined &&
+        measurement.yReferencePx !== undefined
+        ? "reference-px"
+        : unit;
       const nextAnchor = measurement?.anchor
         ?? (measurement ? findNearestMacroClickAnchor(measurement) : undefined)
         ?? anchor;
       const offset = measurement
-        ? convertMacroCoordinateToOffset(measurement, nextAnchor, unit)
+        ? convertMacroCoordinateToOffset(measurement, nextAnchor, pastedUnit)
         : undefined;
       if (!measurement || !offset) {
         return;
@@ -433,15 +480,7 @@ function MacroStepFields({
       event.preventDefault();
       pastedMeasurementRef.current = { measurement, stepId: step.id };
       const nextStoredAnchor = nextAnchor === DEFAULT_MACRO_CLICK_ANCHOR ? {} : { anchor: nextAnchor };
-      onUpdate(isPixel
-        ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: offset.x, yPx: offset.y }
-        : {
-            id: step.id,
-            type: "click",
-            ...nextStoredAnchor,
-            xPercent: offset.x,
-            yPercent: offset.y
-          });
+      onUpdate(createClickStep(pastedUnit, nextStoredAnchor, offset.x, offset.y));
     };
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
@@ -451,15 +490,16 @@ function MacroStepFields({
           onValueChange={(nextUnitValue) => {
             const nextUnit = nextUnitValue as MacroClickUnit;
             pastedMeasurementRef.current = undefined;
-            onUpdate(nextUnit === "px"
-              ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: x, yPx: y }
-              : { id: step.id, type: "click", ...storedAnchor, xPercent: x, yPercent: y });
+            onUpdate(createClickStep(nextUnit, storedAnchor, x, y));
           }}
         >
           <SelectTrigger aria-label={t("macroForm.clickUnit")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="percent">%</SelectItem>
-            <SelectItem value="px">px</SelectItem>
+            <SelectItem value="reference-px">{t("macroForm.clickUnit.referencePx")}</SelectItem>
+            {isLegacyPixel ? (
+              <SelectItem value="px">{t("macroForm.clickUnit.legacyCssPx")}</SelectItem>
+            ) : null}
           </SelectContent>
         </Select>
         <Select
@@ -479,9 +519,12 @@ function MacroStepFields({
             if (measurement && !offset) {
               pastedMeasurementRef.current = undefined;
             }
-            onUpdate(isPixel
-              ? { id: step.id, type: "click", unit: "px", ...nextStoredAnchor, xPx: offset?.x ?? x, yPx: offset?.y ?? y }
-              : { id: step.id, type: "click", ...nextStoredAnchor, xPercent: offset?.x ?? x, yPercent: offset?.y ?? y });
+            onUpdate(createClickStep(
+              unit,
+              nextStoredAnchor,
+              offset?.x ?? x,
+              offset?.y ?? y
+            ));
           }}
         >
           <SelectTrigger aria-label={t("macroForm.clickAnchor")} className="w-fit shrink-0"><SelectValue /></SelectTrigger>
@@ -494,36 +537,32 @@ function MacroStepFields({
         <AffixedInput
           aria-label={t("macroForm.clickXOffset")}
           disabled={isSaving}
-          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
-          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          max={isPixel ? Number.MAX_SAFE_INTEGER : 100}
+          min={isPixel ? Number.MIN_SAFE_INTEGER : -100}
           prefix={t("macroForm.clickXOffset")}
-          suffix={unit === "px" ? "px" : "%"}
-          step={unit === "px" ? 1 : 0.01}
+          suffix={isPixel ? "px" : "%"}
+          step={isPixel ? 1 : 0.01}
           value={x}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => {
             pastedMeasurementRef.current = undefined;
-            onUpdate(isPixel
-              ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: value, yPx: y }
-              : { id: step.id, type: "click", ...storedAnchor, xPercent: value, yPercent: y });
+            onUpdate(createClickStep(unit, storedAnchor, value, y));
           }}
           onPaste={handleCoordinatePaste}
         />
         <AffixedInput
           aria-label={t("macroForm.clickYOffset")}
           disabled={isSaving}
-          max={unit === "px" ? Number.MAX_SAFE_INTEGER : 100}
-          min={unit === "px" ? Number.MIN_SAFE_INTEGER : -100}
+          max={isPixel ? Number.MAX_SAFE_INTEGER : 100}
+          min={isPixel ? Number.MIN_SAFE_INTEGER : -100}
           prefix={t("macroForm.clickYOffset")}
-          suffix={unit === "px" ? "px" : "%"}
-          step={unit === "px" ? 1 : 0.01}
+          suffix={isPixel ? "px" : "%"}
+          step={isPixel ? 1 : 0.01}
           value={y}
           widthClassName="w-full max-w-36 shrink-0"
           onChange={(value) => {
             pastedMeasurementRef.current = undefined;
-            onUpdate(isPixel
-              ? { id: step.id, type: "click", unit: "px", ...storedAnchor, xPx: x, yPx: value }
-              : { id: step.id, type: "click", ...storedAnchor, xPercent: x, yPercent: value });
+            onUpdate(createClickStep(unit, storedAnchor, x, value));
           }}
           onPaste={handleCoordinatePaste}
         />
@@ -672,10 +711,9 @@ export function createStep(
       return {
         id,
         type: "click",
-        unit: "px",
         anchor: "center",
-        xPx: 0,
-        yPx: 0
+        xPercent: 0,
+        yPercent: 0
       };
     case "delay":
       return {

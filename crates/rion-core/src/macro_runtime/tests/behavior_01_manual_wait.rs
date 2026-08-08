@@ -337,6 +337,15 @@ use std::sync::mpsc;
                     y_px: -8.0,
                 },
             },
+            MacroStepDefinition::Click {
+                id: "reference-pixel-click".to_owned(),
+                anchor: Some("top-left".to_owned()),
+                position: crate::model::MacroClickDefinition::ReferencePixels {
+                    unit: "reference-px".to_owned(),
+                    x_reference_px: 214.0,
+                    y_reference_px: 0.0,
+                },
+            },
         ]);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
         let _ = start_and_ack_focus(&runtime, &receiver, start);
@@ -381,6 +390,24 @@ use std::sync::mpsc;
         ));
         runtime.dispatch_results(success_results(pixels)).unwrap();
         let second_click = wait_for_last_click(&runtime, "r1", 2, "pixel-click");
+        let reference_pixels = next_browser_actions(&receiver);
+        assert!(matches!(
+            reference_pixels[0].action,
+            BrowserAction::Click {
+                ref anchor,
+                ref unit,
+                x,
+                y,
+                ..
+            } if anchor.as_deref() == Some("top-left")
+                && unit == "reference-px"
+                && x == 214.0
+                && y == 0.0
+        ));
+        runtime
+            .dispatch_results(success_results(reference_pixels))
+            .unwrap();
+        let third_click = wait_for_last_click(&runtime, "r1", 3, "reference-pixel-click");
         {
             assert_eq!(
                 (first_click.sequence, first_click.step_id.as_str()),
@@ -389,6 +416,10 @@ use std::sync::mpsc;
             assert_eq!(
                 (second_click.sequence, second_click.step_id.as_str()),
                 (2, "pixel-click")
+            );
+            assert_eq!(
+                (third_click.sequence, third_click.step_id.as_str()),
+                (3, "reference-pixel-click")
             );
         };
         runtime.stop_macro("m1").unwrap();

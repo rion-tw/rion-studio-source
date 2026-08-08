@@ -20,11 +20,15 @@ describe("parseMacroCommand", () => {
     expect(result.steps.filter((step) => step.type === "click")).toHaveLength(13);
     expect(result.steps.filter((step) => step.type === "delay")).toHaveLength(14);
     expect(result.steps.filter((step) => step.type === "key")).toHaveLength(2);
-    expect(result.steps.find((step) => step.type === "click" && step.unit === "px" && step.xPx === 79)).toMatchObject({
+    expect(result.steps.find((step) =>
+      step.type === "click" &&
+      step.unit === "reference-px" &&
+      step.xReferencePx === 79
+    )).toMatchObject({
       type: "click",
-      unit: "px",
-      xPx: 79,
-      yPx: 100
+      unit: "reference-px",
+      xReferencePx: 79,
+      yReferencePx: 100
     });
   });
 

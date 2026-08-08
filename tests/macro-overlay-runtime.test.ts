@@ -133,6 +133,9 @@ describe("shell-neutral macro overlay runtime", () => {
     let maximumActiveToggleActions = 0;
     const binding = vi.fn(async (request: OverlayRequest) => {
       requests.push(request);
+      if (request.type === "coordinate-context") {
+        return { appliedPageZoom: 1, surfaceGeneration: 4, topologyRevision: 9 };
+      }
       if (request.type === "toggle") {
         activeToggleActions += 1;
         maximumActiveToggleActions = Math.max(
@@ -172,6 +175,7 @@ describe("shell-neutral macro overlay runtime", () => {
     }));
     await vi.waitFor(() => expect(requests.some((request) =>
       request.type === "copy-coordinate" && request.xPx === 200 && request.yPx === 150 &&
+      request.xReferencePx === 200 && request.yReferencePx === 150 &&
       request.xPercent === 25 && request.yPercent === 25
     )).toBe(true));
 

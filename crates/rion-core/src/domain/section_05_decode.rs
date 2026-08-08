@@ -145,13 +145,19 @@ fn validate_macro(macro_record: MacroRecord) -> CoreResult<()> {
                 y_percent,
                 x_px,
                 y_px,
+                x_reference_px,
+                y_reference_px,
                 ..
             } => {
-                let uses_pixels = unit.as_deref() == Some("px");
-                let coordinates = if uses_pixels {
-                    [x_px, y_px]
-                } else {
-                    [x_percent, y_percent]
+                let coordinates = match unit.as_deref().unwrap_or("percent") {
+                    "percent" => [x_percent, y_percent],
+                    "px" => [x_px, y_px],
+                    "reference-px" => [x_reference_px, y_reference_px],
+                    _ => {
+                        return Err(CoreError::InvalidInput(
+                            "macro click unit is invalid".to_owned(),
+                        ));
+                    }
                 };
                 if coordinates
                     .into_iter()

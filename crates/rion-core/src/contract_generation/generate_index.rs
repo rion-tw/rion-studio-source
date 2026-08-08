@@ -147,6 +147,7 @@ fn export_bindings_index() {
                 "export type { LogSource } from \"./LogSource\";\n",
                 "export type { LogStorageStatusRecord } from \"./LogStorageStatusRecord\";\n",
                 "export type { MacroBadgePositionRecord } from \"./MacroBadgePositionRecord\";\n",
+                "export type { MacroCoordinateContextRecord } from \"./MacroCoordinateContextRecord\";\n",
                 "export type { MacroCoordinateRecord } from \"./MacroCoordinateRecord\";\n",
                 "export type { MacroCreateInputRecord } from \"./MacroCreateInputRecord\";\n",
                 "export type { MacroCreateRequest } from \"./MacroCreateRequest\";\n",

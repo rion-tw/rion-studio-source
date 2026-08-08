@@ -511,6 +511,7 @@ impl AppCore {
         let mut start_summary = None;
         match request {
             MacroOverlayRequestRecord::Activate
+            | MacroOverlayRequestRecord::CoordinateContext
             | MacroOverlayRequestRecord::GameInputContext { .. }
             | MacroOverlayRequestRecord::List => {}
             MacroOverlayRequestRecord::Open => {

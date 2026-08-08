@@ -541,6 +541,12 @@ enum MacroStep {
         #[serde(rename = "yPx")]
         #[serde(default)]
         y_px: Option<f64>,
+        #[serde(rename = "xReferencePx")]
+        #[serde(default)]
+        x_reference_px: Option<f64>,
+        #[serde(rename = "yReferencePx")]
+        #[serde(default)]
+        y_reference_px: Option<f64>,
     },
     Delay {
         id: String,

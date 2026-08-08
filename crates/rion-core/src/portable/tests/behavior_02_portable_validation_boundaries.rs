@@ -516,6 +516,7 @@
                     {"id":"percent-default","type":"click","xPercent":12.5,"yPercent":-4.0},
                     {"id":"percent-explicit","type":"click","unit":"percent","anchor":"top-left","xPercent":1.0,"yPercent":2.0},
                     {"id":"pixels","type":"click","unit":"px","anchor":"center","xPx":3.0,"yPx":4.0},
+                    {"id":"reference-pixels","type":"click","unit":"reference-px","anchor":"bottom-right","xReferencePx":-24.0,"yReferencePx":-32.0},
                     {"id":"call-default","type":"macro","macroId":"target"},
                     {"id":"call-explicit","type":"macro","macroId":"target","callMode":"wait"}
                 ],
@@ -596,6 +597,18 @@
                     },
                     ..
                 } if unit == "px" && anchor == "center" && *x == 3.0 && *y == 4.0
+            )));
+            assert!(source.steps.iter().any(|step| matches!(
+                step,
+                MacroStepDefinition::Click {
+                    anchor: Some(anchor),
+                    position: crate::model::MacroClickDefinition::ReferencePixels {
+                        unit,
+                        x_reference_px: x,
+                        y_reference_px: y,
+                    },
+                    ..
+                } if unit == "reference-px" && anchor == "bottom-right" && *x == -24.0 && *y == -32.0
             )));
         };
     }

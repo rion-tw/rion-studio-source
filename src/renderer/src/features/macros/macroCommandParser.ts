@@ -285,9 +285,9 @@ function parseClickStep(argument: string, idFactory: () => string): MacroStep | 
     return {
       id: idFactory(),
       type: "click",
-      unit: "px",
-      xPx: x.value,
-      yPx: y.value
+      unit: "reference-px",
+      xReferencePx: x.value,
+      yReferencePx: y.value
     };
   }
 

@@ -1,6 +1,28 @@
 // macos system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(target_os = "macos")]
+fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
+    unsafe extern "C" {
+        fn rion_wk_page_zoom(webview: *mut std::ffi::c_void) -> f64;
+    }
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| {
+            let zoom_factor = unsafe { rion_wk_page_zoom(platform_webview.inner()) };
+            let _ = sender.send(zoom_factor);
+        })
+        .map_err(RuntimeError::tauri)?;
+    let zoom_factor = receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT).map_err(|_| {
+        RuntimeError::new(
+            "BROWSER_PAGE_ZOOM_TIMEOUT",
+            "WKWebView page zoom acknowledgement timed out.",
+        )
+    })?;
+    validate_applied_page_zoom(zoom_factor)
+}
+
+#[cfg(target_os = "macos")]
 fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
     crate::runtime_tabs_macos::request_window_hide(window.clone());
     Ok(())

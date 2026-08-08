@@ -321,7 +321,7 @@
             command(json!({
                 "type": "overlayRequest",
                 "roleId": role_id.clone(),
-                "requestJson": "{\"type\":\"copy-coordinate\",\"xPercent\":12.5,\"xPx\":10,\"viewportHeightPx\":100,\"viewportWidthPx\":100,\"yPercent\":25,\"yPx\":20}"
+                "requestJson": "{\"type\":\"copy-coordinate\",\"anchor\":\"top-left\",\"appliedPageZoom\":1,\"referenceViewportHeightPx\":100,\"referenceViewportWidthPx\":100,\"xPercent\":12.5,\"xPx\":10,\"xReferencePx\":10,\"viewportHeightPx\":100,\"viewportWidthPx\":100,\"yPercent\":25,\"yPx\":20,\"yReferencePx\":20}"
             })),
             None,
         );

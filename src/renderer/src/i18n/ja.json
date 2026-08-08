@@ -441,6 +441,8 @@
   "macroForm.clickXOffset": "X オフセット",
   "macroForm.clickYOffset": "Y オフセット",
   "macroForm.clickUnit": "座標単位",
+  "macroForm.clickUnit.referencePx": "px",
+  "macroForm.clickUnit.legacyCssPx": "CSS px（旧形式）",
   "macroForm.clickAnchor": "座標アンカー",
   "macroForm.clickAnchor.topLeft": "左上",
   "macroForm.clickAnchor.topCenter": "上中央",

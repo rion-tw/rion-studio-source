@@ -1,6 +1,14 @@
 // unsupported system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn platform_page_zoom(_webview: &Webview) -> RuntimeResult<f64> {
+    Err(RuntimeError::new(
+        "BROWSER_PAGE_ZOOM_UNAVAILABLE",
+        "Applied System WebView page zoom is unavailable on this platform.",
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
     window.hide().map_err(RuntimeError::tauri)
 }

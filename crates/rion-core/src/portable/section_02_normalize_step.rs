@@ -84,7 +84,7 @@ fn normalize_step(
                 .map(|value| {
                     value
                         .as_str()
-                        .filter(|unit| matches!(*unit, "percent" | "px"))
+                        .filter(|unit| matches!(*unit, "percent" | "px" | "reference-px"))
                         .map(str::to_owned)
                         .ok_or_else(|| invalid("portable macro click unit is invalid"))
                 })
@@ -126,6 +126,16 @@ fn normalize_step(
             if unit == "px" {
                 step.insert("xPx".to_owned(), json!(finite_number(source, "xPx")?));
                 step.insert("yPx".to_owned(), json!(finite_number(source, "yPx")?));
+                Ok(Value::Object(step))
+            } else if unit == "reference-px" {
+                step.insert(
+                    "xReferencePx".to_owned(),
+                    json!(finite_number(source, "xReferencePx")?),
+                );
+                step.insert(
+                    "yReferencePx".to_owned(),
+                    json!(finite_number(source, "yReferencePx")?),
+                );
                 Ok(Value::Object(step))
             } else if unit == "percent" {
                 step.insert(

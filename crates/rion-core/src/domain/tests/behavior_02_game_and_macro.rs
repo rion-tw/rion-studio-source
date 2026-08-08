@@ -50,6 +50,31 @@
             let created = create_macro(
                 &mut macros,
                 macro_input(json!({
+                    "name":"Reference pixels","roleIds":[],
+                    "steps":[{
+                        "type":"click","unit":"reference-px","anchor":"center",
+                        "xReferencePx":12.4,"yReferencePx":34.6
+                    }]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &created.steps[0],
+                MacroStepDefinition::Click {
+                    anchor: Some(anchor),
+                    position: crate::model::MacroClickDefinition::ReferencePixels {
+                        x_reference_px, y_reference_px, ..
+                    },
+                    ..
+                } if anchor == "center" && *x_reference_px == 12.0 && *y_reference_px == 35.0
+            ));
+        };
+
+        {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
                     "name":"Party","roleIds":["r1","r2"],
                     "steps":[{"type":"key","code":"F1"}]
                 })),

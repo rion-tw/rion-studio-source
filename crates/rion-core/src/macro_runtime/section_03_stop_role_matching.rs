@@ -379,6 +379,11 @@ fn execute_step(
                 crate::model::MacroClickDefinition::Pixels { x_px, y_px, .. } => {
                     ("px", *x_px, *y_px)
                 }
+                crate::model::MacroClickDefinition::ReferencePixels {
+                    x_reference_px,
+                    y_reference_px,
+                    ..
+                } => ("reference-px", *x_reference_px, *y_reference_px),
             };
             perform_actions(
                 shared,

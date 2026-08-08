@@ -534,6 +534,16 @@ pub enum MacroStepInputRecord {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         y_px: Option<f64>,
+        #[serde(rename = "xReferencePx")]
+        #[ts(rename = "xReferencePx")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        x_reference_px: Option<f64>,
+        #[serde(rename = "yReferencePx")]
+        #[ts(rename = "yReferencePx")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        y_reference_px: Option<f64>,
     },
     Delay {
         #[serde(default, skip_serializing_if = "Option::is_none")]

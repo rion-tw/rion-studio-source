@@ -62,6 +62,7 @@ include!("system_runtime/section_16_input_fence_contract.rs");
 include!("system_runtime/section_17_rebuild_role_surface.rs");
 include!("system_runtime/section_18_session_contract.rs");
 include!("system_runtime/section_18_macro_key_guard.rs");
+include!("system_runtime/section_18_coordinate_context.rs");
 include!("system_runtime/section_18_apply.rs");
 include!("system_runtime/section_18_input_diagnostics.rs");
 include!("system_runtime/section_18_runtime_diagnostics.rs");

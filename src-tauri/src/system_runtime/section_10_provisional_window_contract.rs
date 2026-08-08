@@ -22,7 +22,7 @@ impl SystemRuntimeExecutor {
             state.tab_drag_cursor_leases.remove(window_id);
             (window, generation)
         };
-        set_tab_drag_window_interaction(&window, false, false)?;
+        set_tab_drag_window_interaction(&window, false)?;
         self.reassert_tab_drag_pointer_passthrough_if_leased(window_id, generation, &window)?;
         Ok(true)
     }

@@ -233,8 +233,9 @@
                 }))
                 .unwrap();
             assert!(started.elapsed() < Duration::from_secs(2));
-            assert_eq!(result[0]["roleId"], *role_id);
-            assert_eq!(result[0]["state"], "launching");
+            assert_eq!(result["completion"], "pendingNativeCompletion");
+            assert_eq!(result["statuses"][0]["roleId"], *role_id);
+            assert_eq!(result["statuses"][0]["state"], "launching");
         }
         let snapshot = core
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
@@ -297,7 +298,8 @@
                 restore_role_slots: None,
             }))
             .unwrap();
-        assert_eq!(accepted[0]["state"], "launching");
+        assert_eq!(accepted["completion"], "pendingNativeCompletion");
+        assert_eq!(accepted["statuses"][0]["state"], "launching");
 
         let create_effect = loop {
             let events = effects.recv_timeout(Duration::from_secs(2)).unwrap();

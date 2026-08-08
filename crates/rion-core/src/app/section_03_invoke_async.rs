@@ -161,7 +161,7 @@ impl AppCore {
                     "Core launch phase: role-session-preflight completed elapsedMs={}",
                     launch_started.elapsed().as_millis()
                 );
-                let statuses = self
+                let admission = self
                     .accept_browser_role_launch(
                         role_id,
                         target,
@@ -170,7 +170,7 @@ impl AppCore {
                         restore_role_slots,
                     )
                     .await?;
-                serde_json::to_value(statuses)
+                serde_json::to_value(admission)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserWorkspaceLaunch {
@@ -179,7 +179,7 @@ impl AppCore {
                 launch_preview_id,
                 restore_role_slots,
             } => {
-                let statuses = self
+                let admission = self
                     .accept_browser_workspace_launch(
                         workspace_id,
                         target,
@@ -187,7 +187,7 @@ impl AppCore {
                         restore_role_slots,
                     )
                     .await?;
-                serde_json::to_value(statuses)
+                serde_json::to_value(admission)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserRoleSlotClaim {
@@ -608,7 +608,7 @@ impl AppCore {
         target: EmbeddedLaunchTargetRecord,
         launch_preview_id: Option<String>,
         restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
-    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+    ) -> CoreResult<crate::model::BrowserLaunchAdmissionRecord> {
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
@@ -644,9 +644,13 @@ impl AppCore {
                     ..
                 }) => continue,
                 Ok(EmbeddedWorkspaceLaunchStart::Completed(results)) => {
-                    return self.decorate_browser_statuses(
+                    let statuses = self.decorate_browser_statuses(
                         results.into_iter().map(embedded_status).collect(),
-                    );
+                    )?;
+                    return Ok(crate::model::BrowserLaunchAdmissionRecord {
+                        completion: crate::model::BrowserLaunchAdmissionCompletion::Completed,
+                        statuses,
+                    });
                 }
                 Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
                     let accepted_at = Instant::now();
@@ -709,7 +713,11 @@ impl AppCore {
                         });
                         core.emit_browser_statuses();
                     }));
-                    return Ok(accepted);
+                    return Ok(crate::model::BrowserLaunchAdmissionRecord {
+                        completion:
+                            crate::model::BrowserLaunchAdmissionCompletion::PendingNativeCompletion,
+                        statuses: accepted,
+                    });
                 }
                 Err(error) => return Err(error),
             }

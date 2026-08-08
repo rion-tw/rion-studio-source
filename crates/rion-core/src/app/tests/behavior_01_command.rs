@@ -501,11 +501,10 @@ use std::{
             .build()
             .unwrap();
         let accepted = runtime.block_on(core.invoke_async(command)).unwrap();
-        let completion_pending = accepted
-            .as_array()
-            .is_some_and(|statuses| statuses.iter().any(|status| status["state"] == "launching"));
+        let completion_pending = accepted["completion"] == "pendingNativeCompletion";
+        let statuses = accepted["statuses"].clone();
         if !completion_pending {
-            return accepted;
+            return statuses;
         }
 
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -516,7 +515,7 @@ use std::{
                     "accepted launch failed in the background: {:?}",
                     completion.error
                 );
-                return accepted;
+                return statuses;
             }
             assert!(
                 Instant::now() < deadline,

@@ -10,34 +10,91 @@ enum RuntimeLaunchDestination {
     },
 }
 
-async fn record_runtime_launch_event(
-    core: &Arc<AppCore>,
+struct RuntimeLaunchEventBatch {
+    entries: Vec<LogCaptureRecord>,
+    sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+}
+
+impl RuntimeLaunchEventBatch {
+    fn new(sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>) -> Self {
+        Self {
+            entries: Vec::new(),
+            sender,
+        }
+    }
+
+    fn record(
+        &mut self,
+        event: &'static str,
+        intent: &RuntimeLaunchIntentRecord,
+        window_id: Option<&str>,
+        reason: Option<&str>,
+    ) {
+        let context = json!({
+            "adapterSequence": intent.adapter_sequence,
+            "intentId": intent.intent_id,
+            "sourceId": intent.source_id,
+            "sourceType": intent.source_type,
+            "windowId": window_id,
+            "destinationReason": reason,
+        });
+        self.entries.push(LogCaptureRecord {
+            level: LogLevel::Info,
+            source: LogSource::Browser,
+            event: event.to_owned(),
+            message: "The ordered runtime launch intent advanced to its next authoritative event."
+                .to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        });
+    }
+
+    fn submit(&mut self) {
+        if self.entries.is_empty() {
+            return;
+        }
+        let _ = self.sender.send(std::mem::take(&mut self.entries));
+    }
+}
+
+impl Drop for RuntimeLaunchEventBatch {
+    fn drop(&mut self) {
+        self.submit();
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum LaunchAdmissionResolution {
+    AwaitNativeCompletion,
+    UseStableOwner(String),
+    OwnershipDiverged,
+}
+
+fn resolve_launch_admission(
+    completion: rion_core::BrowserLaunchAdmissionCompletion,
+    stable_owner: Option<String>,
+) -> LaunchAdmissionResolution {
+    if let Some(stable_owner) = stable_owner {
+        return LaunchAdmissionResolution::UseStableOwner(stable_owner);
+    }
+    match completion {
+        rion_core::BrowserLaunchAdmissionCompletion::PendingNativeCompletion => {
+            LaunchAdmissionResolution::AwaitNativeCompletion
+        }
+        rion_core::BrowserLaunchAdmissionCompletion::Completed => {
+            LaunchAdmissionResolution::OwnershipDiverged
+        }
+    }
+}
+
+fn record_runtime_launch_event(
+    events: &mut RuntimeLaunchEventBatch,
     event: &'static str,
     intent: &RuntimeLaunchIntentRecord,
     window_id: Option<&str>,
     reason: Option<&str>,
 ) {
-    let context = json!({
-        "adapterSequence": intent.adapter_sequence,
-        "intentId": intent.intent_id,
-        "sourceId": intent.source_id,
-        "sourceType": intent.source_type,
-        "windowId": window_id,
-        "destinationReason": reason,
-    });
-    let _ = core
-        .invoke_async(CoreCommand::LogsCapture {
-            entries: vec![LogCaptureRecord {
-                level: LogLevel::Info,
-                source: LogSource::Browser,
-                event: event.to_owned(),
-                message: "The ordered runtime launch intent advanced to its next authoritative event."
-                    .to_owned(),
-                context_raw_json: serde_json::to_string(&context).ok(),
-                error: None,
-            }],
-        })
-        .await;
+    events.record(event, intent, window_id, reason);
 }
 
 fn runtime_launch_receipt(
@@ -158,7 +215,7 @@ async fn invoke_runtime_source_launch(
     target: EmbeddedLaunchTargetRecord,
     launch_preview_id: Option<String>,
     restore_role_slots: Option<Vec<rion_core::GameWindowRoleSlotRecord>>,
-) -> Result<Value, CoreErrorPayload> {
+) -> Result<rion_core::BrowserLaunchAdmissionRecord, CoreErrorPayload> {
     let command = if source_type == "workspace" {
         CoreCommand::BrowserWorkspaceLaunch {
             workspace_id: source_id.to_owned(),
@@ -175,10 +232,16 @@ async fn invoke_runtime_source_launch(
             restore_role_slots,
         }
     };
-    Arc::clone(&state.core)
+    let value = Arc::clone(&state.core)
         .invoke_async(command)
         .await
-        .map_err(error_payload)
+        .map_err(error_payload)?;
+    serde_json::from_value(value).map_err(|error| {
+        shell_error(
+            "TAURI_RUNTIME_LAUNCH_ADMISSION_INVALID",
+            format!("Core returned an invalid launch admission: {error}"),
+        )
+    })
 }
 
 fn statuses_for_launch_source(
@@ -201,6 +264,10 @@ fn statuses_for_launch_source(
     )
 }
 
+fn serialized_launch_statuses(statuses: Vec<rion_core::BrowserRoleStatusRecord>) -> Value {
+    serde_json::to_value(statuses).unwrap_or_else(|_| Value::Array(Vec::new()))
+}
+
 async fn hydrate_saved_window_for_launch(
     state: &CoreState,
     saved: &StateGameWindowRecord,
@@ -214,7 +281,7 @@ async fn hydrate_saved_window_for_launch(
         &intent.source_type,
     )
     .cloned();
-    let resolved_existing_tab_id = existing_saved_tab.as_ref().map(|tab| tab.id.clone());
+    let mut resolved_existing_tab_id = existing_saved_tab.as_ref().map(|tab| tab.id.clone());
     let mut hydrated = saved.clone();
     let launch_preview = if let Some(existing) = existing_saved_tab.as_ref() {
         hydrated.active_tab_id = Some(existing.id.clone());
@@ -274,8 +341,8 @@ async fn hydrate_saved_window_for_launch(
             Some(tab.role_slots.clone()),
         )
         .await;
-        let statuses = match result {
-            Ok(statuses) => statuses,
+        let admission = match result {
+            Ok(admission) => admission,
             Err(error) => {
                 state.runtime.discard_prepared_tab_role_slots(&tab.id);
                 if let Some(preview) = launch_preview.as_ref() {
@@ -285,12 +352,28 @@ async fn hydrate_saved_window_for_launch(
                 return Err(error);
             }
         };
+        let stable_owner = state
+            .runtime
+            .presented_stable_tab_for_launcher_source(&tab.source_id, &tab.tab_type);
+        if resolve_launch_admission(admission.completion, stable_owner)
+            == LaunchAdmissionResolution::OwnershipDiverged
+        {
+            state.runtime.discard_prepared_tab_role_slots(&tab.id);
+            if let Some(preview) = launch_preview.as_ref() {
+                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
+            }
+            state.runtime.discard_prepared_restored_window_tabs(&saved.id);
+            return Err(shell_error(
+                "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+                "Core completed a restored launch without a stable live presentation owner.",
+            ));
+        }
         if existing_saved_tab
             .as_ref()
             .is_some_and(|existing| existing.id == tab.id)
         {
             requested_statuses = statuses_for_launch_source(
-                statuses,
+                serialized_launch_statuses(admission.statuses),
                 &intent.source_id,
                 &intent.source_type,
             );
@@ -301,7 +384,7 @@ async fn hydrate_saved_window_for_launch(
     }
 
     if let Some(preview) = launch_preview.as_ref() {
-        requested_statuses = match invoke_runtime_source_launch(
+        let admission = match invoke_runtime_source_launch(
             state,
             &intent.source_id,
             &intent.source_type,
@@ -311,17 +394,39 @@ async fn hydrate_saved_window_for_launch(
         )
         .await
         {
-            Ok(statuses) => statuses,
+            Ok(admission) => admission,
             Err(error) => {
                 state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
                 state.runtime.discard_prepared_restored_window_tabs(&saved.id);
                 return Err(error);
             }
         };
-        // Core acceptance is not native completion. The create effect owns the exact
-        // preview-to-stable replacement and the pending restore fence reconciles from that
-        // authoritative event. Cancelling a still-pending preview here races the serial native
-        // creation lane and turns a valid accepted launch into LAUNCH_PREVIEW_STALE.
+        requested_statuses = statuses_for_launch_source(
+            serialized_launch_statuses(admission.statuses),
+            &intent.source_id,
+            &intent.source_type,
+        );
+        let stable_owner = state.runtime.presented_stable_tab_for_launcher_source(
+            &intent.source_id,
+            &intent.source_type,
+        );
+        match resolve_launch_admission(admission.completion, stable_owner) {
+            LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
+                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
+                resolved_existing_tab_id = Some(stable_owner);
+            }
+            LaunchAdmissionResolution::OwnershipDiverged => {
+                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
+                state.runtime.discard_prepared_restored_window_tabs(&saved.id);
+                return Err(shell_error(
+                    "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+                    "Core completed a launch without a stable live presentation owner.",
+                ));
+            }
+            LaunchAdmissionResolution::AwaitNativeCompletion => {
+                // The identity-fenced create effect owns preview replacement or failure.
+            }
+        }
     }
     state
         .runtime
@@ -348,6 +453,7 @@ pub(crate) async fn execute_runtime_launch_intent(
     intent: RuntimeLaunchIntentRecord,
     exact_window_id: Option<String>,
     origin: &'static str,
+    launch_log_sender: &tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
 ) -> Result<runtime_tab_menu::RuntimeLaunchOutcome, CoreErrorPayload> {
     let state = app.try_state::<CoreState>().ok_or_else(|| {
         shell_error(
@@ -355,8 +461,14 @@ pub(crate) async fn execute_runtime_launch_intent(
             "The runtime launch actor started before application state was available.",
         )
     })?;
-    record_runtime_launch_event(&state.core, "launch.intent-admitted", &intent, None, Some(origin))
-        .await;
+    let mut events = RuntimeLaunchEventBatch::new(launch_log_sender.clone());
+    record_runtime_launch_event(
+        &mut events,
+        "launch.intent-admitted",
+        &intent,
+        None,
+        Some(origin),
+    );
     if !matches!(intent.source_type.as_str(), "role" | "workspace") {
         return Err(shell_error(
             "TAURI_RUNTIME_LAUNCH_SOURCE_INVALID",
@@ -386,13 +498,12 @@ pub(crate) async fn execute_runtime_launch_intent(
             None,
         );
         record_runtime_launch_event(
-            &state.core,
+            &mut events,
             "launch.intent-terminal",
             &intent,
             Some(&window_id),
             Some("existing-live-source"),
-        )
-        .await;
+        );
         return Ok(runtime_tab_menu::RuntimeLaunchOutcome {
             receipt,
             statuses: Value::Array(Vec::new()),
@@ -402,56 +513,51 @@ pub(crate) async fn execute_runtime_launch_intent(
         .runtime
         .presented_tab_for_launcher_source(&intent.source_id, &intent.source_type)
     {
-        preview_and_schedule_launcher_tab_selection(app, &state, &tab_id)
-            .map_err(|message| {
-                shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
-            })?;
-        let window_id = state.runtime.live_tab_window_id(&tab_id).ok_or_else(|| {
-            shell_error(
-                "TAURI_RUNTIME_TAB_ACTIVATION_FAILED",
-                "The admitted provisional tab owner disappeared.",
-            )
-        })?;
-        let receipt = runtime_launch_receipt(
-            &intent,
-            &state.runtime,
-            window_id.clone(),
-            "existing-admitted-source",
-            Some(tab_id),
-            None,
-            None,
-        );
-        record_runtime_launch_event(
-            &state.core,
-            "launch.intent-terminal",
-            &intent,
-            Some(&window_id),
-            Some("existing-admitted-source"),
-        )
-        .await;
-        return Ok(runtime_tab_menu::RuntimeLaunchOutcome {
-            receipt,
-            statuses: Value::Array(Vec::new()),
-        });
+        if let Some(window_id) = state.runtime.live_tab_window_id(&tab_id) {
+            preview_and_schedule_launcher_tab_selection(app, &state, &tab_id).map_err(
+                |message| shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message),
+            )?;
+            let receipt = runtime_launch_receipt(
+                &intent,
+                &state.runtime,
+                window_id.clone(),
+                "existing-admitted-source",
+                Some(tab_id),
+                None,
+                None,
+            );
+            record_runtime_launch_event(
+                &mut events,
+                "launch.intent-terminal",
+                &intent,
+                Some(&window_id),
+                Some("existing-admitted-source"),
+            );
+            return Ok(runtime_tab_menu::RuntimeLaunchOutcome {
+                receipt,
+                statuses: Value::Array(Vec::new()),
+            });
+        }
+        state.runtime.cancel_provisional_tab_launch(&tab_id);
     }
 
     let destination =
         resolve_runtime_launch_destination(app, &state, &intent, exact_window_id.as_deref())?;
     match destination {
         RuntimeLaunchDestination::Live { reason, target } => {
-            record_runtime_launch_event(
-                &state.core,
-                "launch.destination-resolved",
-                &intent,
-                Some(&target.window_id),
-                Some(reason),
-            )
-            .await;
             let preview = state
                 .runtime
                 .preview_tab_launch(&target, &intent.source_id, &intent.source_type)
                 .map_err(|error| shell_error(error.code, error.message))?;
-            let statuses = match invoke_runtime_source_launch(
+            record_runtime_launch_event(
+                &mut events,
+                "launch.destination-resolved",
+                &intent,
+                Some(&target.window_id),
+                Some(reason),
+            );
+            events.submit();
+            let admission = match invoke_runtime_source_launch(
                 &state,
                 &intent.source_id,
                 &intent.source_type,
@@ -461,62 +567,72 @@ pub(crate) async fn execute_runtime_launch_intent(
             )
             .await
             {
-                Ok(statuses) => statuses,
+                Ok(admission) => admission,
                 Err(error) => {
                     state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
                     return Err(error);
                 }
             };
-            let concurrent_stable_owner = state
+            let statuses = statuses_for_launch_source(
+                serialized_launch_statuses(admission.statuses),
+                &intent.source_id,
+                &intent.source_type,
+            );
+            let stable_owner = state
                 .runtime
-                .launch_preview_is_pending(&preview.launch_preview_id)
-                .then(|| {
-                    state.runtime.presented_stable_tab_for_launcher_source(
-                        &intent.source_id,
-                        &intent.source_type,
-                    )
-                })
-                .flatten();
-            if let Some(stable_owner) = concurrent_stable_owner {
-                state
-                    .runtime
-                    .cancel_tab_launch_preview(&preview.launch_preview_id);
-                preview_and_schedule_launcher_tab_selection(app, &state, &stable_owner)
-                    .map_err(|message| {
-                        shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
-                    })?;
-                let window_id = state
-                    .runtime
-                    .live_tab_window_id(&stable_owner)
-                    .ok_or_else(|| {
-                        shell_error(
-                            "TAURI_RUNTIME_TAB_ACTIVATION_FAILED",
-                            "The authoritative live source owner disappeared.",
-                        )
-                    })?;
-                let receipt = runtime_launch_receipt(
-                    &intent,
-                    &state.runtime,
-                    window_id.clone(),
-                    "existing-live-owner-after-admission",
-                    Some(stable_owner),
-                    None,
-                    None,
+                .presented_stable_tab_for_launcher_source(
+                    &intent.source_id,
+                    &intent.source_type,
                 );
-                record_runtime_launch_event(
-                    &state.core,
-                    "launch.intent-terminal",
-                    &intent,
-                    Some(&window_id),
-                    Some("existing-live-owner-after-admission"),
-                )
-                .await;
-                return Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses });
+            match resolve_launch_admission(admission.completion, stable_owner) {
+                LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
+                    state
+                        .runtime
+                        .cancel_tab_launch_preview(&preview.launch_preview_id);
+                    preview_and_schedule_launcher_tab_selection(app, &state, &stable_owner)
+                        .map_err(|message| {
+                            shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message)
+                        })?;
+                    let window_id = state
+                        .runtime
+                        .live_tab_window_id(&stable_owner)
+                        .ok_or_else(|| {
+                            shell_error(
+                                "TAURI_RUNTIME_TAB_ACTIVATION_FAILED",
+                                "The authoritative live source owner disappeared.",
+                            )
+                        })?;
+                    let receipt = runtime_launch_receipt(
+                        &intent,
+                        &state.runtime,
+                        window_id.clone(),
+                        "existing-live-owner-after-admission",
+                        Some(stable_owner),
+                        None,
+                        None,
+                    );
+                    record_runtime_launch_event(
+                        &mut events,
+                        "launch.intent-terminal",
+                        &intent,
+                        Some(&window_id),
+                        Some("existing-live-owner-after-admission"),
+                    );
+                    return Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses });
+                }
+                LaunchAdmissionResolution::OwnershipDiverged => {
+                    state
+                        .runtime
+                        .cancel_tab_launch_preview(&preview.launch_preview_id);
+                    return Err(shell_error(
+                        "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+                        "Core completed a launch without a stable live presentation owner.",
+                    ));
+                }
+                LaunchAdmissionResolution::AwaitNativeCompletion => {
+                    // The identity-fenced create effect owns preview replacement or failure.
+                }
             }
-            // A pending preview without a stable owner means Core admitted the launch before
-            // the serial native creation lane consumed its effect. The provisional Live tab is
-            // already authoritative; its identity-fenced effect will replace it or report the
-            // actual terminal failure asynchronously.
             let receipt = runtime_launch_receipt(
                 &intent,
                 &state.runtime,
@@ -527,13 +643,12 @@ pub(crate) async fn execute_runtime_launch_intent(
                 None,
             );
             record_runtime_launch_event(
-                &state.core,
+                &mut events,
                 "launch.intent-terminal",
                 &intent,
                 Some(&target.window_id),
                 Some(reason),
-            )
-            .await;
+            );
             Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses })
         }
         RuntimeLaunchDestination::Dormant {
@@ -542,13 +657,12 @@ pub(crate) async fn execute_runtime_launch_intent(
             target,
         } => {
             record_runtime_launch_event(
-                &state.core,
+                &mut events,
                 "launch.destination-resolved",
                 &intent,
                 Some(&saved.id),
                 Some(reason),
-            )
-            .await;
+            );
             let wait_runtime = Arc::clone(&state.runtime);
             let wait_window_id = saved.id.clone();
             let cleanup_operation_id = tauri::async_runtime::spawn_blocking(move || {
@@ -559,14 +673,14 @@ pub(crate) async fn execute_runtime_launch_intent(
             .map_err(|message| shell_error("TAURI_RESTORE_WINDOW_CLOSE_PENDING", message))?;
             let (statuses, existing_tab_id, hydration_operation_id) =
                 hydrate_saved_window_for_launch(&state, &saved, &target, &intent).await?;
+            events.submit();
             record_runtime_launch_event(
-                &state.core,
+                &mut events,
                 "saved-window.hydration-committed",
                 &intent,
                 Some(&saved.id),
                 Some(reason),
-            )
-            .await;
+            );
             let receipt = runtime_launch_receipt(
                 &intent,
                 &state.runtime,
@@ -577,13 +691,12 @@ pub(crate) async fn execute_runtime_launch_intent(
                 cleanup_operation_id,
             );
             record_runtime_launch_event(
-                &state.core,
+                &mut events,
                 "launch.intent-terminal",
                 &intent,
                 Some(&saved.id),
                 Some(reason),
-            )
-            .await;
+            );
             Ok(runtime_tab_menu::RuntimeLaunchOutcome { receipt, statuses })
         }
     }

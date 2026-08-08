@@ -393,7 +393,7 @@ impl AppCore {
         launch_preview_id: Option<String>,
         zoom_factor: f64,
         restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
-    ) -> CoreResult<Vec<crate::model::BrowserRoleStatusRecord>> {
+    ) -> CoreResult<crate::model::BrowserLaunchAdmissionRecord> {
         let completion_zoom_factor = zoom_factor;
         let completion_permit = self.launch_completion.try_reserve()?;
         let restore_role_slot =
@@ -437,9 +437,15 @@ impl AppCore {
         .map_err(|error| CoreError::Internal(error.to_string()))??;
 
         match start {
-            EmbeddedRoleLaunchStart::Completed(results) => Ok(
-                self.decorate_browser_statuses(results.into_iter().map(embedded_status).collect())?
-            ),
+            EmbeddedRoleLaunchStart::Completed(results) => {
+                let statuses = self.decorate_browser_statuses(
+                    results.into_iter().map(embedded_status).collect(),
+                )?;
+                Ok(crate::model::BrowserLaunchAdmissionRecord {
+                    completion: crate::model::BrowserLaunchAdmissionCompletion::Completed,
+                    statuses,
+                })
+            }
             EmbeddedRoleLaunchStart::Pending(pending) => {
                 let accepted_at = Instant::now();
                 let accepted_role_id = pending.role.id.clone();
@@ -491,7 +497,11 @@ impl AppCore {
                     });
                     core.emit_browser_statuses();
                 }));
-                Ok(accepted)
+                Ok(crate::model::BrowserLaunchAdmissionRecord {
+                    completion:
+                        crate::model::BrowserLaunchAdmissionCompletion::PendingNativeCompletion,
+                    statuses: accepted,
+                })
             }
         }
     }

@@ -18,6 +18,30 @@ fn provisional_launch(
 }
 
 #[test]
+fn provisional_source_lookup_requires_its_recorded_live_window_membership() {
+    let provisional = provisional_launch(
+        "preview-a",
+        "loading-tab",
+        "workspace-a",
+        "workspace",
+        false,
+    );
+
+    assert!(provisional_launch_has_live_presentation(
+        &provisional,
+        Some("window-1"),
+    ));
+    assert!(!provisional_launch_has_live_presentation(
+        &provisional,
+        Some("window-2"),
+    ));
+    assert!(!provisional_launch_has_live_presentation(
+        &provisional,
+        None,
+    ));
+}
+
+#[test]
 fn cancelled_attempt_and_same_source_relaunch_are_independently_fenced() {
     for (platform, tab_type) in [
         ("macos", "role"),

@@ -83,6 +83,13 @@ fn active_provisional_launch<'a>(
         .filter(|launch| !launch.cancelled)
 }
 
+fn provisional_launch_has_live_presentation(
+    provisional: &ProvisionalLaunch,
+    presented_window_id: Option<&str>,
+) -> bool {
+    presented_window_id == Some(provisional.window_id.as_str())
+}
+
 fn cancel_provisional_launch_state(
     state: &mut RuntimeState,
     tab_id: &str,

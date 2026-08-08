@@ -434,6 +434,22 @@ pub struct BrowserRoleStatusRecord {
     pub capability_snapshot: Option<EngineCapabilitySnapshotRecord>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum BrowserLaunchAdmissionCompletion {
+    PendingNativeCompletion,
+    Completed,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct BrowserLaunchAdmissionRecord {
+    pub completion: BrowserLaunchAdmissionCompletion,
+    pub statuses: Vec<BrowserRoleStatusRecord>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

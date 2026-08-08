@@ -19,6 +19,8 @@ export type { BrowserPerformanceDiagnosticStatus } from "./BrowserPerformanceDia
 export type { BrowserPerformanceDiagnosticsRecord } from "./BrowserPerformanceDiagnosticsRecord";
 export type { BrowserPerformanceSurfaceDiagnosticRecord } from "./BrowserPerformanceSurfaceDiagnosticRecord";
 export type { BrowserHostKind } from "./BrowserHostKind";
+export type { BrowserLaunchAdmissionCompletion } from "./BrowserLaunchAdmissionCompletion";
+export type { BrowserLaunchAdmissionRecord } from "./BrowserLaunchAdmissionRecord";
 export type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 export type { BrowserRuntimeCommand } from "./BrowserRuntimeCommand";
 export type { BrowserRuntimeWindowRecord } from "./BrowserRuntimeWindowRecord";

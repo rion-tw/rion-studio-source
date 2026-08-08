@@ -18,7 +18,7 @@ fn select_non_conflicting_saved_windows(
             let sources = window
                 .tabs
                 .iter()
-                .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+                .flat_map(game_window_tab_source_keys)
                 .collect::<HashSet<_>>();
             if sources
                 .iter()
@@ -31,6 +31,28 @@ fn select_non_conflicting_saved_windows(
         })
         .cloned()
         .collect()
+}
+
+fn game_window_tab_source_keys(tab: &GameWindowTabRecord) -> HashSet<String> {
+    let mut keys = HashSet::from([format!("{}:{}", tab.tab_type, tab.source_id)]);
+    keys.extend(
+        tab.role_slots
+            .iter()
+            .map(|slot| format!("role:{}", slot.role_id)),
+    );
+    keys
+}
+
+fn saved_tab_for_launcher_source<'a>(
+    window: &'a StateGameWindowRecord,
+    source_id: &str,
+    source_type: &str,
+) -> Option<&'a GameWindowTabRecord> {
+    let source_key = format!("{source_type}:{source_id}");
+    window
+        .tabs
+        .iter()
+        .find(|tab| game_window_tab_source_keys(tab).contains(&source_key))
 }
 
 fn select_auto_restore_saved_windows(
@@ -66,11 +88,18 @@ fn saved_window_conflicts_with_runtime(
     let desired_sources = saved
         .tabs
         .iter()
-        .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+        .flat_map(game_window_tab_source_keys)
         .collect::<HashSet<_>>();
     snapshot.tabs.iter().any(|tab| {
-        tab.window_id != saved.id
-            && desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
+        if tab.window_id == saved.id {
+            return false;
+        }
+        let exact_source = format!("{}:{}", tab.tab_type, tab.source_id);
+        desired_sources.contains(&exact_source)
+            || tab
+                .slots
+                .iter()
+                .any(|slot| desired_sources.contains(&format!("role:{}", slot.role_id)))
     })
 }
 

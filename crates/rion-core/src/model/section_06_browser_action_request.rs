@@ -541,8 +541,15 @@ pub enum MacroStepDefinition {
         )]
         modifiers: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "\"tap\" | \"hold_until_stop\"")]
+        #[ts(optional, type = "\"tap\" | \"hold_for_duration\" | \"hold_until_stop\"")]
         action: Option<String>,
+        #[serde(
+            rename = "durationMs",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[ts(rename = "durationMs", optional)]
+        duration_ms: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         label: Option<String>,

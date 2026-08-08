@@ -16,6 +16,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
         ]);
         start.macros.push(MacroDefinition {
@@ -92,6 +93,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.active_role_ids.push("r2".to_owned());
@@ -230,6 +232,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start_request.source_role_id = Some("r1".to_owned());
         let starting_runtime = runtime.clone();
@@ -290,6 +293,7 @@
                     modifiers: None,
                     action: Some("tap".to_owned()),
                     label: None,
+                    duration_ms: None,
                 }]),
             );
             focus_count += focus
@@ -330,6 +334,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].activation_mode = Some("while_held".to_owned());
         start.macros[0].trigger = Some(crate::model::MacroTrigger {
@@ -443,6 +448,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }]);
             start.macros[0].activation_mode = Some("while_held".to_owned());
             start.macros[0].trigger = Some(crate::model::MacroTrigger {
@@ -562,6 +568,7 @@
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].activation_mode = Some("while_held".to_owned());
         start.source_role_id = Some("r1".to_owned());
@@ -634,6 +641,7 @@
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         start.macros[0].activation_mode = Some("while_held".to_owned());
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 0 };

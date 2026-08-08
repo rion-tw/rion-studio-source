@@ -30,7 +30,7 @@ import { cn } from "../../lib/utils";
 
 import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroShortcutSourcesOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
 
-import { DEFAULT_MACRO_SETTINGS } from "../../../../shared/macroSettings";
+import { DEFAULT_MACRO_SETTINGS, isValidMacroKeyHoldDuration } from "../../../../shared/macroSettings";
 
 import type { Game, Macro, MacroActivationMode, MacroKeyAction, MacroRepeat, MacroSettings, MacroShortcutSourceScope, MacroStep, Role } from "../../../../shared/types";
 
@@ -121,6 +121,15 @@ function MacroEditor({
     });
     return invalidStep ? t("macroForm.saveHint.invalidMacroTarget") : undefined;
   }, [form.id, form.steps, macros, t]);
+  const holdDurationError = form.steps.some((step) => (
+    step.type === "key" && (
+      step.action === "hold_for_duration"
+        ? !isValidMacroKeyHoldDuration(step.durationMs ?? Number.NaN)
+        : step.durationMs !== undefined
+    )
+  ))
+    ? t("macroForm.saveHint.invalidHoldDuration")
+    : undefined;
   const activationError = form.activationMode === "while_held" && !form.trigger
     ? t("macroForm.saveHint.holdNeedsShortcut")
     : undefined;
@@ -136,9 +145,10 @@ function MacroEditor({
     (form.repeat.type === "once" || isValidMacroInterval(form.repeat.intervalMs)) &&
     !activationError &&
     !shortcutSourceError &&
+    !holdDurationError &&
     !macroStepError &&
     !shortcutConflict;
-  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? macroStepError ?? (
+  const saveHint = shortcutConflict ?? shortcutSourceError ?? activationError ?? holdDurationError ?? macroStepError ?? (
     form.roleIds.length === 0
       ? t(form.id ? "macroForm.saveHint.unassigned" : "macroForm.saveHint.needsRole")
       : form.steps.length === 0
@@ -246,6 +256,7 @@ function MacroForm({
     type: MacroStep["type"];
   }> = [
     { type: "key", action: "tap", label: t("macroForm.addKey") },
+    { type: "key", action: "hold_for_duration", label: t("macroForm.addTimedHold") },
     { type: "key", action: "hold_until_stop", label: t("macroForm.addHold") },
     { type: "click", label: t("macroForm.addClick") },
     { type: "delay", label: t("macroForm.addDelay") },

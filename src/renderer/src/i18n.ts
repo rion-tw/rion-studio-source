@@ -1,4 +1,4 @@
-import { MACRO_DELAY_MAX_MS } from "../../shared/macroSettings";
+import { MACRO_DELAY_MAX_MS, MACRO_KEY_HOLD_DURATION_MIN_MS } from "../../shared/macroSettings";
 import type { AppLanguage } from "../../shared/types";
 import en from "./i18n/en.json";
 
@@ -166,6 +166,8 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro key step is invalid.": "error.macroKeyStepInvalid",
   "Macro call mode is invalid.": "error.macroCallModeInvalid",
   "Macro key action is invalid.": "error.macroKeyActionInvalid",
+  [`Macro key hold duration must be between ${MACRO_KEY_HOLD_DURATION_MIN_MS} and ${MACRO_DELAY_MAX_MS} ms.`]: "error.macroKeyDurationInvalid",
+  "Macro key hold duration is only valid for timed holds.": "error.macroKeyDurationUnexpected",
   "Macro key modifiers are invalid.": "error.macroKeyModifiersInvalid",
   "Primary cannot be combined with Ctrl or Meta.": "error.macroKeyPrimaryConflict",
   "A key combination requires a non-modifier main key.": "error.macroKeyCombinationInvalid",

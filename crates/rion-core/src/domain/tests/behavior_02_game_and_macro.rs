@@ -756,3 +756,80 @@
             assert!(macros.is_empty());
         };
     }
+
+    #[test]
+    fn timed_macro_key_holds_require_an_action_specific_bounded_duration() {
+        for duration_ms in [20_u32, 86_400_000] {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Timed hold","roleIds":["r1"],
+                    "steps":[{
+                        "type":"key","code":"KeyW","action":"hold_for_duration",
+                        "durationMs":duration_ms
+                    }]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                &created.steps[0],
+                MacroStepDefinition::Key {
+                    action: Some(action),
+                    duration_ms: Some(actual_duration_ms),
+                    ..
+                } if action == "hold_for_duration" && *actual_duration_ms == duration_ms
+            ));
+        }
+
+        for (step, expected_code) in [
+            (
+                json!({"type":"key","code":"KeyW","action":"hold_for_duration"}),
+                "MACRO_KEY_DURATION_INVALID",
+            ),
+            (
+                json!({
+                    "type":"key","code":"KeyW","action":"hold_for_duration",
+                    "durationMs":19
+                }),
+                "MACRO_KEY_DURATION_INVALID",
+            ),
+            (
+                json!({
+                    "type":"key","code":"KeyW","action":"hold_for_duration",
+                    "durationMs":86_400_001_u64
+                }),
+                "MACRO_KEY_DURATION_INVALID",
+            ),
+            (
+                json!({"type":"key","code":"KeyW","action":"tap","durationMs":20}),
+                "MACRO_KEY_DURATION_UNEXPECTED",
+            ),
+            (
+                json!({
+                    "type":"key","code":"KeyW","action":"hold_until_stop",
+                    "durationMs":20
+                }),
+                "MACRO_KEY_DURATION_UNEXPECTED",
+            ),
+        ] {
+            let mut macros = Vec::new();
+            let error = create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Invalid timed hold","roleIds":["r1"],"steps":[step]
+                })),
+            )
+            .unwrap_err();
+            assert_eq!(error.code(), expected_code);
+        }
+
+        assert!(serde_json::from_value::<MacroCreateInputRecord>(json!({
+            "name":"Fractional timed hold","roleIds":["r1"],
+            "steps":[{
+                "type":"key","code":"KeyW","action":"hold_for_duration",
+                "durationMs":20.5
+            }]
+        }))
+        .is_err());
+    }

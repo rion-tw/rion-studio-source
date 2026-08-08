@@ -16,6 +16,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
         ]);
         start.macros.push(MacroDefinition {
@@ -33,6 +34,7 @@
                 modifiers: None,
                 action: Some("hold_until_stop".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         });
         start.active_role_ids.push("r2".to_owned());
@@ -370,6 +372,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
         ]);
         start.macros[0].role_ids.push("r2".to_owned());
@@ -388,6 +391,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         });
         start
@@ -458,6 +462,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         };
         let macro_b = MacroDefinition {
@@ -481,6 +486,7 @@
                     modifiers: None,
                     action: Some("tap".to_owned()),
                     label: None,
+                    duration_ms: None,
                 },
             ],
         };
@@ -496,6 +502,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
         ]);
         start.macros[0].id = "a".to_owned();
@@ -554,6 +561,7 @@
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }],
         });
         start.active_role_ids.push("r2".to_owned());

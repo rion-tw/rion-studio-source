@@ -34,7 +34,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 16;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 17;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -490,7 +490,7 @@ fn normalize_macro(value: &Value, supports_modifiers: bool, schema: u64) -> Core
     let mut step_ids = HashSet::new();
     let steps = steps
         .iter()
-        .map(|step| normalize_step(step, supports_modifiers, &mut step_ids))
+        .map(|step| normalize_step(step, supports_modifiers, schema, &mut step_ids))
         .collect::<CoreResult<Vec<_>>>()?;
     let repeat = source
         .get("repeat")

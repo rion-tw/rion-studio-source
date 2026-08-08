@@ -524,6 +524,8 @@ enum MacroStep {
         code: String,
         #[serde(default)]
         action: Option<String>,
+        #[serde(rename = "durationMs", default)]
+        duration_ms: Option<u32>,
     },
     Click {
         id: String,

@@ -13,6 +13,7 @@ fn input_fence_cancels_normal_work_and_tags_cleanup_with_the_new_epoch() {
             modifiers: None,
             action: Some("hold_until_stop".to_owned()),
             label: None,
+            duration_ms: None,
         }]),
     );
     assert!(focus

@@ -87,7 +87,8 @@ it.each([
     expect(macroHelps[1].textContent).toContain("when the parent completes normally");
     expect(macroHelps[1].textContent).toContain("already running does not start or create another run");
     expect(macroHelps[2].textContent).toContain("Stopping and held keys");
-    expect(macroHelps[2].textContent).toContain("releases keys held by that macro");
+    expect(macroHelps[2].textContent).toContain("Timed holds release automatically");
+    expect(macroHelps[2].textContent).toContain("Stopping or cancelling a macro releases");
     expect(macroHelps[2].textContent).toContain("cancels the parent");
     expect(macroHelps[2].textContent).toContain("does not stop the parent");
     expect(macroHelps[2].textContent).toContain("Closing any participating role stops the entire multi-role macro run");
@@ -577,6 +578,80 @@ it("blocks saving an empty selected shortcut source scope", async () => {
       .toHaveLength(2);
     expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled"))
       .toBe(true);
+  });
+
+it("adds, validates, resets, duplicates, and saves timed hold steps", async () => {
+    const user = userEvent.setup();
+    const selectedMacro = macro({
+      steps: [{ id: "delay", type: "delay", ms: 100 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    await user.click(screen.getByRole("button", { name: "Timed hold" }));
+
+    expect(screen.getByRole("combobox", { name: "Key action" }).textContent)
+      .toContain("Hold for duration");
+    let durationInput = screen.getByRole<HTMLInputElement>("spinbutton", {
+      name: "Hold duration"
+    });
+    expect(durationInput.value).toBe("1");
+
+    fireEvent.change(durationInput, { target: { value: "0.019" } });
+    expect(screen.getByText("Enter a whole-number hold duration from 20 to 86,400,000 ms."))
+      .toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled"))
+      .toBe(true);
+
+    const actionSelect = screen.getByRole("combobox", { name: "Key action" });
+    fireEvent.click(actionSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Tap" }));
+    expect(screen.queryByRole("spinbutton", { name: "Hold duration" })).toBeNull();
+
+    fireEvent.click(actionSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Hold for duration" }));
+    durationInput = screen.getByRole<HTMLInputElement>("spinbutton", { name: "Hold duration" });
+    expect(durationInput.value).toBe("1");
+    fireEvent.change(durationInput, { target: { value: "2.5" } });
+
+    const timedRow = durationInput.closest<HTMLElement>("[data-macro-step-id]");
+    expect(timedRow).not.toBeNull();
+    await user.click(within(timedRow!).getByTitle("Duplicate"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [
+        { id: "delay", type: "delay", ms: 100 },
+        expect.objectContaining({
+          type: "key",
+          action: "hold_for_duration",
+          durationMs: 2_500
+        }),
+        expect.objectContaining({
+          type: "key",
+          action: "hold_for_duration",
+          durationMs: 2_500
+        })
+      ]
+    })));
   });
 });
 

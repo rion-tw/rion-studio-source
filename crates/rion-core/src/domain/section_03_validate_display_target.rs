@@ -436,22 +436,43 @@ fn normalize_macro_step(
             code,
             modifiers,
             action,
+            duration_ms,
             label,
         } => {
             let code = normalize_macro_code(&code, "Macro key step is invalid.")?;
             let modifiers = normalize_macro_modifiers(modifiers, &code)?;
             let action = action.unwrap_or_else(|| "tap".to_owned());
-            if !matches!(action.as_str(), "tap" | "hold_until_stop") {
+            if !matches!(
+                action.as_str(),
+                "tap" | "hold_for_duration" | "hold_until_stop"
+            ) {
                 return Err(domain(
                     "MACRO_KEY_ACTION_INVALID",
                     "Macro key action is invalid.",
                 ));
+            }
+            match (action.as_str(), duration_ms) {
+                ("hold_for_duration", Some(20..=86_400_000)) => {}
+                ("hold_for_duration", _) => {
+                    return Err(domain(
+                        "MACRO_KEY_DURATION_INVALID",
+                        "Macro key hold duration must be between 20 and 86400000 ms.",
+                    ));
+                }
+                (_, None) => {}
+                (_, Some(_)) => {
+                    return Err(domain(
+                        "MACRO_KEY_DURATION_UNEXPECTED",
+                        "Macro key hold duration is only valid for timed holds.",
+                    ));
+                }
             }
             Ok(MacroStepDefinition::Key {
                 id: normalize_id(id, ids),
                 code,
                 modifiers: (!modifiers.is_empty()).then_some(modifiers),
                 action: Some(action),
+                duration_ms,
                 label: label.and_then(|label| {
                     let label = label.trim();
                     (!label.is_empty()).then(|| label.chars().take(48).collect())

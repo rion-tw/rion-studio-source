@@ -281,6 +281,7 @@ use std::sync::mpsc;
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             }]),
         );
         let mut phases = focus
@@ -437,6 +438,7 @@ use std::sync::mpsc;
             modifiers: None,
             action: Some("tap".to_owned()),
             label: Some("1".to_owned()),
+            duration_ms: None,
         }]);
         start.macros[0].trigger = Some(crate::model::MacroTrigger {
             code: "KeyQ".to_owned(),
@@ -522,6 +524,7 @@ use std::sync::mpsc;
             modifiers: None,
             action: Some("tap".to_owned()),
             label: Some("Left".to_owned()),
+            duration_ms: None,
         }]);
         start.macros[0].role_ids.push("r2".to_owned());
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
@@ -615,6 +618,7 @@ use std::sync::mpsc;
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         first.settings = MacroRuntimeSettings {
             startup_delay_ms: 100,
@@ -630,6 +634,7 @@ use std::sync::mpsc;
             modifiers: None,
             action: Some("tap".to_owned()),
             label: None,
+            duration_ms: None,
         }]);
         second.settings = MacroRuntimeSettings {
             startup_delay_ms: 0,
@@ -661,6 +666,7 @@ use std::sync::mpsc;
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
             MacroStepDefinition::Delay {
                 id: "delay".to_owned(),
@@ -672,6 +678,7 @@ use std::sync::mpsc;
                 modifiers: None,
                 action: Some("tap".to_owned()),
                 label: None,
+                duration_ms: None,
             },
         ]);
         start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 50 };
@@ -739,4 +746,171 @@ use std::sync::mpsc;
             );
         };
         runtime.stop_macro("m1").unwrap();
+    }
+
+    #[test]
+    fn timed_hold_waits_for_its_step_duration_then_releases_before_continuing() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![
+            MacroStepDefinition::Key {
+                id: "timed".to_owned(),
+                code: "KeyW".to_owned(),
+                modifiers: Some(vec!["shift".to_owned()]),
+                action: Some("hold_for_duration".to_owned()),
+                label: None,
+                duration_ms: Some(1_250),
+            },
+            MacroStepDefinition::Key {
+                id: "after".to_owned(),
+                code: "KeyA".to_owned(),
+                modifiers: None,
+                action: Some("tap".to_owned()),
+                label: None,
+                duration_ms: None,
+            },
+        ]);
+        start.settings.key_hold_ms = 7;
+        start.settings.post_input_delay_ms = 30;
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+
+        let startup = next_wait(&waits);
+        startup.release.send(()).unwrap();
+        let hold = next_browser_actions(&receiver);
+        assert!(matches!(
+            hold[0].action,
+            BrowserAction::Key {
+                ref code,
+                ref phase,
+                ref modifiers,
+                ..
+            } if code.as_deref() == Some("KeyW") && phase == "hold" && modifiers == &["shift"]
+        ));
+        runtime.dispatch_results(success_results(hold)).unwrap();
+
+        let timed_wait = next_wait(&waits);
+        assert_eq!(timed_wait.duration_ms, 1_250);
+        assert_no_browser_actions(&receiver, Duration::from_millis(25));
+        timed_wait.release.send(()).unwrap();
+        let release = next_browser_actions(&receiver);
+        assert!(matches!(
+            release[0].action,
+            BrowserAction::Key { ref code, ref phase, .. }
+                if code.as_deref() == Some("KeyW") && phase == "release"
+        ));
+        runtime.dispatch_results(success_results(release)).unwrap();
+
+        let post_input = next_wait(&waits);
+        assert_eq!(post_input.duration_ms, 30);
+        post_input.release.send(()).unwrap();
+        let next_hold = next_browser_actions(&receiver);
+        assert!(matches!(
+            next_hold[0].action,
+            BrowserAction::Key { ref code, ref phase, .. }
+                if code.as_deref() == Some("KeyA") && phase == "hold"
+        ));
+        runtime
+            .dispatch_results(success_results(next_hold))
+            .unwrap();
+        let tap_wait = next_wait(&waits);
+        assert_eq!(tap_wait.duration_ms, 7);
+        tap_wait.release.send(()).unwrap();
+        let next_release = next_browser_actions(&receiver);
+        runtime
+            .dispatch_results(success_results(next_release))
+            .unwrap();
+        let final_post_input = next_wait(&waits);
+        assert_eq!(final_post_input.duration_ms, 30);
+        final_post_input.release.send(()).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !runtime.statuses().unwrap().is_empty() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn cancelling_a_timed_hold_releases_the_key_before_terminalizing() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let _ = start_and_ack_focus(
+            &runtime,
+            &receiver,
+            request(vec![MacroStepDefinition::Key {
+                id: "timed".to_owned(),
+                code: "KeyW".to_owned(),
+                modifiers: None,
+                action: Some("hold_for_duration".to_owned()),
+                label: None,
+                duration_ms: Some(60_000),
+            }]),
+        );
+        next_wait(&waits).release.send(()).unwrap();
+        let hold = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(hold)).unwrap();
+        let _timed_wait = next_wait(&waits);
+
+        let stopping_runtime = runtime.clone();
+        let stopping = thread::spawn(move || stopping_runtime.stop_macro("m1"));
+        let release = next_browser_actions(&receiver);
+        assert!(matches!(
+            release[0].action,
+            BrowserAction::Key { ref code, ref phase, .. }
+                if code.as_deref() == Some("KeyW") && phase == "release"
+        ));
+        runtime.dispatch_results(success_results(release)).unwrap();
+        stopping.join().unwrap().unwrap();
+        assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
+    fn timed_hold_uses_the_same_duration_across_all_execution_roles() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let (runtime, waits) = runtime_with_manual_wait(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let mut start = request(vec![MacroStepDefinition::Key {
+            id: "timed".to_owned(),
+            code: "KeyW".to_owned(),
+            modifiers: None,
+            action: Some("hold_for_duration".to_owned()),
+            label: None,
+            duration_ms: Some(1_200),
+        }]);
+        start.macros[0].role_ids.push("r2".to_owned());
+        start.active_role_ids.push("r2".to_owned());
+        let (_, focus) = start_and_ack_focus(&runtime, &receiver, start);
+        assert_eq!(focus.len(), 2);
+
+        let startups = vec![next_wait(&waits), next_wait(&waits)];
+        for startup in startups {
+            startup.release.send(()).unwrap();
+        }
+        let holds = next_browser_action_count(&receiver, 2);
+        assert_key_actions_for_roles(&holds, "KeyW", "hold", &["r1", "r2"]);
+        runtime.dispatch_results(success_results(holds)).unwrap();
+
+        let timed_waits = vec![next_wait(&waits), next_wait(&waits)];
+        assert_waits_for_roles(&timed_waits, 1_200, &["r1", "r2"]);
+        for timed_wait in timed_waits {
+            timed_wait.release.send(()).unwrap();
+        }
+        let releases = next_browser_action_count(&receiver, 2);
+        assert_key_actions_for_roles(&releases, "KeyW", "release", &["r1", "r2"]);
+        runtime.dispatch_results(success_results(releases)).unwrap();
+        let post_inputs = vec![next_wait(&waits), next_wait(&waits)];
+        for post_input in post_inputs {
+            post_input.release.send(()).unwrap();
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !runtime.statuses().unwrap().is_empty() {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
     }

@@ -28,6 +28,7 @@ const t: Translator = (key) =>
       "macro.step.click": "Click",
       "macro.step.delay": "Delay",
       "macro.step.hold": "Hold",
+      "macro.step.timedHold": "Hold {duration}",
       "macro.step.key": "Key",
       "macro.step.macro": "Run macro",
       "macro.step.trigger": "Trigger macro",
@@ -144,6 +145,16 @@ describe("macroUtils", () => {
       [{ id: "hold", type: "key", code: "KeyW", action: "hold_until_stop" }],
       t
     )).toBe("Hold:W");
+    expect(summarizeMacroSteps(
+      [{
+        id: "timed-hold",
+        type: "key",
+        code: "KeyW",
+        action: "hold_for_duration",
+        durationMs: 1_250
+      }],
+      t
+    )).toBe("Hold 1.25 sec:W");
 
     expect(summarizeMacroSteps(
       [{ id: "combo", type: "key", code: "KeyK", modifiers: ["ctrl", "shift"] }],

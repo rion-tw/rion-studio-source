@@ -1,6 +1,7 @@
 fn normalize_step(
     value: &Value,
     supports_modifiers: bool,
+    schema: u64,
     ids: &mut HashSet<String>,
 ) -> CoreResult<Value> {
     let source = object(value, "macro step")?;
@@ -16,11 +17,32 @@ fn normalize_step(
                 .map(|value| {
                     value
                         .as_str()
-                        .filter(|action| matches!(*action, "tap" | "hold_until_stop"))
+                        .filter(|action| {
+                            matches!(*action, "tap" | "hold_until_stop")
+                                || (schema >= 17 && *action == "hold_for_duration")
+                        })
                         .map(str::to_owned)
                         .ok_or_else(|| invalid("portable macro key action is invalid"))
                 })
                 .transpose()?;
+            let duration_ms = source.get("durationMs").map(|value| {
+                value
+                    .as_u64()
+                    .filter(|duration| (20..=86_400_000).contains(duration))
+                    .ok_or_else(|| invalid("portable macro key hold duration is invalid"))
+            }).transpose()?;
+            match (action.as_deref().unwrap_or("tap"), duration_ms) {
+                ("hold_for_duration", Some(_)) | ("tap" | "hold_until_stop", None) => {}
+                ("hold_for_duration", None) => {
+                    return Err(invalid("portable timed macro key hold requires a duration"));
+                }
+                (_, Some(_)) => {
+                    return Err(invalid(
+                        "portable macro key hold duration is only valid for timed holds",
+                    ));
+                }
+                _ => unreachable!("macro key action was validated above"),
+            }
             let modifiers = if supports_modifiers {
                 source
                     .get("modifiers")
@@ -72,6 +94,9 @@ fn normalize_step(
             }
             if let Some(action) = action {
                 step.insert("action".to_owned(), json!(action));
+            }
+            if let Some(duration_ms) = duration_ms {
+                step.insert("durationMs".to_owned(), json!(duration_ms));
             }
             if let Some(label) = label {
                 step.insert("label".to_owned(), json!(label));

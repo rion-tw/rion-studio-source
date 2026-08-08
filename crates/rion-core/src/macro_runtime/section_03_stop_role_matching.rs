@@ -230,6 +230,7 @@ fn execute_step(
             code,
             modifiers,
             action,
+            duration_ms,
             ..
         } => {
             let input_sequence = input_sequence_role_lock(shared, role_id)?;
@@ -238,6 +239,11 @@ fn execute_step(
                 .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
             let modifiers = modifiers.as_deref().unwrap_or_default();
             let hold_until_stop = action.as_deref() == Some("hold_until_stop");
+            let key_hold_ms = if action.as_deref() == Some("hold_for_duration") {
+                duration_ms.ok_or_else(|| "timed macro key hold has no duration".to_owned())?
+            } else {
+                context.settings.key_hold_ms
+            };
             let owner_id_for = |role_id: &str| {
                 format!(
                     "{}:{}:{}:{}",
@@ -331,8 +337,7 @@ fn execute_step(
                 }
             }
             if !hold_until_stop {
-                let timing_result =
-                    wait_cancelable_for_role(context, role_id, context.settings.key_hold_ms);
+                let timing_result = wait_cancelable_for_role(context, role_id, key_hold_ms);
                 let release_result = perform_actions(
                     shared,
                     context,

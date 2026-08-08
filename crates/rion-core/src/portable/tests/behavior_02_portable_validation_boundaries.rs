@@ -66,6 +66,45 @@
     }
 
     #[test]
+    fn portable_v17_round_trips_timed_holds_and_rejects_invalid_or_legacy_shapes() {
+        let mut source = fixture_value(17);
+        source["macros"][0]["steps"] = json!([{
+            "id":"timed","type":"key","code":"KeyW",
+            "action":"hold_for_duration","durationMs":1_250
+        }]);
+        let normalized = normalize(&source.to_string()).unwrap();
+        assert_eq!(
+            normalized["macros"][0]["steps"][0]["durationMs"],
+            1_250
+        );
+
+        for invalid_step in [
+            json!({"id":"timed","type":"key","code":"KeyW","action":"hold_for_duration"}),
+            json!({
+                "id":"timed","type":"key","code":"KeyW",
+                "action":"hold_for_duration","durationMs":19
+            }),
+            json!({
+                "id":"timed","type":"key","code":"KeyW",
+                "action":"hold_for_duration","durationMs":86_400_001_u64
+            }),
+            json!({
+                "id":"tap","type":"key","code":"KeyW","action":"tap","durationMs":20
+            }),
+        ] {
+            source["macros"][0]["steps"] = json!([invalid_step]);
+            assert!(normalize(&source.to_string()).is_err());
+        }
+
+        source["schemaVersion"] = json!(16);
+        source["macros"][0]["steps"] = json!([{
+            "id":"timed","type":"key","code":"KeyW",
+            "action":"hold_for_duration","durationMs":1_250
+        }]);
+        assert!(normalize(&source.to_string()).is_err());
+    }
+
+    #[test]
     fn portable_browser_preferences_are_normalized_before_preview() {
         {
             let mut source = fixture_value(11);
@@ -513,6 +552,7 @@
                 "steps":[
                     {"id":"key-label","type":"key","code":"Digit1","action":"tap","label":"1"},
                     {"id":"key-empty","type":"key","code":"Digit2","modifiers":[]},
+                    {"id":"timed","type":"key","code":"KeyW","action":"hold_for_duration","durationMs":1250},
                     {"id":"percent-default","type":"click","xPercent":12.5,"yPercent":-4.0},
                     {"id":"percent-explicit","type":"click","unit":"percent","anchor":"top-left","xPercent":1.0,"yPercent":2.0},
                     {"id":"pixels","type":"click","unit":"px","anchor":"center","xPx":3.0,"yPx":4.0},
@@ -614,7 +654,7 @@
     }
 
     #[test]
-    fn export_is_v16_and_never_emits_internal_or_retired_sync_fields() {
+    fn export_is_v17_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -630,7 +670,7 @@
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 16);
+            assert_eq!(value["schemaVersion"], 17);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

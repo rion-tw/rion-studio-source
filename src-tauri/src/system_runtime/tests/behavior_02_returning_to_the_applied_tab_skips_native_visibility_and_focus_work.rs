@@ -569,6 +569,10 @@
                 .as_deref(),
             Some("workspace-tab")
         );
+        assert_eq!(
+            registry.tabs_for_launcher_source("role-b", "role"),
+            ["workspace-tab"]
+        );
 
         coordinator.lock().unwrap().remove_tab("workspace-tab", 5);
         assert!(registry.launcher_presence().unwrap().tabs.is_empty());

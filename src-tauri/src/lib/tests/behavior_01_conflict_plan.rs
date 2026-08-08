@@ -347,6 +347,121 @@ use super::*;
     }
 
     #[test]
+    fn saved_workspace_role_membership_is_the_existing_launch_source() {
+        let workspace_window = serde_json::from_value::<StateGameWindowRecord>(json!({
+            "id": "workspace-window",
+            "name": "Workspace window",
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            },
+            "tabs": [{
+                "id": "workspace-tab",
+                "tabType": "workspace",
+                "sourceId": "workspace-a",
+                "name": "Workspace A",
+                "roleSlots": [{
+                    "slotId": "test2-slot",
+                    "roleId": "test2",
+                    "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
+                "hidden": false,
+                "audioMuted": false
+            }],
+            "activeTabId": "workspace-tab",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let standalone_window = serde_json::from_value::<StateGameWindowRecord>(json!({
+            "id": "standalone-window",
+            "name": "Standalone window",
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            },
+            "tabs": [{
+                "id": "standalone-tab",
+                "tabType": "role",
+                "sourceId": "test2",
+                "name": "test2",
+                "roleSlots": [{
+                    "slotId": "standalone-slot",
+                    "roleId": "test2",
+                    "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
+                "hidden": false,
+                "audioMuted": false
+            }],
+            "activeTabId": "standalone-tab",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            saved_tab_for_launcher_source(&workspace_window, "test2", "role")
+                .map(|tab| tab.id.as_str()),
+            Some("workspace-tab")
+        );
+        assert_eq!(
+            select_non_conflicting_saved_windows(
+                &[workspace_window.clone(), standalone_window],
+                Some("workspace-window"),
+            )
+            .iter()
+            .map(|window| window.id.as_str())
+            .collect::<Vec<_>>(),
+            ["workspace-window"]
+        );
+
+        let live_runtime = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
+            "windows": [{
+                "windowId": "live-window",
+                "activeTabId": "live-workspace-tab",
+                "tabIds": ["live-workspace-tab"]
+            }],
+            "tabs": [{
+                "id": "live-workspace-tab",
+                "sourceId": "live-workspace",
+                "name": "Live workspace",
+                "windowId": "live-window",
+                "tabType": "workspace",
+                "slots": [{
+                    "slotId":"live-test2",
+                    "roleId":"test2",
+                    "state":"running",
+                    "rect":{"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                }],
+                "hidden": false
+            }],
+            "roles": [],
+            "workspaces": []
+        }))
+        .unwrap();
+        assert!(saved_window_conflicts_with_runtime(
+            &workspace_window,
+            &live_runtime,
+        ));
+
+        assert_eq!(
+            statuses_for_launch_source(
+                json!([
+                    {"roleId":"other-role","state":"running"},
+                    {"roleId":"test2","state":"running"}
+                ]),
+                "test2",
+                "role",
+            ),
+            json!([{"roleId":"test2","state":"running"}])
+        );
+    }
+
+    #[test]
     fn restore_owner_priority_launches_the_saved_active_tab_before_saved_order() {
         let window = serde_json::from_value::<StateGameWindowRecord>(json!({
             "id": "window-priority",

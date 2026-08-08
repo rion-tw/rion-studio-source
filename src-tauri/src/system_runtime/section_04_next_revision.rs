@@ -259,11 +259,23 @@ impl PresentationRegistry {
         })
     }
 
+    #[cfg(test)]
     fn tab_for_launcher_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
-        let mut windows = self.snapshot_states().ok()?.into_iter().collect::<Vec<_>>();
+        self.tabs_for_launcher_source(source_id, tab_type)
+            .into_iter()
+            .next()
+    }
+
+    fn tabs_for_launcher_source(&self, source_id: &str, tab_type: &str) -> Vec<String> {
+        let Ok(states) = self.snapshot_states() else {
+            return Vec::new();
+        };
+        let mut windows = states.into_iter().collect::<Vec<_>>();
         windows.sort_by(|left, right| left.0.cmp(&right.0));
-        windows.into_iter().find_map(|(_, window)| {
-            window.tabs.into_iter().find_map(|tab| {
+        windows
+            .into_iter()
+            .flat_map(|(_, window)| window.tabs)
+            .filter_map(|tab| {
                 let matches = if tab_type == "workspace" {
                     tab.tab_type == "workspace" && tab.source_id == source_id
                 } else {
@@ -272,7 +284,7 @@ impl PresentationRegistry {
                 };
                 matches.then_some(tab.id)
             })
-        })
+            .collect()
     }
 
     fn launcher_presence(&self) -> Result<RuntimeLauncherPresence, String> {

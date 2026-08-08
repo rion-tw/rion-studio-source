@@ -89,7 +89,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsForeground).toContain("Some(HWND_TOP)");
     expect(windowsForeground).toContain("SWP_NOACTIVATE");
     expect(windowsForeground).toContain("SetForegroundWindow(hwnd)");
-    expect(windowsForeground).toContain("ShowWindowAsync(hwnd, command)");
+    expect(windowsForeground).toContain("ShowWindow(hwnd, command)");
+    expect(windowsForeground).not.toContain("ShowWindowAsync(hwnd, command)");
     expect(windowsForeground).toContain("SW_RESTORE");
     expect(windowsForeground).toContain("SW_SHOW");
     expect(windowsForeground).not.toContain("HWND_TOPMOST");
@@ -265,6 +266,20 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");
     expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
     expect(restoreSavedWindows).not.toContain("game_windows.retain");
+    expect(
+      restoreSavedWindows.indexOf("activate_live_runtime_window(")
+    ).toBeLessThan(restoreSavedWindows.indexOf("for tab in restore_tabs_in_owner_priority"));
+    const restoreCompletion = restoreSavedWindows.slice(
+      restoreSavedWindows.indexOf("restore_progress.finish()?")
+    );
+    expect(restoreCompletion).not.toContain("activate_live_runtime_window(");
+    expect(shell).toContain("SavedWindowRestoreActivation::UserInitiated");
+    const autoRestore = shell.slice(
+      shell.indexOf('"autoRestoreSavedGameWindows" =>'),
+      shell.indexOf('"discardSavedGameWindows" =>')
+    );
+    expect(autoRestore).toContain("SavedWindowRestoreActivation::Background");
+    expect(autoRestore).not.toContain("SavedWindowRestoreActivation::UserInitiated");
     const resizeObserver = runtime.slice(
       runtime.indexOf("pub fn observe_resize_window("),
       runtime.indexOf("pub fn resize_window(")

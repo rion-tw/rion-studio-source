@@ -773,10 +773,10 @@ impl SystemRuntimeExecutor {
                 }
             }
         });
-        let submit_focus = lease.as_ref().is_some_and(|lease| {
-            focus_guard.is_some() && self.focus_broker.mark_submitted(lease)
+        let prepare_focus = lease.as_ref().is_some_and(|lease| {
+            focus_guard.is_some() && self.focus_broker.is_current(lease)
         });
-        if submit_focus
+        if prepare_focus
             && let Err(error) = prepare_platform_window_foreground(window)
         {
             eprintln!(
@@ -787,6 +787,11 @@ impl SystemRuntimeExecutor {
 
         set_windows_runtime_window_cloaked(window, false)?;
 
+        let submit_focus = lease.as_ref().is_some_and(|lease| {
+            focus_guard.is_some()
+                && self.focus_broker.is_current(lease)
+                && self.focus_broker.mark_submitted(lease)
+        });
         if submit_focus {
             if let Err(error) = request_platform_window_show_foreground(window) {
                 eprintln!(

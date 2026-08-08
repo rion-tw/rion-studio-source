@@ -192,6 +192,7 @@ async fn rion_shell_invoke(
                     &state,
                     &window,
                     &[json!({ "scope": "window", "windowId": window_id })],
+                    SavedWindowRestoreActivation::UserInitiated,
                 )
                 .await,
             }
@@ -457,12 +458,24 @@ async fn rion_shell_invoke(
             serde_json::to_value(receipt)
                 .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }
-        "restoreSavedGameWindows" => restore_saved_game_windows(&state, &window, &args).await,
+        "restoreSavedGameWindows" => restore_saved_game_windows(
+            &state,
+            &window,
+            &args,
+            SavedWindowRestoreActivation::UserInitiated,
+        )
+        .await,
         "autoRestoreSavedGameWindows" => {
             if !state.runtime.begin_auto_restore() {
                 return Ok(Value::Null);
             }
-            restore_saved_game_windows(&state, &window, &[json!({ "scope": "all" })]).await
+            restore_saved_game_windows(
+                &state,
+                &window,
+                &[json!({ "scope": "all" })],
+                SavedWindowRestoreActivation::Background,
+            )
+            .await
         }
         "discardSavedGameWindows" => discard_saved_game_windows(&state, &args),
         "stopEmbeddedRuntimeWindow" => {

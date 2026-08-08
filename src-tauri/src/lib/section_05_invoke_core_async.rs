@@ -203,10 +203,31 @@ async fn create_game_window_transaction(
         .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SavedWindowRestoreActivation {
+    Background,
+    UserInitiated,
+}
+
+fn saved_window_restore_focus_target(
+    activation: SavedWindowRestoreActivation,
+    selected: &[StateGameWindowRecord],
+    last_focused_window_id: Option<&str>,
+) -> Option<String> {
+    if activation == SavedWindowRestoreActivation::Background {
+        return None;
+    }
+    last_focused_window_id
+        .filter(|window_id| selected.iter().any(|saved| saved.id == *window_id))
+        .map(str::to_owned)
+        .or_else(|| selected.first().map(|saved| saved.id.clone()))
+}
+
 async fn restore_saved_game_windows(
     state: &CoreState,
     window: &WebviewWindow,
     args: &[Value],
+    activation: SavedWindowRestoreActivation,
 ) -> Result<Value, CoreErrorPayload> {
     let input = args
         .first()
@@ -251,6 +272,11 @@ async fn restore_saved_game_windows(
             &runtime_before_restore,
         )
     };
+    let focus_window_id = saved_window_restore_focus_target(
+        activation,
+        &selected,
+        last_focused_window_id.as_deref(),
+    );
     let recovery_flow = state.runtime.recovery_required();
     replace_restore_progress(
         state,
@@ -311,6 +337,24 @@ async fn restore_saved_game_windows(
             .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;
         let mut active_runtime_tab_id = None;
         let mut window_revealed = false;
+        if focus_window_id.as_deref() == Some(saved.id.as_str()) {
+            match state
+                .runtime
+                .activate_live_runtime_window(&saved.id, "saved-window-restore")
+            {
+                Ok(true) => window_revealed = true,
+                Ok(false) => failures.push(json!({
+                    "windowId": saved.id,
+                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
+                    "message": "The restored Game Window was unavailable for its initial activation."
+                })),
+                Err(error) => failures.push(json!({
+                    "windowId": saved.id,
+                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
+                    "message": error
+                })),
+            }
+        }
         for tab in restore_tabs_in_owner_priority(&saved) {
             let mut prepared_role_slots = false;
             let mut restored_tab_id = tab.id.clone();
@@ -484,9 +528,6 @@ async fn restore_saved_game_windows(
         })
         .map(game_window_restore_record)
         .collect::<Vec<_>>();
-    let focus_window_id = last_focused_window_id
-        .filter(|window_id| restored_ids.contains(window_id))
-        .or_else(|| restored_ids.last().cloned());
     restore_progress.finish()?;
     state.runtime.replace_dormant_windows(
         remaining_windows.clone(),
@@ -496,18 +537,6 @@ async fn restore_saved_game_windows(
         .runtime
         .persist_restore_session(false)
         .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
-    if let Some(window_id) = focus_window_id {
-        let activated = state
-            .runtime
-            .activate_live_runtime_window(&window_id, "saved-window-restore")
-            .map_err(|error| shell_error("TAURI_RESTORE_ACTIVATION_FAILED", error))?;
-        if !activated {
-            return Err(shell_error(
-                "TAURI_RESTORE_ACTIVATION_FAILED",
-                "The restored Game Window is no longer available for activation.",
-            ));
-        }
-    }
     Ok(json!({
         "restoredWindowIds": restored_ids,
         "failures": failures

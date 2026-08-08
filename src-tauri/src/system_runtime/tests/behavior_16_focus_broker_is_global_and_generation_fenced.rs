@@ -151,6 +151,7 @@ fn lifecycle_readiness_never_creates_focus_and_external_foreground_blocks_user_f
 #[test]
 fn native_focus_observation_confirms_matching_intent_and_supersedes_other_windows() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let requested = broker.accept(
         "window-a",
         3,
@@ -181,6 +182,7 @@ fn native_focus_observation_confirms_matching_intent_and_supersedes_other_window
 #[test]
 fn focus_revocation_is_scoped_to_the_exact_window_generation() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let replacement = broker.accept(
         "window-a",
         12,
@@ -204,6 +206,7 @@ fn focus_revocation_is_scoped_to_the_exact_window_generation() {
 #[test]
 fn delayed_reveal_focus_resolves_only_the_exact_current_sequence_and_generation() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let requested = broker.accept(
         "window-a",
         12,
@@ -235,4 +238,35 @@ fn delayed_reveal_focus_resolves_only_the_exact_current_sequence_and_generation(
         broker.current_lease_for(replacement.sequence, "window-b", 7),
         Some(replacement)
     );
+}
+
+#[test]
+fn user_focus_requires_foreground_and_background_system_activation_is_revoked_once() {
+    let broker = NativeFocusBroker::default();
+    let user = broker.accept_with_origin(
+        "window-a",
+        3,
+        1,
+        None,
+        NativePresentationFocus::WindowAndContent,
+        NativeFocusIntentOrigin::UserGesture,
+    );
+    assert!(!broker.is_current(&user));
+
+    let system = broker.accept_with_origin(
+        "window-b",
+        4,
+        1,
+        None,
+        NativePresentationFocus::WindowAndContent,
+        NativeFocusIntentOrigin::SystemActivation,
+    );
+    assert!(broker.is_current(&system));
+    broker.observe_external_foreground();
+    assert_eq!(broker.foreground_epoch(), 1);
+    assert_eq!(broker.snapshot(), (None, None));
+    assert!(!broker.is_current(&system));
+
+    broker.observe_external_foreground();
+    assert_eq!(broker.foreground_epoch(), 1);
 }

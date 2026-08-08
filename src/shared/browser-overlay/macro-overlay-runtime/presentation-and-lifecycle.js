@@ -567,6 +567,9 @@
 
   function dispose() {
     isDisposed = true;
+    appliedPageZoomRequestRevision += 1;
+    appliedPageZoom = 1;
+    appliedPageZoomKnown = false;
     refreshQueued = false;
     cancelCoordinateMeasureHide();
     destroyCoordinateMeasurement();

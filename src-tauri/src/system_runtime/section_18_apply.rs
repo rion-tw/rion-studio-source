@@ -318,13 +318,19 @@ impl SystemRuntimeExecutor {
             }
             CoreEffectAction::OverlayCopyCoordinate { coordinate } => {
                 crate::native_shell::copy_text(&format!(
-                    "X: {}px ({}%), Y: {}px ({}%), Viewport: {}x{}px",
-                    coordinate.x_px,
+                    "X: {}px ({}%), Y: {}px ({}%), Anchor: {}, ReferenceViewport: {}x{}px, CSS: X {}px, Y {}px, Viewport: {}x{}px, Zoom: {}%",
+                    coordinate.x_reference_px,
                     coordinate.x_percent,
-                    coordinate.y_px,
+                    coordinate.y_reference_px,
                     coordinate.y_percent,
+                    coordinate.anchor,
+                    coordinate.reference_viewport_width_px,
+                    coordinate.reference_viewport_height_px,
+                    coordinate.x_px,
+                    coordinate.y_px,
                     coordinate.viewport_width_px,
-                    coordinate.viewport_height_px
+                    coordinate.viewport_height_px,
+                    format_page_zoom_percent(coordinate.applied_page_zoom)
                 ))
                 .map_err(|message| RuntimeError::new("SHELL_CLIPBOARD_FAILED", message))?;
                 Ok(None)
@@ -716,9 +722,33 @@ impl SystemRuntimeExecutor {
         context: &InputDispatchContext,
     ) -> RuntimeResult<()> {
         let webview = self.role_webview_for_input(role_id, context)?;
-        let viewport = self.devtools_viewport(&webview)?;
-        context.ensure_current()?;
-        let point = resolve_click_point(click.anchor, click.unit, click.x, click.y, viewport)?;
+        let (viewport, applied_page_zoom) = if click.unit == "reference-px" {
+            let zoom_before_viewport = platform_page_zoom(&webview)?;
+            context.ensure_current()?;
+            let viewport = self.devtools_viewport(&webview)?;
+            context.ensure_current()?;
+            let zoom_after_viewport = platform_page_zoom(&webview)?;
+            context.ensure_current()?;
+            if (zoom_before_viewport - zoom_after_viewport).abs() > 1e-9 {
+                return Err(RuntimeError::new(
+                    "BROWSER_ACTION_STALE",
+                    "The page zoom changed while the reference-pixel click was resolved.",
+                ));
+            }
+            (viewport, zoom_after_viewport)
+        } else {
+            let viewport = self.devtools_viewport(&webview)?;
+            context.ensure_current()?;
+            (viewport, 1.0)
+        };
+        let point = resolve_click_point(
+            click.anchor,
+            click.unit,
+            click.x,
+            click.y,
+            viewport,
+            applied_page_zoom,
+        )?;
         let button = validate_mouse_button(click.button)?;
         self.record_macro_click_resolution(
             role_id,
@@ -896,5 +926,11 @@ impl SystemRuntimeExecutor {
             role_id: role_id.to_owned(),
         });
     }
+}
 
+fn format_page_zoom_percent(zoom: f64) -> String {
+    format!("{:.2}", zoom * 100.0)
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
 }

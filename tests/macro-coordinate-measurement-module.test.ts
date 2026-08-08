@@ -10,13 +10,21 @@ type CoordinateController = {
 };
 
 type CoordinateFactory = (options: {
-  copyCoordinate: (coordinate: Record<string, number>) => Promise<void>;
+  copyCoordinate: (coordinate: Record<string, unknown>) => Promise<void>;
+  getCoordinateContext?: () => Promise<CoordinateContext>;
   getText: () => Record<string, string>;
+  initialCoordinateContext?: CoordinateContext;
   isTrustedUserEvent: (event: Event) => boolean;
   onCancel: () => void;
   onComplete: () => void;
   root: ShadowRoot;
 }) => CoordinateController;
+
+type CoordinateContext = {
+  appliedPageZoom: number;
+  surfaceGeneration: number;
+  topologyRevision: number;
+};
 
 const moduleSource = readFileSync(
   "src/shared/browser-overlay/macroCoordinateMeasurement.js",
@@ -102,7 +110,7 @@ describe("macro coordinate measurement module", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1000 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 500 });
     window.dispatchEvent(new Event("resize"));
-    expect(readout.textContent).toContain("X: 300px (30%)");
+    await vi.waitFor(() => expect(readout.textContent).toContain("X: 300px (30%)"));
     expect(readout.textContent).toContain("Y: 150px (30%)");
 
     picker.dispatchEvent(new MouseEvent("mousemove", {
@@ -123,7 +131,7 @@ describe("macro coordinate measurement module", () => {
       return 1;
     });
     const root = createRoot();
-    const copyCoordinate = vi.fn<(coordinate: Record<string, number>) => Promise<void>>(
+    const copyCoordinate = vi.fn<(coordinate: Record<string, unknown>) => Promise<void>>(
       async () => undefined
     );
     const onComplete = vi.fn();
@@ -148,14 +156,69 @@ describe("macro coordinate measurement module", () => {
 
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
     expect(copyCoordinate).toHaveBeenCalledWith({
+      anchor: "top-left",
+      appliedPageZoom: 1,
+      referenceViewportHeightPx: 600,
+      referenceViewportWidthPx: 800,
       viewportHeightPx: 600,
       viewportWidthPx: 800,
       xPercent: 25,
       xPx: 200,
+      xReferencePx: 200,
       yPercent: 25,
-      yPx: 150
+      yPx: 150,
+      yReferencePx: 150
     });
-    expect(copyCoordinate.mock.calls[0]?.[0]).not.toHaveProperty("anchor");
+    controller.destroy();
+  });
+
+  it.each([
+    [0.75, 1280, 800, 284, 160],
+    [1, 960, 600, 213, 120],
+    [1.25, 768, 480, 170.4, 96]
+  ])("normalizes measured pixels at %s page zoom", async (
+    appliedPageZoom,
+    viewportWidth,
+    viewportHeight,
+    clientX,
+    clientY
+  ) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: viewportWidth });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: viewportHeight });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const context = { appliedPageZoom, surfaceGeneration: 7, topologyRevision: 11 };
+    const copyCoordinate = vi.fn(async (_coordinate: Record<string, unknown>) => undefined);
+    const createMeasurement = await loadFactory();
+    const controller = createMeasurement({
+      copyCoordinate,
+      getCoordinateContext: async () => context,
+      getText: () => text,
+      initialCoordinateContext: context,
+      isTrustedUserEvent: () => true,
+      onCancel: vi.fn(),
+      onComplete: vi.fn(),
+      root: createRoot()
+    });
+    const picker = document.querySelector<HTMLElement>("div")?.shadowRoot
+      ?.querySelector<HTMLElement>(".coordinate-picker");
+    if (!picker) throw new Error("Expected a mounted coordinate measurement.");
+    picker.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY
+    }));
+    await vi.waitFor(() => expect(copyCoordinate).toHaveBeenCalledOnce());
+    expect(copyCoordinate).toHaveBeenCalledWith(expect.objectContaining({
+      appliedPageZoom,
+      referenceViewportHeightPx: 600,
+      referenceViewportWidthPx: 960,
+      xReferencePx: 213,
+      yReferencePx: 120
+    }));
     controller.destroy();
   });
 

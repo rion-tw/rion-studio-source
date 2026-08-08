@@ -19,6 +19,16 @@ async fn rion_overlay_request(
             "The overlay request exceeds the allowed size.",
         ));
     }
+    if payload.get("type").and_then(Value::as_str) == Some("coordinate-context") {
+        serde_json::from_value::<rion_core::MacroOverlayRequestRecord>(payload)
+            .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()))?;
+        let context = state
+            .runtime
+            .overlay_coordinate_context(&webview, &role_id)
+            .map_err(|error| shell_error(error.code, error.message))?;
+        return serde_json::to_value(context)
+            .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()));
+    }
     if overlay_request_activates_webview(&payload)
         && state
             .runtime

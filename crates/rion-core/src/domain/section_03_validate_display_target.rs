@@ -466,6 +466,8 @@ fn normalize_macro_step(
             y_percent,
             x_px,
             y_px,
+            x_reference_px,
+            y_reference_px,
         } => {
             let unit = unit.unwrap_or_else(|| "percent".to_owned());
             let anchor = normalize_macro_click_anchor(anchor)?;
@@ -487,6 +489,15 @@ fn normalize_macro_step(
                         unit: "px".to_owned(),
                         x_px: normalize_macro_pixel(x_px)?,
                         y_px: normalize_macro_pixel(y_px)?,
+                    },
+                }),
+                "reference-px" => Ok(MacroStepDefinition::Click {
+                    id,
+                    anchor,
+                    position: crate::model::MacroClickDefinition::ReferencePixels {
+                        unit: "reference-px".to_owned(),
+                        x_reference_px: normalize_macro_pixel(x_reference_px)?,
+                        y_reference_px: normalize_macro_pixel(y_reference_px)?,
                     },
                 }),
                 _ => Err(domain("MACRO_STEP_INVALID", "Macro click unit is invalid.")),

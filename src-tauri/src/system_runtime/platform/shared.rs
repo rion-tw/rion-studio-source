@@ -273,6 +273,7 @@ fn resolve_click_point(
     x: f64,
     y: f64,
     viewport: ViewportSize,
+    applied_page_zoom: f64,
 ) -> RuntimeResult<ClickPoint> {
     if !x.is_finite() || !y.is_finite() {
         return Err(RuntimeError::new(
@@ -306,6 +307,13 @@ fn resolve_click_point(
             viewport.width * anchor_x / 100.0 + x,
             viewport.height * anchor_y / 100.0 + y,
         ),
+        "reference-px" => {
+            let zoom = validate_applied_page_zoom(applied_page_zoom)?;
+            (
+                viewport.width * anchor_x / 100.0 + x / zoom,
+                viewport.height * anchor_y / 100.0 + y / zoom,
+            )
+        }
         _ => {
             return Err(RuntimeError::new(
                 "BROWSER_CLICK_INVALID",

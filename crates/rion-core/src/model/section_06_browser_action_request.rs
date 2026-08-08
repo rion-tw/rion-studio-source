@@ -79,7 +79,7 @@ pub enum BrowserAction {
             type = "\"top-left\" | \"top-center\" | \"top-right\" | \"center-left\" | \"center\" | \"center-right\" | \"bottom-left\" | \"bottom-center\" | \"bottom-right\" | null"
         )]
         anchor: Option<String>,
-        #[ts(type = "\"percent\" | \"px\"")]
+        #[ts(type = "\"percent\" | \"px\" | \"reference-px\"")]
         unit: String,
         x: f64,
         y: f64,
@@ -585,6 +585,16 @@ pub enum MacroClickDefinition {
         #[ts(rename = "yPx")]
         y_px: f64,
     },
+    ReferencePixels {
+        #[ts(type = "\"reference-px\"")]
+        unit: String,
+        #[serde(rename = "xReferencePx")]
+        #[ts(rename = "xReferencePx")]
+        x_reference_px: f64,
+        #[serde(rename = "yReferencePx")]
+        #[ts(rename = "yReferencePx")]
+        y_reference_px: f64,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -674,6 +684,7 @@ pub struct MacroLastClick {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum MacroOverlayRequestRecord {
     Activate,
+    CoordinateContext,
     GameInputContext {
         active: bool,
     },
@@ -720,10 +731,30 @@ pub enum MacroOverlayRequestRecord {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroCoordinateRecord {
+    #[ts(
+        type = "\"top-left\" | \"top-center\" | \"top-right\" | \"center-left\" | \"center\" | \"center-right\" | \"bottom-left\" | \"bottom-center\" | \"bottom-right\""
+    )]
+    pub anchor: String,
+    pub applied_page_zoom: f64,
+    pub reference_viewport_height_px: u32,
+    pub reference_viewport_width_px: u32,
     pub x_percent: f64,
     pub x_px: u32,
+    pub x_reference_px: u32,
     pub viewport_height_px: u32,
     pub viewport_width_px: u32,
     pub y_percent: f64,
     pub y_px: u32,
+    pub y_reference_px: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroCoordinateContextRecord {
+    pub applied_page_zoom: f64,
+    #[ts(type = "number")]
+    pub surface_generation: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
 }

@@ -244,7 +244,7 @@ export type MacroShortcutSourceScope = RustMacroShortcutSourceScope;
 export type MacroRepeat = RustMacroRepeat;
 
 export type MacroCallMode = "wait" | "trigger";
-export type MacroClickUnit = "percent" | "px";
+export type MacroClickUnit = "percent" | "px" | "reference-px";
 export type MacroClickAnchor =
   | "top-left"
   | "top-center"

@@ -468,6 +468,8 @@
   "macroForm.clickXOffset": "X offset",
   "macroForm.clickYOffset": "Y offset",
   "macroForm.clickUnit": "Coordinate unit",
+  "macroForm.clickUnit.referencePx": "px",
+  "macroForm.clickUnit.legacyCssPx": "CSS px (legacy)",
   "macroForm.clickAnchor": "Coordinate anchor",
   "macroForm.clickAnchor.topLeft": "Top left",
   "macroForm.clickAnchor.topCenter": "Top center",

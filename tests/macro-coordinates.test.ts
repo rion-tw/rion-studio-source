@@ -29,6 +29,28 @@ describe("macro coordinate clipboard format", () => {
     })).toBe("X: 123px (12.35%), Y: 456px (56.79%), Anchor: center-left, Viewport: 1024x768px");
   });
 
+  it("formats and parses zoom-normalized reference pixels with CSS diagnostics", () => {
+    const measurement = {
+      anchor: "top-left" as const,
+      appliedPageZoom: 0.75,
+      referenceViewportHeightPx: 540,
+      referenceViewportWidthPx: 960,
+      viewportHeightPx: 720,
+      viewportWidthPx: 1280,
+      xPercent: 22.27,
+      xPx: 285,
+      xReferencePx: 214,
+      yPercent: 0,
+      yPx: 0,
+      yReferencePx: 0
+    };
+    const formatted = formatMacroCoordinateClipboard(measurement);
+    expect(formatted).toBe(
+      "X: 214px (22.27%), Y: 0px (0%), Anchor: top-left, ReferenceViewport: 960x540px, CSS: X 285px, Y 0px, Viewport: 1280x720px, Zoom: 75%"
+    );
+    expect(parseMacroCoordinateClipboard(formatted)).toEqual(measurement);
+  });
+
   it("parses the copied format and rounds values to macro precision", () => {
     expect(parseMacroCoordinateClipboard("X: 123px (12.345%), Y: 456px (56.789%)")).toEqual({
       xPercent: 12.35,
@@ -111,6 +133,22 @@ describe("macro coordinate clipboard format", () => {
       .toBeUndefined();
   });
 
+  it("converts reference pixels using the reference viewport", () => {
+    expect(convertMacroCoordinateToOffset({
+      appliedPageZoom: 0.75,
+      referenceViewportHeightPx: 540,
+      referenceViewportWidthPx: 960,
+      viewportHeightPx: 720,
+      viewportWidthPx: 1280,
+      xPercent: 22.27,
+      xPx: 285,
+      xReferencePx: 214,
+      yPercent: 0,
+      yPx: 0,
+      yReferencePx: 0
+    }, "bottom-right", "reference-px")).toEqual({ x: -746, y: -540 });
+  });
+
   it.each([
     ["top-left", 12, 34, 12, 34],
     ["top-center", 12, 34, 62, 34],
@@ -131,6 +169,13 @@ describe("macro coordinate clipboard format", () => {
       { anchor: "bottom-right", unit: "px", x: -24, y: -32 },
       { width: 1024, height: 768 }
     )).toEqual({ x: 1000, y: 736 });
+  });
+
+  it("resolves reference pixel offsets through the current page zoom", () => {
+    expect(resolveMacroClickOffset(
+      { anchor: "bottom-right", unit: "reference-px", x: -24, y: -30 },
+      { appliedPageZoom: 0.75, width: 1280, height: 720 }
+    )).toEqual({ x: 1248, y: 680 });
   });
 
   it.each([

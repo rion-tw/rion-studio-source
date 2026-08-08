@@ -1,5 +1,13 @@
 NS_ASSUME_NONNULL_BEGIN
 
+double rion_wk_page_zoom(void * _Nullable rawWebView) {
+  @autoreleasepool {
+    if (!rawWebView || ![NSThread isMainThread]) return NAN;
+    WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    return webView.pageZoom;
+  }
+}
+
 static void RionDenyMediaCapture(
     id delegate, SEL selector, WKWebView * _Nullable webView,
     WKSecurityOrigin * _Nullable origin, WKFrameInfo * _Nullable frame,

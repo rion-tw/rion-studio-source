@@ -136,10 +136,48 @@ fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
         MacroOverlayRequestRecord::CopyCoordinate { coordinate } => {
             if coordinate.viewport_width_px == 0
                 || coordinate.viewport_height_px == 0
+                || coordinate.reference_viewport_width_px == 0
+                || coordinate.reference_viewport_height_px == 0
                 || coordinate.x_px >= coordinate.viewport_width_px
                 || coordinate.y_px >= coordinate.viewport_height_px
+                || coordinate.x_reference_px >= coordinate.reference_viewport_width_px
+                || coordinate.y_reference_px >= coordinate.reference_viewport_height_px
+                || !coordinate.applied_page_zoom.is_finite()
+                || coordinate.applied_page_zoom <= 0.0
+                || !within_reference_rounding(
+                    coordinate.reference_viewport_width_px,
+                    coordinate.viewport_width_px,
+                    coordinate.applied_page_zoom,
+                )
+                || !within_reference_rounding(
+                    coordinate.reference_viewport_height_px,
+                    coordinate.viewport_height_px,
+                    coordinate.applied_page_zoom,
+                )
+                || !within_reference_rounding(
+                    coordinate.x_reference_px,
+                    coordinate.x_px,
+                    coordinate.applied_page_zoom,
+                )
+                || !within_reference_rounding(
+                    coordinate.y_reference_px,
+                    coordinate.y_px,
+                    coordinate.applied_page_zoom,
+                )
                 || !valid_percent(coordinate.x_percent)
                 || !valid_percent(coordinate.y_percent)
+                || !matches!(
+                    coordinate.anchor.as_str(),
+                    "top-left"
+                        | "top-center"
+                        | "top-right"
+                        | "center-left"
+                        | "center"
+                        | "center-right"
+                        | "bottom-left"
+                        | "bottom-center"
+                        | "bottom-right"
+                )
             {
                 return Err(domain(
                     "MACRO_OVERLAY_REQUEST_INVALID",
@@ -149,6 +187,7 @@ fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
             Ok(())
         }
         MacroOverlayRequestRecord::Activate
+        | MacroOverlayRequestRecord::CoordinateContext
         | MacroOverlayRequestRecord::GameInputContext { .. }
         | MacroOverlayRequestRecord::List
         | MacroOverlayRequestRecord::Open => Ok(()),
@@ -168,6 +207,10 @@ fn validate_identifier(value: &str, field: &str) -> CoreResult<()> {
 
 fn valid_percent(value: f64) -> bool {
     value.is_finite() && (0.0..=100.0).contains(&value)
+}
+
+fn within_reference_rounding(reference: u32, css: u32, zoom: f64) -> bool {
+    (f64::from(reference) - (f64::from(css) * zoom).round()).abs() <= 1.0
 }
 
 fn has_unassigned_dependency(macros: &[MacroDefinition], source_macro_id: &str) -> bool {
@@ -471,7 +514,9 @@ mod tests {
     #[test]
     fn validates_requests_and_filters_unassigned_dependency_graphs() {
         assert!(parse_request(r#"{"type":"activate"}"#).is_ok());
+        assert!(parse_request(r#"{"type":"coordinate-context"}"#).is_ok());
         assert!(parse_request(r#"{"type":"list"}"#).is_ok());
+        assert!(parse_request(r#"{"type":"copy-coordinate","anchor":"top-left","appliedPageZoom":0.75,"referenceViewportHeightPx":75,"referenceViewportWidthPx":75,"xPercent":12,"xPx":12,"xReferencePx":9,"viewportHeightPx":100,"viewportWidthPx":100,"yPercent":45,"yPx":45,"yReferencePx":34}"#).is_ok());
         assert!(
             parse_request(
                 r#"{"type":"release","macroId":"m","pressId":"p","releaseMode":"later"}"#

@@ -126,6 +126,9 @@
   );
   let activeBadgesElement = null;
   let actionMenuElement = null;
+  let appliedPageZoom = 1;
+  let appliedPageZoomKnown = false;
+  let appliedPageZoomRequestRevision = 0;
   const activeHeldShortcuts = new Map();
   const clickMarkerEvents = new Map();
   const clickMarkerFlashStates = new Map();
@@ -404,6 +407,37 @@
     updatePresentation();
   }
 
+  async function getCoordinateMeasurementContext() {
+    const context = await binding({ type: "coordinate-context" });
+    const zoom = Number(context?.appliedPageZoom);
+    if (!Number.isFinite(zoom) || zoom <= 0) {
+      throw new Error("Rion Studio coordinate context is invalid.");
+    }
+    appliedPageZoom = zoom;
+    appliedPageZoomKnown = true;
+    return context;
+  }
+
+  function hasReferencePixelMacroSteps() {
+    return state.macros.some((macro) => Array.isArray(macro?.steps) && macro.steps.some(
+      (step) => step?.type === "click" && step.unit === "reference-px"
+    ));
+  }
+
+  async function refreshAppliedPageZoomForMarkers() {
+    const requestRevision = ++appliedPageZoomRequestRevision;
+    try {
+      await getCoordinateMeasurementContext();
+      if (requestRevision === appliedPageZoomRequestRevision && !isDisposed) {
+        renderClickMarkers();
+      }
+    } catch (error) {
+      if (requestRevision === appliedPageZoomRequestRevision && !isDisposed) {
+        console.warn("Unable to refresh Rion Studio click marker page zoom.", error);
+      }
+    }
+  }
+
   async function startCoordinateMeasurement() {
     if (
       isDisposed ||
@@ -420,7 +454,10 @@
     const generation = ++coordinateMeasurementLoadGeneration;
     let loadFailed = false;
     try {
-      const measurementModule = await loadCoordinateMeasurementModule();
+      const [measurementModule, coordinateContext] = await Promise.all([
+        loadCoordinateMeasurementModule(),
+        getCoordinateMeasurementContext()
+      ]);
       if (
         isDisposed ||
         !coordinateMeasurementPending ||
@@ -436,7 +473,9 @@
       let controller = null;
       controller = measurementModule.createMacroCoordinateMeasurement({
         copyCoordinate: copyCoordinateMeasurement,
+        getCoordinateContext: getCoordinateMeasurementContext,
         getText,
+        initialCoordinateContext: coordinateContext,
         isTrustedUserEvent,
         onCancel: () => {
           if (coordinateMeasurementController === controller) destroyCoordinateMeasurement();
@@ -484,6 +523,7 @@
 
   function handleOverlayViewportResize() {
     renderClickMarkers();
+    if (hasReferencePixelMacroSteps()) void refreshAppliedPageZoomForMarkers();
   }
 
   function normalizeOverlayLanguage(language) {
@@ -528,6 +568,9 @@
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
+    if (hasReferencePixelMacroSteps() && !appliedPageZoomKnown) {
+      void refreshAppliedPageZoomForMarkers();
+    }
     state.shortcutMacroIds = Array.isArray(nextState?.shortcutMacroIds)
       ? nextState.shortcutMacroIds.map(String)
       : state.macros.filter((macro) => macro.trigger).map((macro) => String(macro.id));
@@ -689,14 +732,21 @@
 
   function resolveMacroClickMarkerPosition(step, viewport) {
     const anchor = getMacroClickAnchorBase(step.anchor);
-    const isPixel = step.unit === "px";
-    const xOffset = Number(isPixel ? step.xPx : step.xPercent) || 0;
-    const yOffset = Number(isPixel ? step.yPx : step.yPercent) || 0;
+    const isReferencePixel = step.unit === "reference-px";
+    const isPixel = step.unit === "px" || isReferencePixel;
+    const xOffset = Number(
+      isReferencePixel ? step.xReferencePx : isPixel ? step.xPx : step.xPercent
+    ) || 0;
+    const yOffset = Number(
+      isReferencePixel ? step.yReferencePx : isPixel ? step.yPx : step.yPercent
+    ) || 0;
+    const resolvedXOffset = isReferencePixel ? xOffset / appliedPageZoom : xOffset;
+    const resolvedYOffset = isReferencePixel ? yOffset / appliedPageZoom : yOffset;
     const x = isPixel
-      ? (viewport.width * anchor.xPercent) / 100 + xOffset
+      ? (viewport.width * anchor.xPercent) / 100 + resolvedXOffset
       : (viewport.width * (anchor.xPercent + xOffset)) / 100;
     const y = isPixel
-      ? (viewport.height * anchor.yPercent) / 100 + yOffset
+      ? (viewport.height * anchor.yPercent) / 100 + resolvedYOffset
       : (viewport.height * (anchor.yPercent + yOffset)) / 100;
     return {
       xPx: clampCoordinate(x, viewport.width),

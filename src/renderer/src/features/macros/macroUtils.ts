@@ -389,8 +389,11 @@ export function formatMacroStep(
         ? `${t("macro.step.hold")}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`
         : `${t(macroStepLabelKeys.key)}:${formatMacroKeyCombination(step.code, step.modifiers, t)}`;
     case "click":
-      return step.unit === "px"
-        ? `${t(macroStepLabelKeys.click)}:X ${step.xPx}px, Y ${step.yPx}px`
+      if (step.unit === "px") {
+        return `${t(macroStepLabelKeys.click)}:X ${step.xPx}px, Y ${step.yPx}px · ${t("macroForm.clickUnit.legacyCssPx")}`;
+      }
+      return step.unit === "reference-px"
+        ? `${t(macroStepLabelKeys.click)}:X ${step.xReferencePx}px, Y ${step.yReferencePx}px`
         : `${t(macroStepLabelKeys.click)}:X ${step.xPercent}%, Y ${step.yPercent}%`;
     case "delay":
       return `${t(macroStepLabelKeys.delay)}:${step.ms}ms`;

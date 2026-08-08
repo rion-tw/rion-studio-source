@@ -222,17 +222,62 @@
             height: 800.0,
         };
         assert_eq!(
-            resolve_click_point(Some("center"), "percent", 10.0, -25.0, viewport).unwrap(),
+            resolve_click_point(Some("center"), "percent", 10.0, -25.0, viewport, 1.0)
+                .unwrap(),
             ClickPoint { x: 600, y: 200 }
         );
         assert_eq!(
-            resolve_click_point(Some("bottom-right"), "px", -10.0, 100.0, viewport).unwrap(),
+            resolve_click_point(
+                Some("bottom-right"),
+                "px",
+                -10.0,
+                100.0,
+                viewport,
+                1.0,
+            )
+            .unwrap(),
             ClickPoint { x: 990, y: 799 }
         );
         assert_eq!(
-            resolve_click_point(None, "px", -5.0, -7.0, viewport).unwrap(),
+            resolve_click_point(None, "px", -5.0, -7.0, viewport, 1.0).unwrap(),
             ClickPoint { x: 0, y: 0 }
         );
+        assert_eq!(
+            resolve_click_point(
+                Some("bottom-right"),
+                "reference-px",
+                -75.0,
+                -150.0,
+                viewport,
+                0.75,
+            )
+            .unwrap(),
+            ClickPoint { x: 900, y: 600 }
+        );
+        for (anchor, x, y, expected) in [
+            ("top-left", 75.0, 75.0, ClickPoint { x: 100, y: 100 }),
+            ("top-center", 75.0, 75.0, ClickPoint { x: 600, y: 100 }),
+            ("top-right", -75.0, 75.0, ClickPoint { x: 900, y: 100 }),
+            ("center-left", 75.0, 75.0, ClickPoint { x: 100, y: 500 }),
+            ("center", 75.0, 75.0, ClickPoint { x: 600, y: 500 }),
+            ("center-right", -75.0, 75.0, ClickPoint { x: 900, y: 500 }),
+            ("bottom-left", 75.0, -75.0, ClickPoint { x: 100, y: 700 }),
+            ("bottom-center", 75.0, -75.0, ClickPoint { x: 600, y: 700 }),
+            ("bottom-right", -75.0, -75.0, ClickPoint { x: 900, y: 700 }),
+        ] {
+            assert_eq!(
+                resolve_click_point(
+                    Some(anchor),
+                    "reference-px",
+                    x,
+                    y,
+                    viewport,
+                    0.75,
+                )
+                .unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

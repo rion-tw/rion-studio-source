@@ -413,13 +413,13 @@ it("edits pixel clicks and converts seconds back to milliseconds", async () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       steps: [
-        { id: "click", type: "click", unit: "px", xPx: 12, yPx: 34 },
+        { id: "click", type: "click", unit: "reference-px", xReferencePx: 12, yReferencePx: 34 },
         { id: "delay", type: "delay", ms: 2250 }
       ]
     })));
   });
 
-it("adds new click steps in pixel mode at the center anchor", async () => {
+it("adds new click steps in percent mode at the center anchor", async () => {
     const selectedMacro = macro({
       steps: [{ id: "key", type: "key", code: "F2" }]
     });
@@ -446,7 +446,7 @@ it("adds new click steps in pixel mode at the center anchor", async () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Click" }));
 
-    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent).toContain("px");
+    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent).toContain("%");
     expect(screen.getByRole("combobox", { name: "Coordinate anchor" }).textContent).toContain("Center");
     expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("0");
     expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("0");
@@ -458,10 +458,9 @@ it("adds new click steps in pixel mode at the center anchor", async () => {
         { id: "key", type: "key", code: "F2" },
         expect.objectContaining({
           type: "click",
-          unit: "px",
           anchor: "center",
-          xPx: 0,
-          yPx: 0
+          xPercent: 0,
+          yPercent: 0
         })
       ]
     })));
@@ -569,6 +568,8 @@ it("pastes a measured coordinate pair into both pixel click fields", async () =>
     ], { initialEntries: ["/macros/macro-1/edit"] });
 
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent)
+      .toContain("CSS px (legacy)");
     fireEvent.paste(screen.getByRole("spinbutton", { name: "Y offset" }), {
       clipboardData: {
         getData: () => "X: 123px (12.35%), Y: 456px (56.79%)"
@@ -578,6 +579,49 @@ it("pastes a measured coordinate pair into both pixel click fields", async () =>
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       steps: [{ id: "click", type: "click", unit: "px", xPx: 123, yPx: 456 }]
+    })));
+  });
+
+it("pastes a zoom-normalized measurement into reference pixel fields", async () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", xPercent: 0, yPercent: 0 }]
+    });
+    const onSave = vi.fn(async (form: MacroFormState): Promise<Macro> => ({
+      ...selectedMacro,
+      ...form,
+      updatedAt: "2026-07-16T00:00:00.000Z"
+    }));
+    const router = createMemoryRouter([
+      {
+        path: "/macros/:id/edit",
+        element: <MacroEditorRoute
+          games={[game()]}
+          isSaving={false}
+          macros={[selectedMacro]}
+          roles={[role()]}
+          t={t}
+          onSave={onSave}
+        />
+      },
+      { path: "/macros", element: <div>Macro list</div> }
+    ], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.paste(screen.getByRole("spinbutton", { name: "X offset" }), {
+      clipboardData: {
+        getData: () => "X: 214px (22.27%), Y: 0px (0%), Anchor: top-left, ReferenceViewport: 960x540px, CSS: X 285px, Y 0px, Viewport: 1280x720px, Zoom: 75%"
+      }
+    });
+    fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      steps: [{
+        id: "click",
+        type: "click",
+        unit: "reference-px",
+        xReferencePx: 214,
+        yReferencePx: 0
+      }]
     })));
   });
 

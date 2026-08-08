@@ -136,6 +136,7 @@ export type { LogQuery } from "./LogQuery";
 export type { LogSource } from "./LogSource";
 export type { LogStorageStatusRecord } from "./LogStorageStatusRecord";
 export type { MacroBadgePositionRecord } from "./MacroBadgePositionRecord";
+export type { MacroCoordinateContextRecord } from "./MacroCoordinateContextRecord";
 export type { MacroCoordinateRecord } from "./MacroCoordinateRecord";
 export type { MacroCreateInputRecord } from "./MacroCreateInputRecord";
 export type { MacroCreateRequest } from "./MacroCreateRequest";

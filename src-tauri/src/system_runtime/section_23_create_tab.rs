@@ -662,6 +662,11 @@ impl SystemRuntimeExecutor {
                     })
                     .map_err(RuntimeError::tauri)?;
             }
+            // The initial exact bounds above do not establish the Win32 live-resize plan.
+            // Publish it only after every initial controller is registered so the first WM_SIZE
+            // frame, before any tab switch, can resize the active role/workspace surfaces.
+            #[cfg(windows)]
+            self.layout_runtime_tab_inner(&tab.tab_id)?;
             self.finish_surface_host_initialization(
                 &window,
                 host_created,

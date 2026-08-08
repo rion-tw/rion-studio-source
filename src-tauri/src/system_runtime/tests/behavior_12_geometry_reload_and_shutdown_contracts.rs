@@ -678,6 +678,22 @@ fn incomplete_live_resize_plan_uses_fallback_without_native_submission() {
     .is_none());
 }
 
+#[cfg(windows)]
+#[test]
+fn roles_can_materialize_before_optional_divider_surfaces_attach() {
+    let mut plan = two_column_live_resize_plan();
+    plan.dividers.clear();
+
+    let bounds = windows_live_resize_resolve_bounds(&plan, 1_280, 720, 1.0).unwrap();
+    let [tab_strip, left, right] = bounds.as_slice() else {
+        panic!("expected tab strip and both role surfaces");
+    };
+    assert_eq!(tab_strip.y + tab_strip.height, left.y);
+    assert_eq!(left.y, right.y);
+    assert_eq!(right.x + right.width, 1_280);
+    assert_eq!(right.y + right.height, 720);
+}
+
 #[test]
 fn unchanged_zoom_is_not_resubmitted_during_resize() {
     assert!(!zoom_factor_changed(1.0, 1.000_01));

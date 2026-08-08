@@ -5,139 +5,14 @@ fn launch_from_menu(
     source_id: &str,
     workspace: bool,
 ) {
-    let tab_type = if workspace { "workspace" } else { "role" };
-    let action_started = Instant::now();
-    let native_action_at = chrono::Utc::now().to_rfc3339();
-    capture_launcher_action_event(
-        Arc::clone(&state.core),
-        "tab.launch-menu-selected",
-        "A runtime launcher menu selection was received.",
-        LogLevel::Debug,
-        &target,
+    if let Err(message) = state.launch_intents.try_launch_source(
         source_id,
         workspace,
-        None,
-    );
-    let preview = if let Some(tab_id) = state
-        .runtime
-        .presented_tab_for_launcher_source(source_id, tab_type)
-    {
-        if let Err(message) = crate::preview_and_schedule_launcher_tab_selection(app, state, &tab_id)
-        {
-            reveal_menu_error(app, message);
-            return;
-        }
-        state.runtime.retry_failed_tab_launch(source_id, tab_type)
-    } else {
-        // The launcher menu belongs to an already-live game window. Commit its
-        // provisional presentation before returning from the native menu action so
-        // Tokio scheduling, Core work and controller creation cannot delay the tab.
-        match state
-            .runtime
-            .preview_tab_launch(&target, source_id, tab_type)
-        {
-            Ok(preview) => Some(preview),
-            Err(error) => {
-                let payload = rion_core::CoreErrorPayload {
-                    code: error.code.to_owned(),
-                    message: error.message,
-                };
-                capture_launcher_action_event(
-                    Arc::clone(&state.core),
-                    "tab.launch-preview-rejected",
-                    "The runtime launcher could not reserve its provisional tab.",
-                    LogLevel::Error,
-                    &target,
-                    source_id,
-                    workspace,
-                    Some(&payload),
-                );
-                crate::reveal_shell_error(app, payload);
-                return;
-            }
-        }
-    };
-    let Some(preview) = preview else {
-        if state
-            .runtime
-            .presented_tab_for_launcher_source(source_id, tab_type)
-            .is_some()
-        {
-            return;
-        }
-        reveal_menu_error(app, "The provisional runtime tab could not be reserved.");
-        return;
-    };
-    let preview_committed_ms = action_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    let preview_committed_at = chrono::Utc::now().to_rfc3339();
-    if let Err(message) = state.launch_intents.try_launch(LaunchIntent {
-        action_started,
-        native_action_at,
-        preview_committed_at,
-        preview_committed_ms,
-        launch_preview_id: preview.launch_preview_id.clone(),
-        source_id: source_id.to_owned(),
-        target: target.clone(),
-        workspace,
-    }) {
-        state
-            .runtime
-            .cancel_tab_launch_preview(&preview.launch_preview_id);
-        let payload = rion_core::CoreErrorPayload {
-            code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),
-            message,
-        };
-        capture_launcher_action_event(
-            Arc::clone(&state.core),
-            "tab.launch-queue-rejected",
-            "The provisional tab could not enter the background launch queue.",
-            LogLevel::Error,
-            &target,
-            source_id,
-            workspace,
-            Some(&payload),
-        );
-        crate::reveal_shell_error(app, payload);
+        Some(target.window_id),
+        "native-tab-launcher",
+    ) {
+        reveal_menu_error(app, message);
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn capture_launcher_action_event(
-    core: Arc<AppCore>,
-    event: &'static str,
-    message: &'static str,
-    level: LogLevel,
-    target: &EmbeddedLaunchTargetRecord,
-    source_id: &str,
-    workspace: bool,
-    error: Option<&rion_core::CoreErrorPayload>,
-) {
-    let context = serde_json::json!({
-        "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
-        "sourceId": source_id,
-        "sourceType": if workspace { "workspace" } else { "role" },
-        "windowId": target.window_id,
-    });
-    let error = error.map(|error| LogErrorDetails {
-        name: error.code.clone(),
-        message: error.message.clone(),
-        stack: None,
-        cause: None,
-    });
-    tauri::async_runtime::spawn(async move {
-        let _ = core
-            .invoke_async(CoreCommand::LogsCapture {
-                entries: vec![LogCaptureRecord {
-                    level,
-                    source: LogSource::Browser,
-                    event: event.to_owned(),
-                    message: message.to_owned(),
-                    context_raw_json: serde_json::to_string(&context).ok(),
-                    error,
-                }],
-            })
-            .await;
-    });
 }
 
 fn reveal_menu_error(app: &AppHandle, message: impl Into<String>) {

@@ -43,6 +43,7 @@ struct NativeFocusLease {
 struct NativeFocusBrokerState {
     confirmed: Option<NativeFocusLease>,
     current: Option<NativeFocusLease>,
+    last_observed: Option<NativeFocusLease>,
 }
 
 #[derive(Default)]
@@ -204,6 +205,9 @@ impl NativeFocusBroker {
         }) && self.submitted_sequence.load(Ordering::Acquire) == current.sequence
             && self.confirm(&current)
         {
+            if let Ok(mut state) = self.state.lock() {
+                state.last_observed = Some(current.clone());
+            }
             return Some(current);
         }
         if self.state.lock().ok().is_some_and(|state| {
@@ -224,6 +228,9 @@ impl NativeFocusBroker {
             NativeFocusIntentOrigin::NativeObservation,
         );
         let _ = self.confirm(&observed);
+        if let Ok(mut state) = self.state.lock() {
+            state.last_observed = Some(observed.clone());
+        }
         Some(observed)
     }
 
@@ -306,6 +313,11 @@ impl NativeFocusBroker {
             }) {
                 state.confirmed = None;
             }
+            if state.last_observed.as_ref().is_some_and(|lease| {
+                lease.window_id == window_id && lease.window_generation == window_generation
+            }) {
+                state.last_observed = None;
+            }
         }
     }
 
@@ -331,6 +343,21 @@ impl NativeFocusBroker {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn last_native_focused_live_window_id(&self) -> Option<String> {
+        let observed = self
+            .focus_broker
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.last_observed.clone())?;
+        let is_same_generation = self.state.lock().ok().is_some_and(|state| {
+            state.display_hosts.get(&observed.window_id).is_some_and(|host| {
+                host.generation == observed.window_generation
+            })
+        });
+        (is_same_generation && self.presentation.existing(&observed.window_id).is_some())
+            .then_some(observed.window_id)
+    }
     pub(crate) fn observe_application_foreground(&self, foreground: bool) {
         if foreground {
             self.focus_broker.observe_application_foreground();

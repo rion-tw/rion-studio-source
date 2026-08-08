@@ -325,21 +325,15 @@ export interface AppSnapshot {
   macroStatuses: MacroRunStatus[];
 }
 
-export interface RoleLaunchInput {
-  windowId?: string;
-}
-
-export interface WorkspaceLaunchInput {
-  windowId?: string;
-}
-
 export interface RoleLaunchResult {
+  launchReceipt: import("./generated").RuntimeLaunchIntentReceiptRecord;
   windowId: string;
   status: RoleStatus | null;
 }
 
 export interface WorkspaceLaunchResult {
   kind: "launched";
+  launchReceipt: import("./generated").RuntimeLaunchIntentReceiptRecord;
   windowId: string;
   statuses: RoleStatus[];
 }

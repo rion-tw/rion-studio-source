@@ -101,16 +101,17 @@
                     restore_role_slots: None,
                 },
             );
-            drive_async_command(
+            let stop_request = test_window_stop_request(
+                stopped_window_id.clone(),
+                runtime_tab_ids_for_sources(&core, &[role_id.as_str(), workspace_id.as_str()]),
+            );
+            let parent_operation_id = stop_request.parent_operation_id.clone();
+            drive_async_command_with(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
-                    window_id: stopped_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_sources(
-                        &core,
-                        &[role_id.as_str(), workspace_id.as_str()],
-                    ),
+                    request: stop_request,
                 },
-                None,
+                |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
             )
             .0
             .unwrap();
@@ -172,10 +173,12 @@
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
-                    window_id: stopped_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_sources(
+                    request: test_window_stop_request(
+                        stopped_window_id.clone(),
+                        runtime_tab_ids_for_sources(
                         &core,
                         &[role_id.as_str(), workspace_id.as_str()],
+                    ),
                     ),
                 },
                 None,
@@ -208,8 +211,10 @@
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowDelete {
-                    window_id: deleted_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_sources(&core, &[deleted_role_id.as_str()]),
+                    request: test_window_stop_request(
+                        deleted_window_id.clone(),
+                        runtime_tab_ids_for_sources(&core, &[deleted_role_id.as_str()]),
+                    ),
                 },
                 None,
             )
@@ -238,8 +243,10 @@
             let failed = drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
-                    window_id: failed_window_id.clone(),
-                    tab_ids: runtime_tab_ids_for_sources(&core, &[failed_role_id.as_str()]),
+                    request: test_window_stop_request(
+                        failed_window_id.clone(),
+                        runtime_tab_ids_for_sources(&core, &[failed_role_id.as_str()]),
+                    ),
                 },
                 Some("embeddedDestroyTab"),
             )
@@ -313,8 +320,7 @@
             drive_async_command(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
-                    window_id,
-                    tab_ids: vec![source_tab_id],
+                    request: test_window_stop_request(window_id, vec![source_tab_id]),
                 },
                 None,
             )

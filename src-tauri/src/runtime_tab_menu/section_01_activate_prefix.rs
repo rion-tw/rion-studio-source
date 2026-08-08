@@ -1,13 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}},
     thread,
-    time::Instant,
 };
 
 use rion_core::{
-    AppCore, CoreCommand, EmbeddedLaunchTargetRecord, LogCaptureRecord, LogErrorDetails, LogLevel,
-    LogSource, StateGameWindowRecord,
+    AppCore, CoreCommand, EmbeddedLaunchTargetRecord, RuntimeLaunchIntentReceiptRecord,
+    RuntimeLaunchIntentRecord, StateGameWindowRecord,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -25,19 +24,19 @@ const RELOAD_PREFIX: &str = "runtime-tab-reload:";
 const SAVE_WINDOW_PREFIX: &str = "runtime-window-save:";
 const STOP_PREFIX: &str = "runtime-tab-stop:";
 const LAUNCH_INTENT_CAPACITY: usize = 64;
-const MAX_CONCURRENT_LAUNCH_INTENTS: usize = 4;
 const TAB_MENU_INTENT_CAPACITY: usize = 16;
 const MAX_CONCURRENT_TAB_MENU_MODELS: usize = 2;
 
 struct LaunchIntent {
-    action_started: Instant,
-    native_action_at: String,
-    preview_committed_at: String,
-    preview_committed_ms: u64,
-    launch_preview_id: String,
-    source_id: String,
-    target: EmbeddedLaunchTargetRecord,
-    workspace: bool,
+    exact_window_id: Option<String>,
+    origin: &'static str,
+    record: RuntimeLaunchIntentRecord,
+    reply: Option<tokio::sync::oneshot::Sender<Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload>>>,
+}
+
+pub(crate) struct RuntimeLaunchOutcome {
+    pub(crate) receipt: RuntimeLaunchIntentReceiptRecord,
+    pub(crate) statuses: serde_json::Value,
 }
 
 struct TabMenuIntent {
@@ -50,6 +49,7 @@ struct TabMenuIntent {
 
 #[derive(Clone)]
 pub(crate) struct LaunchIntentDispatcher {
+    next_sequence: Arc<AtomicU64>,
     sender: tokio::sync::mpsc::Sender<LaunchIntent>,
     tab_menu_sender: tokio::sync::mpsc::Sender<TabMenuIntent>,
 }
@@ -58,60 +58,37 @@ impl LaunchIntentDispatcher {
     pub(crate) fn start(
         app: AppHandle,
         core: Arc<AppCore>,
-        runtime: Arc<crate::system_runtime::SystemRuntimeExecutor>,
+        _runtime: Arc<crate::system_runtime::SystemRuntimeExecutor>,
     ) -> Self {
         let (sender, mut receiver) =
             tokio::sync::mpsc::channel::<LaunchIntent>(LAUNCH_INTENT_CAPACITY);
-        let permits = Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_LAUNCH_INTENTS));
         let launch_app = app.clone();
         let launch_core = Arc::clone(&core);
         tauri::async_runtime::spawn(async move {
             while let Some(intent) = receiver.recv().await {
-                let Ok(permit) = Arc::clone(&permits).acquire_owned().await else {
-                    break;
-                };
-                let app = launch_app.clone();
-                let core = Arc::clone(&launch_core);
-                let runtime = Arc::clone(&runtime);
-                tauri::async_runtime::spawn(async move {
-                    let _permit = permit;
-                    let core_queue_ms = intent
-                        .action_started
-                        .elapsed()
-                        .as_millis()
-                        .min(u64::MAX as u128) as u64;
-                    let core_started = Instant::now();
-                    let command = if intent.workspace {
-                        CoreCommand::BrowserWorkspaceLaunch {
-                            workspace_id: intent.source_id.clone(),
-                            target: intent.target.clone(),
-                            launch_preview_id: Some(intent.launch_preview_id.clone()),
-                            restore_role_slots: None,
-                        }
-                    } else {
-                        CoreCommand::BrowserRoleLaunch {
-                            role_id: intent.source_id.clone(),
-                            target: intent.target.clone(),
-                            launch_preview_id: Some(intent.launch_preview_id.clone()),
-                            zoom_factor: None,
-                            restore_role_slots: None,
-                        }
-                    };
-                    let result = core.invoke_async(command).await;
-                    let error = result.as_ref().err().map(|error| error.payload());
-                    capture_launch_intent_event(
-                        Arc::clone(&core),
-                        &intent,
-                        result.is_ok(),
-                        core_queue_ms,
-                        core_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                        error.as_ref(),
-                    );
-                    if let Err(error) = result {
-                        runtime.cancel_tab_launch_preview(&intent.launch_preview_id);
-                        crate::reveal_shell_error(&app, error.payload());
-                    }
-                });
+                let terminal_intent = intent.record.clone();
+                let result = crate::execute_runtime_launch_intent(
+                    &launch_app,
+                    intent.record,
+                    intent.exact_window_id,
+                    intent.origin,
+                )
+                .await;
+                if let Err(error) = result.as_ref() {
+                    crate::record_runtime_launch_event(
+                        &launch_core,
+                        "launch.intent-terminal",
+                        &terminal_intent,
+                        None,
+                        Some(&error.code),
+                    )
+                    .await;
+                }
+                if let Some(reply) = intent.reply {
+                    let _ = reply.send(result);
+                } else if let Err(error) = result {
+                    crate::reveal_shell_error(&launch_app, error);
+                }
             }
         });
 
@@ -166,12 +143,25 @@ impl LaunchIntentDispatcher {
             }
         });
         Self {
+            next_sequence: Arc::new(AtomicU64::new(0)),
             sender,
             tab_menu_sender,
         }
     }
 
-    fn try_launch(&self, intent: LaunchIntent) -> Result<(), String> {
+    fn intent_record(&self, source_id: &str, workspace: bool) -> RuntimeLaunchIntentRecord {
+        RuntimeLaunchIntentRecord {
+            intent_id: uuid::Uuid::new_v4().to_string(),
+            adapter_sequence: self
+                .next_sequence
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1),
+            source_id: source_id.to_owned(),
+            source_type: if workspace { "workspace" } else { "role" }.to_owned(),
+        }
+    }
+
+    fn enqueue(&self, intent: LaunchIntent) -> Result<(), String> {
         self.sender.try_send(intent).map_err(|error| match error {
             tokio::sync::mpsc::error::TrySendError::Full(_) => {
                 "The background launch queue is full. Close or wait for an existing launch before retrying."
@@ -181,6 +171,45 @@ impl LaunchIntentDispatcher {
                 "The background launch queue is unavailable.".to_owned()
             }
         })
+    }
+
+    pub(crate) fn try_launch_source(
+        &self,
+        source_id: &str,
+        workspace: bool,
+        exact_window_id: Option<String>,
+        origin: &'static str,
+    ) -> Result<(), String> {
+        self.enqueue(LaunchIntent {
+            exact_window_id,
+            origin,
+            record: self.intent_record(source_id, workspace),
+            reply: None,
+        })
+    }
+
+    pub(crate) async fn submit(
+        &self,
+        source_id: &str,
+        workspace: bool,
+        exact_window_id: Option<String>,
+        origin: &'static str,
+    ) -> Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload> {
+        let (reply, receiver) = tokio::sync::oneshot::channel();
+        self.enqueue(LaunchIntent {
+            exact_window_id,
+            origin,
+            record: self.intent_record(source_id, workspace),
+            reply: Some(reply),
+        })
+        .map_err(|message| rion_core::CoreErrorPayload {
+            code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),
+            message,
+        })?;
+        receiver.await.map_err(|_| rion_core::CoreErrorPayload {
+            code: "TAURI_RUNTIME_TAB_LAUNCH_ACTOR_STOPPED".to_owned(),
+            message: "The runtime launch actor stopped before the intent completed.".to_owned(),
+        })?
     }
 
     fn try_open_tab_menu(&self, intent: TabMenuIntent) -> Result<(), String> {
@@ -195,64 +224,6 @@ impl LaunchIntentDispatcher {
                 }
             })
     }
-}
-
-fn capture_launch_intent_event(
-    core: Arc<AppCore>,
-    intent: &LaunchIntent,
-    accepted: bool,
-    core_queue_ms: u64,
-    core_invoke_ms: u64,
-    error: Option<&rion_core::CoreErrorPayload>,
-) {
-    let context = serde_json::json!({
-        "coreInvokeMs": core_invoke_ms,
-        "coreQueueMs": core_queue_ms,
-        "launchAcceptedMs": intent.action_started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        "nativeActionAt": intent.native_action_at,
-        "nativeActionMs": intent.preview_committed_ms,
-        "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
-        "previewCommittedAt": intent.preview_committed_at,
-        "previewCommittedMs": intent.preview_committed_ms,
-        "launchPreviewId": intent.launch_preview_id,
-        "sourceId": intent.source_id,
-        "sourceType": if intent.workspace { "workspace" } else { "role" },
-        "windowId": intent.target.window_id,
-    });
-    let error = error.map(|error| LogErrorDetails {
-        name: error.code.clone(),
-        message: error.message.clone(),
-        stack: None,
-        cause: None,
-    });
-    tauri::async_runtime::spawn(async move {
-        let _ = core
-            .invoke_async(CoreCommand::LogsCapture {
-                entries: vec![LogCaptureRecord {
-                    level: if accepted {
-                        LogLevel::Info
-                    } else {
-                        LogLevel::Error
-                    },
-                    source: LogSource::Browser,
-                    event: if accepted {
-                        "tab.launch-accepted"
-                    } else {
-                        "tab.launch-rejected"
-                    }
-                    .to_owned(),
-                    message: if accepted {
-                        "The provisional tab launch was accepted for background settlement."
-                    } else {
-                        "The provisional tab launch was rejected before background settlement."
-                    }
-                    .to_owned(),
-                    context_raw_json: serde_json::to_string(&context).ok(),
-                    error,
-                }],
-            })
-            .await;
-    });
 }
 
 #[derive(Clone, Default)]

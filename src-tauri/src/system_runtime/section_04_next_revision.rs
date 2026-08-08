@@ -532,6 +532,7 @@ struct PendingWindowTabRestore {
 
 #[derive(Clone)]
 struct TabCloseTombstone {
+    parent_operation_id: Option<String>,
     revision: u64,
     retirement_revision: Option<u64>,
     slot_owners: Vec<(String, String, Option<u64>)>,

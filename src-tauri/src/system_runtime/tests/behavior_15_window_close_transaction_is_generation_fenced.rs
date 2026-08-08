@@ -108,6 +108,20 @@ fn retired_native_host_blocks_reopen_until_destroyed() {
 }
 
 #[test]
+fn failed_native_cleanup_terminalizes_reopen_instead_of_waiting_forever() {
+    let mut state = RuntimeState::default();
+    state
+        .retiring_window_tabs
+        .insert("window-1".to_owned(), HashSet::new());
+    state
+        .quarantined_window_hosts
+        .insert("window-1".to_owned());
+
+    assert!(window_close_in_progress(&state, "window-1"));
+    assert!(window_close_cleanup_failed(&state, "window-1"));
+}
+
+#[test]
 fn destroyed_host_surface_completion_is_window_and_generation_fenced() {
     assert!(destroyed_host_surface_identity_matches(
         "window-1", 7, "window-1", 7

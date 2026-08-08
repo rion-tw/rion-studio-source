@@ -24,6 +24,7 @@ fn drag_cursor_lease_requires_the_exact_session_and_window_generation() {
 #[test]
 fn closing_workspace_tombstone_fences_only_its_exact_owned_slot_generation() {
     let close = TabCloseTombstone {
+        parent_operation_id: None,
         revision: 10,
         retirement_revision: Some(5),
         slot_owners: vec![("slot-a".to_owned(), "role-a".to_owned(), Some(4))],
@@ -73,6 +74,7 @@ fn immediate_relaunch_waits_for_the_previous_stable_tab_generation() {
     runtime_state.close_previews.insert(
         "tab-a".to_owned(),
         TabCloseTombstone {
+            parent_operation_id: None,
             revision: 12,
             retirement_revision: Some(9),
             slot_owners: Vec::new(),
@@ -168,6 +170,7 @@ fn successful_native_destroy_retires_the_stable_tab_close_fence() {
     state.close_previews.insert(
         "tab-a".to_owned(),
         TabCloseTombstone {
+            parent_operation_id: None,
             revision: 11,
             retirement_revision: Some(6),
             slot_owners: vec![("slot-a".to_owned(), "role-a".to_owned(), Some(3))],

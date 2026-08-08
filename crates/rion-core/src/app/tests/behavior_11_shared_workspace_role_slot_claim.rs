@@ -686,8 +686,7 @@ fn closing_a_window_removes_available_role_demands_without_native_owners() {
     let (closed, actions, _) = drive_async_command(
         Arc::clone(&core),
         CoreCommand::BrowserWindowStop {
-            window_id: window_id.to_owned(),
-            tab_ids: vec![tab_id],
+            request: test_window_stop_request(window_id, vec![tab_id]),
         },
         None,
     );

@@ -486,16 +486,10 @@ pub enum CoreCommand {
         workspace_id: String,
     },
     BrowserWindowStop {
-        #[ts(rename = "windowId")]
-        window_id: String,
-        #[ts(rename = "tabIds")]
-        tab_ids: Vec<String>,
+        request: RuntimeWindowStopRequestRecord,
     },
     BrowserWindowDelete {
-        #[ts(rename = "windowId")]
-        window_id: String,
-        #[ts(rename = "tabIds")]
-        tab_ids: Vec<String>,
+        request: RuntimeWindowStopRequestRecord,
     },
     BrowserStatuses,
     BrowserWorkspaceStatuses,

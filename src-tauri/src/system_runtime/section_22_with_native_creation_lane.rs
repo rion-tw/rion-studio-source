@@ -56,7 +56,8 @@ impl SystemRuntimeExecutor {
             return Ok(existing);
         }
         if self.current_window_close_in_progress(&target.window_id) {
-            self.wait_for_window_close_before_reopen(&target.window_id)
+            let _cleanup_operation_id = self
+                .wait_for_window_close_before_reopen(&target.window_id)
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_WINDOW_CLOSING", message)
                 })?;
@@ -273,27 +274,6 @@ impl SystemRuntimeExecutor {
         self.presentation
             .statuses
             .set_presentation_phase(&provisional.id, TabRuntimePhase::Failed);
-    }
-
-    pub(crate) fn retry_failed_tab_launch(
-        &self,
-        source_id: &str,
-        tab_type: &str,
-    ) -> Option<LaunchPreviewHandle> {
-        let source_key = launch_source_key(tab_type, source_id);
-        let (handle, provisional) = self.state.lock().ok().and_then(|mut state| {
-            let launch_preview_id = state.active_provisional_launches.get(&source_key)?.clone();
-            let handle = renew_failed_provisional_launch(&mut state, &launch_preview_id)?;
-            let provisional = state
-                .provisional_launches
-                .get(&handle.launch_preview_id)?
-                .clone();
-            Some((handle, provisional))
-        })?;
-        self.presentation
-            .statuses
-            .set_presentation_phase(&provisional.id, TabRuntimePhase::Reserved);
-        Some(handle)
     }
 
     pub(crate) fn resolve_browser_launch_completion(

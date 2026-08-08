@@ -163,6 +163,7 @@ fn renew_provisional_launch(
     Some(handle)
 }
 
+#[cfg(test)]
 fn renew_failed_provisional_launch(
     state: &mut RuntimeState,
     launch_preview_id: &str,

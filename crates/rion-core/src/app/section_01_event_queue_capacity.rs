@@ -51,6 +51,7 @@ use crate::{
         RuntimeRoleSlotInputRecord, RuntimeWindowPersistenceBatchReceiptRecord,
         RuntimeWindowPersistenceReceiptRecord,
         RuntimeWindowPreferencesRecord, StateCollection,
+        RuntimeWindowStopRequestRecord,
         StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, SystemWebViewRuntimeRegistrationRecord,
     },

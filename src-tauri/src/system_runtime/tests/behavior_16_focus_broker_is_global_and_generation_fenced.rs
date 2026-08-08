@@ -53,6 +53,30 @@ fn external_foreground_event_revokes_deferred_focus_by_epoch() {
 }
 
 #[test]
+fn last_native_focus_survives_external_foreground_but_not_exact_generation_retirement() {
+    let broker = NativeFocusBroker::default();
+    let observed = broker
+        .observe_native_focus("window-a", 12, 5, Some("tab-a".to_owned()))
+        .expect("native focus establishes launch destination history");
+    broker.observe_external_foreground();
+    assert_eq!(
+        broker
+            .state
+            .lock()
+            .unwrap()
+            .last_observed
+            .as_ref()
+            .map(|lease| (&lease.window_id, lease.window_generation)),
+        Some((&observed.window_id, 12))
+    );
+
+    broker.revoke_window("window-a", 11);
+    assert!(broker.state.lock().unwrap().last_observed.is_some());
+    broker.revoke_window("window-a", 12);
+    assert!(broker.state.lock().unwrap().last_observed.is_none());
+}
+
+#[test]
 fn background_content_focus_is_not_admitted_without_the_active_window() {
     let broker = NativeFocusBroker::default();
     assert_eq!(

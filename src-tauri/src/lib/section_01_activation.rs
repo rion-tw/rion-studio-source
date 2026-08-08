@@ -18,8 +18,10 @@ use rion_core::{
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
     GameWindowPlacementRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
+    RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord,
     StateCollection, StateGameWindowRecord,
-    StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationSummaryRecord,
+    StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationStatus,
+    SystemRuntimeOperationSummaryRecord,
     RuntimeTabDragSessionRecord, RuntimeTabMoveResultRecord,
 };
 use serde_json::{Value, json};

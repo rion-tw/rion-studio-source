@@ -71,6 +71,9 @@ export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperati
 export type { RuntimeTabMutationRequestRecord } from "./RuntimeTabMutationRequestRecord";
 export type { RuntimeTabIntentRecord } from "./RuntimeTabIntentRecord";
 export type { RuntimeTabIntentReceiptRecord } from "./RuntimeTabIntentReceiptRecord";
+export type { RuntimeLaunchIntentRecord } from "./RuntimeLaunchIntentRecord";
+export type { RuntimeLaunchIntentReceiptRecord } from "./RuntimeLaunchIntentReceiptRecord";
+export type { RuntimeWindowStopRequestRecord } from "./RuntimeWindowStopRequestRecord";
 export type { RuntimeTabMoveResultRecord } from "./RuntimeTabMoveResultRecord";
 export type { RuntimeTabChromeItemRecord } from "./RuntimeTabChromeItemRecord";
 export type { RuntimeTabChromeProjectionRecord } from "./RuntimeTabChromeProjectionRecord";

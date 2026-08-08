@@ -49,6 +49,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     &state,
                     &window,
                     &[serde_json::json!({ "scope": "window", "windowId": window_id })],
+                    crate::SavedWindowRestoreActivation::UserInitiated,
                 )
                 .await;
             });
@@ -67,6 +68,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
                     &state,
                     &window,
                     &[serde_json::json!({ "scope": "window", "windowId": window_id })],
+                    crate::SavedWindowRestoreActivation::UserInitiated,
                 )
                 .await;
             });

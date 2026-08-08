@@ -212,6 +212,7 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
 #[test]
 fn delayed_focus_event_completes_the_exact_event_bound_lease_once() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let lease = broker.accept(
         "main",
         17,
@@ -256,6 +257,7 @@ fn delayed_focus_event_completes_the_exact_event_bound_lease_once() {
 #[test]
 fn newer_focus_intent_supersedes_the_old_lease_before_submission() {
     let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
     let old = broker.accept(
         "main",
         17,

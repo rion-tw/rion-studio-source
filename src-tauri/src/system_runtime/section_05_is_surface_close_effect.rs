@@ -671,11 +671,19 @@ fn apply_native_presentation_batch(
             apply_window_focus,
             defer_window_focus_until_reveal,
         );
-        let window_was_minimized = apply_window_focus
+        let window_focus_still_current = || {
+            focus_lease
+                .as_ref()
+                .is_none_or(|lease| focus_broker.is_current(lease))
+        };
+        let window_was_minimized = (apply_window_focus && window_focus_still_current())
             .then(|| window.is_minimized().ok())
             .flatten();
         let mut window_restore_applied = false;
-        if native_window_restore_required(apply_window_focus, window_was_minimized) {
+        if native_window_restore_required(
+            apply_window_focus && window_focus_still_current(),
+            window_was_minimized,
+        ) {
             match window.unminimize() {
                 Ok(()) => window_restore_applied = true,
                 Err(error) => visibility_errors.push(error.to_string()),
@@ -688,7 +696,7 @@ fn apply_native_presentation_batch(
         let window_visibility_started_at = Instant::now();
         if let Some(visible) = window_visibility {
             if visible {
-                if apply_foreground_show {
+                if apply_foreground_show && window_focus_still_current() {
                     let focus_started_at = Instant::now();
                     match request_platform_window_show_foreground(&window) {
                         Ok(()) => {
@@ -762,6 +770,7 @@ fn apply_native_presentation_batch(
         let mut focus_applied = false;
         let window_focus_started_at = Instant::now();
         if apply_window_focus
+            && window_focus_still_current()
             && !window_foreground_show_applied
             && matches!(platform_window_is_focused(&window), Ok(false))
         {
@@ -783,6 +792,8 @@ fn apply_native_presentation_batch(
             && focus_current
             && focus_submission_current
             && !defer_window_focus_until_reveal
+            && window_focus_still_current()
+            && matches!(platform_window_is_focused(&window), Ok(true))
             && let Some(webview) = active_webview
         {
             match webview.set_focus() {
@@ -810,7 +821,10 @@ fn apply_native_presentation_batch(
             window.is_visible().ok()
         };
         let focus_superseded = focus_lease.as_ref().is_some_and(|lease| {
-            if !focus_broker.is_current(lease) {
+            if !focus_broker.is_current(lease)
+                || (requested_focus != NativePresentationFocus::None
+                    && window_focused_after == Some(false))
+            {
                 true
             } else {
                 let focus_confirmed = match requested_focus {

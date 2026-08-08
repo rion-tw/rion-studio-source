@@ -122,10 +122,11 @@ impl NativeFocusBroker {
     }
 
     fn is_current(&self, lease: &NativeFocusLease) -> bool {
+        let foreground_allows_focus = lease.origin == NativeFocusIntentOrigin::SystemActivation
+            || self.application_foreground.load(Ordering::Acquire);
         lease.sequence != 0
             && lease.foreground_epoch == self.foreground_epoch.load(Ordering::Acquire)
-            && (lease.mode.focuses_window()
-                || self.application_foreground.load(Ordering::Acquire))
+            && foreground_allows_focus
             && self.current_sequence.load(Ordering::Acquire) == lease.sequence
             && self.state.lock().ok().is_some_and(|state| {
                 state.current.as_ref() == Some(lease)
@@ -249,7 +250,8 @@ impl NativeFocusBroker {
     }
 
     fn observe_external_foreground(&self) {
-        if self.application_foreground.swap(false, Ordering::AcqRel) {
+        let was_foreground = self.application_foreground.swap(false, Ordering::AcqRel);
+        if was_foreground || self.current_sequence.load(Ordering::Acquire) != 0 {
             self.foreground_epoch.fetch_add(1, Ordering::AcqRel);
             self.revoke_all();
         }

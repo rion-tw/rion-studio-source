@@ -19,3 +19,52 @@ fn game_window_show_routes_dormant_windows_by_saved_tab_membership() {
         GameWindowShowRoute::RegisterEmpty,
     );
 }
+
+#[test]
+fn saved_window_restore_focus_is_user_initiated_and_selects_one_initial_target() {
+    let window = |id: &str| {
+        serde_json::from_value::<StateGameWindowRecord>(json!({
+            "id": id,
+            "name": id,
+            "targetDisplay": { "id": 1 },
+            "placement": {
+                "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                "presentation": "normal"
+            },
+            "tabs": [],
+            "activeTabId": null,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    };
+    let selected = vec![window("window-a"), window("window-b")];
+
+    assert_eq!(
+        saved_window_restore_focus_target(
+            SavedWindowRestoreActivation::Background,
+            &selected,
+            Some("window-b"),
+        ),
+        None
+    );
+    assert_eq!(
+        saved_window_restore_focus_target(
+            SavedWindowRestoreActivation::UserInitiated,
+            &selected,
+            Some("window-b"),
+        )
+        .as_deref(),
+        Some("window-b")
+    );
+    assert_eq!(
+        saved_window_restore_focus_target(
+            SavedWindowRestoreActivation::UserInitiated,
+            &selected,
+            Some("retired-window"),
+        )
+        .as_deref(),
+        Some("window-a")
+    );
+}

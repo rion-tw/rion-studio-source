@@ -92,7 +92,7 @@ fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
 #[cfg(windows)]
 fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindowAsync,
+        GetForegroundWindow, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
     };
 
     prepare_platform_window_foreground(window)?;
@@ -102,9 +102,10 @@ fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()>
     } else {
         SW_SHOW
     };
-    // Keep the show on the owning window queue so it supersedes an older
-    // retirement hide, while the pre-positioning makes its first frame frontmost.
-    let _ = unsafe { ShowWindowAsync(hwnd, command) };
+    // This runs on the owning UI thread. Apply the show synchronously so no
+    // activating SW_SHOW/SW_RESTORE message can execute after the user moves
+    // the foreground elsewhere.
+    let _ = unsafe { ShowWindow(hwnd, command) };
     if unsafe { SetForegroundWindow(hwnd) }.as_bool()
         || unsafe { GetForegroundWindow() } == hwnd
     {

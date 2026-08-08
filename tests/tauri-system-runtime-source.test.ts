@@ -405,8 +405,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).not.toContain("TabSelectionCommitCoordinator");
     expect(shell).toContain("preview_and_commit_tab_selection");
     expect(shell).toContain("schedule_live_window_state_persistence(window_id)");
-    expect(shell).toContain("runtime.preview_tab_launch(&target, &source_id, tab_type)");
-    expect(shell).toContain("tauri::async_runtime::spawn_blocking(move ||");
+    expect(shell).toContain("execute_runtime_launch_intent(");
+    expect(shell).toContain(".preview_tab_launch(&target, &intent.source_id, &intent.source_type)");
+    expect(menu).toContain("while let Some(intent) = receiver.recv().await");
     expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
     expect(runtime).toContain('"launch-preview"');
@@ -419,7 +420,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(menu).toContain("launcher_menu_item_id(");
     expect(menu).toContain("parse_launcher_menu_target(");
     expect(menu).toContain("launcher_context_for_window_id(window_id)");
-    expect(menu).toContain("presented_tab_for_launcher_source(source_id, tab_type)");
+    expect(menu).toContain("launch_intents.try_launch_source(");
     expect(menu).toContain("request_presence(app.clone(), Arc::clone(&state.runtime))");
     expect(menu).toContain('format!("✓ {name}")');
     expect(runtime).toContain("fn launcher_presence(&self)");
@@ -573,22 +574,16 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     );
     expect(launchPreview).toContain("reserve_native_tab(");
 
-    for (const source of [shell, quickMenu]) {
-      const previewCall = source.indexOf("preview_tab_launch(");
-      expect(previewCall).toBeGreaterThan(-1);
-      expect(source.lastIndexOf("spawn_blocking(move ||", previewCall)).toBeGreaterThan(-1);
-    }
+    expect(menu).toContain("while let Some(intent) = receiver.recv().await");
+    expect(shell).toContain("execute_runtime_launch_intent(");
+    expect(quickMenu).toContain("launch_intents.try_launch_source(");
+    expect(quickMenu).not.toContain("preview_tab_launch(");
     const menuLaunch = menu.slice(
       menu.indexOf("fn launch_from_menu("),
-      menu.indexOf("fn capture_launcher_action_event(")
+      menu.indexOf("fn reveal_menu_error(")
     );
-    expect(menuLaunch).toContain("preview_tab_launch(&target, source_id, tab_type)");
-    expect(menuLaunch.indexOf("preview_tab_launch(&target, source_id, tab_type)")).toBeLessThan(
-      menuLaunch.indexOf("launch_intents.try_launch(")
-    );
-    expect(menuLaunch).not.toContain(".preview_tab_launch(&target, source_id, tab_type)\n            .ok()");
-    expect(menuLaunch).toContain('"tab.launch-preview-rejected"');
-    expect(menuLaunch).toContain('"tab.launch-queue-rejected"');
+    expect(menuLaunch).toContain("launch_intents.try_launch_source(");
+    expect(menuLaunch).not.toContain("preview_tab_launch(");
     expect(menuLaunch).not.toContain("spawn_blocking");
     expect(menuLaunch).not.toContain("launch_target_for_game_window");
     expect(menuLaunch).not.toContain("core.invoke");

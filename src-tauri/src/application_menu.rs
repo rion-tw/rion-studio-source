@@ -236,7 +236,7 @@ fn create_game_window(app: &AppHandle, state: &crate::CoreState) -> Result<(), S
         .get_webview_window("main")
         .ok_or_else(|| "main window is unavailable".to_owned())?;
     let target =
-        crate::new_game_window_launch_target(app, state, &main).map_err(|error| error.message)?;
+        crate::new_game_window_launch_target(state, &main).map_err(|error| error.message)?;
     let core = std::sync::Arc::clone(&state.core);
     tauri::async_runtime::spawn(async move {
         let window_id = target.window_id.clone();

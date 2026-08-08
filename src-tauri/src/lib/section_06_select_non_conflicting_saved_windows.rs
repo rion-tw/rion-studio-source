@@ -205,29 +205,16 @@ fn string_argument(args: &[Value], index: usize, label: &str) -> Result<String, 
         .ok_or_else(|| shell_error("TAURI_SHELL_INPUT_INVALID", format!("{label} is required.")))
 }
 
-pub(crate) fn game_window_launch_target(
-    app: &AppHandle,
-    state: &CoreState,
-    main_window: &WebviewWindow,
-    requested_window_id: Option<&str>,
-) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
-    game_window_launch_target_internal(app, state, main_window, requested_window_id, false)
-}
-
 pub(crate) fn new_game_window_launch_target(
-    app: &AppHandle,
     state: &CoreState,
     main_window: &WebviewWindow,
 ) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
-    game_window_launch_target_internal(app, state, main_window, None, true)
+    game_window_launch_target_internal(state, main_window)
 }
 
 fn game_window_launch_target_internal(
-    app: &AppHandle,
     state: &CoreState,
     main_window: &WebviewWindow,
-    requested_window_id: Option<&str>,
-    force_new: bool,
 ) -> Result<EmbeddedLaunchTargetRecord, CoreErrorPayload> {
     let game_windows = state
         .core
@@ -237,26 +224,6 @@ fn game_window_launch_target_internal(
             serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                 .map_err(|error| shell_error("SHELL_GAME_WINDOW_INVALID", error.to_string()))
         })?;
-    let last_focused = state
-        .core
-        .invoke(CoreCommand::RuntimeRestoreSessionGet)
-        .ok()
-        .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned));
-    let selected_id = (!force_new)
-        .then(|| {
-            requested_window_id
-                .filter(|id| game_windows.iter().any(|window| window.id == *id))
-                .map(str::to_owned)
-                .or_else(|| {
-                    last_focused.filter(|id| game_windows.iter().any(|window| &window.id == id))
-                })
-                .or_else(|| game_windows.first().map(|window| window.id.clone()))
-        })
-        .flatten();
-    if let Some(id) = selected_id {
-        return launch_target_for_game_window(app, &id);
-    }
-
     let mut target = default_display_launch_target(main_window, None)?;
     let display_id = target.display_id;
     let work_area = target.work_area.clone();

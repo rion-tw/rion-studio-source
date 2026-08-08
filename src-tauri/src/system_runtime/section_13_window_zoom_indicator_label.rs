@@ -292,6 +292,21 @@ impl SystemRuntimeExecutor {
         self.publish_projection();
     }
 
+    pub(crate) fn dormant_windows(&self) -> Vec<RuntimeRestoreWindowRecord> {
+        self.state
+            .lock()
+            .map(|state| state.dormant_windows.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn retire_dormant_window(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            state.dormant_windows.retain(|window| window.id != window_id);
+            state.recovery_required = state.recovery_required && !state.dormant_windows.is_empty();
+        }
+        self.publish_projection();
+    }
+
     pub fn publish_projection(&self) {
         let Ok(value) = self.core.invoke(CoreCommand::BrowserRuntimeSnapshot) else {
             return;

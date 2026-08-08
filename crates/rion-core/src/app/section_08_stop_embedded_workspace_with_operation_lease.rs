@@ -189,19 +189,19 @@ impl AppCore {
 
     fn stop_embedded_window(
         &self,
-        window_id: &str,
+        request: &RuntimeWindowStopRequestRecord,
         delete: bool,
-        live_tab_ids: &[String],
     ) -> CoreResult<()> {
-        self.stop_embedded_window_runtime(window_id, delete, live_tab_ids)
+        self.stop_embedded_window_runtime(request, delete)
     }
 
     fn stop_embedded_window_runtime(
         &self,
-        window_id: &str,
+        request: &RuntimeWindowStopRequestRecord,
         delete: bool,
-        live_tab_ids: &[String],
     ) -> CoreResult<()> {
+        let window_id = request.window_id.as_str();
+        let live_tab_ids = request.tab_ids.as_slice();
         let tab_is_in_close_scope = |tab: &crate::model::BrowserRuntimeTabRecord| {
             live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)
         };
@@ -235,14 +235,19 @@ impl AppCore {
 
         for (tab_type, source_id) in sources {
             if tab_type == "workspace" {
-                self.stop_embedded_workspace_with_operation_lease(&source_id, true, false, None)?;
+                self.stop_embedded_workspace_with_operation_lease(
+                    &source_id,
+                    true,
+                    false,
+                    Some(&request.parent_operation_id),
+                )?;
             } else {
                 self.stop_embedded_role_with_operation_lease(
                     &source_id,
                     true,
                     true,
                     false,
-                    None,
+                    Some(&request.parent_operation_id),
                 )?;
             }
         }

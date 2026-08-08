@@ -5,10 +5,37 @@ impl SystemRuntimeExecutor {
         tabs: &[GameWindowTabRecord],
         active_tab_id: Option<String>,
     ) -> Result<(), String> {
+        self.prepare_restored_window_tabs_internal(target, tabs, active_tab_id, None)
+            .map(|_| ())
+    }
+
+    pub(crate) fn prepare_restored_window_tabs_with_launch(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        tabs: &[GameWindowTabRecord],
+        source_id: &str,
+        tab_type: &str,
+    ) -> Result<LaunchPreviewHandle, String> {
+        self.prepare_restored_window_tabs_internal(
+            target,
+            tabs,
+            None,
+            Some((source_id, tab_type)),
+        )?
+        .ok_or_else(|| "The restored launch preview was not created.".to_owned())
+    }
+
+    fn prepare_restored_window_tabs_internal(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        tabs: &[GameWindowTabRecord],
+        active_tab_id: Option<String>,
+        appended_source: Option<(&str, &str)>,
+    ) -> Result<Option<LaunchPreviewHandle>, String> {
         let window_id = target.window_id.as_str();
         let ordered_tab_ids = tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
-        if ordered_tab_ids.is_empty() {
-            return Ok(());
+        if ordered_tab_ids.is_empty() && appended_source.is_none() {
+            return Ok(None);
         }
         if active_tab_id
             .as_ref()
@@ -40,6 +67,19 @@ impl SystemRuntimeExecutor {
         let (_, host_created) = self
             .with_native_creation_lane(window_id, || self.ensure_display_host(target, title))
             .map_err(|error| error.message)?;
+        let launch_preview = appended_source.map(|(source_id, tab_type)| {
+            let provisional_tab_id = format!("provisional-{}", uuid::Uuid::new_v4());
+            let launch_preview_id = uuid::Uuid::new_v4().to_string();
+            (
+                LaunchPreviewHandle {
+                    launch_preview_id,
+                    provisional_tab_id,
+                    source_key: launch_source_key(tab_type, source_id),
+                },
+                source_id.to_owned(),
+                tab_type.to_owned(),
+            )
+        });
         let existing_tab_ids = {
             let state = self.state().map_err(|error| error.message)?;
             ordered_tab_ids
@@ -48,33 +88,21 @@ impl SystemRuntimeExecutor {
                 .cloned()
                 .collect::<HashSet<_>>()
         };
-        let visible_tab_ids = tabs
+        let mut visible_tab_ids = tabs
             .iter()
             .filter(|tab| !tab.hidden)
             .map(|tab| tab.id.clone())
             .collect::<Vec<_>>();
+        if let Some((preview, _, _)) = launch_preview.as_ref() {
+            visible_tab_ids.push(preview.provisional_tab_id.clone());
+        }
         let mut reserved_tab_ids = existing_tab_ids.clone();
         reserved_tab_ids.extend(
             tabs.iter()
                 .filter(|tab| tab.hidden)
                 .map(|tab| tab.id.clone()),
         );
-        {
-            let mut state = self.state().map_err(|error| error.message)?;
-            state.pending_window_tab_restores.insert(
-                window_id.to_owned(),
-                PendingWindowTabRestore {
-                    active_tab_id: active_tab_id.clone(),
-                    host_created,
-                    ordered_tab_ids: ordered_tab_ids.clone(),
-                    reserved_tab_ids,
-                    successful_tab_ids: existing_tab_ids.clone(),
-                    terminal_tab_ids: existing_tab_ids,
-                    visible_tab_ids: visible_tab_ids.clone(),
-                },
-            );
-        }
-        let live_tabs = tabs
+        let mut live_tabs = tabs
             .iter()
             .map(|tab| LiveTabRecord {
                 audio_muted: tab.audio_muted,
@@ -95,6 +123,26 @@ impl SystemRuntimeExecutor {
                 workspace_template: None,
             })
             .collect::<Vec<_>>();
+        if let Some((preview, source_id, tab_type)) = launch_preview.as_ref() {
+            live_tabs.push(LiveTabRecord {
+                audio_muted: false,
+                closable: true,
+                icon_data_url: None,
+                id: preview.provisional_tab_id.clone(),
+                persistable: false,
+                role_ids: if tab_type == "role" {
+                    vec![source_id.clone()]
+                } else {
+                    Vec::new()
+                },
+                role_slots: Vec::new(),
+                source_id: source_id.clone(),
+                tab_type: tab_type.clone(),
+                title: "Loading…".to_owned(),
+                #[cfg(any(windows, target_os = "macos"))]
+                workspace_template: None,
+            });
+        }
         let hidden_tab_ids = tabs
             .iter()
             .filter(|tab| tab.hidden)
@@ -110,9 +158,12 @@ impl SystemRuntimeExecutor {
             source: "restore",
             primary_window_id: window_id.to_owned(),
             windows: vec![LiveWindowTopologyCommit {
-                active_tab_id: active_tab_id
+                active_tab_id: launch_preview
+                    .as_ref()
+                    .map(|(preview, _, _)| preview.provisional_tab_id.clone())
+                    .or(active_tab_id
                     .clone()
-                    .or_else(|| visible_tab_ids.first().cloned()),
+                    .or_else(|| visible_tab_ids.first().cloned())),
                 hidden_tab_ids,
                 tabs: live_tabs,
                 ui_sequence: 1,
@@ -121,6 +172,43 @@ impl SystemRuntimeExecutor {
             }],
         })?;
         let revision = receipt.revision;
+        {
+            let mut state = self.state().map_err(|error| error.message)?;
+            if let Some((preview, source_id, tab_type)) = launch_preview.as_ref() {
+                if active_provisional_launch(&state, source_id, tab_type).is_some() {
+                    return Err("The requested source already has an admitted launch intent."
+                        .to_owned());
+                }
+                insert_provisional_launch(
+                    &mut state,
+                    ProvisionalLaunch {
+                        cancelled: false,
+                        failed: false,
+                        host_created,
+                        id: preview.provisional_tab_id.clone(),
+                        launch_preview_id: preview.launch_preview_id.clone(),
+                        source_id: source_id.clone(),
+                        tab_type: tab_type.clone(),
+                        window_id: window_id.to_owned(),
+                    },
+                );
+            }
+            state.pending_window_tab_restores.insert(
+                window_id.to_owned(),
+                PendingWindowTabRestore {
+                    active_tab_id: launch_preview
+                        .as_ref()
+                        .map(|(preview, _, _)| preview.provisional_tab_id.clone())
+                        .or(active_tab_id.clone()),
+                    host_created,
+                    ordered_tab_ids: ordered_tab_ids.clone(),
+                    reserved_tab_ids,
+                    successful_tab_ids: existing_tab_ids.clone(),
+                    terminal_tab_ids: existing_tab_ids,
+                    visible_tab_ids: visible_tab_ids.clone(),
+                },
+            );
+        }
         self.schedule_live_projection_membership_follow();
         for tab in tabs {
             self.presentation
@@ -147,15 +235,36 @@ impl SystemRuntimeExecutor {
             }
             self.mark_restored_native_tab_reserved(window_id, &tab.id);
         }
+        if let Some((preview, _, tab_type)) = launch_preview.as_ref() {
+            self.presentation.statuses.set_presentation_phase(
+                &preview.provisional_tab_id,
+                TabRuntimePhase::Reserved,
+            );
+            if let Err(error) = self.reserve_native_tab(
+                window_id,
+                &preview.provisional_tab_id,
+                "Loading…",
+                tab_type,
+                None,
+                revision,
+            ) {
+                self.cancel_tab_launch_preview(&preview.launch_preview_id);
+                return Err(error.message);
+            }
+        }
         self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids);
         self.apply_native_active_style(
             window_id,
-            active_tab_id.as_deref().or_else(|| ordered_tab_ids.first().map(String::as_str)),
+            launch_preview
+                .as_ref()
+                .map(|(preview, _, _)| preview.provisional_tab_id.as_str())
+                .or(active_tab_id.as_deref())
+                .or_else(|| ordered_tab_ids.first().map(String::as_str)),
             revision,
             "saved-window-restore-seeded",
         );
         self.publish_launcher_presence();
-        Ok(())
+        Ok(launch_preview.map(|(preview, _, _)| preview))
     }
 
     pub fn discard_prepared_restored_window_tabs(&self, window_id: &str) {
@@ -212,6 +321,16 @@ impl SystemRuntimeExecutor {
         launch_preview: Option<&ProvisionalLaunch>,
     ) -> (Option<PendingWindowTabRestore>, bool) {
         let restore = self.pending_window_tab_restore(window_id);
+        let preview_is_selected = launch_preview.is_some_and(|preview| {
+            self.presentation
+                .existing(window_id)
+                .and_then(|presentation| {
+                    presentation.lock().ok().map(|selection| {
+                        selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
+                    })
+                })
+                .unwrap_or(false)
+        });
         let should_select = restore.as_ref().map_or_else(
             || {
                 launch_preview.is_none_or(|preview| {
@@ -226,6 +345,9 @@ impl SystemRuntimeExecutor {
                 })
             },
             |restore| {
+                if preview_is_selected {
+                    return true;
+                }
                 restore
                     .active_tab_id
                     .as_ref()

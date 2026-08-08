@@ -107,95 +107,20 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             let Some(state) = app.try_state::<crate::CoreState>() else {
                 return;
             };
-            let tab_type = if workspace { "workspace" } else { "role" };
-            if let Some(tab_id) = state
-                .runtime
-                .presented_tab_for_launcher_source(&source_id, tab_type)
-            {
-                if let Err(message) = crate::preview_and_schedule_launcher_tab_selection(app, &state, &tab_id)
-                {
-                    crate::reveal_shell_error(
-                        app,
-                        rion_core::CoreErrorPayload {
-                            code: "TAURI_RUNTIME_TAB_ACTIVATION_FAILED".to_owned(),
-                            message,
-                        },
-                    );
-                }
-                return;
+            if let Err(message) = state.launch_intents.try_launch_source(
+                &source_id,
+                workspace,
+                None,
+                "quick-menu",
+            ) {
+                crate::reveal_shell_error(
+                    app,
+                    rion_core::CoreErrorPayload {
+                        code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),
+                        message,
+                    },
+                );
             }
-            let Some(main_window) = app.get_webview_window("main") else {
-                return;
-            };
-            let target = match crate::game_window_launch_target(app, &state, &main_window, None) {
-                Ok(target) => target,
-                Err(error) => {
-                    crate::reveal_shell_error(app, error);
-                    return;
-                }
-            };
-            let runtime = Arc::clone(&state.runtime);
-            let core = Arc::clone(core);
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                // Native menu events run on the main thread. Never wait there for the
-                // native creation lane or a host-window callback.
-                let preview_runtime = Arc::clone(&runtime);
-                let preview_target = target.clone();
-                let preview_source_id = source_id.clone();
-                let preview = match tauri::async_runtime::spawn_blocking(move || {
-                    preview_runtime.preview_tab_launch(
-                        &preview_target,
-                        &preview_source_id,
-                        if workspace { "workspace" } else { "role" },
-                    )
-                })
-                .await
-                {
-                    Ok(Ok(preview)) => preview,
-                    Ok(Err(error)) => {
-                        crate::reveal_shell_error(
-                            &app,
-                            rion_core::CoreErrorPayload {
-                                code: error.code.to_owned(),
-                                message: error.message,
-                            },
-                        );
-                        return;
-                    }
-                    Err(error) => {
-                        crate::reveal_shell_error(
-                            &app,
-                            rion_core::CoreErrorPayload {
-                                code: "TAURI_RUNTIME_LAUNCH_PREVIEW_FAILED".to_owned(),
-                                message: error.to_string(),
-                            },
-                        );
-                        return;
-                    }
-                };
-                let command = if workspace {
-                    CoreCommand::BrowserWorkspaceLaunch {
-                        workspace_id: source_id,
-                        target,
-                        launch_preview_id: Some(preview.launch_preview_id.clone()),
-                        restore_role_slots: None,
-                    }
-                } else {
-                    CoreCommand::BrowserRoleLaunch {
-                        role_id: source_id,
-                        target,
-                        launch_preview_id: Some(preview.launch_preview_id.clone()),
-                        zoom_factor: None,
-                        restore_role_slots: None,
-                    }
-                };
-                let result = core.invoke_async(command).await;
-                if let Err(error) = result {
-                    runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
-                    crate::reveal_shell_error(&app, error.payload());
-                }
-            });
         }
         _ => {}
     }

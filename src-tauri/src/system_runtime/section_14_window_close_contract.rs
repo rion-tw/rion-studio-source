@@ -46,6 +46,10 @@ fn window_close_in_progress(state: &RuntimeState, window_id: &str) -> bool {
         .contains_window_generation(window_id, generation)
 }
 
+fn window_close_cleanup_failed(state: &RuntimeState, window_id: &str) -> bool {
+    state.quarantined_window_hosts.contains(window_id)
+}
+
 impl SystemRuntimeExecutor {
     pub(crate) fn live_window_tab_ids(&self, window_id: &str) -> Result<Vec<String>, String> {
         self.presentation
@@ -54,6 +58,38 @@ impl SystemRuntimeExecutor {
             .lock()
             .map(|state| state.all_tab_ids())
             .map_err(|_| "Live runtime window state is unavailable.".to_owned())
+    }
+
+    pub(crate) fn snapshot_window_stop_request(
+        &self,
+        parent_operation_id: String,
+        window_id: &str,
+        intent_origin: impl Into<String>,
+    ) -> Result<RuntimeWindowStopRequestRecord, String> {
+        let presentation = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Live runtime window state was not found.".to_owned())?;
+        let (tab_ids, topology_revision) = presentation
+            .lock()
+            .map(|state| (state.all_tab_ids(), state.revision))
+            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+        let window_generation = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?
+            .display_hosts
+            .get(window_id)
+            .map(|host| host.generation)
+            .ok_or_else(|| "Live native window generation was not found.".to_owned())?;
+        Ok(RuntimeWindowStopRequestRecord {
+            parent_operation_id,
+            window_id: window_id.to_owned(),
+            window_generation,
+            topology_revision,
+            tab_ids,
+            intent_origin: intent_origin.into(),
+        })
     }
 
     fn current_window_close_in_progress(&self, window_id: &str) -> bool {
@@ -66,54 +102,42 @@ impl SystemRuntimeExecutor {
     pub(crate) fn wait_for_window_close_before_reopen(
         &self,
         window_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<Option<String>, String> {
         let operation_id = self
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?
             .window_closes
             .operation_id_for_window(window_id);
-        if let Some(operation_id) = operation_id {
-            let receipt = self.wait_window_close_operation(&operation_id);
-            if !matches!(
-                receipt.status,
-                SystemRuntimeOperationStatus::Applied
-                    | SystemRuntimeOperationStatus::Superseded
-                    | SystemRuntimeOperationStatus::Cancelled
-                    | SystemRuntimeOperationStatus::Degraded
-            ) {
+        if let Some(operation_id) = operation_id.as_ref() {
+            let receipt = self.wait_window_close_operation(operation_id);
+            if receipt.status != SystemRuntimeOperationStatus::Applied {
                 return Err(format!(
                     "The previous native window generation did not finish closing ({}).",
                     receipt.status.as_str()
                 ));
             }
         }
-        let deadline = Instant::now() + SURFACE_RECLAMATION_TIMEOUT;
         let mut state = self
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        while window_close_in_progress(&state, window_id) {
-            let now = Instant::now();
-            if now >= deadline {
+        loop {
+            if window_close_cleanup_failed(&state, window_id) {
                 return Err(
-                    "The previous native window generation is still releasing its role surfaces."
+                    "The previous native window generation cleanup failed and its host was quarantined."
                         .to_owned(),
                 );
             }
-            let (next, timeout) = self
+            if !window_close_in_progress(&state, window_id) {
+                break;
+            }
+            state = self
                 .tab_close_changed
-                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .wait(state)
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-            state = next;
-            if timeout.timed_out() && window_close_in_progress(&state, window_id) {
-                return Err(
-                    "The previous native window generation is still releasing its role surfaces."
-                        .to_owned(),
-                );
-            }
         }
-        Ok(())
+        Ok(operation_id)
     }
 
     pub(crate) fn begin_window_close_requested(
@@ -184,10 +208,9 @@ impl SystemRuntimeExecutor {
             state.window_closes.remove(&operation_id);
         }
         let native_expected = host.is_some();
-        let mut context = NativeOperationContext::new(
+        let mut context = NativeOperationContext::new_event_bound(
             NativeOperationSubsystem::WindowLifecycle,
             trigger,
-            WINDOW_CLOSE_TIMEOUT,
         )
         .with_completion_scope(SystemRuntimeOperationCompletionScope::StateCommit)
         .with_window(window_id)
@@ -252,20 +275,95 @@ impl SystemRuntimeExecutor {
         &self,
         operation_id: &str,
         window_id: &str,
-    ) -> RuntimeResult<(Vec<String>, SystemRuntimeOperationSummaryRecord)> {
+        retire_to_dormant: bool,
+    ) -> RuntimeResult<(
+        RuntimeWindowStopRequestRecord,
+        SystemRuntimeOperationSummaryRecord,
+    )> {
+        let (window_generation, intent_origin) = {
+            let state = self.state()?;
+            let transaction = state.window_closes.get(operation_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_WINDOW_CLOSE_NOT_FOUND",
+                    "The accepted native close operation no longer exists.",
+                )
+            })?;
+            let generation = transaction.generation.ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_WINDOW_CLOSE_GENERATION_MISSING",
+                    "The live native window generation is unavailable.",
+                )
+            })?;
+            (generation, transaction.context.trigger.to_owned())
+        };
+        let retired_snapshot = self.presentation.existing(window_id).and_then(|presentation| {
+            presentation.lock().ok().and_then(|live| {
+                let target_display = live.target_display.clone()?;
+                let active_source_id = live.selected_tab_id.as_ref().and_then(|tab_id| {
+                    live.tabs
+                        .iter()
+                        .find(|tab| &tab.id == tab_id && !live.hidden_tab_ids.contains(tab_id))
+                        .map(|tab| tab.source_id.clone())
+                });
+                Some(RuntimeRestoreWindowRecord {
+                    id: window_id.to_owned(),
+                    target_display,
+                    was_visible: true,
+                    active_source_id,
+                    tabs: live
+                        .tabs
+                        .iter()
+                        .filter(|tab| tab.persistable)
+                        .map(|tab| RuntimeRestoreTabRecord {
+                            tab_type: tab.tab_type.clone(),
+                            source_id: tab.source_id.clone(),
+                            name: tab.title.clone(),
+                            role_ids: tab.role_ids.clone(),
+                            hidden: live.hidden_tab_ids.contains(&tab.id),
+                            audio_muted: tab.audio_muted,
+                        })
+                        .collect(),
+                })
+            })
+        });
         let tab_ids = self.live_window_tab_ids(window_id).unwrap_or_default();
         for tab_id in &tab_ids {
             if self.cancel_provisional_tab_launch_with_presentation(tab_id, false) {
                 continue;
             }
-            if let Err(message) = self.preview_tab_close_with_presentation(tab_id, false) {
+            if let Err(message) = self.preview_tab_close_with_presentation(
+                tab_id,
+                false,
+                Some(operation_id),
+            ) {
                 eprintln!(
                     "Late tab close intent was retired while closing its window: window={window_id} tab={tab_id} error={message}"
                 );
             }
         }
+        let topology_revision = self
+            .presentation
+            .existing(window_id)
+            .and_then(|presentation| presentation.lock().ok().map(|state| state.revision))
+            .unwrap_or_default();
+        let stop_request = RuntimeWindowStopRequestRecord {
+            parent_operation_id: operation_id.to_owned(),
+            window_id: window_id.to_owned(),
+            window_generation,
+            topology_revision,
+            tab_ids: tab_ids.clone(),
+            intent_origin,
+        };
         let native_window = {
             let mut state = self.state()?;
+            if retire_to_dormant
+                && let Some(retired_snapshot) = retired_snapshot
+            {
+                state
+                    .dormant_windows
+                    .retain(|window| window.id != retired_snapshot.id);
+                state.dormant_windows.push(retired_snapshot);
+            }
             let native_window = state.display_hosts.get_mut(window_id).map(|host| {
                 let retirement_revision = WINDOW_RETIREMENT_SEQUENCE
                     .fetch_add(1, Ordering::AcqRel)
@@ -309,7 +407,7 @@ impl SystemRuntimeExecutor {
         self.schedule_retiring_window_tab_cleanup(window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
         self.publish_launcher_presence();
-        Ok((tab_ids, receipt))
+        Ok((stop_request, receipt))
     }
 
     fn schedule_retiring_window_tab_cleanup(&self, window_id: &str, tab_ids: &[String]) {

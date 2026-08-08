@@ -34,6 +34,7 @@ use rion_core::{
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroInputDiagnosticsRecord, MacroInputEpochRecord, OperationCompletionPolicy,
     RuntimeTabMutationRequestRecord,
+    RuntimeWindowStopRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
     RuntimeRestoreWindowRecord, RuntimeRoleSlotRecord, SessionCookieRecord,
     SessionTransferPayloadRecord, StateGameRecord,
@@ -81,7 +82,6 @@ const DIVIDER_HIT_TARGET: f64 = 10.0;
 const WINDOWS_TAB_STRIP_HEIGHT: f64 = 40.0;
 const PLATFORM_CALLBACK_TIMEOUT: Duration = Duration::from_secs(10);
 const SURFACE_RECLAMATION_TIMEOUT: Duration = Duration::from_secs(10);
-const WINDOW_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
 const MAIN_WINDOW_ACTOR_CAPACITY: usize = 64;
 // Drag completion is gesture-owned and never expires while the pointer is

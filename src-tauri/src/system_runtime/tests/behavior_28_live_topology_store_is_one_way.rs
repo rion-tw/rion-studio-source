@@ -58,6 +58,41 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
 }
 
 #[test]
+fn dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch() {
+    let store = LiveWindowTabStore::default();
+    let mut appended = topology_tab("provisional-test");
+    appended.persistable = false;
+    appended.source_id = "source-test".to_owned();
+    let receipt = store
+        .commit(LiveTopologyCommitInput {
+            commit_id: "saved-window-hydration-with-launch".to_owned(),
+            source: "restore",
+            primary_window_id: "window-1".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some(appended.id.clone()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![topology_tab("test4"), topology_tab("test5"), appended],
+                ui_sequence: 1,
+                window_generation: 2,
+                window_id: "window-1".to_owned(),
+            }],
+        })
+        .unwrap();
+
+    assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
+    let window = store.windows.lock().unwrap()["window-1"].clone();
+    let window = window.lock().unwrap();
+    assert_eq!(
+        window.all_tab_ids(),
+        ["test4", "test5", "provisional-test"]
+    );
+    assert_eq!(
+        window.selected_tab_id.as_deref(),
+        Some("provisional-test")
+    );
+}
+
+#[test]
 fn selection_order_and_metadata_commits_do_not_request_membership_rebinding() {
     let store = LiveWindowTabStore::default();
     let commit = |sequence, active: &str, tabs: Vec<LiveTabRecord>| LiveTopologyCommitInput {

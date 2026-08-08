@@ -51,7 +51,6 @@ import type {
   RestoreSavedGameWindowsInput,
   ResolvedTheme,
   Role,
-  RoleLaunchInput,
   RoleLaunchResult,
   RolePaths,
   RoleStatus,
@@ -62,7 +61,6 @@ import type {
   UpdateGameWindowInput,
   UpdateMacroInput,
   UpdateRoleInput,
-  WorkspaceLaunchInput,
   WorkspaceLaunchResult
 } from "./types";
 import type {
@@ -135,7 +133,7 @@ export interface RionStudioApi {
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
   getRolePaths: (id: string) => Promise<RolePaths>;
-  launchRole: (id: string, input?: RoleLaunchInput) => Promise<RoleLaunchResult>;
+  launchRole: (id: string) => Promise<RoleLaunchResult>;
   stopRole: (id: string) => Promise<void>;
   listRoleStatuses: () => Promise<RoleStatus[]>;
   listLaunchWorkspaces: () => Promise<LaunchWorkspace[]>;
@@ -145,7 +143,7 @@ export interface RionStudioApi {
   deleteLaunchWorkspace: (id: string) => Promise<void>;
   deleteLaunchWorkspaces: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   getDisplayTopology: () => Promise<DisplayTopology>;
-  launchWorkspace: (id: string, input?: WorkspaceLaunchInput) => Promise<WorkspaceLaunchResult>;
+  launchWorkspace: (id: string) => Promise<WorkspaceLaunchResult>;
   stopLaunchWorkspace: (id: string) => Promise<void>;
   listMacros: () => Promise<Macro[]>;
   createMacro: (input: CreateMacroInput) => Promise<Macro>;

@@ -527,9 +527,10 @@ async fn process_game_window_close_requested(
         );
     }
 
-    let (live_tab_ids, receipt) = match runtime.commit_visible_window_close(
+    let (request, receipt) = match runtime.commit_visible_window_close(
         &operation_id,
         &window_id,
+        true,
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -549,10 +550,7 @@ async fn process_game_window_close_requested(
     let _ = app.emit("rion://window-lifecycle", receipt);
     tauri::async_runtime::spawn(async move {
         if let Err(error) = core
-            .invoke_async(CoreCommand::BrowserWindowStop {
-                window_id: window_id.clone(),
-                tab_ids: live_tab_ids,
-            })
+            .invoke_async(CoreCommand::BrowserWindowStop { request })
             .await
         {
             eprintln!(
@@ -587,20 +585,14 @@ async fn execute_game_window_close_transaction(
                 "Final Game Window placement flush failed; close will continue: window={window_id} error={error}"
             );
         }
-        let (live_tab_ids, receipt) = state
+        let (request, receipt) = state
             .runtime
-            .commit_visible_window_close(&operation.operation_id, &window_id)
+            .commit_visible_window_close(&operation.operation_id, &window_id, !delete)
             .map_err(|error| shell_error(error.code, error.message))?;
         let command = if delete {
-            CoreCommand::BrowserWindowDelete {
-                window_id: window_id.clone(),
-                tab_ids: live_tab_ids,
-            }
+            CoreCommand::BrowserWindowDelete { request }
         } else {
-            CoreCommand::BrowserWindowStop {
-                window_id: window_id.clone(),
-                tab_ids: live_tab_ids,
-            }
+            CoreCommand::BrowserWindowStop { request }
         };
         let core = Arc::clone(&state.core);
         let cleanup_window_id = window_id.clone();
@@ -665,11 +657,29 @@ async fn rion_core_invoke(
     state: State<'_, CoreState>,
     command: Value,
 ) -> Result<Value, CoreErrorPayload> {
-    let mut command =
+    let command =
         serde_json::from_value::<CoreCommand>(command).map_err(|error| CoreErrorPayload {
             code: "CORE_INPUT_INVALID".to_owned(),
             message: error.to_string(),
         })?;
+    let runtime_launch = match &command {
+        CoreCommand::BrowserRoleLaunch { role_id, .. } => {
+            Some((role_id.clone(), false, "renderer-core-role-launch"))
+        }
+        CoreCommand::BrowserWorkspaceLaunch { workspace_id, .. } => Some((
+            workspace_id.clone(),
+            true,
+            "renderer-core-workspace-launch",
+        )),
+        _ => None,
+    };
+    if let Some((source_id, workspace, origin)) = runtime_launch {
+        return state
+            .launch_intents
+            .submit(&source_id, workspace, None, origin)
+            .await
+            .map(|outcome| outcome.statuses);
+    }
     let menu_language = match &command {
         CoreCommand::OverlayLanguageSet { language } => Some(language.clone()),
         _ => None,
@@ -685,7 +695,6 @@ async fn rion_core_invoke(
     let legal_acceptance_changed = matches!(&command, CoreCommand::LegalAcceptanceAccept { .. });
     let runtime_window_preferences_changed = core_command_refreshes_runtime_projection(&command);
     let browser_fonts_changed = core_command_refreshes_browser_fonts(&command);
-    let launch_preview = prepare_core_launch_preview(&state, &mut command).await?;
     let result = if command.requires_async_dispatch() {
         Arc::clone(&state.core)
             .invoke_async(command)
@@ -701,13 +710,6 @@ async fn rion_core_invoke(
             })?
             .map_err(error_payload)
     };
-    if let Some(preview) = launch_preview
-        && result.is_err()
-    {
-        state
-            .runtime
-            .cancel_tab_launch_preview(&preview.launch_preview_id);
-    }
     if result
         .as_ref()
         .is_ok_and(|value| value.get("cancelled").and_then(Value::as_bool) == Some(true))

@@ -261,8 +261,11 @@ describe("runtime window lifecycle authority", () => {
     expect(shellClose).toContain("runtime.commit_visible_window_close(");
     expect(closeContract).toContain("let tab_ids = self.live_window_tab_ids(window_id)");
     expect(closeContract).toContain("self.presentation.remove(window_id)");
-    expect(shellClose).toContain("tab_ids: live_tab_ids");
-    expect(coreClose).toContain("live_tab_ids: &[String]");
+    expect(shellClose).toContain("CoreCommand::BrowserWindowStop { request }");
+    expect(closeContract).toContain("RuntimeWindowStopRequestRecord {");
+    expect(closeContract).toContain("parent_operation_id: operation_id.to_owned()");
+    expect(coreClose).toContain("let live_tab_ids = request.tab_ids.as_slice()");
+    expect(coreClose).toContain("Some(&request.parent_operation_id)");
     expect(coreClose).toContain("live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)");
   });
 
@@ -309,8 +312,8 @@ describe("runtime window lifecycle authority", () => {
     expect(visibleClose).toContain(
       "cancel_provisional_tab_launch_with_presentation(tab_id, false)"
     );
-    expect(visibleClose).toContain(
-      "preview_tab_close_with_presentation(tab_id, false)"
+    expect(visibleClose).toMatch(
+      /preview_tab_close_with_presentation\(\s*tab_id,\s*false,\s*Some\(operation_id\)/u
     );
     expect(visibleClose.indexOf("request_platform_window_hide(&window)")).toBeLessThan(
       visibleClose.indexOf("self.presentation.remove(window_id)")

@@ -1,22 +1,35 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn preview_tab_close(&self, tab_id: &str) -> Result<RuntimeTabCloseIntent, String> {
-        self.preview_tab_close_with_presentation(tab_id, true)
+        self.preview_tab_close_with_presentation(tab_id, true, None)
     }
 
     fn preview_tab_close_with_presentation(
         &self,
         tab_id: &str,
         present_successor: bool,
+        parent_operation_id: Option<&str>,
     ) -> Result<RuntimeTabCloseIntent, String> {
         let started = Instant::now();
-        if let Some(tombstone) = self
-            .state
-            .lock()
-            .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?
-            .close_previews
-            .get(tab_id)
-            .cloned()
-        {
+        let existing_tombstone = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
+            if let Some(parent_operation_id) = parent_operation_id {
+                if let Some(tombstone) = state.close_previews.get_mut(tab_id) {
+                    tombstone.parent_operation_id = Some(parent_operation_id.to_owned());
+                }
+                for surface in state
+                    .surface_registry
+                    .values_mut()
+                    .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                {
+                    surface.close_operation_id = Some(parent_operation_id.to_owned());
+                }
+            }
+            state.close_previews.get(tab_id).cloned()
+        };
+        if let Some(tombstone) = existing_tombstone {
             return Ok(RuntimeTabCloseIntent {
                 source_id: tombstone.source_id,
                 tab_type: tombstone.tab_type,
@@ -98,16 +111,17 @@ impl SystemRuntimeExecutor {
             } else {
                 None
             };
-            let isolation_surfaces = state
-                .surface_registry
-                .values()
-                .filter(|surface| {
+            let mut isolation_surfaces = Vec::new();
+            for surface in state.surface_registry.values_mut().filter(|surface| {
                     surface.tab_id.as_deref() == Some(tab_id)
                         && surface.kind != ManagedSurfaceKind::Divider
                         && surface.phase.blocks_role_relaunch()
-                })
-                .cloned()
-                .collect::<Vec<_>>();
+                }) {
+                if let Some(parent_operation_id) = parent_operation_id {
+                    surface.close_operation_id = Some(parent_operation_id.to_owned());
+                }
+                isolation_surfaces.push(surface.clone());
+            }
             state.optimistic_closed_tabs.insert(tab_id.to_owned());
             let slot_owners = state
                 .tabs
@@ -128,6 +142,7 @@ impl SystemRuntimeExecutor {
             state.close_previews.insert(
                 tab_id.to_owned(),
                 TabCloseTombstone {
+                    parent_operation_id: parent_operation_id.map(str::to_owned),
                     revision,
                     retirement_revision,
                     slot_owners,
@@ -297,7 +312,9 @@ impl SystemRuntimeExecutor {
             &tombstone.window_id,
             Some(tab_id),
             tombstone.revision,
-            if owner_generations == 0 {
+            if tombstone.parent_operation_id.is_some() {
+                "parent-operation-fenced-slots"
+            } else if owner_generations == 0 {
                 "no-owned-slots"
             } else {
                 "generation-fenced-slots"

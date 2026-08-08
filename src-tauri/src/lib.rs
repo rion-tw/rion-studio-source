@@ -27,6 +27,7 @@ include!("lib/section_03_display_topology.rs");
 include!("lib/section_03_rion_overlay_request.rs");
 include!("lib/section_04_rion_shell_invoke.rs");
 include!("lib/section_04_shell_browser_launch.rs");
+include!("lib/section_04_runtime_launch_intent.rs");
 include!("lib/section_04_prepare_shell_invoke.rs");
 include!("lib/section_05_invoke_core_async.rs");
 include!("lib/section_06_select_non_conflicting_saved_windows.rs");

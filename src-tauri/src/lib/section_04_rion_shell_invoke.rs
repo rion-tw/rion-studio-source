@@ -467,17 +467,18 @@ async fn rion_shell_invoke(
         "discardSavedGameWindows" => discard_saved_game_windows(&state, &args),
         "stopEmbeddedRuntimeWindow" => {
             let window_id = string_argument(&args, 0, "Game window ID")?;
-            let tab_ids = state
+            let request = state
                 .runtime
-                .live_window_tab_ids(&window_id)
+                .snapshot_window_stop_request(
+                    uuid::Uuid::new_v4().to_string(),
+                    &window_id,
+                    "shell-stop-embedded-runtime-window",
+                )
                 .map_err(|message| {
                     shell_error("SYSTEM_WINDOW_CLOSE_LIVE_SCOPE_FAILED", message)
                 })?;
             Arc::clone(&state.core)
-                .invoke_async(CoreCommand::BrowserWindowStop {
-                    window_id,
-                    tab_ids,
-                })
+                .invoke_async(CoreCommand::BrowserWindowStop { request })
                 .await
                 .map_err(error_payload)
         }

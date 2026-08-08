@@ -141,6 +141,64 @@ pub struct RuntimeTabIntentReceiptRecord {
     pub failure_code: Option<String>,
 }
 
+/// A launcher action after its native adapter has been authenticated. Renderer
+/// supplied window identity is deliberately absent; the System Runtime resolves
+/// the destination from the registered adapter and native focus history.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeLaunchIntentRecord {
+    pub intent_id: String,
+    #[ts(type = "number")]
+    pub adapter_sequence: u64,
+    pub source_id: String,
+    #[ts(type = "\"role\" | \"workspace\"")]
+    pub source_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeLaunchIntentReceiptRecord {
+    pub intent_id: String,
+    pub status: SystemRuntimeOperationStatus,
+    pub destination_reason: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub hydration_operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cleanup_operation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub existing_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failure_code: Option<String>,
+}
+
+/// The immutable close scope captured from LiveWindowTabStore when a runtime
+/// window close commits. Core may release only these exact tab owners and every
+/// native effect remains correlated to the parent window-close operation.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeWindowStopRequestRecord {
+    pub parent_operation_id: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    #[ts(type = "number")]
+    pub topology_revision: u64,
+    pub tab_ids: Vec<String>,
+    pub intent_origin: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

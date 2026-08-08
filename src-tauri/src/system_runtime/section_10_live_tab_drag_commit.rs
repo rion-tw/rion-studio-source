@@ -7,6 +7,29 @@ impl SystemRuntimeExecutor {
         self.presentation.tab_window(tab_id).ok().flatten()
     }
 
+    pub(crate) fn live_window_ids(&self) -> Vec<String> {
+        let mut window_ids = self
+            .presentation
+            .snapshot_states()
+            .map(|states| states.into_keys().collect::<Vec<_>>())
+            .unwrap_or_default();
+        window_ids.sort();
+        window_ids
+    }
+
+    pub(crate) fn live_window_identity(&self, window_id: &str) -> Option<(u64, u64)> {
+        let generation = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.display_hosts.get(window_id).map(|host| host.generation))?;
+        let revision = self
+            .presentation
+            .existing(window_id)
+            .and_then(|window| window.lock().ok().map(|window| window.revision))?;
+        Some((generation, revision))
+    }
+
     /// Commits a non-drag topology action to the same live authority used by
     /// AppKit/HTML gestures. Core and SQLite are deliberately absent: callers
     /// enqueue those sinks only after this method returns.

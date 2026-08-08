@@ -17,6 +17,21 @@ fn test_role_slots(role_ids: &[&str]) -> Vec<crate::model::RuntimeRoleSlotInputR
         .collect()
 }
 
+fn test_window_stop_request(
+    window_id: impl Into<String>,
+    tab_ids: Vec<String>,
+) -> crate::model::RuntimeWindowStopRequestRecord {
+    let window_id = window_id.into();
+    crate::model::RuntimeWindowStopRequestRecord {
+        parent_operation_id: format!("test-window-close:{window_id}"),
+        window_id,
+        window_generation: 1,
+        topology_revision: 1,
+        tab_ids,
+        intent_origin: "test".to_owned(),
+    }
+}
+
 include!("behavior_01_command.rs");
 include!(
     "behavior_02_moving_the_last_tab_to_a_transient_window_preserves_saved_window_settings.rs"

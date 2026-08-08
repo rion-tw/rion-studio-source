@@ -62,6 +62,77 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
+fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        HWND_TOP, IsWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+        SetWindowPos,
+    };
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(RuntimeError::new(
+            "SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED",
+            "The Win32 game window handle is no longer valid.",
+        ));
+    }
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOP),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        )
+    }
+    .map_err(RuntimeError::tauri)
+}
+
+#[cfg(windows)]
+fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindowAsync,
+    };
+
+    prepare_platform_window_foreground(window)?;
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let command = if unsafe { IsIconic(hwnd) }.as_bool() {
+        SW_RESTORE
+    } else {
+        SW_SHOW
+    };
+    // Keep the show on the owning window queue so it supersedes an older
+    // retirement hide, while the pre-positioning makes its first frame frontmost.
+    let _ = unsafe { ShowWindowAsync(hwnd, command) };
+    if unsafe { SetForegroundWindow(hwnd) }.as_bool()
+        || unsafe { GetForegroundWindow() } == hwnd
+    {
+        return Ok(());
+    }
+
+    // Tauri/tao carries the platform's immediate foreground-permission fallback.
+    // This stays in the same UI callback and never retries on a timer.
+    window.set_focus().map_err(RuntimeError::tauri)?;
+    if unsafe { GetForegroundWindow() } == hwnd {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED",
+            "Windows did not acknowledge the game window as foreground.",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    Ok(unsafe { GetForegroundWindow() } == hwnd)
+}
+
+#[cfg(windows)]
 fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
         IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,

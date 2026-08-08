@@ -12,6 +12,18 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(target_os = "macos")]
+fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
+    crate::runtime_tabs_macos::set_appkit_window_interaction(window, false, true).map_err(
+        |message| RuntimeError::new("SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED", message),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+    window.is_focused().map_err(RuntimeError::tauri)
+}
+
+#[cfg(target_os = "macos")]
 fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }

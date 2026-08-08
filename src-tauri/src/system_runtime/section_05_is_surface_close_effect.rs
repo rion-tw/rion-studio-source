@@ -291,6 +291,16 @@ fn native_presentation_host_visibility(
     requested_visibility.unwrap_or(tab_id.is_some())
 }
 
+fn native_window_foreground_show_should_apply(
+    requested_visibility: Option<bool>,
+    apply_window_focus: bool,
+    defer_window_focus_until_reveal: bool,
+) -> bool {
+    requested_visibility == Some(true)
+        && apply_window_focus
+        && !defer_window_focus_until_reveal
+}
+
 fn native_presentation_native_work_is_current(
     shutdown_state: &AtomicU8,
     application_lifecycle: &ApplicationLifecycleCoordinator,
@@ -656,6 +666,11 @@ fn apply_native_presentation_batch(
             mutation_plan.apply_window_focus,
             focus_current && focus_submission_current,
         ) && !defer_window_focus_until_reveal;
+        let apply_foreground_show = native_window_foreground_show_should_apply(
+            window_visibility,
+            apply_window_focus,
+            defer_window_focus_until_reveal,
+        );
         let window_was_minimized = apply_window_focus
             .then(|| window.is_minimized().ok())
             .flatten();
@@ -666,11 +681,34 @@ fn apply_native_presentation_batch(
                 Err(error) => visibility_errors.push(error.to_string()),
             }
         }
+        let mut window_foreground_show_applied = false;
+        let mut window_focus_applied = false;
+        let mut window_focus_ms = 0_u64;
 
         let window_visibility_started_at = Instant::now();
         if let Some(visible) = window_visibility {
             if visible {
-                if let Err(error) = request_platform_window_show(&window) {
+                if apply_foreground_show {
+                    let focus_started_at = Instant::now();
+                    match request_platform_window_show_foreground(&window) {
+                        Ok(()) => {
+                            window_foreground_show_applied = true;
+                            window_focus_applied = true;
+                        }
+                        Err(error) => {
+                            visibility_errors.push(error.message);
+                            if let Err(show_error) = request_platform_window_show(&window) {
+                                visibility_errors.push(show_error.message);
+                            }
+                        }
+                    }
+                    window_focus_ms = window_focus_ms.saturating_add(
+                        focus_started_at
+                            .elapsed()
+                            .as_millis()
+                            .min(u64::MAX as u128) as u64,
+                    );
+                } else if let Err(error) = request_platform_window_show(&window) {
                     visibility_errors.push(error.message);
                 }
             } else if let Err(error) = request_platform_window_hide(&window) {
@@ -722,18 +760,22 @@ fn apply_native_presentation_batch(
         }
 
         let mut focus_applied = false;
-        let mut window_focus_applied = false;
         let window_focus_started_at = Instant::now();
-        if apply_window_focus && matches!(window.is_focused(), Ok(false)) {
+        if apply_window_focus
+            && !window_foreground_show_applied
+            && matches!(platform_window_is_focused(&window), Ok(false))
+        {
             match window.set_focus() {
                 Ok(()) => window_focus_applied = true,
                 Err(error) => visibility_errors.push(error.to_string()),
             }
         }
-        let window_focus_ms = window_focus_started_at
-            .elapsed()
-            .as_millis()
-            .min(u64::MAX as u128) as u64;
+        window_focus_ms = window_focus_ms.saturating_add(
+            window_focus_started_at
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64,
+        );
         let webview_focus_started_at = Instant::now();
         if presentation_current
             && skipped_surface_count == 0
@@ -755,7 +797,7 @@ fn apply_native_presentation_batch(
         let window_focused_after = if defer_window_focus_until_reveal {
             None
         } else {
-            window.is_focused().ok()
+            platform_window_is_focused(&window).ok()
         };
         // A retirement hide is intentionally submission-based. Synchronous
         // visibility readback can marshal behind slow WebView2/AppKit teardown

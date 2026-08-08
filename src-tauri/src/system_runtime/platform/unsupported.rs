@@ -11,6 +11,17 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
+    window.show().map_err(RuntimeError::tauri)?;
+    window.set_focus().map_err(RuntimeError::tauri)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+    window.is_focused().map_err(RuntimeError::tauri)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }

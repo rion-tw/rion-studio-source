@@ -202,6 +202,23 @@
     }
 
     #[test]
+    fn explicit_visible_focus_uses_an_atomic_foreground_show_unless_reveal_is_deferred() {
+        for (visible, focus, deferred, expected) in [
+            (Some(true), true, false, true),
+            (Some(true), false, false, false),
+            (Some(true), true, true, false),
+            (Some(false), true, false, false),
+            (None, true, false, false),
+        ] {
+            assert_eq!(
+                native_window_foreground_show_should_apply(visible, focus, deferred),
+                expected,
+                "visible={visible:?}, focus={focus}, deferred={deferred}"
+            );
+        }
+    }
+
+    #[test]
     fn presentation_fence_uses_projection_instance_identities_on_both_threads() {
         let tab_id = Some("tab-a".to_owned());
         let projection_identities =

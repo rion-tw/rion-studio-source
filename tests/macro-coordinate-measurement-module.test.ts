@@ -204,7 +204,21 @@ describe("macro coordinate measurement module", () => {
     });
     const picker = document.querySelector<HTMLElement>("div")?.shadowRoot
       ?.querySelector<HTMLElement>(".coordinate-picker");
-    if (!picker) throw new Error("Expected a mounted coordinate measurement.");
+    const readout = picker?.querySelector<HTMLElement>(".coordinate-readout");
+    if (!picker || !readout) throw new Error("Expected a mounted coordinate measurement.");
+    picker.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      cancelable: true,
+      clientX,
+      clientY
+    }));
+    expect(readout.textContent).toContain(`X: ${Math.round(clientX)}px`);
+    expect(readout.textContent).toContain(`Y: ${Math.round(clientY)}px`);
+    expect(readout.textContent).toContain(`Zoom: ${appliedPageZoom * 100}%`);
+    if (appliedPageZoom !== 1) {
+      expect(readout.textContent).not.toContain("X: 213px");
+      expect(readout.textContent).not.toContain("Y: 120px");
+    }
     picker.dispatchEvent(new MouseEvent("click", {
       bubbles: true,
       cancelable: true,

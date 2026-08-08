@@ -171,24 +171,19 @@ export function createMacroCoordinateMeasurement({
   function formatMeasurement(value) {
     return [
       "X: ",
-      String(value.xReferencePx),
+      String(value.xPx),
       "px (",
       String(roundCoordinatePercent(value.xPercent)),
       "%), Y: ",
-      String(value.yReferencePx),
+      String(value.yPx),
       "px (",
       String(roundCoordinatePercent(value.yPercent)),
-      "%), ",
+      "%), Zoom: ",
+      String(roundCoordinatePercent(value.appliedPageZoom * 100)),
+      "%, ",
       getText().coordinateAnchor,
       ": ",
-      String(value.anchor || coordinateAnchorDefinitions[0].anchor),
-      " · CSS X: ",
-      String(value.xPx),
-      "px, Y: ",
-      String(value.yPx),
-      "px @",
-      String(roundCoordinatePercent(value.appliedPageZoom * 100)),
-      "%"
+      String(value.anchor || coordinateAnchorDefinitions[0].anchor)
     ].join("");
   }
 

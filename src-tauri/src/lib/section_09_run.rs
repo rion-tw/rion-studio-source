@@ -287,7 +287,7 @@ pub fn run() {
                 core,
                 display_topology: DisplayTopologyCoordinator::default(),
                 application_exit_guard: ApplicationExitGuard::default(),
-                application_shutdown_started: AtomicBool::new(false),
+                application_shutdown: ApplicationShutdownCoordinator::default(),
                 main_window_zoom: Mutex::new(1.0),
                 menu_language: Mutex::new("en".to_owned()),
                 quick_menu_refresh: quick_menu_refresh.clone(),
@@ -395,49 +395,16 @@ pub fn run() {
                         let _ = app_handle.emit("rion://application-quit-requested", ());
                         return;
                     }
-                    if state
-                        .application_shutdown_started
-                        .swap(true, Ordering::AcqRel)
-                    {
-                        if !state.runtime.shutdown_is_terminal() {
+                    match state.application_shutdown.request_exit() {
+                        ApplicationExitRequest::Exit => return,
+                        ApplicationExitRequest::WaitForShutdown => {
                             api.prevent_exit();
+                            return;
                         }
-                        return;
+                        ApplicationExitRequest::StartShutdown => {}
                     }
                     api.prevent_exit();
-                    state.runtime.flush_all_live_window_states();
-                    let _ = state.runtime.persist_all_game_window_placements();
-                    if let Err(error) = state.runtime.persist_restore_session(false) {
-                        let _ = app_handle.emit(
-                            "rion://shell-error",
-                            json!({
-                                "code": "TAURI_RESTORE_PERSIST_FAILED",
-                                "message": error
-                            }),
-                        );
-                    }
-                    let runtime = Arc::clone(&state.runtime);
-                    let core = Arc::clone(&state.core);
-                    let app = app_handle.clone();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        let receipt = runtime.close_all();
-                        if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status)
-                            && let Err(error) = runtime.persist_restore_session(true)
-                        {
-                            let _ = app.emit(
-                                "rion://shell-error",
-                                json!({
-                                    "code": "TAURI_RESTORE_PERSIST_FAILED",
-                                    "message": error
-                                }),
-                            );
-                        }
-                        runtime.wait_for_final_window_state_flush(
-                            std::time::Duration::from_secs(2),
-                        );
-                        core.shutdown();
-                        app.exit(0);
-                    });
+                    start_application_shutdown(app_handle, &state);
                 }
                 tauri::RunEvent::WindowEvent { label, event, .. } => {
                     let Some(state) = app_handle.try_state::<CoreState>() else {
@@ -562,7 +529,6 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     if let Some(state) = app_handle.try_state::<CoreState>() {
-                        state.runtime.close_all();
                         state.core.shutdown();
                     }
                 }

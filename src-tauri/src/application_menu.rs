@@ -4,6 +4,7 @@ use tauri::menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBui
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 const TOOLBAR_ITEM: &str = "rion-always-show-fullscreen-toolbar";
+const QUIT_ITEM: &str = "rion-application-quit";
 const NEW_GAME_WINDOW_ITEM: &str = "rion-new-game-window";
 const SHOW_GAME_WINDOW_PREFIX: &str = "rion-show-game-window:";
 const TOGGLE_FULLSCREEN_ITEM: &str = "rion-toggle-fullscreen";
@@ -58,6 +59,7 @@ struct Labels {
     edit: &'static str,
     view: &'static str,
     window: &'static str,
+    quit: &'static str,
     new_game_window: &'static str,
     toolbar: &'static str,
     fullscreen: &'static str,
@@ -94,6 +96,10 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .accelerator("CmdOrCtrl+N")
         .build(app)
         .map_err(|error| error.to_string())?;
+    let quit = MenuItemBuilder::with_id(QUIT_ITEM, labels.quit)
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)
+        .map_err(|error| error.to_string())?;
 
     let app_menu = SubmenuBuilder::new(app, labels.app)
         .about(None)
@@ -104,7 +110,7 @@ pub fn install(app: &AppHandle, core: &AppCore, language: &str) -> Result<(), St
         .hide_others()
         .show_all()
         .separator()
-        .quit();
+        .item(&quit);
     let app_menu = app_menu.build().map_err(|error| error.to_string())?;
     let edit_menu = SubmenuBuilder::new(app, labels.edit)
         .undo()
@@ -173,6 +179,10 @@ pub fn handle_event(app: &AppHandle, id: &str) {
     };
     let result = match id {
         TOOLBAR_ITEM => toggle_toolbar_preference(app, &state),
+        QUIT_ITEM => {
+            crate::request_application_shutdown(app, &state);
+            Ok(())
+        }
         NEW_GAME_WINDOW_ITEM => execute_shortcut(
             app,
             &state,
@@ -397,6 +407,7 @@ fn labels(language: &str) -> Labels {
             edit: "編輯",
             view: "顯示",
             window: "視窗",
+            quit: "結束 Rion Studio",
             new_game_window: "新增遊戲視窗",
             toolbar: "全螢幕時一律顯示工具列",
             fullscreen: "切換全螢幕",
@@ -409,6 +420,7 @@ fn labels(language: &str) -> Labels {
             edit: "编辑",
             view: "视图",
             window: "窗口",
+            quit: "退出 Rion Studio",
             new_game_window: "新建游戏窗口",
             toolbar: "全屏时始终显示工具栏",
             fullscreen: "切换全屏",
@@ -421,6 +433,7 @@ fn labels(language: &str) -> Labels {
             edit: "編集",
             view: "表示",
             window: "ウインドウ",
+            quit: "Rion Studioを終了",
             new_game_window: "新規ゲームウィンドウ",
             toolbar: "フルスクリーンでツールバーを常に表示",
             fullscreen: "フルスクリーンを切り替える",
@@ -433,6 +446,7 @@ fn labels(language: &str) -> Labels {
             edit: "Edit",
             view: "View",
             window: "Window",
+            quit: "Quit Rion Studio",
             new_game_window: "New Game Window",
             toolbar: "Always Show Toolbar in Full Screen",
             fullscreen: "Toggle Full Screen",
@@ -452,6 +466,7 @@ mod tests {
     fn localizes_all_supported_languages() {
         assert_eq!(labels("en").app, "Rion Studio");
         assert_eq!(labels("en").toolbar, "Always Show Toolbar in Full Screen");
+        assert_eq!(labels("en").quit, "Quit Rion Studio");
         assert_eq!(labels("zh-TW").view, "顯示");
         assert_eq!(labels("zh-CN").window, "窗口");
         assert_eq!(labels("ja").fullscreen, "フルスクリーンを切り替える");

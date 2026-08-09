@@ -12,6 +12,30 @@ fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInput
 }
 
 #[test]
+fn teardown_navigation_never_installs_a_new_input_fence_for_a_closing_role() {
+    assert!(navigation_requires_input_fence(false, false));
+    assert!(!navigation_requires_input_fence(true, false));
+    assert!(!navigation_requires_input_fence(false, true));
+    assert!(!navigation_requires_input_fence(true, true));
+}
+
+#[test]
+fn exact_native_release_neutralizes_the_input_lane_without_reusing_its_epoch() {
+    let lane = RoleInputDispatchLane::default();
+    lane.epoch.store(9, Ordering::Release);
+    lane.surface_generation.store(4, Ordering::Release);
+    lane.quarantined.store(true, Ordering::Release);
+    lane.normal_enabled.store(false, Ordering::Release);
+
+    retire_role_input_lane(&lane);
+
+    assert_eq!(lane.epoch.load(Ordering::Acquire), 9);
+    assert_eq!(lane.surface_generation.load(Ordering::Acquire), 0);
+    assert!(!lane.quarantined.load(Ordering::Acquire));
+    assert!(lane.normal_enabled.load(Ordering::Acquire));
+}
+
+#[test]
 fn stale_epoch_cannot_finish_or_resume_the_latest_role_fence() {
     let mut fences = HashMap::new();
     let mut tickets = HashMap::new();

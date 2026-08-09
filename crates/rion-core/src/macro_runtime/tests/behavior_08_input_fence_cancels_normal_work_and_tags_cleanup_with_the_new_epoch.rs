@@ -82,6 +82,34 @@ fn stopping_role_cannot_report_a_successful_input_resume() {
 }
 
 #[test]
+fn authoritative_role_release_terminalizes_stopping_input_without_reusing_its_epoch() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+    runtime.request_stop_role("r1").unwrap();
+    let stopping_epoch = runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap()
+        .input_epoch;
+
+    runtime.release_role("r1").unwrap();
+
+    let released = runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap();
+    assert!(!released.stopping);
+    assert!(!released.quiesced);
+    assert!(released.input_epoch > stopping_epoch);
+    assert!(!runtime.resume_role_input("r1", stopping_epoch).unwrap());
+}
+
+#[test]
 fn stale_drain_and_resume_cannot_unfence_a_newer_navigation_epoch() {
     let runtime = MacroRuntime::new(Arc::new(|_| {}));
     let first = runtime.fence_role_input("r1").unwrap();

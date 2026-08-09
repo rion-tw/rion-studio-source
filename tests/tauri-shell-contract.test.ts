@@ -114,6 +114,10 @@ describe("Tauri shell contract guard", () => {
     expect(menu).toContain("RuntimeWindowPreferencesReplace");
     expect(menu).toContain(".copy()");
     expect(menu).toContain("TOGGLE_FULLSCREEN_ITEM");
+    expect(menu).toContain('const QUIT_ITEM: &str = "rion-application-quit"');
+    expect(menu).toContain("crate::request_application_shutdown(app, &state)");
+    expect(menu).toContain('.accelerator("CmdOrCtrl+Q")');
+    expect(menu).not.toContain(".quit()");
     expect(menu).toContain('#[cfg(target_os = "macos")]');
     expect(menu).toContain("pub fn install(_app: &AppHandle");
     expect(menu).toContain("ApplicationShortcutTarget::RuntimeWindow");

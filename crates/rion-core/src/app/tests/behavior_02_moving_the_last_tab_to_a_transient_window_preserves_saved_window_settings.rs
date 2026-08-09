@@ -154,6 +154,16 @@
                 "{platform}"
             );
             assert!(runtime["windows"].as_array().unwrap().is_empty(), "{platform}");
+            let input_diagnostics = core.macro_input_diagnostics().unwrap();
+            for stopped_role_id in [&role_id, &workspace_role_id] {
+                let role = input_diagnostics
+                    .roles
+                    .iter()
+                    .find(|role| &role.role_id == stopped_role_id)
+                    .unwrap();
+                assert!(!role.stopping, "{platform}: {stopped_role_id}");
+                assert!(!role.quiesced, "{platform}: {stopped_role_id}");
+            }
             let stopped_windows = core.invoke(CoreCommand::GameWindowsList).unwrap();
             let stopped_window = stopped_windows
                 .as_array()

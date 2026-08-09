@@ -415,6 +415,17 @@ impl MacroRuntime {
                 .collect::<Vec<_>>()
         };
         cancel_and_wait_all(&controls)?;
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        inner.stopping_role_ids.remove(role_id);
+        inner.quiesced_role_ids.remove(role_id);
+        // Preserve a monotonic epoch so late cleanup from the released native
+        // generation can never match a subsequently relaunched role.
+        let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+        *epoch = epoch.saturating_add(1);
         Ok(())
     }
 

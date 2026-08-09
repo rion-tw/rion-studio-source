@@ -1,17 +1,23 @@
 pub(crate) fn prepare_application_update_exit(app: &AppHandle) -> Result<(), String> {
     if let Some(state) = app.try_state::<CoreState>() {
         state.application_exit_guard.permit();
-        state
-            .application_shutdown_started
-            .store(true, Ordering::Release);
+        state.application_shutdown.mark_started();
         let receipt = state.runtime.close_all();
-        if !system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status) {
-            return Err(receipt
+        let shutdown_result = if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status)
+        {
+            state.runtime.persist_restore_session(true)
+        } else {
+            Err(receipt
                 .failure_code
-                .unwrap_or_else(|| "SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE".to_owned()));
-        }
-        state.runtime.persist_restore_session(true)?;
+                .unwrap_or_else(|| "SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE".to_owned()))
+        };
+        // An updater handoff owns the process after native drain begins. Even a
+        // failed or indeterminate terminal drain must allow the caller's
+        // fail-closed restart instead of leaving ExitRequested waiting for a
+        // shutdown worker that this synchronous path never creates.
         state.core.shutdown();
+        state.application_shutdown.mark_ready_to_exit();
+        shutdown_result?;
     }
     Ok(())
 }

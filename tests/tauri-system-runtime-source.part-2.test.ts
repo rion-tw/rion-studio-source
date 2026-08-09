@@ -3,6 +3,24 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+it("terminalizes Kernel close operations and input fences from exact native release", async () => {
+  const [destroySource, inputFenceSource] = await Promise.all([
+    readFile("src-tauri/src/system_runtime/section_27_add_child_bounded.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/section_16_input_fence_coordinator.rs", "utf8")
+  ]);
+  const destroy = destroySource.slice(destroySource.indexOf("async fn destroy_tab_event_bound("));
+  expect(destroy.indexOf("retire_completed_tab_close_fence"))
+    .toBeLessThan(destroy.indexOf("apply_runtime_native_event_for_operation"));
+  expect(destroy).toContain('&tombstone.kernel_operation_id,\n                    "closed"');
+  expect(destroySource.indexOf("isolation_result?"))
+    .toBeLessThan(destroySource.indexOf('"role-native-release"'));
+  expect(destroySource.indexOf('"role-native-release"'))
+    .toBeLessThan(destroySource.indexOf("retire_role_input_surface(role_id)"));
+  expect(inputFenceSource).toContain(
+    "navigation_requires_input_fence(controlled, role_closing)"
+  );
+});
+
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
@@ -479,15 +497,25 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       shell.indexOf("tauri::RunEvent::WindowEvent")
     );
     expect(exitRequested).toContain("api.prevent_exit()");
-    expect(exitRequested).toContain("spawn_blocking(move ||");
-    expect(exitRequested).toContain("runtime.close_all()");
-    expect(exitRequested).toContain("app.exit(0)");
+    expect(exitRequested).toContain("start_application_shutdown(app_handle, &state)");
+    const shutdownWorker = shell.slice(
+      shell.indexOf("fn start_application_shutdown("),
+      shell.indexOf("fn confirm_application_shutdown(")
+    );
+    expect(shutdownWorker).toContain("spawn_blocking(move ||");
+    expect(shutdownWorker).toContain("runtime.close_all()");
+    expect(shutdownWorker).toContain("app.exit(0)");
+    expect(shell).toContain("confirm_application_shutdown(&app, &state)");
     const updateExit = shell.slice(
       shell.indexOf("fn prepare_application_update_exit("),
       shell.indexOf("fn prepare_application_update_install(")
     );
-    expect(updateExit).toContain("application_shutdown_started");
-    expect(updateExit).toContain(".store(true, Ordering::Release)");
+    expect(updateExit).toContain("application_shutdown.mark_started()");
+    expect(updateExit).toContain("application_shutdown.mark_ready_to_exit()");
+    expect(updateExit.indexOf("state.core.shutdown()"))
+      .toBeLessThan(updateExit.indexOf("shutdown_result?"));
+    expect(updateExit.indexOf("application_shutdown.mark_ready_to_exit()"))
+      .toBeLessThan(updateExit.indexOf("shutdown_result?"));
 
     expect(runtime).not.toContain("CompatibilitySurface");
     expect(runtime).not.toContain("create_compatibility_surface");

@@ -55,6 +55,10 @@ fn update_main_frame_navigation_input_fences(
     );
 }
 
+fn navigation_requires_input_fence(controlled: bool, role_closing: bool) -> bool {
+    !controlled && !role_closing
+}
+
 fn claim_input_fence_recovery(
     fences: &mut HashMap<String, RoleInputFence>,
     role_id: &str,

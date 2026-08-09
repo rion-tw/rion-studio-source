@@ -481,6 +481,11 @@ impl SystemRuntimeExecutor {
             first_error.map_or(Ok(()), Err)
         };
         isolation_result?;
+        // Native isolation is the terminal owner event for this input lane. A
+        // late about:blank callback must not leave a navigation fence behind
+        // after the exact role surface has been released.
+        self.discard_role_navigation_input_fences(role_id, "role-native-release");
+        self.retire_role_input_surface(role_id)?;
         for label in popup_labels {
             self.forget_popup(&label);
         }
@@ -878,6 +883,16 @@ impl SystemRuntimeExecutor {
         }
         self.tab_close_changed.notify_all();
         self.input_readiness.notify();
+        let authority_result = completed_tombstone
+            .as_ref()
+            .map(|tombstone| {
+                self.apply_runtime_native_event_for_operation(
+                    &tombstone.kernel_operation_id,
+                    "closed",
+                )
+                .map(|_| ())
+            })
+            .transpose();
         if result.is_ok() {
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(tab_id, tombstone, true);
@@ -905,7 +920,7 @@ impl SystemRuntimeExecutor {
                 }),
             );
         }
-        result
+        result.and(authority_result.map(|_| ()))
     }
 
 }

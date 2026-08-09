@@ -74,10 +74,21 @@
 
         let (cleanup, _) = drive_command(
             Arc::clone(&core),
-            CoreCommand::EmbeddedRoleStop { role_id },
+            CoreCommand::EmbeddedRoleStop {
+                role_id: role_id.clone(),
+            },
             None,
         );
         assert!(cleanup.is_ok());
+        let released_input = core
+            .macro_input_diagnostics()
+            .unwrap()
+            .roles
+            .into_iter()
+            .find(|role| role.role_id == role_id)
+            .unwrap();
+        assert!(!released_input.stopping);
+        assert!(!released_input.quiesced);
         core.shutdown();
     }
 

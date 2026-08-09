@@ -17,7 +17,8 @@ use rion_core::{
     CoreEffectResult, CoreErrorPayload, CoreEvent, DisplayFingerprintRecord, DisplayTargetRecord,
     EmbeddedLaunchTargetRecord, GameWindowCreateInputRecord, GameWindowDisplayRemapRecord,
     GameWindowPlacementRecord, GameWindowTabRecord,
-    GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
+    GameWindowUpdateInputRecord, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
+    MacroRunStatus,
     RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord,
     RuntimeWindowStopRequestRecord,
     StateCollection, StateGameWindowRecord,
@@ -67,6 +68,118 @@ fn core_effect_action_name(action: &CoreEffectAction) -> &'static str {
     }
 }
 
+fn record_application_shutdown_outcome(
+    core: &AppCore,
+    receipt: &SystemRuntimeOperationSummaryRecord,
+    clean_exit_persisted: bool,
+    persistence_error: Option<&str>,
+) {
+    let context = json!({
+        "cleanExitPersisted": clean_exit_persisted,
+        "completionScope": receipt.completion_scope.as_str(),
+        "elapsedMs": receipt.elapsed_ms,
+        "failureCode": receipt.failure_code,
+        "operationId": receipt.operation_id,
+        "phase": receipt.stage,
+        "platform": receipt.platform,
+        "status": receipt.status.as_str(),
+    });
+    let _ = core.invoke(CoreCommand::LogsCapture {
+        entries: vec![LogCaptureRecord {
+            level: if clean_exit_persisted {
+                LogLevel::Info
+            } else {
+                LogLevel::Warn
+            },
+            source: LogSource::Browser,
+            event: "application.shutdown-outcome".to_owned(),
+            message: if clean_exit_persisted {
+                "Application shutdown reached a terminal native outcome and persisted its clean-exit marker."
+            } else {
+                "Application shutdown did not persist a clean-exit marker."
+            }
+            .to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: persistence_error.map(|message| LogErrorDetails {
+                name: "TAURI_RESTORE_PERSIST_FAILED".to_owned(),
+                message: message.to_owned(),
+                stack: None,
+                cause: None,
+            }),
+        }],
+    });
+}
+
+fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
+    state.runtime.flush_all_live_window_states();
+    let _ = state.runtime.persist_all_game_window_placements();
+    if let Err(error) = state.runtime.persist_restore_session(false) {
+        let _ = app_handle.emit(
+            "rion://shell-error",
+            json!({
+                "code": "TAURI_RESTORE_PERSIST_FAILED",
+                "message": error
+            }),
+        );
+    }
+    let runtime = Arc::clone(&state.runtime);
+    let core = Arc::clone(&state.core);
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let receipt = runtime.close_all();
+        let persistence_result =
+            if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status) {
+                runtime.persist_restore_session(true)
+            } else {
+                Err(receipt
+                    .failure_code
+                    .clone()
+                    .unwrap_or_else(|| "SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE".to_owned()))
+            };
+        if let Err(error) = &persistence_result {
+            let _ = app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "TAURI_RESTORE_PERSIST_FAILED",
+                    "message": error
+                }),
+            );
+        }
+        record_application_shutdown_outcome(
+            &core,
+            &receipt,
+            persistence_result.is_ok(),
+            persistence_result.as_ref().err().map(String::as_str),
+        );
+        runtime.wait_for_final_window_state_flush(std::time::Duration::from_secs(2));
+        core.shutdown();
+        if let Some(state) = app.try_state::<CoreState>() {
+            state.application_shutdown.mark_ready_to_exit();
+        }
+        app.exit(0);
+    });
+}
+
+fn confirm_application_shutdown(app: &AppHandle, state: &CoreState) {
+    state.application_exit_guard.permit();
+    match state.application_shutdown.request_exit() {
+        ApplicationExitRequest::StartShutdown => start_application_shutdown(app, state),
+        ApplicationExitRequest::WaitForShutdown => {}
+        ApplicationExitRequest::Exit => app.exit(0),
+    }
+}
+
+fn request_application_shutdown(app: &AppHandle, state: &CoreState) {
+    if state.application_exit_guard.should_prevent() {
+        let _ = state
+            .runtime
+            .request_main_window_show(true, "application-menu-quit");
+        let _ = app.emit("rion://application-quit-requested", ());
+        return;
+    }
+    confirm_application_shutdown(app, state);
+}
+
 struct CoreState {
     _activation: ActivationServer,
     _power_monitor: power_lifecycle::PowerMonitor,
@@ -74,7 +187,7 @@ struct CoreState {
     core: Arc<AppCore>,
     display_topology: DisplayTopologyCoordinator,
     application_exit_guard: ApplicationExitGuard,
-    application_shutdown_started: AtomicBool,
+    application_shutdown: ApplicationShutdownCoordinator,
     main_window_zoom: Mutex<f64>,
     menu_language: Mutex<String>,
     quick_menu_refresh: quick_menu::RefreshCoordinator,
@@ -225,6 +338,40 @@ impl ApplicationExitGuard {
 
     fn should_prevent(&self) -> bool {
         !self.permitted.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum ApplicationExitRequest {
+    StartShutdown,
+    WaitForShutdown,
+    Exit,
+}
+
+#[derive(Default)]
+struct ApplicationShutdownCoordinator {
+    started: AtomicBool,
+    ready_to_exit: AtomicBool,
+}
+
+impl ApplicationShutdownCoordinator {
+    fn mark_started(&self) {
+        self.started.store(true, Ordering::Release);
+    }
+
+    fn request_exit(&self) -> ApplicationExitRequest {
+        if self.ready_to_exit.load(Ordering::Acquire) {
+            return ApplicationExitRequest::Exit;
+        }
+        if self.started.swap(true, Ordering::AcqRel) {
+            ApplicationExitRequest::WaitForShutdown
+        } else {
+            ApplicationExitRequest::StartShutdown
+        }
+    }
+
+    fn mark_ready_to_exit(&self) {
+        self.ready_to_exit.store(true, Ordering::Release);
     }
 }
 

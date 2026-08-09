@@ -838,7 +838,7 @@ impl SystemRuntimeExecutor {
         let presentation = self
             .presentation
             .existing(&renderer.window_id)
-            .and_then(|state| state.lock().ok().map(|state| state.clone()))
+            .map(|state| state.record)
             .ok_or_else(|| {
                 RuntimeError::new(
                     "TAB_CHROME_PRESENTATION_NOT_FOUND",

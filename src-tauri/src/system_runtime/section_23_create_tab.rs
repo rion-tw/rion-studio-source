@@ -686,6 +686,9 @@ impl SystemRuntimeExecutor {
         })();
         self.finish_restored_tab_creation(&target.window_id, &created_tab_id, result.is_ok());
         if result.is_err() {
+            let tab_chrome_bootstrap_failed = result.as_ref().err().is_some_and(|error| {
+                error.code == "WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT"
+            });
             let failed_launch_diagnostic = result
                 .as_ref()
                 .err()
@@ -796,6 +799,15 @@ impl SystemRuntimeExecutor {
             self.tab_close_changed.notify_all();
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(&created_tab_id, tombstone, true);
+            }
+            if tab_chrome_bootstrap_failed {
+                // This failure means the host chrome itself never became authoritative. Once
+                // the failed tab's native resources are gone, retire an otherwise empty host so
+                // the saved-window UI routes the next user gesture through a new launch attempt.
+                self.retire_failed_windows_tab_chrome_host(
+                    &target.window_id,
+                    window_generation,
+                );
             }
             if let Some(error) = cleanup_error {
                 result = Err(error);

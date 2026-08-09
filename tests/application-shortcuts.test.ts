@@ -22,6 +22,7 @@ const keyEvent = (
 describe("Windows application shortcut mapping", () => {
   it.each([
     ["KeyN", { ctrlKey: true }, "newGameWindow"],
+    ["KeyQ", { ctrlKey: true }, "quitApplication"],
     ["F11", {}, "toggleFullscreen"],
     ["Digit0", { ctrlKey: true }, "zoomReset"],
     ["Numpad0", { ctrlKey: true }, "zoomReset"],
@@ -44,6 +45,7 @@ describe("Windows application shortcut mapping", () => {
 
   it("ignores repeated discrete commands while allowing repeated zoom", () => {
     expect(applicationShortcutForKeyEvent(keyEvent("KeyN", { ctrlKey: true, repeat: true }))).toBeUndefined();
+    expect(applicationShortcutForKeyEvent(keyEvent("KeyQ", { ctrlKey: true, repeat: true }))).toBeUndefined();
     expect(applicationShortcutForKeyEvent(keyEvent("F11", { repeat: true }))).toBeUndefined();
     expect(applicationShortcutForKeyEvent(keyEvent("Equal", { ctrlKey: true, repeat: true }))).toBe("zoomIn");
   });

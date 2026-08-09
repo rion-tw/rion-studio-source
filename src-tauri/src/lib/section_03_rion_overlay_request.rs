@@ -1,5 +1,6 @@
 #[tauri::command]
 async fn rion_overlay_request(
+    app: AppHandle,
     webview: Webview,
     state: State<'_, CoreState>,
     capability: String,
@@ -18,6 +19,91 @@ async fn rion_overlay_request(
             "OVERLAY_REQUEST_TOO_LARGE",
             "The overlay request exceeds the allowed size.",
         ));
+    }
+    if payload.get("type").and_then(Value::as_str) == Some("runtime-tab-shortcut") {
+        let payload_object = payload.as_object().ok_or_else(|| {
+            shell_error(
+                "OVERLAY_REQUEST_INVALID",
+                "The runtime tab shortcut payload must be an object.",
+            )
+        })?;
+        if payload_object.len() != 3 {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_INVALID",
+                "The runtime tab shortcut payload contains unsupported fields.",
+            ));
+        }
+        let direction = payload
+            .get("direction")
+            .and_then(Value::as_str)
+            .filter(|direction| matches!(*direction, "next" | "previous"))
+            .ok_or_else(|| {
+                shell_error(
+                    "OVERLAY_REQUEST_INVALID",
+                    "The runtime tab shortcut direction is invalid.",
+                )
+            })?;
+        let modifier_codes = payload
+            .get("modifierCodes")
+            .and_then(Value::as_array)
+            .filter(|codes| !codes.is_empty() && codes.len() <= 4)
+            .and_then(|codes| {
+                let mut parsed = Vec::with_capacity(codes.len());
+                for code in codes {
+                    let code = code.as_str()?;
+                    if !matches!(code, "ControlLeft" | "ControlRight" | "ShiftLeft" | "ShiftRight")
+                        || parsed.iter().any(|existing| existing == code)
+                    {
+                        return None;
+                    }
+                    parsed.push(code.to_owned());
+                }
+                Some(parsed)
+            })
+            .filter(|codes| codes.iter().any(|code| code.starts_with("Control")))
+            .filter(|codes| {
+                let shift = codes.iter().any(|code| code.starts_with("Shift"));
+                (direction == "previous") == shift
+            })
+            .ok_or_else(|| {
+                shell_error(
+                    "OVERLAY_REQUEST_INVALID",
+                    "The runtime tab shortcut modifiers are invalid.",
+                )
+            })?;
+        if !state
+            .runtime
+            .overlay_webview_is_selected(webview.label(), &role_id)
+            .map_err(|message| shell_error("OVERLAY_WEBVIEW_FOCUS_STATE_FAILED", message))?
+        {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_UNAUTHORIZED",
+                "Runtime tab shortcuts are restricted to the selected role WebView.",
+            ));
+        }
+        #[cfg(windows)]
+        system_runtime::dispatch_runtime_tab_shortcut(
+            &app,
+            webview.label(),
+            direction,
+            modifier_codes,
+        );
+        #[cfg(not(windows))]
+        {
+            let window_id = state
+                .runtime
+                .window_id_for_webview(webview.label())
+                .ok_or_else(|| {
+                    shell_error(
+                        "OVERLAY_REQUEST_UNAUTHORIZED",
+                        "The overlay WebView is no longer attached to a runtime window.",
+                    )
+                })?;
+            preview_and_commit_adjacent_tab_selection(&app, &state, &window_id, direction)
+                .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+            let _ = modifier_codes;
+        }
+        return Ok(Value::Null);
     }
     if payload.get("type").and_then(Value::as_str) == Some("coordinate-context") {
         serde_json::from_value::<rion_core::MacroOverlayRequestRecord>(payload)

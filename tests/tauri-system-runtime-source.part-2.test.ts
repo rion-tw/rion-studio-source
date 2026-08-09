@@ -3,6 +3,23 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+it("projects authoritative launch-phase changes into Windows tab chrome", async () => {
+  const runtime = await readFile(
+    "src-tauri/src/system_runtime/section_06_is_saved_game_window.rs",
+    "utf8"
+  );
+  const setLaunchPhase = runtime.slice(
+    runtime.indexOf("fn set_launch_phase("),
+    runtime.indexOf("fn notify_optional_idle_changed(")
+  );
+
+  expect(setLaunchPhase).toContain("let changed = self.presentation.statuses.set_launch_phase");
+  expect(setLaunchPhase).toContain("if changed {");
+  expect(setLaunchPhase).toContain("self.publish_projection();");
+  expect(setLaunchPhase.indexOf("set_launch_phase(tab_id, phase)"))
+    .toBeLessThan(setLaunchPhase.indexOf("self.publish_projection()"));
+});
+
 it("terminalizes Kernel close operations and input fences from exact native release", async () => {
   const [destroySource, inputFenceSource] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_27_add_child_bounded.rs", "utf8"),
@@ -405,6 +422,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).not.toContain("WindowsTabChromeRevealSignal::GeometryReady");
     expect(runtime).toContain("wait_for_windows_tab_chrome_content(");
     expect(runtime).toContain("WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT");
+    expect(runtime).toContain("__rionAnnounceRuntimeTabChromeReady?.();");
+    expect(runtime).toContain("tab_chrome_bootstrap_failed");
+    expect(runtime).toContain("retire_failed_windows_tab_chrome_host(");
     expect(runtime).toContain("retiring_native_window_hosts");
     const createTabStart = runtime.indexOf("fn create_tab(");
     const createTab = runtime.slice(createTabStart, createTabStart + 45_000);
@@ -429,6 +449,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(displayHostStateCommit).not.toContain("window.inner_size()");
     expect(displayHostStateCommit).not.toContain("window.is_minimized()");
     expect(displayHostStateCommit).not.toContain("window.scale_factor()");
+    expect(ensureDisplayHost).toContain("tab_strip: tab_strip.clone()");
+    expect(ensureDisplayHost.indexOf("drop(state);")).toBeLessThan(
+      ensureDisplayHost.lastIndexOf("__rionAnnounceRuntimeTabChromeReady?.();")
+    );
     const tabPresentation = runtime.slice(
       runtime.indexOf("fn request_tab_presentation_with_window_visibility("),
       runtime.indexOf("pub(crate) fn preview_adjacent_tab_activation(")

@@ -246,7 +246,7 @@ describe("native tab drag latest-intent transaction", () => {
     expect(move).toContain("state.window_has_attached_tab_handles(window_id)");
     expect(move).toContain("slot.placeholder.as_ref()");
     expect(move).not.toContain("surface.show()");
-    expect(move).toContain("request_tab_presentation_with_window_visibility(");
+    expect(move).toContain("reconcile_window_presentation_with_visibility(");
     expect(move).toContain("follow_live_projection_membership()");
     expect(move).toContain('cfg!(target_os = "macos") && live_drag');
     expect(move).toContain("schedule_live_tab_drag_layout(tab_id.to_owned())");

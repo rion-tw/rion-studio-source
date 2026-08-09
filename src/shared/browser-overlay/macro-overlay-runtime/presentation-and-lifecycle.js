@@ -549,6 +549,7 @@
   }
 
   function handleBlur() {
+    runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext(false);
     releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
@@ -599,6 +600,7 @@
     retainedClickStatuses.clear();
     seenClickStatusEvents.clear();
     activeHeldShortcuts.clear();
+    runtimeTabShortcutModifierCodes.clear();
     clickMarkerEvents.clear();
     clickMarkerFlashStates.clear();
     macroIterationTimings.clear();

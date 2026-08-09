@@ -57,6 +57,7 @@ declare global {
     __rionReserveRuntimeTab?: (tab: ProvisionalRuntimeTab) => void;
     __rionSetActiveRuntimeTab?: (tabId?: string) => void;
     __rionRuntimeTabChromeReady?: boolean;
+    __rionAnnounceRuntimeTabChromeReady?: () => void;
     __rionRuntimeTabChromeIdentity?: {
       lifecycleEpoch: number;
       windowGeneration: number;

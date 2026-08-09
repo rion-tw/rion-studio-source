@@ -307,6 +307,27 @@
     return event.code === "Tab" && event.ctrlKey && !event.altKey && !event.metaKey;
   }
 
+  const runtimeTabShortcutModifierCodes = new Set();
+
+  function updateRuntimeTabShortcutModifier(event, pressed) {
+    if (!["ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"].includes(event.code)) {
+      return;
+    }
+    if (pressed) runtimeTabShortcutModifierCodes.add(event.code);
+    else runtimeTabShortcutModifierCodes.delete(event.code);
+  }
+
+  function currentRuntimeTabShortcutModifierCodes(event) {
+    const codes = [...runtimeTabShortcutModifierCodes];
+    if (event.ctrlKey && !codes.some((code) => code.startsWith("Control"))) {
+      codes.push("ControlLeft");
+    }
+    if (event.shiftKey && !codes.some((code) => code.startsWith("Shift"))) {
+      codes.push("ShiftLeft");
+    }
+    return codes;
+  }
+
   function preventGameBrowserDefault(event) {
     if (!gameInputContextActive && !eventPathIncludesCanvas(event)) return;
     if (isSystemOwnedShortcut(event)) return;

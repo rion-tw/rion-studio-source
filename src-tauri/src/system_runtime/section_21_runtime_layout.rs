@@ -336,12 +336,7 @@ impl SystemRuntimeExecutor {
         let is_active_tab = self
             .presentation
             .existing(&window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .map(|live| live.selected_tab_id.as_deref() == Some(tab_id))
-            })
+            .map(|presentation| presentation.selected_tab_id.as_deref() == Some(tab_id))
             .unwrap_or(false);
         #[cfg(windows)]
         if _publish_native_plan
@@ -380,6 +375,7 @@ impl SystemRuntimeExecutor {
                         .collect(),
                     tab_strip_height: resize_snapshot_tab_strip_height(metrics),
                     tab_strip_label: tab_strip.label().to_owned(),
+                    window_draggable: !window.is_fullscreen().unwrap_or(false),
                 },
             );
         }
@@ -744,7 +740,16 @@ impl SystemRuntimeExecutor {
             WebviewUrl::App("runtime-tabs.html".into()),
         )
         .disable_drag_drop_handler()
-        .initialization_script(&tab_initialization_script);
+        .initialization_script(&tab_initialization_script)
+        .on_page_load(|webview, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                // Module scripts finish before the document load event. Re-announce from this
+                // authoritative event when the native host registration won the startup race.
+                let _ = webview.eval(
+                    "globalThis.__rionAnnounceRuntimeTabChromeReady?.();",
+                );
+            }
+        });
         #[cfg(windows)]
         let tab_strip_builder = if windows_mica_enabled {
             tab_strip_builder.transparent(true)
@@ -786,7 +791,7 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 last_geometry_receipt_revision: 0,
                 #[cfg(windows)]
-                tab_strip,
+                tab_strip: tab_strip.clone(),
                 #[cfg(windows)]
                 toolbar_revealed: false,
                 #[cfg(windows)]
@@ -796,6 +801,16 @@ impl SystemRuntimeExecutor {
             },
         );
         drop(state);
+        #[cfg(windows)]
+        {
+            // A fast WebView2 can finish its document and reject both renderer announcements
+            // before the tab-strip label is committed above. The native registration commit is
+            // the complementary authoritative event: by this point a finished renderer has the
+            // callback installed, while a renderer still loading will announce on its own.
+            let _ = tab_strip.eval(
+                "globalThis.__rionAnnounceRuntimeTabChromeReady?.();",
+            );
+        }
         self.presentation
             .set_window_generation(&target.window_id, window_generation)
             .map_err(|message| {

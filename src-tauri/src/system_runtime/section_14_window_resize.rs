@@ -245,14 +245,7 @@ impl SystemRuntimeExecutor {
         {
             eprintln!("Live Game Window resize commit failed: window={window_id} error={error}");
         }
-        #[cfg(windows)]
-        let metrics = resize_metrics_with_tab_strip(
-            snapshot.content_metrics,
-            self.windows_tab_strip_height_for_state(snapshot.fullscreen, toolbar_revealed),
-        );
-        #[cfg(not(windows))]
         let metrics = snapshot.content_metrics;
-        #[cfg(not(windows))]
         let _ = toolbar_revealed;
         let selected_tab_id = self
             .presentation
@@ -509,7 +502,7 @@ impl SystemRuntimeExecutor {
     }
 }
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 fn resize_metrics_with_tab_strip(
     mut metrics: WindowContentMetrics,
     tab_strip_height: f64,

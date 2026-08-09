@@ -252,7 +252,7 @@ it("does not run legacy macros that use reserved browser zoom shortcuts", async 
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyZoomMacro.id });
   });
 
-it("leaves reserved runtime tab switching shortcuts to the browser", async () => {
+it("routes trusted runtime tab switching shortcuts through the capability bridge", async () => {
     const { canvas } = createGameSurface(document);
     canvas.tabIndex = -1;
     canvas.focus();
@@ -263,6 +263,13 @@ it("leaves reserved runtime tab switching shortcuts to the browser", async () =>
     const binding = vi.fn(async () => ({ macros: [legacyTabMacro], statuses: [] }));
     const controller = installOverlay(window, binding);
     await controller.refresh();
+    const controlDown = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "ControlRight",
+      ctrlKey: true,
+      key: "Control"
+    });
     const event = new window.KeyboardEvent("keydown", {
       bubbles: true,
       cancelable: true,
@@ -272,9 +279,36 @@ it("leaves reserved runtime tab switching shortcuts to the browser", async () =>
       shiftKey: true
     });
 
+    expect(canvas.dispatchEvent(controlDown)).toBe(true);
+    expect(canvas.dispatchEvent(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(binding).toHaveBeenCalledWith({
+      type: "runtime-tab-shortcut",
+      direction: "previous",
+      modifierCodes: ["ControlRight", "ShiftLeft"]
+    });
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyTabMacro.id });
+  });
+
+it("does not intercept Alt+Tab", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = -1;
+    canvas.focus();
+    const binding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    installOverlay(window, binding);
+    const event = new window.KeyboardEvent("keydown", {
+      altKey: true,
+      bubbles: true,
+      cancelable: true,
+      code: "Tab",
+      key: "Tab"
+    });
+
     expect(canvas.dispatchEvent(event)).toBe(true);
     expect(event.defaultPrevented).toBe(false);
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: legacyTabMacro.id });
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "runtime-tab-shortcut"
+    }));
   });
 
 it("preserves Flyff text input focus and ignores keyboard events forwarded to the canvas", async () => {

@@ -173,6 +173,9 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain("if !quick_menu::handle_event(");
     expect(tabs).not.toContain("rion-runtime-shortcut://tabs/");
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
+    expect(shell).toContain('Some("runtime-tab-shortcut")');
+    expect(shell).toContain("overlay_webview_is_selected");
+    expect(shell).toContain("dispatch_runtime_tab_shortcut");
     expect(nativeTabs).toContain("NSEventModifierFlagControl");
     expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
     expect(tabs).toContain("resize_workspace_divider");
@@ -245,6 +248,53 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain("AppCore::create_with_startup_backup(");
     expect(shell).not.toContain("LEGACY_DATA_DIRECTORY_NAME");
     expect(shell).not.toContain("reject_retired_data_root");
+  });
+
+  it("installs the native Windows application shortcut handler on the main WebView2", async () => {
+    const [run, runtime, windowsInput] = await Promise.all([
+      readFile("src-tauri/src/lib/section_09_run.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime.rs", "utf8"),
+      readFile(
+        "src-tauri/src/system_runtime/platform/windows/input_security.rs",
+        "utf8"
+      )
+    ]);
+
+    expect(run).toContain(
+      "install_windows_main_application_shortcut_handler("
+    );
+    expect(runtime).toContain(
+      "install_main_application_shortcut_handler(window.as_ref(), app)"
+    );
+    expect(windowsInput).toContain(
+      "WindowsApplicationShortcutTarget::MainWindow"
+    );
+    expect(windowsInput).toContain(
+      "ApplicationShortcutTarget::MainWindow("
+    );
+    expect(windowsInput).toContain("execute_shortcut(");
+  });
+
+  it("defers Windows application shortcut effects until after the WebView2 accelerator callback", async () => {
+    const windowsInput = await readFile(
+      "src-tauri/src/system_runtime/platform/windows/input_security.rs",
+      "utf8"
+    );
+    const callbackStart = windowsInput.indexOf(
+      "AcceleratorKeyPressedEventHandler::create"
+    );
+    const callbackEnd = windowsInput.indexOf(
+      "let mut token = 0;",
+      callbackStart
+    );
+    const callback = windowsInput.slice(callbackStart, callbackEnd);
+
+    expect(callbackStart).toBeGreaterThanOrEqual(0);
+    expect(callbackEnd).toBeGreaterThan(callbackStart);
+    expect(callback).toContain("defer_windows_application_shortcut(");
+    expect(callback).not.toContain(".try_state::<crate::CoreState>()");
+    expect(callback).not.toContain("execute_shortcut(");
+    expect(windowsInput).toContain("app.run_on_main_thread(move || {");
   });
 
   it("routes diagnostics exports through the asynchronous core dispatcher", async () => {

@@ -334,14 +334,25 @@ it("projects the resolved app theme onto an already-open tab document", () => {
     expect(document.documentElement.style.colorScheme).toBe("light");
   });
 
-it("routes custom Windows titlebar drag and caption controls through the scoped action bridge", async () => {
+it("routes intentional Windows titlebar drag and caption controls through the scoped action bridge", async () => {
     window.__rionApplyRuntimeTabState?.(state);
     invoke.mockClear();
 
-    document.querySelector("#window-drag-region")?.dispatchEvent(new MouseEvent("mousedown", {
+    const dragRegion = document.querySelector("#window-drag-region");
+    dragRegion?.dispatchEvent(new MouseEvent("mousedown", {
       bubbles: true,
       button: 0,
+      buttons: 1,
+      clientX: 20,
+      clientY: 10,
       detail: 1
+    }));
+    expect(invoke).not.toHaveBeenCalled();
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      buttons: 1,
+      clientX: 30,
+      clientY: 10
     }));
     document.querySelector<HTMLButtonElement>("#window-minimize")?.click();
     document.querySelector<HTMLButtonElement>("#window-maximize")?.click();
@@ -364,7 +375,7 @@ it("routes custom Windows titlebar drag and caption controls through the scoped 
       windowFullscreen: true
     });
     invoke.mockClear();
-    document.querySelector("#window-drag-region")?.dispatchEvent(new MouseEvent("mousedown", {
+    dragRegion?.dispatchEvent(new MouseEvent("mousedown", {
       bubbles: true,
       button: 0,
       detail: 1
@@ -377,6 +388,28 @@ it("routes custom Windows titlebar drag and caption controls through the scoped 
     });
     expect(document.querySelector<HTMLButtonElement>("#window-maximize")?.ariaLabel)
       .toBe("還原視窗");
+  });
+
+it("does not start native dragging for a click and maps a titlebar double-click only to zoom", () => {
+    window.__rionApplyRuntimeTabState?.(state);
+    invoke.mockClear();
+    const dragRegion = document.querySelector("#window-drag-region");
+
+    dragRegion?.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      buttons: 1,
+      clientX: 20,
+      clientY: 10,
+      detail: 1
+    }));
+    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    dragRegion?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, button: 0 }));
+
+    expect(invoke).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "windowControl", control: "zoom" }
+    });
   });
 
 it("renders workspace detail, audio state, and a stop control", () => {

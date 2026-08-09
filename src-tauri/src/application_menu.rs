@@ -15,6 +15,7 @@ const ZOOM_OUT_ITEM: &str = "rion-browser-zoom-out";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ApplicationShortcutCommand {
     NewGameWindow,
+    QuitApplication,
     ToggleFullscreen,
     ZoomReset,
     ZoomIn,
@@ -25,6 +26,7 @@ impl ApplicationShortcutCommand {
     pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "newGameWindow" => Some(Self::NewGameWindow),
+            "quitApplication" => Some(Self::QuitApplication),
             "toggleFullscreen" => Some(Self::ToggleFullscreen),
             "zoomReset" => Some(Self::ZoomReset),
             "zoomIn" => Some(Self::ZoomIn),
@@ -236,6 +238,10 @@ pub(crate) fn execute_shortcut(
 ) -> Result<(), String> {
     match command {
         ApplicationShortcutCommand::NewGameWindow => create_game_window(app, state),
+        ApplicationShortcutCommand::QuitApplication => {
+            crate::request_application_shutdown(app, state);
+            Ok(())
+        }
         ApplicationShortcutCommand::ToggleFullscreen => toggle_fullscreen(app, state, target),
         command => zoom(app, state, command.zoom_action().unwrap_or("reset"), target),
     }
@@ -488,6 +494,10 @@ mod tests {
         assert_eq!(
             ApplicationShortcutCommand::parse("zoomIn"),
             Some(ApplicationShortcutCommand::ZoomIn)
+        );
+        assert_eq!(
+            ApplicationShortcutCommand::parse("quitApplication"),
+            Some(ApplicationShortcutCommand::QuitApplication)
         );
         assert_eq!(ApplicationShortcutCommand::parse("quit"), None);
     }

@@ -96,6 +96,7 @@ export type AppWindowState = NativeWindowStateRecord;
 
 export type ApplicationShortcutCommand =
   | "newGameWindow"
+  | "quitApplication"
   | "toggleFullscreen"
   | "zoomReset"
   | "zoomIn"

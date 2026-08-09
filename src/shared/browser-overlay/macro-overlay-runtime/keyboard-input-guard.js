@@ -269,6 +269,18 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
+    updateRuntimeTabShortcutModifier(event, true);
+    if (isReservedRuntimeTabSwitchShortcutEvent(event)) {
+      consumeShortcutEvent(event);
+      if (!event.repeat) {
+        void binding({
+          type: "runtime-tab-shortcut",
+          direction: event.shiftKey ? "previous" : "next",
+          modifierCodes: currentRuntimeTabShortcutModifierCodes(event)
+        }).catch(() => undefined);
+      }
+      return;
+    }
     if (handleCoordinateKeyDown(event)) {
       return;
     }
@@ -287,7 +299,7 @@
     if (ignoresShortcut) {
       return;
     }
-    if (isReservedBrowserZoomShortcutEvent(event) || isReservedRuntimeTabSwitchShortcutEvent(event)) {
+    if (isReservedBrowserZoomShortcutEvent(event)) {
       return;
     }
 
@@ -343,6 +355,7 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
+    updateRuntimeTabShortcutModifier(event, false);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }

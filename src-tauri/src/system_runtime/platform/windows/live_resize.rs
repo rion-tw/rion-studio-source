@@ -7,10 +7,11 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect,
-            IsZoomed, PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE,
-            SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP, WM_DPICHANGED,
-            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SIZE,
+            BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect, GetWindowRect,
+            IsZoomed, PostMessageW, HTCAPTION, SIZE_MAXIMIZED, SIZE_MINIMIZED,
+            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP,
+            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
+            WM_NCDESTROY, WM_NCHITTEST, WM_SIZE,
         },
     },
 };
@@ -19,54 +20,58 @@ pub(in crate::system_runtime) const WM_RION_GEOMETRY_FLUSH: u32 = WM_APP + 0x52;
 
 #[derive(Clone, Debug)]
 pub(in crate::system_runtime) struct WindowsLiveResizeRolePlan {
-    input: LayoutRoleInput,
-    label: String,
+    pub(in crate::system_runtime) input: LayoutRoleInput,
+    pub(in crate::system_runtime) label: String,
 }
 
 #[derive(Clone, Debug)]
 pub(in crate::system_runtime) struct WindowsLiveResizeDividerPlan {
-    axis: String,
-    index: u32,
-    label: String,
+    pub(in crate::system_runtime) axis: String,
+    pub(in crate::system_runtime) index: u32,
+    pub(in crate::system_runtime) label: String,
 }
 
 #[derive(Clone, Debug)]
 pub(in crate::system_runtime) struct WindowsLiveResizePlan {
-    dividers: Vec<WindowsLiveResizeDividerPlan>,
-    gap: u32,
-    generation: u64,
-    revision: u64,
-    roles: Vec<WindowsLiveResizeRolePlan>,
-    tab_strip_height: f64,
-    tab_strip_label: String,
+    pub(in crate::system_runtime) dividers: Vec<WindowsLiveResizeDividerPlan>,
+    pub(in crate::system_runtime) gap: u32,
+    pub(in crate::system_runtime) generation: u64,
+    pub(in crate::system_runtime) revision: u64,
+    pub(in crate::system_runtime) roles: Vec<WindowsLiveResizeRolePlan>,
+    pub(in crate::system_runtime) tab_strip_height: f64,
+    pub(in crate::system_runtime) tab_strip_label: String,
+    pub(in crate::system_runtime) window_draggable: bool,
 }
+
+const WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL: f64 = 36.0;
+const WINDOWS_NATIVE_RESIZE_BORDER_LOGICAL: f64 = 8.0;
 
 #[derive(Clone)]
 pub(in crate::system_runtime) struct WindowsLiveResizeSurface {
-    controller: ICoreWebView2Controller,
-    hwnd: HWND,
-    label: String,
+    pub(in crate::system_runtime) controller: ICoreWebView2Controller,
+    pub(in crate::system_runtime) hwnd: HWND,
+    pub(in crate::system_runtime) label: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::system_runtime) struct WindowsLiveResizeCounters {
-    applied: u64,
-    deferred: u64,
-    errors: u64,
-    fallback: u64,
-    parent_position_applied: u64,
-    parent_position_errors: u64,
-    parent_position_received: u64,
-    received: u64,
-    unchanged: u64,
+    pub(in crate::system_runtime) applied: u64,
+    pub(in crate::system_runtime) deferred: u64,
+    pub(in crate::system_runtime) errors: u64,
+    pub(in crate::system_runtime) fallback: u64,
+    pub(in crate::system_runtime) parent_position_applied: u64,
+    pub(in crate::system_runtime) parent_position_errors: u64,
+    pub(in crate::system_runtime) parent_position_received: u64,
+    pub(in crate::system_runtime) received: u64,
+    pub(in crate::system_runtime) unchanged: u64,
 }
 
 impl WindowsLiveResizeCounters {
-    fn record_native_resize_applied(&mut self) {
+    pub(in crate::system_runtime) fn record_native_resize_applied(&mut self) {
         self.applied = self.applied.saturating_add(1);
     }
 
-    fn record_parent_position(&mut self, applied: u64, errors: u64) {
+    pub(in crate::system_runtime) fn record_parent_position(&mut self, applied: u64, errors: u64) {
         self.parent_position_received = self.parent_position_received.saturating_add(1);
         self.parent_position_applied = self.parent_position_applied.saturating_add(applied);
         self.parent_position_errors = self.parent_position_errors.saturating_add(errors);
@@ -75,30 +80,30 @@ impl WindowsLiveResizeCounters {
 }
 
 pub(in crate::system_runtime) struct WindowsLiveResizeHost {
-    counters: WindowsLiveResizeCounters,
-    flush_posted: bool,
-    frame_sequence: u64,
-    generation: u64,
-    interactive_resize: bool,
-    last_batch_failed: bool,
-    last_materialized_key: Option<WindowsGeometryKey>,
-    last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
-    pending_frame: Option<WindowsGeometryPendingFrame>,
-    plan: Option<WindowsLiveResizePlan>,
-    plan_epoch: u64,
-    receipt_handler: WindowsGeometryReceiptHandler,
-    subclass_id: usize,
+    pub(in crate::system_runtime) counters: WindowsLiveResizeCounters,
+    pub(in crate::system_runtime) flush_posted: bool,
+    pub(in crate::system_runtime) frame_sequence: u64,
+    pub(in crate::system_runtime) generation: u64,
+    pub(in crate::system_runtime) interactive_resize: bool,
+    pub(in crate::system_runtime) last_batch_failed: bool,
+    pub(in crate::system_runtime) last_materialized_key: Option<WindowsGeometryKey>,
+    pub(in crate::system_runtime) last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
+    pub(in crate::system_runtime) pending_frame: Option<WindowsGeometryPendingFrame>,
+    pub(in crate::system_runtime) plan: Option<WindowsLiveResizePlan>,
+    pub(in crate::system_runtime) plan_epoch: u64,
+    pub(in crate::system_runtime) receipt_handler: WindowsGeometryReceiptHandler,
+    pub(in crate::system_runtime) subclass_id: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::system_runtime) struct WindowsGeometryKey {
-    dpi: u32,
-    frame_revision: u64,
-    generation: u64,
-    height: u32,
-    plan_revision: u64,
-    presentation: WindowsGeometryPresentation,
-    width: u32,
+    pub(in crate::system_runtime) dpi: u32,
+    pub(in crate::system_runtime) frame_revision: u64,
+    pub(in crate::system_runtime) generation: u64,
+    pub(in crate::system_runtime) height: u32,
+    pub(in crate::system_runtime) plan_revision: u64,
+    pub(in crate::system_runtime) presentation: WindowsGeometryPresentation,
+    pub(in crate::system_runtime) width: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,53 +121,53 @@ pub(in crate::system_runtime) enum WindowsGeometryStatus {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::system_runtime) struct WindowsGeometryReceipt {
-    key: WindowsGeometryKey,
-    status: WindowsGeometryStatus,
-    terminal: bool,
+    pub(in crate::system_runtime) key: WindowsGeometryKey,
+    pub(in crate::system_runtime) status: WindowsGeometryStatus,
+    pub(in crate::system_runtime) terminal: bool,
 }
 
 pub(in crate::system_runtime) type WindowsGeometryReceiptHandler = Arc<dyn Fn(WindowsGeometryReceipt) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::system_runtime) struct WindowsGeometryPendingFrame {
-    dpi: u32,
-    frame_revision: u64,
-    height: u32,
-    presentation: WindowsGeometryPresentation,
-    terminal: bool,
-    width: u32,
+    pub(in crate::system_runtime) dpi: u32,
+    pub(in crate::system_runtime) frame_revision: u64,
+    pub(in crate::system_runtime) height: u32,
+    pub(in crate::system_runtime) presentation: WindowsGeometryPresentation,
+    pub(in crate::system_runtime) terminal: bool,
+    pub(in crate::system_runtime) width: u32,
 }
 
 #[derive(Clone)]
 pub(in crate::system_runtime) struct WindowsGeometrySubmission {
-    bounds: Vec<WindowsLiveResizeBounds>,
-    key: WindowsGeometryKey,
-    last_batch_failed: bool,
-    last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
-    plan_epoch: u64,
-    surfaces: Vec<WindowsLiveResizeSurface>,
-    terminal: bool,
+    pub(in crate::system_runtime) bounds: Vec<WindowsLiveResizeBounds>,
+    pub(in crate::system_runtime) key: WindowsGeometryKey,
+    pub(in crate::system_runtime) last_batch_failed: bool,
+    pub(in crate::system_runtime) last_surface_bounds: HashMap<String, WindowsLiveResizeBounds>,
+    pub(in crate::system_runtime) plan_epoch: u64,
+    pub(in crate::system_runtime) surfaces: Vec<WindowsLiveResizeSurface>,
+    pub(in crate::system_runtime) terminal: bool,
 }
 
 #[derive(Default)]
 pub(in crate::system_runtime) struct WindowsLiveResizeRegistry {
-    hosts: HashMap<usize, WindowsLiveResizeHost>,
-    surfaces: HashMap<String, WindowsLiveResizeSurface>,
+    pub(in crate::system_runtime) hosts: HashMap<usize, WindowsLiveResizeHost>,
+    pub(in crate::system_runtime) surfaces: HashMap<String, WindowsLiveResizeSurface>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::system_runtime) struct WindowsLiveResizeObservation {
-    client_height: u32,
-    client_width: u32,
-    counters: WindowsLiveResizeCounters,
-    event_height: u32,
-    event_width: u32,
-    frame_sequence: u64,
-    native_fast_path_available: bool,
-    native_frame_unchanged: bool,
-    matched_latest_frame: bool,
-    match_status: &'static str,
-    plan_epoch: u64,
+    pub(in crate::system_runtime) client_height: u32,
+    pub(in crate::system_runtime) client_width: u32,
+    pub(in crate::system_runtime) counters: WindowsLiveResizeCounters,
+    pub(in crate::system_runtime) event_height: u32,
+    pub(in crate::system_runtime) event_width: u32,
+    pub(in crate::system_runtime) frame_sequence: u64,
+    pub(in crate::system_runtime) native_fast_path_available: bool,
+    pub(in crate::system_runtime) native_frame_unchanged: bool,
+    pub(in crate::system_runtime) matched_latest_frame: bool,
+    pub(in crate::system_runtime) match_status: &'static str,
+    pub(in crate::system_runtime) plan_epoch: u64,
 }
 
 thread_local! {
@@ -381,6 +386,7 @@ pub(in crate::system_runtime) fn windows_live_resize_plans_match(
         && current.gap == next.gap
         && current.tab_strip_height.to_bits() == next.tab_strip_height.to_bits()
         && current.tab_strip_label == next.tab_strip_label
+        && current.window_draggable == next.window_draggable
         && current.roles.len() == next.roles.len()
         && current.roles.iter().zip(&next.roles).all(|(left, right)| {
             left.label == right.label
@@ -651,6 +657,9 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
     subclass_id: usize,
     _generation: usize,
 ) -> LRESULT {
+    if message == WM_NCHITTEST && windows_live_resize_is_native_drag_handle(hwnd, lparam) {
+        return LRESULT(HTCAPTION as isize);
+    }
     let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     match message {
         WM_ENTERSIZEMOVE => windows_live_resize_set_interactive(hwnd, true),
@@ -710,6 +719,56 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
         _ => {}
     }
     result
+}
+
+fn windows_live_resize_is_native_drag_handle(hwnd: HWND, lparam: LPARAM) -> bool {
+    let tab_strip_height = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let registry = registry.borrow();
+        let plan = registry.hosts.get(&windows_hwnd_key(hwnd))?.plan.as_ref()?;
+        plan.window_draggable.then_some(plan.tab_strip_height)
+    });
+    let Some(tab_strip_height) = tab_strip_height else {
+        return false;
+    };
+    let mut window_rect = RECT::default();
+    if unsafe { GetWindowRect(hwnd, &mut window_rect) }.is_err() {
+        return false;
+    }
+    let x = (lparam.0 as u16 as i16) as i32 - window_rect.left;
+    let y = ((lparam.0 >> 16) as u16 as i16) as i32 - window_rect.top;
+    let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(96)) / 96.0;
+    windows_live_resize_native_drag_handle_contains(
+        x,
+        y,
+        scale,
+        tab_strip_height,
+        WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL,
+    )
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_native_drag_handle_contains(
+    x: i32,
+    y: i32,
+    scale: f64,
+    tab_strip_height: f64,
+    handle_width: f64,
+) -> bool {
+    if !scale.is_finite()
+        || scale <= 0.0
+        || !tab_strip_height.is_finite()
+        || tab_strip_height <= 0.0
+        || !handle_width.is_finite()
+        || handle_width <= 0.0
+    {
+        return false;
+    }
+    let physical_height = (tab_strip_height * scale).round() as i32;
+    let physical_width = (handle_width * scale).round() as i32;
+    let physical_border = (WINDOWS_NATIVE_RESIZE_BORDER_LOGICAL * scale).round() as i32;
+    x >= physical_border
+        && x < physical_width
+        && y >= physical_border
+        && y < physical_height
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {

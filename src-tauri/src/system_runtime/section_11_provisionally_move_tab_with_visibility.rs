@@ -174,9 +174,14 @@ impl SystemRuntimeExecutor {
             }
             if tab_was_visible {
                 let reveal_window = reveal_hidden_target || target_window_was_visible;
-                let (_, _, operation_id) = self.request_tab_presentation_with_window_visibility(
-                    tab_id,
-                    NativePresentationFocus::None,
+                // The target actor has never applied this surface when a tab is
+                // reparented into a newly-created hidden host. Re-selecting the
+                // already-authoritative tab would seed that actor from live
+                // topology and incorrectly turn the required WebView show into
+                // a no-op. Reconcile from the actor's empty physical projection
+                // after the exact reparent acknowledgement instead.
+                let (_, operation_id) = self.reconcile_window_presentation_with_visibility(
+                    target_window_id,
                     "provisional-move-target",
                     reveal_window.then_some(true),
                 )?;

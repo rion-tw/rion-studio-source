@@ -110,7 +110,7 @@
 - [x] V3 `cross_window_move_is_atomic_and_snapshot_never_tears` 以單一 actor commit 驗證 move 前/後 snapshot，不存在混合 revision。
 - [x] V4 `done` AppCore integration以可控effect stream把window close分成admission與native completion，darwin/win32皆證明cleanup前exact tabs/owners為零；failed cleanup、late callback、stream failure與Drop terminalization均有event-bound transcript。
 - [x] V5 fake macOS/Windows port 使用同一 full-projection conformance transcript且結果相同；真正 Windows WebView2 runner仍屬 W1/W3 gate。
-- [ ] V6 壓力測試後 registry、pending operations 與 leases 歸零。
+- [x] V6 `done` Kernel deterministic state machine 10,000步逐步 audit且每步/final pending operation=0；browser mutation coordinator 10,000次 normal/recoverable/destructive complete/abort後 tickets、queues、blocked role leases全空；macOS/Windows native operation各5,000次 register/in-flight/terminal後 active registry=0；macro runtime 1,000次 start/stop後role owners與pending actions歸零。精準 leak regressions均通過。
 - [ ] V7 `in-progress` source hygiene、typecheck、lint、Vitest、Rust fmt/clippy/tests、build、system-only validation 曾在 Runtime 改造後完整全綠；AppKit accessibility 驗收修正後 source hygiene（1065 files）、focused Vitest（9 tests）與 native build 再次通過，仍須在所有實機修改結束後跑最後完整 gate。
 
 ## macOS Computer Use 實機驗收
@@ -157,7 +157,7 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 | ESLint | done | `pnpm run lint` 通過；僅保留 23 個既有 react-refresh warnings |
 | Vitest | done | 最新完整 146 files／813 tests 通過（新增 deadline dirty-readback regression）；AppKit AX focused 9 tests亦通過 |
 | Rust fmt/clippy | done | `pnpm run lint:rust` 通過 |
-| Rust tests | done | 前次完整 workspace：rion-core 563、rion-platform 20、rion-tauri 368；最新 input-fence 改造後 rion-tauri 367/367 通過（移除一個舊 readback test，新增兩個 deadline fence tests） |
+| Rust tests | done | 前次完整 workspace全綠；最新計數為 rion-core 564、rion-platform 20、rion-tauri 368（input-fence dirty-readback移除與兩個長輪次 leak regressions後） |
 | Build | done | `pnpm run build` 通過；AppKit AX 修正後 native build 再通過 |
 | System-only validation | done | `pnpm run validate:system-only` 通過 |
 | macOS Computer Use | in-progress | M1/M2/M5/M7/M8 完成；M3/M4/M6/M9剩餘項目待解鎖後驗收 |
@@ -211,3 +211,4 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - 2026-08-09：Computer Use 發現 custom AppKit tab雖可視但原 accessibility tree未將整個 tab暴露為可操作 control，座標 click/drag回報 `AXError.notImplemented`。Tab item現為單一 radio-button accessibility element，press直接選取，另提供 show-menu及increment/decrement reorder actions；程式回傳既有 `reorder` Runtime intent，不建立第二條權威路徑，focused source regression與native build通過。
 - 2026-08-09：實機 SQLite trace反向稽核沒有 duplicate/torn/orphan/nonterminal/lease invariant；數次 Computer Use pointer/tracking操作在AppKit主佇列被佔用時，deadline-bound presentation以 `NATIVE_PRESENTATION_FAILED` terminal failure結束，runtimeHealthy仍為true，沒有將timeout當成成功或留下pending operation。此現象保留為M3實機重排測試的觀察項，待AX action路徑重驗。
 - 2026-08-09：最終 timer 反向搜尋找到舊 navigation input fence 在40秒後執行 WebView document readback，可能以 dirty reconciliation推導完成；已移除整條 success-by-readback路徑。page-finished原生事件現在是唯一成功來源，deadline只會 terminal failure並啟動 exact epoch/generation-fenced recovery；Rust clippy、Tauri 367 tests、source architecture regression與完整 813 Vitest通過。
+- 2026-08-09：V6 補上直接 leak 證據：BrowserOperationCoordinator 10,000次 lease cycle後 tickets/queues/blocked roles全空；NativeOperationRegistry在fake macOS與fake Windows各5,000次 lifecycle後 active count=0。搭配Kernel 10,000步 pending=0與macro 1,000次歸零，四層壓力測試均有明確 final assertion。

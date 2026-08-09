@@ -427,4 +427,29 @@ mod tests {
         );
         assert!(coordinator.complete(&first.id).is_ok());
     }
+
+    #[test]
+    fn ten_thousand_completed_or_aborted_leases_leave_no_runtime_ownership() {
+        let coordinator = BrowserOperationCoordinator::default();
+
+        for index in 0..10_000 {
+            let role_id = format!("stress-role-{}", index % 32);
+            let kind = match index % 3 {
+                0 => "normal",
+                1 => "recoverableMutation",
+                _ => "destructiveMutation",
+            };
+            let lease = coordinator.acquire(request(&[&role_id], kind)).unwrap();
+            if kind == "destructiveMutation" {
+                coordinator.abort(&lease.id).unwrap();
+            } else {
+                coordinator.complete(&lease.id).unwrap();
+            }
+        }
+
+        let state = coordinator.state.lock().unwrap();
+        assert!(state.tickets.is_empty());
+        assert!(state.queues.is_empty());
+        assert!(state.blocked_role_ids.is_empty());
+    }
 }

@@ -511,10 +511,8 @@ fn rion_shared_user_data_dir(state: State<'_, CoreState>) -> String {
 fn embedded_runtime_state(state: &CoreState) -> Result<Value, CoreErrorPayload> {
     let snapshot = state
         .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .browser_runtime_snapshot()
         .map_err(error_payload)?;
-    let snapshot = serde_json::from_value(snapshot)
-        .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))?;
     state.runtime.live_projection(snapshot).ok_or_else(|| {
         shell_error(
             "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -526,25 +524,22 @@ fn embedded_runtime_state(state: &CoreState) -> Result<Value, CoreErrorPayload> 
 fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, CoreErrorPayload> {
     let snapshot = state
         .core
-        .invoke(CoreCommand::StateSnapshot)
+        .invoke(CoreCommand::AppSnapshot)
         .map_err(error_payload)?;
-    let role_statuses = state
-        .core
-        .invoke(CoreCommand::BrowserStatuses)
-        .map_err(error_payload)?;
-    let macro_statuses = state
-        .core
-        .invoke(CoreCommand::MacroStatuses)
-        .map_err(error_payload)?;
+    let snapshot = serde_json::from_value::<rion_core::CoreAppSnapshotRecord>(snapshot)
+        .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))?;
     Ok(json!({
-        "embeddedRuntimeState": embedded_runtime_state(state)?,
-        "games": snapshot["games"].clone(),
-        "gameWindows": snapshot["gameWindows"].clone(),
-        "roles": snapshot["roles"].clone(),
-        "roleStatuses": role_statuses,
-        "launchWorkspaces": snapshot["launchWorkspaces"].clone(),
+        "revision": snapshot.revision,
+        "stateRevision": snapshot.state_revision,
+        "runtimeRevision": snapshot.runtime_revision,
+        "embeddedRuntimeState": state.runtime.projection(&snapshot.browser_runtime),
+        "games": snapshot.state.games,
+        "gameWindows": snapshot.state.game_windows,
+        "roles": snapshot.state.roles,
+        "roleStatuses": snapshot.role_statuses,
+        "launchWorkspaces": snapshot.state.launch_workspaces,
         "displayTopology": display_topology(state, window, "snapshot")?,
-        "macros": snapshot["macros"].clone(),
-        "macroStatuses": macro_statuses
+        "macros": snapshot.state.macros,
+        "macroStatuses": snapshot.macro_statuses
     }))
 }

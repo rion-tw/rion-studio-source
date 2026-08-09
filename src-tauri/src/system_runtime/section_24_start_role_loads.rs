@@ -36,50 +36,46 @@ impl SystemRuntimeExecutor {
                 }
                 let tab_id = self
                     .state()?
-                    .role_tabs
-                    .get(&role.role_id)
+                    .native_tab_id_for_role_surface(&role.role_id)
                     .cloned()
                     .ok_or_else(|| {
                         RuntimeError::new(
                             "TAURI_RUNTIME_ROLE_NOT_FOUND",
                             "Runtime role was not found.",
                         )
-                    })?;
+                })?;
                 let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+                let window_zoom_factor = self.runtime_window_zoom_factor(&window_id);
                 let (
                     surface,
                     navigation,
                     current_url,
-                    base_zoom_factor,
-                    effective_zoom,
+                    projected_base_zoom_factor,
                     surface_generation,
                 ) = {
                     let state = self.state()?;
-                    let surface = state.tabs[&tab_id].roles.get(&role.role_id).ok_or_else(|| {
+                    let surface = state.native_resources.tabs[&tab_id].roles.get(&role.role_id).ok_or_else(|| {
                         RuntimeError::new(
                             "TAURI_RUNTIME_ROLE_NOT_FOUND",
                             "Runtime role was not found.",
                         )
                     })?;
-                    let base_zoom_factor = if surface.zoom_mode == "adaptive" {
-                        surface.zoom_factor
-                    } else {
-                        role.zoom_factor.clamp(0.25, 3.0)
-                    };
-                    let window_zoom_factor = state
-                        .display_hosts
-                        .get(&window_id)
-                        .map(|host| host.zoom_factor)
-                        .unwrap_or(1.0);
                     (
                         surface.webview.clone(),
                         Arc::clone(&surface.navigation),
                         surface.current_url.clone(),
-                        base_zoom_factor,
-                        effective_zoom_factor(base_zoom_factor, window_zoom_factor),
+                        surface.zoom_factor,
                         surface.generation,
                     )
                 };
+                let (base_zoom_factor, _) = self.runtime_role_zoom_contract(
+                    &window_id,
+                    &tab_id,
+                    &role.role_id,
+                    projected_base_zoom_factor,
+                );
+                let effective_zoom =
+                    effective_zoom_factor(base_zoom_factor, window_zoom_factor);
                 let url = checked_web_url(&role.url)?;
                 let controlled_label = surface.label().to_owned();
                 self.begin_controlled_navigation(&controlled_label)?;
@@ -102,9 +98,9 @@ impl SystemRuntimeExecutor {
                 })?;
                 let pending_operation = if current_url.as_ref() != Some(&url) {
                     if let Ok(mut state) = self.state()
-                        && let Some(tab_id) = state.role_tabs.get(&role.role_id).cloned()
+                        && let Some(tab_id) = state.native_tab_id_for_role_surface(&role.role_id).cloned()
                         && let Some(role_surface) = state
-                            .tabs
+                            .native_resources.tabs
                             .get_mut(&tab_id)
                             .and_then(|tab| tab.roles.get_mut(&role.role_id))
                     {
@@ -330,19 +326,19 @@ impl SystemRuntimeExecutor {
     fn focus_role(&self, role_id: &str, zoom_factor: Option<f64>) -> RuntimeResult<()> {
         let tab_id = self
             .state()?
-            .role_tabs
-            .get(role_id)
+            .native_tab_id_for_role_surface(role_id)
             .cloned()
             .ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
                     "Runtime role was not found.",
                 )
-            })?;
+        })?;
         let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+        let window_zoom_factor = self.runtime_window_zoom_factor(&window_id);
         let (tab_id, webview, window_zoom_factor) = {
             let state = self.state()?;
-            let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get(&tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
             let role = tab.roles.get(role_id).ok_or_else(|| {
@@ -351,28 +347,115 @@ impl SystemRuntimeExecutor {
                     "Runtime role was not found.",
                 )
             })?;
-            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+            state.native_resources.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
                 )
             })?;
-            (tab_id.clone(), role.webview.clone(), host.zoom_factor)
+            (tab_id.clone(), role.webview.clone(), window_zoom_factor)
         };
         if let Some(zoom_factor) = zoom_factor {
             let zoom_factor = zoom_factor.clamp(0.25, 3.0);
-            webview
-                .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
-                .map_err(RuntimeError::tauri)?;
+            let live = self.presentation.existing(&window_id).ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "Runtime role topology disappeared before focus projection.",
+                )
+            })?;
+            let previous_zoom = live
+                .tabs
+                .iter()
+                .find(|tab| tab.id == tab_id)
+                .and_then(|tab| {
+                    tab.role_slots
+                        .iter()
+                        .find(|slot| slot.role_id == role_id)
+                        .and_then(|slot| slot.browser_zoom_percent)
+                });
+            let projected_previous = self
+                .state()?
+                .native_resources.tabs
+                .get(&tab_id)
+                .and_then(|tab| tab.roles.get(role_id))
+                .map(|surface| surface.zoom_factor)
+                .unwrap_or(1.0);
+            let previous_base = previous_zoom
+                .map(|percent| (percent / 100.0).clamp(0.25, 5.0))
+                .unwrap_or(projected_previous);
+            let desired = self
+                .presentation
+                .live
+                .commit_role_zoom(
+                    live.revision,
+                    &tab_id,
+                    &window_id,
+                    role_id,
+                    Some(zoom_factor * 100.0),
+                )
+                .map_err(|message| {
+                    RuntimeError::new("TAURI_RUNTIME_ZOOM_FAILED", message)
+                })?;
+            if desired.status == LiveTopologyCommitStatus::Superseded {
+                return Err(RuntimeError::new(
+                    "TAURI_RUNTIME_ZOOM_SUPERSEDED",
+                    "Runtime role zoom was superseded before focus projection.",
+                ));
+            }
+            if let Err(error) = webview.set_zoom(effective_zoom_factor(
+                zoom_factor,
+                window_zoom_factor,
+            )) {
+                let compensation = self.presentation.live.commit_role_zoom(
+                    desired.revision,
+                    &tab_id,
+                    &window_id,
+                    role_id,
+                    previous_zoom,
+                );
+                if match compensation.as_ref() {
+                    Ok(receipt) => receipt.status == LiveTopologyCommitStatus::Superseded,
+                    Err(_) => true,
+                } {
+                    self.health.mark_unhealthy();
+                    return Err(RuntimeError::new(
+                        "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
+                        format!(
+                            "Native role focus zoom failed and Kernel compensation was superseded: {error}"
+                        ),
+                    ));
+                }
+                return Err(RuntimeError::tauri(error));
+            }
             if let Ok(mut state) = self.state()
-                && let Some(tab_id) = state.role_tabs.get(role_id).cloned()
                 && let Some(role_surface) = state
-                    .tabs
+                    .native_resources.tabs
                     .get_mut(&tab_id)
                     .and_then(|tab| tab.roles.get_mut(role_id))
             {
                 role_surface.zoom_factor = zoom_factor;
-                role_surface.zoom_mode = "fixed".to_owned();
+            } else {
+                let _ = webview.set_zoom(effective_zoom_factor(
+                    previous_base,
+                    window_zoom_factor,
+                ));
+                let compensation = self.presentation.live.commit_role_zoom(
+                    desired.revision,
+                    &tab_id,
+                    &window_id,
+                    role_id,
+                    previous_zoom,
+                );
+                if compensation.is_err()
+                    || compensation
+                        .is_ok_and(|receipt| receipt.status == LiveTopologyCommitStatus::Superseded)
+                {
+                    self.health.mark_unhealthy();
+                }
+                return Err(RuntimeError::new(
+                    "TAURI_RUNTIME_ROLE_NOT_FOUND",
+                    "Runtime role stopped while focus zoom was projected.",
+                ));
             }
         }
         self.request_tab_presentation_with_window_visibility(

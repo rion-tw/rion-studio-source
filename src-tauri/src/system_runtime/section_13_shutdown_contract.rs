@@ -184,20 +184,20 @@ impl SystemRuntimeExecutor {
     fn shutdown_role_ids(&self) -> Result<Vec<String>, ()> {
         self.state
             .lock()
-            .map(|state| state.role_tabs.keys().cloned().collect())
+            .map(|state| state.native_role_ids())
             .map_err(|_| ())
     }
 
     fn shutdown_surface_snapshot(&self) -> Result<(Vec<ManagedSurface>, Vec<String>), ()> {
         let state = self.state.lock().map_err(|_| ())?;
         let surfaces = state
-            .surface_registry
+            .native_resources.surface_registry
             .values()
-            .chain(state.retired_surface_registry.values())
+            .chain(state.native_resources.retired_surface_registry.values())
             .cloned()
             .collect::<Vec<_>>();
-        let role_ids = state.role_tabs.keys().cloned().collect::<Vec<_>>();
-        for tab in state.tabs.values() {
+        let role_ids = state.native_role_ids();
+        for tab in state.native_resources.tabs.values() {
             for role in tab.roles.values() {
                 role.navigation.reset();
             }
@@ -247,8 +247,8 @@ impl SystemRuntimeExecutor {
 
     fn take_shutdown_hosts(&self) -> Result<ShutdownHostSnapshot, ()> {
         let mut state = self.state.lock().map_err(|_| ())?;
-        let tabs = std::mem::take(&mut state.tabs);
-        let display_hosts = std::mem::take(&mut state.display_hosts);
+        let tabs = std::mem::take(&mut state.native_resources.tabs);
+        let display_hosts = std::mem::take(&mut state.native_resources.display_hosts);
         let popup_labels = std::mem::take(&mut state.popup_roles)
             .into_keys()
             .collect::<Vec<_>>();
@@ -256,14 +256,13 @@ impl SystemRuntimeExecutor {
         self.presentation.statuses.clear();
         state.overlay_capabilities.clear();
         state.overlay_ready_webviews.clear();
-        state.role_tabs.clear();
         state.main_frame_navigation_input_fences.clear();
         state.role_input_fences.clear();
         state.last_input_ready_epochs.clear();
         self.input_readiness.notify();
         state.controlled_navigation_webviews.clear();
-        state.surface_registry.clear();
-        state.retired_surface_registry.clear();
+        state.native_resources.surface_registry.clear();
+        state.native_resources.retired_surface_registry.clear();
         state.recovering_roles.clear();
         let pending_window_closes = state.window_closes.drain();
         state.allow_window_close_labels.extend(

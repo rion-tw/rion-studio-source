@@ -200,7 +200,12 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   if (window.rionStudio || !isTauriRuntime()) return;
 
   const listeners = new Map<string, Set<Listener>>();
-  const replayableEvents = new Set(["runtimeState", "displayTopology", "windowState"]);
+  const replayableEvents = new Set([
+    "appSnapshot",
+    "runtimeState",
+    "displayTopology",
+    "windowState"
+  ]);
   const latestReplayPayload = new Map<string, unknown[]>();
   const latestProjectionRevision = new Map<string, number>();
   const emit = (event: string, ...payload: unknown[]): void => {
@@ -245,6 +250,35 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
   let macroStatusesRefreshSequence = 0;
   let displaysRefreshSequence = 0;
   let collectionRequestSequence = 0;
+  let appSnapshotRefreshRequested = 0;
+  let appSnapshotRefreshRunning = false;
+  const refreshAppSnapshot = (): void => {
+    if (!listeners.has("appSnapshot")) return;
+    appSnapshotRefreshRequested += 1;
+    if (appSnapshotRefreshRunning) return;
+    appSnapshotRefreshRunning = true;
+    void (async () => {
+      while (true) {
+        const requested = appSnapshotRefreshRequested;
+        try {
+          const snapshot = await invokeShell<
+            Awaited<ReturnType<RionStudioApi["getAppSnapshot"]>>
+          >("appSnapshot");
+          if (requested === appSnapshotRefreshRequested) {
+            emitRevisioned("appSnapshot", snapshot);
+          }
+        } catch (error) {
+          if (requested === appSnapshotRefreshRequested) {
+            console.error("Renderer app snapshot refresh failed.", error);
+          }
+        }
+        if (requested === appSnapshotRefreshRequested) {
+          appSnapshotRefreshRunning = false;
+          return;
+        }
+      }
+    })();
+  };
   const refreshRuntimeState = (): void => {
     const sequence = ++runtimeStateRefreshSequence;
     void invokeShell<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
@@ -371,15 +405,18 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
         switch (event.type) {
           case "stateChanged":
             void refreshCollections(event.changedCollections, event.revision);
+            refreshAppSnapshot();
             break;
           case "browserStatuses":
             roleStatusesRefreshSequence += 1;
             emit("roleStatuses", event.statuses);
             refreshRuntimeState();
+            refreshAppSnapshot();
             break;
           case "macroStatuses":
             macroStatusesRefreshSequence += 1;
             emit("macroStatuses", event.statuses);
+            refreshAppSnapshot();
             break;
           case "logEntriesCaptured":
             event.entries.forEach((entry) => emit("logEntry", entry));
@@ -398,6 +435,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       ({ payload }) => {
         runtimeStateRefreshSequence += 1;
         emitRevisioned("runtimeState", payload);
+        refreshAppSnapshot();
       }
     ),
     () => listen<SystemRuntimeOperationSummaryRecord>(
@@ -425,6 +463,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       ({ payload }) => {
         displaysRefreshSequence += 1;
         emitRevisioned("displayTopology", payload);
+        refreshAppSnapshot();
       }
     ),
     () => listen<Awaited<ReturnType<RionStudioApi["getUpdateStatus"]>>>(
@@ -659,6 +698,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     openUpdateDownload: () => invokeShell("openUpdateDownload"),
     installDownloadedUpdate: () => invokeShell("installDownloadedUpdate"),
     onRoleStatusChanged: (callback) => on("roleStatuses", callback as Listener),
+    onAppSnapshotChanged: (callback) => {
+      const unsubscribe = on("appSnapshot", callback as Listener);
+      refreshAppSnapshot();
+      return unsubscribe;
+    },
     onApplicationQuitRequested: (callback) =>
       on("applicationQuitRequested", callback as Listener),
     onCurrentWindowStateChanged: (callback) => on("windowState", callback as Listener),

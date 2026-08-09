@@ -46,8 +46,8 @@ impl SystemRuntimeExecutor {
                 .release_terminal_key_for_retry(&role_id, generation);
         }
         let Some((tab_id, surface_generation)) = self.state.lock().ok().and_then(|state| {
-            let tab_id = state.role_tabs.get(&role_id)?.clone();
-            let generation = state.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
+            let tab_id = state.native_tab_id_for_role_surface(&role_id)?.clone();
+            let generation = state.native_resources.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
             Some((tab_id, generation))
         }) else {
             return false;
@@ -71,9 +71,9 @@ impl SystemRuntimeExecutor {
             {
                 return false;
             }
-            if state.role_tabs.get(&role_id) != Some(&tab_id)
+            if state.native_tab_id_for_role_surface(&role_id) != Some(&tab_id)
                 || state
-                    .tabs
+                    .native_resources.tabs
                     .get(&tab_id)
                     .and_then(|tab| tab.roles.get(&role_id))
                     .is_none_or(|surface| surface.generation != surface_generation)

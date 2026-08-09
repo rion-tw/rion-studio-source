@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
-    const [runtime, shell, macInput, platformProbe, powerLifecycle] = await Promise.all([
+    const [runtime, shell, macInput, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(
@@ -17,6 +17,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       ),
       readFile(
         new URL("../src-tauri/src/power_lifecycle.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/kernel_facade.rs", import.meta.url),
         "utf8"
       )
     ]);
@@ -146,8 +150,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("ServerCertificateErrorDetectedEventHandler");
     expect(runtime).toContain("COREWEBVIEW2_PERMISSION_STATE_DENY");
     expect(runtime).toContain("COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL");
-    expect(runtime).toContain("EmbeddedSystemSurfaceFailed");
-    expect(runtime).toContain("EmbeddedSystemSurfaceRecovered");
+    expect(runtime).toContain("report_system_surface_state_async");
+    expect(kernelFacade).toContain("EmbeddedSystemSurfaceFailed");
+    expect(kernelFacade).toContain("EmbeddedSystemSurfaceRecovered");
     expect(runtime).toContain("SURFACE_RECOVERY_LIMIT");
     expect(runtime).toContain(
       '#[cfg(target_os = "macos")]\n    pub fn handle_web_content_process_terminated('
@@ -668,15 +673,20 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(navigationPolicy).toContain("NavigationInputFenceSource::MainFrame");
     expect(navigationPolicy).toContain("accept_navigation_input_operation(");
     expect(navigationPolicy.indexOf("accept_navigation_input_operation(")).toBeLessThan(
-      navigationPolicy.indexOf("CoreCommand::MacroInputFence {")
+      navigationPolicy.indexOf(".fence_macro_input(role_id)")
     );
     expect(navigationPolicy).toContain(
       "fn finish_navigation_input_drain(&self, role_id: &str, input_epoch: u64)"
     );
-    expect(navigationPolicy).toContain("CoreCommand::MacroInputFence {");
-    expect(navigationPolicy).toContain(".invoke_async(CoreCommand::MacroInputDrain");
-    expect(navigationPolicy).toContain("CoreCommand::MacroInputResume {");
+    expect(navigationPolicy).toContain(".fence_macro_input(role_id)");
+    expect(navigationPolicy).toContain(".drain_macro_input(&role_id, epoch)");
+    expect(navigationPolicy).toContain(".resume_macro_input(role_id, input_epoch)");
+    expect(navigationPolicy).toContain("expire_navigation_input_fence(");
+    expect(navigationPolicy).toContain('"page-finish-deadline"');
     expect(navigationPolicy).toContain("schedule_input_fence_recovery(");
+    expect(navigationPolicy).not.toContain("reconcile_navigation_input_fence");
+    expect(navigationPolicy).not.toContain("finish_navigation_reconciliation");
+    expect(navigationPolicy).not.toContain("document_instance_proves_completed_navigation");
     expect(navigationPolicy).not.toContain("CoreCommand::MacroReleaseRole");
     expect(navigationPolicy).not.toContain("webview.navigate(url)");
     expect(navigationPolicy).not.toContain('"url"');
@@ -696,8 +706,12 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       expect(runtime).not.toContain(forbiddenDocumentRequestNavigationToken);
     }
     const windowsRoleSetup = runtime.slice(
-      runtime.indexOf('#[cfg(windows)]\nfn install_windows_role_surface_handlers('),
-      runtime.indexOf('#[cfg(windows)]\nfn windows_role_setup_error(')
+      runtime.indexOf(
+        '#[cfg(windows)]\npub(in crate::system_runtime) fn install_windows_role_surface_handlers('
+      ),
+      runtime.indexOf(
+        '#[cfg(windows)]\npub(in crate::system_runtime) fn windows_role_setup_error('
+      )
     );
     expect(windowsRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(windowsRoleSetup).not.toContain("navigation-handler");

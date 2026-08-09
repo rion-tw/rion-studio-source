@@ -7,7 +7,6 @@ fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInput
         drained: false,
         surface_generation,
         recovery_scheduled: false,
-        reconciling: false,
         resuming: false,
     }
 }
@@ -71,7 +70,7 @@ fn redirects_finish_the_current_ticket_without_matching_the_requested_url() {
 }
 
 #[test]
-fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
+fn completed_main_frame_cannot_be_failed_by_a_late_deadline() {
     let mut fences = HashMap::new();
     let mut tickets = HashMap::new();
     fences.insert("role-1".to_owned(), test_role_input_fence(4, 8));
@@ -84,7 +83,7 @@ fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
         Some("old-document".to_owned()),
     );
 
-    assert!(main_frame_navigation_needs_reconciliation(
+    assert!(main_frame_navigation_deadline_is_current(
         &fences,
         &tickets,
         "role-main",
@@ -94,7 +93,7 @@ fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
     ));
     mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
 
-    assert!(!main_frame_navigation_needs_reconciliation(
+    assert!(!main_frame_navigation_deadline_is_current(
         &fences,
         &tickets,
         "role-main",
@@ -102,7 +101,7 @@ fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
         4,
         8
     ));
-    assert!(!main_frame_navigation_needs_reconciliation(
+    assert!(!main_frame_navigation_deadline_is_current(
         &fences,
         &tickets,
         "role-main",
@@ -110,7 +109,7 @@ fn completed_main_frame_cannot_be_reopened_by_a_late_watchdog() {
         3,
         8
     ));
-    assert!(!main_frame_navigation_needs_reconciliation(
+    assert!(!main_frame_navigation_deadline_is_current(
         &fences,
         &tickets,
         "role-main",
@@ -171,34 +170,7 @@ fn a_drained_popup_close_fence_with_no_page_tickets_is_ready() {
 }
 
 #[test]
-fn watchdog_requires_a_new_complete_http_document_instance() {
-    let complete = DocumentInstanceReadback {
-        document_id: Some("new-document".to_owned()),
-        ready_state: "complete".to_owned(),
-        protocol: "https:".to_owned(),
-    };
-    assert!(document_instance_proves_completed_navigation(
-        &complete,
-        Some("old-document")
-    ));
-    assert!(!document_instance_proves_completed_navigation(
-        &complete,
-        Some("new-document")
-    ));
-    assert!(!document_instance_proves_completed_navigation(&complete, None));
-
-    let loading = DocumentInstanceReadback {
-        ready_state: "loading".to_owned(),
-        ..complete
-    };
-    assert!(!document_instance_proves_completed_navigation(
-        &loading,
-        Some("old-document")
-    ));
-}
-
-#[test]
-fn watchdog_claims_at_most_one_recovery_for_the_current_epoch() {
+fn deadline_claims_at_most_one_recovery_for_the_current_epoch() {
     let mut fences = HashMap::new();
     fences.insert("role-1".to_owned(), test_role_input_fence(7, 11));
 

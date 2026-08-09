@@ -55,6 +55,7 @@ export type { CoreEffectTarget } from "./CoreEffectTarget";
 export type { CoreEffectTargetKind } from "./CoreEffectTargetKind";
 export type { OperationCompletionPolicy } from "./OperationCompletionPolicy";
 export type { CoreEvent } from "./CoreEvent";
+export type { CoreAppSnapshotRecord } from "./CoreAppSnapshotRecord";
 export type { CoreStateSnapshotRecord } from "./CoreStateSnapshotRecord";
 export type { CountedLatencySummaryRecord } from "./CountedLatencySummaryRecord";
 export type { DiagnosticDisplayRecord } from "./DiagnosticDisplayRecord";

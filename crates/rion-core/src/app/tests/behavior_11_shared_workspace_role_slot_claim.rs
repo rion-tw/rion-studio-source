@@ -281,6 +281,7 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
     drive_accepted_launch_to_completion(
         Arc::clone(&core),
         CoreCommand::BrowserWorkspaceLaunch {
+            launch_tab_id: None,
             workspace_id: workspace_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
@@ -367,6 +368,7 @@ fn restored_role_tab_creates_a_blocked_demand_when_workspace_owns_the_role() {
     drive_accepted_launch_to_completion(
         Arc::clone(&core),
         CoreCommand::BrowserWorkspaceLaunch {
+            launch_tab_id: None,
             workspace_id: workspace_id.clone(),
             target: target("restore-window"),
             launch_preview_id: None,
@@ -393,6 +395,7 @@ fn restored_role_tab_creates_a_blocked_demand_when_workspace_owns_the_role() {
     let (restored, actions, _) = drive_async_command(
         Arc::clone(&core),
         CoreCommand::BrowserRoleLaunch {
+            launch_tab_id: None,
             role_id: role_id.clone(),
             target: target("restore-window"),
             launch_preview_id: None,
@@ -454,6 +457,7 @@ fn restored_role_tab_rejects_mismatched_slot_without_native_effects() {
     let (restored, actions, _) = drive_async_command(
         Arc::clone(&core),
         CoreCommand::BrowserRoleLaunch {
+            launch_tab_id: None,
             role_id,
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
@@ -497,6 +501,7 @@ fn restored_available_role_uses_the_saved_slot_geometry_and_zoom() {
     let (restored, actions, _) = drive_async_command(
         Arc::clone(&core),
         CoreCommand::BrowserRoleLaunch {
+            launch_tab_id: None,
             role_id: role_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
@@ -691,7 +696,11 @@ fn closing_a_window_removes_available_role_demands_without_native_owners() {
         None,
     );
     assert!(closed.is_ok(), "{closed:?}");
-    assert!(actions.is_empty());
+    assert_eq!(actions.len(), 1);
+    assert!(matches!(
+        actions[0],
+        CoreEffectAction::EmbeddedDestroyTab { .. }
+    ));
     let snapshot = core
         .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)
         .unwrap()
@@ -743,6 +752,7 @@ fn restored_available_role_rebuilds_a_stale_demand_instead_of_completing_empty()
     let (restored, actions, _) = drive_async_command(
         Arc::clone(&core),
         CoreCommand::BrowserRoleLaunch {
+            launch_tab_id: None,
             role_id: role_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "stale-demand-window".to_owned(),

@@ -99,8 +99,6 @@ fn diagnostic_input_fence_state(
         ("orphaned-native", true)
     } else if fence.is_some_and(|fence| fence.recovery_scheduled) {
         ("recovering", false)
-    } else if fence.is_some_and(|fence| fence.reconciling) {
-        ("reconciling", false)
     } else if fence.is_some_and(|fence| fence.resuming) {
         ("resuming", false)
     } else if fence.is_some_and(|fence| !fence.drained) {
@@ -297,22 +295,29 @@ impl SystemRuntimeExecutor {
             capability_evidence: self.capability_evidence(),
             active_lifecycle_operation_count: None,
             active_navigation_operation_count: None,
+            runtime_kernel_revision: None,
+            runtime_kernel_logical_surface_count: None,
+            runtime_kernel_pending_operation_count: None,
+            runtime_kernel_tombstone_count: None,
+            runtime_native_resource_invariants_ok: None,
+            runtime_native_resource_invariant_failure_count: None,
+            recent_runtime_kernel_operations: Vec::new(),
         };
         match self.state.lock() {
             Ok(state) => {
                 let surfaces = state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values()
-                    .chain(state.retired_surface_registry.values())
+                    .chain(state.native_resources.retired_surface_registry.values())
                     .collect::<Vec<_>>();
                 let role_surfaces = state
-                    .tabs
+                    .native_resources.tabs
                     .values()
                     .flat_map(|tab| tab.roles.values())
                     .collect::<Vec<_>>();
                 record.recovery_required = Some(state.recovery_required);
-                record.display_host_count = Some(runtime_diagnostic_count(state.display_hosts.len()));
-                record.tab_count = Some(runtime_diagnostic_count(state.tabs.len()));
+                record.display_host_count = Some(runtime_diagnostic_count(state.native_resources.display_hosts.len()));
+                record.tab_count = Some(runtime_diagnostic_count(state.native_resources.tabs.len()));
                 record.role_count = Some(runtime_diagnostic_count(role_surfaces.len()));
                 let launch_phases = self.presentation.statuses.launch_phases();
                 record.launching_tab_count = Some(runtime_diagnostic_count(
@@ -328,7 +333,7 @@ impl SystemRuntimeExecutor {
                         .count(),
                 ));
                 record.managed_surface_count =
-                    Some(runtime_diagnostic_count(state.surface_registry.len()));
+                    Some(runtime_diagnostic_count(state.native_resources.surface_registry.len()));
                 record.active_lifecycle_operation_count = Some(runtime_diagnostic_count(
                     surfaces
                         .iter()
@@ -347,7 +352,7 @@ impl SystemRuntimeExecutor {
                             .count(),
                 ));
                 record.retired_surface_count =
-                    Some(runtime_diagnostic_count(state.retired_surface_registry.len()));
+                    Some(runtime_diagnostic_count(state.native_resources.retired_surface_registry.len()));
                 record.closing_surface_count = Some(runtime_diagnostic_count(
                     surfaces
                         .iter()
@@ -461,6 +466,61 @@ impl SystemRuntimeExecutor {
             Err(_) => collection_error_codes
                 .push("SYSTEM_RUNTIME_CREATION_LOCK_POISONED".to_owned()),
         }
+        let runtime_kernel = self.core.runtime_kernel();
+        match runtime_kernel.audit() {
+            Ok(audit) => {
+                record.runtime_kernel_revision = Some(audit.revision);
+                record.runtime_kernel_logical_surface_count =
+                    Some(runtime_diagnostic_count(audit.logical_surface_count));
+                record.runtime_kernel_pending_operation_count =
+                    Some(runtime_diagnostic_count(audit.pending_operation_count));
+                record.runtime_kernel_tombstone_count =
+                    Some(runtime_diagnostic_count(audit.tombstone_count));
+                record.recent_runtime_kernel_operations = audit.trace;
+            }
+            Err(error) => {
+                eprintln!("RuntimeKernel invariant audit failed: {error}");
+                collection_error_codes.push("SYSTEM_RUNTIME_KERNEL_INVARIANT_FAILED".to_owned());
+            }
+        }
+        match runtime_kernel.snapshot().and_then(|snapshot| {
+            self.audit_native_resource_invariants(&snapshot)
+                .map_err(rion_core::CoreError::Internal)
+        }) {
+            Ok(failures) => {
+                record.runtime_native_resource_invariants_ok = Some(failures.is_empty());
+                record.runtime_native_resource_invariant_failure_count =
+                    Some(runtime_diagnostic_count(failures.len()));
+                if !failures.is_empty() {
+                    let trace = record
+                        .recent_runtime_kernel_operations
+                        .last()
+                        .map(|entry| {
+                            format!(
+                                "intent={} operation={:?} revision={} tab={:?} windows={:?}",
+                                entry.intent_kind,
+                                entry.operation_id,
+                                entry.revision,
+                                entry.tab_id,
+                                entry.window_ids
+                            )
+                        })
+                        .unwrap_or_else(|| "trace=empty".to_owned());
+                    eprintln!(
+                        "NativeResourceRegistry invariant audit failed: failures={} details={} latestTrace={trace}",
+                        failures.len(),
+                        failures.join("; ")
+                    );
+                    collection_error_codes
+                        .push("SYSTEM_NATIVE_RESOURCE_INVARIANT_FAILED".to_owned());
+                }
+            }
+            Err(error) => {
+                eprintln!("NativeResourceRegistry invariant audit could not run: {error}");
+                collection_error_codes
+                    .push("SYSTEM_NATIVE_RESOURCE_INVARIANT_UNAVAILABLE".to_owned());
+            }
+        }
         match self.diagnostics.lock() {
             Ok(diagnostics) => {
                 record.recent_failures = diagnostics.failures_newest_first();
@@ -474,5 +534,94 @@ impl SystemRuntimeExecutor {
         record.snapshot_complete = collection_error_codes.is_empty();
         record.collection_error_codes = collection_error_codes;
         record
+    }
+
+    fn audit_native_resource_invariants(
+        &self,
+        kernel: &RuntimeSnapshot,
+    ) -> Result<Vec<String>, String> {
+        let live_tab_owners = kernel
+            .windows
+            .iter()
+            .flat_map(|(window_id, window)| {
+                window
+                    .tabs
+                    .iter()
+                    .map(move |tab| (tab.id.clone(), window_id.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
+        let mut failures = Vec::new();
+        let mut live_labels = HashSet::new();
+        for (instance_id, surface) in &state.native_resources.surface_registry {
+            if instance_id != &surface.instance_id {
+                failures.push(format!(
+                    "surface-instance-key-mismatch:{instance_id}:{}",
+                    surface.instance_id
+                ));
+            }
+            if !live_labels.insert(surface.webview.label().to_owned()) {
+                failures.push(format!("duplicate-live-label:{}", surface.webview.label()));
+            }
+            let requires_owner = matches!(
+                surface.phase,
+                ManagedSurfacePhase::Live | ManagedSurfacePhase::Provisional
+            );
+            let closing = surface
+                .tab_id
+                .as_ref()
+                .is_some_and(|tab_id| state.close_coordinator.closing_tabs.contains(tab_id));
+            if requires_owner
+                && !closing
+                && surface.tab_id.as_ref().is_some_and(|tab_id| {
+                    live_tab_owners.get(tab_id) != Some(&surface.window_id)
+                })
+            {
+                failures.push(format!(
+                    "live-surface-owner-mismatch:{}:{}:{:?}",
+                    surface.instance_id, surface.window_id, surface.tab_id
+                ));
+            }
+        }
+        for (tab_id, tab) in &state.native_resources.tabs {
+            let closing = state.close_coordinator.closing_tabs.contains(tab_id);
+            if !closing && !live_tab_owners.contains_key(tab_id) {
+                failures.push(format!("native-tab-without-logical-owner:{tab_id}"));
+            }
+            for (role_id, role) in &tab.roles {
+                if !state.native_resources.surface_registry.get(&role.surface_instance_id).is_some_and(
+                    |surface| {
+                        surface.tab_id.as_deref() == Some(tab_id.as_str())
+                            && surface.role_id.as_deref() == Some(role_id.as_str())
+                            && surface.webview.label() == role.webview.label()
+                    },
+                ) {
+                    failures.push(format!(
+                        "role-handle-not-registered:{tab_id}:{role_id}:{}",
+                        role.surface_instance_id
+                    ));
+                }
+            }
+        }
+        for (window_id, host) in &state.native_resources.display_hosts {
+            let retiring = state.retiring_native_window_hosts.contains_key(window_id)
+                || state.quarantined_window_hosts.contains(window_id);
+            if !retiring
+                && kernel.windows.get(window_id).is_none_or(|window| {
+                    window.window_generation != host.generation
+                })
+            {
+                failures.push(format!(
+                    "native-window-generation-without-logical-owner:{window_id}:{}",
+                    host.generation
+                ));
+            }
+        }
+        failures.sort();
+        failures.dedup();
+        Ok(failures)
     }
 }

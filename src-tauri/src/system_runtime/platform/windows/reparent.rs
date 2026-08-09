@@ -1,53 +1,53 @@
 #[cfg(any(windows, test))]
-const WINDOWS_REPARENT_SYNC_TIMEOUT: Duration = Duration::from_millis(250);
+pub(in crate::system_runtime) const WINDOWS_REPARENT_SYNC_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct WindowsReparentSurfaceSyncResult {
-    failure: Option<WindowsReparentSurfaceSyncFailure>,
-    label: String,
-    notified: bool,
-    verified: bool,
+pub(in crate::system_runtime) struct WindowsReparentSurfaceSyncResult {
+    pub(in crate::system_runtime) failure: Option<WindowsReparentSurfaceSyncFailure>,
+    pub(in crate::system_runtime) label: String,
+    pub(in crate::system_runtime) notified: bool,
+    pub(in crate::system_runtime) verified: bool,
 }
 
 #[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct WindowsReparentSurfaceSyncFailure {
-    message: String,
-    stage: &'static str,
+pub(in crate::system_runtime) struct WindowsReparentSurfaceSyncFailure {
+    pub(in crate::system_runtime) message: String,
+    pub(in crate::system_runtime) stage: &'static str,
 }
 
 #[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct WindowsReparentSyncOutcome {
-    completed_surface_count: usize,
-    elapsed_ms: u64,
-    notified_surface_count: usize,
-    surface_count: usize,
-    verified_surface_count: usize,
+pub(in crate::system_runtime) struct WindowsReparentSyncOutcome {
+    pub(in crate::system_runtime) completed_surface_count: usize,
+    pub(in crate::system_runtime) elapsed_ms: u64,
+    pub(in crate::system_runtime) notified_surface_count: usize,
+    pub(in crate::system_runtime) surface_count: usize,
+    pub(in crate::system_runtime) verified_surface_count: usize,
 }
 
 #[cfg(any(windows, test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct WindowsReparentSyncFailure {
-    completed_surface_count: usize,
-    elapsed_ms: u64,
-    failed_surface_label: Option<String>,
-    message: String,
-    notified_surface_count: usize,
-    stage: &'static str,
-    surface_count: usize,
-    timed_out: bool,
-    verified_surface_count: usize,
+pub(in crate::system_runtime) struct WindowsReparentSyncFailure {
+    pub(in crate::system_runtime) completed_surface_count: usize,
+    pub(in crate::system_runtime) elapsed_ms: u64,
+    pub(in crate::system_runtime) failed_surface_label: Option<String>,
+    pub(in crate::system_runtime) message: String,
+    pub(in crate::system_runtime) notified_surface_count: usize,
+    pub(in crate::system_runtime) stage: &'static str,
+    pub(in crate::system_runtime) surface_count: usize,
+    pub(in crate::system_runtime) timed_out: bool,
+    pub(in crate::system_runtime) verified_surface_count: usize,
 }
 
 #[cfg(any(windows, test))]
-fn reparent_sync_elapsed_ms(started: Instant) -> u64 {
+pub(in crate::system_runtime) fn reparent_sync_elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis().min(u64::MAX as u128) as u64
 }
 
 #[cfg(any(windows, test))]
-fn collect_windows_reparent_sync_results(
+pub(in crate::system_runtime) fn collect_windows_reparent_sync_results(
     receiver: Receiver<WindowsReparentSurfaceSyncResult>,
     surface_count: usize,
     scheduled_surface_count: usize,
@@ -133,7 +133,7 @@ fn collect_windows_reparent_sync_results(
 }
 
 #[cfg(windows)]
-fn synchronize_windows_reparented_surfaces(
+pub(in crate::system_runtime) fn synchronize_windows_reparented_surfaces(
     surfaces: &[Webview],
     target_window: &Window,
 ) -> Result<WindowsReparentSyncOutcome, WindowsReparentSyncFailure> {

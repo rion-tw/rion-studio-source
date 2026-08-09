@@ -4,7 +4,6 @@ struct PendingReloadNavigation {
     operation: NativeOperationContext,
     role_id: String,
     surface_generation: u64,
-    webview_label: String,
 }
 
 fn aggregate_reload_status(statuses: &[NativeOperationStatus]) -> NativeOperationStatus {
@@ -34,7 +33,7 @@ impl SystemRuntimeExecutor {
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
         let targets = {
             let state = self.state()?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
             tab
@@ -108,7 +107,6 @@ impl SystemRuntimeExecutor {
                     operation,
                     role_id,
                     surface_generation: generation,
-                    webview_label: label,
                 }),
                 Err(error) => {
                     navigation.reset();
@@ -197,12 +195,14 @@ impl SystemRuntimeExecutor {
                 );
             }
             for reload in pending {
-                if status != NativeOperationStatus::Applied {
-                    runtime.reconcile_navigation_input_fence(
-                        &reload.webview_label,
+                if matches!(
+                    status,
+                    NativeOperationStatus::Failed | NativeOperationStatus::Indeterminate
+                ) {
+                    runtime.schedule_input_fence_recovery(
                         &reload.role_id,
                         reload.input_epoch,
-                        reload.surface_generation,
+                        "reload-input-ready-deadline",
                     );
                 }
             }
@@ -221,9 +221,9 @@ impl SystemRuntimeExecutor {
         loop {
             let readiness = match self.state.lock() {
                 Ok(state) => {
-                    let current_generation = state.role_tabs.get(role_id).and_then(|tab_id| {
+                    let current_generation = state.native_tab_id_for_role_surface(role_id).and_then(|tab_id| {
                         state
-                            .tabs
+                            .native_resources.tabs
                             .get(tab_id)
                             .and_then(|tab| tab.roles.get(role_id))
                             .map(|role| role.generation)

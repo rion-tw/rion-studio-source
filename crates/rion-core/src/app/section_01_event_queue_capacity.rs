@@ -6,7 +6,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex, RwLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -317,10 +317,12 @@ impl Drop for BrowserOperationGuard<'_> {
 
 pub struct AppCore {
     app_version: String,
+    app_snapshot_sequence: AtomicU64,
+    runtime_authority_barrier: Arc<RwLock<()>>,
     browser_action_effects: crate::browser_action_effects::BrowserActionEffectRuntime,
     browser_launch_completion_sink: RwLock<Option<BrowserLaunchCompletionSink>>,
     browser_operations: crate::browser_operations::BrowserOperationCoordinator,
-    browser_runtime: Arc<Mutex<crate::browser_runtime::RoleOwnershipRuntime>>,
+    browser_runtime: Arc<crate::runtime_kernel::RuntimeKernel>,
     browser_status_emit_guard: Mutex<()>,
     chrome_profile_import: Mutex<crate::chrome_profile_import::ChromeProfileImportRuntime>,
     database_paths: DatabasePaths,
@@ -430,10 +432,7 @@ impl AppCore {
         let macro_runtime = Arc::new(MacroRuntime::new(Arc::new(move |events| {
             route_browser_action_events(events, &macro_browser_action_sender, &macro_event_sender);
         })));
-        let browser_runtime =
-            Arc::new(Mutex::new(
-                crate::browser_runtime::RoleOwnershipRuntime::default(),
-            ));
+        let browser_runtime = Arc::new(crate::runtime_kernel::RuntimeKernel::default());
         let browser_action_event_sender = event_sender.clone();
         let browser_action_effects =
             crate::browser_action_effects::BrowserActionEffectRuntime::start(
@@ -452,6 +451,8 @@ impl AppCore {
         )?;
         let core = Self {
             app_version: options.app_version,
+            app_snapshot_sequence: AtomicU64::new(0),
+            runtime_authority_barrier: Arc::new(RwLock::new(())),
             browser_action_effects,
             browser_launch_completion_sink: RwLock::new(None),
             browser_operations: crate::browser_operations::BrowserOperationCoordinator::default(),

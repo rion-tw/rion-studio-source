@@ -621,6 +621,7 @@ use std::{
         target: EmbeddedLaunchTargetRecord,
     ) -> CoreCommand {
         CoreCommand::BrowserWorkspaceLaunch {
+            launch_tab_id: None,
             workspace_id,
             target,
             launch_preview_id: None,

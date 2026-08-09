@@ -1,7 +1,9 @@
 // macos system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
+use super::super::*;
+
 #[cfg(target_os = "macos")]
-fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
+pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
     unsafe extern "C" {
         fn rion_wk_page_zoom(webview: *mut std::ffi::c_void) -> f64;
     }
@@ -13,45 +15,56 @@ fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
             let _ = sender.send(zoom_factor);
         })
         .map_err(RuntimeError::tauri)?;
-    let zoom_factor = receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT).map_err(|_| {
-        RuntimeError::new(
-            "BROWSER_PAGE_ZOOM_TIMEOUT",
-            "WKWebView page zoom acknowledgement timed out.",
-        )
-    })?;
+    let zoom_factor = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "BROWSER_PAGE_ZOOM_TIMEOUT",
+                "WKWebView page zoom acknowledgement timed out.",
+            )
+        })?;
     validate_applied_page_zoom(zoom_factor)
 }
 
 #[cfg(target_os = "macos")]
-fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_hide(
+    window: &Window,
+) -> RuntimeResult<()> {
     crate::runtime_tabs_macos::request_window_hide(window.clone());
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_show(
+    window: &Window,
+) -> RuntimeResult<()> {
     window.show().map_err(RuntimeError::tauri)
 }
 
 #[cfg(target_os = "macos")]
-fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
-    crate::runtime_tabs_macos::set_appkit_window_interaction(window, false, true).map_err(
-        |message| RuntimeError::new("SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED", message),
-    )
+pub(in crate::system_runtime) fn request_platform_window_show_foreground(
+    window: &Window,
+) -> RuntimeResult<()> {
+    crate::runtime_tabs_macos::set_appkit_window_interaction(window, false, true)
+        .map_err(|message| RuntimeError::new("SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED", message))
 }
 
 #[cfg(target_os = "macos")]
-fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+pub(in crate::system_runtime) fn platform_window_is_focused(
+    window: &Window,
+) -> RuntimeResult<bool> {
     window.is_focused().map_err(RuntimeError::tauri)
 }
 
 #[cfg(target_os = "macos")]
-fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
+pub(in crate::system_runtime) fn request_platform_webview_window_show(
+    window: &WebviewWindow,
+) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "macos")]
-fn request_platform_webview_window_show_foreground(
+pub(in crate::system_runtime) fn request_platform_webview_window_show_foreground(
     window: &WebviewWindow,
 ) -> Result<(), String> {
     window.unminimize().map_err(|error| error.to_string())?;
@@ -60,7 +73,7 @@ fn request_platform_webview_window_show_foreground(
 }
 
 #[cfg(target_os = "macos")]
-fn dispatch_key_effect(
+pub(in crate::system_runtime) fn dispatch_key_effect(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
     context: &InputDispatchContext,
@@ -147,12 +160,15 @@ fn dispatch_key_effect(
 }
 
 #[cfg(target_os = "macos")]
-fn macos_key_dispatch_needs_settle(previous_role_label: Option<&str>, role_label: &str) -> bool {
+pub(in crate::system_runtime) fn macos_key_dispatch_needs_settle(
+    previous_role_label: Option<&str>,
+    role_label: &str,
+) -> bool {
     previous_role_label.is_some_and(|previous| previous != role_label)
 }
 
 #[cfg(target_os = "macos")]
-fn mac_modifier_flags(active_codes: &[String]) -> u64 {
+pub(in crate::system_runtime) fn mac_modifier_flags(active_codes: &[String]) -> u64 {
     const SHIFT: u64 = 1 << 17;
     const CONTROL: u64 = 1 << 18;
     const OPTION: u64 = 1 << 19;
@@ -171,7 +187,7 @@ fn mac_modifier_flags(active_codes: &[String]) -> u64 {
 }
 
 #[cfg(target_os = "macos")]
-fn dispatch_mouse_effect(
+pub(in crate::system_runtime) fn dispatch_mouse_effect(
     webview: &Webview,
     viewport: ViewportSize,
     point: ClickPoint,
@@ -237,7 +253,7 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(target_os = "macos")]
-fn dispatch_mouse_click_sequence(
+pub(in crate::system_runtime) fn dispatch_mouse_click_sequence(
     webview: &Webview,
     viewport: ViewportSize,
     point: ClickPoint,
@@ -262,7 +278,7 @@ fn dispatch_mouse_click_sequence(
 }
 
 #[cfg(target_os = "macos")]
-fn prepare_platform_role_webview_builder(
+pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     app: &AppHandle,
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
@@ -317,7 +333,9 @@ fn prepare_platform_role_webview_builder(
 }
 
 #[cfg(target_os = "macos")]
-fn decode_macos_high_refresh_rate_status(value: i32) -> HighRefreshRateDiagnosticStatus {
+pub(in crate::system_runtime) fn decode_macos_high_refresh_rate_status(
+    value: i32,
+) -> HighRefreshRateDiagnosticStatus {
     match value {
         0 => HighRefreshRateDiagnosticStatus::Applied,
         1 => HighRefreshRateDiagnosticStatus::Unavailable,
@@ -326,7 +344,9 @@ fn decode_macos_high_refresh_rate_status(value: i32) -> HighRefreshRateDiagnosti
 }
 
 #[cfg(target_os = "macos")]
-fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_platform_security_policy(
+    webview: &Webview,
+) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
     }
@@ -352,7 +372,11 @@ fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
 }
 
 #[cfg(target_os = "macos")]
-fn dispatch_role_zoom_shortcut(app: &AppHandle, webview_label: &str, action: &str) {
+pub(in crate::system_runtime) fn dispatch_role_zoom_shortcut(
+    app: &AppHandle,
+    webview_label: &str,
+    action: &str,
+) {
     let result = app
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
@@ -373,7 +397,7 @@ fn dispatch_role_zoom_shortcut(app: &AppHandle, webview_label: &str, action: &st
 }
 
 #[cfg(target_os = "macos")]
-struct MacRoleZoomShortcutContext {
+pub(in crate::system_runtime) struct MacRoleZoomShortcutContext {
     app: AppHandle,
     webview_label: String,
 }
@@ -405,7 +429,10 @@ unsafe extern "C" fn drop_macos_role_zoom_shortcut_context(context: *mut std::ff
 }
 
 #[cfg(target_os = "macos")]
-fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
+    webview: &Webview,
+    app: AppHandle,
+) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_install_role_zoom_shortcut(
             webview: *mut std::ffi::c_void,
@@ -458,7 +485,7 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
 }
 
 #[cfg(target_os = "macos")]
-fn platform_role_surface_setup_inner(
+pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
     webview: &Webview,
     _app: AppHandle,
     _target: SurfaceFailureTarget,
@@ -589,7 +616,7 @@ unsafe extern "C" fn drop_macos_surface_context(context: *mut std::ffi::c_void) 
 }
 
 #[cfg(target_os = "macos")]
-fn platform_surface_lifecycle_tracker(
+pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     unsafe extern "C" {
@@ -638,7 +665,7 @@ fn platform_surface_lifecycle_tracker(
 }
 
 #[cfg(target_os = "macos")]
-fn perform_platform_surface_quiesce(
+pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -656,7 +683,7 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(target_os = "macos")]
-fn release_platform_surface(
+pub(in crate::system_runtime) fn release_platform_surface(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -674,7 +701,10 @@ fn release_platform_surface(
 }
 
 #[cfg(target_os = "macos")]
-fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn set_audio_muted(
+    webview: &Webview,
+    muted: bool,
+) -> RuntimeResult<()> {
     use std::{ffi::c_void, os::raw::c_char};
 
     unsafe extern "C" {

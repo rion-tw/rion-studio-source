@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 
-use rion_core::{CoreCommand, RuntimeWindowPreferencesRecord};
 use dispatch2::DispatchQueue;
 use tauri::{AppHandle, Emitter, Manager, Window};
 
@@ -124,15 +123,6 @@ unsafe extern "C" {
         tab_type: *const c_char,
         workspace_template: *const c_char,
         window_id: *const c_char,
-    );
-    fn rion_runtime_tabs_replace(
-        controller: *mut c_void,
-        provisional_id: *const c_char,
-        tab_id: *const c_char,
-        name: *const c_char,
-        tab_type: *const c_char,
-        workspace_template: *const c_char,
-        active_tab_id: *const c_char,
     );
     fn rion_runtime_tabs_remove(
         controller: *mut c_void,
@@ -607,40 +597,6 @@ impl MacRuntimeTabsController {
         .map_err(|error| error.to_string())
     }
 
-    pub fn replace_reservation(
-        &self,
-        provisional_id: &str,
-        tab_id: &str,
-        name: &str,
-        tab_type: &str,
-        workspace_template: Option<&str>,
-        active_tab_id: Option<&str>,
-    ) -> Result<(), String> {
-        let inner = Arc::clone(&self.inner);
-        let provisional_id = c_string(provisional_id);
-        let tab_id = c_string(tab_id);
-        let name = c_string(name);
-        let tab_type = c_string(tab_type);
-        let workspace_template = workspace_template.map(c_string);
-        let active_tab_id = active_tab_id.map(c_string);
-        let app = inner.app.clone();
-        app.run_on_main_thread(move || unsafe {
-            rion_runtime_tabs_replace(
-                inner.raw,
-                provisional_id.as_ptr(),
-                tab_id.as_ptr(),
-                name.as_ptr(),
-                tab_type.as_ptr(),
-                workspace_template
-                    .as_ref()
-                    .map_or(std::ptr::null(), |value| value.as_ptr()),
-                active_tab_id
-                    .as_ref()
-                    .map_or(std::ptr::null(), |value| value.as_ptr()),
-            );
-        })
-        .map_err(|error| error.to_string())
-    }
 }
 
 fn schedule_metadata_batch(inner: Arc<MacRuntimeTabsControllerInner>) -> Result<(), String> {

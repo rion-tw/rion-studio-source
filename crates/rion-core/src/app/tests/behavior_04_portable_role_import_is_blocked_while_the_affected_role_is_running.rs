@@ -225,6 +225,7 @@
             let started = std::time::Instant::now();
             let result = runtime
                 .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: role_id.clone(),
                     target: target.clone(),
                     launch_preview_id: None,
@@ -291,6 +292,7 @@
         let launch_preview_id = "preview-role-launch".to_owned();
         let accepted = runtime
             .block_on(core.invoke_async(CoreCommand::BrowserRoleLaunch {
+                launch_tab_id: None,
                 role_id: role_id.clone(),
                 target,
                 launch_preview_id: Some(launch_preview_id.clone()),

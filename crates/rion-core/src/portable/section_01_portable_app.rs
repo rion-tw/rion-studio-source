@@ -436,7 +436,7 @@ fn normalize_slot(
     if let Some(role_id) = role_id {
         slot.insert("roleId".to_owned(), json!(role_id));
         if let Some(zoom) = source.get("browserZoomPercent").and_then(Value::as_f64) {
-            if !(25.0..=300.0).contains(&zoom) || zoom.fract() != 0.0 {
+            if !(25.0..=500.0).contains(&zoom) {
                 return Err(invalid("portable slot zoom is invalid"));
             }
             slot.insert("browserZoomPercent".to_owned(), json!(zoom));

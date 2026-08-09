@@ -15,6 +15,74 @@ fn topology_tab(id: &str) -> LiveTabRecord {
     }
 }
 
+fn topology_role_slot(tab_id: &str) -> GameWindowRoleSlotRecord {
+    GameWindowRoleSlotRecord {
+        slot_id: format!("slot-{tab_id}"),
+        role_id: format!("role-{tab_id}"),
+        rect: StateNormalizedRectRecord {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        },
+        browser_zoom_percent: None,
+    }
+}
+
+#[test]
+fn role_zoom_and_layout_facades_commit_only_through_the_kernel_revision() {
+    let store = LiveWindowTabStore::default();
+    let mut tab = topology_tab("tab-a");
+    tab.role_slots = vec![topology_role_slot("tab-a")];
+    let seeded = store
+        .commit(LiveTopologyCommitInput {
+            commit_id: "seed-role-layout".to_owned(),
+            source: "command",
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some("tab-a".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![tab],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        })
+        .unwrap();
+    let zoom = store
+        .commit_role_zoom(
+            seeded.revision,
+            "tab-a",
+            "window-a",
+            "role-tab-a",
+            Some(135.0),
+        )
+        .unwrap();
+    assert_eq!(zoom.status, LiveTopologyCommitStatus::Applied);
+
+    let mut moved = topology_role_slot("tab-a");
+    moved.rect.x = 0.25;
+    moved.rect.width = 0.75;
+    moved.browser_zoom_percent = Some(135.0);
+    let layout = store
+        .commit_tab_role_slots(zoom.revision, "tab-a", "window-a", vec![moved.clone()])
+        .unwrap();
+    assert_eq!(layout.status, LiveTopologyCommitStatus::Applied);
+    let stale = store
+        .commit_role_zoom(
+            zoom.revision,
+            "tab-a",
+            "window-a",
+            "role-tab-a",
+            Some(80.0),
+        )
+        .unwrap();
+    assert_eq!(stale.status, LiveTopologyCommitStatus::Superseded);
+    let snapshot = store.kernel.snapshot_window("window-a").unwrap().unwrap();
+    assert_eq!(snapshot.revision, layout.revision);
+    assert_eq!(snapshot.tabs[0].role_slots, [moved]);
+}
+
 #[test]
 fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
     let store = LiveWindowTabStore::default();
@@ -47,9 +115,9 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
     assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
     assert!(receipt.membership_changed);
     assert_eq!(receipt.window_ids, ["window-a", "window-b"]);
-    let windows = store.windows.lock().unwrap();
-    let window_a = windows["window-a"].lock().unwrap();
-    let window_b = windows["window-b"].lock().unwrap();
+    let windows = store.kernel.snapshot().unwrap().windows;
+    let window_a = &windows["window-a"];
+    let window_b = &windows["window-b"];
     assert_eq!(window_a.all_tab_ids(), ["tab-a"]);
     assert_eq!(window_b.all_tab_ids(), ["tab-b", "tab-c"]);
     assert_eq!(window_b.selected_tab_id.as_deref(), Some("tab-b"));
@@ -80,8 +148,7 @@ fn dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch() {
         .unwrap();
 
     assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
-    let window = store.windows.lock().unwrap()["window-1"].clone();
-    let window = window.lock().unwrap();
+    let window = store.kernel.snapshot_window("window-1").unwrap().unwrap();
     assert_eq!(
         window.all_tab_ids(),
         ["test4", "test5", "provisional-test"]
@@ -156,8 +223,8 @@ fn stale_live_topology_commit_is_superseded_without_mutating_memory() {
 
     assert_eq!(stale.status, LiveTopologyCommitStatus::Superseded);
     assert_eq!(stale.revision, applied.revision);
-    let windows = store.windows.lock().unwrap();
-    let window = windows["window-a"].lock().unwrap();
+    let windows = store.kernel.snapshot().unwrap().windows;
+    let window = &windows["window-a"];
     assert_eq!(window.all_tab_ids(), ["tab-a", "tab-b"]);
     assert_eq!(window.ui_sequence, 7);
 }
@@ -197,11 +264,9 @@ fn stale_live_placement_is_superseded_without_rewriting_the_latest_geometry() {
     assert_eq!(latest.status, LiveTopologyCommitStatus::Applied);
     assert_eq!(stale.status, LiveTopologyCommitStatus::Superseded);
     assert_eq!(stale.revision, latest.revision);
-    let window = store.windows.lock().unwrap()["window-a"].clone();
+    let window = store.kernel.snapshot_window("window-a").unwrap().unwrap();
     assert_eq!(
         window
-            .lock()
-            .unwrap()
             .placement
             .as_ref()
             .unwrap()
@@ -229,9 +294,8 @@ fn native_projection_updates_cannot_change_live_topology() {
             }],
         })
         .unwrap();
-    let coordinator = registry.live.windows.lock().unwrap()["window-a"].clone();
     let before = {
-        let live = coordinator.lock().unwrap();
+        let live = registry.live.kernel.snapshot_window("window-a").unwrap().unwrap();
         (live.revision, live.all_tab_ids(), live.selected_tab_id.clone())
     };
     {
@@ -242,7 +306,7 @@ fn native_projection_updates_cannot_change_live_topology() {
         projection.host_visibility = false;
     }
     let after = {
-        let live = coordinator.lock().unwrap();
+        let live = registry.live.kernel.snapshot_window("window-a").unwrap().unwrap();
         (live.revision, live.all_tab_ids(), live.selected_tab_id.clone())
     };
 

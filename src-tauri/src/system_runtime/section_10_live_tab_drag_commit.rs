@@ -22,11 +22,11 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .ok()
-            .and_then(|state| state.display_hosts.get(window_id).map(|host| host.generation))?;
+            .and_then(|state| state.native_resources.display_hosts.get(window_id).map(|host| host.generation))?;
         let revision = self
             .presentation
             .existing(window_id)
-            .and_then(|window| window.lock().ok().map(|window| window.revision))?;
+            .map(|window| window.revision)?;
         Some((generation, revision))
     }
 
@@ -49,7 +49,7 @@ impl SystemRuntimeExecutor {
                 let mut ordered = self
                     .presentation
                     .existing(&window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .map(|live| live.tab_ids())
                     .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
                 ordered.retain(|candidate| candidate != tab_id);
                 let insertion = match before_tab_id {
@@ -83,7 +83,7 @@ impl SystemRuntimeExecutor {
                 let mut ordered = self
                     .presentation
                     .existing(&target.window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .map(|live| live.tab_ids())
                     .unwrap_or_default();
                 ordered.retain(|candidate| candidate != tab_id);
                 let insertion = match before_tab_id {
@@ -139,10 +139,7 @@ impl SystemRuntimeExecutor {
             .existing(&window_id)
             .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
         let (previous_tab_id, previous_surfaces, next_tab_id, next_surfaces, revision) = {
-            let mut live = coordinator
-                .lock()
-                .map_err(|_| "Live runtime window state is unavailable.".to_owned())?
-                .clone();
+            let mut live = coordinator.record.clone();
             if live.tab_is_hidden(tab_id) {
                 return Ok(());
             }
@@ -220,7 +217,7 @@ impl SystemRuntimeExecutor {
                 let still_hidden = runtime
                     .presentation
                     .existing(&window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.tab_is_hidden(&tab_id)))
+                    .map(|live| live.tab_is_hidden(&tab_id))
                     .unwrap_or(false);
                 if !still_hidden {
                     return;
@@ -263,11 +260,7 @@ impl SystemRuntimeExecutor {
                 let still_visible = runtime
                     .presentation
                     .existing(&window_id)
-                    .and_then(|live| {
-                        live.lock().ok().map(|live| {
-                            live.contains_tab(&tab.id) && !live.tab_is_hidden(&tab.id)
-                        })
-                    })
+                    .map(|live| live.contains_tab(&tab.id) && !live.tab_is_hidden(&tab.id))
                     .unwrap_or(false);
                 if !still_visible {
                     return;
@@ -287,9 +280,10 @@ impl SystemRuntimeExecutor {
                     .and_then(|()| runtime.reorder_native_tabs(&window_id, &ordered_tab_ids));
                 match result {
                     Ok(()) => {
-                        let active_tab_id = runtime.presentation.existing(&window_id).and_then(
-                            |live| live.lock().ok().and_then(|live| live.selected_tab_id.clone()),
-                        );
+                        let active_tab_id = runtime
+                            .presentation
+                            .existing(&window_id)
+                            .and_then(|live| live.selected_tab_id.clone());
                         runtime.apply_native_active_style(
                             &window_id,
                             active_tab_id.as_deref(),
@@ -317,10 +311,7 @@ impl SystemRuntimeExecutor {
             return Ok(false);
         };
         let mut next = {
-            let state = coordinator
-                .lock()
-                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
-            let previous = state.tab_ids();
+            let previous = coordinator.tab_ids();
             if previous.len() != ordered_tab_ids.len()
                 || previous.iter().collect::<HashSet<_>>()
                     != ordered_tab_ids.iter().collect::<HashSet<_>>()
@@ -333,7 +324,7 @@ impl SystemRuntimeExecutor {
             if previous == ordered_tab_ids {
                 return Ok(true);
             }
-            state.clone()
+            coordinator.record.clone()
         };
         next.reorder_known_tabs(ordered_tab_ids);
         let receipt = self.presentation.commit_live_topology(LiveTopologyCommitInput {
@@ -388,7 +379,7 @@ impl SystemRuntimeExecutor {
                 let is_latest = runtime
                     .presentation
                     .existing(&window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .map(|live| live.tab_ids())
                     .is_some_and(|live_order| live_order == ordered_tab_ids);
                 if !is_latest {
                     return;
@@ -428,17 +419,10 @@ impl SystemRuntimeExecutor {
             .existing(&actual_source_window_id)
             .ok_or_else(|| "The live drag source is unavailable.".to_owned())?;
         let target_coordinator = self.presentation.coordinator(target_window_id)?;
-        let (mut source, mut target) = {
-            let source = source_coordinator
-                .lock()
-                .map_err(|_| "The live drag source is unavailable.".to_owned())?
-                .clone();
-            let target = target_coordinator
-                .lock()
-                .map_err(|_| "The live drag destination is unavailable.".to_owned())?
-                .clone();
-            (source, target)
-        };
+        let (mut source, mut target) = (
+            source_coordinator.record.clone(),
+            target_coordinator.record.clone(),
+        );
         let source_ids_before = source.tab_ids();
         let Some(index) = source.tabs.iter().position(|tab| tab.id == tab_id) else {
             return Ok(());
@@ -449,7 +433,6 @@ impl SystemRuntimeExecutor {
             .then(|| successor_tab_after_close(&source_ids_before, tab_id, |_| true))
             .flatten();
         source.hidden_tab_ids.remove(tab_id);
-        source.aliases.retain(|alias, target| alias != tab_id && target != tab_id);
         if source_was_selected {
             source.selected_tab_id = source_successor;
         }
@@ -567,7 +550,7 @@ impl SystemRuntimeExecutor {
                 let Some(target_ordered_tab_ids) = runtime
                     .presentation
                     .existing(&target_window_id)
-                    .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                    .map(|live| live.tab_ids())
                 else {
                     return;
                 };
@@ -586,7 +569,7 @@ impl SystemRuntimeExecutor {
                         if runtime
                             .presentation
                             .existing(&target_window_id)
-                            .and_then(|live| live.lock().ok().map(|live| live.tab_ids()))
+                            .map(|live| live.tab_ids())
                             .is_some_and(|live_order| live_order == target_ordered_tab_ids)
                         {
                             runtime.apply_native_active_style(

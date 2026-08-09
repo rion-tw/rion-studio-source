@@ -1,7 +1,7 @@
 impl SystemRuntimeExecutor {
     fn schedule_window_placement_persistence(self: &Arc<Self>, label: String) {
         let window_id = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                 (host.window.label() == label
                     && !state
                         .tab_drag_placement_suppressed_windows
@@ -28,7 +28,7 @@ impl SystemRuntimeExecutor {
     pub fn prepare_runtime_window_fullscreen(&self, label: &str, fullscreen: bool) {
         let controller = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .find(|host| host.window.label() == label)
                 .map(|host| host.tabs_controller.clone())
@@ -41,15 +41,11 @@ impl SystemRuntimeExecutor {
     pub fn persist_restore_session(&self, clean_exit: bool) -> Result<(), String> {
         let mut session = self
             .core
-            .invoke(CoreCommand::RuntimeRestoreSessionGet)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
-                    .map_err(|error| error.to_string())
-            })?;
+            .runtime_restore_session()
+            .map_err(|error| error.to_string())?;
         prepare_restore_session_for_persist(&mut session, clean_exit);
         self.core
-            .invoke(CoreCommand::RuntimeRestoreSessionReplace { session })
+            .replace_runtime_restore_session(session)
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
@@ -67,7 +63,7 @@ impl SystemRuntimeExecutor {
                 return;
             };
             let webviews = state
-                .tabs
+                .native_resources.tabs
                 .values()
                 .flat_map(|tab| tab.roles.iter())
                 .filter(|(role_id, _)| should_refresh_macro_overlay(role_ids, role_id))
@@ -98,7 +94,7 @@ impl SystemRuntimeExecutor {
                 return;
             };
             let webviews = state
-                .tabs
+                .native_resources.tabs
                 .values()
                 .flat_map(|tab| tab.roles.values())
                 .map(|surface| surface.webview.clone())
@@ -136,15 +132,15 @@ impl SystemRuntimeExecutor {
             return Ok(role_id.clone());
         }
         state
-            .role_tabs
-            .iter()
+            .native_role_tab_pairs()
+            .into_iter()
             .find_map(|(role_id, tab_id)| {
-                state.tabs.get(tab_id).and_then(|tab| {
+                state.native_resources.tabs.get(&tab_id).and_then(|tab| {
                     tab.roles
-                        .get(role_id)
+                        .get(&role_id)
                         .filter(|surface| {
                             surface.webview.label() == webview_label
-                                && !state.close_coordinator.closing_roles.contains(role_id)
+                                && !state.close_coordinator.closing_roles.contains(&role_id)
                         })
                         .map(|_| role_id.clone())
                 })
@@ -183,15 +179,15 @@ impl SystemRuntimeExecutor {
             return Ok(role_id.clone());
         }
         state
-            .role_tabs
-            .iter()
+            .native_role_tab_pairs()
+            .into_iter()
             .find_map(|(role_id, tab_id)| {
-                state.tabs.get(tab_id).and_then(|tab| {
+                state.native_resources.tabs.get(&tab_id).and_then(|tab| {
                     tab.roles
-                        .get(role_id)
+                        .get(&role_id)
                         .filter(|surface| {
                             surface.webview.label() == webview_label
-                                && !state.close_coordinator.closing_roles.contains(role_id)
+                                && !state.close_coordinator.closing_roles.contains(&role_id)
                         })
                         .map(|_| role_id.clone())
                 })
@@ -212,10 +208,10 @@ impl SystemRuntimeExecutor {
             if state.popup_roles.get(webview_label).map(String::as_str) == Some(role_id) {
                 return Ok(true);
             }
-            let Some(tab_id) = state.role_tabs.get(role_id) else {
+            let Some(tab_id) = state.native_tab_id_for_role_surface(role_id) else {
                 return Ok(false);
             };
-            let Some(tab) = state.tabs.get(tab_id) else {
+            let Some(tab) = state.native_resources.tabs.get(tab_id) else {
                 return Ok(false);
             };
             let owns_surface = tab.roles.get(role_id).is_some_and(|surface| {
@@ -238,12 +234,7 @@ impl SystemRuntimeExecutor {
         let selected_tab_id = self
             .presentation
             .existing(&window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .and_then(|window| window.selected_tab_id.clone())
-            });
+            .and_then(|presentation| presentation.selected_tab_id.clone());
         Ok(overlay_focus_target_is_selected(
             false,
             Some(target.as_str()),
@@ -296,18 +287,18 @@ impl SystemRuntimeExecutor {
     fn failure_target_for_webview(&self, webview_label: &str) -> Option<SurfaceFailureTarget> {
         let state = self.state.lock().ok()?;
         if let Some(role_id) = state.popup_roles.get(webview_label) {
-            let tab_id = state.role_tabs.get(role_id)?;
-            let generation = state.tabs.get(tab_id)?.roles.get(role_id)?.generation;
+            let tab_id = state.native_tab_id_for_role_surface(role_id)?;
+            let generation = state.native_resources.tabs.get(tab_id)?.roles.get(role_id)?.generation;
             return Some(SurfaceFailureTarget::Popup {
                 label: webview_label.to_owned(),
                 role_id: role_id.clone(),
                 generation,
             });
         }
-        state.role_tabs.iter().find_map(|(role_id, tab_id)| {
-            state.tabs.get(tab_id).and_then(|tab| {
+        state.native_role_tab_pairs().into_iter().find_map(|(role_id, tab_id)| {
+            state.native_resources.tabs.get(&tab_id).and_then(|tab| {
                 tab.roles
-                    .get(role_id)
+                    .get(&role_id)
                     .filter(|surface| surface.webview.label() == webview_label)
                     .map(|surface| SurfaceFailureTarget::Role {
                         role_id: role_id.clone(),
@@ -332,9 +323,9 @@ impl SystemRuntimeExecutor {
         if state.close_coordinator.closing_roles.contains(role_id) {
             return None;
         }
-        let tab_id = state.role_tabs.get(role_id)?;
+        let tab_id = state.native_tab_id_for_role_surface(role_id)?;
         state
-            .tabs
+            .native_resources.tabs
             .get(tab_id)?
             .roles
             .get(role_id)
@@ -355,7 +346,7 @@ impl SystemRuntimeExecutor {
             operation = operation.with_role(&role_id);
             operation.surface_generation = self.surface_generation_for_role(&role_id);
             if let Ok(state) = self.state()
-                && let Some(tab_id) = state.role_tabs.get(&role_id)
+                && let Some(tab_id) = state.native_tab_id_for_role_surface(&role_id)
             {
                 operation.tab_id = Some(tab_id.clone());
                 operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
@@ -399,39 +390,42 @@ impl SystemRuntimeExecutor {
         let tab_id = self
             .state()
             .map_err(|error| error.message)?
-            .role_tabs
-            .get(&role_id)
+            .native_tab_id_for_role_surface(&role_id)
             .cloned()
             .ok_or_else(|| "Runtime role was not found.".to_owned())?;
         let window_id = self
             .presentation
             .tab_window(&tab_id)?
             .ok_or_else(|| "Runtime role tab is no longer live.".to_owned())?;
-        let (
-            workspace_id,
-            persist_saved_zoom,
-            window_zoom_factor,
-            previous_base_zoom_factor,
-            base_zoom_factor,
-            webviews,
-        ) = {
+        let window_zoom_factor = self.runtime_window_zoom_factor(&window_id);
+        let live = self
+            .presentation
+            .existing(&window_id)
+            .ok_or_else(|| "Runtime role tab is no longer live.".to_owned())?;
+        let previous_browser_zoom_percent = live
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .and_then(|tab| {
+                tab.role_slots
+                    .iter()
+                    .find(|slot| slot.role_id == role_id)
+                    .and_then(|slot| slot.browser_zoom_percent)
+            });
+        let expected_revision = live.revision;
+        let (workspace_id, persist_saved_zoom, projected_base_zoom_factor, webviews) = {
             let state = self
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
             let tab = state
-                .tabs
+                .native_resources.tabs
                 .get(&tab_id)
                 .ok_or_else(|| "Runtime tab was not found.".to_owned())?;
             let surface = tab
                 .roles
                 .get(&role_id)
                 .ok_or_else(|| "Runtime role was not found.".to_owned())?;
-            let window_zoom_factor = state
-                .display_hosts
-                .get(&window_id)
-                .map(|host| host.zoom_factor)
-                .unwrap_or(1.0);
             let mut webviews = vec![surface.webview.clone()];
             webviews.extend(
                 state
@@ -445,16 +439,31 @@ impl SystemRuntimeExecutor {
             );
             (
                 tab.workspace_id.clone(),
-                should_persist_role_zoom(&state.saved_window_names, &window_id),
-                window_zoom_factor,
+                self.presentation
+                    .existing(&window_id)
+                    .is_some_and(|window| window.persisted_name.is_some()),
                 surface.zoom_factor,
-                next_zoom_factor(surface.zoom_factor, action, 0.25, 3.0),
                 webviews,
             )
         };
+        let previous_base_zoom_factor = previous_browser_zoom_percent
+            .map(|percent| (percent / 100.0).clamp(0.25, 5.0))
+            .unwrap_or(projected_base_zoom_factor);
+        let base_zoom_factor =
+            next_zoom_factor(previous_base_zoom_factor, action, 0.25, 3.0);
         let previous_effective_zoom =
             effective_zoom_factor(previous_base_zoom_factor, window_zoom_factor);
         let effective_zoom = effective_zoom_factor(base_zoom_factor, window_zoom_factor);
+        let desired = self.presentation.live.commit_role_zoom(
+            expected_revision,
+            &tab_id,
+            &window_id,
+            &role_id,
+            Some(base_zoom_factor * 100.0),
+        )?;
+        if desired.status == LiveTopologyCommitStatus::Superseded {
+            return Err("Runtime role zoom was superseded before native submission.".to_owned());
+        }
         if let Err(failure) = apply_reversible_fanout(
             &webviews,
             |index, webview| {
@@ -471,6 +480,23 @@ impl SystemRuntimeExecutor {
             if !failure.rollback_errors.is_empty() {
                 self.health.mark_unhealthy();
             }
+            let compensation = self.presentation.live.commit_role_zoom(
+                desired.revision,
+                &tab_id,
+                &window_id,
+                &role_id,
+                previous_browser_zoom_percent,
+            );
+            if match compensation.as_ref() {
+                Ok(receipt) => receipt.status == LiveTopologyCommitStatus::Superseded,
+                Err(_) => true,
+            } {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "Native role zoom failed and the authoritative Kernel compensation was superseded: {}",
+                    failure.apply_error
+                ));
+            }
             return Err(reversible_fanout_runtime_error(
                 "TAURI_RUNTIME_ZOOM_FAILED",
                 "Updating role zoom",
@@ -478,24 +504,20 @@ impl SystemRuntimeExecutor {
             )
             .message);
         }
-        let commit = (|| -> Result<(), String> {
+        let projection_commit = (|| -> Result<(), String> {
             let mut state = self
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
             let surface = state
-                .tabs
+                .native_resources.tabs
                 .get_mut(&tab_id)
                 .and_then(|tab| tab.roles.get_mut(&role_id))
                 .ok_or_else(|| "Runtime role stopped while zooming.".to_owned())?;
-            if surface.zoom_factor != previous_base_zoom_factor {
-                return Err("Runtime role zoom changed concurrently.".to_owned());
-            }
             surface.zoom_factor = base_zoom_factor;
-            surface.zoom_mode = "fixed".to_owned();
             Ok(())
         })();
-        if let Err(error) = commit {
+        if let Err(error) = projection_commit {
             let rollback_errors = rollback_reversible_fanout(&webviews, |index, webview| {
                 webview
                     .set_zoom(previous_effective_zoom)
@@ -508,6 +530,22 @@ impl SystemRuntimeExecutor {
                     rollback_errors.join("; ")
                 ));
             }
+            let compensation = self.presentation.live.commit_role_zoom(
+                desired.revision,
+                &tab_id,
+                &window_id,
+                &role_id,
+                previous_browser_zoom_percent,
+            );
+            if match compensation.as_ref() {
+                Ok(receipt) => receipt.status == LiveTopologyCommitStatus::Superseded,
+                Err(_) => true,
+            } {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{error} Authoritative role zoom compensation was superseded. Restart Rion Studio to recover safely."
+                ));
+            }
             return Err(error);
         }
         let percent = (base_zoom_factor * 100.0).round() as u32;
@@ -517,14 +555,6 @@ impl SystemRuntimeExecutor {
             .or_else(|| webviews.first())
         {
             show_zoom_indicator(source, &format!("{percent}%"));
-        }
-        if let Some(live) = self.presentation.existing(&window_id)
-            && let Ok(mut live) = live.lock()
-        {
-            live.update_role_zoom(&tab_id, &role_id, percent as f64);
-        }
-        if let Err(error) = self.touch_live_window_state(&window_id) {
-            eprintln!("Live role zoom revision could not advance: window={window_id} error={error}");
         }
         self.schedule_live_window_state_persistence(&window_id);
         if persist_saved_zoom
@@ -593,8 +623,8 @@ impl SystemRuntimeExecutor {
                 .popup_roles
                 .get(webview_label)
                 .is_some_and(|id| id == role_id)
-                || state.role_tabs.get(role_id).is_some_and(|tab_id| {
-                    state.tabs.get(tab_id).is_some_and(|tab| {
+                || state.native_tab_id_for_role_surface(role_id).is_some_and(|tab_id| {
+                    state.native_resources.tabs.get(tab_id).is_some_and(|tab| {
                         tab.roles
                             .get(role_id)
                             .is_some_and(|surface| surface.webview.label() == webview_label)
@@ -630,7 +660,7 @@ impl SystemRuntimeExecutor {
         reason: &str,
     ) {
         let completed_close = self.state.lock().ok().is_some_and(|state| {
-            state.surface_registry.values().any(|surface| {
+            state.native_resources.surface_registry.values().any(|surface| {
                 surface.webview.label() == webview_label
                     && surface.lifecycle.close_intent_owns_process_failure()
             })
@@ -655,7 +685,7 @@ impl SystemRuntimeExecutor {
         scope: SurfaceFailureScope,
     ) {
         let closing_lifecycle = self.state.lock().ok().and_then(|state| {
-            state.surface_registry.values().find_map(|surface| {
+            state.native_resources.surface_registry.values().find_map(|surface| {
                 let identity_matches = match &target {
                     SurfaceFailureTarget::Role {
                         role_id,
@@ -714,9 +744,9 @@ impl SystemRuntimeExecutor {
     fn close_failed_popup(&self, label: &str, role_id: &str, generation: u64, reason: &str) {
         let current = self.state.lock().ok().is_some_and(|state| {
             state.popup_roles.get(label).map(String::as_str) == Some(role_id)
-                && state.role_tabs.get(role_id).is_some_and(|tab_id| {
+                && state.native_tab_id_for_role_surface(role_id).is_some_and(|tab_id| {
                     state
-                        .tabs
+                        .native_resources.tabs
                         .get(tab_id)
                         .and_then(|tab| tab.roles.get(role_id))
                         .is_some_and(|surface| surface.generation == generation)

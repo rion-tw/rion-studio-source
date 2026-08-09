@@ -92,9 +92,94 @@ const architectureGuards = [
     pattern: /struct LiveWindowTabState/u
   },
   {
+    name: "implicit dirty-guard RuntimeKernel writer",
+    paths: /^src-tauri\/src\/system_runtime\/section_02_windows_surface_identity_matches\.rs$/u,
+    pattern: /struct LiveWindowGuard|impl LiveWindowHandle\s*\{[^}]*fn lock/u
+  },
+  {
+    name: "implicit NativeResourceRegistry deref",
+    paths: /^src-tauri\/src\/system_runtime\/section_04_next_revision\.rs$/u,
+    pattern: /impl\s+(?:std::ops::)?Deref(?:Mut)?\s+for\s+RuntimeState|\bresources:\s*NativeResourceRegistry/u
+  },
+  {
+    name: "native handle lookup disguised as logical ownership",
+    paths: /^src-tauri\/src\/system_runtime\/section_04_next_revision\.rs$/u,
+    pattern: /fn\s+(?:tab_id_for_role|has_role_surface|live_role_ids|role_tab_pairs|native_host_for_tab|window_has_attached_tab)\b/u
+  },
+  {
+    name: "Tauri RuntimeKernel mutation outside the authority barrier",
+    paths: /^src-tauri\/src\/system_runtime\//u,
+    pattern: /runtime_kernel\s*\(\s*\)\s*\.\s*apply\s*\(|\.live\s*\.\s*kernel\s*\.\s*apply\s*\(/u
+  },
+  {
     name: "runtime loading state inside LiveTabRecord",
     paths: /^src-tauri\/src\/system_runtime\/section_03_start\.rs$/u,
     pattern: /struct LiveTabRecord \{[^}]{0,2000}\n\s*phase:/u
+  },
+  {
+    name: "Tauri saved-window name authority",
+    paths: /^src-tauri\/src\/system_runtime\//u,
+    pattern: /saved_window_names/u
+  },
+  {
+    name: "native role zoom-mode authority",
+    paths: /^src-tauri\/src\/system_runtime\/section_01_navigation_timeout\.rs$/u,
+    pattern: /struct RoleSurface \{[^}]{0,2000}\n\s*zoom_mode:/u
+  },
+  {
+    name: "effect-stack synchronous AppCore command re-entry",
+    paths: /^src-tauri\/src\/system_runtime(?:\.rs|\/)/u,
+    pattern: /(?:self\.)?core\s*\.invoke\s*\(/u
+  },
+  {
+    name: "native handle source-owner probing",
+    paths: /^src-tauri\/src\//u,
+    pattern: /native_tab_for_source/u
+  },
+  {
+    name: "System Runtime command-dispatched snapshot re-entry",
+    paths: /^src-tauri\/src\/system_runtime(?:\.rs|\/)/u,
+    pattern: /CoreCommand::BrowserRuntimeSnapshot/u
+  },
+  {
+    name: "System Runtime command-dispatched macro input lifecycle",
+    paths: /^src-tauri\/src\/system_runtime(?:\.rs|\/)/u,
+    pattern: /CoreCommand::MacroInput(?:Fence|Drain|Resume)/u
+  },
+  {
+    name: "native presentation callback RuntimeKernel re-entry",
+    paths: /^src-tauri\/src\/system_runtime\/section_05_is_surface_close_effect\.rs$/u,
+    pattern: /request\.live|LiveWindowHandle/u
+  },
+  {
+    name: "System Runtime executor hidden in the shared include namespace",
+    paths: /^src-tauri\/src\/system_runtime\/section_/u,
+    pattern: /(?:pub\s+)?struct\s+SystemRuntimeExecutor\b/u
+  },
+  {
+    name: "desired native projection store hidden in the shared include namespace",
+    paths: /^src-tauri\/src\/system_runtime\/section_/u,
+    pattern: /struct\s+NativeTabProjectionStore\b/u
+  },
+  {
+    name: "native platform adapter included into the shared namespace",
+    paths: /^src-tauri\/src\/system_runtime\.rs$/u,
+    pattern: /include!\("system_runtime\/platform\/(?:macos|windows|unsupported)\.rs"\)/u
+  },
+  {
+    name: "shared runtime error implementation hidden in a platform adapter",
+    paths: /^src-tauri\/src\/system_runtime\/platform\/(?:macos|unsupported|windows(?:\.rs|\/))/u,
+    pattern: /impl\s+RuntimeError\b/u
+  },
+  {
+    name: "platform cfg in the shared RuntimeKernel orchestrator",
+    paths: /^crates\/rion-core\/src\/runtime_kernel\/(?:ports|state|types)\.rs$/u,
+    pattern: /#\[cfg\([^\]]*(?:windows|target_os)[^\]]*\)\]|cfg!\((?:windows|target_os)/u
+  },
+  {
+    name: "Tauri AppCore RuntimeKernel write outside the typed kernel facade",
+    paths: /^src-tauri\/src\/system_runtime\/section_/u,
+    pattern: /\.apply_runtime_intent\s*\(/u
   }
 ];
 

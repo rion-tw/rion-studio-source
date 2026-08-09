@@ -5,6 +5,12 @@ on:
     branches:
       - main
       - v4
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Optional immutable branch, tag, or SHA to validate
+        required: false
+        type: string
   workflow_call:
     inputs:
       ref:
@@ -187,6 +193,10 @@ jobs:
         id: target_rust_tests
         run: pnpm run test:rust
 
+      - name: Test renderer behavior on Windows
+        if: runner.os == 'Windows'
+        run: pnpm run test
+
       - name: Diagnose Windows Rust test loader failure
         if: ${{ failure() && runner.os == 'Windows' && steps.target_rust_tests.outcome == 'failure' }}
         shell: pwsh
@@ -203,3 +213,6 @@ jobs:
 
       - name: Check target-platform Tauri shell
         run: cargo check -p rion-tauri --all-targets
+
+      - name: Build target-platform Tauri shell
+        run: cargo build -p rion-tauri

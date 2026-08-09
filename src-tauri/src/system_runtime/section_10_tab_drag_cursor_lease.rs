@@ -71,7 +71,7 @@ impl SystemRuntimeExecutor {
         let (window, window_generation) = {
             let mut state = self.state().map_err(|error| error.message)?;
             let host = state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .ok_or_else(|| "Tab drag window was not found.".to_owned())?;
             let window = host.window.clone();
@@ -119,7 +119,7 @@ impl SystemRuntimeExecutor {
         let (window, window_generation) = {
             let state = self.state().map_err(|error| error.message)?;
             let host = state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(&target.window_id)
                 .ok_or_else(|| "Tab drag window was not found.".to_owned())?;
             let lease = state
@@ -150,7 +150,7 @@ impl SystemRuntimeExecutor {
                 tab_drag_cursor_lease_matches(lease, session_id, window_generation)
             });
         let Some(host) = state
-            .display_hosts
+            .native_resources.display_hosts
             .get_mut(&target.window_id)
             .filter(|host| host.generation == window_generation)
         else {
@@ -179,7 +179,7 @@ impl SystemRuntimeExecutor {
             let lease_generation = lease.window_generation;
             state.tab_drag_cursor_leases.remove(window_id);
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .filter(|host| host.generation == lease_generation)
                 .map(|host| (host.window.clone(), lease_generation))

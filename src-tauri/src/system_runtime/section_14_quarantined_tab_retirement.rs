@@ -13,7 +13,7 @@ fn unavailable_role_ids_for_create(
                     .close_coordinator
                     .quarantined_roles
                     .contains(&role.role.id)
-                || state.surface_registry.values().any(|surface| {
+                || state.native_resources.surface_registry.values().any(|surface| {
                     surface.role_id.as_deref() == Some(role.role.id.as_str())
                         && surface.phase.blocks_role_relaunch()
                 })
@@ -35,10 +35,9 @@ fn retain_available_roles_for_create(
     }
 }
 
-fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord, audio_muted: bool) -> RuntimeTab {
+fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord) -> RuntimeTab {
     RuntimeTab {
         active_divider_resize: None,
-        audio_muted,
         dividers: Vec::new(),
         roles: HashMap::new(),
         slots: tab
@@ -54,7 +53,6 @@ fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord, audio_muted: bool) -> 
                         role: slot.role.clone(),
                         slot_id: slot.slot_id.clone(),
                         zoom_factor: slot.zoom_factor.clamp(0.25, 3.0),
-                        zoom_mode: slot.zoom_mode.clone(),
                     },
                 )
             })
@@ -69,8 +67,7 @@ fn runtime_tab_from_effect(tab: &EmbeddedTabEffectRecord, audio_muted: bool) -> 
 impl SystemRuntimeExecutor {
     fn retire_quarantined_tab_after_close(&self, tab_id: &str) {
         let retired = self.state.lock().ok().and_then(|mut state| {
-            let tab = state.tabs.remove(tab_id)?;
-            state.native_tab_hosts.remove(tab_id);
+            let tab = state.native_resources.tabs.remove(tab_id)?;
             let role_ids = tab.roles.keys().cloned().collect::<Vec<_>>();
             let role_webviews = tab
                 .roles
@@ -94,11 +91,7 @@ impl SystemRuntimeExecutor {
                         })
                 })
                 .collect::<Vec<_>>();
-            state
-                .role_tabs
-                .retain(|_, owner_tab_id| owner_tab_id != tab_id);
             state.launch_attempt_generations.remove(tab_id);
-            state.optimistic_closed_tabs.remove(tab_id);
             for role_id in role_ids {
                 state.recovery_budgets.remove(&role_id);
                 state.recovery_generations.remove(&role_id);

@@ -1,56 +1,19 @@
 impl SystemRuntimeExecutor {
-    fn set_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
-        let mut operation = NativeOperationContext::new(
-            NativeOperationSubsystem::Audio,
-            "setRoleAudioMuted",
-            PLATFORM_CALLBACK_TIMEOUT,
-        )
-        .with_role(role_id);
-        if let Ok(state) = self.state()
-            && let Some(tab_id) = state.role_tabs.get(role_id)
-            && let Some(tab) = state.tabs.get(tab_id)
-        {
-            operation.tab_id = Some(tab_id.clone());
-            operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
-            operation.surface_generation = tab.roles.get(role_id).map(|role| role.generation);
-        }
-        let result = self.apply_role_audio_muted(role_id, muted);
-        let receipt = match result.as_ref() {
-            Ok(()) => NativeOperationReceipt::applied(operation, "audioMuteApplied"),
-            Err(error) if error.code == "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED" => {
-                let receipt = NativeOperationReceipt::with_status(
-                    operation,
-                    "audioMuteRollbackFailed",
-                    NativeOperationStatus::Indeterminate,
-                    Some(error.code),
-                );
-                if let Some(count) = error.rollback_error_count {
-                    receipt.with_rollback_error_count(count as usize)
-                } else {
-                    receipt
-                }
-            }
-            Err(error) => NativeOperationReceipt::with_status(
-                operation,
-                "audioMuteFailed",
-                NativeOperationStatus::Failed,
-                Some(error.code),
-            ),
-        };
-        self.record_native_operation_receipt(receipt);
-        result
-    }
-
-    fn apply_role_audio_muted(&self, role_id: &str, muted: bool) -> RuntimeResult<()> {
-        let (tab_id, previous_muted, webviews, popup_labels) = {
+    fn apply_role_audio_muted(
+        &self,
+        role_id: &str,
+        muted: bool,
+        previous_muted: bool,
+    ) -> RuntimeResult<()> {
+        let (webviews, popup_labels) = {
             let state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+            let tab_id = state.native_tab_id_for_role_surface(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
                     "Runtime role was not found.",
                 )
             })?;
-            let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get(&tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
             let tab_role_ids = tab.roles.keys().cloned().collect::<HashSet<_>>();
@@ -65,7 +28,7 @@ impl SystemRuntimeExecutor {
                 .filter(|(_, popup_role_id)| tab_role_ids.contains(*popup_role_id))
                 .map(|(label, _)| label.clone())
                 .collect::<Vec<_>>();
-            (tab_id, tab.audio_muted, webviews, popup_labels)
+            (webviews, popup_labels)
         };
         let mut all_webviews = webviews;
         for label in popup_labels {
@@ -97,54 +60,18 @@ impl SystemRuntimeExecutor {
                 &failure,
             ));
         }
-        let commit = (|| -> RuntimeResult<()> {
-            let mut state = self.state()?;
-            let tab = state.tabs.get_mut(&tab_id).ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_AUDIO_STALE",
-                    "The runtime tab stopped while updating audio mute.",
-                )
-            })?;
-            if tab.audio_muted != previous_muted {
-                return Err(RuntimeError::new(
-                    "SYSTEM_RUNTIME_AUDIO_STALE",
-                    "The runtime tab audio state changed concurrently.",
-                ));
-            }
-            tab.audio_muted = muted;
-            Ok(())
-        })();
-        if let Err(error) = commit {
-            let rollback_errors = rollback_reversible_fanout(&all_webviews, |index, webview| {
-                set_audio_muted(webview, previous_muted)
-                    .map_err(|error| format!("surface {index}: {}", error.message))
-            });
-            if !rollback_errors.is_empty() {
-                self.health.mark_unhealthy();
-                return Err(RuntimeError::new(
-                    "SYSTEM_NATIVE_MUTATION_ROLLBACK_FAILED",
-                    format!(
-                        "{} Compensation also failed: {}. Restart Rion Studio to recover safely.",
-                        error.message,
-                        rollback_errors.join("; ")
-                    ),
-                )
-                .with_rollback_error_count(rollback_errors.len()));
-            }
-            return Err(error);
-        }
         Ok(())
     }
 
     fn role_webview(&self, role_id: &str) -> RuntimeResult<Webview> {
         let state = self.state()?;
-        let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+        let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
             RuntimeError::new(
                 "TAURI_RUNTIME_ROLE_NOT_FOUND",
                 "Runtime role was not found.",
             )
         })?;
-        state.tabs[tab_id]
+        state.native_resources.tabs[tab_id]
             .roles
             .get(role_id)
             .map(|role| role.webview.clone())
@@ -160,7 +87,7 @@ impl SystemRuntimeExecutor {
         let state = self.state()?;
         if role_ids
             .iter()
-            .all(|role_id| state.role_tabs.contains_key(role_id))
+            .all(|role_id| state.has_native_role_surface(role_id))
         {
             Ok(())
         } else {
@@ -184,6 +111,26 @@ impl SystemRuntimeExecutor {
 impl Drop for SystemRuntimeExecutor {
     fn drop(&mut self) {
         let _ = self.close_all();
+        let pending_operation_ids = self
+            .core
+            .runtime_kernel()
+            .snapshot()
+            .map(|snapshot| {
+                snapshot
+                    .operations
+                    .into_values()
+                    .filter(|operation| operation.phase == RuntimeOperationPhase::Pending)
+                    .map(|operation| operation.operation_id.into_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !pending_operation_ids.is_empty() {
+            let _ = self.fail_runtime_event_stream(
+                &uuid::Uuid::new_v4().to_string(),
+                &pending_operation_ids,
+                "NATIVE_EVENT_STREAM_STOPPED",
+            );
+        }
     }
 }
 

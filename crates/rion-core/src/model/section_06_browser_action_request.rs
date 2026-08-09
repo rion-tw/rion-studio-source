@@ -446,8 +446,16 @@ pub enum BrowserLaunchAdmissionCompletion {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserLaunchAdmissionRecord {
+    #[ts(rename = "attemptId")]
+    pub attempt_id: String,
     pub completion: BrowserLaunchAdmissionCompletion,
+    #[ts(type = "\"existing\" | \"admitted\" | \"joined\"")]
+    pub disposition: String,
+    #[ts(rename = "operationId")]
+    pub operation_id: String,
     pub statuses: Vec<BrowserRoleStatusRecord>,
+    #[ts(rename = "tabId")]
+    pub tab_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

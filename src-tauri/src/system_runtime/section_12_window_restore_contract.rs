@@ -64,9 +64,6 @@ impl SystemRuntimeExecutor {
             .or_else(|| tabs.first())
             .map(|tab| tab.name.as_str())
             .unwrap_or(RION_STUDIO_APP_NAME);
-        let (_, host_created) = self
-            .with_native_creation_lane(window_id, || self.ensure_display_host(target, title))
-            .map_err(|error| error.message)?;
         let launch_preview = appended_source.map(|(source_id, tab_type)| {
             let provisional_tab_id = format!("provisional-{}", uuid::Uuid::new_v4());
             let launch_preview_id = uuid::Uuid::new_v4().to_string();
@@ -84,7 +81,7 @@ impl SystemRuntimeExecutor {
             let state = self.state().map_err(|error| error.message)?;
             ordered_tab_ids
                 .iter()
-                .filter(|tab_id| state.tabs.contains_key(*tab_id))
+                .filter(|tab_id| state.native_resources.tabs.contains_key(*tab_id))
                 .cloned()
                 .collect::<HashSet<_>>()
         };
@@ -151,7 +148,7 @@ impl SystemRuntimeExecutor {
         let generation = self
             .presentation
             .existing(window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.window_generation))
+            .map(|live| live.window_generation)
             .unwrap_or_default();
         let receipt = self.presentation.commit_live_topology(LiveTopologyCommitInput {
             commit_id: uuid::Uuid::new_v4().to_string(),
@@ -184,7 +181,7 @@ impl SystemRuntimeExecutor {
                     ProvisionalLaunch {
                         cancelled: false,
                         failed: false,
-                        host_created,
+                        host_created: false,
                         id: preview.provisional_tab_id.clone(),
                         launch_preview_id: preview.launch_preview_id.clone(),
                         source_id: source_id.clone(),
@@ -200,7 +197,7 @@ impl SystemRuntimeExecutor {
                         .as_ref()
                         .map(|(preview, _, _)| preview.provisional_tab_id.clone())
                         .or(active_tab_id.clone()),
-                    host_created,
+                    host_created: false,
                     ordered_tab_ids: ordered_tab_ids.clone(),
                     reserved_tab_ids,
                     successful_tab_ids: existing_tab_ids.clone(),
@@ -208,6 +205,30 @@ impl SystemRuntimeExecutor {
                     visible_tab_ids: visible_tab_ids.clone(),
                 },
             );
+        }
+        // Restore commits the complete desired topology before creating a native window or tab
+        // reservation. The host generation is then projected back into the same Kernel aggregate
+        // by `ensure_display_host`; failure leaves retryable desired tabs, never native-only truth.
+        let (_, host_created) = match self
+            .with_native_creation_lane(window_id, || self.ensure_display_host(target, title))
+        {
+            Ok(result) => result,
+            Err(error) => {
+                if let Some((preview, _, _)) = launch_preview.as_ref() {
+                    self.cancel_tab_launch_preview(&preview.launch_preview_id);
+                }
+                return Err(error.message);
+            }
+        };
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(restore) = state.pending_window_tab_restores.get_mut(window_id) {
+                restore.host_created = host_created;
+            }
+            if let Some((preview, _, _)) = launch_preview.as_ref()
+                && let Some(launch) = state.provisional_launches.get_mut(&preview.launch_preview_id)
+            {
+                launch.host_created = host_created;
+            }
         }
         self.schedule_live_projection_membership_follow();
         for tab in tabs {
@@ -285,7 +306,7 @@ impl SystemRuntimeExecutor {
                     .ordered_tab_ids
                     .iter()
                     .filter(|tab_id| {
-                        !state.tabs.contains_key(*tab_id)
+                        !state.native_resources.tabs.contains_key(*tab_id)
                     })
                     .cloned()
                     .collect::<Vec<_>>()
@@ -324,10 +345,8 @@ impl SystemRuntimeExecutor {
         let preview_is_selected = launch_preview.is_some_and(|preview| {
             self.presentation
                 .existing(window_id)
-                .and_then(|presentation| {
-                    presentation.lock().ok().map(|selection| {
-                        selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
-                    })
+                .map(|selection| {
+                    selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
                 })
                 .unwrap_or(false)
         });
@@ -336,10 +355,8 @@ impl SystemRuntimeExecutor {
                 launch_preview.is_none_or(|preview| {
                     self.presentation
                         .existing(window_id)
-                        .and_then(|presentation| {
-                            presentation.lock().ok().map(|selection| {
-                                selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
-                            })
+                        .map(|selection| {
+                            selection.selected_tab_id.as_deref() == Some(preview.id.as_str())
                         })
                         .unwrap_or(true)
                 })
@@ -407,16 +424,10 @@ impl SystemRuntimeExecutor {
             return Ok(());
         };
         let (topology_ready, all_terminal, all_successful) = {
-            let live = coordinator.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The restored tab presentation state is unavailable.",
-                )
-            })?;
             let live_ready = prepared
                 .ordered_tab_ids
                 .iter()
-                .all(|tab_id| live.contains_tab(tab_id));
+                .all(|tab_id| coordinator.contains_tab(tab_id));
             // Create effects are accepted concurrently during restore. A Live tab can exist
             // before its AppKit/WebView2 chrome reservation has reached the native queue. Do
             // not consume the saved ordering fence until every expected reservation is queued,

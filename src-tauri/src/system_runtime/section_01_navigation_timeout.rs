@@ -3,7 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        Arc, Condvar, Mutex, OnceLock, Weak,
+        Arc, Condvar, Mutex, OnceLock, RwLock, Weak,
         atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering},
         mpsc::{self, Receiver, Sender},
     },
@@ -20,19 +20,20 @@ use rion_core::{
     BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord,
     BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
     BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
-    CoreCommand, CoreEffectAction, CoreEffectDispatchReport, CoreEffectRequest, CoreEffectResult,
+    CoreAppSnapshotRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+    CoreEffectRequest, CoreEffectResult,
     DisplayTargetRecord,
     EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord, EmbeddedLaunchTargetRecord,
     EmbeddedRoleLoadEffectRecord, EmbeddedRoleSlotEffectRecord, EmbeddedTabEffectRecord,
     EngineCapabilitySnapshotRecord,
-    EngineCapabilityEvidenceRecord, EngineCapabilityStatus, GameBrowserSettingsRecord,
+    EngineCapabilityEvidenceRecord, EngineCapabilityStatus,
     GameWindowPlacementRecord, GameWindowRuntimeSnapshotBatchCommitInputRecord,
     GameWindowRuntimeSnapshotCommitInputRecord,
     GameWindowRoleSlotRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowTabRecord,
     HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroCoordinateContextRecord, MacroInputDiagnosticsRecord, MacroInputEpochRecord,
+    MacroCoordinateContextRecord, MacroInputDiagnosticsRecord,
     OperationCompletionPolicy,
     RuntimeTabMutationRequestRecord,
     RuntimeWindowStopRequestRecord,
@@ -44,11 +45,20 @@ use rion_core::{
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemRuntimeOperationCompletionScope, SystemRuntimeOperationStatus,
     SystemRuntimeOperationSubsystem, SystemRuntimeOperationSummaryRecord, NativeWindowStateRecord,
-    SurfaceRecoveryAttemptRecord, RuntimeWindowPersistenceBatchReceiptRecord,
+    SurfaceRecoveryAttemptRecord,
     RuntimeWindowTabSnapshotRecord,
+    LaunchAttemptId, NativeRuntimeEvent, OperationId, RuntimeCommitStatus, RuntimeIntent,
+    RuntimeKernel,
+    RuntimeLiveTabRecord as LiveTabRecord,
+    RuntimeLiveWindowRecord as LiveWindowRecord,
+    RuntimeNativeProjection, RuntimeOperationPhase, RuntimeSnapshot, RuntimeSurfaceGeneration,
+    RuntimeTabId,
+    RuntimeTopologyCommitInput as KernelTopologyCommitInput, RuntimeWindowGeneration,
+    RuntimeWindowPlacementCommitInput as KernelWindowPlacementCommitInput,
+    RuntimeWindowTopologyCommit as KernelWindowTopologyCommit, RuntimeWindowPreferencesRecord,
     SystemWebViewRuntimeRegistrationRecord,
     WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceDividerResizeOutput, WorkspaceLayoutInput,
+    WorkspaceLayoutInput,
 };
 #[cfg(any(windows, test))]
 use rion_core::{
@@ -56,9 +66,7 @@ use rion_core::{
     RuntimeTabChromeReadyRecord, RuntimeTabIntentRecord,
 };
 #[cfg(windows)]
-use rion_core::{
-    DisplayInfoRecord, RuntimeTabChromeItemRecord, RuntimeWindowPreferencesRecord,
-};
+use rion_core::{DisplayInfoRecord, RuntimeTabChromeItemRecord};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -478,10 +486,6 @@ fn native_runtime_window_title_for_platform(platform: &str, saved_name: Option<&
     }
 }
 
-fn should_persist_role_zoom(saved_window_names: &HashMap<String, String>, window_id: &str) -> bool {
-    saved_window_names.contains_key(window_id)
-}
-
 pub(crate) fn native_runtime_window_title(saved_name: Option<&str>) -> String {
     #[cfg(target_os = "macos")]
     const PLATFORM: &str = "macos";
@@ -634,7 +638,6 @@ struct RoleSurface {
     surface_instance_id: String,
     webview: Webview,
     zoom_factor: f64,
-    zoom_mode: String,
 }
 
 struct RolePlaceholderSurface {
@@ -649,7 +652,31 @@ struct RuntimeRoleSlot {
     role: StateRoleRecord,
     slot_id: String,
     zoom_factor: f64,
-    zoom_mode: String,
+}
+
+#[derive(Clone)]
+struct RuntimeProjectionMetadata {
+    games: Vec<StateGameRecord>,
+    roles: Vec<StateRoleRecord>,
+    window_preferences: RuntimeWindowPreferencesRecord,
+}
+
+impl RuntimeProjectionMetadata {
+    fn from_app_snapshot(snapshot: &CoreAppSnapshotRecord) -> Self {
+        Self {
+            games: snapshot.state.games.clone(),
+            roles: snapshot.state.roles.clone(),
+            window_preferences: snapshot
+                .state
+                .runtime_window_preferences
+                .clone()
+                .unwrap_or(RuntimeWindowPreferencesRecord {
+                    always_hide_tab_close_button: false,
+                    always_show_toolbar_in_full_screen: false,
+                    restore_game_windows_on_startup: true,
+                }),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]

@@ -1,13 +1,6 @@
 impl PresentationRegistry {
-    fn next_revision(&self) -> u64 {
-        self.live
-            .next_revision
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1)
-    }
-
     fn current_revision(&self) -> u64 {
-        self.live.next_revision.load(Ordering::Acquire)
+        self.live.kernel.current_revision().unwrap_or_default()
     }
 
     fn assign_surface_owner(
@@ -22,7 +15,7 @@ impl PresentationRegistry {
             .saturating_add(1);
         let window_generation = self
             .existing(window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.window_generation))
+            .map(|live| live.window_generation)
             .unwrap_or_default();
         self.surface_owners
             .lock()
@@ -60,22 +53,18 @@ impl PresentationRegistry {
             .unwrap_or_default()
     }
 
-    fn coordinator(&self, window_id: &str) -> Result<Arc<Mutex<LiveWindowRecord>>, String> {
-        let mut windows = self
-            .live
-            .windows
-            .lock()
-            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?;
-        Ok(Arc::clone(
-            windows
-                .entry(window_id.to_owned())
-                .or_insert_with(|| {
-                    Arc::new(Mutex::new(LiveWindowRecord {
-                        window_id: window_id.to_owned(),
-                        ..LiveWindowRecord::default()
-                    }))
-                }),
-        ))
+    fn coordinator(&self, window_id: &str) -> Result<LiveWindowHandle, String> {
+        if let Some(handle) = self.existing(window_id) {
+            return Ok(handle);
+        }
+        self.live.apply(RuntimeIntent::EnsureWindow {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        self.refresh_desired_native_projections(&[window_id.to_owned()])?;
+        self.existing(window_id)
+            .ok_or_else(|| "The runtime topology window could not be created.".to_owned())
     }
 
     fn projection_coordinator(
@@ -94,49 +83,71 @@ impl PresentationRegistry {
         ))
     }
 
-    fn set_window_generation(&self, window_id: &str, generation: u64) -> Result<(), String> {
-        let coordinator = self.coordinator(window_id)?;
-        let mut state = coordinator
-            .lock()
-            .map_err(|_| "The live runtime tab state is unavailable.".to_owned())?;
-        state.window_id = window_id.to_owned();
-        state.window_generation = state.window_generation.max(generation);
+    fn refresh_desired_native_projections(&self, window_ids: &[String]) -> Result<(), String> {
+        let snapshot = self
+            .live
+            .kernel
+            .snapshot()
+            .map_err(|error| error.to_string())?;
+        let unique_window_ids = window_ids.iter().collect::<HashSet<_>>();
+        for window_id in unique_window_ids {
+            let desired = snapshot.native_projection(window_id);
+            let projection = self.desired_projection_coordinator(window_id)?;
+            let mut projection = projection.write().map_err(|_| {
+                "The desired native projection registry is unavailable.".to_owned()
+            })?;
+            if desired.as_ref().is_none_or(|desired| {
+                projection
+                    .as_ref()
+                    .is_none_or(|current| current.revision <= desired.revision)
+            }) {
+                *projection = desired;
+            }
+        }
         Ok(())
     }
 
-    fn existing(&self, window_id: &str) -> Option<Arc<Mutex<LiveWindowRecord>>> {
-        self.live
-            .windows
-            .lock()
-            .ok()
-            .and_then(|windows| windows.get(window_id).cloned())
+    fn desired_projection_coordinator(
+        &self,
+        window_id: &str,
+    ) -> Result<Arc<RwLock<Option<RuntimeNativeProjection>>>, String> {
+        let mut windows = self.projection.desired_windows.lock().map_err(|_| {
+            "The desired native projection registry is unavailable.".to_owned()
+        })?;
+        Ok(Arc::clone(
+            windows
+                .entry(window_id.to_owned())
+                .or_insert_with(|| Arc::new(RwLock::new(None))),
+        ))
     }
 
-    fn resolve_tab_alias(&self, tab_id: &str) -> Option<String> {
-        self.live.windows.lock().ok().and_then(|windows| {
-            windows.values().find_map(|window| {
-                window
-                    .lock()
-                    .ok()
-                    .and_then(|selection| selection.aliases.get(tab_id).cloned())
+    fn set_window_generation(&self, window_id: &str, generation: u64) -> Result<(), String> {
+        self.live.apply(RuntimeIntent::SetWindowGeneration {
+                generation,
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                window_id: window_id.to_owned(),
             })
-        })
+            .map_err(|error| error.to_string())?;
+        self.refresh_desired_native_projections(&[window_id.to_owned()])?;
+        Ok(())
+    }
+
+    fn existing(&self, window_id: &str) -> Option<LiveWindowHandle> {
+        self.live.kernel.snapshot_window(window_id).ok().flatten().map(
+            |record| LiveWindowHandle {
+                record,
+            },
+        )
     }
 
     fn selected_tabs(&self) -> HashMap<String, String> {
-        self.live
-            .windows
-            .lock()
+        self.snapshot_states()
             .ok()
             .map(|windows| {
                 windows
-                    .iter()
+                    .into_iter()
                     .filter_map(|(window_id, state)| {
-                        state
-                            .lock()
-                            .ok()
-                            .and_then(|state| state.selected_tab_id.clone())
-                            .map(|tab_id| (window_id.clone(), tab_id))
+                        state.selected_tab_id.map(|tab_id| (window_id, tab_id))
                     })
                     .collect()
             })
@@ -145,17 +156,13 @@ impl PresentationRegistry {
 
     fn window_contains_tab(&self, window_id: &str, tab_id: &str) -> bool {
         self.existing(window_id)
-            .and_then(|state| state.lock().ok().map(|state| state.contains_tab(tab_id)))
+            .map(|state| state.contains_tab(tab_id))
             .unwrap_or(false)
     }
 
     fn tab(&self, window_id: &str, tab_id: &str) -> Option<LiveTabRecord> {
-        self.existing(window_id).and_then(|state| {
-            state
-                .lock()
-                .ok()
-                .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
-        })
+        self.existing(window_id)
+            .and_then(|state| state.tabs.iter().find(|tab| tab.id == tab_id).cloned())
     }
 
     fn surfaces(&self, window_id: &str, tab_id: Option<&str>) -> Vec<Webview> {
@@ -189,29 +196,10 @@ impl PresentationRegistry {
             .is_some()
     }
 
-    fn replace_tab_projection(&self, window_id: &str, provisional_id: &str, tab_id: &str) {
-        if let Ok(projection) = self.projection_coordinator(window_id)
-            && let Ok(mut projection) = projection.lock()
-        {
-            projection.replace_tab_id(provisional_id, tab_id);
-        }
-        self.statuses.replace_tab_id(provisional_id, tab_id);
-    }
-
     fn tab_window(&self, tab_id: &str) -> Result<Option<String>, String> {
-        let windows = self
-            .live
-            .windows
-            .lock()
-            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
-            .iter()
-            .map(|(window_id, state)| (window_id.clone(), Arc::clone(state)))
-            .collect::<Vec<_>>();
+        let windows = self.snapshot_states()?;
         let mut owner = None;
         for (window_id, state) in windows {
-            let state = state
-                .lock()
-                .map_err(|_| "A runtime tab presentation state is unavailable.".to_owned())?;
             if !state.contains_tab(tab_id) {
                 continue;
             }
@@ -226,35 +214,21 @@ impl PresentationRegistry {
     }
 
     fn snapshot_states(&self) -> Result<HashMap<String, LiveWindowRecord>, String> {
-        let windows = self
-            .live
-            .windows
-            .lock()
-            .map_err(|_| "The runtime tab presentation registry is unavailable.".to_owned())?
-            .iter()
-            .map(|(window_id, state)| (window_id.clone(), Arc::clone(state)))
-            .collect::<Vec<_>>();
-        windows
-            .into_iter()
-            .map(|(window_id, state)| {
-                state
-                    .lock()
-                    .map(|state| (window_id, state.clone()))
-                    .map_err(|_| "A runtime tab presentation state is unavailable.".to_owned())
-            })
-            .collect()
+        self.live
+            .kernel
+            .snapshot()
+            .map(|snapshot| snapshot.windows)
+            .map_err(|error| error.to_string())
     }
 
     fn tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
-        self.live.windows.lock().ok().and_then(|windows| {
+        self.snapshot_states().ok().and_then(|windows| {
             windows.values().find_map(|window| {
-                window.lock().ok().and_then(|state| {
-                    state
-                        .tabs
-                        .iter()
-                        .find(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
-                        .map(|tab| tab.id.clone())
-                })
+                window
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
+                    .map(|tab| tab.id.clone())
             })
         })
     }
@@ -408,12 +382,16 @@ impl PresentationRegistry {
     fn remove(&self, window_id: &str) {
         let removed_tab_ids = self
             .existing(window_id)
-            .and_then(|window| window.lock().ok().map(|window| window.all_tab_ids()))
+            .map(|window| window.all_tab_ids())
             .unwrap_or_default();
-        if let Ok(mut windows) = self.live.windows.lock() {
+        let _ = self.live.apply(RuntimeIntent::RemoveWindow {
+            operation_id: uuid::Uuid::new_v4().to_string(),
+            window_id: window_id.to_owned(),
+        });
+        if let Ok(mut windows) = self.projection.windows.lock() {
             windows.remove(window_id);
         }
-        if let Ok(mut windows) = self.projection.windows.lock() {
+        if let Ok(mut windows) = self.projection.desired_windows.lock() {
             windows.remove(window_id);
         }
         self.statuses.remove_many(&removed_tab_ids);
@@ -445,13 +423,11 @@ struct RuntimeState {
     close_previews: HashMap<String, TabCloseTombstone>,
     completed_failed_launch_cleanups: HashSet<(String, String)>,
     failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
-    optimistic_closed_tabs: HashSet<String>,
     pending_restore_role_slots: HashMap<String, Vec<GameWindowRoleSlotRecord>>,
     pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     #[cfg(not(windows))]
     pending_window_resizes: HashMap<String, PendingWindowResize>,
-    native_tab_hosts: HashMap<String, String>,
     quarantined_window_hosts: HashSet<String>,
     retiring_window_cleanup_failed: HashSet<String>,
     retiring_native_window_hosts: HashMap<String, RetiringNativeWindowHost>,
@@ -476,15 +452,70 @@ struct RuntimeState {
     content_layout_revisions: HashMap<String, u64>,
     #[cfg(target_os = "macos")]
     ready_surface_viewports: HashMap<String, ReadySurfaceViewportState>,
-    role_tabs: HashMap<String, String>,
-    saved_window_names: HashMap<String, String>,
     session_import_backups: HashMap<String, NativeSessionBackup>,
-    surface_registry: HashMap<String, ManagedSurface>,
     tab_drag_cursor_leases: HashMap<String, TabDragCursorLease>,
     tab_drag_placement_suppressed_windows: HashSet<String>,
-    retired_surface_registry: HashMap<String, ManagedSurface>,
-    display_hosts: HashMap<String, RuntimeDisplayHost>,
-    tabs: HashMap<String, RuntimeTab>,
+    native_resources: NativeResourceRegistry,
+}
+
+impl RuntimeState {
+    fn native_host_for_tab_handle(&self, tab_id: &str) -> Option<String> {
+        self.native_resources
+            .surface_registry
+            .values()
+            .chain(self.native_resources.retired_surface_registry.values())
+            .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
+            .map(|surface| surface.window_id.clone())
+    }
+
+    fn window_has_attached_tab_handles(&self, window_id: &str) -> bool {
+        self.native_resources
+            .surface_registry
+            .values()
+            .chain(self.native_resources.retired_surface_registry.values())
+            .any(|surface| surface.tab_id.is_some() && surface.window_id == window_id)
+    }
+
+    fn has_native_role_surface(&self, role_id: &str) -> bool {
+        self.native_resources
+            .tabs
+            .values()
+            .any(|tab| tab.roles.contains_key(role_id))
+    }
+
+    fn native_role_ids(&self) -> Vec<String> {
+        let mut role_ids = self
+            .native_resources
+            .tabs
+            .values()
+            .flat_map(|tab| tab.roles.keys().cloned())
+            .collect::<Vec<_>>();
+        role_ids.sort();
+        role_ids.dedup();
+        role_ids
+    }
+
+    fn native_role_tab_pairs(&self) -> Vec<(String, String)> {
+        self.native_resources
+            .tabs
+            .iter()
+            .flat_map(|(tab_id, tab)| {
+                tab.roles
+                    .keys()
+                    .map(|role_id| (role_id.clone(), tab_id.clone()))
+            })
+            .collect()
+    }
+
+    fn native_tab_id_for_role_surface(&self, role_id: &str) -> Option<&String> {
+        self.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
+            tab.roles.contains_key(role_id).then_some(tab_id)
+        })
+    }
+
+    fn tab_close_pending(&self, tab_id: &str) -> bool {
+        self.close_previews.contains_key(tab_id)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -544,6 +575,7 @@ struct PendingWindowTabRestore {
 
 #[derive(Clone)]
 struct TabCloseTombstone {
+    kernel_operation_id: String,
     parent_operation_id: Option<String>,
     revision: u64,
     retirement_revision: Option<u64>,
@@ -758,100 +790,4 @@ impl NativeInputSubmissionGuard {
             ),
         }
     }
-}
-
-pub struct SystemRuntimeExecutor {
-    app: AppHandle,
-    close_effect_senders: OnceLock<Vec<mpsc::SyncSender<ConcurrentRuntimeWork>>>,
-    configuration: RuntimeWebViewConfiguration,
-    core: Arc<AppCore>,
-    critical_activity_sequence: AtomicU64,
-    effect_sender: OnceLock<Sender<SystemRuntimeWork>>,
-    lifecycle_sender: OnceLock<Sender<ApplicationLifecycleSignal>>,
-    diagnostics: Mutex<RuntimeDiagnosticsState>,
-    health: RuntimeHealth,
-    focus_broker: Arc<NativeFocusBroker>,
-    language: Mutex<String>,
-    resolved_theme: Mutex<String>,
-    last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
-    launch_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
-    input_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
-    input_effect_lanes: Mutex<HashMap<String, mpsc::SyncSender<ConcurrentRuntimeWork>>>,
-    last_critical_activity: Mutex<Instant>,
-    main_window_actor: Arc<MainWindowActor>,
-    application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
-    input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
-    input_readiness: InputReadinessRegistry,
-    native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    native_creation_slots: NativeCreationGate,
-    operations: Arc<NativeOperationRegistry>,
-    native_window_mutations: Arc<NativeWindowMutationRegistry>,
-    optional_hydration_sender: OnceLock<mpsc::SyncSender<OptionalHydrationWork>>,
-    optional_idle_changed: Condvar,
-    pending_window_activation: Mutex<Option<PendingWindowActivation>>,
-    presentation: Arc<PresentationRegistry>,
-    surface_recoveries: SurfaceRecoveryRegistry,
-    #[cfg(windows)]
-    tab_chrome_changed: Condvar,
-    tab_close_changed: Condvar,
-    tab_drag_intents: Arc<TabDragIntentCoordinator>,
-    tab_mutations: Arc<TabMutationCoordinator>,
-    #[cfg(windows)]
-    tab_chrome_projections: Arc<TabChromeProjectionCoordinator>,
-    prewarm_state: AtomicU8,
-    retiring_tab_senders: OnceLock<Vec<mpsc::Sender<(String, String)>>>,
-    restore_persist_requested: AtomicU64,
-    restore_persist_running: AtomicBool,
-    restore_persist_changed: Condvar,
-    restore_persist_signal: Mutex<()>,
-    runtime_projection: RevisionedJsonProjection,
-    shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
-    self_weak: OnceLock<std::sync::Weak<SystemRuntimeExecutor>>,
-    shutdown_operation: OnceLock<NativeOperationContext>,
-    shutdown_state: Arc<AtomicU8>,
-    state: Mutex<RuntimeState>,
-    window_state_persistence: WindowStatePersistCoordinator,
-    user_data_dir: PathBuf,
-}
-
-struct RuntimeHealth(AtomicBool);
-
-impl RuntimeHealth {
-    fn new() -> Self {
-        Self(AtomicBool::new(true))
-    }
-
-    fn is_healthy(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-
-    fn mark_unhealthy(&self) {
-        self.0.store(false, Ordering::Release);
-    }
-
-}
-
-enum SystemRuntimeWork {
-    Effect {
-        action_name: &'static str,
-        effect: Box<CoreEffectRequest>,
-        presentation_revision: u64,
-        persist_runtime: bool,
-    },
-    RecoverSurface {
-        allowed: bool,
-        reason: String,
-        transaction: Box<SurfaceRecoveryTransaction>,
-    },
-}
-
-struct ConcurrentRuntimeWork {
-    action_name: &'static str,
-    effect: CoreEffectRequest,
-    persist_runtime: bool,
-    presentation_revision: u64,
-}
-
-struct OptionalHydrationWork {
-    tab_id: String,
 }

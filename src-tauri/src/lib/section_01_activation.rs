@@ -19,6 +19,7 @@ use rion_core::{
     GameWindowPlacementRecord, GameWindowTabRecord,
     GameWindowUpdateInputRecord, LogCaptureRecord, LogLevel, LogSource, MacroRunStatus,
     RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord,
+    RuntimeWindowStopRequestRecord,
     StateCollection, StateGameWindowRecord,
     StatePixelBoundsRecord, StateResolutionRecord, SystemRuntimeOperationStatus,
     SystemRuntimeOperationSummaryRecord,

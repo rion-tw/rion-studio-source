@@ -12,7 +12,7 @@ impl SystemRuntimeExecutor {
         {
             let surface_label = webview.label();
             let identity = self.state.lock().ok().and_then(|state| {
-                state.tabs.iter().find_map(|(tab_id, tab)| {
+                state.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
                     tab.roles.values().find_map(|surface| {
                         (surface.webview.label() == surface_label).then(|| {
                             (tab_id.clone(), surface.surface_instance_id.clone())
@@ -109,7 +109,7 @@ impl SystemRuntimeExecutor {
                     if ready.window_id != window_id {
                         continue;
                     }
-                    let current = state.tabs.iter().find_map(|(tab_id, tab)| {
+                    let current = state.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
                         tab.roles.values().find_map(|surface| {
                             (surface.webview.label() == label
                                 && surface.surface_instance_id == ready.instance_id)
@@ -156,7 +156,7 @@ impl SystemRuntimeExecutor {
     #[cfg(target_os = "macos")]
     fn ready_surface_identity_matches(&self, label: &str, instance_id: &str) -> bool {
         self.state.lock().ok().is_some_and(|state| {
-            state.tabs.values().any(|tab| {
+            state.native_resources.tabs.values().any(|tab| {
                 tab.roles.values().any(|surface| {
                     surface.webview.label() == label
                         && surface.surface_instance_id == instance_id

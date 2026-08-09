@@ -245,14 +245,11 @@ export function createBrowserRuntimeState() {
     },
     invokeBrowserRuntime(command: BrowserRuntimeCommand): BrowserRuntimeResult {
       let createdTabId: string | undefined;
+      let tabCreated = false;
       switch (command.type) {
         case "snapshot":
           break;
         case "createTab": {
-          if ([...tabs.values()].some((tab) =>
-            tab.sourceId === command.sourceId && tab.tabType === command.tabType)) {
-            throw operationError("RUNTIME_SOURCE_ALREADY_OPEN", "The runtime source is already open.");
-          }
           const roleIds = new Set(command.roleSlots.map((slot) => slot.roleId));
           const slotIds = new Set(command.roleSlots.map((slot) => slot.slotId));
           if (
@@ -261,6 +258,14 @@ export function createBrowserRuntimeState() {
             || slotIds.size !== command.roleSlots.length
           ) {
             throw operationError("RUNTIME_ROLE_SLOT_INVALID", "Runtime role slots are invalid.");
+          }
+          const existing = [...tabs.values()].find((tab) =>
+            tab.sourceId === command.sourceId
+            && tab.tabType === command.tabType
+            && tab.workspaceId === command.workspaceId);
+          if (existing) {
+            createdTabId = existing.id;
+            break;
           }
           createdTabId = command.tabId ?? `runtime-tab-${++nextTabId}`;
           tabs.set(createdTabId, {
@@ -277,6 +282,7 @@ export function createBrowserRuntimeState() {
             hidden: true
           });
           refreshSlots();
+          tabCreated = true;
           break;
         }
         case "removeTab":
@@ -342,7 +348,7 @@ export function createBrowserRuntimeState() {
       }
       const runtimeSnapshot = snapshot();
       this.publishStatuses();
-      return { ...(createdTabId ? { createdTabId } : {}), snapshot: runtimeSnapshot };
+      return { ...(createdTabId ? { createdTabId } : {}), tabCreated, snapshot: runtimeSnapshot };
     }
   };
 }

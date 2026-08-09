@@ -18,11 +18,7 @@ impl SystemRuntimeExecutor {
                 let selection_is_current = runtime
                     .presentation
                     .existing(&window_id)
-                    .and_then(|live| {
-                        live.lock()
-                            .ok()
-                            .map(|live| live.selected_tab_id == tab_id)
-                    })
+                    .map(|live| live.selected_tab_id == tab_id)
                     .unwrap_or(false);
                 if selection_is_current {
                     runtime.apply_native_active_style(

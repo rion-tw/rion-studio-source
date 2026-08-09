@@ -592,9 +592,8 @@ impl AppCore {
             .collect::<Vec<_>>();
         operation_role_ids.extend(
             self.browser_runtime
-                .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-                .snapshot()
+                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                .snapshot
                 .workspaces
                 .into_iter()
                 .find(|workspace| workspace.workspace_id == id)

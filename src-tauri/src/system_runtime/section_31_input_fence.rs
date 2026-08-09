@@ -18,15 +18,7 @@ impl SystemRuntimeExecutor {
             let core = Arc::clone(&self.core);
             let role_id = role_id.to_owned();
             tauri::async_runtime::spawn(async move {
-                let fenced = core
-                    .invoke_async(CoreCommand::MacroInputFence {
-                        role_id: role_id.clone(),
-                    })
-                    .await
-                    .ok()
-                    .and_then(|value| {
-                        serde_json::from_value::<MacroInputEpochRecord>(value).ok()
-                    });
+                let fenced = core.fence_macro_input(&role_id).ok();
                 let Some(fenced) = fenced else {
                     return;
                 };
@@ -35,12 +27,7 @@ impl SystemRuntimeExecutor {
                         .runtime
                         .set_role_input_fence(&role_id, fenced.input_epoch);
                 }
-                let _ = core
-                    .invoke_async(CoreCommand::MacroInputDrain {
-                        role_id,
-                        input_epoch: fenced.input_epoch,
-                    })
-                    .await;
+                let _ = core.drain_macro_input(&role_id, fenced.input_epoch);
             });
         }
     }

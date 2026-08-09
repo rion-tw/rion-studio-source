@@ -19,8 +19,6 @@ describe("useMacroWorkflow", () => {
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => vi.fn(),
       macros: [],
-      setMacros: vi.fn(),
-      setMacroStatuses: vi.fn(),
       setNotice: vi.fn(),
       t: ((key: string) => key) as Translator
     }), { wrapper: ConfirmationWrapper });
@@ -59,8 +57,6 @@ describe("useMacroWorkflow", () => {
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => vi.fn(),
       macros: [],
-      setMacros: vi.fn(),
-      setMacroStatuses: vi.fn(),
       setNotice: vi.fn(),
       t: ((key: string) => key) as Translator
     }), { wrapper: ConfirmationWrapper });
@@ -100,12 +96,9 @@ describe("useMacroWorkflow", () => {
       configurable: true,
       value: { createMacro }
     });
-    const setMacros = vi.fn();
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => vi.fn(),
       macros: [source],
-      setMacros,
-      setMacroStatuses: vi.fn(),
       t: ((key: string) => key === "copyName.suffix" ? "copy" : key) as Translator
     }), { wrapper: ConfirmationWrapper });
 
@@ -116,7 +109,7 @@ describe("useMacroWorkflow", () => {
       shortcutSourceScope: { type: "all_execution_roles" as const },
       trigger: null
     }));
-    expect(setMacros).toHaveBeenCalledWith(expect.any(Function));
+    expect(createMacro).toHaveBeenCalledTimes(1);
   });
 
   it("groups batch starts under one busy lease and blocks overlapping starts", async () => {
@@ -138,8 +131,6 @@ describe("useMacroWorkflow", () => {
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => vi.fn(),
       macros: [first, second],
-      setMacros: vi.fn(),
-      setMacroStatuses: vi.fn(),
       setNotice: vi.fn(),
       t
     }), { wrapper: ConfirmationWrapper });
@@ -161,7 +152,7 @@ describe("useMacroWorkflow", () => {
     expect(result.current.busyMacroIds).toEqual(new Set());
   });
 
-  it("keeps successful batch enabled-state changes and reports partial failures", async () => {
+  it("leaves enabled-state projection to AppSnapshot and reports partial failures", async () => {
     const first = macro("macro-1");
     const second = macro("macro-2");
     const alreadyDisabled = { ...macro("macro-3"), enabled: false };
@@ -178,14 +169,10 @@ describe("useMacroWorkflow", () => {
       }
     });
     const reportError = vi.fn();
-    const setMacros = vi.fn();
-    const setMacroStatuses = vi.fn();
     const setNotice = vi.fn();
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => reportError,
       macros: [first, second, alreadyDisabled],
-      setMacros,
-      setMacroStatuses,
       setNotice,
       t
     }), { wrapper: ConfirmationWrapper });
@@ -198,8 +185,8 @@ describe("useMacroWorkflow", () => {
     expect(updateMacro).toHaveBeenCalledTimes(2);
     expect(updateMacro).toHaveBeenNthCalledWith(1, first.id, { enabled: false });
     expect(updateMacro).toHaveBeenNthCalledWith(2, second.id, { enabled: false });
-    expect(setMacros).toHaveBeenLastCalledWith([updatedFirst, second, alreadyDisabled]);
-    expect(setMacroStatuses).toHaveBeenLastCalledWith([]);
+    expect(window.rionStudio.listMacros).not.toHaveBeenCalled();
+    expect(window.rionStudio.listMacroStatuses).not.toHaveBeenCalled();
     expect(setNotice).toHaveBeenLastCalledWith(
       "Batch operation completed: 1 succeeded and 1 failed."
     );
@@ -208,7 +195,7 @@ describe("useMacroWorkflow", () => {
     }));
   });
 
-  it("reconciles statuses after partially successful batch stops", async () => {
+  it("leaves stop-status projection to AppSnapshot after partial success", async () => {
     const first = macro("macro-1");
     const second = macro("macro-2");
     const remainingStatus = macroStatus(second.id);
@@ -223,13 +210,10 @@ describe("useMacroWorkflow", () => {
       }
     });
     const reportError = vi.fn();
-    const setMacroStatuses = vi.fn();
     const setNotice = vi.fn();
     const { result } = renderHook(() => useMacroWorkflow({
       beginErrorOperation: () => reportError,
       macros: [first, second],
-      setMacros: vi.fn(),
-      setMacroStatuses,
       setNotice,
       t
     }), { wrapper: ConfirmationWrapper });
@@ -237,7 +221,7 @@ describe("useMacroWorkflow", () => {
     await act(async () => result.current.handleStopMacros([first, second]));
 
     expect(stopMacro).toHaveBeenCalledTimes(2);
-    expect(setMacroStatuses).toHaveBeenLastCalledWith([remainingStatus]);
+    expect(window.rionStudio.listMacroStatuses).not.toHaveBeenCalled();
     expect(setNotice).toHaveBeenLastCalledWith(
       "Batch operation completed: 1 succeeded and 1 failed."
     );

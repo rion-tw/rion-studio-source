@@ -4,10 +4,7 @@ impl SystemRuntimeExecutor {
         tab_id: &str,
         native_style_applied: bool,
     ) -> Result<(String, bool, String, String), String> {
-        let resolved_tab_id = self
-            .presentation
-            .resolve_tab_alias(tab_id)
-            .unwrap_or_else(|| tab_id.to_owned());
+        let resolved_tab_id = tab_id.to_owned();
         let trigger = if native_style_applied {
             "native-pointer"
         } else {
@@ -41,10 +38,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<(String, bool, String), String> {
         let (candidates, current_tab_id) = {
             let presentation = self.presentation.coordinator(window_id)?;
-            let window = presentation.lock().map_err(|_| {
-                "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?;
-            (window.tab_ids(), window.selected_tab_id.clone())
+            (presentation.tab_ids(), presentation.selected_tab_id.clone())
         };
         if candidates.is_empty() {
             return Err("The runtime window has no selectable tabs.".to_owned());

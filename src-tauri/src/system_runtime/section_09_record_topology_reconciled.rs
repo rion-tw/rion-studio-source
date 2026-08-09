@@ -13,7 +13,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.tabs_controller.clone())
             })
@@ -26,7 +26,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.tab_strip.clone())
             })
@@ -62,7 +62,7 @@ impl SystemRuntimeExecutor {
         #[cfg(target_os = "macos")]
         if let Some(controller) = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tabs_controller.clone())
         }) {
@@ -118,7 +118,7 @@ impl SystemRuntimeExecutor {
         #[cfg(target_os = "macos")]
         let controller = {
             self.state()?
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tabs_controller.clone())
                 .ok_or_else(|| {
@@ -137,7 +137,7 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let tab_strip = {
             self.state()?
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tab_strip.clone())
                 .ok_or_else(|| {
@@ -183,7 +183,7 @@ impl SystemRuntimeExecutor {
         #[cfg(target_os = "macos")]
         let result = self
             .state()?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.tabs_controller.clone())
             .ok_or_else(|| {
@@ -200,7 +200,7 @@ impl SystemRuntimeExecutor {
         let result = {
             let tab_strip = self
                 .state()?
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tab_strip.clone())
                 .ok_or_else(|| {
@@ -248,7 +248,7 @@ impl SystemRuntimeExecutor {
         #[cfg(target_os = "macos")]
         let target = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tabs_controller.clone())
         });
@@ -267,7 +267,7 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let target = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.tab_strip.clone())
         });
@@ -338,7 +338,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.tabs_controller.clone())
             })
@@ -360,7 +360,7 @@ impl SystemRuntimeExecutor {
                 .ok()
                 .and_then(|state| {
                     state
-                        .display_hosts
+                        .native_resources.display_hosts
                         .get(window_id)
                         .map(|host| host.tab_strip.clone())
                 })
@@ -403,7 +403,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.tabs_controller.clone())
             })
@@ -428,99 +428,6 @@ impl SystemRuntimeExecutor {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn replace_native_tab_reservation(
-        &self,
-        window_id: &str,
-        provisional_id: &str,
-        tab_id: &str,
-        name: &str,
-        tab_type: &str,
-        workspace_template: Option<&str>,
-        active_tab_id: Option<&str>,
-        revision: u64,
-    ) -> RuntimeResult<()> {
-        #[cfg(not(any(windows, target_os = "macos")))]
-        let _ = workspace_template;
-        #[cfg(target_os = "macos")]
-        let result = self
-            .state()?
-            .display_hosts
-            .get(window_id)
-            .map(|host| host.tabs_controller.clone())
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The AppKit tab controller was not found.",
-                )
-            })?
-            .replace_reservation(
-                provisional_id,
-                tab_id,
-                name,
-                tab_type,
-                workspace_template,
-                active_tab_id,
-            )
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            });
-        #[cfg(windows)]
-        let result = {
-            let tab_strip = self
-                .state()?
-                .display_hosts
-                .get(window_id)
-                .map(|host| host.tab_strip.clone())
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                        "The WebView2 tab strip was not found.",
-                    )
-                })?;
-            let provisional_id = serde_json::to_string(provisional_id)
-                .map_err(|error| RuntimeError::tauri(error.to_string()))?;
-            let active_tab_id = serde_json::to_string(&active_tab_id)
-                .map_err(|error| RuntimeError::tauri(error.to_string()))?;
-            let payload = serde_json::to_string(&json!({
-                "id": tab_id,
-                "name": name,
-                "type": tab_type,
-                "workspaceTemplate": workspace_template,
-            }))
-            .map_err(|error| RuntimeError::tauri(error.to_string()))?;
-            self.dispatch_windows_tab_chrome_mutation(
-                &tab_strip,
-                format!(
-                    "window.__rionRemoveRuntimeTab?.({provisional_id}, null); window.__rionReserveRuntimeTab?.({payload}); window.__rionSetActiveRuntimeTab?.({active_tab_id});"
-                ),
-                "replace-reservation",
-            )
-            .map(|_| ())
-        };
-        #[cfg(not(any(windows, target_os = "macos")))]
-        let result: RuntimeResult<()> = Ok(());
-        self.record_presentation_event(
-            if result.is_ok() {
-                LogLevel::Debug
-            } else {
-                LogLevel::Warn
-            },
-            "tab.surface-reservation-reconciled",
-            if result.is_ok() {
-                "The provisional native tab was reconciled in one native transaction."
-            } else {
-                "The provisional native tab could not be reconciled."
-            },
-            window_id,
-            Some(tab_id),
-            revision,
-            "launch",
-            0,
-        );
-        result
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn dispatch_native_presentation(
         &self,
         window_id: String,
@@ -541,7 +448,7 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .ok()
-            .and_then(|state| state.display_hosts.get(&window_id).map(|host| host.generation))
+            .and_then(|state| state.native_resources.display_hosts.get(&window_id).map(|host| host.generation))
             .unwrap_or_default();
         let focus_origin = native_focus_intent_origin(trigger);
         let focus = self.focus_broker.admitted_focus(
@@ -576,15 +483,19 @@ impl SystemRuntimeExecutor {
             ));
             return operation_id;
         }
-        let Ok(live) = self.presentation.coordinator(&window_id) else {
+        if let Err(message) = self
+            .presentation
+            .refresh_desired_native_projections(std::slice::from_ref(&window_id))
+        {
             self.operations.complete(NativeOperationReceipt::with_status(
                 operation,
-                "livePresentationCoordinator",
+                "desiredNativeProjection",
                 NativeOperationStatus::Failed,
-                Some("LIVE_PRESENTATION_COORDINATOR_UNAVAILABLE"),
+                Some("NATIVE_DESIRED_PROJECTION_UNAVAILABLE"),
             ));
+            eprintln!("Desired native projection unavailable: {message}");
             return operation_id;
-        };
+        }
         let Ok(presentation) = self.presentation.projection_coordinator(&window_id) else {
             self.record_presentation_event(
                 LogLevel::Warn,
@@ -601,6 +512,18 @@ impl SystemRuntimeExecutor {
                 "nativePresentationCoordinator",
                 NativeOperationStatus::Failed,
                 Some("NATIVE_PRESENTATION_COORDINATOR_UNAVAILABLE"),
+            ));
+            return operation_id;
+        };
+        let Ok(desired_projection) = self
+            .presentation
+            .desired_projection_coordinator(&window_id)
+        else {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                operation,
+                "desiredNativeProjectionCoordinator",
+                NativeOperationStatus::Failed,
+                Some("NATIVE_DESIRED_PROJECTION_UNAVAILABLE"),
             ));
             return operation_id;
         };
@@ -669,6 +592,7 @@ impl SystemRuntimeExecutor {
             actor_liveness: actor.liveness(),
             coordinator: presentation,
             core: Arc::clone(&self.core),
+            desired_projection,
             defer_window_focus_until_reveal,
             focus,
             focus_broker: Arc::clone(&self.focus_broker),
@@ -687,7 +611,6 @@ impl SystemRuntimeExecutor {
             surface_owners: Arc::clone(&self.presentation.surface_owners),
             shutdown_state: Arc::clone(&self.shutdown_state),
             application_lifecycle: Arc::clone(&self.application_lifecycle),
-            live,
             tab_id,
             trigger,
             window,
@@ -708,7 +631,7 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .ok()
-            .and_then(|state| state.display_hosts.get(window_id).map(|host| host.generation))
+            .and_then(|state| state.native_resources.display_hosts.get(window_id).map(|host| host.generation))
             .unwrap_or_default();
         let applied = self
             .presentation
@@ -788,7 +711,7 @@ impl SystemRuntimeExecutor {
     ) {
         let surface = self.state.lock().ok().and_then(|state| {
             state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
                 .find(|surface| surface.webview.label() == webview_label)
                 .cloned()
@@ -805,7 +728,7 @@ impl SystemRuntimeExecutor {
     ) {
         let surface = self.state.lock().ok().and_then(|state| {
             state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
                 .find(|surface| surface.webview.label() == webview_label)
                 .cloned()

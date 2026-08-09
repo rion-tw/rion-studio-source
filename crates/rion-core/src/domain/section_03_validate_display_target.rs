@@ -103,7 +103,7 @@ fn normalize_workspace_slots(
 }
 
 fn normalize_workspace_slot_zoom(value: f64) -> CoreResult<f64> {
-    if value.is_finite() && value.fract() == 0.0 && (25.0..=300.0).contains(&value) {
+    if value.is_finite() && (25.0..=500.0).contains(&value) {
         Ok(value)
     } else {
         Err(domain(

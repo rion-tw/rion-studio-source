@@ -37,12 +37,7 @@ impl SystemRuntimeExecutor {
                 .ok()
                 .flatten()
                 .and_then(|window_id| self.presentation.existing(&window_id))
-                .and_then(|presentation| {
-                    presentation
-                        .lock()
-                        .ok()
-                        .and_then(|presentation| presentation.tab_title(&owner.tab_id))
-                })
+                .and_then(|presentation| presentation.tab_title(&owner.tab_id))
         });
         let identity = RuntimeRolePlaceholderIdentity {
             blocked: slot.owner.is_some(),
@@ -183,7 +178,7 @@ impl SystemRuntimeExecutor {
                 "The previous native role surface is still isolated from new launches.",
             ));
         }
-        let slot_current = state.tabs.get(&action.tab_id).is_some_and(|tab| {
+        let slot_current = state.native_resources.tabs.get(&action.tab_id).is_some_and(|tab| {
             tab.slots.get(&action.slot_id).is_some_and(|slot| {
                 slot.role.id == action.role_id
                     && slot.owner_generation == action.owner_generation

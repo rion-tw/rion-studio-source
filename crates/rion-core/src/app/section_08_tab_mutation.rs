@@ -22,9 +22,8 @@ impl AppCore {
     fn serialized_browser_runtime_snapshot(&self) -> CoreResult<Value> {
         let snapshot = self
             .browser_runtime
-            .lock()
-            .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-            .snapshot();
+            .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+            .snapshot;
         serde_json::to_value(snapshot).map_err(|error| CoreError::Internal(error.to_string()))
     }
 

@@ -11,11 +11,11 @@ use crate::{
     },
 };
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RoleOwnershipRuntime {
     next_owner_generation: u64,
     roles: HashMap<String, BrowserRuntimeRoleRecord>,
-    launch_plans: HashMap<String, BrowserRuntimeTabRecord>,
+    tabs: HashMap<String, BrowserRuntimeTabRecord>,
 }
 
 impl RoleOwnershipRuntime {
@@ -25,6 +25,7 @@ impl RoleOwnershipRuntime {
 
     fn invoke_inner(&mut self, command: BrowserRuntimeCommand) -> CoreResult<BrowserRuntimeResult> {
         let mut created_tab_id = None;
+        let mut tab_created = false;
         match command {
             BrowserRuntimeCommand::Snapshot => {}
             BrowserRuntimeCommand::CreateTab {
@@ -42,38 +43,48 @@ impl RoleOwnershipRuntime {
                     ));
                 }
                 validate_role_slot_inputs(&role_slots)?;
-                let id = tab_id.unwrap_or_else(|| Uuid::new_v4().to_string());
-                if Uuid::parse_str(&id).is_err() || self.launch_plans.contains_key(&id) {
-                    return Err(domain(
-                        "RUNTIME_TAB_ID_INVALID",
-                        "Runtime tab id is invalid or already in use.",
-                    ));
+                if let Some(existing) = self.tabs.values().find(|tab| {
+                    tab.source_id == source_id
+                        && tab.tab_type == tab_type
+                        && tab.workspace_id == workspace_id
+                }) {
+                    created_tab_id = Some(existing.id.clone());
+                } else {
+                    let id = tab_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+                    if Uuid::parse_str(&id).is_err() || self.tabs.contains_key(&id) {
+                        return Err(domain(
+                            "RUNTIME_TAB_ID_INVALID",
+                            "Runtime tab id is invalid or already in use.",
+                        ));
+                    }
+                    let tab = BrowserRuntimeTabRecord {
+                        id: id.clone(),
+                        source_id,
+                        name,
+                        window_id: String::new(),
+                        tab_type,
+                        workspace_id,
+                        slots: role_slots
+                            .into_iter()
+                            .map(|slot| RuntimeRoleSlotRecord {
+                                slot_id: slot.slot_id,
+                                role_id: slot.role_id,
+                                rect: slot.rect,
+                                browser_zoom_percent: slot.browser_zoom_percent,
+                                state: "available".to_owned(),
+                                owner: None,
+                            })
+                            .collect(),
+                        hidden: true,
+                    };
+                    self.tabs.insert(id.clone(), tab);
+                    self.refresh_slot_states();
+                    created_tab_id = Some(id);
+                    tab_created = true;
                 }
-                let tab = BrowserRuntimeTabRecord {
-                    id: id.clone(),
-                    source_id,
-                    name,
-                    window_id: String::new(),
-                    tab_type,
-                    workspace_id,
-                    slots: role_slots
-                        .into_iter()
-                        .map(|slot| RuntimeRoleSlotRecord {
-                            slot_id: slot.slot_id,
-                            role_id: slot.role_id,
-                            rect: slot.rect,
-                            browser_zoom_percent: slot.browser_zoom_percent,
-                            state: "available".to_owned(),
-                            owner: None,
-                        })
-                        .collect(),
-                    hidden: true,
-                };
-                self.launch_plans.insert(id.clone(), tab);
-                self.refresh_slot_states();
-                created_tab_id = Some(id);
             }
             BrowserRuntimeCommand::RemoveTab { tab_id } => self.remove_tab(&tab_id),
+            BrowserRuntimeCommand::CloseTabs { tab_ids } => self.close_tabs(&tab_ids),
             BrowserRuntimeCommand::RoleTransition {
                 role_id,
                 runtime,
@@ -117,16 +128,26 @@ impl RoleOwnershipRuntime {
         self.validate()?;
         Ok(BrowserRuntimeResult {
             created_tab_id,
+            tab_created,
             snapshot: self.snapshot(),
         })
     }
 
     fn remove_tab(&mut self, tab_id: &str) {
-        let Some(_plan) = self.launch_plans.remove(tab_id) else {
+        let Some(_tab) = self.tabs.remove(tab_id) else {
             return;
         };
         self.roles
             .retain(|_, role| role.owner.tab_id.as_str() != tab_id);
+        self.refresh_slot_states();
+    }
+
+    fn close_tabs(&mut self, tab_ids: &[String]) {
+        let tab_ids = tab_ids.iter().map(String::as_str).collect::<HashSet<_>>();
+        self.tabs
+            .retain(|tab_id, _| !tab_ids.contains(tab_id.as_str()));
+        self.roles
+            .retain(|_, role| !tab_ids.contains(role.owner.tab_id.as_str()));
         self.refresh_slot_states();
     }
 
@@ -152,7 +173,7 @@ impl RoleOwnershipRuntime {
             ));
         }
         let tab = self
-            .launch_plans
+            .tabs
             .get(&tab_id)
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
         let slot = slot_id
@@ -226,7 +247,7 @@ impl RoleOwnershipRuntime {
         expected_owner_generation: Option<u64>,
     ) -> CoreResult<()> {
         let tab = self
-            .launch_plans
+            .tabs
             .get(tab_id)
             .ok_or_else(|| domain("RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found."))?;
         if !tab
@@ -285,7 +306,7 @@ impl RoleOwnershipRuntime {
     }
 
     fn refresh_slot_states(&mut self) {
-        for tab in self.launch_plans.values_mut() {
+        for tab in self.tabs.values_mut() {
             for slot in &mut tab.slots {
                 match self.roles.get(&slot.role_id) {
                     Some(role)
@@ -309,7 +330,7 @@ impl RoleOwnershipRuntime {
 
     fn validate(&self) -> CoreResult<()> {
         for role in self.roles.values() {
-            let Some(tab) = self.launch_plans.get(&role.owner.tab_id) else {
+            let Some(tab) = self.tabs.get(&role.owner.tab_id) else {
                 return Err(CoreError::Internal(
                     "browser runtime role owner references a missing tab".to_owned(),
                 ));
@@ -329,7 +350,7 @@ impl RoleOwnershipRuntime {
     pub(crate) fn snapshot(&self) -> BrowserRuntimeSnapshot {
         let mut roles = self.roles.values().cloned().collect::<Vec<_>>();
         roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-        let mut tabs = self.launch_plans.values().cloned().collect::<Vec<_>>();
+        let mut tabs = self.tabs.values().cloned().collect::<Vec<_>>();
         tabs.sort_by(|left, right| left.id.cmp(&right.id));
         let mut workspaces = tabs
             .iter()

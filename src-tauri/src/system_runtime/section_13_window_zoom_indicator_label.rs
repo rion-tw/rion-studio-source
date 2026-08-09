@@ -1,4 +1,56 @@
 impl SystemRuntimeExecutor {
+    pub(crate) fn refresh_projection_metadata(&self) -> Result<(), String> {
+        let snapshot = self.core.app_snapshot().map_err(|error| error.to_string())?;
+        let mut metadata = self
+            .projection_metadata
+            .write()
+            .map_err(|_| "Runtime projection metadata lock poisoned.".to_owned())?;
+        *metadata = RuntimeProjectionMetadata::from_app_snapshot(&snapshot);
+        Ok(())
+    }
+
+    fn projection_metadata(&self) -> RuntimeProjectionMetadata {
+        self.projection_metadata
+            .read()
+            .map(|metadata| metadata.clone())
+            .unwrap_or_else(|_| RuntimeProjectionMetadata {
+                games: Vec::new(),
+                roles: Vec::new(),
+                window_preferences: RuntimeWindowPreferencesRecord {
+                    always_hide_tab_close_button: false,
+                    always_show_toolbar_in_full_screen: false,
+                    restore_game_windows_on_startup: true,
+                },
+            })
+    }
+
+    fn runtime_window_zoom_factor(&self, window_id: &str) -> f64 {
+        self.presentation
+            .existing(window_id)
+            .and_then(|window| window.window_zoom_factor)
+            .unwrap_or(1.0)
+    }
+
+    fn runtime_role_zoom_contract(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        role_id: &str,
+        adaptive_projection: f64,
+    ) -> (f64, bool) {
+        let fixed = self
+            .presentation
+            .tab(window_id, tab_id)
+            .and_then(|tab| {
+                tab.role_slots
+                    .iter()
+                    .find(|slot| slot.role_id == role_id)
+                    .and_then(|slot| slot.browser_zoom_percent)
+            })
+            .map(|percent| (percent / 100.0).clamp(0.25, 5.0));
+        (fixed.unwrap_or(adaptive_projection.clamp(0.25, 5.0)), fixed.is_none())
+    }
+
     pub(crate) fn superseded_tab_activation_summary(
         &self,
         tab_id: &str,
@@ -96,11 +148,8 @@ impl SystemRuntimeExecutor {
 
     fn projection_payload(&self, snapshot: &BrowserRuntimeSnapshot) -> Value {
         let role_names = self
-            .core
-            .invoke(CoreCommand::RolesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
-            .unwrap_or_default()
+            .projection_metadata()
+            .roles
             .into_iter()
             .map(|role| (role.id, role.name))
             .collect::<HashMap<_, _>>();
@@ -119,12 +168,12 @@ impl SystemRuntimeExecutor {
                     let active = selected_tabs
                         .get(&tab.window_id)
                         .is_some_and(|selected| selected == &tab.id);
-                    let audio_muted = state
-                        .tabs
-                        .get(&tab.id)
-                        .is_some_and(|runtime_tab| runtime_tab.audio_muted);
+                    let audio_muted = self
+                        .presentation
+                        .tab(&tab.window_id, &tab.id)
+                        .is_some_and(|live_tab| live_tab.audio_muted);
                     let audible = state
-                        .tabs
+                        .native_resources.tabs
                         .get(&tab.id)
                         .is_some_and(|runtime_tab| runtime_tab_is_audible(&state, runtime_tab));
                     json!({
@@ -136,7 +185,7 @@ impl SystemRuntimeExecutor {
                         "roleIds": tab.slots.iter().map(|slot| slot.role_id.clone()).collect::<Vec<_>>(),
                         "roleNames": tab.slots.iter().filter_map(|slot| role_names.get(&slot.role_id).cloned()).collect::<Vec<_>>(),
                         "slots": tab.slots,
-                        "hidden": tab.hidden || state.optimistic_closed_tabs.contains(&tab.id),
+                        "hidden": tab.hidden || state.tab_close_pending(&tab.id),
                         "active": active,
                         "audible": audible,
                         "audioMuted": audio_muted
@@ -147,17 +196,17 @@ impl SystemRuntimeExecutor {
                 .windows
                 .iter()
                 .filter_map(|runtime_window| {
-                    let host = state.display_hosts.get(&runtime_window.window_id)?;
+                    let host = state.native_resources.display_hosts.get(&runtime_window.window_id)?;
                     let presented_active_tab_id = selected_tabs
                         .get(&runtime_window.window_id)
-                        .filter(|tab_id| !state.optimistic_closed_tabs.contains(tab_id.as_str()))
+                        .filter(|tab_id| !state.tab_close_pending(tab_id.as_str()))
                         .cloned()
                         .or_else(|| {
                             runtime_window
                                 .active_tab_id
                                 .as_ref()
                                 .filter(|tab_id| {
-                                    !state.optimistic_closed_tabs.contains(tab_id.as_str())
+                                    !state.tab_close_pending(tab_id.as_str())
                                 })
                                 .cloned()
                         });
@@ -308,13 +357,11 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn publish_projection(&self) {
-        let Ok(value) = self.core.invoke(CoreCommand::BrowserRuntimeSnapshot) else {
+        let Ok(snapshot) = self.core.runtime_kernel().snapshot() else {
             return;
         };
-        let Ok(snapshot) = serde_json::from_value::<BrowserRuntimeSnapshot>(value) else {
-            return;
-        };
-        let Some(snapshot) = self.compose_live_runtime_snapshot(snapshot.roles) else {
+        let Some(snapshot) = self.compose_live_runtime_snapshot(snapshot.browser_runtime.roles)
+        else {
             return;
         };
         // Renderer projection and native tab metadata may lag presentation, but neither path
@@ -339,10 +386,7 @@ impl SystemRuntimeExecutor {
         &self,
         tab_id: &str,
     ) -> Result<(String, bool, String, String), String> {
-        let resolved_tab_id = self
-            .presentation
-            .resolve_tab_alias(tab_id)
-            .unwrap_or_else(|| tab_id.to_owned());
+        let resolved_tab_id = tab_id.to_owned();
         if let Some((window_id, operation_id)) = self
             .request_provisional_tab_presentation(
                 &resolved_tab_id,
@@ -403,7 +447,7 @@ impl SystemRuntimeExecutor {
             };
             let window_id = provisional.window_id;
             let window = state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(&window_id)
                 .ok_or_else(|| "Runtime display host was not found.".to_owned())?
                 .window
@@ -475,10 +519,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "The live runtime window is no longer available.".to_owned())?;
-        let (tab_id, revision) = live
-            .lock()
-            .map(|live| (live.selected_tab_id.clone(), live.revision))
-            .map_err(|_| "The live runtime window state is unavailable.".to_owned())?;
+        let (tab_id, revision) = (live.selected_tab_id.clone(), live.revision);
         let next_surfaces = self
             .presentation
             .surfaces(window_id, tab_id.as_deref());
@@ -546,7 +587,7 @@ impl SystemRuntimeExecutor {
         let window = {
             let state = self.state()?;
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .ok_or_else(|| {
                     RuntimeError::new(
@@ -564,15 +605,8 @@ impl SystemRuntimeExecutor {
                     "The native window no longer belongs to live topology.",
                 )
             })?;
-            let live = live.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The live runtime window state is unavailable.",
-                )
-            })?;
             let active_tab_id = live.selected_tab_id.clone();
             let revision = live.revision;
-            drop(live);
             let active_surfaces = self
                 .presentation
                 .surfaces(window_id, active_tab_id.as_deref());
@@ -705,10 +739,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<(String, bool, String), String> {
         let (candidates, current_tab_id) = {
             let presentation = self.presentation.coordinator(window_id)?;
-            let window = presentation.lock().map_err(|_| {
-                "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?;
-            (window.tab_ids(), window.selected_tab_id.clone())
+            (presentation.tab_ids(), presentation.selected_tab_id.clone())
         };
         if candidates.is_empty() {
             return Err("The runtime window has no selectable tabs.".to_owned());

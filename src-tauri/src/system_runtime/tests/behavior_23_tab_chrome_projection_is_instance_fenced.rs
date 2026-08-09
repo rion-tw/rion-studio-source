@@ -210,16 +210,26 @@ fn tab_intent_is_renderer_instance_and_adapter_sequence_fenced() {
         coordinator.admit_intent("tab-strip-1", &tab_intent("renderer-1", 1)),
         Ok(RuntimeTabIntentAdmission::Superseded {
             failure_code: "TAB_INTENT_SEQUENCE_SUPERSEDED",
-            ..
-        })
+            window_generation: 7,
+            ref window_id,
+        }) if window_id == "window-1"
     ));
     assert!(matches!(
         coordinator.admit_intent("tab-strip-1", &tab_intent("renderer-stale", 2)),
         Ok(RuntimeTabIntentAdmission::Superseded {
             failure_code: "TAB_INTENT_ADAPTER_STALE",
-            ..
-        })
+            window_generation: 7,
+            ref window_id,
+        }) if window_id == "window-1"
     ));
+}
+
+#[test]
+fn failed_windows_reveal_restores_the_cloak_and_exact_focus_sequence() {
+    let mut reveal = WindowsTabChromeRevealState::new(false);
+    reveal.restore_failed_reveal(Some(73));
+    assert!(reveal.cloaked);
+    assert_eq!(reveal.pending_focus_sequence, Some(73));
 }
 
 #[test]

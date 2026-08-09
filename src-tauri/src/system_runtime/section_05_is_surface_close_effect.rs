@@ -36,7 +36,7 @@ impl SystemRuntimeExecutor {
                 .state
                 .lock()
                 .ok()
-                .and_then(|state| state.role_tabs.get(role_id).cloned()),
+                .and_then(|state| state.native_tab_id_for_role_surface(role_id).cloned()),
             _ => None,
         };
         close_effect_scope_key(action, resolved_role_tab_id.as_deref())
@@ -418,17 +418,27 @@ fn apply_native_presentation_batch(
             request.focus,
         ),
     );
-    let live_intent = request
-        .live
-        .lock()
-        .ok()
-        .map(|live| (live.revision, live.selected_tab_id.clone()));
-    let projection_surface_identities = request.coordinator.lock().ok().map(|projection| {
-        projection.surface_identities(request.tab_id.as_deref())
+    let desired_intent = request.desired_projection.read().ok().and_then(|projection| {
+        let desired = projection.as_ref()?;
+        (desired.window_generation == request.window_generation).then(|| {
+            (
+                desired.window_revision,
+                desired
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.selected)
+                    .map(|tab| tab.tab_id.clone()),
+                request
+                    .coordinator
+                    .lock()
+                    .ok()
+                    .map(|projection| projection.surface_identities(request.tab_id.as_deref()))
+                    .unwrap_or_default(),
+            )
+        })
     });
-    let still_desired = live_intent
-        .zip(projection_surface_identities)
-        .is_some_and(|((live_revision, live_tab_id), projection_surface_identities)| {
+    let still_desired = desired_intent
+        .is_some_and(|(live_revision, live_tab_id, projection_surface_identities)| {
             native_presentation_intent_is_current(
                 live_revision,
                 &live_tab_id,
@@ -471,7 +481,7 @@ fn apply_native_presentation_batch(
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let coordinator = Arc::clone(&request.coordinator);
-    let live = Arc::clone(&request.live);
+    let desired_projection = Arc::clone(&request.desired_projection);
     let requested_at = request.requested_at;
     let revision = request.revision;
     let tab_id = request.tab_id.clone();
@@ -535,17 +545,27 @@ fn apply_native_presentation_batch(
             });
             return;
         }
-        let live_intent = live
-            .lock()
-            .ok()
-            .map(|live| (live.revision, live.selected_tab_id.clone()));
-        let projection_surface_identities = coordinator.lock().ok().map(|projection| {
-            projection.surface_identities(tab_id.as_deref())
+        let desired_intent = desired_projection.read().ok().and_then(|projection| {
+            let desired = projection.as_ref()?;
+            (desired.window_generation == window_generation).then(|| {
+                (
+                    desired.window_revision,
+                    desired
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.selected)
+                        .map(|tab| tab.tab_id.clone()),
+                    coordinator
+                        .lock()
+                        .ok()
+                        .map(|projection| projection.surface_identities(tab_id.as_deref()))
+                        .unwrap_or_default(),
+                )
+            })
         });
-        let presentation_current = live_intent
-            .zip(projection_surface_identities)
+        let presentation_current = desired_intent
             .is_some_and(
-                |((live_revision, live_tab_id), projection_surface_identities)| {
+                |(live_revision, live_tab_id, projection_surface_identities)| {
                 native_presentation_intent_is_current(
                     live_revision,
                     &live_tab_id,

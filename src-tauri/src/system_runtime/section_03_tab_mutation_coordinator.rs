@@ -426,9 +426,9 @@ impl SystemRuntimeExecutor {
     pub(crate) fn tab_surface_release_confirmed(&self, tab_id: &str) -> bool {
         self.state.lock().is_ok_and(|state| {
             state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
-                .chain(state.retired_surface_registry.values())
+                .chain(state.native_resources.retired_surface_registry.values())
                 .all(|surface| surface.tab_id.as_deref() != Some(tab_id))
         })
     }

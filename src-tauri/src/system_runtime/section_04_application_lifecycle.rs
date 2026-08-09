@@ -380,7 +380,7 @@ impl SystemRuntimeExecutor {
         let role_ids = self
             .state
             .lock()
-            .map(|state| state.role_tabs.keys().cloned().collect::<Vec<_>>())
+            .map(|state| state.native_role_ids())
             .unwrap_or_default();
         self.application_lifecycle
             .replace_role_input_epochs(HashMap::new());
@@ -389,13 +389,6 @@ impl SystemRuntimeExecutor {
                 Ok(_) => {}
                 Err(error) => failures.push(error.code.to_owned()),
             }
-        }
-        if self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSuspend { suspended: true })
-            .is_err()
-        {
-            failures.push("SYSTEM_LIFECYCLE_CORE_SUSPEND_FAILED".to_owned());
         }
         if self.persist_all_game_window_placements().is_err()
             || self.persist_restore_session(false).is_err()
@@ -432,26 +425,15 @@ impl SystemRuntimeExecutor {
     fn fence_role_for_application_suspend(&self, role_id: &str) -> RuntimeResult<u64> {
         let fenced = self
             .core
-            .invoke(CoreCommand::MacroInputFence {
-                role_id: role_id.to_owned(),
-            })
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<MacroInputEpochRecord>(value).map_err(|error| {
-                    RuntimeError::new("TAURI_CORE_RESULT_INVALID", error.to_string())
-                })
-            })?;
+            .fence_macro_input(role_id)
+            .map_err(RuntimeError::core)?;
         self.application_lifecycle
             .remember_role_input_epoch(role_id, fenced.input_epoch);
         self.install_role_input_fence(role_id, fenced.input_epoch, "application-suspend", None)?;
         let drained = self
             .core
-            .invoke(CoreCommand::MacroInputDrain {
-                role_id: role_id.to_owned(),
-                input_epoch: fenced.input_epoch,
-            })
+            .drain_macro_input(role_id, fenced.input_epoch)
             .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .is_some_and(|record| record.current);
         if !drained {
             return Err(RuntimeError::new(
@@ -487,10 +469,7 @@ impl SystemRuntimeExecutor {
         if registered {
             self.operations.mark_in_flight(&operation.operation_id);
         }
-        let mut degraded = self
-            .core
-            .invoke(CoreCommand::BrowserRuntimeSuspend { suspended: false })
-            .is_err();
+        let mut degraded = false;
         for (role_id, input_epoch) in self.application_lifecycle.role_input_epochs() {
             degraded |= !self.resume_role_after_application_wake(&role_id, input_epoch);
         }
@@ -564,12 +543,8 @@ impl SystemRuntimeExecutor {
         }
         let core_resumed = self
             .core
-            .invoke(CoreCommand::MacroInputResume {
-                role_id: role_id.to_owned(),
-                input_epoch,
-            })
+            .resume_macro_input(role_id, input_epoch)
             .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .is_some_and(|record| record.current);
         if !core_resumed {
             if let Ok(mut state) = self.state.lock()

@@ -80,6 +80,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
                     launch_preview_id: None,
@@ -94,6 +95,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: other_role_id.clone(),
                     target: target(&other_window_id),
                     launch_preview_id: None,
@@ -106,10 +108,38 @@
                 runtime_tab_ids_for_sources(&core, &[role_id.as_str(), workspace_id.as_str()]),
             );
             let parent_operation_id = stop_request.parent_operation_id.clone();
+            let previous_tab_ids = stop_request.tab_ids.clone();
+            let admitted = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(core.invoke_async(CoreCommand::BrowserWindowCloseAdmit {
+                    request: stop_request,
+                }))
+                .unwrap();
+            let admitted: RuntimeWindowStopRequestRecord =
+                serde_json::from_value(admitted).unwrap();
+            assert!(admitted.admission_id.is_some(), "{platform}");
+            assert_eq!(admitted.closing_tabs.len(), 2, "{platform}");
+            let admitted_snapshot = core.invoke(CoreCommand::BrowserRuntimeSnapshot).unwrap();
+            assert!(
+                admitted_snapshot["tabs"].as_array().unwrap().iter().all(|tab| {
+                    tab["id"]
+                        .as_str()
+                        .is_none_or(|tab_id| !previous_tab_ids.iter().any(|id| id == tab_id))
+                }),
+                "close admission must remove desired tabs before native cleanup on {platform}"
+            );
+            assert!(
+                admitted_snapshot["roles"].as_array().unwrap().iter().all(|role| {
+                    !matches!(role["roleId"].as_str(), Some(id) if id == role_id || id == workspace_role_id)
+                }),
+                "close admission must remove role owners before native cleanup on {platform}"
+            );
             drive_async_command_with(
                 Arc::clone(&core),
                 CoreCommand::BrowserWindowStop {
-                    request: stop_request,
+                    request: admitted,
                 },
                 |effect| effect_result_with_parent(effect, &parent_operation_id, platform),
             )
@@ -141,6 +171,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: role_id.clone(),
                     target: target(&stopped_window_id),
                     launch_preview_id: None,
@@ -201,6 +232,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: deleted_role_id.clone(),
                     target: target(&deleted_window_id),
                     launch_preview_id: None,
@@ -233,6 +265,7 @@
             drive_accepted_launch_to_completion(
                 Arc::clone(&core),
                 CoreCommand::BrowserRoleLaunch {
+                    launch_tab_id: None,
                     role_id: failed_role_id.clone(),
                     target: target(&failed_window_id),
                     launch_preview_id: None,
@@ -298,6 +331,7 @@
                 drive_accepted_launch_to_completion(
                     Arc::clone(&core),
                     CoreCommand::BrowserRoleLaunch {
+                        launch_tab_id: None,
                         role_id: role_id.clone(),
                         target: target.clone(),
                         launch_preview_id: None,

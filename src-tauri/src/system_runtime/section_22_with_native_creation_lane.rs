@@ -62,28 +62,7 @@ impl SystemRuntimeExecutor {
                     RuntimeError::new("SYSTEM_RUNTIME_WINDOW_CLOSING", message)
                 })?;
         }
-        // An existing game window already owns a fully initialized native tab controller.
-        // Reserving another tab must not wait behind an in-flight WKWebView/WebView2 creation:
-        // that worker may itself be waiting for the UI thread to attach its controller.
-        let existing_window = {
-            let mut state = self.state()?;
-            state.display_hosts.get_mut(&target.window_id).map(|host| {
-                // A new user launch supersedes any delayed empty-host close,
-                // even before the stable tab ID is attached by Core.
-                host.retirement_revision = WINDOW_RETIREMENT_SEQUENCE
-                    .fetch_add(1, Ordering::AcqRel)
-                    .saturating_add(1);
-                host.window.clone()
-            })
-        };
-        let (window, host_created) = if let Some(window) = existing_window {
-            (window, false)
-        } else {
-            self.with_native_creation_lane(&target.window_id, || {
-                self.ensure_display_host(target, "Rion Studio")
-            })?
-        };
-        let provisional_id = format!("provisional-{}", uuid::Uuid::new_v4());
+        let provisional_id = uuid::Uuid::new_v4().to_string();
         let launch_preview_id = uuid::Uuid::new_v4().to_string();
         let placeholder_name = self
             .language
@@ -106,7 +85,7 @@ impl SystemRuntimeExecutor {
                     ProvisionalLaunch {
                         cancelled: false,
                         failed: false,
-                        host_created,
+                        host_created: false,
                         id: provisional_id.clone(),
                         launch_preview_id: launch_preview_id.clone(),
                         source_id: source_id.to_owned(),
@@ -118,7 +97,6 @@ impl SystemRuntimeExecutor {
             }
         };
         if let Some(existing) = duplicate {
-            self.remove_empty_display_host(&target.window_id, host_created);
             return Ok(existing);
         }
         // Clone the live record and release its window mutex before committing.
@@ -172,6 +150,40 @@ impl SystemRuntimeExecutor {
             .set_presentation_phase(&provisional_id, TabRuntimePhase::Reserved);
         let revision = receipt.revision;
         self.publish_launcher_presence();
+        // Desired topology and the permanent TabId are authoritative before any native host or
+        // tab-chrome resource exists. Native creation is a one-way projection of this committed
+        // revision and may never be used to discover whether the launch logically exists.
+        let (window, host_created) = match self
+            .with_native_creation_lane(&target.window_id, || {
+                self.ensure_display_host(target, "Rion Studio")
+            }) {
+            Ok(result) => result,
+            Err(error) => {
+                self.cancel_tab_launch_preview(&launch_preview_id);
+                return Err(error);
+            }
+        };
+        let launch_still_current = self.state.lock().ok().is_some_and(|mut state| {
+            state
+                .provisional_launches
+                .get_mut(&launch_preview_id)
+                .filter(|launch| {
+                    !launch.cancelled
+                        && launch.id == provisional_id
+                        && launch.window_id == target.window_id
+                })
+                .is_some_and(|launch| {
+                    launch.host_created = host_created;
+                    true
+                })
+        });
+        if !launch_still_current {
+            self.remove_empty_display_host(&target.window_id, host_created);
+            return Err(RuntimeError::new(
+                "LAUNCH_CANCELLED",
+                "The runtime tab closed before native host projection began.",
+            ));
+        }
         if let Err(error) = self.reserve_native_tab(
             &target.window_id,
             &provisional_id,
@@ -463,16 +475,6 @@ impl SystemRuntimeExecutor {
         if source_is_busy {
             return None;
         }
-        let host_created = match self.ensure_display_host(&completion.target, &completion.title) {
-            Ok((_, created)) => created,
-            Err(host_error) => {
-                eprintln!(
-                    "Failed launch tab could not retain its native host: {}",
-                    host_error.message
-                );
-                return None;
-            }
-        };
         let phase = launch_completion_phase(failed);
         let mut presentation = self
             .presentation
@@ -520,7 +522,7 @@ impl SystemRuntimeExecutor {
         let provisional = ProvisionalLaunch {
             cancelled: false,
             failed,
-            host_created,
+            host_created: false,
             id: completion.tab_id.clone(),
             launch_preview_id: launch_preview_id.clone(),
             source_id: completion.source_id.clone(),
@@ -534,6 +536,21 @@ impl SystemRuntimeExecutor {
             return None;
         }
         self.publish_launcher_presence();
+        let host_created = match self.ensure_display_host(&completion.target, &completion.title) {
+            Ok((_, created)) => created,
+            Err(host_error) => {
+                eprintln!(
+                    "Failed launch tab retained its desired state without a native host: {}",
+                    host_error.message
+                );
+                return Some(handle);
+            }
+        };
+        if let Ok(mut state) = self.state.lock()
+            && let Some(launch) = state.provisional_launches.get_mut(&launch_preview_id)
+        {
+            launch.host_created = host_created;
+        }
         let native_reservation = self.reserve_native_tab(
             &completion.window_id,
             &completion.tab_id,
@@ -586,6 +603,7 @@ impl SystemRuntimeExecutor {
                     workspace_id: completion.source_id.clone(),
                     target: completion.target.clone(),
                     launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
+                    launch_tab_id: Some(retry_preview.provisional_tab_id.clone()),
                     restore_role_slots: None,
                 }
             } else {
@@ -593,6 +611,7 @@ impl SystemRuntimeExecutor {
                     role_id: completion.source_id.clone(),
                     target: completion.target.clone(),
                     launch_preview_id: Some(retry_preview.launch_preview_id.clone()),
+                    launch_tab_id: Some(retry_preview.provisional_tab_id.clone()),
                     zoom_factor: completion.zoom_factor,
                     restore_role_slots: None,
                 }
@@ -695,6 +714,7 @@ impl SystemRuntimeExecutor {
     fn take_tab_launch_preview(
         &self,
         launch_preview_id: Option<&str>,
+        tab_id: &str,
         window_id: &str,
         source_id: &str,
         tab_type: &str,
@@ -706,6 +726,7 @@ impl SystemRuntimeExecutor {
         take_provisional_launch_attempt(
             &mut state,
             launch_preview_id,
+            tab_id,
             window_id,
             source_id,
             tab_type,

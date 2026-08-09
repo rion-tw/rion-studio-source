@@ -3,6 +3,31 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("native tab drag latest-intent transaction", () => {
+  it("exposes each custom AppKit tab as an actionable accessibility control", async () => {
+    const macController = await readFile(
+      new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
+      "utf8"
+    );
+
+    expect(macController).toContain("self.accessibilityElement = YES;");
+    expect(macController).toContain("_iconView.accessibilityElement = NO;");
+    expect(macController).toContain("_audioView.accessibilityElement = NO;");
+    expect(macController).toContain("_titleField.accessibilityElement = NO;");
+    expect(macController).toContain("- (BOOL)accessibilityPerformPress {");
+    expect(macController).toContain(
+      "return [NSApp sendAction:self.action to:self.target from:self];"
+    );
+    expect(macController).toContain("- (BOOL)accessibilityPerformShowMenu {");
+    expect(macController).toContain("withObject:self.tabIdentifier");
+    expect(macController).toContain("NSAccessibilityShowMenuAction");
+    expect(macController).toContain("NSAccessibilityIncrementAction");
+    expect(macController).toContain("NSAccessibilityDecrementAction");
+    expect(macController).toContain("accessibilityCustomActions");
+    expect(macController).toContain("NSAccessibilityActionDescription(");
+    expect(macController).toContain("byAccessibilityOffset:(NSInteger)offset");
+    expect(macController).toContain('@"type" : @"reorder"');
+  });
+
   it("serializes callbacks while stale semantic events become superseded", async () => {
     const [runtime, macBridge, coordinator, contract, activation] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
@@ -214,10 +239,11 @@ describe("native tab drag latest-intent transaction", () => {
     expect(handler).toContain("Some(&ordered_tab_ids)");
     expect(move).toContain("surface.reparent(&target_window)");
     expect(move).toContain("run_on_appkit_tracking_main");
-    expect(move).toMatch(/state\s*\.native_tab_hosts\s*\.get\(tab_id\)/u);
-    expect(move).toMatch(/\.native_tab_hosts\s*\.insert\(tab_id\.to_owned\(\), target_window_id\.to_owned\(\)\)/u);
+    expect(move).toContain(".native_host_for_tab_handle(tab_id)");
+    expect(move).toContain("state.native_resources.surface_registry.values_mut()");
+    expect(move).not.toContain("native_tab_hosts");
     expect(move).toContain("still_hosts_native_tab");
-    expect(move).toContain("surface.window_id == window_id && surface.tab_id.is_some()");
+    expect(move).toContain("state.window_has_attached_tab_handles(window_id)");
     expect(move).toContain("slot.placeholder.as_ref()");
     expect(move).not.toContain("surface.show()");
     expect(move).toContain("request_tab_presentation_with_window_visibility(");

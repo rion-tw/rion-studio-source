@@ -53,7 +53,7 @@ impl SystemRuntimeExecutor {
                     if completed {
                         state.retryable_failed_launches.insert(tab_id.clone());
                     }
-                    (attempt_is_current, completed, state.tabs.contains_key(&tab_id))
+                    (attempt_is_current, completed, state.native_resources.tabs.contains_key(&tab_id))
                 };
                 if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
                     self.record_presentation_event(
@@ -111,7 +111,13 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<Option<String>> {
         let parent_operation_id = effect.parent_operation_id.clone();
         match effect.action {
-            CoreEffectAction::EmbeddedCreateTab { tab } => self.create_tab(*tab).map(|()| None),
+            CoreEffectAction::EmbeddedCreateTab { tab } => {
+                let operation_id = effect.operation_id;
+                let result = self.create_tab(*tab, &operation_id);
+                let event_kind = if result.is_ok() { "attached" } else { "failed" };
+                let _ = self.apply_runtime_native_event_for_operation(&operation_id, event_kind);
+                result.map(|()| None)
+            }
             CoreEffectAction::EmbeddedConfigureRoleSessions { role_ids } => {
                 self.require_roles(&role_ids)?;
                 Ok(None)
@@ -159,7 +165,7 @@ impl SystemRuntimeExecutor {
                     if completed {
                         state.retryable_failed_launches.insert(tab_id.clone());
                     }
-                    (attempt_is_current, completed, state.tabs.contains_key(&tab_id))
+                    (attempt_is_current, completed, state.native_resources.tabs.contains_key(&tab_id))
                 };
                 if !attempt_is_current || completed_failed_launch_cleanup || !runtime_tab_exists {
                     self.record_presentation_event(
@@ -552,7 +558,7 @@ impl SystemRuntimeExecutor {
             .unwrap_or_else(Instant::now);
         let surface_generation = {
             let state = self.state()?;
-            let tab_id = state.role_tabs.get(&request.role_id).ok_or_else(|| {
+            let tab_id = state.native_tab_id_for_role_surface(&request.role_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
             })?;
             if request.intent == "normal"
@@ -568,7 +574,7 @@ impl SystemRuntimeExecutor {
                 ));
             }
             state
-                .tabs
+                .native_resources.tabs
                 .get(tab_id)
                 .and_then(|tab| tab.roles.get(&request.role_id))
                 .map(|surface| surface.generation)
@@ -619,11 +625,11 @@ impl SystemRuntimeExecutor {
         let lane = self.role_input_lane(role_id)?;
         let surface_generation = {
             let state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+            let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
             })?;
             state
-                .tabs
+                .native_resources.tabs
                 .get(tab_id)
                 .and_then(|tab| tab.roles.get(role_id))
                 .map(|surface| surface.generation)
@@ -678,11 +684,11 @@ impl SystemRuntimeExecutor {
                 "The role is closing or quarantined and cannot accept automatic input.",
             ));
         }
-        let tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+        let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
             RuntimeError::new("TAURI_RUNTIME_ROLE_NOT_FOUND", "Runtime role was not found.")
         })?;
         state
-            .tabs
+            .native_resources.tabs
             .get(tab_id)
             .and_then(|tab| tab.roles.get(role_id))
             .filter(|surface| surface.generation == context.surface_generation)
@@ -821,19 +827,14 @@ impl SystemRuntimeExecutor {
         owner_id: &str,
     ) -> RuntimeResult<EmbeddedKeyTransitionRecord> {
         self.core
-            .invoke(CoreCommand::EmbeddedKeyPrepare {
-                role_id: role_id.to_owned(),
-                phase: phase.to_owned(),
-                code: code.to_owned(),
-                modifier_codes,
-                owner_id: owner_id.to_owned(),
-            })
+            .prepare_embedded_key_transition(
+                role_id,
+                phase,
+                code,
+                &modifier_codes,
+                owner_id,
+            )
             .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value(value).map_err(|error| {
-                    RuntimeError::new("TAURI_CORE_RESULT_INVALID", error.to_string())
-                })
-            })
     }
 
     fn complete_key_transition(
@@ -845,11 +846,7 @@ impl SystemRuntimeExecutor {
             return Ok(());
         };
         self.core
-            .invoke(CoreCommand::EmbeddedKeyComplete {
-                transition_id: transition_id.clone(),
-                succeeded,
-            })
-            .map(|_| ())
+            .complete_embedded_key_transition(transition_id, succeeded)
             .map_err(RuntimeError::core)
     }
 
@@ -880,15 +877,8 @@ impl SystemRuntimeExecutor {
         let webview = self.role_webview_for_input(role_id, context)?;
         let transition = self
             .core
-            .invoke(CoreCommand::EmbeddedKeysReassert {
-                role_id: role_id.to_owned(),
-            })
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<EmbeddedKeyTransitionRecord>(value).map_err(|error| {
-                    RuntimeError::new("TAURI_CORE_RESULT_INVALID", error.to_string())
-                })
-            })?;
+            .reassert_embedded_keys(role_id)
+            .map_err(RuntimeError::core)?;
         let mut executed = Vec::new();
         let result: RuntimeResult<()> = transition
             .effects
@@ -918,8 +908,12 @@ impl SystemRuntimeExecutor {
     }
 
     fn clear_role_keys(&self, role_id: &str) {
-        let _ = self.core.invoke(CoreCommand::EmbeddedKeysClear {
-            role_id: role_id.to_owned(),
+        let core = Arc::clone(&self.core);
+        let role_id = role_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::EmbeddedKeysClear { role_id })
+                .await;
         });
     }
 }

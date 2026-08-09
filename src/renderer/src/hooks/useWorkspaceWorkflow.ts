@@ -1,20 +1,16 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState } from "react";
 
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
-import { mergeStatuses } from "../app/statusUtils";
 import type { WorkspaceFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { LaunchWorkspace, Role, RoleStatus } from "../../../shared/types";
+import type { LaunchWorkspace } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   setNotice?: (message: string | null) => void;
-  setRoles: Dispatch<SetStateAction<Role[]>>;
-  setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
-  setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
   t: Translator;
   workspaces: LaunchWorkspace[];
 }
@@ -22,9 +18,6 @@ interface UseWorkspaceWorkflowOptions {
 export function useWorkspaceWorkflow({
   beginErrorOperation,
   setNotice,
-  setRoles,
-  setStatuses,
-  setWorkspaces,
   t,
   workspaces
 }: UseWorkspaceWorkflowOptions) {
@@ -56,14 +49,6 @@ export function useWorkspaceWorkflow({
       const savedWorkspace = form.id
         ? await window.rionStudio.updateLaunchWorkspace(form.id, input)
         : await window.rionStudio.createLaunchWorkspace(input);
-
-      setWorkspaces((current) => {
-        if (form.id) {
-          return current.map((workspace) => (workspace.id === savedWorkspace.id ? savedWorkspace : workspace));
-        }
-
-        return [...current, savedWorkspace];
-      });
 
       if (!form.id) {
         setQuery("");
@@ -112,18 +97,6 @@ export function useWorkspaceWorkflow({
 
     try {
       const result = await window.rionStudio.deleteLaunchWorkspaces({ ids });
-      const deletedIds = new Set(result.deletedIds);
-      setWorkspaces((current) => current.filter((item) => !deletedIds.has(item.id)));
-      try {
-        const [nextWorkspaces, nextStatuses] = await Promise.all([
-          window.rionStudio.listLaunchWorkspaces(),
-          window.rionStudio.listRoleStatuses()
-        ]);
-        setWorkspaces(nextWorkspaces);
-        setStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
       setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (deleteError) {
@@ -147,7 +120,7 @@ export function useWorkspaceWorkflow({
     const reportError = beginErrorOperation();
 
     try {
-      const copy = await window.rionStudio.createLaunchWorkspace({
+      await window.rionStudio.createLaunchWorkspace({
         name: createCopyName(workspace.name, workspaces.map((item) => item.name), t("copyName.suffix")),
         template: workspace.template,
         slots: workspace.slots.map((slot) => ({
@@ -155,7 +128,6 @@ export function useWorkspaceWorkflow({
           rect: { ...slot.rect }
         }))
       });
-      setWorkspaces((current) => [...current, copy]);
       setQuery("");
       listScrollTopRef.current = 0;
     } catch (copyError) {
@@ -170,30 +142,17 @@ export function useWorkspaceWorkflow({
       return;
     }
 
-    const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
-    const nextWorkspaces = orderedIds
-      .map((id) => workspaceById.get(id))
-      .filter((workspace): workspace is LaunchWorkspace => Boolean(workspace));
-
-    if (nextWorkspaces.length !== workspaces.length) {
+    if (orderedIds.length !== workspaces.length || new Set(orderedIds).size !== workspaces.length) {
       return;
     }
 
     isReorderingWorkspacesRef.current = true;
     setIsReorderingWorkspaces(true);
     const reportError = beginErrorOperation();
-    setWorkspaces(nextWorkspaces);
-
     try {
-      const savedWorkspaces = await window.rionStudio.reorderLaunchWorkspaces({ orderedIds });
-      setWorkspaces(savedWorkspaces);
+      await window.rionStudio.reorderLaunchWorkspaces({ orderedIds });
     } catch (reorderError) {
       reportError(reorderError);
-      try {
-        setWorkspaces(await window.rionStudio.listLaunchWorkspaces());
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
     } finally {
       isReorderingWorkspacesRef.current = false;
       setIsReorderingWorkspaces(false);
@@ -219,23 +178,12 @@ export function useWorkspaceWorkflow({
       const result = await window.rionStudio.launchWorkspace(workspace.id);
       const nextStatuses = result.statuses;
 
-      setStatuses((current) => mergeStatuses(current, nextStatuses));
       const notice = nextStatuses.find((status) => status.notice)?.notice;
       if (notice) {
         setNotice?.(notice);
       }
     } catch (launchError) {
       reportError(launchError);
-      try {
-        const [nextRoles, nextStatuses] = await Promise.all([
-          window.rionStudio.listRoles(),
-          window.rionStudio.listRoleStatuses()
-        ]);
-        setRoles(nextRoles);
-        setStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
     } finally {
       launchInProgressRef.current = false;
       finishBusy();

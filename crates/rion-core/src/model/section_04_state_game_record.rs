@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameRecord {
@@ -54,7 +54,7 @@ pub struct StateLaunchWorkspaceRecord {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct DisplayTargetRecord {
@@ -65,7 +65,7 @@ pub struct DisplayTargetRecord {
     pub fingerprint: Option<DisplayFingerprintRecord>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct DisplayFingerprintRecord {
@@ -77,7 +77,7 @@ pub struct DisplayFingerprintRecord {
     pub is_internal: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StatePixelBoundsRecord {
     pub x: i32,
@@ -86,14 +86,14 @@ pub struct StatePixelBoundsRecord {
     pub height: i32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateResolutionRecord {
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct GameWindowPlacementRecord {
@@ -395,6 +395,9 @@ pub struct StateWebGraphicsRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct CoreStateSnapshotRecord {
     #[serde(default)]
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[serde(default)]
     pub games: Vec<StateGameRecord>,
     #[serde(default)]
     pub roles: Vec<StateRoleRecord>,
@@ -499,6 +502,10 @@ pub enum BrowserRuntimeCommand {
     RemoveTab {
         #[ts(rename = "tabId")]
         tab_id: String,
+    },
+    CloseTabs {
+        #[ts(rename = "tabIds")]
+        tab_ids: Vec<String>,
     },
     RoleTransition {
         #[ts(rename = "roleId")]

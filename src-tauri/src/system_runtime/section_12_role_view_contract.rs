@@ -28,9 +28,48 @@ impl SystemRuntimeExecutor {
         if role_slots.is_empty() {
             return Ok(());
         }
-        let (restored, previous) = {
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)?
+            .ok_or_else(|| "Runtime tab is no longer live while restoring its layout.".to_owned())?;
+        let live = self
+            .presentation
+            .existing(&window_id)
+            .ok_or_else(|| "Runtime window topology is unavailable while restoring.".to_owned())?;
+        let previous_role_slots = live
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .map(|tab| tab.role_slots.clone())
+            .ok_or_else(|| "Runtime tab topology is unavailable while restoring.".to_owned())?;
+        let mut desired_role_slots = previous_role_slots.clone();
+        let mut matched = 0;
+        for saved in role_slots {
+            let Some(slot) = desired_role_slots.iter_mut().find(|slot| {
+                slot.slot_id == saved.slot_id || slot.role_id == saved.role_id
+            }) else {
+                continue;
+            };
+            slot.rect = saved.rect.clone();
+            slot.browser_zoom_percent = saved.browser_zoom_percent;
+            matched += 1;
+        }
+        if matched == 0 {
+            return Err("No saved role slot matched the restored runtime tab.".to_owned());
+        }
+        let desired = self.presentation.live.commit_tab_role_slots(
+            live.revision,
+            tab_id,
+            &window_id,
+            desired_role_slots,
+        )?;
+        if desired.status == LiveTopologyCommitStatus::Superseded {
+            return Err("Restored runtime role slots were superseded before native projection."
+                .to_owned());
+        }
+        let projection = (|| -> Result<(usize, Vec<_>), String> {
             let mut state = self.state().map_err(|error| error.message)?;
-            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get_mut(tab_id).ok_or_else(|| {
                 "Runtime tab was not found while restoring its layout.".to_owned()
             })?;
             let mut restored = 0;
@@ -48,17 +87,12 @@ impl SystemRuntimeExecutor {
                     continue;
                 };
                 let previous_surface = tab.roles.get(&saved.role_id).map(|surface| {
-                    (
-                        surface.rect.clone(),
-                        surface.zoom_factor,
-                        surface.zoom_mode.clone(),
-                    )
+                    (surface.rect.clone(), surface.zoom_factor)
                 });
                 previous.push((
                     slot.slot_id.clone(),
                     slot.rect.clone(),
                     slot.zoom_factor,
-                    slot.zoom_mode.clone(),
                     previous_surface,
                 ));
                 slot.rect = saved.rect.clone();
@@ -69,37 +103,63 @@ impl SystemRuntimeExecutor {
                 slot.zoom_factor = slot
                     .zoom_factor
                     .clamp(0.25, 5.0);
-                slot.zoom_mode = if saved.browser_zoom_percent.is_some() {
-                    "fixed".to_owned()
-                } else {
-                    "adaptive".to_owned()
-                };
                 if let Some(surface) = tab.roles.get_mut(&saved.role_id) {
                     surface.rect = saved.rect.clone();
                     surface.zoom_factor = slot.zoom_factor;
-                    surface.zoom_mode.clone_from(&slot.zoom_mode);
                 }
                 restored += 1;
             }
-            (restored, previous)
+            Ok((restored, previous))
+        })();
+        let (restored, previous) = match projection {
+            Ok(value) => value,
+            Err(error) => {
+                let compensation = self.presentation.live.commit_tab_role_slots(
+                    desired.revision,
+                    tab_id,
+                    &window_id,
+                    previous_role_slots,
+                );
+                if compensation.is_err()
+                    || compensation
+                        .is_ok_and(|receipt| receipt.status == LiveTopologyCommitStatus::Superseded)
+                {
+                    self.health.mark_unhealthy();
+                    return Err(format!(
+                        "{error} Kernel role-slot compensation was superseded; restart Rion Studio to recover safely."
+                    ));
+                }
+                return Err(error);
+            }
         };
         if restored == 0 {
-            return Err("No saved role slot matched the restored runtime tab.".to_owned());
+            let compensation = self.presentation.live.commit_tab_role_slots(
+                desired.revision,
+                tab_id,
+                &window_id,
+                previous_role_slots,
+            );
+            if compensation.is_err()
+                || compensation
+                    .is_ok_and(|receipt| receipt.status == LiveTopologyCommitStatus::Superseded)
+            {
+                self.health.mark_unhealthy();
+            }
+            return Err("No saved role slot matched the restored native runtime tab.".to_owned());
         }
         if let Err(error) = self.layout_runtime_tab(tab_id) {
             let state_rolled_back = self.state.lock().is_ok_and(|mut state| {
-                let Some(tab) = state.tabs.get_mut(tab_id) else {
+                let Some(tab) = state.native_resources.tabs.get_mut(tab_id) else {
                     return false;
                 };
                 let mut restored_slots = 0;
-                for (slot_id, rect, zoom_factor, zoom_mode, previous_surface) in previous {
+                for (slot_id, rect, zoom_factor, previous_surface) in previous {
                     if let Some(slot) = tab.slots.get_mut(&slot_id) {
                         slot.rect = rect;
                         slot.zoom_factor = zoom_factor;
-                        slot.zoom_mode = zoom_mode;
                         restored_slots += 1;
                     }
-                    if let Some((rect, zoom_factor, zoom_mode)) = previous_surface
+                    if let Some((rect, zoom_factor)) = previous_surface
                         && let Some(role_id) = tab
                             .slots
                             .get(&slot_id)
@@ -108,7 +168,6 @@ impl SystemRuntimeExecutor {
                     {
                         surface.rect = rect;
                         surface.zoom_factor = zoom_factor;
-                        surface.zoom_mode = zoom_mode;
                     }
                 }
                 restored_slots == restored
@@ -117,6 +176,22 @@ impl SystemRuntimeExecutor {
                 self.health.mark_unhealthy();
                 return Err(format!(
                     "{} Restored layout state compensation failed; restart Rion Studio to recover safely.",
+                    error.message
+                ));
+            }
+            let compensation = self.presentation.live.commit_tab_role_slots(
+                desired.revision,
+                tab_id,
+                &window_id,
+                previous_role_slots,
+            );
+            if compensation.is_err()
+                || compensation
+                    .is_ok_and(|receipt| receipt.status == LiveTopologyCommitStatus::Superseded)
+            {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{} Native layout rolled back but Kernel role-slot compensation was superseded; restart Rion Studio to recover safely.",
                     error.message
                 ));
             }
@@ -143,14 +218,8 @@ fn apply_prepared_role_slots_to_effect(
             continue;
         };
         let zoom_factor = (saved.browser_zoom_percent.unwrap_or(100.0) / 100.0).clamp(0.25, 3.0);
-        let zoom_mode = if saved.browser_zoom_percent.is_some() {
-            "fixed"
-        } else {
-            "adaptive"
-        };
         slot.rect = saved.rect.clone();
         slot.zoom_factor = zoom_factor;
-        slot.zoom_mode = zoom_mode.to_owned();
         if let Some(role) = tab
             .roles
             .iter_mut()
@@ -158,7 +227,6 @@ fn apply_prepared_role_slots_to_effect(
         {
             role.rect = saved.rect.clone();
             role.zoom_factor = zoom_factor;
-            role.zoom_mode = zoom_mode.to_owned();
         }
         restored += 1;
     }

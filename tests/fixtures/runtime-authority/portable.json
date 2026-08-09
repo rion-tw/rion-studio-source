@@ -1,0 +1,82 @@
+{
+  "app": "Rion Studio",
+  "schemaVersion": 17,
+  "exportedAt": "2026-08-09T00:00:00Z",
+  "appVersion": "1.37.0",
+  "games": [
+    {
+      "id": "01000000-0000-4000-8000-000000000001",
+      "source": "custom",
+      "name": "[Runtime QA] Local Fixture",
+      "defaultLaunchUrl": "http://127.0.0.1:41739/role/qa-alpha"
+    }
+  ],
+  "roles": [
+    { "id": "02000000-0000-4000-8000-000000000001", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Alpha", "launchUrl": "http://127.0.0.1:41739/role/qa-alpha", "notes": "Permanent local runtime-authority fixture." },
+    { "id": "02000000-0000-4000-8000-000000000002", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Beta", "launchUrl": "http://127.0.0.1:41739/role/qa-beta", "notes": "Permanent local runtime-authority fixture." },
+    { "id": "02000000-0000-4000-8000-000000000003", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Gamma", "launchUrl": "http://127.0.0.1:41739/role/qa-gamma", "notes": "Permanent local runtime-authority fixture." },
+    { "id": "02000000-0000-4000-8000-000000000004", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Delta", "launchUrl": "http://127.0.0.1:41739/role/qa-delta", "notes": "Permanent local runtime-authority fixture." }
+  ],
+  "launchWorkspaces": [
+    {
+      "id": "03000000-0000-4000-8000-000000000001",
+      "name": "[Runtime QA] Two Columns",
+      "template": "two_columns",
+      "slots": [
+        { "id": "03100000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000001", "browserZoomPercent": 100, "rect": { "x": 0, "y": 0, "width": 0.5, "height": 1 } },
+        { "id": "03100000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000002", "browserZoomPercent": 110, "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 1 } }
+      ]
+    },
+    {
+      "id": "03000000-0000-4000-8000-000000000002",
+      "name": "[Runtime QA] Quad",
+      "template": "quad",
+      "slots": [
+        { "id": "03200000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000001", "rect": { "x": 0, "y": 0, "width": 0.5, "height": 0.5 } },
+        { "id": "03200000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000002", "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 0.5 } },
+        { "id": "03200000-0000-4000-8000-000000000003", "roleId": "02000000-0000-4000-8000-000000000003", "rect": { "x": 0, "y": 0.5, "width": 0.5, "height": 0.5 } },
+        { "id": "03200000-0000-4000-8000-000000000004", "roleId": "02000000-0000-4000-8000-000000000004", "rect": { "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5 } }
+      ]
+    }
+  ],
+  "gameWindows": [
+    {
+      "id": "04000000-0000-4000-8000-000000000001",
+      "name": "[Runtime QA] Window One",
+      "targetDisplay": { "id": 1 },
+      "placement": { "normalBounds": { "x": 60, "y": 80, "width": 1000, "height": 700 }, "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 }, "presentation": "normal" },
+      "tabs": [
+        { "id": "04100000-0000-4000-8000-000000000001", "tabType": "role", "sourceId": "02000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Alpha", "roleSlots": [{ "slotId": "04110000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000001", "rect": { "x": 0, "y": 0, "width": 1, "height": 1 } }], "hidden": false, "audioMuted": false },
+        { "id": "04100000-0000-4000-8000-000000000002", "tabType": "workspace", "sourceId": "03000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Two Columns", "roleSlots": [{ "slotId": "04110000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000001", "rect": { "x": 0, "y": 0, "width": 0.5, "height": 1 } }, { "slotId": "04110000-0000-4000-8000-000000000003", "roleId": "02000000-0000-4000-8000-000000000002", "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 1 } }], "hidden": true, "audioMuted": true }
+      ],
+      "activeTabId": "04100000-0000-4000-8000-000000000001"
+    },
+    {
+      "id": "04000000-0000-4000-8000-000000000002",
+      "name": "[Runtime QA] Window Two",
+      "targetDisplay": { "id": 1 },
+      "placement": { "normalBounds": { "x": 110, "y": 120, "width": 960, "height": 680 }, "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 }, "presentation": "maximized" },
+      "tabs": [
+        { "id": "04200000-0000-4000-8000-000000000001", "tabType": "role", "sourceId": "02000000-0000-4000-8000-000000000003", "name": "[Runtime QA] Gamma", "roleSlots": [{ "slotId": "04210000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000003", "rect": { "x": 0, "y": 0, "width": 1, "height": 1 } }], "hidden": false, "audioMuted": false },
+        { "id": "04200000-0000-4000-8000-000000000002", "tabType": "role", "sourceId": "02000000-0000-4000-8000-000000000004", "name": "[Runtime QA] Delta", "roleSlots": [{ "slotId": "04210000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000004", "browserZoomPercent": 90, "rect": { "x": 0, "y": 0, "width": 1, "height": 1 } }], "hidden": false, "audioMuted": false }
+      ],
+      "activeTabId": "04200000-0000-4000-8000-000000000002"
+    },
+    {
+      "id": "04000000-0000-4000-8000-000000000003",
+      "name": "[Runtime QA] Window Three",
+      "targetDisplay": { "id": 1 },
+      "placement": { "normalBounds": { "x": 150, "y": 160, "width": 1040, "height": 720 }, "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 }, "presentation": "normal" },
+      "tabs": [
+        { "id": "04300000-0000-4000-8000-000000000001", "tabType": "workspace", "sourceId": "03000000-0000-4000-8000-000000000002", "name": "[Runtime QA] Quad", "roleSlots": [{ "slotId": "04310000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000001", "rect": { "x": 0, "y": 0, "width": 0.5, "height": 0.5 } }, { "slotId": "04310000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000002", "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 0.5 } }, { "slotId": "04310000-0000-4000-8000-000000000003", "roleId": "02000000-0000-4000-8000-000000000003", "rect": { "x": 0, "y": 0.5, "width": 0.5, "height": 0.5 } }, { "slotId": "04310000-0000-4000-8000-000000000004", "roleId": "02000000-0000-4000-8000-000000000004", "rect": { "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5 } }], "hidden": false, "audioMuted": false },
+        { "id": "04300000-0000-4000-8000-000000000002", "tabType": "role", "sourceId": "02000000-0000-4000-8000-000000000002", "name": "[Runtime QA] Beta", "roleSlots": [{ "slotId": "04310000-0000-4000-8000-000000000005", "roleId": "02000000-0000-4000-8000-000000000002", "rect": { "x": 0, "y": 0, "width": 1, "height": 1 } }], "hidden": true, "audioMuted": true }
+      ],
+      "activeTabId": "04300000-0000-4000-8000-000000000001"
+    }
+  ],
+  "macros": [
+    { "id": "05000000-0000-4000-8000-000000000001", "enabled": true, "activationMode": "toggle", "name": "[Runtime QA] Once Input", "roleIds": ["02000000-0000-4000-8000-000000000001"], "shortcutSourceScope": { "type": "all_execution_roles" }, "repeat": { "type": "once" }, "steps": [{ "id": "05100000-0000-4000-8000-000000000001", "type": "key", "code": "KeyA", "action": "tap" }, { "id": "05100000-0000-4000-8000-000000000002", "type": "delay", "ms": 100 }, { "id": "05100000-0000-4000-8000-000000000003", "type": "click", "xPercent": 50, "yPercent": 50 }] },
+    { "id": "05000000-0000-4000-8000-000000000002", "enabled": true, "activationMode": "toggle", "name": "[Runtime QA] Loop Until Stop", "roleIds": ["02000000-0000-4000-8000-000000000002"], "shortcutSourceScope": { "type": "all_execution_roles" }, "repeat": { "type": "loop", "intervalMs": 250 }, "steps": [{ "id": "05200000-0000-4000-8000-000000000001", "type": "click", "xPercent": 50, "yPercent": 50 }, { "id": "05200000-0000-4000-8000-000000000002", "type": "delay", "ms": 100 }] },
+    { "id": "05000000-0000-4000-8000-000000000003", "enabled": true, "activationMode": "toggle", "name": "[Runtime QA] Nested", "roleIds": ["02000000-0000-4000-8000-000000000001"], "shortcutSourceScope": { "type": "all_execution_roles" }, "repeat": { "type": "once" }, "steps": [{ "id": "05300000-0000-4000-8000-000000000001", "type": "macro", "macroId": "05000000-0000-4000-8000-000000000001", "callMode": "wait" }, { "id": "05300000-0000-4000-8000-000000000002", "type": "key", "code": "KeyN", "action": "tap" }] }
+  ]
+}

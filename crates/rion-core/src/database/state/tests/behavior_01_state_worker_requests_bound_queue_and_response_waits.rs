@@ -143,8 +143,10 @@ use std::fs;
           "macros": [{"id":"m1","name":"Macro","roleIds":["r1"],"steps":[]}],
           "logLevel": "debug"
         });
-        replace_snapshot(&mut connection, &snapshot).unwrap();
-        assert_eq!(read_snapshot(&connection).unwrap(), snapshot);
+        let revision = replace_snapshot(&mut connection, &snapshot).unwrap();
+        let mut expected = snapshot;
+        expected["revision"] = json!(revision);
+        assert_eq!(read_snapshot(&connection).unwrap(), expected);
     }
 
     #[test]

@@ -358,13 +358,14 @@ async fn restore_saved_game_windows(
         for tab in restore_tabs_in_owner_priority(&saved) {
             let mut prepared_role_slots = false;
             let mut restored_tab_id = tab.id.clone();
-            let native_owner = state
-                .runtime
-                .native_tab_for_source(&tab.source_id, &tab.tab_type);
-            let launch_succeeded = if let Some(native_tab_id) = native_owner {
-                let owner_window_id = state.runtime.live_tab_window_id(&native_tab_id);
-                if owner_window_id.as_deref() == Some(saved.id.as_str()) {
-                    restored_tab_id = native_tab_id;
+            let logical_owner = authoritative_runtime_tab_for_source(
+                state,
+                &tab.source_id,
+                &tab.tab_type,
+            )?;
+            let launch_succeeded = if let Some(owner) = logical_owner {
+                if owner.window_id == saved.id {
+                    restored_tab_id = owner.id;
                     true
                 } else {
                     failures.push(json!({
@@ -374,7 +375,7 @@ async fn restore_saved_game_windows(
                         "code": "TAURI_RESTORE_SOURCE_CONFLICT",
                         "message": format!(
                             "The saved source is already running in Game Window {}.",
-                            owner_window_id.unwrap_or_else(|| "unknown".to_owned())
+                            owner.window_id
                         )
                     }));
                     window_failed = true;
@@ -546,12 +547,8 @@ async fn restore_saved_game_windows(
 fn browser_runtime_snapshot(state: &CoreState) -> Result<BrowserRuntimeSnapshot, CoreErrorPayload> {
     state
         .core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
+        .browser_runtime_snapshot()
         .map_err(error_payload)
-        .and_then(|snapshot| {
-            serde_json::from_value(snapshot)
-                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
-        })
         .and_then(|snapshot| {
             state.runtime.live_runtime_snapshot(snapshot).ok_or_else(|| {
                 shell_error(
@@ -560,4 +557,18 @@ fn browser_runtime_snapshot(state: &CoreState) -> Result<BrowserRuntimeSnapshot,
                 )
             })
         })
+}
+
+fn authoritative_runtime_tab_for_source(
+    state: &CoreState,
+    source_id: &str,
+    tab_type: &str,
+) -> Result<Option<rion_core::BrowserRuntimeTabRecord>, CoreErrorPayload> {
+    Ok(state
+        .core
+        .browser_runtime_snapshot()
+        .map_err(error_payload)?
+        .tabs
+        .into_iter()
+        .find(|tab| tab.source_id == source_id && tab.tab_type == tab_type))
 }

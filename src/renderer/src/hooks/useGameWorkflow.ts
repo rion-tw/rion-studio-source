@@ -1,4 +1,4 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState } from "react";
 
 import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { GameFormState } from "../app/types";
@@ -8,7 +8,6 @@ import type { Game, Role } from "../../../shared/types";
 
 interface UseGameWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
-  setGames: Dispatch<SetStateAction<Game[]>>;
   roles: Role[];
   setNotice?: (message: string | null) => void;
   t: Translator;
@@ -16,7 +15,6 @@ interface UseGameWorkflowOptions {
 
 export function useGameWorkflow({
   beginErrorOperation,
-  setGames,
   roles,
   setNotice,
   t
@@ -39,9 +37,6 @@ export function useGameWorkflow({
       const saved = form.id
         ? await window.rionStudio.updateGame(form.id, input)
         : await window.rionStudio.createGame(input);
-      setGames((current) => form.id
-        ? current.map((game) => game.id === saved.id ? saved : game)
-        : [...current, saved]);
       return saved;
     } catch (error) {
       reportError(error);
@@ -61,9 +56,7 @@ export function useGameWorkflow({
     if (!confirmed) return undefined;
     const reportError = beginErrorOperation();
     try {
-      const saved = await window.rionStudio.resetBuiltinGame(game.id);
-      setGames((current) => current.map((item) => item.id === saved.id ? saved : item));
-      return saved;
+      return await window.rionStudio.resetBuiltinGame(game.id);
     } catch (error) {
       reportError(error);
       return undefined;
@@ -116,8 +109,6 @@ export function useGameWorkflow({
     setNotice?.(null);
     try {
       const result = await window.rionStudio.deleteGames({ ids: games.map((game) => game.id) });
-      const nextGames = await window.rionStudio.listGames();
-      setGames(nextGames);
       setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (error) {

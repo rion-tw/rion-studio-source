@@ -1,5 +1,5 @@
 #[cfg(windows)]
-fn windows_role_setup_error(stage: &'static str, error: windows::core::Error) -> RuntimeError {
+pub(in crate::system_runtime) fn windows_role_setup_error(stage: &'static str, error: windows::core::Error) -> RuntimeError {
     RuntimeError::new(
         "SYSTEM_ROLE_SETUP_FAILED",
         format!("WebView2 role setup failed during {stage}: {error}"),
@@ -8,7 +8,7 @@ fn windows_role_setup_error(stage: &'static str, error: windows::core::Error) ->
 }
 
 #[cfg(windows)]
-fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
+pub(in crate::system_runtime) fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
     RuntimeError {
         code: if error.code == "SYSTEM_SURFACE_LIFECYCLE_TIMEOUT" {
             "SYSTEM_ROLE_SETUP_TIMEOUT"
@@ -25,7 +25,7 @@ fn windows_role_lifecycle_setup_error(error: RuntimeError) -> RuntimeError {
 }
 
 #[cfg(windows)]
-fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{IsWindow, SW_HIDE, ShowWindowAsync};
 
     let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
@@ -42,7 +42,7 @@ fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
-fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
         IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
     };
@@ -62,7 +62,7 @@ fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
-fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
         HWND_TOP, IsWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
         SetWindowPos,
@@ -90,7 +90,7 @@ fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
-fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
     };
@@ -126,7 +126,7 @@ fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()>
 }
 
 #[cfg(windows)]
-fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+pub(in crate::system_runtime) fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
 
     let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
@@ -134,7 +134,7 @@ fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
 }
 
 #[cfg(windows)]
-fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
+pub(in crate::system_runtime) fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
         IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
     };
@@ -148,7 +148,7 @@ fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), St
 }
 
 #[cfg(windows)]
-fn request_platform_webview_window_show_foreground(
+pub(in crate::system_runtime) fn request_platform_webview_window_show_foreground(
     window: &WebviewWindow,
 ) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
@@ -186,7 +186,7 @@ fn request_platform_webview_window_show_foreground(
 }
 
 #[cfg(windows)]
-fn platform_surface_lifecycle_tracker(
+pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     use webview2_com::{
@@ -333,7 +333,7 @@ fn platform_surface_lifecycle_tracker(
 }
 
 #[cfg(windows)]
-fn windows_surface_lifecycle_error(
+pub(in crate::system_runtime) fn windows_surface_lifecycle_error(
     stage: &'static str,
     error: windows::core::Error,
 ) -> RuntimeError {
@@ -345,7 +345,7 @@ fn windows_surface_lifecycle_error(
 }
 
 #[cfg(windows)]
-fn perform_platform_surface_quiesce(
+pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -395,7 +395,7 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(windows)]
-fn release_platform_surface(
+pub(in crate::system_runtime) fn release_platform_surface(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -431,7 +431,7 @@ fn release_platform_surface(
 }
 
 #[cfg(windows)]
-fn install_process_failure_monitor(
+pub(in crate::system_runtime) fn install_process_failure_monitor(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
@@ -496,7 +496,7 @@ fn install_process_failure_monitor(
 }
 
 #[cfg(windows)]
-fn webview2_process_failure_reason(
+pub(in crate::system_runtime) fn webview2_process_failure_reason(
     kind: webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND,
 ) -> &'static str {
     use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -515,7 +515,7 @@ fn webview2_process_failure_reason(
 }
 
 #[cfg(windows)]
-fn webview2_process_failure_scope(
+pub(in crate::system_runtime) fn webview2_process_failure_scope(
     kind: webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND,
 ) -> SurfaceFailureScope {
     use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED;
@@ -527,7 +527,7 @@ fn webview2_process_failure_scope(
 }
 
 #[cfg(windows)]
-fn call_system_devtools(webview: &Webview, method: &str, params: &Value) -> RuntimeResult<String> {
+pub(in crate::system_runtime) fn call_system_devtools(webview: &Webview, method: &str, params: &Value) -> RuntimeResult<String> {
     use webview2_com::{
         CallDevToolsProtocolMethodCompletedHandler, Microsoft::Web::WebView2::Win32::ICoreWebView2,
     };
@@ -573,7 +573,7 @@ fn call_system_devtools(webview: &Webview, method: &str, params: &Value) -> Runt
 }
 
 #[cfg(windows)]
-fn call_system_input_devtools(
+pub(in crate::system_runtime) fn call_system_input_devtools(
     webview: &Webview,
     method: &str,
     params: &Value,
@@ -635,7 +635,7 @@ fn call_system_input_devtools(
 }
 
 #[cfg(windows)]
-fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
     use windows::core::Interface;
 
@@ -655,45 +655,4 @@ fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| RuntimeError::new("TAURI_AUDIO_MUTE_FAILED", "Audio mute timed out."))?
         .map_err(|message| RuntimeError::new("TAURI_AUDIO_MUTE_FAILED", message))
-}
-
-impl RuntimeError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            diagnostic: None,
-            message: message.into(),
-            rollback_error_count: None,
-        }
-    }
-
-    fn with_rollback_error_count(mut self, count: usize) -> Self {
-        self.rollback_error_count = Some(count.min(u32::MAX as usize) as u32);
-        self
-    }
-
-    #[cfg(windows)]
-    fn with_setup_diagnostic(
-        mut self,
-        setup_stage: &'static str,
-        native_code: Option<String>,
-    ) -> Self {
-        self.diagnostic = Some(RuntimeErrorDiagnostic {
-            native_code,
-            setup_stage,
-        });
-        self
-    }
-
-    fn io(error: std::io::Error) -> Self {
-        Self::new("TAURI_RUNTIME_IO_FAILED", error.to_string())
-    }
-
-    fn tauri(error: impl std::fmt::Display) -> Self {
-        Self::new("TAURI_RUNTIME_FAILED", error.to_string())
-    }
-
-    fn core(error: impl std::fmt::Display) -> Self {
-        Self::new("TAURI_CORE_COMMAND_FAILED", error.to_string())
-    }
 }

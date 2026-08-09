@@ -1,28 +1,18 @@
-import { useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
-import { mergeStatus } from "../app/statusUtils";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type {
-  LaunchWorkspace,
-  Macro,
-  Role,
-  RoleStatus
-} from "../../../shared/types";
+import type { Role, RoleStatus } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseRoleWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   roles: Role[];
   gameNamesById: Map<string, string>;
-  setMacros: Dispatch<SetStateAction<Macro[]>>;
   setNotice?: (message: string | null) => void;
-  setRoles: Dispatch<SetStateAction<Role[]>>;
-  setStatuses: Dispatch<SetStateAction<RoleStatus[]>>;
-  setWorkspaces: Dispatch<SetStateAction<LaunchWorkspace[]>>;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
 }
@@ -31,11 +21,7 @@ export function useRoleWorkflow({
   beginErrorOperation,
   roles,
   gameNamesById,
-  setMacros,
   setNotice,
-  setRoles,
-  setStatuses,
-  setWorkspaces,
   statusByRole,
   t
 }: UseRoleWorkflowOptions) {
@@ -97,14 +83,6 @@ export function useRoleWorkflow({
         ? await window.rionStudio.updateRole(form.id, input)
         : await window.rionStudio.createRole(input);
 
-      setRoles((current) => {
-        if (form.id) {
-          return current.map((role) => (role.id === savedRole.id ? savedRole : role));
-        }
-
-        return [...current, savedRole];
-      });
-
       if (!form.id) {
         setActiveFilter("all");
         setQuery("");
@@ -133,27 +111,14 @@ export function useRoleWorkflow({
     try {
       const { status } = await window.rionStudio.launchRole(roleId);
       if (!status) {
-        const nextStatuses = await window.rionStudio.listRoleStatuses();
-        setStatuses(nextStatuses);
-        return nextStatuses.find((item) => item.roleId === roleId);
+        return undefined;
       }
-      setStatuses((current) => mergeStatus(current, status));
       if (status.notice) {
         setNotice?.(status.notice);
       }
       return status;
     } catch (launchError) {
       reportError(launchError);
-      try {
-        const [nextRoles, nextStatuses] = await Promise.all([
-          window.rionStudio.listRoles(),
-          window.rionStudio.listRoleStatuses()
-        ]);
-        setRoles(nextRoles);
-        setStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
       return undefined;
     } finally {
       finishBusy();
@@ -190,44 +155,6 @@ export function useRoleWorkflow({
 
     try {
       const result = await window.rionStudio.deleteRoles({ ids });
-      const confirmedDeletedIds = new Set(result.deletedIds);
-      setRoles((current) => current.filter((item) => !confirmedDeletedIds.has(item.id)));
-      setStatuses((current) => current.filter((status) => !confirmedDeletedIds.has(status.roleId)));
-      setWorkspaces((current) => current.map((workspace) => ({
-        ...workspace,
-        slots: workspace.slots.map((slot) => {
-          if (!slot.roleId || !confirmedDeletedIds.has(slot.roleId)) {
-            return slot;
-          }
-
-          const {
-            roleId: _roleId,
-            browserZoomPercent: _browserZoomPercent,
-            ...nextSlot
-          } = slot;
-          return nextSlot;
-        })
-      })));
-      setMacros((current) => current
-        .map((macro) => ({
-          ...macro,
-          roleIds: macro.roleIds.filter((roleId) => !confirmedDeletedIds.has(roleId))
-        })));
-
-      try {
-        const [nextRoles, nextStatuses, nextWorkspaces, nextMacros] = await Promise.all([
-          window.rionStudio.listRoles(),
-          window.rionStudio.listRoleStatuses(),
-          window.rionStudio.listLaunchWorkspaces(),
-          window.rionStudio.listMacros()
-        ]);
-        setRoles(nextRoles);
-        setStatuses(nextStatuses);
-        setWorkspaces(nextWorkspaces);
-        setMacros(nextMacros);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
       setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (deleteError) {
@@ -270,23 +197,11 @@ export function useRoleWorkflow({
     setNotice?.(null);
 
     try {
-      const updatedRole = await window.rionStudio.clearRoleBrowserData(role.id);
-      setRoles((current) => current.map((item) => item.id === updatedRole.id ? updatedRole : item));
-      setStatuses((current) => current.filter((status) => status.roleId !== role.id));
+      await window.rionStudio.clearRoleBrowserData(role.id);
       setNotice?.(t("notice.roleBrowserDataCleared").replace("{name}", role.name));
       return true;
     } catch (clearError) {
       reportError(clearError);
-      try {
-        const [nextRoles, nextStatuses] = await Promise.all([
-          window.rionStudio.listRoles(),
-          window.rionStudio.listRoleStatuses()
-        ]);
-        setRoles(nextRoles);
-        setStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
       return false;
     } finally {
       finishBusy();
@@ -302,7 +217,7 @@ export function useRoleWorkflow({
     const reportError = beginErrorOperation();
 
     try {
-      const copy = await window.rionStudio.createRole({
+      await window.rionStudio.createRole({
         gameId: role.gameId,
         name: createCopyName(role.name, roles.map((item) => item.name), t("copyName.suffix")),
         launchUrl: role.launchUrl,
@@ -313,7 +228,6 @@ export function useRoleWorkflow({
       setActiveFilter("all");
       setQuery("");
       listScrollTopRef.current = 0;
-      setRoles((current) => [...current, copy]);
     } catch (copyError) {
       reportError(copyError);
     } finally {
@@ -326,28 +240,17 @@ export function useRoleWorkflow({
       return;
     }
 
-    const roleById = new Map(roles.map((role) => [role.id, role]));
-    const nextRoles = orderedIds.map((id) => roleById.get(id)).filter((role): role is Role => Boolean(role));
-
-    if (nextRoles.length !== roles.length) {
+    if (orderedIds.length !== roles.length || new Set(orderedIds).size !== roles.length) {
       return;
     }
 
     isReorderingRolesRef.current = true;
     setIsReorderingRoles(true);
     const reportError = beginErrorOperation();
-    setRoles(nextRoles);
-
     try {
-      const savedRoles = await window.rionStudio.reorderRoles({ orderedIds });
-      setRoles(savedRoles);
+      await window.rionStudio.reorderRoles({ orderedIds });
     } catch (reorderError) {
       reportError(reorderError);
-      try {
-        setRoles(await window.rionStudio.listRoles());
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
     } finally {
       isReorderingRolesRef.current = false;
       setIsReorderingRoles(false);

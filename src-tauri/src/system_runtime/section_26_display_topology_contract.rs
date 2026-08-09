@@ -123,7 +123,7 @@ impl SystemRuntimeExecutor {
             targets
                 .iter()
                 .filter_map(|target| {
-                    let host = state.display_hosts.get(&target.window_id)?;
+                    let host = state.native_resources.display_hosts.get(&target.window_id)?;
                     let tab_ids = self.live_tab_ids_for_window(&target.window_id);
                     Some((
                         host.generation,
@@ -183,7 +183,7 @@ impl SystemRuntimeExecutor {
         let refreshed = self.state.lock().ok().is_some_and(|state| {
             entries.iter_mut().all(
                 |(generation, previous_target, window, tab_ids, target)| {
-                    let Some(host) = state.display_hosts.get(&target.window_id) else {
+                    let Some(host) = state.native_resources.display_hosts.get(&target.window_id) else {
                         return false;
                     };
                     *generation = host.generation;
@@ -287,7 +287,7 @@ impl SystemRuntimeExecutor {
         let generation_matches = self.state.lock().ok().is_some_and(|state| {
             native_entries.iter().all(|entry| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(&entry.target.window_id)
                     .is_some_and(|host| host.generation == entry.generation)
             })
@@ -313,7 +313,7 @@ impl SystemRuntimeExecutor {
         }
         if let Ok(mut state) = self.state.lock() {
             for entry in &native_entries {
-                if let Some(host) = state.display_hosts.get_mut(&entry.target.window_id)
+                if let Some(host) = state.native_resources.display_hosts.get_mut(&entry.target.window_id)
                     && let Some(readback) = entry.readback.as_ref()
                 {
                     host.target = readback.clone();
@@ -408,7 +408,7 @@ impl SystemRuntimeExecutor {
         match self.state.lock() {
             Ok(mut state) => {
                 for entry in entries.iter().take(attempted) {
-                    match state.display_hosts.get_mut(&entry.target.window_id) {
+                    match state.native_resources.display_hosts.get_mut(&entry.target.window_id) {
                         Some(host) if host.generation == entry.generation => {
                             host.target = entry.previous_target.clone();
                         }

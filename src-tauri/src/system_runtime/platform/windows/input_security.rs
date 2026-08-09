@@ -1,7 +1,7 @@
 // windows system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
 #[cfg(windows)]
-fn dispatch_key_effect(
+pub(in crate::system_runtime) fn dispatch_key_effect(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
     context: &InputDispatchContext,
@@ -22,7 +22,7 @@ fn dispatch_key_effect(
 }
 
 #[cfg(windows)]
-fn dispatch_mouse_effect(
+pub(in crate::system_runtime) fn dispatch_mouse_effect(
     webview: &Webview,
     _viewport: ViewportSize,
     point: ClickPoint,
@@ -46,7 +46,7 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(windows)]
-fn dispatch_mouse_click_sequence(
+pub(in crate::system_runtime) fn dispatch_mouse_click_sequence(
     webview: &Webview,
     viewport: ViewportSize,
     point: ClickPoint,
@@ -66,7 +66,7 @@ fn dispatch_mouse_click_sequence(
 }
 
 #[cfg(windows)]
-fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
             COREWEBVIEW2_PERMISSION_STATE_DENY,
@@ -123,7 +123,7 @@ fn install_platform_security_policy(webview: &Webview) -> RuntimeResult<()> {
 }
 
 #[cfg(windows)]
-fn dispatch_runtime_tab_shortcut(
+pub(in crate::system_runtime) fn dispatch_runtime_tab_shortcut(
     app: &AppHandle,
     webview_label: &str,
     direction: &str,
@@ -173,7 +173,7 @@ fn dispatch_runtime_tab_shortcut(
 }
 
 #[cfg(windows)]
-fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
     use webview2_com::{
         AcceleratorKeyPressedEventHandler,
         Microsoft::Web::WebView2::Win32::{
@@ -288,7 +288,7 @@ fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> Runt
 }
 
 #[cfg(windows)]
-fn platform_role_surface_setup(
+pub(in crate::system_runtime) fn platform_role_surface_setup(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
@@ -308,7 +308,7 @@ fn platform_role_surface_setup(
 }
 
 #[cfg(windows)]
-fn install_windows_role_surface_handlers(
+pub(in crate::system_runtime) fn install_windows_role_surface_handlers(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,

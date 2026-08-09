@@ -1,5 +1,9 @@
 impl SystemRuntimeExecutor {
-    fn create_tab(&self, mut tab: EmbeddedTabEffectRecord) -> RuntimeResult<()> {
+    fn create_tab(
+        &self,
+        mut tab: EmbeddedTabEffectRecord,
+        operation_id: &str,
+    ) -> RuntimeResult<()> {
         let launch_started = Instant::now();
         let attempt_generation = tab
             .attempt_generation
@@ -62,7 +66,7 @@ impl SystemRuntimeExecutor {
         }
         let unavailable_role_ids = {
             let state = self.state()?;
-            if state.tabs.contains_key(&tab.tab_id) {
+            if state.native_resources.tabs.contains_key(&tab.tab_id) {
                 return Err(RuntimeError::new(
                     "TAURI_RUNTIME_TAB_DUPLICATE",
                     "The System WebView tab already exists.",
@@ -85,6 +89,7 @@ impl SystemRuntimeExecutor {
         // tab that the user already dismissed.
         let launch_preview = self.take_tab_launch_preview(
             tab.launch_preview_id.as_deref(),
+            &tab.tab_id,
             &target.window_id,
             &tab.source_id,
             tab_type,
@@ -120,6 +125,34 @@ impl SystemRuntimeExecutor {
                 .as_ref()
                 .is_some_and(|restore| restore.host_created);
         let created_tab_id = tab.tab_id.clone();
+        let window_generation = self
+            .state()?
+            .native_resources.display_hosts
+            .get(&target.window_id)
+            .map(|host| host.generation)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
+                    "The runtime host retired before launch operation admission.",
+                )
+            })?;
+        let surface_generation = self
+            .runtime_surface_sequence
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        if !self.begin_runtime_launch_operation(
+            operation_id,
+            &attempt_generation,
+            &created_tab_id,
+            window_generation,
+            surface_generation,
+        )? {
+            self.remove_empty_display_host(&target.window_id, host_created);
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_LAUNCH_SUPERSEDED",
+                "A newer runtime intent superseded native launch admission.",
+            ));
+        }
         {
             let mut state = self.state()?;
             apply_prepared_role_slots_to_effect(&mut state, &mut tab)?;
@@ -131,12 +164,7 @@ impl SystemRuntimeExecutor {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
         let reservation_revision = {
-            let mut selection = presentation.lock().map_err(|_| {
-                RuntimeError::new(
-                    "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                    "The runtime tab presentation coordinator is unavailable.",
-                )
-            })?.clone();
+            let mut selection = presentation.record.clone();
             let previous_tab_id = selection.selected_tab_id.clone();
             let presentation_tab = LiveTabRecord {
                 audio_muted: false,
@@ -156,8 +184,16 @@ impl SystemRuntimeExecutor {
                 #[cfg(any(windows, target_os = "macos"))]
                 workspace_template: tab.workspace_template.clone(),
             };
-            if let Some(preview) = launch_preview.as_ref() {
-                selection.replace_tab_id(&preview.id, presentation_tab, 0);
+            if launch_preview.is_some() {
+                if let Some(existing) = selection
+                    .tabs
+                    .iter_mut()
+                    .find(|existing| existing.id == created_tab_id)
+                {
+                    *existing = presentation_tab;
+                } else {
+                    selection.insert_tab(presentation_tab, 0, should_select);
+                }
                 if !should_select
                     && selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
                 {
@@ -192,18 +228,6 @@ impl SystemRuntimeExecutor {
                     "A newer live tab intent superseded native tab attachment.",
                 ));
             }
-            if let Some(preview) = launch_preview.as_ref() {
-                if let Some(live) = self.presentation.existing(&target.window_id)
-                    && let Ok(mut live) = live.lock()
-                {
-                    live.aliases.insert(preview.id.clone(), created_tab_id.clone());
-                }
-                self.presentation.replace_tab_projection(
-                    &target.window_id,
-                    &preview.id,
-                    &created_tab_id,
-                );
-            }
             receipt.revision
         };
         let committed_window_id = self
@@ -212,13 +236,9 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        let restored_audio_muted = self
-            .presentation
-            .tab(&target.window_id, &created_tab_id)
-            .is_some_and(|tab| tab.audio_muted);
         let mut state = self.state()?;
         if committed_window_id.as_deref() != Some(target.window_id.as_str())
-            || state.optimistic_closed_tabs.contains(&created_tab_id)
+            || state.tab_close_pending(&created_tab_id)
             || state.close_previews.contains_key(&created_tab_id)
         {
             drop(state);
@@ -236,13 +256,10 @@ impl SystemRuntimeExecutor {
             .launch_attempt_generations
             .insert(created_tab_id.clone(), attempt_generation.clone());
         state
-            .native_tab_hosts
-            .insert(created_tab_id.clone(), target.window_id.clone());
-        state
-            .tabs
+            .native_resources.tabs
             .insert(
                 created_tab_id.clone(),
-                runtime_tab_from_effect(&tab, restored_audio_muted),
+                runtime_tab_from_effect(&tab),
             );
         drop(state);
         self.schedule_live_projection_membership_follow();
@@ -271,12 +288,7 @@ impl SystemRuntimeExecutor {
         let active_tab_id =
             self.presentation
                 .existing(&target.window_id)
-                .and_then(|presentation| {
-                    presentation
-                        .lock()
-                        .ok()
-                        .and_then(|selection| selection.selected_tab_id.clone())
-                });
+                .and_then(|presentation| presentation.selected_tab_id.clone());
         let native_reservation = self.reserve_native_tab_for_create(
             &tab,
             tab_type,
@@ -303,7 +315,7 @@ impl SystemRuntimeExecutor {
         {
             let window_generation = self
                 .state()?
-                .display_hosts
+                .native_resources.display_hosts
                 .get(&target.window_id)
                 .map(|host| host.generation)
                 .ok_or_else(|| {
@@ -329,12 +341,7 @@ impl SystemRuntimeExecutor {
             }
             self.record_runtime_stage(tab_chrome_stage, "completed", tab_chrome_started);
         }
-        let window_zoom_factor = self
-            .state()?
-            .display_hosts
-            .get(&target.window_id)
-            .map(|host| host.zoom_factor)
-            .unwrap_or(1.0);
+        let window_zoom_factor = self.runtime_window_zoom_factor(&target.window_id);
         let mut created_surfaces = Vec::new();
         let mut created_placeholders = Vec::new();
         let mut first_surface_recorded = false;
@@ -369,7 +376,7 @@ impl SystemRuntimeExecutor {
                 let attached = {
                     let mut state = state;
                     state
-                        .tabs
+                        .native_resources.tabs
                         .get_mut(&tab.tab_id)
                         .and_then(|runtime_tab| runtime_tab.slots.get_mut(&slot.slot_id))
                         .map(|runtime_slot| {
@@ -416,7 +423,12 @@ impl SystemRuntimeExecutor {
                 // divider and adaptive-zoom layout runs after every role controller has attached,
                 // so Core layout work can no longer delay the first native game viewport.
                 let bounds = role_bounds_for_content(content_metrics, &role.rect);
-                let base_zoom_factor = role.zoom_factor.clamp(0.25, 3.0);
+                let (base_zoom_factor, _) = self.runtime_role_zoom_contract(
+                    &target.window_id,
+                    &tab.tab_id,
+                    &role_id,
+                    role.zoom_factor,
+                );
                 let webview = self.with_native_creation_lane(&target.window_id, || {
                     self.add_child_bounded(
                         &window,
@@ -489,8 +501,7 @@ impl SystemRuntimeExecutor {
                     .3 = Some(surface_instance_id.clone());
                 {
                     let mut state = self.state()?;
-                    state.role_tabs.insert(role_id.clone(), tab.tab_id.clone());
-                    let runtime_tab = state.tabs.get_mut(&tab.tab_id).ok_or_else(|| {
+                    let runtime_tab = state.native_resources.tabs.get_mut(&tab.tab_id).ok_or_else(|| {
                         RuntimeError::new(
                             "SYSTEM_RUNTIME_TAB_RESERVATION_STALE",
                             "The provisional runtime tab disappeared before attachment completed.",
@@ -508,7 +519,6 @@ impl SystemRuntimeExecutor {
                             surface_instance_id: surface_instance_id.clone(),
                             webview: webview.clone(),
                             zoom_factor: base_zoom_factor,
-                            zoom_mode: role.zoom_mode.clone(),
                         },
                     );
                 }
@@ -549,7 +559,7 @@ impl SystemRuntimeExecutor {
                     !state.close_coordinator.closing_roles.contains(&role_id)
                         && !state.close_coordinator.quarantined_roles.contains(&role_id)
                         && state
-                            .tabs
+                            .native_resources.tabs
                             .get(&tab.tab_id)
                             .is_some_and(|runtime_tab| runtime_tab.roles.contains_key(&role_id))
                 };
@@ -564,7 +574,7 @@ impl SystemRuntimeExecutor {
                 navigation.reset();
                 if let Ok(mut state) = self.state()
                     && let Some(role_surface) = state
-                        .tabs
+                        .native_resources.tabs
                         .get_mut(&tab.tab_id)
                         .and_then(|runtime_tab| runtime_tab.roles.get_mut(&role_id))
                 {
@@ -601,38 +611,36 @@ impl SystemRuntimeExecutor {
                 };
                 let surface = {
                     let state = self.state()?;
-                    let runtime_tab = state.tabs.get(&tab.tab_id).ok_or_else(|| {
+                    let runtime_tab = state.native_resources.tabs.get(&tab.tab_id).ok_or_else(|| {
                         RuntimeError::new(
                             "TAURI_RUNTIME_TAB_NOT_FOUND",
                             "Runtime tab was not found after native attachment.",
                         )
                     })?;
                     if let Some(surface) = runtime_tab.roles.get(&slot.role.id) {
-                        Some((
-                            surface.webview.clone(),
-                            surface.zoom_factor,
-                            surface.zoom_mode == "adaptive",
-                        ))
+                        Some((surface.webview.clone(), surface.zoom_factor))
                     } else {
                         runtime_tab
                             .slots
                             .get(&slot.slot_id)
                             .and_then(|runtime_slot| runtime_slot.placeholder.as_ref())
                             .map(|placeholder| {
-                                (
-                                    placeholder.webview.clone(),
-                                    slot.zoom_factor.clamp(0.25, 3.0),
-                                    false,
-                                )
+                                (placeholder.webview.clone(), slot.zoom_factor.clamp(0.25, 3.0))
                             })
                     }
                 };
-                let Some((webview, current_zoom_factor, adaptive)) = surface else {
+                let Some((webview, projected_zoom_factor)) = surface else {
                     return Err(RuntimeError::new(
                         "TAURI_RUNTIME_ROLE_NOT_FOUND",
                         "Runtime role slot was not found after native attachment.",
                     ));
                 };
+                let (current_zoom_factor, adaptive) = self.runtime_role_zoom_contract(
+                    &target.window_id,
+                    &tab.tab_id,
+                    &slot.role.id,
+                    projected_zoom_factor,
+                );
                 let base_zoom_factor = if adaptive {
                     self.adaptive_zoom_factor(bounds.width, Some(current_zoom_factor))?
                 } else {
@@ -641,7 +649,7 @@ impl SystemRuntimeExecutor {
                 if adaptive
                     && let Ok(mut state) = self.state()
                     && let Some(surface) = state
-                        .tabs
+                        .native_resources.tabs
                         .get_mut(&tab.tab_id)
                         .and_then(|runtime_tab| runtime_tab.roles.get_mut(&slot.role.id))
                 {
@@ -741,11 +749,7 @@ impl SystemRuntimeExecutor {
                     .get(&created_tab_id)
                     == Some(&attempt_generation);
                 if attempt_is_current {
-                    state.tabs.remove(&created_tab_id);
-                    state.native_tab_hosts.remove(&created_tab_id);
-                    state
-                        .role_tabs
-                        .retain(|_, tab_id| tab_id != &created_tab_id);
+                    state.native_resources.tabs.remove(&created_tab_id);
                 }
                 if cleanup_error.is_none() && attempt_is_current {
                     // Verified cleanup also completes a concurrent provisional close.

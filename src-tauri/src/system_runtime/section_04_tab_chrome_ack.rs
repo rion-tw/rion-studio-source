@@ -154,7 +154,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<(), String> {
         let authorized = self.state.lock().ok().is_some_and(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .any(|host| host.tab_strip.label() == webview_label)
         });

@@ -4,7 +4,10 @@ fn embedded_launch_effects(
     roles: &[StateRoleRecord],
     _runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
 ) -> Vec<crate::operation_actor::OperationStep> {
-    let attempt_generation = uuid::Uuid::new_v4().to_string();
+    let attempt_generation = tab
+        .attempt_generation
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     tab.attempt_generation = Some(attempt_generation.clone());
     let zoom_factors = tab
         .roles

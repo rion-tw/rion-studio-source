@@ -33,7 +33,7 @@ impl SystemRuntimeExecutor {
         self.require_runtime_accepting()?;
         let window_generation = self
             .state()?
-            .display_hosts
+            .native_resources.display_hosts
             .get(source_window_id)
             .map(|host| host.generation)
             .ok_or_else(|| {

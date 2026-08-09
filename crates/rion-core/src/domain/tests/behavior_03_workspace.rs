@@ -38,11 +38,20 @@
                     &mut workspaces,
                     workspace_input(json!({
                         "name":"Invalid zoom",
-                        "slots":[{"roleId":"r3","browserZoomPercent":301}]
+                        "slots":[{"roleId":"r3","browserZoomPercent":501}]
                     }))
                 )
                 .is_err()
             );
+            let compatible = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Compatible legacy zoom",
+                    "slots":[{"roleId":"r5","browserZoomPercent":397.5}]
+                })),
+            )
+            .unwrap();
+            assert_eq!(compatible.slots[0].browser_zoom_percent, Some(397.5));
             assert!(
                 create_workspace(
                     &mut workspaces,

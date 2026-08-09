@@ -1,5 +1,7 @@
 import Sortable, { type SortableEvent } from "sortablejs";
 
+import { installWindowDragGesture } from "./windowDragGesture";
+
 export type RuntimeTabSortCommitStatus =
   | "applied"
   | "superseded"
@@ -34,6 +36,14 @@ type RuntimeTabSortGesture = {
   tabId: string;
 };
 
+type RuntimeTabMouseFallback = {
+  originActiveTabId?: string;
+  originOrder: string[];
+  startX: number;
+  startY: number;
+  tabId: string;
+};
+
 type RuntimeTabSortFence = {
   expectedOrder: string[];
   sessionId: string;
@@ -60,6 +70,7 @@ export function installRuntimeTabSorting(
   callbacks: RuntimeTabSortCallbacks
 ): RuntimeTabSortingController {
   let gesture: RuntimeTabSortGesture | undefined;
+  let mouseFallback: RuntimeTabMouseFallback | undefined;
   let fence: RuntimeTabSortFence | undefined;
   let latestAuthoritativeOrder = callbacks.tabIds();
   let latestAuthoritativeActiveTabId = callbacks.currentActiveTabId();
@@ -81,21 +92,10 @@ export function installRuntimeTabSorting(
       && event.clientY <= bounds.bottom;
   };
 
-  const finishGesture = (event: SortableEvent): void => {
-    document.removeEventListener("pointerup", recordPointerRelease, true);
-    const completed = gesture;
-    gesture = undefined;
-    root.classList.remove("runtime-tab-sort-active");
-    callbacks.scheduleOverflowUpdate();
-    if (!completed) return;
-
-    if (completed.releasedInside === false) {
-      callbacks.applyOrder(completed.originOrder, true);
-      callbacks.restoreActiveTab(completed.originActiveTabId);
-      return;
-    }
-
-    const finalOrder = callbacks.tabIds();
+  const commitCompletedOrder = (
+    completed: Pick<RuntimeTabSortGesture, "originActiveTabId" | "originOrder" | "sessionId" | "tabId">,
+    finalOrder: string[]
+  ): void => {
     if (ordersEqual(finalOrder, completed.originOrder)) return;
     const tabIndex = finalOrder.indexOf(completed.tabId);
     if (tabIndex < 0) {
@@ -126,6 +126,23 @@ export function installRuntimeTabSorting(
       restoreAuthoritativeState();
       callbacks.reportFailure("invokeRejected");
     });
+  };
+
+  const finishGesture = (event: SortableEvent): void => {
+    document.removeEventListener("pointerup", recordPointerRelease, true);
+    const completed = gesture;
+    gesture = undefined;
+    root.classList.remove("runtime-tab-sort-active");
+    callbacks.scheduleOverflowUpdate();
+    if (!completed) return;
+
+    if (completed.releasedInside === false) {
+      callbacks.applyOrder(completed.originOrder, true);
+      callbacks.restoreActiveTab(completed.originActiveTabId);
+      return;
+    }
+
+    commitCompletedOrder(completed, callbacks.tabIds());
 
     void event;
   };
@@ -173,15 +190,80 @@ export function installRuntimeTabSorting(
     swapThreshold: 0.65
   });
 
+  const clearMouseFallback = (): void => {
+    mouseFallback = undefined;
+    document.removeEventListener("mouseup", finishMouseFallback, true);
+  };
+
+  function finishMouseFallback(event: MouseEvent): void {
+    const pending = mouseFallback;
+    if (!pending) return;
+    clearMouseFallback();
+    if (gesture) return;
+    const bounds = root.getBoundingClientRect();
+    const releasedInside = event.clientX >= bounds.left && event.clientX <= bounds.right
+      && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    const moved = Math.max(
+      Math.abs(event.clientX - pending.startX),
+      Math.abs(event.clientY - pending.startY)
+    ) >= 4;
+    if (!releasedInside || !moved) return;
+
+    const remainingTabIds = pending.originOrder.filter((tabId) => tabId !== pending.tabId);
+    const candidates = Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
+    const beforeTabId = remainingTabIds.find((tabId) => {
+      const candidate = candidates.find((button) => button.dataset.tabId === tabId);
+      if (!candidate) return false;
+      const candidateBounds = candidate.getBoundingClientRect();
+      return event.clientX < candidateBounds.left + candidateBounds.width / 2;
+    });
+    const insertionIndex = beforeTabId ? remainingTabIds.indexOf(beforeTabId) : remainingTabIds.length;
+    const finalOrder = [...remainingTabIds];
+    finalOrder.splice(insertionIndex, 0, pending.tabId);
+    if (ordersEqual(finalOrder, pending.originOrder)) return;
+
+    event.preventDefault();
+    callbacks.activateTab(pending.tabId);
+    callbacks.applyOrder(finalOrder, true);
+    callbacks.scheduleOverflowUpdate();
+    commitCompletedOrder({
+      originActiveTabId: pending.originActiveTabId,
+      originOrder: pending.originOrder,
+      sessionId: crypto.randomUUID(),
+      tabId: pending.tabId
+    }, finalOrder);
+  }
+
   root.addEventListener("mousedown", (event) => {
-    if (event.button !== 0 || callbacks.tabIds().length !== 1
+    if (event.button !== 0 || callbacks.tabIds().length <= 1
       || callbacks.isWindowFullscreen()) return;
     const target = event.target;
     if (!(target instanceof Element) || target.closest(".close")) return;
     const tab = target.closest<HTMLButtonElement>("button.tab");
-    if (!tab || !root.contains(tab)) return;
-    event.preventDefault();
-    callbacks.startWindowDrag();
+    const tabId = tab?.dataset.tabId;
+    if (!tab || !tabId || !root.contains(tab)) return;
+    clearMouseFallback();
+    mouseFallback = {
+      originActiveTabId: callbacks.currentActiveTabId(),
+      originOrder: callbacks.tabIds(),
+      startX: event.clientX,
+      startY: event.clientY,
+      tabId
+    };
+    document.addEventListener("mouseup", finishMouseFallback, true);
+  });
+
+  installWindowDragGesture({
+    canStart: (event) => {
+      if (event.button !== 0 || event.detail !== 1 || callbacks.tabIds().length !== 1
+        || callbacks.isWindowFullscreen()) return false;
+      const target = event.target;
+      if (!(target instanceof Element) || target.closest(".close")) return false;
+      const tab = target.closest<HTMLButtonElement>("button.tab");
+      return Boolean(tab && root.contains(tab));
+    },
+    onStart: callbacks.startWindowDrag,
+    target: root
   });
 
   const syncAvailability = (): void => {

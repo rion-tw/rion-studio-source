@@ -511,6 +511,15 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         trigger: &'static str,
     ) -> Result<(u64, String), String> {
+        self.reconcile_window_presentation_with_visibility(window_id, trigger, None)
+    }
+
+    fn reconcile_window_presentation_with_visibility(
+        &self,
+        window_id: &str,
+        trigger: &'static str,
+        window_visibility: Option<bool>,
+    ) -> Result<(u64, String), String> {
         let requested_at = Instant::now();
         let window = self
             .window_for_id(window_id)
@@ -535,7 +544,7 @@ impl SystemRuntimeExecutor {
             Vec::new(),
             next_surfaces,
             active_webview,
-            None,
+            window_visibility,
             NativePresentationFocus::None,
             None,
         );

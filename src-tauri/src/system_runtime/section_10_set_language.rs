@@ -183,7 +183,6 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    #[cfg(windows)]
     pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
         let tab_id = self.state.lock().ok().and_then(|state| {
             let popup_role_id = state.popup_roles.get(webview_label);

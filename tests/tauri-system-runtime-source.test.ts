@@ -655,7 +655,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(windowsStrip).toContain("runtimeTabReorderBarrier.then(invokeAction)");
     expect(windowsStrip).toContain("revertOnSpill: true");
     expect(windowsStrip).toContain('sortable.option("disabled", callbacks.tabIds().length <= 1)');
-    expect(windowsStrip).toContain('callbacks.startWindowDrag()');
+    expect(windowsStrip).toContain('onStart: callbacks.startWindowDrag');
     expect(windowsStrip).toContain("button.draggable = false");
     expect(windowsStrip).not.toContain("dataTransfer.getData(");
     expect(windowsStrip).not.toContain('addEventListener("dragover"');
@@ -821,6 +821,9 @@ it("retains the live destination when native surface projection fails", async ()
     const reparentSyncPhase = move.indexOf("synchronize_windows_reparented_surfaces(");
     const membershipApply = move.indexOf("follow_live_projection_membership()");
     const revealPhase = move.indexOf("let reveal_result");
+    const targetReconcile = move.indexOf(
+      "reconcile_window_presentation_with_visibility("
+    );
     expect(sourceProjection).toBeGreaterThan(-1);
     expect(sourceReceipt).toBeGreaterThan(sourceProjection);
     expect(reparentPhase).toBeGreaterThan(sourceReceipt);
@@ -828,6 +831,10 @@ it("retains the live destination when native surface projection fails", async ()
     expect(move).not.toContain("tab.window_id = target_window_id.to_owned()");
     expect(membershipApply).toBeGreaterThan(reparentSyncPhase);
     expect(revealPhase).toBeGreaterThan(membershipApply);
+    expect(targetReconcile).toBeGreaterThan(revealPhase);
+    expect(move).not.toContain(
+      "request_tab_presentation_with_window_visibility(\n                    tab_id"
+    );
     expect(move).not.toContain("self.relocate_native_tab_reservation(");
     expect(move).not.toContain("commit_live_topology(");
     expect(move).not.toContain("presentation.move_tab(");

@@ -375,6 +375,10 @@
             Some(ApplicationShortcutCommand::NewGameWindow)
         );
         assert_eq!(
+            windows_application_shortcut_command(0x51, true, false, false, false, false),
+            Some(ApplicationShortcutCommand::QuitApplication)
+        );
+        assert_eq!(
             windows_application_shortcut_command(0x7A, false, false, false, false, false),
             Some(ApplicationShortcutCommand::ToggleFullscreen)
         );
@@ -384,6 +388,10 @@
         );
         assert_eq!(
             windows_application_shortcut_command(0x4E, true, false, false, false, true),
+            None
+        );
+        assert_eq!(
+            windows_application_shortcut_command(0x51, true, false, false, false, true),
             None
         );
         assert_eq!(

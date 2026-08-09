@@ -50,7 +50,7 @@ pub fn run() {
                 let mica_enabled = app
                     .get_webview_window("main")
                     .is_some_and(|window| {
-                        system_runtime::apply_windows_mica_to_main_window(&window)
+                        system_runtime::apply_windows_main_window_material(&window)
                     });
                 startup.set_windows_mica_enabled(mica_enabled);
             }
@@ -321,6 +321,14 @@ pub fn run() {
             });
             if let Some(state) = app.try_state::<CoreState>() {
                 application_menu::install(app.handle(), &state.core, "en")?;
+            }
+            #[cfg(windows)]
+            if let Some(main) = app.get_webview_window("main") {
+                system_runtime::install_windows_main_application_shortcut_handler(
+                    &main,
+                    app.handle().clone(),
+                )
+                .map_err(|error| std::io::Error::other(error.message))?;
             }
             start_display_watcher(app.handle().clone())?;
             let ready_app = app.handle().clone();

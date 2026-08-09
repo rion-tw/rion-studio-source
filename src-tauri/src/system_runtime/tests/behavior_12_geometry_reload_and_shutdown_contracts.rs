@@ -1,3 +1,43 @@
+#[cfg(windows)]
+use std::cell::RefCell;
+#[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{SIZE_MINIMIZED, SWP_NOCOPYBITS};
+
+#[cfg(windows)]
+#[test]
+fn windows_live_resize_contract_is_reachable_from_system_runtime_parent() {
+    let mut counters = WindowsLiveResizeCounters::default();
+    counters.record_native_resize_applied();
+    counters.record_parent_position(2, 1);
+
+    let bounds = WindowsLiveResizeBounds {
+        height: 720,
+        width: 1_280,
+        x: 0,
+        y: 0,
+    };
+    let receipt = WindowsGeometryReceipt {
+        key: WindowsGeometryKey {
+            dpi: 144,
+            frame_revision: 7,
+            generation: 3,
+            height: bounds.height as u32,
+            plan_revision: 5,
+            presentation: WindowsGeometryPresentation::Restored,
+            width: bounds.width as u32,
+        },
+        status: WindowsGeometryStatus::Applied,
+        terminal: true,
+    };
+
+    assert_eq!(counters.applied, 1);
+    assert_eq!(counters.parent_position_applied, 2);
+    assert_eq!(counters.parent_position_errors, 1);
+    assert_eq!(receipt.key.generation, 3);
+    assert_eq!(receipt.key.width, 1_280);
+    assert!(receipt.terminal);
+}
+
 #[test]
 fn geometry_receipts_keep_readback_and_submission_scopes_distinct_on_both_platforms() {
     for platform in ["macos", "windows"] {
@@ -267,7 +307,63 @@ fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
         ],
         tab_strip_height: 44.0,
         tab_strip_label: "tabs".to_owned(),
+        window_draggable: true,
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_native_drag_handle_is_dpi_aware_and_half_open() {
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let width = (36.0_f64 * scale).round() as i32;
+        let height = (44.0_f64 * scale).round() as i32;
+        let border = (8.0_f64 * scale).round() as i32;
+        assert!(windows_live_resize_native_drag_handle_contains(
+            border,
+            border,
+            scale,
+            44.0,
+            36.0,
+        ));
+        assert!(!windows_live_resize_native_drag_handle_contains(
+            border - 1,
+            border,
+            scale,
+            44.0,
+            36.0,
+        ));
+        assert!(!windows_live_resize_native_drag_handle_contains(
+            border,
+            border - 1,
+            scale,
+            44.0,
+            36.0,
+        ));
+        assert!(windows_live_resize_native_drag_handle_contains(
+            width - 1,
+            height - 1,
+            scale,
+            44.0,
+            36.0,
+        ));
+        assert!(!windows_live_resize_native_drag_handle_contains(
+            width,
+            height - 1,
+            scale,
+            44.0,
+            36.0,
+        ));
+        assert!(!windows_live_resize_native_drag_handle_contains(
+            width - 1,
+            height,
+            scale,
+            44.0,
+            36.0,
+        ));
+    }
+    assert!(!windows_live_resize_native_drag_handle_contains(
+        0, 0, 0.0, 44.0, 36.0,
+    ));
 }
 
 #[cfg(windows)]
@@ -286,7 +382,9 @@ fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {
         let [tab_strip, left, right, divider] = bounds.as_slice() else {
             panic!("expected tab strip, two roles, and one divider");
         };
-        assert_eq!(tab_strip.width, physical_width as i32);
+        let expected_drag_handle = (36.0_f64 * scale).round() as i32;
+        assert_eq!(tab_strip.x, expected_drag_handle);
+        assert_eq!(tab_strip.x + tab_strip.width, physical_width as i32);
         assert_eq!(tab_strip.y + tab_strip.height, left.y);
         assert_eq!(left.y, right.y);
         assert_eq!(left.height, right.height);

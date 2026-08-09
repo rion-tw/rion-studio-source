@@ -1,9 +1,9 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::system_runtime) struct WindowsLiveResizeBounds {
-    height: i32,
-    width: i32,
-    x: i32,
-    y: i32,
+    pub(in crate::system_runtime) height: i32,
+    pub(in crate::system_runtime) width: i32,
+    pub(in crate::system_runtime) x: i32,
+    pub(in crate::system_runtime) y: i32,
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
@@ -18,6 +18,15 @@ pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
     let logical_width = (f64::from(physical_width) / scale).round().max(1.0) as i32;
     let logical_height = (f64::from(physical_height) / scale).round().max(1.0) as i32;
     let tab_height = plan.tab_strip_height.round().clamp(1.0, f64::from(logical_height)) as i32;
+    let drag_handle_width = if plan.window_draggable {
+        windows_live_resize_edge(
+            WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL.round() as i32,
+            scale,
+            physical_width.saturating_sub(1) as i32,
+        )
+    } else {
+        0
+    };
     let role_inputs = plan
         .roles
         .iter()
@@ -48,8 +57,8 @@ pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
     let mut bounds = Vec::with_capacity(1 + output.roles.len() + output.dividers.len());
     bounds.push(WindowsLiveResizeBounds {
         height: windows_live_resize_edge(tab_height, scale, physical_height as i32),
-        width: physical_width.max(1) as i32,
-        x: 0,
+        width: (physical_width as i32 - drag_handle_width).max(1),
+        x: drag_handle_width,
         y: 0,
     });
     for role in &plan.roles {

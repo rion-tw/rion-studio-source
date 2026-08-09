@@ -237,7 +237,12 @@ describe("shell-neutral macro overlay runtime", () => {
       key: "Tab"
     });
     window.dispatchEvent(runtimeShortcut);
-    expect(runtimeShortcut.defaultPrevented).toBe(false);
+    expect(runtimeShortcut.defaultPrevented).toBe(true);
+    await vi.waitFor(() => expect(requests).toContainEqual({
+      type: "runtime-tab-shortcut",
+      direction: "next",
+      modifierCodes: ["ControlLeft"]
+    }));
   });
 
   it("replays changed iterations and refreshes completion, click, locale, position, and open state", async () => {

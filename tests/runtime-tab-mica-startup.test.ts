@@ -102,6 +102,15 @@ describe.each([
     }).action.ready;
     expect(ready).toMatchObject(identity);
 
+    window.__rionAnnounceRuntimeTabChromeReady?.();
+    const readyCalls = invoke.mock.calls.filter(([, payload]) =>
+      (payload as { action?: { type?: string } }).action?.type === "tabChromeReady"
+    );
+    expect(readyCalls).toHaveLength(2);
+    expect((readyCalls[1]?.[1] as {
+      action: { ready: RuntimeTabChromeReadyRecord };
+    }).action.ready).toEqual(ready);
+
     window.__rionApplyRuntimeTabChromeProjection?.(projection(ready.rendererInstanceId));
 
     expect(document.querySelector('[data-tab-id="pending-tab"]')).not.toBeNull();

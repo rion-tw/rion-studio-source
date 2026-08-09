@@ -49,6 +49,8 @@ import {
   type RuntimeTabSortingController
 } from "./localSorting";
 
+import { installWindowDragGesture } from "./windowDragGesture";
+
 import {
   acknowledgeChromeProjection,
   announceChromeReady,
@@ -538,23 +540,31 @@ export function installRuntimeTabStrip(): void {
     for (const tab of tabs) window.__rionUpdateRuntimeTabMetadata?.(tab);
   };
 
-  window.__rionRuntimeTabChromeReady = true;
-  announceChromeReady(
-    runtimeState.rendererInstanceId,
-    window.__rionRuntimeTabChromeIdentity
-  );
-
-  const handleWindowDragMouseDown = (event: MouseEvent): void => {
-    if (event.button !== 0 || runtimeState.current?.windowFullscreen) return;
-    event.preventDefault();
-    if (event.detail === 1) {
-      dispatch({ type: "startWindowDrag" });
-    } else if (event.detail === 2) {
-      dispatch({ type: "windowControl", control: "zoom" });
-    }
+  window.__rionAnnounceRuntimeTabChromeReady = () => {
+    announceChromeReady(
+      runtimeState.rendererInstanceId,
+      window.__rionRuntimeTabChromeIdentity
+    );
   };
-  windowIdentity.addEventListener("mousedown", handleWindowDragMouseDown);
-  windowDragRegion.addEventListener("mousedown", handleWindowDragMouseDown);
+  window.__rionRuntimeTabChromeReady = true;
+  window.__rionAnnounceRuntimeTabChromeReady();
+
+  const installChromeWindowDrag = (target: HTMLElement): void => {
+    installWindowDragGesture({
+      canStart: (event) => event.button === 0
+        && event.detail === 1
+        && !runtimeState.current?.windowFullscreen,
+      onStart: () => dispatch({ type: "startWindowDrag" }),
+      target
+    });
+    target.addEventListener("dblclick", (event) => {
+      if (event.button !== 0 || runtimeState.current?.windowFullscreen) return;
+      event.preventDefault();
+      dispatch({ type: "windowControl", control: "zoom" });
+    });
+  };
+  installChromeWindowDrag(windowIdentity);
+  installChromeWindowDrag(windowDragRegion);
   windowMinimizeButton.addEventListener("click", () => {
     dispatch({ type: "windowControl", control: "minimize" });
   });

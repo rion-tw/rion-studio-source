@@ -872,6 +872,10 @@ impl SystemRuntimeExecutor {
             role_ids.iter().for_each(|role_id| {
                 state.close_coordinator.closing_roles.remove(role_id);
             });
+            drop(state);
+            for released in &released_roles {
+                self.refresh_role_placeholders(&released.role_id, None)?;
+            }
             Ok(())
         }
         .await;

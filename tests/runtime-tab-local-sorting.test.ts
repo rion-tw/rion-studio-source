@@ -40,6 +40,10 @@ function pointerUp(clientX: number, clientY: number): void {
   document.dispatchEvent(new MouseEvent("pointerup", { clientX, clientY }));
 }
 
+function mouseUp(clientX: number, clientY: number): void {
+  document.dispatchEvent(new MouseEvent("mouseup", { clientX, clientY }));
+}
+
 function setup(tabIds = ["tab-1", "tab-2", "tab-3"], fullscreen = false) {
   document.body.innerHTML = '<div id="tabs"></div>';
   const root = document.querySelector<HTMLDivElement>("#tabs")!;
@@ -47,6 +51,15 @@ function setup(tabIds = ["tab-1", "tab-2", "tab-3"], fullscreen = false) {
   Object.defineProperty(root, "getBoundingClientRect", {
     configurable: true,
     value: () => new DOMRect(0, 0, 500, 30)
+  });
+  root.querySelectorAll<HTMLButtonElement>(".tab").forEach((button) => {
+    Object.defineProperty(button, "getBoundingClientRect", {
+      configurable: true,
+      value: () => {
+        const index = Array.from(root.querySelectorAll(".tab")).indexOf(button);
+        return new DOMRect(index * 100, 0, 100, 30);
+      }
+    });
   });
   let activeTabId: string | undefined = tabIds[0];
   let commitStatus: RuntimeTabSortCommitStatus | undefined = "applied";
@@ -129,12 +142,26 @@ describe("Windows local runtime tab sorting", () => {
     });
   });
 
-  it("disables sorting for one tab and delegates its primary press to native window dragging", () => {
+  it("disables sorting for one tab and delegates only an intentional drag to the native window", () => {
     const { root, startWindowDrag } = setup(["tab-1"]);
     const onlyTab = root.querySelector<HTMLButtonElement>(".tab")!;
 
     expect(option).toHaveBeenLastCalledWith("disabled", true);
-    onlyTab.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    onlyTab.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      buttons: 1,
+      clientX: 10,
+      clientY: 10,
+      detail: 1
+    }));
+    expect(startWindowDrag).not.toHaveBeenCalled();
+    document.dispatchEvent(new MouseEvent("mousemove", {
+      bubbles: true,
+      buttons: 1,
+      clientX: 20,
+      clientY: 10
+    }));
     expect(startWindowDrag).toHaveBeenCalledOnce();
     expect(root.querySelectorAll(".tab")).toHaveLength(1);
 
@@ -182,6 +209,26 @@ describe("Windows local runtime tab sorting", () => {
     expect(activateTab).toHaveBeenCalledWith("tab-1");
     expect(commit).toHaveBeenCalledOnce();
     expect(commit).toHaveBeenCalledWith({ beforeTabId: "tab-3", tabId: "tab-1" });
+  });
+
+  it("commits a low-sample native pointer drag that releases before Sortable starts", async () => {
+    const { activateTab, commit, root } = setup();
+    const dragged = root.querySelector<HTMLButtonElement>('[data-tab-id="tab-3"]')!;
+
+    dragged.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 0,
+      clientX: 250,
+      clientY: 15
+    }));
+    mouseUp(20, 15);
+    await Promise.resolve();
+
+    expect(activateTab).toHaveBeenCalledWith("tab-3");
+    expect(Array.from(root.querySelectorAll<HTMLButtonElement>(".tab"))
+      .map((button) => button.dataset.tabId)).toEqual(["tab-3", "tab-1", "tab-2"]);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith({ beforeTabId: "tab-1", tabId: "tab-3" });
   });
 
   it("does not commit an unchanged order", async () => {

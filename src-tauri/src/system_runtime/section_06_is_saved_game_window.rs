@@ -547,6 +547,7 @@ impl SystemRuntimeExecutor {
                 "completed",
                 Instant::now(),
             );
+            self.publish_projection();
         }
     }
 

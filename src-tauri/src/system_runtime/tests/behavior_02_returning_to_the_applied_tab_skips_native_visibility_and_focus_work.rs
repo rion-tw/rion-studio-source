@@ -154,6 +154,23 @@
             ),
         );
         assert!(maximize_contract.requires_ui_thread);
+
+        let reparent_into_new_hidden_host = native_presentation_mutation_plan(
+            &None,
+            &tab,
+            &HashSet::new(),
+            &identities,
+            NativeWindowPresentationTransition::new(
+                None,
+                Some(true),
+                None,
+                NativePresentationFocus::None,
+            ),
+        );
+        assert!(reparent_into_new_hidden_host.requires_ui_thread);
+        assert!(reparent_into_new_hidden_host.presentation_changed);
+        assert!(!reparent_into_new_hidden_host.apply_content_focus);
+        assert!(!reparent_into_new_hidden_host.apply_window_focus);
     }
 
     #[test]

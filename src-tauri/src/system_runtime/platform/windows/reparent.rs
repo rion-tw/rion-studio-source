@@ -235,7 +235,7 @@ pub(in crate::system_runtime) fn synchronize_windows_reparented_surfaces(
 #[cfg(windows)]
 impl SystemRuntimeExecutor {
     #[allow(clippy::too_many_arguments)]
-    fn record_windows_reparent_sync_event(
+    pub(in crate::system_runtime) fn record_windows_reparent_sync_event(
         &self,
         event: &'static str,
         message: &'static str,

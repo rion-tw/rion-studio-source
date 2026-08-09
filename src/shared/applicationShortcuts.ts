@@ -24,6 +24,9 @@ export function applicationShortcutForKeyEvent(
   if (event.code === "KeyN") {
     return !event.shiftKey && !event.repeat ? "newGameWindow" : undefined;
   }
+  if (event.code === "KeyQ") {
+    return !event.shiftKey && !event.repeat ? "quitApplication" : undefined;
+  }
   if ((event.code === "Digit0" || event.code === "Numpad0") && !event.shiftKey) {
     return "zoomReset";
   }

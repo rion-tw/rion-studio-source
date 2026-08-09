@@ -123,7 +123,7 @@ pub(in crate::system_runtime) fn install_platform_security_policy(webview: &Webv
 }
 
 #[cfg(windows)]
-pub(in crate::system_runtime) fn dispatch_runtime_tab_shortcut(
+pub(crate) fn dispatch_runtime_tab_shortcut(
     app: &AppHandle,
     webview_label: &str,
     direction: &str,
@@ -173,7 +173,100 @@ pub(in crate::system_runtime) fn dispatch_runtime_tab_shortcut(
 }
 
 #[cfg(windows)]
-pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &Webview, app: AppHandle) -> RuntimeResult<()> {
+#[derive(Clone)]
+enum WindowsApplicationShortcutTarget {
+    MainWindow,
+    RoleWebview(String),
+}
+
+#[cfg(windows)]
+fn defer_windows_application_shortcut(
+    app: AppHandle,
+    target: WindowsApplicationShortcutTarget,
+    command: crate::application_menu::ApplicationShortcutCommand,
+) {
+    let task_app = app.clone();
+    let scheduling_app = app.clone();
+    let scheduling = app.run_on_main_thread(move || {
+        let result = task_app
+            .try_state::<crate::CoreState>()
+            .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
+            .and_then(|state| match target {
+                WindowsApplicationShortcutTarget::MainWindow => {
+                    let main = task_app.get_webview_window("main").ok_or_else(|| {
+                        "The Rion Studio main window is unavailable.".to_owned()
+                    })?;
+                    crate::application_menu::execute_shortcut(
+                        &task_app,
+                        &state,
+                        command,
+                        crate::application_menu::ApplicationShortcutTarget::MainWindow(&main),
+                    )
+                }
+                WindowsApplicationShortcutTarget::RoleWebview(shortcut_label) => {
+                    crate::application_menu::execute_shortcut(
+                        &task_app,
+                        &state,
+                        command,
+                        crate::application_menu::ApplicationShortcutTarget::RoleWebview(
+                            &shortcut_label,
+                        ),
+                    )
+                }
+            });
+        if let Err(message) = result {
+            let _ = task_app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "TAURI_APPLICATION_SHORTCUT_FAILED",
+                    "message": message
+                }),
+            );
+        }
+    });
+    if let Err(error) = scheduling {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = scheduling_app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "TAURI_APPLICATION_SHORTCUT_SCHEDULING_FAILED",
+                    "message": error.to_string()
+                }),
+            );
+        });
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn install_main_application_shortcut_handler(
+    webview: &Webview,
+    app: AppHandle,
+) -> RuntimeResult<()> {
+    install_windows_application_shortcut_handler(
+        webview,
+        app,
+        WindowsApplicationShortcutTarget::MainWindow,
+    )
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
+    webview: &Webview,
+    app: AppHandle,
+) -> RuntimeResult<()> {
+    install_windows_application_shortcut_handler(
+        webview,
+        app,
+        WindowsApplicationShortcutTarget::RoleWebview(webview.label().to_owned()),
+    )
+}
+
+#[cfg(windows)]
+fn install_windows_application_shortcut_handler(
+    webview: &Webview,
+    app: AppHandle,
+    target: WindowsApplicationShortcutTarget,
+) -> RuntimeResult<()> {
     use webview2_com::{
         AcceleratorKeyPressedEventHandler,
         Microsoft::Web::WebView2::Win32::{
@@ -186,12 +279,11 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &We
         VK_RWIN, VK_SHIFT,
     };
 
-    let webview_label = webview.label().to_owned();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
             let shortcut_app = app.clone();
-            let shortcut_label = webview_label.clone();
+            let shortcut_target = target.clone();
             let handler =
                 AcceleratorKeyPressedEventHandler::create(Box::new(move |_controller, args| {
                     let Some(args) = args else {
@@ -216,6 +308,11 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &We
                     let meta = pressed(VK_LWIN.0) || pressed(VK_RWIN.0);
                     let shift = pressed(VK_SHIFT.0);
                     if virtual_key == 0x09 && control && !alt && !meta {
+                        let WindowsApplicationShortcutTarget::RoleWebview(shortcut_label) =
+                            &shortcut_target
+                        else {
+                            return Ok(());
+                        };
                         args.SetHandled(true)?;
                         let modifier_codes = windows_shortcut_modifier_codes(
                             pressed(VK_LCONTROL.0),
@@ -226,7 +323,7 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &We
                         );
                         dispatch_runtime_tab_shortcut(
                             &shortcut_app,
-                            &shortcut_label,
+                            shortcut_label,
                             if shift { "previous" } else { "next" },
                             modifier_codes,
                         );
@@ -244,28 +341,11 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(webview: &We
                         return Ok(());
                     };
                     args.SetHandled(true)?;
-                    let result = shortcut_app
-                        .try_state::<crate::CoreState>()
-                        .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
-                        .and_then(|state| {
-                            crate::application_menu::execute_shortcut(
-                                &shortcut_app,
-                                &state,
-                                command,
-                                crate::application_menu::ApplicationShortcutTarget::RoleWebview(
-                                    &shortcut_label,
-                                ),
-                            )
-                        });
-                    if let Err(message) = result {
-                        let _ = shortcut_app.emit(
-                            "rion://shell-error",
-                            json!({
-                                "code": "TAURI_APPLICATION_SHORTCUT_FAILED",
-                                "message": message
-                            }),
-                        );
-                    }
+                    defer_windows_application_shortcut(
+                        shortcut_app.clone(),
+                        shortcut_target.clone(),
+                        command,
+                    );
                     Ok(())
                 }));
             let mut token = 0;

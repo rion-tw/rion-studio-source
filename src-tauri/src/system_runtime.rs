@@ -118,8 +118,23 @@ mod platform;
 use platform::macos::*;
 #[cfg(not(any(windows, target_os = "macos")))]
 use platform::unsupported::*;
+#[cfg(windows)]
+pub(crate) use platform::windows::dispatch_runtime_tab_shortcut;
 #[cfg(any(windows, test))]
 use platform::windows::*;
+
+#[cfg(windows)]
+pub(crate) fn apply_windows_main_window_material(window: &tauri::WebviewWindow) -> bool {
+    platform::windows::apply_windows_mica_to_main_window(window)
+}
+
+#[cfg(windows)]
+pub(crate) fn install_windows_main_application_shortcut_handler(
+    window: &tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<(), RuntimeError> {
+    platform::windows::install_main_application_shortcut_handler(window.as_ref(), app)
+}
 
 #[cfg(test)]
 mod tests;

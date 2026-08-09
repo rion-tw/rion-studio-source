@@ -1,8 +1,14 @@
 fn live_window_activation_available(
-    live_tab_count: Option<usize>,
+    presented_tab_count: Option<usize>,
+    native_tab_count: usize,
     empty_host_available: bool,
+    launch_or_restore_pending: bool,
 ) -> bool {
-    live_tab_count.is_some_and(|tab_count| tab_count > 0 || empty_host_available)
+    presented_tab_count.is_some_and(|tab_count| {
+        native_tab_count > 0
+            || launch_or_restore_pending
+            || (tab_count == 0 && empty_host_available)
+    })
 }
 
 impl SystemRuntimeExecutor {
@@ -80,16 +86,36 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         trigger: &'static str,
     ) -> Result<bool, String> {
-        let live_tab_count = self
+        let presented_tab_ids = self
             .presentation
             .existing(window_id)
-            .map(|live| live.all_tab_ids().len());
+            .map(|live| live.all_tab_ids());
         let window = {
             let mut state = self.state().map_err(|error| error.message)?;
             let empty_host_available = state.native_resources.display_hosts.contains_key(window_id)
                 && !state.retiring_window_revisions.contains_key(window_id)
                 && !state.quarantined_window_hosts.contains(window_id);
-            if !live_window_activation_available(live_tab_count, empty_host_available) {
+            let native_tab_count = presented_tab_ids
+                .as_ref()
+                .map(|tab_ids| {
+                    tab_ids
+                        .iter()
+                        .filter(|tab_id| state.native_resources.tabs.contains_key(*tab_id))
+                        .count()
+                })
+                .unwrap_or_default();
+            let launch_or_restore_pending = state
+                .pending_window_tab_restores
+                .contains_key(window_id)
+                || state.provisional_launches.values().any(|launch| {
+                    launch.window_id == window_id && !launch.cancelled && !launch.failed
+                });
+            if !live_window_activation_available(
+                presented_tab_ids.as_ref().map(Vec::len),
+                native_tab_count,
+                empty_host_available,
+                launch_or_restore_pending,
+            ) {
                 return Ok(false);
             }
             state.tab_drag_cursor_leases.remove(window_id);
@@ -121,7 +147,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .map(|live| live.all_tab_ids().len());
-        if !live_window_activation_available(live_tab_count, false) {
+        if !live_tab_count.is_some_and(|tab_count| tab_count > 0) {
             return Ok(false);
         }
         self.request_window_contract_presentation(

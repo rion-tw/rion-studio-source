@@ -453,6 +453,10 @@ fn windows_application_shortcut_command(
         return (control && !alt && !meta && !shift && !repeat)
             .then_some(ApplicationShortcutCommand::NewGameWindow);
     }
+    if virtual_key == 0x51 {
+        return (control && !alt && !meta && !shift && !repeat)
+            .then_some(ApplicationShortcutCommand::QuitApplication);
+    }
     windows_role_zoom_action(virtual_key, control, alt, meta, shift).map(|action| match action {
         "in" => ApplicationShortcutCommand::ZoomIn,
         "out" => ApplicationShortcutCommand::ZoomOut,

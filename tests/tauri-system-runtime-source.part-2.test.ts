@@ -425,6 +425,12 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("__rionAnnounceRuntimeTabChromeReady?.();");
     expect(runtime).toContain("tab_chrome_bootstrap_failed");
     expect(runtime).toContain("retire_failed_windows_tab_chrome_host(");
+    expect(runtime).toContain(
+      "#[cfg(windows)]\n            let tab_chrome_bootstrap_failed"
+    );
+    expect(runtime).toContain(
+      "#[cfg(windows)]\n            if tab_chrome_bootstrap_failed"
+    );
     expect(runtime).toContain("retiring_native_window_hosts");
     const createTabStart = runtime.indexOf("fn create_tab(");
     const createTab = runtime.slice(createTabStart, createTabStart + 45_000);

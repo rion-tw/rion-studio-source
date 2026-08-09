@@ -686,6 +686,7 @@ impl SystemRuntimeExecutor {
         })();
         self.finish_restored_tab_creation(&target.window_id, &created_tab_id, result.is_ok());
         if result.is_err() {
+            #[cfg(windows)]
             let tab_chrome_bootstrap_failed = result.as_ref().err().is_some_and(|error| {
                 error.code == "WINDOWS_TAB_CHROME_BOOTSTRAP_TIMEOUT"
             });
@@ -800,6 +801,7 @@ impl SystemRuntimeExecutor {
             if let Some(tombstone) = completed_tombstone.as_ref() {
                 self.record_tab_close_tombstone_resolution(&created_tab_id, tombstone, true);
             }
+            #[cfg(windows)]
             if tab_chrome_bootstrap_failed {
                 // This failure means the host chrome itself never became authoritative. Once
                 // the failed tab's native resources are gone, retire an otherwise empty host so

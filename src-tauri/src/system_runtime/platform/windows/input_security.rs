@@ -123,7 +123,37 @@ pub(in crate::system_runtime) fn install_platform_security_policy(webview: &Webv
 }
 
 #[cfg(windows)]
-pub(crate) fn dispatch_runtime_tab_shortcut(
+pub(crate) fn defer_runtime_tab_shortcut(
+    app: AppHandle,
+    webview_label: String,
+    direction: String,
+    modifier_codes: Vec<String>,
+) {
+    let scheduling_app = app.clone();
+    let task_app = app.clone();
+    let scheduling = app.run_on_main_thread(move || {
+        execute_runtime_tab_shortcut(
+            &task_app,
+            &webview_label,
+            &direction,
+            modifier_codes,
+        );
+    });
+    if let Err(error) = scheduling {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = scheduling_app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "TAURI_RUNTIME_TAB_SHORTCUT_SCHEDULING_FAILED",
+                    "message": error.to_string()
+                }),
+            );
+        });
+    }
+}
+
+#[cfg(windows)]
+fn execute_runtime_tab_shortcut(
     app: &AppHandle,
     webview_label: &str,
     direction: &str,
@@ -321,10 +351,10 @@ fn install_windows_application_shortcut_handler(
                             pressed(VK_LSHIFT.0),
                             pressed(VK_RSHIFT.0),
                         );
-                        dispatch_runtime_tab_shortcut(
-                            &shortcut_app,
-                            shortcut_label,
-                            if shift { "previous" } else { "next" },
+                        defer_runtime_tab_shortcut(
+                            shortcut_app.clone(),
+                            shortcut_label.clone(),
+                            if shift { "previous" } else { "next" }.to_owned(),
                             modifier_codes,
                         );
                         return Ok(());

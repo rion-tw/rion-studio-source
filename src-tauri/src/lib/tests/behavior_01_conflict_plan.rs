@@ -19,6 +19,50 @@ use super::*;
     }
 
     #[test]
+    fn application_shutdown_has_one_worker_and_only_exits_after_it_terminalizes() {
+        for platform in ["darwin", "win32"] {
+            let shutdown = ApplicationShutdownCoordinator::default();
+            assert_eq!(
+                shutdown.request_exit(),
+                ApplicationExitRequest::StartShutdown,
+                "{platform}"
+            );
+            assert_eq!(
+                shutdown.request_exit(),
+                ApplicationExitRequest::WaitForShutdown,
+                "{platform}"
+            );
+
+            shutdown.mark_ready_to_exit();
+
+            assert_eq!(
+                shutdown.request_exit(),
+                ApplicationExitRequest::Exit,
+                "{platform}"
+            );
+        }
+    }
+
+    #[test]
+    fn irreversible_exit_never_starts_native_teardown_on_the_event_loop_thread() {
+        let run = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_09_run.rs"
+        ));
+        let exit_arm = run
+            .split_once("tauri::RunEvent::Exit =>")
+            .expect("run loop defines an irreversible Exit arm")
+            .1;
+        let exit_arm = exit_arm
+            .split_once("_ => {}")
+            .expect("Exit arm is followed by the fallback arm")
+            .0;
+
+        assert!(exit_arm.contains("state.core.shutdown();"));
+        assert!(!exit_arm.contains("runtime.close_all()"));
+    }
+
+    #[test]
     fn game_window_close_confirmation_is_limited_to_active_work() {
         for platform in ["darwin", "win32"] {
             let ordinary = GameWindowClosePreview {

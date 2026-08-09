@@ -97,8 +97,7 @@ async fn rion_shell_invoke(
             Ok(Value::Null)
         }
         "confirmApplicationQuit" => {
-            state.application_exit_guard.permit();
-            app.exit(0);
+            confirm_application_shutdown(&app, &state);
             Ok(Value::Null)
         }
         "requestCurrentWindowClose" => {

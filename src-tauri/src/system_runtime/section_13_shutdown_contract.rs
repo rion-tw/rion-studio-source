@@ -1,11 +1,4 @@
 impl SystemRuntimeExecutor {
-    pub(crate) fn shutdown_is_terminal(&self) -> bool {
-        matches!(
-            RuntimeShutdownState::from_raw(self.shutdown_state.load(Ordering::Acquire)),
-            RuntimeShutdownState::Closed | RuntimeShutdownState::Indeterminate
-        )
-    }
-
     pub fn close_all(&self) -> SystemRuntimeOperationSummaryRecord {
         let operation = self
             .shutdown_operation

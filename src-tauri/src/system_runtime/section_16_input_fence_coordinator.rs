@@ -9,12 +9,20 @@ impl SystemRuntimeExecutor {
             return false;
         }
         if should_release_macros_for_navigation(url) {
-            let controlled = self.state.lock().is_ok_and(|state| {
-                state
-                    .controlled_navigation_webviews
-                    .contains_key(webview_label)
-            });
-            if !controlled
+            let (controlled, role_closing) = self
+                .state
+                .lock()
+                .map(|state| {
+                    (
+                        state
+                            .controlled_navigation_webviews
+                            .contains_key(webview_label),
+                        state.close_coordinator.closing_roles.contains(role_id)
+                            || state.close_coordinator.quarantined_roles.contains(role_id),
+                    )
+                })
+                .unwrap_or((false, false));
+            if navigation_requires_input_fence(controlled, role_closing)
                 && let Err(error) = self.begin_navigation_input_fence(
                     webview_label,
                     role_id,

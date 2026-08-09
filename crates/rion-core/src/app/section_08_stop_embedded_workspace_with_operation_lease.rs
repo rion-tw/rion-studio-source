@@ -113,6 +113,9 @@ impl AppCore {
                         None,
                         parent_operation_id,
                     )?;
+                    for role_id in &initial_role_ids {
+                        self.macro_runtime.release_role(role_id)?;
+                    }
                 }
                 return Ok(());
             };
@@ -167,6 +170,9 @@ impl AppCore {
                         CoreError::Internal("embedded closing tab lock poisoned".to_owned())
                     })?
                     .remove(&tab_id);
+            }
+            for role in &owned_roles {
+                self.macro_runtime.release_role(&role.role_id)?;
             }
             if persist_closed_tab {
                 self.commit_embedded_runtime_snapshot_without_native_effect(
@@ -361,6 +367,9 @@ impl AppCore {
         self.browser_runtime_snapshot_without_persistence()?;
         if let Some(error) = first_error {
             return Err(error);
+        }
+        for role_id in &pending_role_ids {
+            self.macro_runtime.release_role(role_id)?;
         }
 
         if !delete {

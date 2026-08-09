@@ -93,6 +93,7 @@ impl AppCore {
                         None,
                         parent_operation_id,
                     )?;
+                    self.macro_runtime.release_role(role_id)?;
                 }
                 return Ok(());
             };
@@ -132,6 +133,7 @@ impl AppCore {
                     })?;
                 }
             }
+            self.macro_runtime.release_role(role_id)?;
             if close_role_tab {
                 if persist_closed_tab {
                     self.commit_embedded_runtime_snapshot_without_native_effect(

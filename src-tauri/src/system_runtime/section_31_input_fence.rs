@@ -64,6 +64,24 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
+    fn retire_role_input_surface(&self, role_id: &str) -> RuntimeResult<()> {
+        let lane = self
+            .input_dispatch_lanes
+            .lock()
+            .map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_TRUSTED_INPUT_FAILED",
+                    "The role input coordinator is unavailable.",
+                )
+            })?
+            .get(role_id)
+            .cloned();
+        if let Some(lane) = lane {
+            retire_role_input_lane(&lane);
+        }
+        Ok(())
+    }
+
     fn resume_role_input(&self, role_id: &str, input_epoch: u64) -> RuntimeResult<bool> {
         let lane = self.role_input_lane(role_id)?;
         let current = lane.epoch.load(Ordering::Acquire) == input_epoch;
@@ -88,4 +106,12 @@ impl SystemRuntimeExecutor {
         context.ensure_current()?;
         operation()
     }
+}
+
+fn retire_role_input_lane(lane: &RoleInputDispatchLane) {
+    // Keep the epoch monotonic across an immediate relaunch, but remove every
+    // native-owner fence once exact surface isolation is acknowledged.
+    lane.surface_generation.store(0, Ordering::Release);
+    lane.quarantined.store(false, Ordering::Release);
+    lane.normal_enabled.store(true, Ordering::Release);
 }

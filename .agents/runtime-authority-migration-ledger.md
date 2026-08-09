@@ -1,7 +1,7 @@
 # Rion Studio Runtime 單一權威全面改造帳本
 
 > 建立日期：2026-08-09
-> 狀態：blocked（等待使用者解除兩個外部門檻；程式工作與本機自動 gate 無 blocker）
+> 狀態：in-progress
 > 執行原則：這是唯一完成清單。所有非帳本任務、macOS 實機驗收、Windows CI 與最終反向盤點完成前不得刪除本檔；真正阻塞時保留本檔並記錄 blocker。
 
 ## 基線
@@ -15,8 +15,8 @@
 
 ## 外部 blockers
 
-- [ ] BL1 `blocked` macOS 已進入登入鎖定畫面，Computer Use明確回報無法自動解鎖；使用者需手動解鎖後才能完成 M3/M4/M6/M9，禁止繞過登入鎖或以靜態測試冒充實機驗收。
-- [ ] BL2 `blocked` `codex/runtime-single-authority` 已在本機建立並提交，但安全審查拒絕將 private repository推送到遠端，直到使用者在對話中明確批准推送至既有 `origin`（`rion-tw/rion-studio-source`）；W1–W4 required Windows CI因此尚未開始，禁止以本機portable/macOS gate取代。
+- [x] BL1 `done` 使用者已於2026-08-09手動解鎖macOS；Computer Use可繼續，未繞過登入鎖。
+- [ ] BL2 `in-progress` 使用者將在另一台Windows實機checkout本改造並執行永久清單 `.agents/windows-runtime-authority-validation.md`；Windows端必須回傳exact SHA、自動gate、WebView2/Win32 UI transcript與idle diagnostics報告。遠端推送仍未獲private-repository egress明確批准，由使用者自行傳輸或另行明確授權，不影響macOS驗收繼續。
 
 ## 摘要與根因
 
@@ -35,15 +35,15 @@
 - [x] I3 關閉 tombstone 建立後，舊 attach/ready/focus event永遠不能復活該 tab。close-before-attach、late ready、duplicate closed、relaunch tests通過。
 - [x] I4 revision 嚴格遞增，consumer不得把 torn snapshot標記成已套用。atomic multi-window snapshot、renderer monotonic store與 native desired projection global revision gate通過。
 - [x] I5 每個 operation 必須是明確 pending或唯一 terminal outcome。Kernel audit、duplicate terminal、close/relaunch supersede tests通過。
-- [x] I6 Native registry 不得存在沒有 live logical owner的 handle。System Runtime diagnostics cross-audit logical surface、exact native instance/window generation/role label並附 trace；281 tests通過。
-- [x] I7 Native effect executor 不得在 effect call stack 內同步回查 Core。證據：native presentation callback 僅讀獨立 revision-monotonic desired projection cache 與 native surface identity；source hygiene 禁止 `request.live`／`LiveWindowHandle` re-entry，Tauri 281 tests 通過。
+- [x] I6 Native registry 不得存在沒有 live logical owner的 handle。System Runtime diagnostics cross-audit logical surface、exact native instance/window generation/role label並附 trace；最終 Tauri 372 tests與macOS idle-zero diagnostics通過。
+- [x] I7 Native effect executor 不得在 effect call stack 內同步回查 Core。證據：native presentation callback 僅讀獨立 revision-monotonic desired projection cache 與 native surface identity；source hygiene 禁止 `request.live`／`LiveWindowHandle` re-entry，最終 Tauri 372 tests通過。
 
 ## A. 基線穩定與可觀測性
 
 - [x] A1 `done` 建立帳本並保存 clean baseline；以全 repo `rg`、architecture source tests 與 source-hygiene guard 盤點 Runtime writer、registry、snapshot、effect、native callback、renderer refresh。所有找到的舊 writer/authority 已登錄 R1–R10 並移除或收斂。
 - [x] A2 `done` completed/pending admission、cancelled attempt/relaunch、close-before-native lifecycle皆有 regression；新增 darwin/win32 overlapping role/workspace完整 Core effect replay，兩個 admission共用一個 TabId且只有一個 native create。
 - [x] A3 `done` RuntimeKernel 使用 512 筆 bounded privacy-safe trace，僅含 operation/revision/window/tab/attempt/generation/phase/event source；`SystemRuntimeDiagnosticsRecord` 已輸出 Kernel revision/count/trace，不含 URL、Cookie、頁面內容或憑證。
-- [x] A4 `done` RuntimeKernel `audit()` 檢查 window/tab owner、selection、operation terminality、surface/lease/tombstone/revision；System Runtime diagnostics 再以 `audit_native_resource_invariants` 對 logical snapshot 與 exact native handles/window generations/role labels 做跨層稽核，失敗附 bounded privacy-safe trace。Kernel 17 tests、Tauri System Runtime 281 tests通過。
+- [x] A4 `done` RuntimeKernel `audit()` 檢查 window/tab owner、selection、operation terminality、surface/lease/tombstone/revision；System Runtime diagnostics 再以 `audit_native_resource_invariants` 對 logical snapshot 與 exact native handles/window generations/role labels 做跨層稽核，失敗附 bounded privacy-safe trace。Kernel tests、最終 Tauri 372 tests與macOS idle-zero diagnostics通過。
 - [x] A5 `done` source hygiene 禁止 owner probing、implicit dirty writer、額外 logical registry、effect-stack Core re-entry、Tauri barrier 外 Kernel write、平台 adapter 退回 shared include；event-topology scanner要求每個 production timer/watchdog/deadline都有分類或 exception ledger 配對。最終反向搜尋另由 Z5 再執行一次。
 
 ## B. 建立唯一 RuntimeKernel
@@ -53,7 +53,7 @@
 - [x] B3 `done` Kernel aggregate 已持有 window generation、tab topology/order/selection、placement/display/persisted name、window zoom、tab audio、role zoom/slots、browser role lease、logical surface lifecycle、operation phase、tombstone 與全域 revision；各 mutation 有 expected-revision fence。
 - [x] B4 `done` Kernel 與 LiveWindow facade 已統一 `apply -> RuntimeCommit` 並由 actor 原子 snapshot；每次 apply 只在完整 candidate aggregate 通過 invariants 後發布。已移除 `LiveWindowGuard` drop-time implicit `ReplaceWindow` writer，所有 reader 只取得 immutable snapshot，修改必須顯式提交 intent。
 - [x] B5 `done` 名稱、display/placement、active tab、跨視窗 move、generation、tab mute、window zoom、role zoom 與 role slot layout 全經 Kernel transaction；native fanout 失敗以反向 Kernel commit compensation，不再 `touch_live_window_state` 或改寫 duplicated logical fields。
-- [x] B6 `done` `LiveWindowTabStore` 僅為 Kernel compatibility facade；舊 mutable/dirty guard writer 已全部移除，source hygiene 禁止 `LiveWindowGuard` 或 `LiveWindowHandle::lock` 回歸，Tauri 281 tests 通過。
+- [x] B6 `done` `LiveWindowTabStore` 僅為 Kernel compatibility facade；舊 mutable/dirty guard writer 已全部移除，source hygiene 禁止 `LiveWindowGuard` 或 `LiveWindowHandle::lock` 回歸，最終 Tauri 372 tests通過。
 - [x] B7 `done` monotonic revision、bounded operation idempotency、duplicate/supersede/cancel皆由 Kernel處理；close/relaunch terminalize舊 operation，`FailEventStream` 將 exact pending operations標成 `Indeterminate` 並保留唯一 terminal outcome；executor Drop 對剩餘 native event stream執行 `NATIVE_EVENT_STREAM_STOPPED` terminalization。17 Kernel tests通過。
 
 ## C. 重建 launch、close、restore
@@ -71,7 +71,7 @@
 ## D. 原生 executor 與跨平台隔離
 
 - [x] D1 `done` authority-sensitive boundary已抽為真正 Rust modules：pure Core `runtime_kernel`/ports、Tauri `kernel_facade`、`native_executor`、`native_resource_registry`、`native_projection`，以及 compile-time `platform::{macos,windows,unsupported}`。模組化並抓出/修正原本誤藏在 Windows lifecycle 的共用 `RuntimeError` impl；hygiene禁止退回 shared include。
-- [x] D2 `done` `RuntimeState.native_resources: NativeResourceRegistry`僅集中不可序列化 display host/surface/tab handles；已移除 `Deref/DerefMut`相容層，所有存取顯式經 `native_resources`，lookup名稱標明 `native_*_handle/surface`，membership/role/relaunch只讀 Kernel desired projection。cross-audit與281 tests通過。
+- [x] D2 `done` `RuntimeState.native_resources: NativeResourceRegistry`僅集中不可序列化 display host/surface/tab handles；已移除 `Deref/DerefMut`相容層，所有存取顯式經 `native_resources`，lookup名稱標明 `native_*_handle/surface`，membership/role/relaunch只讀 Kernel desired projection。cross-audit、最終 Tauri 372 tests與macOS idle-zero diagnostics通過。
 - [x] D3 `done` Core 定義 `WindowPort`、`TabChromePort`、`SurfacePort`、`FocusPort`、`RuntimeNativeProjection`、tab/window/surface generation fence；native callback 統一使用 `NativeRuntimeEvent` envelope。
 - [x] D4 `done` macOS AppKit tabs與Windows HTML tab strip保留產品差異，兩個 compile-time adapter皆消費同一 `RuntimeNativeProjection`與 callback envelope；平台檔不再 include進shared namespace。
 - [x] D5 `done` `RuntimeSnapshot::native_projection(window_id)`原子輸出完整 ordered tabs/settings、global/window revision、window generation與operation/attempt/surface fences；獨立 forward-only desired projection store只接受monotonic revision。workspace template、audio等舊 native metadata fallback已移除。
@@ -116,28 +116,28 @@
 - [x] V4 `done` AppCore integration以可控effect stream把window close分成admission與native completion，darwin/win32皆證明cleanup前exact tabs/owners為零；failed cleanup、late callback、stream failure與Drop terminalization均有event-bound transcript。
 - [x] V5 fake macOS/Windows port 使用同一 full-projection conformance transcript且結果相同；真正 Windows WebView2 runner仍屬 W1/W3 gate。
 - [x] V6 `done` Kernel deterministic state machine 10,000步逐步 audit且每步/final pending operation=0；browser mutation coordinator 10,000次 normal/recoverable/destructive complete/abort後 tickets、queues、blocked role leases全空；macOS/Windows native operation各5,000次 register/in-flight/terminal後 active registry=0；macro runtime 1,000次 start/stop後role owners與pending actions歸零。精準 leak regressions均通過。
-- [ ] V7 `in-progress` source hygiene、typecheck、lint、Vitest、Rust fmt/clippy/tests、build、system-only validation 曾在 Runtime 改造後完整全綠；AppKit accessibility 驗收修正後 source hygiene（1065 files）、focused Vitest（9 tests）與 native build 再次通過，仍須在所有實機修改結束後跑最後完整 gate。
+- [x] V7 `done` 所有macOS實機修正完成後重跑最終完整gate：source hygiene 1066 files、typecheck、lint（0 errors／23既有react-refresh warnings）、Vitest 146 files／814 tests、Rust fmt/clippy、Core 565／Platform 20／Tauri 372 tests、renderer+native build、Tauri-only boundary、dependency hygiene及`git diff --check`全部通過。首次沙盒內Rust run僅有4個Unix-socket activation tests遭OS permission拒絕；在允許local socket的相同主機重跑完整workspace後全部通過。
 
 ## macOS Computer Use 實機驗收
 
 - [x] M1 2026-08-09 Computer Use 正式匯入後 dashboard 顯示 4 個 `[Runtime QA]` 角色、2 workspace、3 macro，側欄 totals 證明 3 game windows 亦已合併；匯入成功訊息為新增 13／警告 0。
 - [x] M2 `done` 2026-08-09 Computer Use 對 `[Runtime QA] Alpha` 快速雙擊只聚焦同一個 `[Runtime QA] Window One`，fixture 仍只有一個 WebView；緊接著雙擊包含 Alpha/Beta 的 `[Runtime QA] Two Columns` 也只聚焦同一 window/tab aggregate，沒有第二個 logical/native surface。
-- [ ] M3 `in-progress` AppKit `ctrl+Tab` 與 accessibility radio-button press 都能切換 Alpha/Beta，active WebView/focus 一致。實機發現 custom tab 原先不是完整可操作的 AX element；已補上 press/menu/reorder accessibility actions與 source regression，待解鎖後完成真實 reorder、跨視窗 move 及 launch/close 交錯。
-- [ ] M4 `in-progress` rename 已把 `遊戲視窗 2` 改為 `[Runtime QA] Race Window` 並同步 native title/restore；View → Zoom In 顯示 `Window 105%`；hide/show 保留同一 WKWebView 與 fixture 計數。mute、placement、stop 仍待實機驗收。
+- [x] M3 `done` AppKit `ctrl+Tab`、AX radio-button press及active WebView/focus一致；Beta的AX `Decrement/Increment`實際完成前移再還原。將Two Columns從live Window One移到live Race後，source最後一tab關閉、target成為3 tabs且active/focus正確；對無live host的move被明確拒絕且沒有duplicate surface。launch/close交錯另由M5覆蓋。
+- [x] M4 `done` rename把`遊戲視窗 2`改為`[Runtime QA] Race Window`並在native title/restore一致；mute後AX顯示`Tab muted`且menu轉為Unmute，再成功解除；maximize/restore、View Zoom In的`Window 105%`及Actual Size的`Window 100%`均實機確認；hide/show保留同一WKWebView/fixture count，stop走M5 exact release。測試機只有一個monitor，跨display實體移動不適用並已記錄限制。
 - [x] M5 `done` Computer Use 分別驗證 ready、loading、macro-running close：ready close 修正後立即 relaunch 使用新永久 TabId；loop running close 經確認後 role 6→4 且 macro terminal；loading Beta close 後 role 4→2；再次立即 relaunch 得到新 `遊戲視窗 2`，fixture counters 全為 0，舊 surface/callback 未復活。
-- [ ] M6 `in-progress` 異常終止後 restore dialog 已重建 4 windows/6 tabs，後續多輪重啟恢復 4 windows/8 tabs；`[Runtime QA] Race Window` 名稱、Alpha/Beta tab order與 active Beta 都恢復。仍待以 UI 優雅 Quit/relaunch 再驗 placement/zoom。
+- [x] M6 `done` 先由sample定位舊正式Quit在AppKit `applicationWillTerminate`同步`close_all()`造成主執行緒與WKWebView teardown互等；移除irreversible Exit中的native teardown並加入single-flight shutdown coordinator。再發現macOS原生`.quit()`可繞過renderer admission，改為自訂Cmd+Q/menu event共用同一確認與coordinator。最新版正式Quit後PID消失、instance lock釋放、SQLite `cleanExit:true`，`application.shutdown-outcome`為`applied/shutdownClosed/nativeAcknowledgement`；重開未顯示異常關閉並自動還原Race的名稱、3-tab order與active Beta。
 - [x] M7 `done` Once 對 Alpha 精確造成 click +1/keydown +1；Loop 對 Beta 造成 click 累積至 72，停止後 1.5 秒仍為 72；Nested 執行期間顯示 parent+child 兩個 running，terminal 歸零且 Alpha 精確 click +1/keydown +2；macro-running window close 亦完成 cleanup。
 - [x] M8 `done` Beta fixture 先保留 click=1，再對主 renderer 執行 reload；AppSnapshot projection 恢復後重新聚焦既有 Beta WKWebView，click 仍為 1，證明 renderer reload 未重建原生 WebView。
-- [ ] M9 `in-progress` 已完成多輪 launch/close/relaunch/restore；logs 未出現 duplicate surface、torn revision、orphan、nonterminal 或 lease invariant，且 native lifecycle 皆有 terminal trace。剩餘 AppKit move 壓力與最終 diagnostics resource/pending/lease 歸零稽核待完成。
+- [x] M9 `done` 多輪launch/close/relaunch/restore與AppKit move完成。第一次正式Diagnostics揭露native handles歸零但Kernel仍有3 logical surfaces/3 pending closes及4 input fences；根因是window-close destroy path退休Tauri tombstone卻未送Kernel `closed`，且成功native effect未terminalize Core macro stopping、native input lane亦未neutralize。三層均改為exact native/effect terminal event並補regression。最終隱私安全snapshot：`healthy=true`、`snapshotComplete=true`、`collectionErrorCodes=[]`、native invariant=true/failures=0，Kernel pending/logical=0，managed/closing/quarantine/pending-close/native-creation/lifecycle/navigation/input/recovery/tab/role皆=0，recent nonterminal=[]。含本機logs的ZIP移至`/private/tmp`，repo只留數值證據。
 
 Computer Use 規則：每次操作後重新讀取 accessibility/App state，不沿用舊 element index；必要時以 screenshot 驗證。只操作本機 Rion Studio 與 localhost fixture，不傳輸敏感資料。
 
 ## Windows 門檻
 
-- [ ] W1 windows-latest 實際編譯並執行 Core、shared runtime、Windows adapter conformance、renderer tests 與 Tauri build。
-- [ ] W2 `in-progress` 修正 Windows resize helper 錯誤 cfg，macOS-hosted 共用測試已直接覆蓋 Windows tab-strip metrics、reveal recovery 及 superseded identity 欄位；Tauri 278 tests 無 dead-code warning且未使用 `allow(dead_code)`，仍待 Windows runner 實際觸及 WebView2/Win32。
-- [ ] W3 Windows desktop smoke 可用時執行 create/show/focus/close；否則 native adapter integration harness 驗證相同 lifecycle fence。
-- [ ] W4 macOS 與 Windows 任一 required gate 未通過時保留帳本。
+- [ ] W1 `pending` 另一台Windows原生電腦依`.agents/windows-runtime-authority-validation.md`執行完整Core/shared/renderer/Rust tests、Windows adapter conformance、`cargo check --all-targets`、Tauri build與source audit；exact SHA及counts寫入Windows report。
+- [ ] W2 `in-progress` 修正 Windows resize helper 錯誤 cfg，macOS-hosted 共用測試已直接覆蓋 Windows tab-strip metrics、reveal recovery及superseded identity；仍待Windows實機證明WebView2/Win32 reachability且無`allow(dead_code)`。
+- [ ] W3 `pending` Windows實機執行HTML tab strip與WebView2 create/show/focus/reorder/move/close/restore/macro/renderer-reload壓力transcript，idle diagnostics全部歸零並通過native resource invariant。
+- [ ] W4 `pending` Windows端建立`.agents/windows-runtime-authority-validation-report.md`，WR0–WR5全部有證據且`Status: pass`；未收到前主帳本不得刪除。
 
 ## 舊權威移除表
 
@@ -157,24 +157,24 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 | Gate | 狀態 | 證據 |
 | --- | --- | --- |
 | 起始工作樹 | done | clean at HEAD 98145ee |
-| Source hygiene | done | `pnpm run check:source-hygiene`：1065 tracked files 通過（2026-08-09，含 AppKit AX 修正後重跑） |
+| Source hygiene | done | `pnpm run check:source-hygiene`：1066 tracked files 通過（2026-08-09最終重跑） |
 | Typecheck | done | `pnpm run typecheck` 2026-08-09 通過 |
 | ESLint | done | `pnpm run lint` 通過；僅保留 23 個既有 react-refresh warnings |
-| Vitest | done | 最新完整 146 files／813 tests 通過（新增 deadline dirty-readback regression）；AppKit AX focused 9 tests亦通過 |
+| Vitest | done | 最終完整 146 files／814 tests 通過 |
 | Rust fmt/clippy | done | `pnpm run lint:rust` 通過 |
-| Rust tests | done | 前次完整 workspace全綠；最新計數為 rion-core 564、rion-platform 20、rion-tauri 368（input-fence dirty-readback移除與兩個長輪次 leak regressions後） |
-| Build | done | `pnpm run build` 通過；AppKit AX 修正後 native build 再通過 |
-| System-only validation | done | `pnpm run validate:system-only` 通過 |
-| macOS Computer Use | in-progress | M1/M2/M5/M7/M8 完成；M3/M4/M6/M9剩餘項目待解鎖後驗收 |
+| Rust tests | done | `pnpm run test:rust`最終完整workspace：rion-core 565、rion-platform 20、rion-tauri 372，全部通過 |
+| Build | done | `pnpm run build`最終重跑通過（typecheck、Vite renderer、`cargo build -p rion-tauri`） |
+| System-only validation | done | `pnpm run verify:system-only`通過；`pnpm run check:hygiene`亦以exit 0通過 |
+| macOS Computer Use | done | M1–M9全部完成；正式Quit/restore與Diagnostics idle zero均有實機證據；單monitor限制已記錄 |
 | Windows CI | pending | |
 
 ## 最終完成與刪除門檻
 
-- [ ] Z1 所有 runtime mutation 只能經 RuntimeKernel。
-- [ ] Z2 所有舊權威、alias、probing、同步 Core callback、bypass mutation 已移除。
-- [ ] Z3 所有 operation terminal、projection monotonic、native resource 可追溯唯一 live owner。
+- [x] Z1 `done` 最終source hygiene與writer反向搜尋證明logical runtime mutation只經typed Kernel facade／RuntimeIntent；LiveWindow只剩immutable snapshot與Kernel commit facade。
+- [x] Z2 `done` legacy token反搜只有否定式regression與hygiene規則命中；production無alias、owner probing、舊authority map、implicit dirty writer或System Runtime effect-stack `core.invoke`。
+- [x] Z3 `done` Kernel model/stress、Tauri lifecycle regressions、revision store tests與macOS idle diagnostics共同證明operation terminal、projection monotonic及native owner可追溯；所有required idle count為0且native invariant為true。
 - [ ] Z4 全部自動測試、macOS 實機測試、Windows CI 全綠。
-- [ ] Z5 最終全 repo 搜尋證明無遺漏 writer、registry、timer reconciliation 或舊契約。
+- [x] Z5 `done` 2026-08-09最終全repo反搜：舊authority關鍵字僅存在於禁止回歸測試／hygiene規則；pure RuntimeKernel無平台cfg；crates/Tauri無`allow(dead_code)`；generated無diff；repo無diagnostic ZIP。所有production timer/deadline通過event-topology分類；`reconcile`命中逐筆屬event-triggered projection/display/install-journal套用，不從timer、readback或dirty scan建立logical truth。
 - [ ] Z6 每項任務附證據並完成獨立 final audit。
 - [ ] Z7 刪除本帳本作為最後一項檔案變更；永久 fixture 與本機 QA 測資保留。
 
@@ -217,3 +217,10 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - 2026-08-09：實機 SQLite trace反向稽核沒有 duplicate/torn/orphan/nonterminal/lease invariant；數次 Computer Use pointer/tracking操作在AppKit主佇列被佔用時，deadline-bound presentation以 `NATIVE_PRESENTATION_FAILED` terminal failure結束，runtimeHealthy仍為true，沒有將timeout當成成功或留下pending operation。此現象保留為M3實機重排測試的觀察項，待AX action路徑重驗。
 - 2026-08-09：最終 timer 反向搜尋找到舊 navigation input fence 在40秒後執行 WebView document readback，可能以 dirty reconciliation推導完成；已移除整條 success-by-readback路徑。page-finished原生事件現在是唯一成功來源，deadline只會 terminal failure並啟動 exact epoch/generation-fenced recovery；Rust clippy、Tauri 367 tests、source architecture regression與完整 813 Vitest通過。
 - 2026-08-09：V6 補上直接 leak 證據：BrowserOperationCoordinator 10,000次 lease cycle後 tickets/queues/blocked roles全空；NativeOperationRegistry在fake macOS與fake Windows各5,000次 lifecycle後 active count=0。搭配Kernel 10,000步 pending=0與macro 1,000次歸零，四層壓力測試均有明確 final assertion。
+- 2026-08-09：Computer Use以AX action完成AppKit tab前移/還原、跨live window move、mute/unmute、maximize/restore及100%/105% zoom；無live native host的move明確失敗且未建立duplicate surface。測試機僅一個display，跨DPI實體驗證保留給Windows清單。
+- 2026-08-09：正式Quit殘留PID的sample證明AppKit `applicationWillTerminate`在主執行緒同步`runtime.close_all()`，而WKWebView teardown worker等待主執行緒，形成循環等待。`RunEvent::Exit`不再啟動native teardown；single-flight coordinator在可阻塞worker完成exact native shutdown、clean marker與trace後才`app.exit`。
+- 2026-08-09：macOS原生`.quit()`仍可直接走AppKit `terminate:`而繞過renderer確認/admission，導致程序雖退出但`cleanExit:false`。改用自訂`rion-application-quit` menu item/Cmd+Q，首次發出同一quit-request事件、確認後直接進coordinator；實機證明PID/lock釋放、`cleanExit:true`及`application.shutdown-outcome=applied`，重開無異常提示且restore正確。
+- 2026-08-09：最終Diagnostics不是只做驗收，而是反向找到三個terminalization缺口：`destroy_tab_event_bound`退休Tauri close preview卻未送Kernel closed；成功Core stop未呼叫既有MacroReleaseRole且release本身未清stopping/quiesced；exact native release後input lane仍disabled。修正後保留單調epoch、移除exact owner fence，Core 565 tests及Tauri focused regressions通過，實機idle snapshot全部required count為0且`collectionErrorCodes=[]`。
+- 2026-08-09：同步更新`.agents/context/{architecture,system-runtime}.md`，移除已過時的LiveWindowTabStore唯一權威敘述，改為RuntimeKernel actor/commit、handle-only NativeResourceRegistry與revisioned follower架構。
+- 2026-08-09：final review發現update-install同步drain若失敗，新的shutdown coordinator會停在started且沒有worker，攔住caller的fail-closed restart。`prepare_application_update_exit`現在對success/failed/indeterminate terminal drain都先shutdown Core並mark ready，再原樣回傳clean-marker/drain錯誤；focused contract/Rust test及第二輪完整gate全部通過。
+- 2026-08-09：最新版idle狀態再以Computer Use走自訂application menu正式Quit；Finder fresh state證明UI已離開，instance lock無owner，SQLite `cleanExit=1`，最新privacy-safe trace為`applied/shutdownClosed/nativeAcknowledgement`。

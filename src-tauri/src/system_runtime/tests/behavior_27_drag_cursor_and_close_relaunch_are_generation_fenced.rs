@@ -24,6 +24,7 @@ fn drag_cursor_lease_requires_the_exact_session_and_window_generation() {
 #[test]
 fn closing_workspace_tombstone_fences_only_its_exact_owned_slot_generation() {
     let close = TabCloseTombstone {
+        kernel_operation_id: "close-operation-a".to_owned(),
         parent_operation_id: None,
         revision: 10,
         retirement_revision: Some(5),
@@ -74,6 +75,7 @@ fn immediate_relaunch_waits_for_the_previous_stable_tab_generation() {
     runtime_state.close_previews.insert(
         "tab-a".to_owned(),
         TabCloseTombstone {
+            kernel_operation_id: "close-operation-a".to_owned(),
             parent_operation_id: None,
             revision: 12,
             retirement_revision: Some(9),
@@ -114,12 +116,6 @@ fn immediate_relaunch_fences_retiring_roles_even_when_the_new_tab_id_differs() {
     let role_ids = HashSet::from(["role-a".to_owned(), "role-b".to_owned()]);
     let mut state = RuntimeState::default();
     state
-        .role_tabs
-        .insert("role-a".to_owned(), "closed-tab".to_owned());
-    state
-        .role_tabs
-        .insert("role-b".to_owned(), "closed-tab".to_owned());
-    state
         .close_coordinator
         .closing_roles
         .insert("role-a".to_owned());
@@ -131,12 +127,9 @@ fn immediate_relaunch_fences_retiring_roles_even_when_the_new_tab_id_differs() {
 }
 
 #[test]
-fn a_role_owned_by_another_live_tab_remains_a_shared_slot_instead_of_a_close_fence() {
+fn a_role_without_a_retiring_surface_has_no_close_fence() {
     let role_ids = HashSet::from(["role-a".to_owned()]);
-    let mut state = RuntimeState::default();
-    state
-        .role_tabs
-        .insert("role-a".to_owned(), "live-tab".to_owned());
+    let state = RuntimeState::default();
 
     assert_eq!(
         role_relaunch_fence_state(
@@ -166,10 +159,10 @@ fn an_unverified_old_role_surface_fails_closed_instead_of_becoming_a_placeholder
 #[test]
 fn successful_native_destroy_retires_the_stable_tab_close_fence() {
     let mut state = RuntimeState::default();
-    state.optimistic_closed_tabs.insert("tab-a".to_owned());
     state.close_previews.insert(
         "tab-a".to_owned(),
         TabCloseTombstone {
+            kernel_operation_id: "close-operation-a".to_owned(),
             parent_operation_id: None,
             revision: 11,
             retirement_revision: Some(6),
@@ -184,6 +177,6 @@ fn successful_native_destroy_retires_the_stable_tab_close_fence() {
         .expect("the completed close must own its tombstone");
 
     assert_eq!(tombstone.window_id, "window-a");
-    assert!(!state.optimistic_closed_tabs.contains("tab-a"));
+    assert!(!state.tab_close_pending("tab-a"));
     assert!(!state.close_previews.contains_key("tab-a"));
 }

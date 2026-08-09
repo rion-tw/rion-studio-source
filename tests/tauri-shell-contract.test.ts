@@ -171,7 +171,8 @@ describe("Tauri shell contract guard", () => {
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
     expect(nativeTabs).toContain("NSEventModifierFlagControl");
     expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
-    expect(tabs).toContain("LayoutResizeDivider");
+    expect(tabs).toContain("resize_workspace_divider");
+    expect(tabs).not.toContain("CoreCommand::LayoutResizeDivider");
     expect(tabs).toContain("tab_strip_window_for_webview");
     expect(tabMenu).toContain('format!("{RELOAD_PREFIX}{tab_id}")');
     expect(tabMenu).toContain("spawn_blocking(move || runtime.reload_tab(&tab_id))");
@@ -201,7 +202,7 @@ describe("Tauri shell contract guard", () => {
     expect(nativeInput).toContain("RionRoleZoomBindingForResponder");
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
     expect(tabs).toContain(
-      '#[cfg(target_os = "macos")]\nfn dispatch_role_zoom_shortcut('
+      '#[cfg(target_os = "macos")]\npub(in crate::system_runtime) fn dispatch_role_zoom_shortcut('
     );
     expect(JSON.parse(capability)).toMatchObject({
       local: true,

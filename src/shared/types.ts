@@ -314,6 +314,9 @@ export type UpdateLaunchWorkspaceInput = WorkspaceUpdateRequest;
 export type DisplayInfo = DisplayInfoRecord;
 export type DisplayTopology = DisplayTopologySnapshotRecord;
 export interface AppSnapshot {
+  revision: number;
+  stateRevision: number;
+  runtimeRevision: number;
   embeddedRuntimeState: EmbeddedRuntimeState;
   games: Game[];
   gameWindows: GameWindow[];

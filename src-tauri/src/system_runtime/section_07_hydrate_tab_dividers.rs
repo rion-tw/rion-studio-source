@@ -6,8 +6,8 @@ impl SystemRuntimeExecutor {
             Some(window_id) => window_id,
             None => {
                 let expected_close = self.state.lock().ok().is_some_and(|state| {
-                    !state.tabs.contains_key(tab_id)
-                        || state.optimistic_closed_tabs.contains(tab_id)
+                    !state.native_resources.tabs.contains_key(tab_id)
+                        || state.tab_close_pending(tab_id)
                         || state.close_previews.contains_key(tab_id)
                         || state.close_coordinator.closing_tabs.contains(tab_id)
                 });
@@ -22,7 +22,7 @@ impl SystemRuntimeExecutor {
         };
         let (window_id, window, gap, role_inputs) = {
             let state = self.state()?;
-            let Some(tab) = state.tabs.get(tab_id) else {
+            let Some(tab) = state.native_resources.tabs.get(tab_id) else {
                 return Ok(());
             };
             if !tab.dividers.is_empty() || tab.slots.len() < 2 {
@@ -31,7 +31,7 @@ impl SystemRuntimeExecutor {
             if state.close_coordinator.closing_tabs.contains(tab_id) {
                 return Ok(());
             }
-            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "The runtime display host closed before optional dividers were attached.",
@@ -62,13 +62,13 @@ impl SystemRuntimeExecutor {
                     == Some(window_id.as_str());
                 let state_current = self.state.lock().ok().is_some_and(|state| {
                     optional_divider_hydration_can_continue(
-                        state.tabs.contains_key(tab_id),
+                        state.native_resources.tabs.contains_key(tab_id),
                         state
-                            .tabs
+                            .native_resources.tabs
                             .get(tab_id)
                             .is_some_and(|tab| tab.dividers.is_empty()),
                         state.close_coordinator.closing_tabs.contains(tab_id),
-                        state.optimistic_closed_tabs.contains(tab_id)
+                        state.tab_close_pending(tab_id)
                             || state.close_previews.contains_key(tab_id),
                         owner_matches,
                     )
@@ -150,13 +150,13 @@ impl SystemRuntimeExecutor {
                             == Some(window_id.as_str());
                         let superseded = self.state.lock().ok().is_some_and(|state| {
                             !optional_divider_hydration_can_continue(
-                                state.tabs.contains_key(tab_id),
+                                state.native_resources.tabs.contains_key(tab_id),
                                 state
-                                    .tabs
+                                    .native_resources.tabs
                                     .get(tab_id)
                                     .is_some_and(|tab| tab.dividers.is_empty()),
                                 state.close_coordinator.closing_tabs.contains(tab_id),
-                                state.optimistic_closed_tabs.contains(tab_id)
+                                state.tab_close_pending(tab_id)
                                     || state.close_previews.contains_key(tab_id),
                                 owner_matches,
                             )
@@ -178,10 +178,10 @@ impl SystemRuntimeExecutor {
                 == Some(window_id.as_str());
             let inserted = if let Ok(mut state) = self.state.lock()
                 && !state.close_coordinator.closing_tabs.contains(tab_id)
-                && !state.optimistic_closed_tabs.contains(tab_id)
+                && !state.tab_close_pending(tab_id)
                 && !state.close_previews.contains_key(tab_id)
                 && owner_matches
-                && let Some(tab) = state.tabs.get_mut(tab_id)
+                && let Some(tab) = state.native_resources.tabs.get_mut(tab_id)
                 && tab.dividers.is_empty()
             {
                 tab.dividers = std::mem::take(&mut created);
@@ -720,7 +720,7 @@ impl SystemRuntimeExecutor {
         self.state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.target.clone())
             .ok_or_else(|| "The conflicting runtime window has no live native host.".to_owned())

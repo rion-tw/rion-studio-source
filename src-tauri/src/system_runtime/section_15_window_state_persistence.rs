@@ -224,12 +224,8 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
             .collect::<Vec<_>>();
         let result = runtime
             .core
-            .invoke(CoreCommand::GameWindowRuntimeSnapshotBatchCommit {
-                input: GameWindowRuntimeSnapshotBatchCommitInputRecord { inputs },
-            })
-            .and_then(|value| {
-                serde_json::from_value::<RuntimeWindowPersistenceBatchReceiptRecord>(value)
-                    .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
+            .commit_runtime_window_snapshots(GameWindowRuntimeSnapshotBatchCommitInputRecord {
+                inputs,
             });
         match result {
             Ok(batch) => {
@@ -352,16 +348,6 @@ fn window_state_persist_retry_delay(failure_count: u32) -> Duration {
 }
 
 impl SystemRuntimeExecutor {
-    pub(crate) fn touch_live_window_state(&self, window_id: &str) -> Result<u64, String> {
-        let coordinator = self.presentation.coordinator(window_id)?;
-        let revision = self.presentation.next_revision();
-        coordinator
-            .lock()
-            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?
-            .revision = revision;
-        Ok(revision)
-    }
-
     pub(crate) fn runtime_window_snapshot_commit_input(
         &self,
         window_id: &str,
@@ -370,9 +356,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Live runtime window identity was not found while saving.".to_owned())?
-            .lock()
-            .map_err(|_| "Live runtime window state is unavailable while saving.".to_owned())?
-            .clone();
+            .record;
         let Some(name) = live.persisted_name.clone() else {
             return Ok(None);
         };

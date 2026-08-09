@@ -76,19 +76,18 @@ describe("runtime tab shell-neutral contracts", () => {
   });
 
   it("forwards workspace templates through every native tab metadata path", () => {
-    expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(3);
+    expect(systemRuntimeSource.match(/"workspaceTemplate": workspace_template/g)).toHaveLength(2);
     expect(
       systemRuntimeSource.match(
         /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+workspace_template: Option<String>,/g
       )
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       systemRuntimeSource.match(
         /#\[cfg\(any\(windows, target_os = "macos"\)\)\]\s+let workspace_template/g
       )
     ).toHaveLength(4);
-    expect(systemRuntimeSource).toContain(
-      '"workspaceTemplate": presented\n                                    .workspace_template\n                                    .or_else(|| live.workspace_template.clone())'
-    );
+    expect(systemRuntimeSource).toContain('"workspaceTemplate": presented.workspace_template');
+    expect(systemRuntimeSource).not.toContain("live.workspace_template.clone()");
   });
 });

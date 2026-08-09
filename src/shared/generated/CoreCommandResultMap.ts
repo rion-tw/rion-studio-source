@@ -11,6 +11,7 @@ import type { ChromeProfileImportPreviewRecord } from "./ChromeProfileImportPrev
 import type { ChromeProfileImportResultRecord } from "./ChromeProfileImportResultRecord";
 import type { CoreCommand } from "./CoreCommand";
 import type { CoreEffectMetricsRecord } from "./CoreEffectMetricsRecord";
+import type { CoreAppSnapshotRecord } from "./CoreAppSnapshotRecord";
 import type { CoreStateSnapshotRecord } from "./CoreStateSnapshotRecord";
 import type { DiagnosticExportResultRecord } from "./DiagnosticExportResultRecord";
 import type { EmbeddedKeyTransitionRecord } from "./EmbeddedKeyTransitionRecord";
@@ -55,6 +56,7 @@ type TypedCoreCommandResultMap = {
   systemWebViewProbe: SystemWebViewProbeRecord;
   systemWebViewRuntimeRegister: SystemWebViewRuntimeRegistrationRecord;
   stateSnapshot: CoreStateSnapshotRecord;
+  appSnapshot: CoreAppSnapshotRecord;
   gamesList: StateGameRecord[];
   gameGet: StateGameRecord;
   gameCreate: StateGameRecord;

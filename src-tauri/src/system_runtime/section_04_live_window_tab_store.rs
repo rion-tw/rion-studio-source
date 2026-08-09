@@ -1,139 +1,52 @@
 impl LiveWindowTabStore {
+    fn apply(&self, intent: RuntimeIntent) -> rion_core::CoreResult<rion_core::RuntimeCommit> {
+        let _authority_guard = self
+            .authority_barrier
+            .as_ref()
+            .map(|barrier| {
+                barrier.write().map_err(|_| {
+                    rion_core::CoreError::Internal(
+                        "runtime authority barrier poisoned".to_owned(),
+                    )
+                })
+            })
+            .transpose()?;
+        self.kernel.apply(intent)
+    }
+
     fn commit(
         &self,
         input: LiveTopologyCommitInput,
     ) -> Result<LiveTopologyCommitReceipt, String> {
-        if input.commit_id.is_empty()
-            || !matches!(input.source, "appKit" | "html" | "restore" | "command")
-        {
-            return Err("The live topology commit identity or source is invalid.".to_owned());
-        }
-        let _commit = self
-            .commit_gate
-            .lock()
-            .map_err(|_| "The live topology commit lane is unavailable.".to_owned())?;
-        if input.windows.is_empty() {
-            return Ok(LiveTopologyCommitReceipt {
-                membership_changed: false,
-                revision: self.next_revision.load(Ordering::Acquire),
-                status: LiveTopologyCommitStatus::Superseded,
-                window_ids: Vec::new(),
-            });
-        }
-
-        let mut commits = input.windows;
-        commits.sort_by(|left, right| left.window_id.cmp(&right.window_id));
-        let coordinators = {
-            let mut windows = self
-                .windows
-                .lock()
-                .map_err(|_| "The live topology registry is unavailable.".to_owned())?;
-            commits
-                .iter()
-                .map(|commit| {
-                    let coordinator = windows
-                        .entry(commit.window_id.clone())
-                        .or_insert_with(|| Arc::new(Mutex::new(LiveWindowRecord::default())));
-                    (commit.window_id.clone(), Arc::clone(coordinator))
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let mut states = Vec::with_capacity(coordinators.len());
-        for (_, coordinator) in &coordinators {
-            states.push(
-                coordinator
-                    .lock()
-                    .map_err(|_| "A live topology window is unavailable.".to_owned())?,
-            );
-        }
-        let stale = commits.iter().zip(states.iter()).any(|(commit, state)| {
-            commit.window_generation < state.window_generation
-                || (commit.window_generation == state.window_generation
-                    && commit.ui_sequence > 0
-                    && commit.ui_sequence <= state.ui_sequence)
-        });
-        if stale {
-            return Ok(LiveTopologyCommitReceipt {
-                membership_changed: false,
-                revision: self.next_revision.load(Ordering::Acquire),
-                status: LiveTopologyCommitStatus::Superseded,
-                window_ids: commits
+        let commit = self
+            .apply(RuntimeIntent::CommitTopology(KernelTopologyCommitInput {
+                commit_id: input.commit_id,
+                source: input.source.to_owned(),
+                primary_window_id: input.primary_window_id,
+                windows: input
+                    .windows
                     .into_iter()
-                    .map(|commit| commit.window_id)
+                    .map(|window| KernelWindowTopologyCommit {
+                        active_tab_id: window.active_tab_id,
+                        hidden_tab_ids: window.hidden_tab_ids,
+                        tabs: window.tabs,
+                        ui_sequence: window.ui_sequence,
+                        window_generation: window.window_generation,
+                        window_id: window.window_id,
+                    })
                     .collect(),
-            });
-        }
-
-        let mut owner_by_tab = HashMap::<String, String>::new();
-        for commit in &commits {
-            for tab in &commit.tabs {
-                let replace = commit.window_id == input.primary_window_id
-                    || !owner_by_tab.contains_key(&tab.id);
-                if replace {
-                    owner_by_tab.insert(tab.id.clone(), commit.window_id.clone());
-                }
-            }
-        }
-        let membership_changed = commits.iter().zip(states.iter()).any(|(commit, state)| {
-            commit.window_generation != state.window_generation
-                || commit.tabs.iter().map(|tab| &tab.id).collect::<HashSet<_>>()
-                    != state.tabs.iter().map(|tab| &tab.id).collect::<HashSet<_>>()
-        });
-        let revision = self
-            .next_revision
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
-        for (commit, state) in commits.iter_mut().zip(states.iter_mut()) {
-            commit.tabs.retain(|tab| {
-                owner_by_tab.get(&tab.id).map(String::as_str) == Some(commit.window_id.as_str())
-            });
-            let tab_ids = commit
-                .tabs
-                .iter()
-                .map(|tab| tab.id.as_str())
-                .collect::<HashSet<_>>();
-            commit.hidden_tab_ids.retain(|tab_id| tab_ids.contains(tab_id.as_str()));
-            let active_tab_id = commit
-                .active_tab_id
-                .take()
-                .filter(|tab_id| {
-                    tab_ids.contains(tab_id.as_str()) && !commit.hidden_tab_ids.contains(tab_id)
-                })
-                .or_else(|| {
-                    commit
-                        .tabs
-                        .iter()
-                        .find(|tab| !commit.hidden_tab_ids.contains(&tab.id))
-                        .map(|tab| tab.id.clone())
-                });
-            let aliases = std::mem::take(&mut state.aliases);
-            let persisted_name = state.persisted_name.clone();
-            let placement = state.placement.clone();
-            let target_display = state.target_display.clone();
-            **state = LiveWindowRecord {
-                aliases,
-                hidden_tab_ids: std::mem::take(&mut commit.hidden_tab_ids),
-                persisted_name,
-                placement,
-                revision,
-                selected_tab_id: active_tab_id,
-                tabs: std::mem::take(&mut commit.tabs),
-                target_display,
-                ui_sequence: commit.ui_sequence,
-                window_generation: commit.window_generation,
-                window_id: commit.window_id.clone(),
-            };
-        }
-        drop(states);
+            }))
+            .map_err(|error| error.to_string())?;
         Ok(LiveTopologyCommitReceipt {
-            membership_changed,
-            revision,
-            status: LiveTopologyCommitStatus::Applied,
-            window_ids: commits
-                .into_iter()
-                .map(|commit| commit.window_id)
-                .collect(),
+            membership_changed: commit.membership_changed,
+            revision: commit.revision,
+            status: match commit.status {
+                RuntimeCommitStatus::Applied => LiveTopologyCommitStatus::Applied,
+                RuntimeCommitStatus::Duplicate | RuntimeCommitStatus::Superseded => {
+                    LiveTopologyCommitStatus::Superseded
+                }
+            },
+            window_ids: commit.window_ids,
         })
     }
 
@@ -141,56 +54,137 @@ impl LiveWindowTabStore {
         &self,
         input: LiveWindowPlacementCommitInput,
     ) -> Result<LiveWindowPlacementCommitReceipt, String> {
-        let _commit = self
-            .commit_gate
-            .lock()
-            .map_err(|_| "The live placement commit lane is unavailable.".to_owned())?;
-        let coordinator = {
-            let mut windows = self
-                .windows
-                .lock()
-                .map_err(|_| "The live topology registry is unavailable.".to_owned())?;
-            Arc::clone(
-                windows
-                    .entry(input.window_id.clone())
-                    .or_insert_with(|| Arc::new(Mutex::new(LiveWindowRecord::default()))),
-            )
-        };
-        let mut live = coordinator
-            .lock()
-            .map_err(|_| "The live window placement is unavailable.".to_owned())?;
-        if input.window_generation < live.window_generation
-            || (input.window_generation == live.window_generation
-                && input.ui_sequence <= live.ui_sequence)
-        {
-            return Ok(LiveWindowPlacementCommitReceipt {
-                revision: live.revision,
-                status: LiveTopologyCommitStatus::Superseded,
-            });
-        }
-        let revision = self
-            .next_revision
-            .fetch_add(1, Ordering::AcqRel)
-            .saturating_add(1);
-        live.placement = Some(input.placement);
-        live.revision = revision;
-        live.target_display = Some(input.target_display);
-        live.ui_sequence = input.ui_sequence;
-        live.window_generation = input.window_generation;
-        live.window_id = input.window_id;
+        let commit = self
+            .apply(RuntimeIntent::CommitPlacement(
+                KernelWindowPlacementCommitInput {
+                    operation_id: uuid::Uuid::new_v4().to_string(),
+                    placement: input.placement,
+                    source: "command".to_owned(),
+                    target_display: input.target_display,
+                    ui_sequence: input.ui_sequence,
+                    window_generation: input.window_generation,
+                    window_id: input.window_id,
+                },
+            ))
+            .map_err(|error| error.to_string())?;
         Ok(LiveWindowPlacementCommitReceipt {
-            revision,
-            status: LiveTopologyCommitStatus::Applied,
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+        })
+    }
+
+    fn commit_tab_audio_muted(
+        &self,
+        expected_revision: u64,
+        tab_id: &str,
+        window_id: &str,
+        audio_muted: bool,
+    ) -> Result<LiveWindowPlacementCommitReceipt, String> {
+        let commit = self
+            .apply(RuntimeIntent::SetTabAudioMuted {
+                audio_muted,
+                expected_revision: Some(expected_revision),
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                tab_id: tab_id.to_owned(),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(LiveWindowPlacementCommitReceipt {
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+        })
+    }
+
+    fn commit_role_zoom(
+        &self,
+        expected_revision: u64,
+        tab_id: &str,
+        window_id: &str,
+        role_id: &str,
+        browser_zoom_percent: Option<f64>,
+    ) -> Result<LiveWindowPlacementCommitReceipt, String> {
+        let commit = self
+            .apply(RuntimeIntent::SetRoleZoom {
+                browser_zoom_percent,
+                expected_revision: Some(expected_revision),
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                role_id: role_id.to_owned(),
+                tab_id: tab_id.to_owned(),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(LiveWindowPlacementCommitReceipt {
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+        })
+    }
+
+    fn commit_tab_role_slots(
+        &self,
+        expected_revision: u64,
+        tab_id: &str,
+        window_id: &str,
+        role_slots: Vec<GameWindowRoleSlotRecord>,
+    ) -> Result<LiveWindowPlacementCommitReceipt, String> {
+        let commit = self
+            .apply(RuntimeIntent::ReplaceTabRoleSlots {
+                expected_revision: Some(expected_revision),
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                role_slots,
+                tab_id: tab_id.to_owned(),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(LiveWindowPlacementCommitReceipt {
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+        })
+    }
+
+    fn commit_window_zoom_factor(
+        &self,
+        expected_revision: u64,
+        window_id: &str,
+        zoom_factor: f64,
+    ) -> Result<LiveWindowPlacementCommitReceipt, String> {
+        let commit = self
+            .apply(RuntimeIntent::SetWindowZoomFactor {
+                expected_revision: Some(expected_revision),
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                window_id: window_id.to_owned(),
+                zoom_factor,
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(LiveWindowPlacementCommitReceipt {
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
         })
     }
 }
 
 impl PresentationRegistry {
     fn snapshot_live_window(&self, window_id: &str) -> Result<LiveWindowRecord, String> {
-        self.coordinator(window_id)?
-            .lock()
-            .map(|live| live.clone())
-            .map_err(|_| "The live runtime window is unavailable.".to_owned())
+        self.coordinator(window_id).map(|handle| handle.record)
     }
 
     fn commit_live_window_record(
@@ -214,6 +208,53 @@ impl PresentationRegistry {
         })
     }
 
+    fn commit_live_tab_close(
+        &self,
+        attempt_id: &str,
+        operation_id: &str,
+        surface_generation: u64,
+        tab_id: &str,
+        window_id: &str,
+        successor_tab_id: Option<&str>,
+    ) -> Result<LiveTopologyCommitReceipt, String> {
+        let current = self
+            .existing(window_id)
+            .ok_or_else(|| "The live runtime window is no longer available.".to_owned())?;
+        let commit = self
+            .live
+            .apply(RuntimeIntent::CloseTab {
+                attempt_id: Some(LaunchAttemptId::new(attempt_id)?),
+                expected_revision: Some(current.revision),
+                operation_id: OperationId::new(operation_id)?,
+                surface_generation: RuntimeSurfaceGeneration(surface_generation),
+                successor_tab_id: successor_tab_id
+                    .map(RuntimeTabId::new)
+                    .transpose()?,
+                tab_id: RuntimeTabId::new(tab_id)?,
+                window_generation: RuntimeWindowGeneration(current.window_generation),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        if commit.status == RuntimeCommitStatus::Applied && commit.membership_changed {
+            self.projection
+                .membership_requested_revision
+                .fetch_max(commit.revision, Ordering::AcqRel);
+        }
+        if commit.status == RuntimeCommitStatus::Applied {
+            self.refresh_desired_native_projections(&commit.window_ids)?;
+        }
+        Ok(LiveTopologyCommitReceipt {
+            membership_changed: commit.membership_changed,
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+            window_ids: commit.window_ids,
+        })
+    }
+
     fn commit_live_selection(
         &self,
         source: &'static str,
@@ -222,12 +263,11 @@ impl PresentationRegistry {
     ) -> Result<(LiveWindowRecord, LiveWindowRecord, u64), String> {
         let before = self
             .existing(window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.clone()))
             .ok_or_else(|| "The live runtime window is unavailable.".to_owned())?;
         if tab_id.is_some_and(|tab_id| !before.contains_tab(tab_id)) {
             return Err("The requested tab is no longer in live topology.".to_owned());
         }
-        let mut after = before.clone();
+        let mut after = before.record.clone();
         after.select(tab_id.map(str::to_owned), 0);
         let receipt = self.commit_live_window_record(source, window_id, &after)?;
         if receipt.status == LiveTopologyCommitStatus::Superseded {
@@ -235,7 +275,7 @@ impl PresentationRegistry {
         }
         after.revision = receipt.revision;
         after.ui_sequence = before.ui_sequence.saturating_add(1).max(1);
-        Ok((before, after, receipt.revision))
+        Ok((before.record, after, receipt.revision))
     }
 
     fn commit_live_tab_removal(
@@ -244,12 +284,12 @@ impl PresentationRegistry {
         window_id: &str,
         tab_id: &str,
     ) -> Result<(Option<String>, u64), String> {
-        let Some(mut next) = self
+        let Some(next) = self
             .existing(window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.clone()))
         else {
             return Ok((None, self.current_revision()));
         };
+        let mut next = next.record;
         if !next.contains_tab(tab_id) {
             return Ok((next.selected_tab_id, next.revision));
         }
@@ -274,6 +314,9 @@ impl PresentationRegistry {
         input: LiveTopologyCommitInput,
     ) -> Result<LiveTopologyCommitReceipt, String> {
         let receipt = self.live.commit(input)?;
+        if receipt.status == LiveTopologyCommitStatus::Applied {
+            self.refresh_desired_native_projections(&receipt.window_ids)?;
+        }
         if receipt.status == LiveTopologyCommitStatus::Applied && receipt.membership_changed {
             self.projection
                 .membership_requested_revision
@@ -305,23 +348,10 @@ impl PresentationRegistry {
         {
             return Ok(());
         }
-        let live_windows = self
-            .live
-            .windows
-            .lock()
-            .map(|windows| {
-                windows
-                .iter()
-                .map(|(window_id, live)| (window_id.clone(), Arc::clone(live)))
-                .collect::<Vec<_>>()
-            })
-            .map_err(|_| "The live topology registry is unavailable.".to_owned())?;
+        let live_windows = self.snapshot_states()?.into_iter().collect::<Vec<_>>();
         let mut owner_by_tab = HashMap::<String, (String, u64)>::new();
         let mut live_window_ids = Vec::with_capacity(live_windows.len());
         for (window_id, live) in &live_windows {
-            let live = live
-                .lock()
-                .map_err(|_| "A live topology window is unavailable.".to_owned())?;
             live_window_ids.push(window_id.clone());
             for tab in &live.tabs {
                 owner_by_tab.insert(
@@ -511,7 +541,7 @@ impl SystemRuntimeExecutor {
     fn live_tab_ids_for_window(&self, window_id: &str) -> Vec<String> {
         self.presentation
             .existing(window_id)
-            .and_then(|live| live.lock().ok().map(|live| live.all_tab_ids()))
+            .map(|live| live.all_tab_ids())
             .unwrap_or_default()
     }
 
@@ -534,10 +564,10 @@ impl SystemRuntimeExecutor {
         };
         let live = self.presentation.coordinator(&target.window_id)?;
         if advance_revision {
-            let (window_generation, ui_sequence) = live
-                .lock()
-                .map(|live| (live.window_generation, live.ui_sequence.saturating_add(1).max(1)))
-                .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+            let (window_generation, ui_sequence) = (
+                live.window_generation,
+                live.ui_sequence.saturating_add(1).max(1),
+            );
             let receipt = self.presentation.live.commit_placement(
                 LiveWindowPlacementCommitInput {
                     placement,
@@ -552,12 +582,12 @@ impl SystemRuntimeExecutor {
             }
             return Ok(receipt.revision);
         }
-        let mut live = live
-            .lock()
-            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+        let mut live = live.record;
         live.target_display = Some(target_display);
         live.placement = Some(placement);
-        Ok(live.revision)
+        self.presentation
+            .commit_live_window_record("command", &target.window_id, &live)
+            .map(|receipt| receipt.revision)
     }
 
     fn set_live_window_persisted_name(
@@ -565,12 +595,17 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         name: Option<String>,
     ) -> Result<(), String> {
-        let Some(live) = self.presentation.existing(window_id) else {
+        if self.presentation.existing(window_id).is_none() {
             return Ok(());
-        };
-        live.lock()
-            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?
-            .persisted_name = name;
+        }
+        self.presentation
+            .live
+            .apply(RuntimeIntent::SetPersistedName {
+                name,
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 }

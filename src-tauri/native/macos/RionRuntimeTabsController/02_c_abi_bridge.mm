@@ -239,27 +239,6 @@ void rion_runtime_tabs_reserve(void * _Nullable rawController,
   }
 }
 
-void rion_runtime_tabs_replace(void * _Nullable rawController,
-                               const char *provisionalIdentifier,
-                               const char *tabIdentifier, const char *name,
-                               const char *type,
-                               const char * _Nullable workspaceTemplate,
-                               const char * _Nullable activeTabIdentifier) {
-  @autoreleasepool {
-    if (!rawController || !provisionalIdentifier || !tabIdentifier || !name ||
-        !type) return;
-    RionRuntimeTabsController *controller =
-        (__bridge RionRuntimeTabsController *)rawController;
-    [controller
-        replaceTabIdentifier:RionStringFromUTF8(provisionalIdentifier)
-              withIdentifier:RionStringFromUTF8(tabIdentifier)
-                        name:RionStringFromUTF8(name)
-                        type:RionStringFromUTF8(type)
-           workspaceTemplate:RionStringFromUTF8(workspaceTemplate)
-         activeTabIdentifier:RionStringFromUTF8(activeTabIdentifier)];
-  }
-}
-
 void rion_runtime_tabs_remove(
     void * _Nullable rawController, const char *tabIdentifier,
     const char * _Nullable activeTabIdentifier) {

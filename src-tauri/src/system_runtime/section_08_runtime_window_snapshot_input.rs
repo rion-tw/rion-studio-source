@@ -39,9 +39,7 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Live runtime window was not found while saving.".to_owned())?
-            .lock()
-            .map_err(|_| "Live runtime window state is unavailable while saving.".to_owned())?
-            .clone();
+            .record;
         let tabs = Self::live_game_window_tabs(&live_window);
         let target_display = live_window
             .target_display

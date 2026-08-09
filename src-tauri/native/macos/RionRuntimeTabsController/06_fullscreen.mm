@@ -482,56 +482,6 @@ NS_ASSUME_NONNULL_BEGIN
   [self setActiveTabIdentifier:tabIdentifier];
 }
 
-- (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
-              withIdentifier:(NSString *)tabIdentifier
-                        name:(NSString *)name
-                        type:(NSString *)type
-           workspaceTemplate:(nullable NSString *)workspaceTemplate
-         activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
-  if (_destroyed || provisionalIdentifier.length == 0 ||
-      tabIdentifier.length == 0) return;
-  NSUInteger index = [_tabItems indexOfObjectPassingTest:
-      ^BOOL(RionRuntimeTabItemView *item, NSUInteger candidateIndex, BOOL *stop) {
-    (void)candidateIndex;
-    BOOL matches = [item.tabIdentifier isEqualToString:provisionalIdentifier];
-    if (matches) *stop = YES;
-    return matches;
-  }];
-  if (index == NSNotFound) {
-    [self reserveTabIdentifier:tabIdentifier
-                          name:name
-                          type:type
-             workspaceTemplate:workspaceTemplate
-              windowIdentifier:_windowID ?: @""];
-    [self setActiveTabIdentifier:activeTabIdentifier];
-    return;
-  }
-  RionRuntimeTabModel *tab = [[RionRuntimeTabModel alloc] init];
-  tab.active = activeTabIdentifier.length > 0 &&
-      [activeTabIdentifier isEqualToString:tabIdentifier];
-  tab.audible = NO;
-  tab.audioMuted = NO;
-  tab.identifier = tabIdentifier;
-  tab.name = name.length > 0 ? name : tabIdentifier;
-  tab.tooltip = tab.name;
-  tab.type = type.length > 0 ? type : @"role";
-  tab.workspaceTemplate = workspaceTemplate;
-  RionRuntimeTabItemView *item = _tabItems[index];
-  [_tabItemsByIdentifier removeObjectForKey:provisionalIdentifier];
-  [item configureWithTab:tab
-                   image:[self imageForTab:tab]
-      hideTabCloseButton:NO
-              closeLabel:@"Stop and close tab"
-       audioPlayingLabel:@"Playing audio"
-          audioMutedLabel:@"Tab muted"
-            windowActive:_window.isKeyWindow];
-  [_tabIconCache removeObjectForKey:provisionalIdentifier];
-  [_tabIconCacheKeys removeObjectForKey:provisionalIdentifier];
-  _tabItemsByIdentifier[tabIdentifier] = item;
-  [self setActiveTabIdentifier:activeTabIdentifier];
-  [self layoutTitlebarContent];
-}
-
 - (void)removeTabIdentifier:(NSString *)tabIdentifier
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier {
   if (_destroyed || tabIdentifier.length == 0) return;
@@ -655,6 +605,45 @@ NS_ASSUME_NONNULL_BEGIN
       self->_addSurface.animator.frame = targetAddFrame;
     }
   } completionHandler:nil];
+}
+
+- (BOOL)moveTabIdentifier:(NSString *)tabIdentifier
+    byAccessibilityOffset:(NSInteger)offset {
+  if (tabIdentifier.length == 0 || offset == 0 || !_actionHandler) return NO;
+  NSUInteger currentIndex = [_tabItems indexOfObjectPassingTest:
+      ^BOOL(RionRuntimeTabItemView *item, NSUInteger index, BOOL *stop) {
+    (void)index;
+    BOOL matches = [item.tabIdentifier isEqualToString:tabIdentifier];
+    if (matches) *stop = YES;
+    return matches;
+  }];
+  if (currentIndex == NSNotFound) return NO;
+  NSInteger targetIndex = (NSInteger)currentIndex + offset;
+  if (targetIndex < 0 || targetIndex >= (NSInteger)_tabItems.count) return NO;
+
+  NSMutableArray<NSString *> *withoutTab =
+      [NSMutableArray arrayWithCapacity:_tabItems.count - 1];
+  for (RionRuntimeTabItemView *item in _tabItems) {
+    if (![item.tabIdentifier isEqualToString:tabIdentifier]) {
+      [withoutTab addObject:item.tabIdentifier];
+    }
+  }
+  NSUInteger insertionIndex = MIN((NSUInteger)targetIndex, withoutTab.count);
+  NSString *beforeIdentifier = insertionIndex < withoutTab.count
+      ? withoutTab[insertionIndex]
+      : nil;
+  NSMutableArray<NSString *> *orderedTabIDs = [withoutTab mutableCopy];
+  [orderedTabIDs insertObject:tabIdentifier atIndex:insertionIndex];
+  [self reorderTabIdentifiers:orderedTabIDs];
+
+  NSMutableDictionary<NSString *, id> *action = [@{
+    @"type" : @"reorder",
+    @"tabId" : tabIdentifier,
+    @"sourceWindowId" : _windowID
+  } mutableCopy];
+  if (beforeIdentifier.length > 0) action[@"beforeTabId"] = beforeIdentifier;
+  _actionHandler(action);
+  return YES;
 }
 
 - (void)closeTab:(NSString *)tabIdentifier {

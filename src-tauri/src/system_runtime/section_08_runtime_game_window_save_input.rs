@@ -8,13 +8,12 @@ impl SystemRuntimeExecutor {
             .map(|window| (window.id.clone(), window.name.clone()))
             .collect::<HashMap<_, _>>();
         let updates = {
-            let mut state = self
+            let state = self
                 .state
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-            state.saved_window_names = names.clone();
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .iter()
                 .map(|(window_id, host)| {
                     (
@@ -59,7 +58,7 @@ impl SystemRuntimeExecutor {
             .lock()
             .map_err(|_| "The live game-window launch context is unavailable.".to_owned())?;
         let host = state
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .ok_or_else(|| "The runtime window has no live native host.".to_owned())?;
         Ok((host.window.clone(), host.target.clone()))
@@ -151,8 +150,8 @@ impl SystemRuntimeExecutor {
         generation: u64,
     ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
         let ownership = self.state().ok().and_then(|state| {
-            let tab_id = state.role_tabs.get(role_id)?.clone();
-            state.tabs.get(&tab_id)?;
+            let tab_id = state.native_tab_id_for_role_surface(role_id)?.clone();
+            state.native_resources.tabs.get(&tab_id)?;
             Some(tab_id)
         }).and_then(|tab_id| {
             self.presentation
@@ -206,7 +205,7 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<String> {
         let window_generation = self
             .state()?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.generation)
             .ok_or_else(|| {
@@ -254,7 +253,7 @@ impl SystemRuntimeExecutor {
                 });
                 if !fenced {
                     state
-                        .surface_registry
+                        .native_resources.surface_registry
                         .insert(instance_id.clone(), surface.clone());
                 }
                 fenced
@@ -300,9 +299,9 @@ impl SystemRuntimeExecutor {
     fn managed_surface(&self, instance_id: &str) -> RuntimeResult<ManagedSurface> {
         let state = self.state()?;
         state
-            .surface_registry
+            .native_resources.surface_registry
             .get(instance_id)
-            .or_else(|| state.retired_surface_registry.get(instance_id))
+            .or_else(|| state.native_resources.retired_surface_registry.get(instance_id))
             .cloned()
             .ok_or_else(|| {
                 RuntimeError::new(
@@ -315,7 +314,7 @@ impl SystemRuntimeExecutor {
     fn managed_surface_ids_for_role(&self, role_id: &str) -> RuntimeResult<Vec<String>> {
         let mut surfaces = self
             .state()?
-            .surface_registry
+            .native_resources.surface_registry
             .values()
             .filter(|surface| {
                 surface.role_id.as_deref() == Some(role_id) && surface.phase.blocks_role_relaunch()
@@ -339,10 +338,10 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let surface = {
             let mut state = self.state()?;
-            let surface = if state.surface_registry.contains_key(instance_id) {
-                state.surface_registry.get_mut(instance_id)
+            let surface = if state.native_resources.surface_registry.contains_key(instance_id) {
+                state.native_resources.surface_registry.get_mut(instance_id)
             } else {
-                state.retired_surface_registry.get_mut(instance_id)
+                state.native_resources.retired_surface_registry.get_mut(instance_id)
             }
             .ok_or_else(|| {
                 RuntimeError::new(
@@ -365,16 +364,16 @@ impl SystemRuntimeExecutor {
     fn remove_managed_surface(&self, instance_id: &str) -> RuntimeResult<()> {
         let removed = {
             let mut state = self.state()?;
-            if let Some(surface) = state.surface_registry.get_mut(instance_id) {
+            if let Some(surface) = state.native_resources.surface_registry.get_mut(instance_id) {
                 surface.phase = ManagedSurfacePhase::Released;
             }
-            if let Some(surface) = state.retired_surface_registry.get_mut(instance_id) {
+            if let Some(surface) = state.native_resources.retired_surface_registry.get_mut(instance_id) {
                 surface.phase = ManagedSurfacePhase::Released;
             }
             state
-                .surface_registry
+                .native_resources.surface_registry
                 .remove(instance_id)
-                .or_else(|| state.retired_surface_registry.remove(instance_id))
+                .or_else(|| state.native_resources.retired_surface_registry.remove(instance_id))
         };
         if let Some(surface) = removed {
             #[cfg(windows)]

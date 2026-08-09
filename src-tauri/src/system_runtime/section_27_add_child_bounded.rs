@@ -259,11 +259,11 @@ impl SystemRuntimeExecutor {
             || {
                 self.state.lock().ok().and_then(|state| {
                     state
-                        .display_hosts
+                        .native_resources.display_hosts
                         .get(lifecycle_id)
                         .map(|_| lifecycle_id.to_owned())
                         .or_else(|| {
-                            state.display_hosts.iter().find_map(|(window_id, host)| {
+                            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                                 (host.window.label() == window.label()).then(|| window_id.clone())
                             })
                         })
@@ -309,7 +309,7 @@ impl SystemRuntimeExecutor {
     async fn destroy_role_event_bound(&self, role_id: &str) -> RuntimeResult<()> {
         {
             let mut state = self.state()?;
-            let Some(tab_id) = state.role_tabs.get(role_id) else {
+            let Some(tab_id) = state.native_tab_id_for_role_surface(role_id) else {
                 if state.close_coordinator.quarantined_roles.contains(role_id) {
                     return Err(RuntimeError::new(
                         "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
@@ -371,7 +371,7 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<ReleasedRoleSurface> {
         let (tab_id, webview, lifecycle, surface_instance_id, webview_label, popup_labels) = {
             let state = self.state()?;
-            let tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+            let tab_id = state.native_tab_id_for_role_surface(role_id).cloned().ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
                     "Runtime role was not found.",
@@ -384,7 +384,7 @@ impl SystemRuntimeExecutor {
                 ));
             }
             let surface = state
-                .tabs
+                .native_resources.tabs
                 .get(&tab_id)
                 .and_then(|tab| tab.roles.get(role_id))
                 .ok_or_else(|| {
@@ -422,9 +422,9 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .filter_map(|instance_id| {
                         state
-                            .surface_registry
+                            .native_resources.surface_registry
                             .get(instance_id)
-                            .or_else(|| state.retired_surface_registry.get(instance_id))
+                            .or_else(|| state.native_resources.retired_surface_registry.get(instance_id))
                             .cloned()
                     })
                     .collect::<Vec<_>>()
@@ -502,8 +502,7 @@ impl SystemRuntimeExecutor {
     fn commit_released_role(&self, released: &ReleasedRoleSurface) -> RuntimeResult<()> {
         let mut state = self.state()?;
         let current_tab_id = state
-            .role_tabs
-            .get(&released.role_id)
+            .native_tab_id_for_role_surface(&released.role_id)
             .cloned()
             .ok_or_else(|| {
                 RuntimeError::new(
@@ -512,7 +511,7 @@ impl SystemRuntimeExecutor {
                 )
             })?;
         let current_surface = state
-            .tabs
+            .native_resources.tabs
             .get(&released.tab_id)
             .and_then(|tab| tab.roles.get(&released.role_id))
             .map(|surface| {
@@ -534,13 +533,12 @@ impl SystemRuntimeExecutor {
                 "A newer runtime role surface superseded the closed handle.",
             ));
         }
-        state.role_tabs.remove(&released.role_id);
         state.audible_webviews.remove(&released.webview_label);
         state.recovery_budgets.remove(&released.role_id);
         state.recovery_generations.remove(&released.role_id);
         state.recovering_roles.remove(&released.role_id);
         state
-            .tabs
+            .native_resources.tabs
             .get_mut(&released.tab_id)
             .expect("the close transaction validated the runtime tab")
             .roles
@@ -555,9 +553,9 @@ impl SystemRuntimeExecutor {
         released: &ReleasedRoleSurface,
     ) -> RuntimeResult<()> {
         let live_window_id = self.resolve_live_tab_window_id(&released.tab_id)?;
-        let (window, window_id, slot) = {
+        let (window, window_id, role, rect, slot_id, projected_zoom) = {
             let state = self.state()?;
-            let tab = state.tabs.get(&released.tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get(&released.tab_id).ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_SURFACE_CLOSE_STALE",
                     "The role tab disappeared before its placeholder could be restored.",
@@ -573,7 +571,7 @@ impl SystemRuntimeExecutor {
                         "The stopped role no longer has a runtime slot.",
                     )
                 })?;
-            let host = state.display_hosts.get(&live_window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&live_window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "The runtime display host closed before the placeholder was restored.",
@@ -582,16 +580,26 @@ impl SystemRuntimeExecutor {
             (
                 host.window.clone(),
                 live_window_id.clone(),
-                EmbeddedRoleSlotEffectRecord {
-                    owner: None,
-                    rect: slot.rect.clone(),
-                    role: slot.role.clone(),
-                    slot_id: slot.slot_id.clone(),
-                    state: "available".to_owned(),
-                    zoom_factor: slot.zoom_factor,
-                    zoom_mode: slot.zoom_mode.clone(),
-                },
+                slot.role.clone(),
+                slot.rect.clone(),
+                slot.slot_id.clone(),
+                slot.zoom_factor,
             )
+        };
+        let (zoom_factor, adaptive) = self.runtime_role_zoom_contract(
+            &window_id,
+            &released.tab_id,
+            &released.role_id,
+            projected_zoom,
+        );
+        let slot = EmbeddedRoleSlotEffectRecord {
+            owner: None,
+            rect,
+            role,
+            slot_id,
+            state: "available".to_owned(),
+            zoom_factor,
+            zoom_mode: if adaptive { "adaptive" } else { "fixed" }.to_owned(),
         };
         let metrics = runtime_window_content_metrics(&window)?;
         let bounds = role_bounds_for_content(metrics, &slot.rect);
@@ -605,7 +613,7 @@ impl SystemRuntimeExecutor {
         let inserted = {
             let mut state = self.state()?;
             state
-                .tabs
+                .native_resources.tabs
                 .get_mut(&released.tab_id)
                 .and_then(|tab| tab.slots.get_mut(&slot.slot_id))
                 .filter(|runtime_slot| runtime_slot.placeholder.is_none())
@@ -651,7 +659,7 @@ impl SystemRuntimeExecutor {
         };
         let (role_ids, window_id) = {
             let state = self.state()?;
-            let Some(tab) = state.tabs.get(tab_id) else {
+            let Some(tab) = state.native_resources.tabs.get(tab_id) else {
                 return Ok(());
             };
             (tab.roles.keys().cloned().collect::<Vec<_>>(), window_id)
@@ -659,9 +667,9 @@ impl SystemRuntimeExecutor {
         let tab_group_surfaces = {
             let state = self.state()?;
             state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
-                .chain(state.retired_surface_registry.values())
+                .chain(state.native_resources.retired_surface_registry.values())
                 .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
                 .cloned()
                 .collect::<Vec<_>>()
@@ -750,7 +758,7 @@ impl SystemRuntimeExecutor {
             let released_dividers = {
                 let state = self.state()?;
                 state
-                    .tabs
+                    .native_resources.tabs
                     .get(tab_id)
                     .ok_or_else(|| {
                         RuntimeError::new(
@@ -776,7 +784,7 @@ impl SystemRuntimeExecutor {
             let released_placeholders = {
                 let state = self.state()?;
                 state
-                    .tabs
+                    .native_resources.tabs
                     .get(tab_id)
                     .ok_or_else(|| {
                         RuntimeError::new(
@@ -799,7 +807,7 @@ impl SystemRuntimeExecutor {
             }
 
             let mut state = self.state()?;
-            if state.surface_registry.values().any(|surface| {
+            if state.native_resources.surface_registry.values().any(|surface| {
                 surface.tab_id.as_deref() == Some(tab_id)
                     && surface.kind != ManagedSurfaceKind::Divider
                     && surface.phase.blocks_role_relaunch()
@@ -809,7 +817,7 @@ impl SystemRuntimeExecutor {
                     "Rion Studio could not verify that every native game page stopped. The tab remains closed; restart Rion Studio before reopening these roles.",
                 ));
             }
-            let current_tab = state.tabs.get(tab_id).ok_or_else(|| {
+            let current_tab = state.native_resources.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_SURFACE_CLOSE_STALE",
                     "The runtime tab disappeared before its close transaction committed.",
@@ -817,7 +825,7 @@ impl SystemRuntimeExecutor {
             })?;
             let roles_current = current_tab.roles.len() == released_roles.len()
                 && released_roles.iter().all(|released| {
-                    state.role_tabs.get(&released.role_id) == Some(&released.tab_id)
+                    state.native_tab_id_for_role_surface(&released.role_id) == Some(&released.tab_id)
                         && current_tab
                             .roles
                             .get(&released.role_id)
@@ -841,14 +849,12 @@ impl SystemRuntimeExecutor {
                 ));
             }
             for released in &released_roles {
-                state.role_tabs.remove(&released.role_id);
                 state.audible_webviews.remove(&released.webview_label);
                 state.recovery_budgets.remove(&released.role_id);
                 state.recovery_generations.remove(&released.role_id);
                 state.recovering_roles.remove(&released.role_id);
             }
-            state.tabs.remove(tab_id);
-            state.native_tab_hosts.remove(tab_id);
+            state.native_resources.tabs.remove(tab_id);
             self.presentation.statuses.remove(tab_id);
             self.notify_optional_idle_changed();
             // A successful native destroy is the authoritative close boundary,

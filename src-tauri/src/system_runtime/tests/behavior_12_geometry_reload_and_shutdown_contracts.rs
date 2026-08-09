@@ -222,6 +222,10 @@ fn resize_metrics_preserve_windows_two_hundred_percent_scaling() {
     let metrics = logical_resize_metrics(3_756, 2_510, 2.0);
     assert_eq!(metrics.width, 1_878.0);
     assert_eq!(metrics.height, 1_255.0);
+    let adjusted = resize_metrics_with_tab_strip(metrics, 44.0);
+    assert_eq!(adjusted.top_inset, 44.0);
+    assert_eq!(adjusted.height, 1_211.0);
+    assert_eq!(resize_snapshot_tab_strip_height(adjusted), 44.0);
 }
 
 #[cfg(windows)]

@@ -11,17 +11,11 @@ impl AppCore {
             focus_tab_id,
             parent_operation_id,
         } = transition;
-        let next = {
-            let mut runtime = self
-                .browser_runtime
-                .lock()
-                .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?;
-            let mut result = runtime.invoke(BrowserRuntimeCommand::Snapshot)?;
-            for command in commands {
-                result = runtime.invoke(command)?;
-            }
-            result.snapshot
-        };
+        let mut result = self.invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?;
+        for command in commands {
+            result = self.invoke_browser_runtime(command)?;
+        }
+        let next = result.snapshot;
         let effect = CoreEffectAction::EmbeddedFollowRoleOwnership {
             roles: next.roles.clone(),
             target: target.clone(),
@@ -294,6 +288,10 @@ impl AppCore {
         key: &str,
         value: T,
     ) -> CoreResult<Value> {
+        let _authority_guard = self
+            .runtime_authority_barrier
+            .write()
+            .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
         let value =
             serde_json::to_value(value).map_err(|error| CoreError::Internal(error.to_string()))?;
         self.with_runtime(|runtime| {
@@ -380,6 +378,10 @@ impl AppCore {
     }
 
     fn mutate_state_under_guard(&self, mutation: StateMutation) -> CoreResult<Value> {
+        let _authority_guard = self
+            .runtime_authority_barrier
+            .write()
+            .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
         let changed_collections = mutation.changed_collections();
         let result = self.with_runtime(|runtime| runtime.state.mutate(mutation))?;
         let revision = result

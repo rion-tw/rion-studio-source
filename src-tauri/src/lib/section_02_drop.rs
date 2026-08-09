@@ -253,13 +253,7 @@ fn preview_game_window_close(
         Err(error) if error.code == "GAME_WINDOW_NOT_FOUND" => String::new(),
         Err(error) => return Err(error),
     };
-    let snapshot = core
-        .invoke(CoreCommand::BrowserRuntimeSnapshot)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<BrowserRuntimeSnapshot>(value)
-                .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
-        })?;
+    let snapshot = core.browser_runtime_snapshot().map_err(error_payload)?;
     let snapshot = runtime.live_runtime_snapshot(snapshot).ok_or_else(|| {
         shell_error(
             "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
@@ -527,10 +521,52 @@ async fn process_game_window_close_requested(
         );
     }
 
+    let request = match runtime.snapshot_window_stop_request(
+        operation_id.clone(),
+        &window_id,
+        "os-close-requested",
+    ) {
+        Ok(request) => request,
+        Err(message) => {
+            let receipt = runtime.fail_window_close_operation(
+                &operation_id,
+                "windowCloseScopeFailed",
+                "SYSTEM_WINDOW_CLOSE_SCOPE_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
+            eprintln!("Game Window close scope failed: window={window_id} error={message}");
+            return;
+        }
+    };
+    let admitted_request: RuntimeWindowStopRequestRecord = match core
+        .invoke_async(CoreCommand::BrowserWindowCloseAdmit { request })
+        .await
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
+        })
+    {
+        Ok(request) => request,
+        Err(error) => {
+            let receipt = runtime.fail_window_close_operation(
+                &operation_id,
+                "windowCloseAdmissionFailed",
+                "SYSTEM_WINDOW_CLOSE_ADMISSION_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
+            eprintln!(
+                "Game Window close admission failed: window={window_id} error={}",
+                error.payload().message
+            );
+            return;
+        }
+    };
+
     let (request, receipt) = match runtime.commit_visible_window_close(
         &operation_id,
         &window_id,
         true,
+        admitted_request.clone(),
     ) {
         Ok(result) => result,
         Err(error) => {
@@ -544,6 +580,19 @@ async fn process_game_window_close_requested(
                 "Live Game Window close commit failed: window={window_id} error={}",
                 error.message
             );
+            tauri::async_runtime::spawn(async move {
+                if let Err(cleanup_error) = core
+                    .invoke_async(CoreCommand::BrowserWindowStop {
+                        request: admitted_request,
+                    })
+                    .await
+                {
+                    eprintln!(
+                        "Admitted Game Window close cleanup failed: window={window_id} error={}",
+                        cleanup_error.payload().message
+                    );
+                }
+            });
             return;
         }
     };
@@ -585,10 +634,66 @@ async fn execute_game_window_close_transaction(
                 "Final Game Window placement flush failed; close will continue: window={window_id} error={error}"
             );
         }
-        let (request, receipt) = state
-            .runtime
-            .commit_visible_window_close(&operation.operation_id, &window_id, !delete)
-            .map_err(|error| shell_error(error.code, error.message))?;
+        let request = match state.runtime.snapshot_window_stop_request(
+            operation.operation_id.clone(),
+            &window_id,
+            trigger,
+        ) {
+            Ok(request) => request,
+            Err(message) => {
+                let receipt = state.runtime.fail_window_close_operation(
+                    &operation.operation_id,
+                    "windowCloseScopeFailed",
+                    "SYSTEM_WINDOW_CLOSE_SCOPE_FAILED",
+                );
+                let _ = app.emit("rion://window-lifecycle", receipt);
+                return Err(shell_error("SYSTEM_WINDOW_CLOSE_SCOPE_FAILED", message));
+            }
+        };
+        let request: RuntimeWindowStopRequestRecord = match state
+            .core
+            .invoke_async(CoreCommand::BrowserWindowCloseAdmit { request })
+            .await
+            .map_err(error_payload)
+            .and_then(|value| {
+                serde_json::from_value(value)
+                    .map_err(|error| shell_error("CORE_INTERNAL_FAILED", error.to_string()))
+            })
+        {
+            Ok(request) => request,
+            Err(error) => {
+                let receipt = state.runtime.fail_window_close_operation(
+                    &operation.operation_id,
+                    "windowCloseAdmissionFailed",
+                    "SYSTEM_WINDOW_CLOSE_ADMISSION_FAILED",
+                );
+                let _ = app.emit("rion://window-lifecycle", receipt);
+                return Err(error);
+            }
+        };
+        let (request, receipt) = match state.runtime.commit_visible_window_close(
+            &operation.operation_id,
+            &window_id,
+            !delete,
+            request.clone(),
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                let receipt = state.runtime.fail_window_close_operation(
+                    &operation.operation_id,
+                    "windowCloseLiveCommitFailed",
+                    error.code,
+                );
+                let _ = app.emit("rion://window-lifecycle", receipt);
+                let core = Arc::clone(&state.core);
+                tauri::async_runtime::spawn(async move {
+                    let _ = core
+                        .invoke_async(CoreCommand::BrowserWindowStop { request })
+                        .await;
+                });
+                return Err(shell_error(error.code, error.message));
+            }
+        };
         let command = if delete {
             CoreCommand::BrowserWindowDelete { request }
         } else {
@@ -634,7 +739,22 @@ fn game_window_recovery_error(
 }
 
 fn core_command_refreshes_runtime_projection(command: &CoreCommand) -> bool {
-    matches!(command, CoreCommand::RuntimeWindowPreferencesReplace { .. })
+    matches!(
+        command,
+        CoreCommand::RuntimeWindowPreferencesReplace { .. }
+            | CoreCommand::GameCreate { .. }
+            | CoreCommand::GameUpdate { .. }
+            | CoreCommand::GameResetBuiltin { .. }
+            | CoreCommand::GameDelete { .. }
+            | CoreCommand::GamesDelete { .. }
+            | CoreCommand::RoleCreate { .. }
+            | CoreCommand::RoleUpdate { .. }
+            | CoreCommand::RoleReorder { .. }
+            | CoreCommand::RoleDelete { .. }
+            | CoreCommand::RolesDelete { .. }
+            | CoreCommand::RoleAssignGameIds { .. }
+            | CoreCommand::PortableApply { .. }
+    )
 }
 
 fn core_command_refreshes_browser_fonts(command: &CoreCommand) -> bool {
@@ -742,6 +862,7 @@ async fn rion_core_invoke(
         state.runtime.set_theme(&theme);
     }
     if result.is_ok() && runtime_window_preferences_changed {
+        let _ = state.runtime.refresh_projection_metadata();
         state.runtime.publish_projection();
         if let Ok(language) = state.menu_language.lock().map(|value| value.clone()) {
             let _ = application_menu::install(&app, &state.core, &language);

@@ -161,5 +161,24 @@ pub struct BrowserRuntimeResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub created_tab_id: Option<String>,
+    #[serde(default)]
+    pub tab_created: bool,
     pub snapshot: BrowserRuntimeSnapshot,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct CoreAppSnapshotRecord {
+    #[ts(type = "number")]
+    pub revision: u64,
+    #[ts(type = "number")]
+    pub state_revision: u64,
+    #[ts(type = "number")]
+    pub runtime_revision: u64,
+    pub state: CoreStateSnapshotRecord,
+    pub browser_runtime: BrowserRuntimeSnapshot,
+    pub logical_windows: Vec<RuntimeWindowTabSnapshotRecord>,
+    pub role_statuses: Vec<BrowserRoleStatusRecord>,
+    pub macro_statuses: Vec<MacroRunStatus>,
 }

@@ -34,20 +34,21 @@ fn pending_launch_admission_keeps_the_provisional_owner() {
     assert_eq!(
         resolve_launch_admission(
             BrowserLaunchAdmissionCompletion::PendingNativeCompletion,
-            None,
+            "admitted",
+            "tab-a",
         ),
         LaunchAdmissionResolution::AwaitNativeCompletion,
     );
 }
 
 #[test]
-fn any_launch_admission_prefers_an_authoritative_stable_owner() {
+fn existing_or_joined_admission_returns_the_kernel_tab_owner() {
     for completion in [
         BrowserLaunchAdmissionCompletion::PendingNativeCompletion,
         BrowserLaunchAdmissionCompletion::Completed,
     ] {
         assert_eq!(
-            resolve_launch_admission(completion, Some("stable-tab".to_owned())),
+            resolve_launch_admission(completion, "existing", "stable-tab"),
             LaunchAdmissionResolution::UseStableOwner("stable-tab".to_owned()),
         );
     }
@@ -56,7 +57,7 @@ fn any_launch_admission_prefers_an_authoritative_stable_owner() {
 #[test]
 fn completed_launch_without_a_live_owner_is_an_explicit_divergence() {
     assert_eq!(
-        resolve_launch_admission(BrowserLaunchAdmissionCompletion::Completed, None),
+        resolve_launch_admission(BrowserLaunchAdmissionCompletion::Completed, "admitted", ""),
         LaunchAdmissionResolution::OwnershipDiverged,
     );
 }

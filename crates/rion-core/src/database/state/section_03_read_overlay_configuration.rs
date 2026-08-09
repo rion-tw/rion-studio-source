@@ -372,6 +372,7 @@ fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
 
 pub(super) fn read_snapshot(connection: &Connection) -> CoreResult<Value> {
     let mut object = Map::new();
+    object.insert("revision".to_owned(), json!(read_revision(connection)?));
     object.insert("games".to_owned(), read_payloads(connection, "games")?);
     object.insert("roles".to_owned(), read_payloads(connection, "roles")?);
     object.insert(

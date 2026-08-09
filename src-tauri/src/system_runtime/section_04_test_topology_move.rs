@@ -23,13 +23,9 @@ impl PresentationRegistry {
         }
         let mut source = self
             .existing(source_window_id)
-            .and_then(|source| source.lock().ok().map(|source| source.clone()))
+            .map(|source| source.record)
             .ok_or_else(|| "The source presentation state was not found.".to_owned())?;
-        let mut target = self
-            .coordinator(target_window_id)?
-            .lock()
-            .map_err(|_| "The target presentation state is unavailable.".to_owned())?
-            .clone();
+        let mut target = self.coordinator(target_window_id)?.record;
         let index = source
             .tabs
             .iter()
@@ -41,9 +37,6 @@ impl PresentationRegistry {
             .flatten();
         let tab = source.tabs.remove(index);
         let was_hidden = source.hidden_tab_ids.remove(tab_id);
-        source
-            .aliases
-            .retain(|alias, target| alias != tab_id && target != tab_id);
         if was_selected {
             source.selected_tab_id = successor;
         }

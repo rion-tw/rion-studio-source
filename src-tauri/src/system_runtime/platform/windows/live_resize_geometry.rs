@@ -1,12 +1,12 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WindowsLiveResizeBounds {
+pub(in crate::system_runtime) struct WindowsLiveResizeBounds {
     height: i32,
     width: i32,
     x: i32,
     y: i32,
 }
 
-fn windows_live_resize_resolve_bounds(
+pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
     plan: &WindowsLiveResizePlan,
     physical_width: u32,
     physical_height: u32,
@@ -85,7 +85,7 @@ fn windows_live_resize_resolve_bounds(
     Ok(bounds)
 }
 
-fn windows_live_resize_edge(value: i32, scale: f64, outer: i32) -> i32 {
+pub(in crate::system_runtime) fn windows_live_resize_edge(value: i32, scale: f64, outer: i32) -> i32 {
     if value <= 0 {
         0
     } else {
@@ -93,7 +93,7 @@ fn windows_live_resize_edge(value: i32, scale: f64, outer: i32) -> i32 {
     }
 }
 
-fn windows_live_resize_physical_bounds(
+pub(in crate::system_runtime) fn windows_live_resize_physical_bounds(
     bounds: LayoutBounds,
     logical_width: i32,
     logical_height: i32,
@@ -121,7 +121,7 @@ fn windows_live_resize_physical_bounds(
     }
 }
 
-fn windows_live_resize_divider_hit_bounds(axis: &str, bounds: LayoutBounds) -> LayoutBounds {
+pub(in crate::system_runtime) fn windows_live_resize_divider_hit_bounds(axis: &str, bounds: LayoutBounds) -> LayoutBounds {
     let hit = DIVIDER_HIT_TARGET.round() as i32;
     if axis == "vertical" {
         LayoutBounds {
@@ -138,7 +138,7 @@ fn windows_live_resize_divider_hit_bounds(axis: &str, bounds: LayoutBounds) -> L
     }
 }
 
-fn windows_live_resize_submit_batch(
+pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
@@ -184,7 +184,7 @@ fn windows_live_resize_submit_batch(
     )
 }
 
-fn windows_live_resize_submit_controller_bounds<T>(
+pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>(
     surface: &T,
     bounds: &WindowsLiveResizeBounds,
     set_bounds: impl FnOnce(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
@@ -192,11 +192,11 @@ fn windows_live_resize_submit_controller_bounds<T>(
     set_bounds(surface, bounds)
 }
 
-fn windows_live_resize_window_pos_flags() -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {
+pub(in crate::system_runtime) fn windows_live_resize_window_pos_flags() -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {
     SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOZORDER
 }
 
-fn windows_live_resize_submit_ordered<T>(
+pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     surfaces: &[T],
     bounds: &[WindowsLiveResizeBounds],
     submit_child_batch: impl FnOnce(&[T], &[WindowsLiveResizeBounds]) -> Result<(), ()>,

@@ -30,14 +30,13 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .map_err(|_| "The runtime tab menu context is unavailable.".to_owned())?;
-        let audio_muted = state
-            .tabs
-            .get(tab_id)
+        let audio_muted = self
+            .presentation
+            .tab(&window_id, tab_id)
             .map(|tab| tab.audio_muted)
-            .or_else(|| self.presentation.tab(&window_id, tab_id).map(|tab| tab.audio_muted))
             .unwrap_or(false);
         let window = state
-            .display_hosts
+            .native_resources.display_hosts
             .get(&window_id)
             .map(|host| host.window.clone())
             .ok_or_else(|| "Runtime tab window was not found.".to_owned())?;
@@ -45,26 +44,18 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn tab_audio_muted(&self, tab_id: &str) -> Result<bool, String> {
-        let native = self.state
-            .lock()
-            .map_err(|_| "The runtime tab audio state is unavailable.".to_owned())?
-            .tabs
-            .get(tab_id)
-            .map(|tab| tab.audio_muted);
-        Ok(native.or_else(|| {
-            self.presentation
-                .tab_window(tab_id)
-                .ok()
-                .flatten()
-                .and_then(|window_id| self.presentation.tab(&window_id, tab_id))
-                .map(|tab| tab.audio_muted)
-        }).unwrap_or(false))
+        Ok(self
+            .presentation
+            .tab_window(tab_id)?
+            .and_then(|window_id| self.presentation.tab(&window_id, tab_id))
+            .map(|tab| tab.audio_muted)
+            .unwrap_or(false))
     }
 
     pub fn window_for_id(&self, window_id: &str) -> Option<Window> {
         self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.window.clone())
         })
@@ -104,9 +95,8 @@ impl SystemRuntimeExecutor {
         let live_owner = if tab_type == "role" {
             self.state.lock().ok().and_then(|state| {
                 state
-                    .role_tabs
-                    .get(source_id)
-                    .filter(|tab_id| !state.optimistic_closed_tabs.contains(*tab_id))
+                    .native_tab_id_for_role_surface(source_id)
+                    .filter(|tab_id| !state.tab_close_pending(tab_id))
                     .cloned()
             })
         } else {
@@ -118,7 +108,7 @@ impl SystemRuntimeExecutor {
         );
         let state = self.state.lock().ok()?;
         candidates.into_iter().find(|tab_id| {
-            state.tabs.contains_key(tab_id) && !state.optimistic_closed_tabs.contains(tab_id)
+            state.native_resources.tabs.contains_key(tab_id) && !state.tab_close_pending(tab_id)
         })
     }
 
@@ -146,9 +136,9 @@ impl SystemRuntimeExecutor {
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
             state
-                .tabs
+                .native_resources.tabs
                 .keys()
-                .filter(|tab_id| !state.optimistic_closed_tabs.contains(*tab_id))
+                .filter(|tab_id| !state.tab_close_pending(tab_id))
                 .cloned()
                 .chain(
                     state
@@ -197,7 +187,7 @@ impl SystemRuntimeExecutor {
     pub fn window_id_for_webview(&self, webview_label: &str) -> Option<String> {
         let tab_id = self.state.lock().ok().and_then(|state| {
             let popup_role_id = state.popup_roles.get(webview_label);
-            state.tabs.iter().find_map(|(tab_id, tab)| {
+            state.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
                 let owns_webview = popup_role_id
                     .is_some_and(|role_id| tab.roles.contains_key(role_id))
                     || tab
@@ -254,7 +244,7 @@ impl SystemRuntimeExecutor {
                 .lock()
                 .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
             state
-                .tabs
+                .native_resources.tabs
                 .iter()
                 .find_map(|(tab_id, tab)| {
                     tab.roles.iter().find_map(|(role_id, surface)| {
@@ -351,12 +341,7 @@ impl SystemRuntimeExecutor {
         let selected_tab_id = self
             .presentation
             .existing(&handoff.window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .and_then(|window| window.selected_tab_id.clone())
-            });
+            .and_then(|presentation| presentation.selected_tab_id.clone());
         let mut tab_ids = vec![handoff.source_tab_id.as_str()];
         if let Some(selected_tab_id) = selected_tab_id.as_deref()
             && selected_tab_id != handoff.source_tab_id
@@ -368,7 +353,7 @@ impl SystemRuntimeExecutor {
             tab_ids
                 .into_iter()
                 .filter(|tab_id| !tab_id.is_empty())
-                .filter_map(|tab_id| state.tabs.get(tab_id))
+                .filter_map(|tab_id| state.native_resources.tabs.get(tab_id))
                 .flat_map(|tab| {
                     tab.roles
                         .iter()
@@ -416,7 +401,7 @@ impl SystemRuntimeExecutor {
         let generation = self
             .state()
             .map_err(|error| error.message)?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.generation)
             .ok_or_else(|| "Runtime tab drag window host was not found.".to_owned())?;
@@ -424,9 +409,6 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-        let state = state
-            .lock()
-            .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
         Ok(RuntimeTabDragWindowSnapshot {
             generation,
             tab_ids: state.tab_ids(),
@@ -440,51 +422,25 @@ impl SystemRuntimeExecutor {
     ) -> bool {
         self.state.lock().ok().is_some_and(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .is_some_and(|host| host.generation == generation)
         })
     }
 
     pub(crate) fn native_tab_host_id(&self, tab_id: &str) -> Option<String> {
-        self.state.lock().ok().and_then(|state| {
-            state.native_tab_hosts.get(tab_id).cloned().or_else(|| {
-                state
-                    .surface_registry
-                    .values()
-                    .find(|surface| surface.tab_id.as_deref() == Some(tab_id))
-                    .map(|surface| surface.window_id.clone())
-            })
-        })
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.native_host_for_tab_handle(tab_id))
+            .or_else(|| self.presentation.tab_window(tab_id).ok().flatten())
     }
 
     pub(crate) fn native_tab_exists(&self, tab_id: &str) -> bool {
         self.state.lock().ok().is_some_and(|state| {
-            state.tabs.contains_key(tab_id)
-                && !state.optimistic_closed_tabs.contains(tab_id)
+            state.native_resources.tabs.contains_key(tab_id)
+                && !state.tab_close_pending(tab_id)
                 && !state.close_coordinator.closing_tabs.contains(tab_id)
-        })
-    }
-
-    pub(crate) fn native_tab_for_source(&self, source_id: &str, tab_type: &str) -> Option<String> {
-        let tab_ids = self.state.lock().ok().map(|state| {
-            state
-                .tabs
-                .keys()
-                .filter(|tab_id| {
-                    !state.optimistic_closed_tabs.contains(*tab_id)
-                        && !state.close_coordinator.closing_tabs.contains(*tab_id)
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        })?;
-        tab_ids.into_iter().find(|tab_id| {
-            self.presentation
-                .tab_window(tab_id)
-                .ok()
-                .flatten()
-                .and_then(|window_id| self.presentation.tab(&window_id, tab_id))
-                .is_some_and(|tab| tab.source_id == source_id && tab.tab_type == tab_type)
         })
     }
 
@@ -510,14 +466,14 @@ impl SystemRuntimeExecutor {
                 .tab_drag_placement_suppressed_windows
                 .remove(window_id);
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.window.label().to_owned())
         });
         if persist_final_placement && label.is_some() {
             let target = self.state.lock().ok().and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.target.clone())
             });
@@ -556,9 +512,6 @@ impl SystemRuntimeExecutor {
                 .presentation
                 .existing(window_id)
                 .ok_or_else(|| "Runtime tab presentation window was not found.".to_owned())?;
-            let state = state
-                .lock()
-                .map_err(|_| "Runtime tab presentation state is unavailable.".to_owned())?;
             let mut ordered = state.tab_ids();
             let Some(index) = ordered.iter().position(|id| id == tab_id) else {
                 return Err("Dragged tab is outside the preview window.".to_owned());
@@ -586,7 +539,7 @@ impl SystemRuntimeExecutor {
                 .ok()
                 .and_then(|state| {
                     state
-                        .display_hosts
+                        .native_resources.display_hosts
                         .get(window_id)
                         .map(|host| host.tabs_controller.clone())
                 })
@@ -595,7 +548,7 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         {
             let snapshot = self.state.lock().ok().and_then(|state| {
-                let host = state.display_hosts.get(window_id)?;
+                let host = state.native_resources.display_hosts.get(window_id)?;
                 Some((
                     host.window.clone(),
                     self.windows_tab_strip_height(&host.window, host.toolbar_revealed),
@@ -638,7 +591,7 @@ impl SystemRuntimeExecutor {
             .state
             .lock()
             .ok()?
-            .display_hosts
+            .native_resources.display_hosts
             .iter()
             .filter(|(window_id, _)| excluded_window_id != Some(window_id.as_str()))
             .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
@@ -683,7 +636,7 @@ impl SystemRuntimeExecutor {
         {
             let controller = self.state.lock().ok().and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| host.tabs_controller.clone())
             })?;
@@ -744,7 +697,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(window_id)
                     .map(|host| (host.window.clone(), host.generation))
             })

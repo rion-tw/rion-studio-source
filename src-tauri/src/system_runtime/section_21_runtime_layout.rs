@@ -213,6 +213,7 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let is_resize_projection = metrics_override.is_some();
         let window_id = self.resolve_live_tab_window_id(tab_id)?;
+        let desired_window_zoom_factor = self.runtime_window_zoom_factor(&window_id);
         let (
             window,
             role_views,
@@ -225,10 +226,10 @@ impl SystemRuntimeExecutor {
             _window_generation,
         ) = {
             let state = self.state()?;
-            let tab = state.tabs.get(tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
-            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found.",
@@ -244,7 +245,7 @@ impl SystemRuntimeExecutor {
                                 (
                                     surface.webview.clone(),
                                     surface.zoom_factor,
-                                    surface.zoom_mode.clone(),
+                                    String::new(),
                                     true,
                                 )
                             } else {
@@ -252,7 +253,7 @@ impl SystemRuntimeExecutor {
                                 (
                                     placeholder.webview.clone(),
                                     slot.zoom_factor,
-                                    slot.zoom_mode.clone(),
+                                    String::new(),
                                     false,
                                 )
                             };
@@ -281,7 +282,7 @@ impl SystemRuntimeExecutor {
                     .map(|divider| (divider.index, divider.webview.clone()))
                     .collect::<HashMap<_, _>>(),
                 tab.workspace_appearance.gap,
-                host.zoom_factor,
+                desired_window_zoom_factor,
                 #[cfg(windows)]
                 Some(host.tab_strip.clone()),
                 #[cfg(not(windows))]
@@ -293,6 +294,27 @@ impl SystemRuntimeExecutor {
                 host.generation,
             )
         };
+        let role_views = role_views
+            .into_iter()
+            .map(
+                |(role_id, webview, projected_zoom, _projected_mode, role_surface, input)| {
+                    let (zoom_factor, adaptive) = self.runtime_role_zoom_contract(
+                        &window_id,
+                        tab_id,
+                        &role_id,
+                        projected_zoom,
+                    );
+                    (
+                        role_id,
+                        webview,
+                        zoom_factor,
+                        if adaptive { "adaptive" } else { "fixed" }.to_owned(),
+                        role_surface,
+                        input,
+                    )
+                },
+            )
+            .collect::<Vec<_>>();
         #[cfg(windows)]
         let metrics = match metrics_override {
             Some(metrics) => metrics,
@@ -487,16 +509,14 @@ impl SystemRuntimeExecutor {
             .collect::<Vec<_>>();
         let state_commit = (|| -> RuntimeResult<()> {
             let mut state = self.state()?;
-            let tab = state.tabs.get_mut(tab_id).ok_or_else(|| {
+            let tab = state.native_resources.tabs.get_mut(tab_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_TAB_NOT_FOUND",
                     "Runtime tab disappeared before native layout could commit.",
                 )
             })?;
             for (role_id, _, base_zoom, _, _) in &zoom_updates {
-                if let Some(surface) = tab.roles.get_mut(role_id)
-                    && surface.zoom_mode == "adaptive"
-                {
+                if let Some(surface) = tab.roles.get_mut(role_id) {
                     surface.zoom_factor = *base_zoom;
                 }
             }
@@ -549,22 +569,11 @@ impl SystemRuntimeExecutor {
         viewport_width: f64,
         current_factor: Option<f64>,
     ) -> RuntimeResult<f64> {
-        let value = self
-            .core
-            .invoke(CoreCommand::LayoutAdaptiveZoom {
-                viewport_width,
-                current_percent: current_factor.map(|factor| (factor * 100.0).round() as u32),
-            })
-            .map_err(RuntimeError::core)?;
-        value
-            .as_u64()
-            .map(|percent| percent as f64 / 100.0)
-            .ok_or_else(|| {
-                RuntimeError::new(
-                    "TAURI_LAYOUT_INVALID",
-                    "Adaptive role zoom did not return a percentage.",
-                )
-            })
+        Ok(rion_core::resolve_adaptive_zoom_percent(
+            viewport_width,
+            current_factor.map(|factor| (factor * 100.0).round() as u32),
+        ) as f64
+            / 100.0)
     }
 
     fn ensure_display_host(
@@ -585,7 +594,7 @@ impl SystemRuntimeExecutor {
                 ));
             }
             runtime_state
-                .display_hosts
+                .native_resources.display_hosts
                 .get_mut(&target.window_id)
                 .map(|host| {
                 host.retirement_revision = WINDOW_RETIREMENT_SEQUENCE
@@ -620,10 +629,9 @@ impl SystemRuntimeExecutor {
         let window_label = runtime_label("game-display", &host_id);
         let window_app = self.app.clone();
         let saved_name = self
-            .state()?
-            .saved_window_names
-            .get(&target.window_id)
-            .cloned();
+            .presentation
+            .existing(&target.window_id)
+            .and_then(|window| window.persisted_name.clone());
         let window_title = native_runtime_window_title(saved_name.as_deref());
         let bounds = target.bounds.clone();
         let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
@@ -761,21 +769,20 @@ impl SystemRuntimeExecutor {
         windows_live_resize_register_webview(&tab_strip)?;
 
         let mut state = self.state()?;
-        if let Some(existing) = state.display_hosts.get(&target.window_id) {
+        if let Some(existing) = state.native_resources.display_hosts.get(&target.window_id) {
             let existing = existing.window.clone();
             drop(state);
             let _ = window.close();
             self.register_runtime_launcher_window(&target.window_id);
             return Ok((existing, false));
         }
-        state.display_hosts.insert(
+        state.native_resources.display_hosts.insert(
             target.window_id.clone(),
             RuntimeDisplayHost {
                 generation: window_generation,
                 retirement_revision: 0,
                 target: target.clone(),
                 window: window.clone(),
-                zoom_factor: 1.0,
                 #[cfg(windows)]
                 last_geometry_receipt_revision: 0,
                 #[cfg(windows)]
@@ -865,7 +872,7 @@ impl SystemRuntimeExecutor {
             if state.quarantined_window_hosts.contains(window_id) {
                 return None;
             }
-            if !state.display_hosts.get(window_id).is_some_and(|host| {
+            if !state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
                 window_retirement_revision_is_current(
                     host.retirement_revision,
                     expected_retirement_revision,
@@ -882,7 +889,7 @@ impl SystemRuntimeExecutor {
             }
             state.retiring_window_tabs.remove(window_id);
             state.retiring_window_revisions.remove(window_id);
-            let host = state.display_hosts.remove(window_id)?;
+            let host = state.native_resources.display_hosts.remove(window_id)?;
             let label = host.window.label().to_owned();
             state.allow_window_close_labels.insert(label.clone());
             state.retiring_native_window_hosts.insert(
@@ -903,7 +910,7 @@ impl SystemRuntimeExecutor {
                         state.allow_window_close_labels.remove(&label);
                         state.retiring_native_window_hosts.remove(&label);
                         state
-                            .display_hosts
+                            .native_resources.display_hosts
                             .entry(window_id.to_owned())
                             .or_insert(host);
                     }

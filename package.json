@@ -28,6 +28,7 @@
     "performance:measure": "node scripts/benchmarkProcessTree.mjs",
     "performance:aggregate": "node scripts/aggregatePerformanceRuns.mjs",
     "performance:fixture": "node scripts/performanceFixtureServer.mjs",
+    "runtime-authority:fixture": "node scripts/runtimeAuthorityFixtureServer.mjs",
     "typecheck": "tsc --build --force",
     "lint": "eslint .",
     "test": "vitest run",

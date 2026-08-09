@@ -9,7 +9,7 @@ impl SystemRuntimeExecutor {
         }
         let context = {
             let mut state = self.state().map_err(|error| error.message)?;
-            let Some((tab_id, tab)) = state.tabs.iter_mut().find(|(_, tab)| {
+            let Some((tab_id, tab)) = state.native_resources.tabs.iter_mut().find(|(_, tab)| {
                 tab.dividers
                     .iter()
                     .any(|divider| divider.webview.label() == webview_label)
@@ -55,7 +55,7 @@ impl SystemRuntimeExecutor {
                 previous,
                 tab.active_divider_resize.clone(),
             );
-            let host = state.display_hosts.get(&tab_context.5).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&tab_context.5).ok_or_else(|| {
                 "runtime display host was not found for divider WebView".to_owned()
             })?;
             #[cfg(windows)]
@@ -68,6 +68,7 @@ impl SystemRuntimeExecutor {
                 tab_context.2,
                 tab_context.3,
                 tab_context.4,
+                tab_context.5,
                 host.window.clone(),
                 tab_context.6,
                 tab_context.7,
@@ -80,6 +81,7 @@ impl SystemRuntimeExecutor {
             divider,
             dividers,
             roles,
+            window_id,
             window,
             previous,
             previous_active_resize,
@@ -123,26 +125,56 @@ impl SystemRuntimeExecutor {
                     / metrics.height.max(1.0)
             }
         };
-        let result = self
-            .core
-            .invoke(CoreCommand::LayoutResizeDivider {
-                input: WorkspaceDividerResizeInput {
-                    roles: roles.clone(),
-                    dividers,
-                    divider_index,
-                    requested_position,
-                    previous_position: (payload.phase == "move").then_some(previous).flatten(),
-                },
-            })
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<WorkspaceDividerResizeOutput>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        {
+        let result = rion_core::resize_workspace_divider(&WorkspaceDividerResizeInput {
+            roles: roles.clone(),
+            dividers,
+            divider_index,
+            requested_position,
+            previous_position: (payload.phase == "move").then_some(previous).flatten(),
+        })
+        .ok_or_else(|| "Runtime divider layout could not be resolved.".to_owned())?;
+        let live = self
+            .presentation
+            .existing(&window_id)
+            .ok_or_else(|| "Runtime divider topology is unavailable.".to_owned())?;
+        let previous_role_slots = live
+            .tabs
+            .iter()
+            .find(|tab| tab.id == tab_id)
+            .map(|tab| tab.role_slots.clone())
+            .ok_or_else(|| "Runtime divider tab topology is unavailable.".to_owned())?;
+        let mut desired_role_slots = previous_role_slots.clone();
+        for role in &result.roles {
+            let Some(slot) = desired_role_slots
+                .iter_mut()
+                .find(|slot| slot.role_id == role.role_id)
+            else {
+                return Err(format!(
+                    "Runtime divider role {} has no authoritative slot.",
+                    role.role_id
+                ));
+            };
+            slot.rect = StateNormalizedRectRecord {
+                x: role.rect.x,
+                y: role.rect.y,
+                width: role.rect.width,
+                height: role.rect.height,
+            };
+        }
+        let desired = self.presentation.live.commit_tab_role_slots(
+            live.revision,
+            &tab_id,
+            &window_id,
+            desired_role_slots,
+        )?;
+        if desired.status == LiveTopologyCommitStatus::Superseded {
+            return Err("Runtime divider update was superseded before native projection."
+                .to_owned());
+        }
+        let projection_state_commit = (|| -> Result<(), String> {
             let mut state = self.state().map_err(|error| error.message)?;
             let tab = state
-                .tabs
+                .native_resources.tabs
                 .get_mut(&tab_id)
                 .ok_or_else(|| "runtime tab was closed during divider resize".to_owned())?;
             for role in &result.roles {
@@ -181,12 +213,31 @@ impl SystemRuntimeExecutor {
             } else if payload.phase == "reset" {
                 tab.active_divider_resize = None;
             }
+            Ok(())
+        })();
+        if let Err(error) = projection_state_commit {
+            let compensation = self.presentation.live.commit_tab_role_slots(
+                desired.revision,
+                &tab_id,
+                &window_id,
+                previous_role_slots,
+            );
+            if compensation.is_err()
+                || compensation
+                    .is_ok_and(|receipt| receipt.status == LiveTopologyCommitStatus::Superseded)
+            {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "{error} Kernel divider compensation was superseded; restart Rion Studio to recover safely."
+                ));
+            }
+            return Err(error);
         }
         if result.changed
             && let Err(error) = self.layout_runtime_tab(&tab_id)
         {
                 let state_rolled_back = self.state.lock().is_ok_and(|mut state| {
-                    let Some(tab) = state.tabs.get_mut(&tab_id) else {
+                    let Some(tab) = state.native_resources.tabs.get_mut(&tab_id) else {
                         return false;
                     };
                     let mut restored_roles = 0;
@@ -223,6 +274,23 @@ impl SystemRuntimeExecutor {
                         error.message
                     ));
                 }
+                let compensation = self.presentation.live.commit_tab_role_slots(
+                    desired.revision,
+                    &tab_id,
+                    &window_id,
+                    previous_role_slots,
+                );
+                if compensation.is_err()
+                    || compensation.is_ok_and(|receipt| {
+                        receipt.status == LiveTopologyCommitStatus::Superseded
+                    })
+                {
+                    self.health.mark_unhealthy();
+                    return Err(format!(
+                        "{} Native divider layout rolled back but Kernel compensation was superseded; restart Rion Studio to recover safely.",
+                        error.message
+                    ));
+                }
                 return Err(error.message);
         }
         let indicator_type = if payload.phase == "start" {
@@ -243,38 +311,9 @@ impl SystemRuntimeExecutor {
             .presentation
             .tab_window(tab_id)?
             .ok_or_else(|| "Runtime tab is no longer live while saving its layout.".to_owned())?;
-        let role_slots = self
-            .state()
-            .map_err(|error| error.message)?
-            .tabs
-            .get(tab_id)
-            .map(|tab| {
-                tab.slots
-                    .values()
-                    .map(|slot| {
-                        let surface = tab.roles.get(&slot.role.id);
-                        let zoom_mode = surface.map_or(slot.zoom_mode.as_str(), |role| {
-                            role.zoom_mode.as_str()
-                        });
-                        let zoom_factor = surface.map_or(slot.zoom_factor, |role| role.zoom_factor);
-                        GameWindowRoleSlotRecord {
-                            slot_id: slot.slot_id.clone(),
-                            role_id: slot.role.id.clone(),
-                            rect: slot.rect.clone(),
-                            browser_zoom_percent: (zoom_mode == "fixed")
-                                .then_some((zoom_factor * 100.0).clamp(25.0, 500.0)),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .ok_or_else(|| "Runtime tab layout resources are no longer available.".to_owned())?;
-        if let Some(live) = self.presentation.existing(&window_id)
-            && let Ok(mut live) = live.lock()
-            && let Some(tab) = live.tabs.iter_mut().find(|tab| tab.id == tab_id)
-        {
-            tab.role_slots = role_slots;
+        if self.presentation.tab(&window_id, tab_id).is_none() {
+            return Err("Runtime tab layout is no longer authoritative.".to_owned());
         }
-        self.touch_live_window_state(&window_id)?;
         self.schedule_live_window_state_persistence(&window_id);
         Ok(())
     }
@@ -284,8 +323,8 @@ impl SystemRuntimeExecutor {
             role_ids
                 .iter()
                 .filter_map(|role_id| {
-                    let tab_id = state.role_tabs.get(role_id)?;
-                    let role = state.tabs.get(tab_id)?.roles.get(role_id)?;
+                    let tab_id = state.native_tab_id_for_role_surface(role_id)?;
+                    let role = state.native_resources.tabs.get(tab_id)?.roles.get(role_id)?;
                     Some((role.webview.clone(), role.rect.clone()))
                 })
                 .collect::<Vec<_>>()
@@ -311,7 +350,7 @@ impl SystemRuntimeExecutor {
         let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
                 .map(|host| host.target.window_id.clone())
@@ -407,8 +446,8 @@ impl SystemRuntimeExecutor {
             selected_tabs
                 .iter()
                 .filter_map(|(window_id, tab_id)| {
-                    let host = state.display_hosts.get(window_id)?;
-                    let tab = state.tabs.get(tab_id)?;
+                    let host = state.native_resources.display_hosts.get(window_id)?;
+                    let tab = state.native_resources.tabs.get(tab_id)?;
                     let surfaces = tab
                         .roles
                         .iter()
@@ -568,7 +607,7 @@ impl SystemRuntimeExecutor {
         let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .find(|host| host.window.is_focused().unwrap_or(false))
                 .map(|host| host.target.window_id.clone())
@@ -616,13 +655,19 @@ impl SystemRuntimeExecutor {
         if !matches!(action, "in" | "out" | "reset") {
             return Err("Runtime window zoom action is invalid.".to_owned());
         }
-        let current_zoom = {
-            let state = self.state().map_err(|error| error.message)?;
-            let Some(host) = state.display_hosts.get(window_id) else {
-                return Ok(false);
-            };
-            host.zoom_factor
-        };
+        if !self
+            .state()
+            .map_err(|error| error.message)?
+            .native_resources.display_hosts
+            .contains_key(window_id)
+        {
+            return Ok(false);
+        }
+        let live = self
+            .presentation
+            .existing(window_id)
+            .ok_or_else(|| "Runtime window topology is unavailable while zooming.".to_owned())?;
+        let current_zoom = live.window_zoom_factor.unwrap_or(1.0);
         let next_zoom = next_zoom_factor(current_zoom, action, 0.25, 5.0);
         let Some(tab_id) = self.presentation.selected_tabs().remove(window_id)
         else {
@@ -632,49 +677,83 @@ impl SystemRuntimeExecutor {
             .live_tab_ids_for_window(window_id)
             .into_iter()
             .collect::<HashSet<_>>();
-        let (surfaces, visible_role_ids) = {
+        let (surface_projections, visible_role_ids) = {
             let state = self.state().map_err(|error| error.message)?;
-            let Some(active_tab) = state.tabs.get(&tab_id) else {
+            let Some(active_tab) = state.native_resources.tabs.get(&tab_id) else {
                 return Ok(false);
             };
             let visible_role_ids = active_tab.roles.keys().cloned().collect::<HashSet<_>>();
             let surfaces = state
-                .tabs
+                .native_resources.tabs
                 .iter()
                 .filter(|(tab_id, _)| live_tab_ids.contains(*tab_id))
                 .flat_map(|(_, tab)| {
                     tab.roles.iter().map(|(role_id, surface)| {
                         (
+                            tab_id.clone(),
                             role_id.clone(),
                             surface.webview.clone(),
-                            effective_zoom_factor(surface.zoom_factor, current_zoom),
-                            effective_zoom_factor(surface.zoom_factor, next_zoom),
+                            surface.zoom_factor,
                         )
                     })
                 })
                 .collect::<Vec<_>>();
             (surfaces, visible_role_ids)
         };
-        let popup_surfaces = {
+        let surfaces = surface_projections
+            .into_iter()
+            .map(|(tab_id, role_id, webview, projected_zoom)| {
+                let (base, _) = self.runtime_role_zoom_contract(
+                    window_id,
+                    &tab_id,
+                    &role_id,
+                    projected_zoom,
+                );
+                (
+                    role_id,
+                    webview,
+                    effective_zoom_factor(base, current_zoom),
+                    effective_zoom_factor(base, next_zoom),
+                )
+            })
+            .collect::<Vec<_>>();
+        let popup_projections = {
             let state = self.state().map_err(|error| error.message)?;
             state
                 .popup_roles
                 .iter()
                 .filter_map(|(label, role_id)| {
-                    let tab_id = state.role_tabs.get(role_id)?;
-                    let tab = state.tabs.get(tab_id)?;
+                    let tab_id = state.native_tab_id_for_role_surface(role_id)?;
+                    let tab = state.native_resources.tabs.get(tab_id)?;
                     if !live_tab_ids.contains(tab_id) {
                         return None;
                     }
                     let base = tab.roles.get(role_id)?.zoom_factor;
                     Some((
                         label.clone(),
-                        effective_zoom_factor(base, current_zoom),
-                        effective_zoom_factor(base, next_zoom),
+                        tab_id.clone(),
+                        role_id.clone(),
+                        base,
                     ))
                 })
                 .collect::<Vec<_>>()
         };
+        let popup_surfaces = popup_projections
+            .into_iter()
+            .map(|(label, tab_id, role_id, projected_zoom)| {
+                let (base, _) = self.runtime_role_zoom_contract(
+                    window_id,
+                    &tab_id,
+                    &role_id,
+                    projected_zoom,
+                );
+                (
+                    label,
+                    effective_zoom_factor(base, current_zoom),
+                    effective_zoom_factor(base, next_zoom),
+                )
+            })
+            .collect::<Vec<_>>();
         let mut zoom_mutations = surfaces
             .iter()
             .map(|(_, webview, previous_zoom, zoom)| (webview.clone(), *previous_zoom, *zoom))
@@ -685,6 +764,14 @@ impl SystemRuntimeExecutor {
                 .get_webview(&label)
                 .ok_or_else(|| format!("Runtime popup {label} has no live native handle."))?;
             zoom_mutations.push((webview, previous_zoom, zoom));
+        }
+        let desired = self.presentation.live.commit_window_zoom_factor(
+            live.revision,
+            window_id,
+            next_zoom,
+        )?;
+        if desired.status == LiveTopologyCommitStatus::Superseded {
+            return Err("Runtime window zoom was superseded before native submission.".to_owned());
         }
         if let Err(failure) = apply_reversible_fanout(
             &zoom_mutations,
@@ -702,42 +789,27 @@ impl SystemRuntimeExecutor {
             if !failure.rollback_errors.is_empty() {
                 self.health.mark_unhealthy();
             }
+            let compensation = self.presentation.live.commit_window_zoom_factor(
+                desired.revision,
+                window_id,
+                current_zoom,
+            );
+            if match compensation.as_ref() {
+                Ok(receipt) => receipt.status == LiveTopologyCommitStatus::Superseded,
+                Err(_) => true,
+            } {
+                self.health.mark_unhealthy();
+                return Err(format!(
+                    "Native zoom failed and the authoritative Kernel compensation was superseded: {}",
+                    failure.apply_error
+                ));
+            }
             return Err(reversible_fanout_runtime_error(
                 "TAURI_RUNTIME_ZOOM_FAILED",
                 "Updating runtime window zoom",
                 &failure,
             )
             .message);
-        }
-        let commit = (|| -> Result<(), String> {
-            let mut state = self.state().map_err(|error| error.message)?;
-            let host = state
-                .display_hosts
-                .get_mut(window_id)
-                .ok_or_else(|| "Runtime window stopped while zooming.".to_owned())?;
-            if host.zoom_factor != current_zoom {
-                return Err("Runtime window zoom changed concurrently.".to_owned());
-            }
-            host.zoom_factor = next_zoom;
-            Ok(())
-        })();
-        if let Err(error) = commit {
-            let rollback_errors = rollback_reversible_fanout(
-                &zoom_mutations,
-                |index, (webview, previous_zoom, _)| {
-                    webview
-                        .set_zoom(*previous_zoom)
-                        .map_err(|rollback_error| format!("surface {index}: {rollback_error}"))
-                },
-            );
-            if !rollback_errors.is_empty() {
-                self.health.mark_unhealthy();
-                return Err(format!(
-                    "{error} Native zoom compensation also failed: {}. Restart Rion Studio to recover safely.",
-                    rollback_errors.join("; ")
-                ));
-            }
-            return Err(error);
         }
         let label = self.window_zoom_indicator_label(next_zoom);
         for (role_id, webview, _, _) in surfaces {

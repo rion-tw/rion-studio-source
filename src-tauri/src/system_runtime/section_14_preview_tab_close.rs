@@ -20,7 +20,7 @@ impl SystemRuntimeExecutor {
                     tombstone.parent_operation_id = Some(parent_operation_id.to_owned());
                 }
                 for surface in state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values_mut()
                     .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
                 {
@@ -39,6 +39,27 @@ impl SystemRuntimeExecutor {
             .presentation
             .tab_window(tab_id)?
             .ok_or_else(|| "Runtime tab is no longer in the live topology.".to_owned())?;
+        let kernel_operation_id = uuid::Uuid::new_v4().to_string();
+        let (close_attempt_id, close_surface_generation) = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "The System WebView runtime state lock was poisoned.".to_owned())?;
+            let attempt_id = state
+                .launch_attempt_generations
+                .get(tab_id)
+                .cloned()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let surface_generation = state
+                .native_resources.surface_registry
+                .values()
+                .chain(state.native_resources.retired_surface_registry.values())
+                .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
+                .map(|surface| surface.generation)
+                .max()
+                .unwrap_or_default();
+            (attempt_id, surface_generation)
+        };
         let (
             previous_tab_id,
             previous_surfaces,
@@ -53,9 +74,7 @@ impl SystemRuntimeExecutor {
                 .presentation
                 .existing(&window_id)
                 .ok_or_else(|| "The live runtime window is no longer available.".to_owned())?;
-            let mut next = presentation.lock().map_err(|_| {
-                "The runtime tab presentation coordinator is unavailable.".to_owned()
-            })?.clone();
+            let mut next = presentation.record.clone();
             let presentation_tab = next
                 .tabs
                 .iter()
@@ -75,9 +94,14 @@ impl SystemRuntimeExecutor {
             };
             next.remove_tab(tab_id, 0);
             next.select(next_tab_id.clone(), 0);
-            let receipt = self
-                .presentation
-                .commit_live_window_record("command", &window_id, &next)?;
+            let receipt = self.presentation.commit_live_tab_close(
+                &close_attempt_id,
+                &kernel_operation_id,
+                close_surface_generation,
+                tab_id,
+                &window_id,
+                next_tab_id.as_deref(),
+            )?;
             if receipt.status == LiveTopologyCommitStatus::Superseded {
                 return Err("The tab close was superseded by newer live topology.".to_owned());
             }
@@ -101,7 +125,7 @@ impl SystemRuntimeExecutor {
         let isolation_surfaces = {
             let mut state = self.state().map_err(|error| error.message)?;
             let retirement_revision = if next_tab_id.is_none() {
-                state.display_hosts.get_mut(&window_id).map(|host| {
+                state.native_resources.display_hosts.get_mut(&window_id).map(|host| {
                     let revision = WINDOW_RETIREMENT_SEQUENCE
                         .fetch_add(1, Ordering::AcqRel)
                         .saturating_add(1);
@@ -112,7 +136,7 @@ impl SystemRuntimeExecutor {
                 None
             };
             let mut isolation_surfaces = Vec::new();
-            for surface in state.surface_registry.values_mut().filter(|surface| {
+            for surface in state.native_resources.surface_registry.values_mut().filter(|surface| {
                     surface.tab_id.as_deref() == Some(tab_id)
                         && surface.kind != ManagedSurfaceKind::Divider
                         && surface.phase.blocks_role_relaunch()
@@ -122,9 +146,8 @@ impl SystemRuntimeExecutor {
                 }
                 isolation_surfaces.push(surface.clone());
             }
-            state.optimistic_closed_tabs.insert(tab_id.to_owned());
             let slot_owners = state
-                .tabs
+                .native_resources.tabs
                 .get(tab_id)
                 .map(|tab| {
                     tab.slots
@@ -142,6 +165,7 @@ impl SystemRuntimeExecutor {
             state.close_previews.insert(
                 tab_id.to_owned(),
                 TabCloseTombstone {
+                    kernel_operation_id: kernel_operation_id.clone(),
                     parent_operation_id: parent_operation_id.map(str::to_owned),
                     revision,
                     retirement_revision,
@@ -247,9 +271,7 @@ impl SystemRuntimeExecutor {
     pub(crate) fn resolve_tab_close_preview(&self, tab_id: &str, succeeded: bool) {
         let tombstone = if let Ok(mut state) = self.state.lock() {
             let tombstone = state.close_previews.remove(tab_id);
-            if succeeded || !state.tabs.contains_key(tab_id) {
-                state.optimistic_closed_tabs.remove(tab_id);
-            } else {
+            if !succeeded && state.native_resources.tabs.contains_key(tab_id) {
                 let role_ids = tombstone
                     .as_ref()
                     .map(|tombstone| {
@@ -261,14 +283,14 @@ impl SystemRuntimeExecutor {
                     })
                     .unwrap_or_else(|| {
                         state
-                            .tabs
+                            .native_resources.tabs
                             .get(tab_id)
                             .map(|tab| tab.roles.keys().cloned().collect::<Vec<_>>())
                             .unwrap_or_default()
                     });
                 state.close_coordinator.quarantined_roles.extend(role_ids);
                 for surface in state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values_mut()
                     .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
                 {
@@ -281,6 +303,18 @@ impl SystemRuntimeExecutor {
         };
         self.tab_close_changed.notify_all();
         if let Some(tombstone) = tombstone {
+            if succeeded {
+                let _ = self.apply_runtime_native_event_for_operation(
+                    &tombstone.kernel_operation_id,
+                    "closed",
+                );
+            } else {
+                let _ = self.terminalize_runtime_operation(
+                    &tombstone.kernel_operation_id,
+                    RuntimeOperationPhase::Indeterminate,
+                    Some("NATIVE_TAB_TEARDOWN_INDETERMINATE".to_owned()),
+                );
+            }
             self.record_tab_close_tombstone_resolution(tab_id, &tombstone, succeeded);
         }
         self.publish_projection();
@@ -326,10 +360,8 @@ impl SystemRuntimeExecutor {
     pub(crate) fn tab_selection_revision(&self, window_id: &str, tab_id: &str) -> Option<u64> {
         self.presentation
             .existing(window_id)
-            .and_then(|presentation| {
-                presentation.lock().ok().and_then(|window| {
-                    (window.selected_tab_id.as_deref() == Some(tab_id)).then_some(window.revision)
-                })
+            .and_then(|window| {
+                (window.selected_tab_id.as_deref() == Some(tab_id)).then_some(window.revision)
             })
     }
 
@@ -422,16 +454,7 @@ impl SystemRuntimeExecutor {
             .tab_for_source(source_id, "role")
             .or_else(|| self.presentation.tab_for_source(source_id, "workspace"))
             .ok_or_else(|| "The restored runtime tab was not found in live topology.".to_owned())?;
-        let role_id = self
-            .state()
-            .map_err(|error| error.message)?
-            .tabs
-            .get(&tab_id)
-            .and_then(|tab| tab.roles.keys().next())
-            .cloned()
-            .ok_or_else(|| "The restored runtime tab has no owned role surface.".to_owned())?;
-        self.set_role_audio_muted(&role_id, muted)
-            .map_err(|error| error.message)
+        self.set_tab_audio_muted(&tab_id, muted).map(|_| ())
     }
 
 }
@@ -456,7 +479,6 @@ fn retire_completed_tab_close_fence(
     state: &mut RuntimeState,
     tab_id: &str,
 ) -> Option<TabCloseTombstone> {
-    state.optimistic_closed_tabs.remove(tab_id);
     state.close_previews.remove(tab_id)
 }
 
@@ -515,10 +537,9 @@ fn role_relaunch_fence_state(
     let close_pending = role_ids.iter().any(|role_id| {
         state.close_coordinator.closing_roles.contains(role_id)
             || state
-                .role_tabs
-                .get(role_id)
+                .native_tab_id_for_role_surface(role_id)
                 .is_some_and(|tab_id| !live_tab_ids.contains(tab_id))
-            || state.surface_registry.values().any(|surface| {
+            || state.native_resources.surface_registry.values().any(|surface| {
                 surface.role_id.as_deref() == Some(role_id.as_str())
                     && surface
                         .tab_id
@@ -600,7 +621,7 @@ impl SystemRuntimeExecutor {
             &self.state,
             |state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .iter()
                     .find(|(_, host)| host.window.label() == label)
                     .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
@@ -643,7 +664,7 @@ impl SystemRuntimeExecutor {
             return;
         }
         let live_target = self.state.lock().ok().and_then(|mut state| {
-            let host = state.display_hosts.get_mut(&window_id)?;
+            let host = state.native_resources.display_hosts.get_mut(&window_id)?;
             host.target.bounds.x = logical_x;
             host.target.bounds.y = logical_y;
             if let Some((display_id, work_area, scale_factor)) = monitor_target {
@@ -679,7 +700,7 @@ impl SystemRuntimeExecutor {
 
     pub fn observe_window_focus(self: &Arc<Self>, label: &str) {
         let Some((window_id, generation)) = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                 (host.window.label() == label).then(|| (window_id.clone(), host.generation))
             })
         }) else {
@@ -688,12 +709,7 @@ impl SystemRuntimeExecutor {
         let selected_tab_id = self
             .presentation
             .existing(&window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .and_then(|state| state.selected_tab_id.clone())
-            });
+            .and_then(|presentation| presentation.selected_tab_id.clone());
         let focus_observed = self.focus_broker.observe_native_focus(
             &window_id,
             generation,
@@ -712,9 +728,10 @@ impl SystemRuntimeExecutor {
                 0,
             );
         }
-        let is_saved = self.state.lock().ok().is_some_and(|state| {
-            state.saved_window_names.contains_key(&window_id)
-        });
+        let is_saved = self
+            .presentation
+            .existing(&window_id)
+            .is_some_and(|window| window.persisted_name.is_some());
         if !is_saved {
             return;
         }
@@ -723,16 +740,10 @@ impl SystemRuntimeExecutor {
         let _ = thread::Builder::new()
             .name("rion-runtime-focus-journal".to_owned())
             .spawn(move || {
-                if let Ok(mut session) = core
-                    .invoke(CoreCommand::RuntimeRestoreSessionGet)
-                    .and_then(|value| {
-                        serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
-                            .map_err(|error| rion_core::CoreError::Internal(error.to_string()))
-                    })
-                {
+                if let Ok(mut session) = core.runtime_restore_session() {
                     session.last_focused_window_id = Some(focused_window_id);
                     session.updated_at = chrono::Utc::now().to_rfc3339();
-                    let _ = core.invoke(CoreCommand::RuntimeRestoreSessionReplace { session });
+                    let _ = core.replace_runtime_restore_session(session);
                 }
             });
         self.schedule_window_placement_persistence(label.to_owned());
@@ -740,7 +751,7 @@ impl SystemRuntimeExecutor {
 
     pub fn observe_window_blur(&self, label: &str) {
         if let Some((window_id, generation)) = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                 (host.window.label() == label).then(|| (window_id.clone(), host.generation))
             })
         }) {
@@ -755,7 +766,7 @@ impl SystemRuntimeExecutor {
             .lock()
             .map(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .values()
                     .map(|host| host.window.label().to_owned())
                     .collect::<Vec<_>>()
@@ -769,7 +780,7 @@ impl SystemRuntimeExecutor {
 
     pub(crate) fn persist_game_window_placement(&self, label: &str) -> Result<(), String> {
         let Some(window_id) = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                 (host.window.label() == label).then(|| window_id.clone())
             })
         }) else {
@@ -778,7 +789,7 @@ impl SystemRuntimeExecutor {
         let is_saved = self
             .presentation
             .existing(&window_id)
-            .and_then(|window| window.lock().ok().map(|live| live.persisted_name.is_some()))
+            .map(|window| window.persisted_name.is_some())
             .unwrap_or(false);
         if !is_saved {
             return Ok(());

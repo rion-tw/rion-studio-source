@@ -197,6 +197,25 @@ pub struct RuntimeWindowStopRequestRecord {
     pub topology_revision: u64,
     pub tab_ids: Vec<String>,
     pub intent_origin: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub admission_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closing_tabs: Vec<RuntimeWindowClosingTabRecord>,
+}
+
+/// Immutable Core-owned teardown plan captured when a window close removes its
+/// desired role/tab topology. Native cleanup must consume this exact identity
+/// set rather than probing the mutable runtime after the close has committed.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeWindowClosingTabRecord {
+    pub tab_id: String,
+    pub source_id: String,
+    #[ts(type = "\"role\" | \"workspace\"")]
+    pub tab_type: String,
+    pub role_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -533,6 +552,26 @@ fn default_system_runtime_shutdown_state() -> String {
     "accepting".to_owned()
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeOperationTraceRecord {
+    pub attempt_id: Option<String>,
+    pub event_source: String,
+    pub intent_kind: String,
+    pub operation_id: Option<String>,
+    pub phase: String,
+    #[ts(type = "number")]
+    pub revision: u64,
+    pub status: String,
+    #[ts(type = "number | null")]
+    pub surface_generation: Option<u64>,
+    pub tab_id: Option<String>,
+    #[ts(type = "number | null")]
+    pub window_generation: Option<u64>,
+    pub window_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -616,6 +655,26 @@ pub struct SystemRuntimeDiagnosticsRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub active_navigation_operation_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub runtime_kernel_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_kernel_logical_surface_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_kernel_pending_operation_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_kernel_tombstone_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_native_resource_invariants_ok: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_native_resource_invariant_failure_count: Option<u32>,
+    #[serde(default)]
+    pub recent_runtime_kernel_operations: Vec<RuntimeOperationTraceRecord>,
 }
 #[derive(Debug, Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -1,7 +1,9 @@
 // unsupported system-runtime adapter; definitions keep explicit compile-time cfg boundaries.
 
+use super::super::*;
+
 #[cfg(not(any(windows, target_os = "macos")))]
-fn platform_page_zoom(_webview: &Webview) -> RuntimeResult<f64> {
+pub(in crate::system_runtime) fn platform_page_zoom(_webview: &Webview) -> RuntimeResult<f64> {
     Err(RuntimeError::new(
         "BROWSER_PAGE_ZOOM_UNAVAILABLE",
         "Applied System WebView page zoom is unavailable on this platform.",
@@ -9,33 +11,43 @@ fn platform_page_zoom(_webview: &Webview) -> RuntimeResult<f64> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn request_platform_window_hide(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_hide(
+    window: &Window,
+) -> RuntimeResult<()> {
     window.hide().map_err(RuntimeError::tauri)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_show(
+    window: &Window,
+) -> RuntimeResult<()> {
     window.show().map_err(RuntimeError::tauri)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn request_platform_window_show_foreground(
+    window: &Window,
+) -> RuntimeResult<()> {
     window.show().map_err(RuntimeError::tauri)?;
     window.set_focus().map_err(RuntimeError::tauri)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn platform_window_is_focused(window: &Window) -> RuntimeResult<bool> {
+pub(in crate::system_runtime) fn platform_window_is_focused(
+    window: &Window,
+) -> RuntimeResult<bool> {
     window.is_focused().map_err(RuntimeError::tauri)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
+pub(in crate::system_runtime) fn request_platform_webview_window_show(
+    window: &WebviewWindow,
+) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn request_platform_webview_window_show_foreground(
+pub(in crate::system_runtime) fn request_platform_webview_window_show_foreground(
     window: &WebviewWindow,
 ) -> Result<(), String> {
     window.unminimize().map_err(|error| error.to_string())?;
@@ -44,7 +56,7 @@ fn request_platform_webview_window_show_foreground(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn dispatch_key_effect(
+pub(in crate::system_runtime) fn dispatch_key_effect(
     _webview: &Webview,
     _effect: &EmbeddedKeyEffectRecord,
     _context: &InputDispatchContext,
@@ -56,7 +68,7 @@ fn dispatch_key_effect(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn dispatch_mouse_effect(
+pub(in crate::system_runtime) fn dispatch_mouse_effect(
     _webview: &Webview,
     _viewport: ViewportSize,
     _point: ClickPoint,
@@ -71,7 +83,7 @@ fn dispatch_mouse_effect(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn dispatch_mouse_click_sequence(
+pub(in crate::system_runtime) fn dispatch_mouse_click_sequence(
     webview: &Webview,
     viewport: ViewportSize,
     point: ClickPoint,
@@ -91,17 +103,22 @@ fn dispatch_mouse_click_sequence(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn install_platform_security_policy(_webview: &Webview) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_platform_security_policy(
+    _webview: &Webview,
+) -> RuntimeResult<()> {
     Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn install_role_zoom_shortcut_handler(_webview: &Webview, _app: AppHandle) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
+    _webview: &Webview,
+    _app: AppHandle,
+) -> RuntimeResult<()> {
     Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn platform_role_surface_setup_inner(
+pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
     webview: &Webview,
     _app: AppHandle,
     _target: SurfaceFailureTarget,
@@ -112,7 +129,7 @@ fn platform_role_surface_setup_inner(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn platform_surface_lifecycle_tracker(
+pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     _webview: &Webview,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
@@ -121,7 +138,7 @@ fn platform_surface_lifecycle_tracker(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn perform_platform_surface_quiesce(
+pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -131,7 +148,7 @@ fn perform_platform_surface_quiesce(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn release_platform_surface(
+pub(in crate::system_runtime) fn release_platform_surface(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
@@ -140,7 +157,10 @@ fn release_platform_surface(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn set_audio_muted(_webview: &Webview, _muted: bool) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn set_audio_muted(
+    _webview: &Webview,
+    _muted: bool,
+) -> RuntimeResult<()> {
     Err(RuntimeError::new(
         "TAURI_AUDIO_MUTE_FAILED",
         "System WebView audio mute is unavailable on this platform.",

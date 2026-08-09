@@ -524,3 +524,44 @@ pub(crate) struct RuntimeError {
     pub(crate) message: String,
     rollback_error_count: Option<u32>,
 }
+
+impl RuntimeError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            diagnostic: None,
+            message: message.into(),
+            rollback_error_count: None,
+        }
+    }
+
+    fn with_rollback_error_count(mut self, count: usize) -> Self {
+        self.rollback_error_count = Some(count.min(u32::MAX as usize) as u32);
+        self
+    }
+
+    #[cfg(windows)]
+    fn with_setup_diagnostic(
+        mut self,
+        setup_stage: &'static str,
+        native_code: Option<String>,
+    ) -> Self {
+        self.diagnostic = Some(RuntimeErrorDiagnostic {
+            native_code,
+            setup_stage,
+        });
+        self
+    }
+
+    fn io(error: std::io::Error) -> Self {
+        Self::new("TAURI_RUNTIME_IO_FAILED", error.to_string())
+    }
+
+    fn tauri(error: impl std::fmt::Display) -> Self {
+        Self::new("TAURI_RUNTIME_FAILED", error.to_string())
+    }
+
+    fn core(error: impl std::fmt::Display) -> Self {
+        Self::new("TAURI_CORE_COMMAND_FAILED", error.to_string())
+    }
+}

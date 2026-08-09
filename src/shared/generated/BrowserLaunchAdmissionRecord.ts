@@ -2,4 +2,4 @@
 import type { BrowserLaunchAdmissionCompletion } from "./BrowserLaunchAdmissionCompletion";
 import type { BrowserRoleStatusRecord } from "./BrowserRoleStatusRecord";
 
-export type BrowserLaunchAdmissionRecord = { completion: BrowserLaunchAdmissionCompletion, statuses: Array<BrowserRoleStatusRecord>, };
+export type BrowserLaunchAdmissionRecord = { attemptId: string, completion: BrowserLaunchAdmissionCompletion, disposition: "existing" | "admitted" | "joined", operationId: string, statuses: Array<BrowserRoleStatusRecord>, tabId: string, };

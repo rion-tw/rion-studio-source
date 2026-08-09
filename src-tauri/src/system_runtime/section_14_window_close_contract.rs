@@ -5,7 +5,7 @@ fn state_window_generation_matches(
     generation: Option<u64>,
 ) -> bool {
     state.lock().ok().is_some_and(|state| {
-        state.display_hosts.get(window_id).is_some_and(|host| {
+        state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
             host.window.label() == label && Some(host.generation) == generation
         })
     })
@@ -35,7 +35,7 @@ fn window_close_in_progress(state: &RuntimeState, window_id: &str) -> bool {
         return true;
     }
     let Some(generation) = state
-        .display_hosts
+        .native_resources.display_hosts
         .get(window_id)
         .map(|host| host.generation)
     else {
@@ -54,10 +54,8 @@ impl SystemRuntimeExecutor {
     pub(crate) fn live_window_tab_ids(&self, window_id: &str) -> Result<Vec<String>, String> {
         self.presentation
             .existing(window_id)
-            .ok_or_else(|| "Live runtime window state was not found.".to_owned())?
-            .lock()
             .map(|state| state.all_tab_ids())
-            .map_err(|_| "Live runtime window state is unavailable.".to_owned())
+            .ok_or_else(|| "Live runtime window state was not found.".to_owned())
     }
 
     pub(crate) fn snapshot_window_stop_request(
@@ -70,15 +68,12 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .ok_or_else(|| "Live runtime window state was not found.".to_owned())?;
-        let (tab_ids, topology_revision) = presentation
-            .lock()
-            .map(|state| (state.all_tab_ids(), state.revision))
-            .map_err(|_| "Live runtime window state is unavailable.".to_owned())?;
+        let (tab_ids, topology_revision) = (presentation.all_tab_ids(), presentation.revision);
         let window_generation = self
             .state
             .lock()
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.generation)
             .ok_or_else(|| "Live native window generation was not found.".to_owned())?;
@@ -89,6 +84,8 @@ impl SystemRuntimeExecutor {
             topology_revision,
             tab_ids,
             intent_origin: intent_origin.into(),
+            admission_id: None,
+            closing_tabs: Vec::new(),
         })
     }
 
@@ -149,7 +146,7 @@ impl SystemRuntimeExecutor {
             if state.allow_window_close_labels.remove(label) {
                 return Ok(RuntimeWindowCloseRequest::PassThrough);
             }
-            let Some((window_id, host)) = state.display_hosts.iter().find(|(_, host)| {
+            let Some((window_id, host)) = state.native_resources.display_hosts.iter().find(|(_, host)| {
                 host.window.label() == label
             }) else {
                 return Ok(RuntimeWindowCloseRequest::PassThrough);
@@ -191,7 +188,7 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> RuntimeResult<RuntimeWindowCloseOperation> {
         let mut state = self.state()?;
-        let host = state.display_hosts.get(window_id).map(|host| {
+        let host = state.native_resources.display_hosts.get(window_id).map(|host| {
             (host.window.label().to_owned(), host.generation)
         });
         if let Some((label, _)) = host.as_ref()
@@ -276,6 +273,7 @@ impl SystemRuntimeExecutor {
         operation_id: &str,
         window_id: &str,
         retire_to_dormant: bool,
+        stop_request: RuntimeWindowStopRequestRecord,
     ) -> RuntimeResult<(
         RuntimeWindowStopRequestRecord,
         SystemRuntimeOperationSummaryRecord,
@@ -297,20 +295,20 @@ impl SystemRuntimeExecutor {
             (generation, transaction.context.trigger.to_owned())
         };
         let retired_snapshot = self.presentation.existing(window_id).and_then(|presentation| {
-            presentation.lock().ok().and_then(|live| {
-                let target_display = live.target_display.clone()?;
-                let active_source_id = live.selected_tab_id.as_ref().and_then(|tab_id| {
-                    live.tabs
-                        .iter()
-                        .find(|tab| &tab.id == tab_id && !live.hidden_tab_ids.contains(tab_id))
-                        .map(|tab| tab.source_id.clone())
-                });
-                Some(RuntimeRestoreWindowRecord {
+            let target_display = presentation.target_display.clone()?;
+            let active_source_id = presentation.selected_tab_id.as_ref().and_then(|tab_id| {
+                presentation
+                    .tabs
+                    .iter()
+                    .find(|tab| &tab.id == tab_id && !presentation.hidden_tab_ids.contains(tab_id))
+                    .map(|tab| tab.source_id.clone())
+            });
+            Some(RuntimeRestoreWindowRecord {
                     id: window_id.to_owned(),
                     target_display,
                     was_visible: true,
                     active_source_id,
-                    tabs: live
+                    tabs: presentation
                         .tabs
                         .iter()
                         .filter(|tab| tab.persistable)
@@ -319,14 +317,23 @@ impl SystemRuntimeExecutor {
                             source_id: tab.source_id.clone(),
                             name: tab.title.clone(),
                             role_ids: tab.role_ids.clone(),
-                            hidden: live.hidden_tab_ids.contains(&tab.id),
+                            hidden: presentation.hidden_tab_ids.contains(&tab.id),
                             audio_muted: tab.audio_muted,
                         })
                         .collect(),
                 })
-            })
         });
-        let tab_ids = self.live_window_tab_ids(window_id).unwrap_or_default();
+        if stop_request.parent_operation_id != operation_id
+            || stop_request.window_id != window_id
+            || stop_request.window_generation != window_generation
+            || stop_request.intent_origin != intent_origin
+        {
+            return Err(RuntimeError::new(
+                "SYSTEM_WINDOW_CLOSE_ADMISSION_STALE",
+                "The Core close admission does not match the accepted native window generation.",
+            ));
+        }
+        let tab_ids = stop_request.tab_ids.clone();
         for tab_id in &tab_ids {
             if self.cancel_provisional_tab_launch_with_presentation(tab_id, false) {
                 continue;
@@ -341,19 +348,6 @@ impl SystemRuntimeExecutor {
                 );
             }
         }
-        let topology_revision = self
-            .presentation
-            .existing(window_id)
-            .and_then(|presentation| presentation.lock().ok().map(|state| state.revision))
-            .unwrap_or_default();
-        let stop_request = RuntimeWindowStopRequestRecord {
-            parent_operation_id: operation_id.to_owned(),
-            window_id: window_id.to_owned(),
-            window_generation,
-            topology_revision,
-            tab_ids: tab_ids.clone(),
-            intent_origin,
-        };
         let native_window = {
             let mut state = self.state()?;
             if retire_to_dormant
@@ -364,7 +358,7 @@ impl SystemRuntimeExecutor {
                     .retain(|window| window.id != retired_snapshot.id);
                 state.dormant_windows.push(retired_snapshot);
             }
-            let native_window = state.display_hosts.get_mut(window_id).map(|host| {
+            let native_window = state.native_resources.display_hosts.get_mut(window_id).map(|host| {
                 let retirement_revision = WINDOW_RETIREMENT_SEQUENCE
                     .fetch_add(1, Ordering::AcqRel)
                     .saturating_add(1);
@@ -542,7 +536,7 @@ impl SystemRuntimeExecutor {
                     state.pending_window_resizes.remove(label);
                     state.active_window_resize_workers.remove(label);
                 }
-                let live_focus_identity = state.display_hosts.iter().find_map(|(window_id, host)| {
+                let live_focus_identity = state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                     (host.window.label() == label)
                         .then(|| (window_id.clone(), host.generation))
                 });

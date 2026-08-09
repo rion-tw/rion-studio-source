@@ -112,6 +112,7 @@ fn cancel_provisional_launch_state(
 fn take_provisional_launch_attempt(
     state: &mut RuntimeState,
     launch_preview_id: &str,
+    tab_id: &str,
     window_id: &str,
     source_id: &str,
     tab_type: &str,
@@ -126,13 +127,14 @@ fn take_provisional_launch_attempt(
                 "The launch effect no longer owns a provisional runtime tab.",
             )
         })?;
-    if provisional.window_id != window_id
+    if provisional.id != tab_id
+        || provisional.window_id != window_id
         || provisional.source_id != source_id
         || provisional.tab_type != tab_type
     {
         return Err(RuntimeError::new(
             "LAUNCH_PREVIEW_STALE",
-            "The launch effect does not match its provisional runtime tab.",
+            "The launch effect does not match its permanent runtime tab identity.",
         ));
     }
     state.provisional_launches.remove(launch_preview_id);

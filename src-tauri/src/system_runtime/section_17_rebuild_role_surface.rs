@@ -20,8 +20,7 @@ impl SystemRuntimeExecutor {
         }
         let tab_id = self
             .state()?
-            .role_tabs
-            .get(role_id)
+            .native_tab_id_for_role_surface(role_id)
             .cloned()
             .ok_or_else(|| {
                 RuntimeError::new(
@@ -30,6 +29,11 @@ impl SystemRuntimeExecutor {
                 )
             })?;
         let window_id = self.resolve_live_tab_window_id(&tab_id)?;
+        let audio_muted = self
+            .presentation
+            .tab(&window_id, &tab_id)
+            .is_some_and(|tab| tab.audio_muted);
+        let desired_window_zoom_factor = self.runtime_window_zoom_factor(&window_id);
         let (
             window,
             old_surface_instance_id,
@@ -37,8 +41,7 @@ impl SystemRuntimeExecutor {
             expected_generation,
             rect,
             current_url,
-            zoom_factor,
-            zoom_mode,
+            projected_zoom_factor,
             window_zoom_factor,
             audio_muted,
             generation,
@@ -51,10 +54,8 @@ impl SystemRuntimeExecutor {
                 rect,
                 current_url,
                 zoom_factor,
-                zoom_mode,
-                audio_muted,
             ) = {
-                let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+                let tab = state.native_resources.tabs.get(&tab_id).ok_or_else(|| {
                     RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
                 })?;
                 let role = tab.roles.get(role_id).ok_or_else(|| {
@@ -87,18 +88,16 @@ impl SystemRuntimeExecutor {
                     role.rect.clone(),
                     current_url,
                     role.zoom_factor,
-                    role.zoom_mode.clone(),
-                    tab.audio_muted,
                 )
             };
-            let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                     "Runtime display host was not found during recovery.",
                 )
             })?;
             let window = host.window.clone();
-            let window_zoom_factor = host.zoom_factor;
+            let window_zoom_factor = desired_window_zoom_factor;
             let generation = state
                 .recovery_generations
                 .get(role_id)
@@ -114,12 +113,17 @@ impl SystemRuntimeExecutor {
                 rect,
                 current_url,
                 zoom_factor,
-                zoom_mode,
                 window_zoom_factor,
                 audio_muted,
                 generation,
             )
         };
+        let (zoom_factor, _) = self.runtime_role_zoom_contract(
+            &window_id,
+            &tab_id,
+            role_id,
+            projected_zoom_factor,
+        );
         self.update_surface_recovery_phase(transaction, "rebuilding");
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
@@ -206,14 +210,14 @@ impl SystemRuntimeExecutor {
         let replacement_label = webview.label().to_owned();
         let popup_labels = (|| -> RuntimeResult<Vec<String>> {
             let state = self.state()?;
-            let active_tab_id = state.role_tabs.get(role_id).ok_or_else(|| {
+            let active_tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
                 RuntimeError::new(
                     "TAURI_RUNTIME_ROLE_NOT_FOUND",
                     "Runtime role stopped while its System WebView was recovering.",
                 )
             })?;
             let active_surface = state
-                .tabs
+                .native_resources.tabs
                 .get(active_tab_id)
                 .and_then(|tab| tab.roles.get(role_id))
                 .ok_or_else(|| {
@@ -301,7 +305,7 @@ impl SystemRuntimeExecutor {
                 state.close_coordinator.closing_roles.contains(role_id)
                     || state.close_coordinator.quarantined_roles.contains(role_id)
                     || state
-                        .surface_registry
+                        .native_resources.surface_registry
                         .get(&replacement_instance_id)
                         .is_none_or(|surface| surface.phase != ManagedSurfacePhase::Provisional)
             };
@@ -353,7 +357,7 @@ impl SystemRuntimeExecutor {
             if state.close_coordinator.closing_roles.contains(role_id)
                 || state.close_coordinator.quarantined_roles.contains(role_id)
                 || state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .get(&replacement_instance_id)
                     .is_none_or(|surface| surface.phase != ManagedSurfacePhase::Provisional)
             {
@@ -379,14 +383,14 @@ impl SystemRuntimeExecutor {
         }
         self.update_surface_recovery_phase(transaction, "swapping");
         let mut state = self.state()?;
-        let active_tab_id = state.role_tabs.get(role_id).cloned().ok_or_else(|| {
+        let active_tab_id = state.native_tab_id_for_role_surface(role_id).cloned().ok_or_else(|| {
             RuntimeError::new(
                 "TAURI_RUNTIME_ROLE_NOT_FOUND",
                 "Runtime role stopped while its System WebView was recovering.",
             )
         })?;
         let active_surface = state
-            .tabs
+            .native_resources.tabs
             .get(&active_tab_id)
             .and_then(|tab| tab.roles.get(role_id))
             .ok_or_else(|| {
@@ -415,7 +419,7 @@ impl SystemRuntimeExecutor {
         }
         let replacement_webview = webview.clone();
         state
-            .tabs
+            .native_resources.tabs
             .get_mut(&tab_id)
             .expect("the recovery tab was validated above")
             .roles
@@ -431,13 +435,12 @@ impl SystemRuntimeExecutor {
                     surface_instance_id: replacement_instance_id.clone(),
                     webview,
                     zoom_factor,
-                    zoom_mode,
                 },
             );
         state
             .recovery_generations
             .insert(role_id.to_owned(), generation);
-        if let Some(surface) = state.surface_registry.get_mut(&replacement_instance_id) {
+        if let Some(surface) = state.native_resources.surface_registry.get_mut(&replacement_instance_id) {
             surface.kind = ManagedSurfaceKind::Role;
             surface.phase = ManagedSurfacePhase::Live;
         }

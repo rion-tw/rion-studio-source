@@ -17,6 +17,7 @@ impl SystemRuntimeExecutor {
         let pending = match self.start_role_loads(roles) {
             Ok(pending) => pending,
             Err(error) => {
+                let _ = self.apply_runtime_native_event_for_operation(&operation_id, "failed");
                 let error_payload = rion_core::CoreErrorPayload {
                     code: error.code.to_owned(),
                     message: error.message,
@@ -91,6 +92,13 @@ impl SystemRuntimeExecutor {
         if effect_accepted && persist_runtime {
             self.publish_projection();
         }
+        if !effect_accepted {
+            let _ = self.terminalize_runtime_operation(
+                &operation_id,
+                RuntimeOperationPhase::Cancelled,
+                Some("CORE_EFFECT_NOT_ACCEPTED".to_owned()),
+            );
+        }
 
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
@@ -146,8 +154,8 @@ impl SystemRuntimeExecutor {
                         continue;
                     }
                     let current_tab_id = runtime_for_completion.state.lock().ok().and_then(|state| {
-                        let tab_id = state.role_tabs.get(&pending_navigation.role_id)?.clone();
-                        let surface = state.tabs.get(&tab_id)?.roles.get(&pending_navigation.role_id)?;
+                        let tab_id = state.native_tab_id_for_role_surface(&pending_navigation.role_id)?.clone();
+                        let surface = state.native_resources.tabs.get(&tab_id)?.roles.get(&pending_navigation.role_id)?;
                         (surface.webview.label() == pending_navigation.surface.label())
                             .then_some(tab_id)
                     });
@@ -178,20 +186,16 @@ impl SystemRuntimeExecutor {
             .await
             .unwrap_or_default();
 
-            if runtime.application_lifecycle_epoch_matches(lifecycle_epoch) {
-                for tab_id in completion {
-                    runtime.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
-                    runtime.schedule_optional_hydration(&tab_id);
-                }
-            }
+            let mut failed_tabs = HashSet::new();
             for (role_id, surface_label, failure) in failed_roles {
                 let current = runtime.state.lock().ok().and_then(|state| {
-                    let tab_id = state.role_tabs.get(&role_id)?.clone();
-                    let surface = state.tabs.get(&tab_id)?.roles.get(&role_id)?;
+                    let tab_id = state.native_tab_id_for_role_surface(&role_id)?.clone();
+                    let surface = state.native_resources.tabs.get(&tab_id)?.roles.get(&role_id)?;
                     (surface.webview.label() == surface_label)
                         .then_some((tab_id, surface.generation))
                 });
                 if let Some((tab_id, generation)) = current {
+                    failed_tabs.insert(tab_id.clone());
                     runtime.set_launch_phase(&tab_id, LaunchPhase::Degraded);
                     runtime.record_runtime_stage(
                         format!("tab.page-ready:{tab_id}:{role_id}:{failure}"),
@@ -204,6 +208,20 @@ impl SystemRuntimeExecutor {
                         generation,
                     );
                 }
+            }
+            for tab_id in completion {
+                if failed_tabs.contains(&tab_id) {
+                    continue;
+                }
+                if runtime.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                    runtime.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
+                    runtime.schedule_optional_hydration(&tab_id);
+                    let _ = runtime
+                        .apply_runtime_native_event_for_operation(&operation_id, "ready");
+                }
+            }
+            if !failed_tabs.is_empty() {
+                let _ = runtime.apply_runtime_native_event_for_operation(&operation_id, "failed");
             }
         });
     }

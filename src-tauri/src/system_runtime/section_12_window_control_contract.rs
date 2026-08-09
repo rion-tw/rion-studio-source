@@ -28,10 +28,8 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(window_id)
             .and_then(|live| {
-                live.lock().ok().and_then(|live| {
-                    (!live.tabs.is_empty() && live.window_generation > 0)
-                        .then_some(live.window_generation)
-                })
+                (!live.tabs.is_empty() && live.window_generation > 0)
+                    .then_some(live.window_generation)
             })
             .ok_or_else(|| "Live runtime window state was not found or contains no tabs.".to_owned())?;
         *self
@@ -85,15 +83,10 @@ impl SystemRuntimeExecutor {
         let live_tab_count = self
             .presentation
             .existing(window_id)
-            .map(|live| {
-                live.lock()
-                    .map(|state| state.all_tab_ids().len())
-                    .map_err(|_| "Live runtime window state is unavailable.".to_owned())
-            })
-            .transpose()?;
+            .map(|live| live.all_tab_ids().len());
         let window = {
             let mut state = self.state().map_err(|error| error.message)?;
-            let empty_host_available = state.display_hosts.contains_key(window_id)
+            let empty_host_available = state.native_resources.display_hosts.contains_key(window_id)
                 && !state.retiring_window_revisions.contains_key(window_id)
                 && !state.quarantined_window_hosts.contains(window_id);
             if !live_window_activation_available(live_tab_count, empty_host_available) {
@@ -101,7 +94,7 @@ impl SystemRuntimeExecutor {
             }
             state.tab_drag_cursor_leases.remove(window_id);
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .map(|host| host.window.clone())
                 .ok_or_else(|| "Runtime display host was not found.".to_owned())?
@@ -127,12 +120,7 @@ impl SystemRuntimeExecutor {
         let live_tab_count = self
             .presentation
             .existing(window_id)
-            .map(|live| {
-                live.lock()
-                    .map(|state| state.all_tab_ids().len())
-                    .map_err(|_| "Live runtime window state is unavailable.".to_owned())
-            })
-            .transpose()?;
+            .map(|live| live.all_tab_ids().len());
         if !live_window_activation_available(live_tab_count, false) {
             return Ok(false);
         }

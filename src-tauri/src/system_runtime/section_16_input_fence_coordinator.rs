@@ -49,7 +49,7 @@ impl SystemRuntimeExecutor {
         .with_role(role_id)
         .with_surface_generation(generation);
         if let Ok(state) = self.state()
-            && let Some(tab_id) = state.role_tabs.get(role_id)
+            && let Some(tab_id) = state.native_tab_id_for_role_surface(role_id)
         {
             operation.tab_id = Some(tab_id.clone());
             operation.window_id = self.presentation.tab_window(tab_id).ok().flatten();
@@ -57,18 +57,8 @@ impl SystemRuntimeExecutor {
         accept_navigation_input_operation(&self.operations, &operation)?;
         let epoch_result = self
             .core
-            .invoke(CoreCommand::MacroInputFence {
-                role_id: role_id.to_owned(),
-            })
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<MacroInputEpochRecord>(value).map_err(|error| {
-                    RuntimeError::new(
-                        "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
-                        error.to_string(),
-                    )
-                })
-            });
+            .fence_macro_input(role_id)
+            .map_err(RuntimeError::core);
         let epoch = match epoch_result {
             Ok(epoch) => epoch.input_epoch,
             Err(error) => {
@@ -137,32 +127,27 @@ impl SystemRuntimeExecutor {
         let core = Arc::clone(&self.core);
         let role_id = role_id.to_owned();
         let webview_label = webview_label.to_owned();
-        let watchdog_app = app.clone();
-        let watchdog_role_id = role_id.clone();
-        let watchdog_webview_label = webview_label.clone();
+        let deadline_app = app.clone();
+        let deadline_role_id = role_id.clone();
+        let deadline_webview_label = webview_label.clone();
         tauri::async_runtime::spawn(async move {
+            // DeadlineBound: the exact page-finished event is the only success
+            // path. Elapsed time terminalizes the input fence as failed and
+            // may schedule fenced recovery; it never reads back page state or
+            // infers navigation success.
             tokio::time::sleep(NAVIGATION_TIMEOUT).await;
-            if let Some(state) = watchdog_app.try_state::<crate::CoreState>() {
-                state.runtime.reconcile_navigation_input_fence(
-                    &watchdog_webview_label,
-                    &watchdog_role_id,
+            if let Some(state) = deadline_app.try_state::<crate::CoreState>() {
+                state.runtime.expire_navigation_input_fence(
+                    &deadline_webview_label,
+                    &deadline_role_id,
                     epoch,
                     generation,
                 );
             }
         });
         tauri::async_runtime::spawn(async move {
-            let drain_result = core
-                .invoke_async(CoreCommand::MacroInputDrain {
-                    role_id: role_id.clone(),
-                    input_epoch: epoch,
-                })
-                .await;
-            let drained = drain_result
-                .as_ref()
-                .ok()
-                .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value.clone()).ok())
-                .is_some_and(|record| record.current);
+            let drain_result = core.drain_macro_input(&role_id, epoch);
+            let drained = drain_result.as_ref().is_ok_and(|record| record.current);
             if drained {
                 if let Some(state) = app.try_state::<crate::CoreState>() {
                     state
@@ -286,12 +271,8 @@ impl SystemRuntimeExecutor {
         }
         let resumed = self
             .core
-            .invoke(CoreCommand::MacroInputResume {
-                role_id: role_id.to_owned(),
-                input_epoch,
-            })
+            .resume_macro_input(role_id, input_epoch)
             .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .is_some_and(|record| record.current);
         if !resumed {
             self.schedule_input_fence_recovery(
@@ -379,7 +360,6 @@ impl SystemRuntimeExecutor {
                     drained: false,
                     surface_generation: generation,
                     recovery_scheduled: false,
-                    reconciling: false,
                     resuming: false,
                 },
             )
@@ -397,129 +377,28 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn reconcile_navigation_input_fence(
+    fn expire_navigation_input_fence(
         &self,
         webview_label: &str,
         role_id: &str,
         input_epoch: u64,
         surface_generation: u64,
     ) {
-        let snapshot = self.state.lock().ok().and_then(|mut state| {
-            if !main_frame_navigation_needs_reconciliation(
+        let current = self.state.lock().ok().is_some_and(|state| {
+            main_frame_navigation_deadline_is_current(
                 &state.role_input_fences,
                 &state.main_frame_navigation_input_fences,
                 webview_label,
                 role_id,
                 input_epoch,
                 surface_generation,
-            ) {
-                return None;
-            }
-            let ticket = state.main_frame_navigation_input_fences.get(webview_label)?;
-            let baseline_document_id = ticket.baseline_document_id.clone();
-            let webview = state
-                .surface_registry
-                .values()
-                .find(|surface| {
-                    surface.webview.label() == webview_label
-                        && surface.role_id.as_deref() == Some(role_id)
-                        && surface.generation == surface_generation
-                        && surface.phase == ManagedSurfacePhase::Live
-                })
-                .map(|surface| surface.webview.clone());
-            if let Some(fence) = state.role_input_fences.get_mut(role_id) {
-                fence.reconciling = true;
-            }
-            Some((webview, baseline_document_id))
-        });
-        let Some((webview, baseline_document_id)) = snapshot else {
-            self.record_stale_input_fence_event(role_id, input_epoch);
-            return;
-        };
-        let Some(webview) = webview else {
-            self.schedule_input_fence_recovery(role_id, input_epoch, "live-webview-missing");
-            return;
-        };
-        let app = self.app.clone();
-        let role_id = role_id.to_owned();
-        let webview_label = webview_label.to_owned();
-        drop(tauri::async_runtime::spawn_blocking(move || {
-            let readback = read_document_instance(&webview);
-            if let Some(state) = app.try_state::<crate::CoreState>() {
-                state.runtime.finish_navigation_reconciliation(
-                    &webview_label,
-                    &role_id,
-                    input_epoch,
-                    surface_generation,
-                    baseline_document_id.as_deref(),
-                    readback.as_ref().ok(),
-                );
-            }
-        }));
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn finish_navigation_reconciliation(
-        &self,
-        webview_label: &str,
-        role_id: &str,
-        input_epoch: u64,
-        surface_generation: u64,
-        baseline_document_id: Option<&str>,
-        readback: Option<&DocumentInstanceReadback>,
-    ) {
-        let reconciled_document_id = readback
-            .filter(|readback| {
-                document_instance_proves_completed_navigation(readback, baseline_document_id)
-            })
-            .and_then(|readback| readback.document_id.clone());
-        let current = self.state.lock().is_ok_and(|mut state| {
-            let Some(fence) = state.role_input_fences.get_mut(role_id) else {
-                return false;
-            };
-            if fence.input_epoch != input_epoch
-                || fence.surface_generation != surface_generation
-                || fence.recovery_scheduled
-            {
-                return false;
-            }
-            fence.reconciling = false;
-            let Some(ticket) = state
-                .main_frame_navigation_input_fences
-                .get_mut(webview_label)
-            else {
-                return false;
-            };
-            if ticket.role_id != role_id
-                || ticket.input_epoch != input_epoch
-                || ticket.surface_generation != surface_generation
-            {
-                return false;
-            }
-            if let Some(document_id) = reconciled_document_id.as_ref() {
-                ticket.page_finished = true;
-                state
-                    .last_completed_document_ids
-                    .insert(webview_label.to_owned(), document_id.clone());
-            }
-            true
+            )
         });
         if !current {
             self.record_stale_input_fence_event(role_id, input_epoch);
             return;
         }
-        if reconciled_document_id.is_some() {
-            self.record_input_fence_event_with_reason(
-                role_id,
-                input_epoch,
-                "reconciled",
-                "document-complete",
-                LogLevel::Warn,
-            );
-            self.try_resume_navigation_input(role_id, input_epoch);
-        } else {
-            self.schedule_input_fence_recovery(role_id, input_epoch, "document-unverified");
-        }
+        self.schedule_input_fence_recovery(role_id, input_epoch, "page-finish-deadline");
     }
 
     fn schedule_input_fence_recovery(&self, role_id: &str, input_epoch: u64, reason: &str) {
@@ -565,10 +444,11 @@ impl SystemRuntimeExecutor {
                 )
             });
         if !scheduled {
-            let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
-                role_id: role_id.to_owned(),
-                reason: Some("input-fence-recovery-unavailable".to_owned()),
-            });
+            self.report_system_surface_state_async(
+                role_id.to_owned(),
+                Some("input-fence-recovery-unavailable".to_owned()),
+                false,
+            );
             self.record_input_fence_event_with_reason(
                 role_id,
                 input_epoch,
@@ -586,7 +466,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn record_input_fence_event(&self, role_id: &str, input_epoch: u64, event: &str) {
-        let level = if matches!(event, "stale" | "reconciled" | "recovery-scheduled" | "recovery-failed") {
+        let level = if matches!(event, "stale" | "recovery-scheduled" | "recovery-failed") {
             LogLevel::Warn
         } else {
             LogLevel::Debug
@@ -739,9 +619,8 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|mut state| {
                 let navigation = state
-                    .role_tabs
-                    .get(role_id)
-                    .and_then(|tab_id| state.tabs.get(tab_id))
+                    .native_tab_id_for_role_surface(role_id)
+                    .and_then(|tab_id| state.native_resources.tabs.get(tab_id))
                     .and_then(|tab| tab.roles.get(role_id))
                     .map(|surface| Arc::clone(&surface.navigation));
                 state.last_input_ready_epochs.remove(role_id);

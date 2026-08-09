@@ -73,6 +73,7 @@ fn cancelled_attempt_and_same_source_relaunch_are_independently_fenced() {
         let old = take_provisional_launch_attempt(
             &mut state,
             "preview-a",
+            "tab-a",
             "window-1",
             "source-1",
             tab_type,
@@ -90,6 +91,7 @@ fn cancelled_attempt_and_same_source_relaunch_are_independently_fenced() {
         let current = take_provisional_launch_attempt(
             &mut state,
             "preview-b",
+            "tab-b",
             "window-1",
             "source-1",
             tab_type,
@@ -116,6 +118,7 @@ fn new_attempt_can_attach_before_the_cancelled_callback_arrives() {
     let current = take_provisional_launch_attempt(
         &mut state,
         "preview-b",
+        "tab-b",
         "window-1",
         "role-1",
         "role",
@@ -125,6 +128,7 @@ fn new_attempt_can_attach_before_the_cancelled_callback_arrives() {
     let old = take_provisional_launch_attempt(
         &mut state,
         "preview-a",
+        "tab-a",
         "window-1",
         "role-1",
         "role",
@@ -144,6 +148,7 @@ fn stale_or_mismatched_effect_cannot_consume_the_active_preview() {
     let unknown = take_provisional_launch_attempt(
         &mut state,
         "missing-preview",
+        "tab-b",
         "window-1",
         "role-1",
         "role",
@@ -153,6 +158,7 @@ fn stale_or_mismatched_effect_cannot_consume_the_active_preview() {
     let mismatch = take_provisional_launch_attempt(
         &mut state,
         "preview-b",
+        "tab-b",
         "window-1",
         "other-role",
         "role",
@@ -255,6 +261,7 @@ fn cancelling_one_source_does_not_mutate_an_independent_preview() {
     let independent = take_provisional_launch_attempt(
         &mut state,
         "preview-b",
+        "tab-b",
         "window-1",
         "role-b",
         "role",

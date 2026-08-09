@@ -22,6 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
                     beforeIdentifier:(nullable NSString *)beforeIdentifier
                          screenPoint:(NSPoint)screenPoint;
 - (void)moveTabDrag:(RionRuntimeTabItemView *)item atScreenPoint:(NSPoint)screenPoint;
+- (BOOL)moveTabIdentifier:(NSString *)tabIdentifier
+    byAccessibilityOffset:(NSInteger)offset;
 - (void)endTabDrag:(RionRuntimeTabItemView *)item
        screenPoint:(NSPoint)screenPoint
          cancelled:(BOOL)cancelled;
@@ -359,11 +361,13 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (!self) return nil;
 
   self.focusRingType = NSFocusRingTypeNone;
+  self.accessibilityElement = YES;
   self.accessibilityRole = NSAccessibilityRadioButtonRole;
 
   _iconView = [[NSImageView alloc] initWithFrame:NSZeroRect];
   _iconView.imageAlignment = NSImageAlignCenter;
   _iconView.imageScaling = NSImageScaleProportionallyDown;
+  _iconView.accessibilityElement = NO;
   _iconView.wantsLayer = YES;
   _iconView.layer.cornerRadius = 4.0;
   _iconView.layer.masksToBounds = YES;
@@ -371,6 +375,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _audioView = [[NSImageView alloc] initWithFrame:NSZeroRect];
   _audioView.imageAlignment = NSImageAlignCenter;
   _audioView.imageScaling = NSImageScaleProportionallyDown;
+  _audioView.accessibilityElement = NO;
   _audioView.contentTintColor = NSColor.secondaryLabelColor;
   _audioView.toolTip = @"";
 
@@ -386,6 +391,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   titleCell.lineBreakMode = NSLineBreakByTruncatingTail;
   _titleField = [[NSTextField alloc] initWithFrame:NSZeroRect];
   _titleField.cell = titleCell;
+  _titleField.accessibilityElement = NO;
   _titleField.focusRingType = NSFocusRingTypeNone;
 
   NSImage *closeImage = [NSImage imageWithSystemSymbolName:@"xmark"
@@ -405,6 +411,90 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   [self addSubview:_audioView];
   [self addSubview:_moreButton];
   return self;
+}
+
+- (BOOL)accessibilityPerformPress {
+  return [NSApp sendAction:self.action to:self.target from:self];
+}
+
+- (BOOL)accessibilityPerformShowMenu {
+  if (self.tabIdentifier.length == 0) return NO;
+  [self.tabsController performSelector:@selector(showTabMenu:)
+                             withObject:self.tabIdentifier];
+  return YES;
+}
+
+- (BOOL)accessibilityPerformIncrement {
+  return [self.tabsController moveTabIdentifier:self.tabIdentifier
+                          byAccessibilityOffset:1];
+}
+
+- (BOOL)accessibilityPerformDecrement {
+  return [self.tabsController moveTabIdentifier:self.tabIdentifier
+                          byAccessibilityOffset:-1];
+}
+
+- (NSArray<NSAccessibilityActionName> *)accessibilityActionNames {
+  NSMutableArray<NSAccessibilityActionName> *actions =
+      [[super accessibilityActionNames] mutableCopy];
+  if (!actions) actions = [NSMutableArray array];
+  for (NSAccessibilityActionName action in @[
+         NSAccessibilityShowMenuAction,
+         NSAccessibilityIncrementAction,
+         NSAccessibilityDecrementAction
+       ]) {
+    if (![actions containsObject:action]) [actions addObject:action];
+  }
+  return actions;
+}
+
+- (void)accessibilityPerformAction:(NSAccessibilityActionName)action {
+  if ([action isEqualToString:NSAccessibilityShowMenuAction]) {
+    [self accessibilityPerformShowMenu];
+    return;
+  }
+  if ([action isEqualToString:NSAccessibilityIncrementAction]) {
+    [self accessibilityPerformIncrement];
+    return;
+  }
+  if ([action isEqualToString:NSAccessibilityDecrementAction]) {
+    [self accessibilityPerformDecrement];
+    return;
+  }
+  [super accessibilityPerformAction:action];
+}
+
+- (BOOL)accessibilityShowMenuCustomAction {
+  return [self accessibilityPerformShowMenu];
+}
+
+- (BOOL)accessibilityIncrementCustomAction {
+  return [self accessibilityPerformIncrement];
+}
+
+- (BOOL)accessibilityDecrementCustomAction {
+  return [self accessibilityPerformDecrement];
+}
+
+- (nullable NSArray<NSAccessibilityCustomAction *> *)accessibilityCustomActions {
+  if (self.tabIdentifier.length == 0) return @[];
+  return @[
+    [[NSAccessibilityCustomAction alloc]
+        initWithName:NSAccessibilityActionDescription(
+                         NSAccessibilityShowMenuAction)
+              target:self
+            selector:@selector(accessibilityShowMenuCustomAction)],
+    [[NSAccessibilityCustomAction alloc]
+        initWithName:NSAccessibilityActionDescription(
+                         NSAccessibilityIncrementAction)
+              target:self
+            selector:@selector(accessibilityIncrementCustomAction)],
+    [[NSAccessibilityCustomAction alloc]
+        initWithName:NSAccessibilityActionDescription(
+                         NSAccessibilityDecrementAction)
+              target:self
+            selector:@selector(accessibilityDecrementCustomAction)]
+  ];
 }
 
 - (BOOL)isFlipped {

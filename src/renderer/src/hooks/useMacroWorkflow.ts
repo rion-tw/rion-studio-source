@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { createCopyName } from "../app/copyName";
 import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Macro, MacroRunStatus } from "../../../shared/types";
+import type { Macro } from "../../../shared/types";
 import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
 import { getMacroPartialStartCounts } from "../features/macros/macroUtils";
 import { useBusyIds } from "./useBusyIds";
@@ -13,8 +13,6 @@ import { useBusyIds } from "./useBusyIds";
 interface UseMacroWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   macros: Macro[];
-  setMacros: Dispatch<SetStateAction<Macro[]>>;
-  setMacroStatuses: Dispatch<SetStateAction<MacroRunStatus[]>>;
   setNotice?: (message: string | null) => void;
   t: Translator;
 }
@@ -22,8 +20,6 @@ interface UseMacroWorkflowOptions {
 export function useMacroWorkflow({
   beginErrorOperation,
   macros,
-  setMacros,
-  setMacroStatuses,
   setNotice,
   t
 }: UseMacroWorkflowOptions) {
@@ -67,14 +63,6 @@ export function useMacroWorkflow({
         ? await window.rionStudio.updateMacro(form.id, input)
         : await window.rionStudio.createMacro(input);
 
-      setMacros((current) => {
-        if (form.id) {
-          return current.map((macro) => (macro.id === savedMacro.id ? savedMacro : macro));
-        }
-
-        return [...current, savedMacro];
-      });
-
       return savedMacro;
     } catch (submitError) {
       reportError(submitError);
@@ -115,19 +103,6 @@ export function useMacroWorkflow({
 
     try {
       const result = await window.rionStudio.deleteMacros({ ids });
-      const deletedIds = new Set(result.deletedIds);
-      setMacros((current) => current.filter((item) => !deletedIds.has(item.id)));
-      setMacroStatuses((current) => current.filter((status) => !deletedIds.has(status.macroId)));
-      try {
-        const [nextMacros, nextStatuses] = await Promise.all([
-          window.rionStudio.listMacros(),
-          window.rionStudio.listMacroStatuses()
-        ]);
-        setMacros(nextMacros);
-        setMacroStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
       setNotice?.(formatBulkDeleteResult(result, t));
       return true;
     } catch (deleteError) {
@@ -151,7 +126,7 @@ export function useMacroWorkflow({
     const reportError = beginErrorOperation();
 
     try {
-      const copy = await window.rionStudio.createMacro({
+      await window.rionStudio.createMacro({
         enabled: macro.enabled,
         activationMode: macro.activationMode === "while_held" ? "toggle" : macro.activationMode,
         name: createCopyName(macro.name, macros.map((item) => item.name), t("copyName.suffix")),
@@ -164,7 +139,6 @@ export function useMacroWorkflow({
         })),
         trigger: null
       });
-      setMacros((current) => [...current, copy]);
       resetListState();
     } catch (copyError) {
       reportError(copyError);
@@ -196,9 +170,6 @@ export function useMacroWorkflow({
           ? [{ macro: targets[index], statuses: result.value }]
           : []
       );
-      const startedStatuses = successful.flatMap(({ statuses }) => statuses);
-      setMacroStatuses((current) => mergeMacroStatuses(current, startedStatuses));
-
       const partialStart = successful.reduce(
         (total, { macro, statuses }) => {
           const partial = getMacroPartialStartCounts(macro, statuses);
@@ -217,12 +188,6 @@ export function useMacroWorkflow({
             .replace("{started}", String(partialStart.startedCount))
             .replace("{skipped}", String(partialStart.skippedCount))
         );
-      }
-
-      try {
-        setMacroStatuses(await window.rionStudio.listMacroStatuses());
-      } catch (recoveryError) {
-        reportError(recoveryError);
       }
 
       reportMacroOperationFailures(successful.length, results, reportError, setNotice, t);
@@ -258,25 +223,6 @@ export function useMacroWorkflow({
       const updatedMacros = results.flatMap((result) =>
         result.status === "fulfilled" ? [result.value] : []
       );
-      const updatedById = new Map(updatedMacros.map((macro) => [macro.id, macro]));
-      setMacros((current) => current.map((item) => updatedById.get(item.id) ?? item));
-
-      if (!enabled) {
-        const disabledIds = new Set(updatedMacros.map((macro) => macro.id));
-        setMacroStatuses((current) => current.filter((status) => !disabledIds.has(status.macroId)));
-      }
-
-      try {
-        const [nextMacros, nextStatuses] = await Promise.all([
-          window.rionStudio.listMacros(),
-          window.rionStudio.listMacroStatuses()
-        ]);
-        setMacros(nextMacros);
-        setMacroStatuses(nextStatuses);
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
-
       reportMacroOperationFailures(updatedMacros.length, results, reportError, setNotice, t);
     } finally {
       finishBusy();
@@ -308,13 +254,6 @@ export function useMacroWorkflow({
       const stoppedIds = new Set(results.flatMap((result, index) =>
         result.status === "fulfilled" ? [targets[index].id] : []
       ));
-      setMacroStatuses((current) => current.filter((status) => !stoppedIds.has(status.macroId)));
-
-      try {
-        setMacroStatuses(await window.rionStudio.listMacroStatuses());
-      } catch (recoveryError) {
-        reportError(recoveryError);
-      }
 
       reportMacroOperationFailures(stoppedIds.size, results, reportError, setNotice, t);
     } finally {
@@ -360,13 +299,6 @@ export function useMacroWorkflow({
     setSort,
     sort
   };
-}
-
-function mergeMacroStatuses(current: MacroRunStatus[], next: MacroRunStatus[]): MacroRunStatus[] {
-  const nextByKey = new Map(next.map((status) => [`${status.roleId}:${status.macroId}`, status]));
-  const merged = current.map((status) => nextByKey.get(`${status.roleId}:${status.macroId}`) ?? status);
-  const currentKeys = new Set(current.map((status) => `${status.roleId}:${status.macroId}`));
-  return [...merged, ...next.filter((status) => !currentKeys.has(`${status.roleId}:${status.macroId}`))];
 }
 
 function uniqueMacros(macros: Macro[]): Macro[] {

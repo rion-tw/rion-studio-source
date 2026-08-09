@@ -8,7 +8,7 @@ impl SystemRuntimeExecutor {
         webview2_user_data_dir: &str,
         webkit_data_store_identifier: &str,
     ) -> RuntimeResult<Option<String>> {
-        if self.state()?.role_tabs.contains_key(role_id) {
+        if self.state()?.has_native_role_surface(role_id) {
             return Err(RuntimeError::new(
                 "ROLE_SESSION_IMPORT_IN_USE",
                 "Stop the role before verifying imported browser session data.",

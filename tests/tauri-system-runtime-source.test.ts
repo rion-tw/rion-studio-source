@@ -3,6 +3,76 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+  it("commits launch and restore desired topology before creating native hosts", async () => {
+    const [launchSource, restoreSource] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_22_with_native_creation_lane.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_12_window_restore_contract.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
+    const preview = launchSource.slice(
+      launchSource.indexOf("pub(crate) fn preview_tab_launch("),
+      launchSource.indexOf("pub(crate) fn cancel_tab_launch_preview(")
+    );
+    const completionFallback = launchSource.slice(
+      launchSource.indexOf("fn retain_launch_completion_presentation("),
+      launchSource.indexOf("fn schedule_automatic_launch_retry(")
+    );
+    const restore = restoreSource.slice(
+      restoreSource.indexOf("fn prepare_restored_window_tabs_internal("),
+      restoreSource.indexOf("fn pending_window_tab_restore(")
+    );
+
+    expect(preview.indexOf("commit_live_window_record")).toBeLessThan(
+      preview.indexOf("ensure_display_host")
+    );
+    expect(completionFallback.indexOf("commit_live_window_record")).toBeLessThan(
+      completionFallback.indexOf("ensure_display_host")
+    );
+    expect(restore.indexOf("commit_live_topology")).toBeLessThan(
+      restore.indexOf("ensure_display_host")
+    );
+    expect(restore).toContain("host_created: false");
+    expect(completionFallback).toContain("host_created: false");
+  });
+
+  it("fences native presentation from an immutable desired projection without Core re-entry", async () => {
+    const [request, projectionState, apply, dispatch, topology] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_02_windows_surface_identity_matches.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/native_projection.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_05_is_surface_close_effect.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_09_record_topology_reconciled.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_04_live_window_tab_store.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
+    expect(request).toContain("desired_projection: Arc<RwLock<Option<RuntimeNativeProjection>>>");
+    expect(projectionState).not.toContain("desired_projection: Option<RuntimeNativeProjection>");
+    expect(request).not.toContain("live: LiveWindowHandle");
+    expect(dispatch).toContain("refresh_desired_native_projections");
+    expect(topology).toContain("refresh_desired_native_projections(&receipt.window_ids)");
+    expect(apply).toContain("desired.window_revision");
+    expect(apply).toContain("desired.window_generation == request.window_generation");
+    expect(apply).not.toContain("request.live");
+  });
+
 it("isolates popup renderer failures from role surface recovery", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
@@ -80,7 +150,9 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(releaseRole).toContain("tokio::task::JoinSet::new()");
     expect(releaseRole).toContain("closes.spawn(async move");
     expect(runtime).toContain("wait_for_store_reusable_event");
-    expect(commitRole).toContain("state.role_tabs.remove(&released.role_id)");
+    expect(commitRole).toMatch(/state\s*\.native_tab_id_for_role_surface\(&released\.role_id\)/u);
+    expect(commitRole).toContain(".roles\n            .remove(&released.role_id)");
+    expect(commitRole).not.toContain("role_tabs");
     expect(releaseRole.indexOf("self.forget_popup(&label)")).toBeGreaterThan(closeRole);
 
     const destroyTab = runtime.slice(
@@ -89,7 +161,7 @@ it("commits role and tab removal only after native close acknowledgement", async
     );
     const releaseRoles = destroyTab.indexOf("release_marked_role_surfaces_event_bound(");
     const releaseDividers = destroyTab.indexOf("close_managed_surface_event_bound(instance_id");
-    const commitTab = destroyTab.indexOf("state.tabs.remove(tab_id)");
+    const commitTab = destroyTab.indexOf("state.native_resources.tabs.remove(tab_id)");
     expect(releaseRoles).toBeGreaterThan(-1);
     expect(releaseDividers).toBeGreaterThan(releaseRoles);
     expect(commitTab).toBeGreaterThan(releaseDividers);
@@ -171,23 +243,31 @@ it("routes close around slow effects and keeps failed close intent committed", a
     expect(stopRole).not.toContain("previous_runtime");
     expect(stopRole).not.toContain("publish_embedded_runtime_snapshot_best_effort");
     const stopWindow = core.slice(
-      core.indexOf("fn stop_embedded_window("),
-      core.indexOf("fn run_effect_plan(")
+      core.indexOf("fn admit_embedded_window_close("),
+      core.indexOf("fn stop_embedded_window_runtime(")
     );
-    const isolateTabs = stopWindow.indexOf("for (tab_type, source_id) in sources");
-    expect(stopWindow.indexOf("let sources = {")).toBeLessThan(isolateTabs);
-    expect(stopWindow.indexOf("embedded_window_sequence.acquire()?")).toBeLessThan(isolateTabs);
-    expect(stopWindow.slice(0, isolateTabs)).toContain("sources\n        };");
+    expect(stopWindow).toContain("embedded_window_sequence.acquire()?");
+    expect(stopWindow).toContain("embedded_runtime_sequence.acquire()?");
+    expect(stopWindow).toContain("BrowserRuntimeCommand::CloseTabs");
+    expect(stopWindow).toContain("request.closing_tabs = closing_tabs");
     expect(macroRuntime).toContain("pub fn request_stop_role(");
   });
 
 it("keeps tab interaction responsive while native launch verification is pending", async () => {
-    const [runtime, core, menu, shell, quickMenu, macBridge, macController, windowsStrip] =
+    const [runtime, core, menu, shell, quickMenu, macBridge, macController, windowsStrip, projection] =
       await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../crates/rion-core/src/app.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tab_menu.rs", import.meta.url), "utf8"),
-      readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
+      Promise.all([
+        "../src-tauri/src/lib.rs",
+        "../src-tauri/src/lib/section_01_activation.rs",
+        "../src-tauri/src/lib/section_03_rion_overlay_request.rs",
+        "../src-tauri/src/lib/section_04_rion_shell_invoke.rs",
+        "../src-tauri/src/lib/section_04_runtime_launch_intent.rs",
+        "../src-tauri/src/lib/section_05_invoke_core_async.rs",
+        "../src-tauri/src/lib/section_09_run.rs"
+      ].map((path) => readFile(new URL(path, import.meta.url), "utf8"))).then((parts) => parts.join("\n")),
       readFile(new URL("../src-tauri/src/quick_menu.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8"),
       readFile(
@@ -197,19 +277,25 @@ it("keeps tab interaction responsive while native launch verification is pending
       readFile(
         new URL("../src/renderer/runtime-shell/runtimeTabStrip.ts", import.meta.url),
         "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/native_projection.rs", import.meta.url),
+        "utf8"
       )
       ]);
 
     expect(runtime).toContain("fn preview_tab_activation_background(");
     expect(runtime).toContain("fn preview_adjacent_tab_activation(");
     expect(runtime).toContain("fn preview_tab_close(");
-    expect(runtime).toContain("optimistic_closed_tabs");
-    expect(runtime).toContain("struct LiveWindowRecord {");
-    expect(runtime).toContain("struct NativeTabProjectionState {");
+    expect(runtime).not.toContain("optimistic_closed_tabs");
+    expect(runtime).toContain("close_previews");
+    expect(runtime).toContain("RuntimeIntent::CloseTab");
+    expect(runtime).toContain("RuntimeLiveWindowRecord as LiveWindowRecord");
+    expect(projection).toContain("struct NativeTabProjectionState {");
     expect(runtime).toContain("struct TabRuntimeStatusStore {");
     expect(runtime).not.toContain("struct LiveWindowTabState {");
     expect(runtime).toContain("selected_tab_id: Option<String>");
-    expect(runtime).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
+    expect(projection).toContain("surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>");
     expect(runtime).not.toContain("runtime_tab.visible");
     const activationInfrastructure = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_activation_background("),
@@ -238,7 +324,7 @@ it("keeps tab interaction responsive while native launch verification is pending
       runtime.indexOf("fn compose_live_runtime_snapshot(")
     );
     expect(closePreview).toContain("next.remove_tab(");
-    expect(closePreview).toContain("commit_live_window_record(\"command\"");
+    expect(closePreview).toContain("commit_live_tab_close(");
     expect(closePreview).toContain("successor_tab_after_close(");
     expect(closePreview).toContain("dispatch_native_presentation(");
     expect(closePreview).toContain("NativePresentationFocus::ContentOnly");
@@ -346,7 +432,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     );
     expect(createTab).toContain("role_bounds_for_content(content_metrics, &role.rect)");
     expect(createTab).toContain("take_tab_launch_preview(");
-    expect(createTab).toContain("selection.replace_tab_id(&preview.id, presentation_tab");
+    expect(createTab).toContain("existing.id == created_tab_id");
+    expect(createTab).toContain("selection.insert_tab(presentation_tab, 0, should_select)");
+    expect(createTab).not.toContain("replace_tab_id");
     expect(createTab).toContain("presentation.bind_surface(");
     expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
@@ -370,7 +458,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(roleRelaunchFence).not.toContain("Duration::from_millis(50)");
     expect(roleRelaunchFence).not.toContain("retired_surface_registry.values()");
     const macRoleSetup = runtime.slice(
-      runtime.indexOf('#[cfg(target_os = "macos")]\nfn platform_role_surface_setup_inner('),
+      runtime.indexOf(
+        '#[cfg(target_os = "macos")]\npub(in crate::system_runtime) fn platform_role_surface_setup_inner('
+      ),
       runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_event(')
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
@@ -422,7 +512,8 @@ it("keeps tab interaction responsive while native launch verification is pending
       liveLaunch.indexOf("events.submit()")
     );
     expect(shell).not.toContain("TAURI_RUNTIME_LAUNCH_UNRECONCILED");
-    expect(shell).toContain("BrowserLaunchAdmissionCompletion::PendingNativeCompletion");
+    expect(shell).toContain("BrowserLaunchAdmissionCompletion::Completed");
+    expect(shell).toContain("LaunchAdmissionResolution::AwaitNativeCompletion");
     expect(shell).toContain("TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED");
     expect(menu).toContain("while let Some(intent) = receiver.recv().await");
     expect(menu).toContain("unbounded_channel::<Vec<rion_core::LogCaptureRecord>>");
@@ -497,14 +588,14 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macBridge).toContain("fn schedule_metadata_batch(");
     expect(macBridge).toContain("selection_generation: AtomicU64");
     expect(macBridge).toContain("inner.selection_generation.load(Ordering::Acquire) != generation");
-    expect(macBridge).toContain("pub fn replace_reservation(");
+    expect(macBridge).not.toContain("pub fn replace_reservation(");
     expect(macBridge).toContain("pub fn ensure(");
     expect(macBridge).toContain("pub fn reorder(&self, tab_ids: &[String])");
     expect(macBridge).toContain("rion_runtime_tabs_is_main_thread()");
     expect(macController).toContain("_tabItemsByIdentifier[tabIdentifier]");
     expect(macController).toContain("[previousItem updateVisualStateAnimated:NO]");
     expect(macController).toContain("[nextItem updateVisualStateAnimated:NO]");
-    expect(macController).toContain("replaceTabIdentifier:");
+    expect(macController).not.toContain("replaceTabIdentifier:");
     expect(macController).toContain("ensureTabIdentifier:");
     expect(macController).toContain("reorderTabIdentifiers:");
     expect(macController).toContain("[_tabItems removeObjectAtIndex:index]");
@@ -584,12 +675,12 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       runtime.indexOf("pub(crate) fn preview_tab_launch("),
       runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
     );
-    expect(launchPreview).toContain("let existing_window = {");
-    expect(launchPreview).toContain("host.retirement_revision");
-    expect(launchPreview).toContain(".display_hosts");
-    expect(launchPreview.indexOf("if let Some(window) = existing_window")).toBeLessThan(
+    expect(launchPreview).toContain("commit_live_window_record");
+    expect(launchPreview).toContain("Desired topology and the permanent TabId");
+    expect(launchPreview.indexOf("commit_live_window_record")).toBeLessThan(
       launchPreview.indexOf("with_native_creation_lane")
     );
+    expect(launchPreview).toContain("launch_still_current");
     expect(launchPreview).toContain("reserve_native_tab(");
 
     expect(menu).toContain("while let Some(intent) = receiver.recv().await");
@@ -675,14 +766,19 @@ it("keeps failed destructive close quarantined instead of rolling presentation b
   });
 
 it("tracks exact native surface ownership across roles, popups, dividers, and moves", async () => {
-    const runtime = await readFile(
-      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
-      "utf8"
-    );
+    const [runtime, registry] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/native_resource_registry.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
     expect(runtime).toContain("struct ManagedSurface {");
     expect(runtime).toContain("struct CloseCoordinator {");
     expect(runtime).toContain("struct TabCloseTombstone {");
-    expect(runtime).toContain("surface_registry: HashMap<String, ManagedSurface>");
+    expect(runtime).toContain("use native_resource_registry::NativeResourceRegistry");
+    expect(registry).toContain("surface_registry: HashMap<String, ManagedSurface>");
+    expect(registry).toContain("must never be inferred from this registry");
     expect(runtime).toContain("fn wait_for_managed_surface_release(");
     expect(runtime).toContain("state.close_coordinator.closing_roles.contains(role_id)");
     expect(runtime).toContain("surface_instance_id: String");
@@ -693,10 +789,11 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
       runtime.indexOf("fn provisionally_move_tab_with_visibility_inner("),
       runtime.indexOf("fn schedule_live_tab_drag_layout(")
     );
-    expect(move).toContain("state.surface_registry.values_mut()");
+    expect(move).toContain("state.native_resources.surface_registry.values_mut()");
     expect(move).toContain("surface.window_id = target_window_id.to_owned()");
     expect(move).toContain("surface.window_generation = target_window_generation");
-    expect(move).toMatch(/state\s*\.native_tab_hosts/u);
+    expect(move).not.toContain("native_tab_hosts");
+    expect(move).toContain("live_tab_ids_for_window(&source_window_id)");
     expect(move).not.toContain("surface.window_id = source_window_id.to_owned()");
     const popup = runtime.slice(
       runtime.indexOf("fn register_popup("),
@@ -791,11 +888,11 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(cleanup).toContain("state.main_frame_navigation_input_fences.remove(window_label)");
     expect(cleanup).toContain("tauri::async_runtime::spawn(async move");
     expect(cleanup).toContain("advance_role_input_fence_local(role_id)");
-    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputFence");
-    expect(cleanup).toContain(".invoke_async(CoreCommand::MacroInputDrain");
+    expect(cleanup).toContain("core.fence_macro_input(&role_id)");
+    expect(cleanup).toContain(".drain_macro_input(&role_id, fenced.input_epoch)");
     expect(cleanup).toContain("finish_navigation_input_drain");
     expect(cleanup).toContain("try_resume_navigation_input");
-    expect(runtime).toContain("CoreCommand::MacroInputResume {");
+    expect(runtime).toContain(".resume_macro_input(role_id, input_epoch)");
     expect(cleanup).toContain("SYSTEM_POPUP_INPUT_FENCE_FAILED");
     expect(cleanup).not.toContain("CoreCommand::MacroReleaseRole");
     expect(runtime).toContain('"rion://shell-error"');

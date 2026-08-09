@@ -15,8 +15,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+let snapshotRevision = 0;
+
 function snapshot(gameId: string): AppSnapshot {
+  const revision = ++snapshotRevision;
   return {
+    revision,
+    stateRevision: revision,
+    runtimeRevision: revision,
     displayTopology: {
       revision: 1,
       capturedAt: "2026-08-03T00:00:00Z",
@@ -86,6 +92,7 @@ describe("initial renderer data loading", () => {
 
   it("does not let an older snapshot overwrite a successful retry", async () => {
     let resolveFirst: ((value: AppSnapshot) => void) | undefined;
+    const oldSnapshot = snapshot("old");
     const getAppSnapshot = vi.fn()
       .mockImplementationOnce(() => new Promise<AppSnapshot>((resolve) => {
         resolveFirst = resolve;
@@ -99,7 +106,7 @@ describe("initial renderer data loading", () => {
     expect(result.current.games[0]?.id).toBe("new");
 
     await act(async () => {
-      resolveFirst?.(snapshot("old"));
+      resolveFirst?.(oldSnapshot);
       await Promise.resolve();
     });
     expect(result.current.games[0]?.id).toBe("new");

@@ -195,95 +195,172 @@ impl AppCore {
         self.stop_embedded_window_runtime(request, delete)
     }
 
-    fn stop_embedded_window_runtime(
+    fn admit_embedded_window_close(
         &self,
-        request: &RuntimeWindowStopRequestRecord,
-        delete: bool,
-    ) -> CoreResult<()> {
-        let window_id = request.window_id.as_str();
-        let live_tab_ids = request.tab_ids.as_slice();
-        let tab_is_in_close_scope = |tab: &crate::model::BrowserRuntimeTabRecord| {
-            live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)
-        };
-        let pending_role_ids = self
+        mut request: RuntimeWindowStopRequestRecord,
+    ) -> CoreResult<RuntimeWindowStopRequestRecord> {
+        if request.admission_id.is_some() || !request.closing_tabs.is_empty() {
+            return Ok(request);
+        }
+        let initial = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-            .snapshot
+            .snapshot;
+        let initial_tabs = initial
             .tabs
             .iter()
-            .filter(|tab| tab_is_in_close_scope(tab))
+            .filter(|tab| request.tab_ids.iter().any(|tab_id| tab_id == &tab.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut role_ids = initial_tabs
+            .iter()
             .flat_map(|tab| tab.slots.iter().map(|slot| slot.role_id.clone()))
             .collect::<Vec<_>>();
-        self.cancel_embedded_operations(&pending_role_ids)?;
-        for role_id in &pending_role_ids {
+        role_ids.sort();
+        role_ids.dedup();
+        self.cancel_embedded_operations(&role_ids)?;
+        for role_id in &role_ids {
             self.macro_runtime.request_stop_role(role_id)?;
         }
-        let sources = {
-            let _window_sequence = self.embedded_window_sequence.acquire()?;
-            let snapshot = self
-                .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
-                .snapshot;
-            let mut sources = snapshot
-                .tabs
+
+        let mut operation_role_ids = role_ids;
+        operation_role_ids.extend(
+            initial_tabs
                 .iter()
-                .filter(|tab| tab_is_in_close_scope(tab))
-                .map(|tab| (tab.tab_type.clone(), tab.source_id.clone()))
-                .collect::<Vec<_>>();
-            sources.sort();
-            sources.dedup();
-            sources
+                .filter(|tab| tab.tab_type == "workspace")
+                .map(|tab| workspace_operation_key(&tab.source_id)),
+        );
+        operation_role_ids.sort();
+        operation_role_ids.dedup();
+        let lease = if operation_role_ids.is_empty() {
+            None
+        } else {
+            Some(self.browser_operations.acquire(BrowserOperationRequest {
+                role_ids: operation_role_ids,
+                kind: "normal".to_owned(),
+            })?)
         };
 
-        for (tab_type, source_id) in sources {
-            if tab_type == "workspace" {
-                self.stop_embedded_workspace_with_operation_lease(
-                    &source_id,
-                    true,
-                    false,
-                    Some(&request.parent_operation_id),
-                )?;
-            } else {
-                self.stop_embedded_role_with_operation_lease(
-                    &source_id,
-                    true,
-                    true,
-                    false,
-                    Some(&request.parent_operation_id),
-                )?;
-            }
-        }
-
-        let removed_unowned_demands = {
+        let admitted = (|| {
             let _window_sequence = self.embedded_window_sequence.acquire()?;
             let _runtime_sequence = self.embedded_runtime_sequence.acquire()?;
             let current = self
                 .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
                 .snapshot;
-            let remaining_tab_ids = current
+            let closing_tabs = current
                 .tabs
                 .iter()
-                .filter(|tab| tab_is_in_close_scope(tab))
-                .map(|tab| tab.id.clone())
+                .filter(|tab| request.tab_ids.iter().any(|tab_id| tab_id == &tab.id))
+                .map(|tab| crate::model::RuntimeWindowClosingTabRecord {
+                    tab_id: tab.id.clone(),
+                    source_id: tab.source_id.clone(),
+                    tab_type: tab.tab_type.clone(),
+                    role_ids: tab.slots.iter().map(|slot| slot.role_id.clone()).collect(),
+                })
                 .collect::<Vec<_>>();
-            if current.roles.iter().any(|role| {
-                remaining_tab_ids
+            let covered_role_ids = lease
+                .as_ref()
+                .map(|lease| {
+                    lease
+                        .role_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<std::collections::HashSet<_>>()
+                })
+                .unwrap_or_default();
+            if closing_tabs.iter().any(|tab| {
+                tab.role_ids
                     .iter()
-                    .any(|tab_id| tab_id == &role.owner.tab_id)
+                    .any(|role_id| !covered_role_ids.contains(role_id.as_str()))
             }) {
                 return Err(CoreError::Domain {
-                    code: "SYSTEM_SURFACE_CLOSE_STALE",
-                    message: "A role owner remained after the window close transaction."
+                    code: "SYSTEM_WINDOW_CLOSE_SCOPE_CHANGED",
+                    message: "Window role ownership changed before close admission committed."
                         .to_owned(),
                 });
             }
-            for tab_id in &remaining_tab_ids {
-                self.invoke_browser_runtime(BrowserRuntimeCommand::RemoveTab {
-                    tab_id: tab_id.clone(),
-                })?;
+            self.invoke_browser_runtime(BrowserRuntimeCommand::CloseTabs {
+                tab_ids: request.tab_ids.clone(),
+            })?;
+            self.embedded_closing_tabs
+                .lock()
+                .map_err(|_| CoreError::Internal("embedded closing tab lock poisoned".to_owned()))?
+                .extend(request.tab_ids.iter().cloned());
+            request.admission_id = lease.as_ref().map(|lease| lease.id.clone());
+            request.closing_tabs = closing_tabs;
+            Ok(request)
+        })();
+        let request = match admitted {
+            Ok(request) => request,
+            Err(error) => {
+                if let Some(lease) = lease {
+                    let _ = self.browser_operations.abort(&lease.id);
+                }
+                return Err(error);
             }
-            !remaining_tab_ids.is_empty()
         };
-        if removed_unowned_demands {
-            self.emit_browser_statuses();
+        self.browser_runtime_snapshot_without_persistence()?;
+        Ok(request)
+    }
+
+    fn stop_embedded_window_runtime(
+        &self,
+        request: &RuntimeWindowStopRequestRecord,
+        delete: bool,
+    ) -> CoreResult<()> {
+        let admitted_request = if request.admission_id.is_some() || !request.closing_tabs.is_empty()
+        {
+            request.clone()
+        } else {
+            self.admit_embedded_window_close(request.clone())?
+        };
+        let result = self.finish_admitted_embedded_window_close(&admitted_request, delete);
+        let completion = admitted_request
+            .admission_id
+            .as_deref()
+            .map(|admission_id| self.browser_operations.complete(admission_id));
+        match (result, completion) {
+            (Ok(()), None | Some(Ok(()))) => Ok(()),
+            (Err(error), _) => Err(error),
+            (Ok(()), Some(Err(error))) => Err(error),
+        }
+    }
+
+    fn finish_admitted_embedded_window_close(
+        &self,
+        request: &RuntimeWindowStopRequestRecord,
+        delete: bool,
+    ) -> CoreResult<()> {
+        let window_id = request.window_id.as_str();
+        let pending_role_ids = request
+            .closing_tabs
+            .iter()
+            .flat_map(|tab| tab.role_ids.iter().cloned())
+            .collect::<std::collections::HashSet<_>>();
+        for role_id in &pending_role_ids {
+            self.macro_runtime.request_stop_role(role_id)?;
+        }
+        let mut first_error = None;
+        for tab_id in &request.tab_ids {
+            if let Err(error) = self.run_embedded_runtime_effect(
+                tab_id,
+                CoreEffectAction::EmbeddedDestroyTab {
+                    tab_id: tab_id.clone(),
+                    attempt_generation: None,
+                    next_active_tab_id: None,
+                },
+                None,
+                Some(&request.parent_operation_id),
+            ) && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+            if let Ok(mut closing_tabs) = self.embedded_closing_tabs.lock() {
+                closing_tabs.remove(tab_id);
+            }
+        }
+        self.browser_runtime_snapshot_without_persistence()?;
+        if let Some(error) = first_error {
+            return Err(error);
         }
 
         if !delete {

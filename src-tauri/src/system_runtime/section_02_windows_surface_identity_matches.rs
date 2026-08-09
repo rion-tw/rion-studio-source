@@ -339,7 +339,6 @@ fn surface_failure_action(
 
 struct RuntimeTab {
     active_divider_resize: Option<ActiveDividerResize>,
-    audio_muted: bool,
     dividers: Vec<RuntimeDivider>,
     roles: HashMap<String, RoleSurface>,
     slots: HashMap<String, RuntimeRoleSlot>,
@@ -381,7 +380,6 @@ struct RuntimeDisplayHost {
     retirement_revision: u64,
     target: EmbeddedLaunchTargetRecord,
     window: Window,
-    zoom_factor: f64,
     #[cfg(windows)]
     last_geometry_receipt_revision: u64,
     #[cfg(windows)]
@@ -499,11 +497,31 @@ struct CloseCoordinator {
     quarantined_roles: HashSet<String>,
 }
 
-#[derive(Default)]
 struct LiveWindowTabStore {
-    commit_gate: Mutex<()>,
-    next_revision: AtomicU64,
-    windows: Mutex<HashMap<String, Arc<Mutex<LiveWindowRecord>>>>,
+    authority_barrier: Option<Arc<RwLock<()>>>,
+    kernel: Arc<RuntimeKernel>,
+}
+
+impl Default for LiveWindowTabStore {
+    fn default() -> Self {
+        Self {
+            authority_barrier: None,
+            kernel: Arc::new(RuntimeKernel::default()),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct LiveWindowHandle {
+    record: LiveWindowRecord,
+}
+
+impl std::ops::Deref for LiveWindowHandle {
+    type Target = LiveWindowRecord;
+
+    fn deref(&self) -> &Self::Target {
+        &self.record
+    }
 }
 
 #[derive(Clone)]
@@ -549,7 +567,6 @@ struct LiveWindowPlacementCommitReceipt {
     status: LiveTopologyCommitStatus,
 }
 
-#[derive(Default)]
 struct PresentationRegistry {
     actors: Mutex<HashMap<String, Arc<NativeWindowActor>>>,
     next_surface_owner_revision: AtomicU64,
@@ -561,6 +578,43 @@ struct PresentationRegistry {
     live: LiveWindowTabStore,
     projection: NativeTabProjectionStore,
     statuses: TabRuntimeStatusStore,
+}
+
+impl PresentationRegistry {
+    fn new(kernel: Arc<RuntimeKernel>, authority_barrier: Arc<RwLock<()>>) -> Self {
+        Self {
+            actors: Mutex::new(HashMap::new()),
+            next_surface_owner_revision: AtomicU64::new(0),
+            surface_owners: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(windows)]
+            tab_chrome_acknowledgements: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            tab_chrome_changed: Condvar::new(),
+            live: LiveWindowTabStore {
+                authority_barrier: Some(authority_barrier),
+                kernel,
+            },
+            projection: NativeTabProjectionStore::default(),
+            statuses: TabRuntimeStatusStore::default(),
+        }
+    }
+}
+
+impl Default for PresentationRegistry {
+    fn default() -> Self {
+        Self {
+            actors: Mutex::new(HashMap::new()),
+            next_surface_owner_revision: AtomicU64::new(0),
+            surface_owners: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(windows)]
+            tab_chrome_acknowledgements: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            tab_chrome_changed: Condvar::new(),
+            live: LiveWindowTabStore::default(),
+            projection: NativeTabProjectionStore::default(),
+            statuses: TabRuntimeStatusStore::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -752,6 +806,7 @@ struct NativePresentationRequest {
     actor_liveness: Arc<AtomicBool>,
     coordinator: Arc<Mutex<NativeTabProjectionState>>,
     core: Arc<AppCore>,
+    desired_projection: Arc<RwLock<Option<RuntimeNativeProjection>>>,
     defer_window_focus_until_reveal: bool,
     focus: NativePresentationFocus,
     focus_broker: Arc<NativeFocusBroker>,
@@ -770,7 +825,6 @@ struct NativePresentationRequest {
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     shutdown_state: Arc<AtomicU8>,
     application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
-    live: Arc<Mutex<LiveWindowRecord>>,
     tab_id: Option<String>,
     trigger: &'static str,
     window: Window,

@@ -41,6 +41,7 @@ pub(crate) enum RuntimeTabIntentAdmission {
     },
 }
 
+#[cfg(any(windows, test))]
 fn tab_intent_source_identity_is_current(
     host_generation: u64,
     host_webview_label: &str,
@@ -529,7 +530,7 @@ impl SystemRuntimeExecutor {
         signal: WindowsTabChromeRevealSignal,
     ) {
         let decision = self.state.lock().ok().and_then(|mut state| {
-            let host = state.display_hosts.get_mut(window_id)?;
+            let host = state.native_resources.display_hosts.get_mut(window_id)?;
             if host.generation != window_generation {
                 return None;
             }
@@ -552,7 +553,7 @@ impl SystemRuntimeExecutor {
         focus_lease: Option<&NativeFocusLease>,
     ) -> bool {
         let decision = self.state.lock().ok().and_then(|mut state| {
-            let host = state.display_hosts.get_mut(window_id)?;
+            let host = state.native_resources.display_hosts.get_mut(window_id)?;
             if host.generation != window_generation {
                 return None;
             }
@@ -580,7 +581,7 @@ impl SystemRuntimeExecutor {
         let deadline = Instant::now() + WINDOWS_TAB_CHROME_ACK_TIMEOUT;
         let mut state = self.state()?;
         loop {
-            let host = state.display_hosts.get(window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
                     "The runtime host retired before its tab chrome became ready.",
@@ -613,7 +614,7 @@ impl SystemRuntimeExecutor {
                 })?;
             state = next;
             if timeout.timed_out()
-                && !state.display_hosts.get(window_id).is_some_and(|host| {
+                && !state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
                     host.generation == window_generation
                         && host.tab_chrome_reveal.projection_applied
                 })
@@ -637,7 +638,7 @@ impl SystemRuntimeExecutor {
         }
         let window = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .get(window_id)
                 .filter(|host| host.generation == window_generation)
                 .map(|host| host.window.clone())
@@ -704,22 +705,15 @@ impl SystemRuntimeExecutor {
         window_generation: u64,
     ) {
         let host = self.state.lock().ok().and_then(|mut state| {
-            let has_attached_content = state
-                .native_tab_hosts
-                .values()
-                .any(|owner_window_id| owner_window_id == window_id)
-                || state
-                    .surface_registry
-                    .values()
-                    .any(|surface| surface.window_id == window_id && surface.tab_id.is_some());
+            let has_attached_content = state.window_has_attached_tab_handles(window_id);
             if has_attached_content
-                || !state.display_hosts.get(window_id).is_some_and(|host| {
+                || !state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
                     host.generation == window_generation && host.tab_chrome_reveal.cloaked
                 })
             {
                 return None;
             }
-            let host = state.display_hosts.remove(window_id)?;
+            let host = state.native_resources.display_hosts.remove(window_id)?;
             state
                 .allow_window_close_labels
                 .insert(host.window.label().to_owned());
@@ -745,7 +739,7 @@ impl SystemRuntimeExecutor {
         focus_sequence: Option<u64>,
     ) {
         if let Ok(mut state) = self.state.lock()
-            && let Some(host) = state.display_hosts.get_mut(window_id)
+            && let Some(host) = state.native_resources.display_hosts.get_mut(window_id)
             && host.generation == window_generation
         {
             host.tab_chrome_reveal
@@ -823,26 +817,10 @@ impl SystemRuntimeExecutor {
         snapshot: &BrowserRuntimeSnapshot,
         renderer: &TabChromeRendererIdentity,
     ) -> RuntimeResult<RuntimeTabChromeProjectionRecord> {
-        let preferences = self
-            .core
-            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .map_err(RuntimeError::core)
-            .and_then(|value| {
-                serde_json::from_value::<RuntimeWindowPreferencesRecord>(value)
-                    .map_err(RuntimeError::tauri)
-            })?;
-        let roles = self
-            .core
-            .invoke(CoreCommand::RolesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
-            .unwrap_or_default();
-        let games = self
-            .core
-            .invoke(CoreCommand::GamesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateGameRecord>>(value).ok())
-            .unwrap_or_default();
+        let metadata = self.projection_metadata();
+        let preferences = metadata.window_preferences;
+        let roles = metadata.roles;
+        let games = metadata.games;
         let role_names = roles
             .iter()
             .map(|role| (role.id.as_str(), role.name.as_str()))
@@ -885,6 +863,11 @@ impl SystemRuntimeExecutor {
                 )
             })
             .collect::<HashMap<_, _>>();
+        let persisted_window_name = presentation
+            .persisted_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned());
         // The tab-chrome renderer can report ready while WebView2 is still completing a child
         // controller attachment. Keep this critical section to pure Rust snapshots: Tauri window
         // getters synchronously rendezvous with the platform UI thread and must never run while
@@ -893,7 +876,7 @@ impl SystemRuntimeExecutor {
             query_tab_chrome_window_state_unlocked(
                 &self.state,
                 |state| {
-                    let host = state.display_hosts.get(&renderer.window_id).ok_or_else(|| {
+                    let host = state.native_resources.display_hosts.get(&renderer.window_id).ok_or_else(|| {
                         RuntimeError::new(
                             "TAB_CHROME_WINDOW_NOT_FOUND",
                             "The runtime tab-strip window was not found.",
@@ -911,11 +894,11 @@ impl SystemRuntimeExecutor {
                         .filter_map(|presented| {
                             let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
                             if presentation.hidden_tab_ids.contains(&presented.id)
-                                || state.optimistic_closed_tabs.contains(&presented.id)
+                                || state.tab_close_pending(&presented.id)
                             {
                                 return None;
                             }
-                            let live = state.tabs.get(&presented.id);
+                            let live = state.native_resources.tabs.get(&presented.id);
                             let role_ids = core_tab
                                 .map(|tab| {
                                     tab.slots
@@ -941,7 +924,7 @@ impl SystemRuntimeExecutor {
                                 hidden: false,
                                 audible: live
                                     .is_some_and(|tab| runtime_tab_is_audible(state, tab)),
-                                muted: live.is_some_and(|tab| tab.audio_muted),
+                                muted: presented.audio_muted,
                                 loading: matches!(
                                     phase,
                                     TabRuntimePhase::Reserved
@@ -961,12 +944,7 @@ impl SystemRuntimeExecutor {
                                     .collect(),
                                 role_ids,
                                 icon_data_url,
-                                workspace_template: presented
-                                    .workspace_template
-                                    .clone()
-                                    .or_else(|| {
-                                        live.and_then(|tab| tab.workspace_template.clone())
-                                    }),
+                                workspace_template: presented.workspace_template.clone(),
                             })
                         })
                         .collect::<Vec<_>>();
@@ -975,12 +953,7 @@ impl SystemRuntimeExecutor {
                         host.window.clone(),
                         host.target.display_id.max(0) as u64,
                         host.toolbar_revealed,
-                        state
-                            .saved_window_names
-                            .get(&renderer.window_id)
-                            .filter(|name| !name.trim().is_empty())
-                            .cloned()
-                            .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned()),
+                        persisted_window_name.clone(),
                     ))
                 },
                 |(items, window, display_id, toolbar_revealed, window_name)| {
@@ -1194,7 +1167,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|state| {
                 state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .iter()
                     .map(|(window_id, host)| (window_id.clone(), host.tab_strip.clone()))
                     .collect::<Vec<_>>()
@@ -1224,7 +1197,7 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| {
-                state.display_hosts.iter().find_map(|(window_id, host)| {
+                state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                     (host.tab_strip.label() == webview_label)
                         .then(|| (window_id.clone(), host.generation))
                 })
@@ -1279,7 +1252,7 @@ impl SystemRuntimeExecutor {
             } => (window_id.clone(), *window_generation),
         };
         let source_is_current = self.state.lock().ok().is_some_and(|state| {
-            state.display_hosts.get(&window_id).is_some_and(|host| {
+            state.native_resources.display_hosts.get(&window_id).is_some_and(|host| {
                 tab_intent_source_identity_is_current(
                     host.generation,
                     host.tab_strip.label(),

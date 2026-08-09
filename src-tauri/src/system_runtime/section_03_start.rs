@@ -385,22 +385,6 @@ impl TabRuntimePhase {
     }
 }
 
-#[derive(Clone)]
-struct LiveTabRecord {
-    audio_muted: bool,
-    closable: bool,
-    icon_data_url: Option<String>,
-    id: String,
-    persistable: bool,
-    role_ids: Vec<String>,
-    role_slots: Vec<GameWindowRoleSlotRecord>,
-    source_id: String,
-    tab_type: String,
-    title: String,
-    #[cfg(any(windows, target_os = "macos"))]
-    workspace_template: Option<String>,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeTabDragWindowSnapshot {
     pub(crate) generation: u64,
@@ -437,46 +421,6 @@ fn retain_live_runtime_launcher_tabs(
         .retain(|tab| live_tab_ids.contains(&tab.tab_id));
 }
 
-#[derive(Clone)]
-struct SurfacePresentationBinding {
-    generation: u64,
-    instance_id: String,
-    webview: Webview,
-}
-
-#[derive(Clone, Default)]
-struct LiveWindowRecord {
-    aliases: HashMap<String, String>,
-    hidden_tab_ids: HashSet<String>,
-    persisted_name: Option<String>,
-    placement: Option<GameWindowPlacementRecord>,
-    revision: u64,
-    selected_tab_id: Option<String>,
-    tabs: Vec<LiveTabRecord>,
-    target_display: Option<DisplayTargetRecord>,
-    ui_sequence: u64,
-    window_generation: u64,
-    window_id: String,
-}
-
-#[derive(Clone, Default)]
-struct NativeTabProjectionState {
-    applied_tab_id: Option<String>,
-    applied_revision: u64,
-    host_visibility: bool,
-    in_flight: bool,
-    scheduled: bool,
-    surface_bindings: HashMap<String, Vec<SurfacePresentationBinding>>,
-}
-
-#[derive(Default)]
-struct NativeTabProjectionStore {
-    membership_applied_revision: AtomicU64,
-    membership_requested_revision: AtomicU64,
-    membership_retry_running: AtomicBool,
-    windows: Mutex<HashMap<String, Arc<Mutex<NativeTabProjectionState>>>>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LiveTabRuntimeStatus {
     launch_phase: Option<LaunchPhase>,
@@ -488,162 +432,7 @@ struct TabRuntimeStatusStore {
     tabs: Mutex<HashMap<String, LiveTabRuntimeStatus>>,
 }
 
-impl LiveWindowRecord {
-    fn tab_ids(&self) -> Vec<String> {
-        self.tabs
-            .iter()
-            .filter(|tab| !self.hidden_tab_ids.contains(&tab.id))
-            .map(|tab| tab.id.clone())
-            .collect()
-    }
-
-    fn all_tab_ids(&self) -> Vec<String> {
-        self.tabs.iter().map(|tab| tab.id.clone()).collect()
-    }
-
-    fn tab_is_hidden(&self, tab_id: &str) -> bool {
-        self.hidden_tab_ids.contains(tab_id)
-    }
-
-    fn set_tab_hidden(&mut self, tab_id: &str, hidden: bool, revision: u64) -> bool {
-        if !self.contains_tab(tab_id) {
-            return false;
-        }
-        let changed = if hidden {
-            self.hidden_tab_ids.insert(tab_id.to_owned())
-        } else {
-            self.hidden_tab_ids.remove(tab_id)
-        };
-        if changed {
-            self.revision = revision;
-        }
-        changed
-    }
-
-    fn contains_tab(&self, tab_id: &str) -> bool {
-        self.tabs.iter().any(|tab| tab.id == tab_id)
-    }
-
-    fn insert_tab(&mut self, tab: LiveTabRecord, revision: u64, select: bool) {
-        let id = tab.id.clone();
-        if let Some(existing) = self.tabs.iter_mut().find(|existing| existing.id == id) {
-            *existing = tab;
-        } else {
-            self.tabs.push(tab);
-        }
-        self.revision = revision;
-        if select {
-            self.hidden_tab_ids.remove(&id);
-            self.select(Some(id), revision);
-        }
-    }
-
-    fn replace_tab_id(&mut self, provisional_id: &str, tab: LiveTabRecord, revision: u64) {
-        let selected_provisional = self.selected_tab_id.as_deref() == Some(provisional_id);
-        let hidden_provisional = self.hidden_tab_ids.remove(provisional_id);
-        if let Some(index) = self.tabs.iter().position(|item| item.id == provisional_id) {
-            self.aliases
-                .insert(provisional_id.to_owned(), tab.id.clone());
-            let replacement_id = tab.id.clone();
-            self.tabs[index] = tab;
-            if hidden_provisional {
-                self.hidden_tab_ids.insert(replacement_id.clone());
-            }
-            if selected_provisional {
-                self.select(Some(replacement_id), revision);
-            } else {
-                self.revision = revision;
-            }
-        } else {
-            self.insert_tab(tab, revision, false);
-        }
-    }
-
-    fn remove_tab(&mut self, tab_id: &str, revision: u64) -> bool {
-        let existed = self.tabs.iter().any(|tab| tab.id == tab_id);
-        self.tabs.retain(|tab| tab.id != tab_id);
-        self.hidden_tab_ids.remove(tab_id);
-        self.aliases
-            .retain(|alias, target| alias != tab_id && target != tab_id);
-        if existed {
-            self.revision = revision;
-        }
-        if self.selected_tab_id.as_deref() == Some(tab_id) {
-            self.select(None, revision);
-        }
-        existed
-    }
-
-    fn select(&mut self, tab_id: Option<String>, revision: u64) {
-        if let Some(tab_id) = tab_id.as_deref() {
-            self.hidden_tab_ids.remove(tab_id);
-        }
-        self.revision = revision;
-        self.selected_tab_id = tab_id;
-    }
-
-    #[cfg(test)]
-    fn update_metadata(
-        &mut self,
-        tab_id: &str,
-        source_id: &str,
-        tab_type: &str,
-        role_ids: &[String],
-        title: &str,
-    ) {
-        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            tab.role_ids = role_ids.to_vec();
-            tab.source_id = source_id.to_owned();
-            tab.tab_type = tab_type.to_owned();
-            tab.title = title.to_owned();
-        }
-    }
-
-    fn update_audio_muted(&mut self, tab_id: &str, audio_muted: bool) {
-        if let Some(tab) = self.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-            tab.audio_muted = audio_muted;
-        }
-    }
-
-    fn update_role_zoom(&mut self, tab_id: &str, role_id: &str, percent: f64) {
-        if let Some(slot) = self
-            .tabs
-            .iter_mut()
-            .find(|tab| tab.id == tab_id)
-            .and_then(|tab| tab.role_slots.iter_mut().find(|slot| slot.role_id == role_id))
-        {
-            slot.browser_zoom_percent = Some(percent.clamp(25.0, 500.0));
-        }
-    }
-
-    fn tab_title(&self, tab_id: &str) -> Option<String> {
-        self.tabs
-            .iter()
-            .find(|tab| tab.id == tab_id)
-            .map(|tab| tab.title.clone())
-    }
-
-    fn reorder_known_tabs(&mut self, ordered_tab_ids: &[String]) {
-        let positions = ordered_tab_ids
-            .iter()
-            .enumerate()
-            .map(|(index, tab_id)| (tab_id.as_str(), index))
-            .collect::<HashMap<_, _>>();
-        let fallback = ordered_tab_ids.len();
-        self.tabs
-            .sort_by_key(|tab| positions.get(tab.id.as_str()).copied().unwrap_or(fallback));
-    }
-
-}
-
 impl NativeTabProjectionState {
-    fn replace_tab_id(&mut self, provisional_id: &str, replacement_id: &str) {
-        if let Some(bindings) = self.surface_bindings.remove(provisional_id) {
-            self.surface_bindings
-                .insert(replacement_id.to_owned(), bindings);
-        }
-    }
-
     fn bind_surface(&mut self, tab_id: &str, binding: SurfacePresentationBinding) {
         let bindings = self
             .surface_bindings
@@ -749,14 +538,6 @@ impl TabRuntimeStatusStore {
             );
             previous.is_none_or(|previous| previous.launch_phase != Some(phase))
         })
-    }
-
-    fn replace_tab_id(&self, provisional_id: &str, replacement_id: &str) {
-        if let Ok(mut tabs) = self.tabs.lock()
-            && let Some(status) = tabs.remove(provisional_id)
-        {
-            tabs.insert(replacement_id.to_owned(), status);
-        }
     }
 
     fn remove(&self, tab_id: &str) {

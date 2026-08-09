@@ -14,13 +14,11 @@ impl SystemRuntimeExecutor {
                 .presentation
                 .existing(&target.window_id)
                 .and_then(|live| {
-                    live.lock().ok().and_then(|live| {
-                        let active_tab_id = live.selected_tab_id.as_deref()?;
-                        live.tabs
-                            .iter()
-                            .find(|tab| tab.id == active_tab_id)
-                            .map(|tab| tab.title.clone())
-                    })
+                    let active_tab_id = live.selected_tab_id.as_deref()?;
+                    live.tabs
+                        .iter()
+                        .find(|tab| tab.id == active_tab_id)
+                        .map(|tab| tab.title.clone())
                 })
                 .unwrap_or_else(|| RION_STUDIO_APP_NAME.to_owned());
             let (_, created) = self.ensure_display_host(target, &title)?;
@@ -42,34 +40,51 @@ impl SystemRuntimeExecutor {
             })?;
 
         // apply_runtime is a native topology projection and must not synchronously call back
-        // into AppCore while a core effect is awaiting it. Restore callers already omit focus
-        // requests. Saved names come from the local runtime cache so this effect never calls Core.
-        let game_window_names = self.state()?.saved_window_names.clone();
-        let (native_tab_hosts, optimistic_closed_tabs, pending_window_tab_restores) = {
+        // into AppCore while a core effect is awaiting it. Persisted names are part of the
+        // immutable Kernel snapshot consumed by this projection.
+        let game_window_names = self
+            .presentation
+            .snapshot_states()
+            .map_err(|message| {
+                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
+            })?
+            .into_iter()
+            .filter_map(|(window_id, window)| {
+                window.persisted_name.map(|name| (window_id, name))
+            })
+            .collect::<HashMap<_, _>>();
+        let (actual_tab_hosts, pending_tab_teardowns, pending_window_tab_restores) = {
+            let mut actual_tab_hosts = snapshot
+                .windows
+                .iter()
+                .flat_map(|window| {
+                    window
+                        .tab_ids
+                        .iter()
+                        .map(|tab_id| (tab_id.clone(), window.window_id.clone()))
+                })
+                .collect::<HashMap<_, _>>();
             let state = self.state()?;
-            let mut native_tab_hosts = state.native_tab_hosts.clone();
-            for surface in state.surface_registry.values() {
+            for surface in state.native_resources.surface_registry.values() {
                 if let Some(tab_id) = surface.tab_id.as_ref() {
-                    native_tab_hosts
-                        .entry(tab_id.clone())
-                        .or_insert_with(|| surface.window_id.clone());
+                    actual_tab_hosts.insert(tab_id.clone(), surface.window_id.clone());
                 }
             }
             (
-                native_tab_hosts,
-                state.optimistic_closed_tabs.clone(),
+                actual_tab_hosts,
+                state.close_previews.keys().cloned().collect::<HashSet<_>>(),
                 state.pending_window_tab_restores.clone(),
             )
         };
         let host_plan =
-            resolve_runtime_tab_host_plan(&snapshot, &native_tab_hosts, focus_window_ids, focus_tab_id);
+            resolve_runtime_tab_host_plan(&snapshot, &actual_tab_hosts, focus_window_ids, focus_tab_id);
         let tab_updates = {
             let state = self.state()?;
             host_plan
                 .iter()
-                .filter(|plan| !optimistic_closed_tabs.contains(&plan.tab_id))
+                .filter(|plan| !pending_tab_teardowns.contains(&plan.tab_id))
                 .filter_map(|plan| {
-                    let runtime_tab = state.tabs.get(&plan.tab_id)?;
+                    let runtime_tab = state.native_resources.tabs.get(&plan.tab_id)?;
                     let mut surfaces = runtime_tab
                         .roles
                         .values()
@@ -90,7 +105,7 @@ impl SystemRuntimeExecutor {
                         window_id: plan.window_id.clone(),
                         moved: plan.moved,
                         #[cfg(windows)]
-                        source_window_id: native_tab_hosts.get(&plan.tab_id)?.clone(),
+                        source_window_id: actual_tab_hosts.get(&plan.tab_id)?.clone(),
                         surfaces,
                         tab_id: plan.tab_id.clone(),
                     })
@@ -170,7 +185,7 @@ impl SystemRuntimeExecutor {
         let moved_registry_surfaces = (|| -> RuntimeResult<Vec<ManagedSurface>> {
             let mut state = self.state()?;
             if let Some(target) = target.as_ref()
-                && let Some(host) = state.display_hosts.get_mut(&target.window_id)
+                && let Some(host) = state.native_resources.display_hosts.get_mut(&target.window_id)
             {
                 host.target = target.clone();
             }
@@ -178,11 +193,8 @@ impl SystemRuntimeExecutor {
                 if update.moved && !projected_tab_ids.contains(&update.tab_id) {
                     continue;
                 }
-                state
-                    .native_tab_hosts
-                    .insert(update.tab_id.clone(), update.window_id.clone());
                 let target_window_generation = state
-                    .display_hosts
+                    .native_resources.display_hosts
                     .get(&update.window_id)
                     .map(|host| host.generation)
                     .ok_or_else(|| {
@@ -191,7 +203,7 @@ impl SystemRuntimeExecutor {
                             "The target native window generation disappeared during projection.",
                         )
                     })?;
-                for surface in state.surface_registry.values_mut() {
+                for surface in state.native_resources.surface_registry.values_mut() {
                     if surface.tab_id.as_deref() == Some(update.tab_id.as_str()) {
                         surface.window_id = update.window_id.clone();
                         surface.window_generation = target_window_generation;
@@ -199,7 +211,7 @@ impl SystemRuntimeExecutor {
                 }
             }
             Ok(state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
                 .filter(|surface| {
                     tab_updates.iter().any(|update| {
@@ -224,7 +236,7 @@ impl SystemRuntimeExecutor {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })?;
         for snapshot_tab in snapshot.tabs.iter().filter(|tab| {
-            native_tab_hosts.contains_key(&tab.id) && !optimistic_closed_tabs.contains(&tab.id)
+            actual_tab_hosts.contains_key(&tab.id) && !pending_tab_teardowns.contains(&tab.id)
         }) {
             let active_tab_id = presentation_after
                 .get(&snapshot_tab.window_id)
@@ -240,7 +252,7 @@ impl SystemRuntimeExecutor {
             #[cfg(any(windows, target_os = "macos"))]
             let workspace_template = self
                 .state()?
-                .tabs
+                .native_resources.tabs
                 .get(&snapshot_tab.id)
                 .and_then(|tab| tab.workspace_template.clone());
             #[cfg(not(any(windows, target_os = "macos")))]
@@ -257,8 +269,8 @@ impl SystemRuntimeExecutor {
             .tabs
             .iter()
             .filter(|tab| {
-                native_tab_hosts.contains_key(&tab.id)
-                    && !optimistic_closed_tabs.contains(&tab.id)
+                actual_tab_hosts.contains_key(&tab.id)
+                    && !pending_tab_teardowns.contains(&tab.id)
             })
             .map(|tab| tab.window_id.as_str())
             .collect::<HashSet<_>>();
@@ -278,8 +290,8 @@ impl SystemRuntimeExecutor {
                 .unwrap_or_default()
                 .into_iter()
                 .filter(|tab_id| {
-                    native_tab_hosts.contains_key(tab_id.as_str())
-                        && !optimistic_closed_tabs.contains(tab_id.as_str())
+                    actual_tab_hosts.contains_key(tab_id.as_str())
+                        && !pending_tab_teardowns.contains(tab_id.as_str())
                         && snapshot
                             .tabs
                             .iter()
@@ -342,7 +354,7 @@ impl SystemRuntimeExecutor {
         let host_updates = {
             let state = self.state()?;
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .filter(|host| presentation_windows.contains_key(&host.target.window_id))
                 .map(|host| {
@@ -351,8 +363,8 @@ impl SystemRuntimeExecutor {
                     let active_tab = presentation_window
                         .and_then(|selection| selection.selected_tab_id.as_deref())
                         .filter(|tab_id| {
-                            state.tabs.contains_key(*tab_id)
-                                && !state.optimistic_closed_tabs.contains(*tab_id)
+                            state.native_resources.tabs.contains_key(*tab_id)
+                                && !state.tab_close_pending(tab_id)
                         });
                     let title = Some(native_runtime_window_title(
                         game_window_names.get(window_id).map(String::as_str),

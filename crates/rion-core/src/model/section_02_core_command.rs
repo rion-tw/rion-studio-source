@@ -12,6 +12,7 @@ pub enum CoreCommand {
         registration: SystemWebViewRuntimeRegistrationRecord,
     },
     StateSnapshot,
+    AppSnapshot,
     GamesList,
     GameGet {
         id: String,
@@ -451,6 +452,9 @@ pub enum CoreCommand {
         #[ts(optional, rename = "launchPreviewId")]
         launch_preview_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "launchTabId")]
+        launch_tab_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "zoomFactor")]
         zoom_factor: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -464,6 +468,9 @@ pub enum CoreCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "launchPreviewId")]
         launch_preview_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "launchTabId")]
+        launch_tab_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "restoreRoleSlots")]
         restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
@@ -484,6 +491,9 @@ pub enum CoreCommand {
     BrowserWorkspaceStop {
         #[ts(rename = "workspaceId")]
         workspace_id: String,
+    },
+    BrowserWindowCloseAdmit {
+        request: RuntimeWindowStopRequestRecord,
     },
     BrowserWindowStop {
         request: RuntimeWindowStopRequestRecord,
@@ -527,6 +537,9 @@ impl CoreCommand {
                 | Self::BrowserRoleSlotClaim { .. }
                 | Self::BrowserRoleStop { .. }
                 | Self::BrowserWorkspaceStop { .. }
+                | Self::BrowserWindowCloseAdmit { .. }
+                | Self::BrowserWindowStop { .. }
+                | Self::BrowserWindowDelete { .. }
         )
     }
 }

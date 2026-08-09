@@ -38,7 +38,6 @@ struct RoleInputFence {
     drained: bool,
     surface_generation: u64,
     recovery_scheduled: bool,
-    reconciling: bool,
     resuming: bool,
 }
 

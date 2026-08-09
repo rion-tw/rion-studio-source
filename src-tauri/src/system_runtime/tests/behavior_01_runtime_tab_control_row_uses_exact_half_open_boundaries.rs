@@ -310,6 +310,18 @@ use super::*;
         }
     }
 
+    fn commit_test_live_window(
+        registry: &PresentationRegistry,
+        window_id: &str,
+        mutate: impl FnOnce(&mut LiveWindowRecord),
+    ) {
+        let mut window = registry.snapshot_live_window(window_id).unwrap();
+        mutate(&mut window);
+        registry
+            .commit_live_window_record("command", window_id, &window)
+            .unwrap();
+    }
+
     #[test]
     fn presentation_selection_is_independent_from_launch_phase_and_core_metadata() {
         let mut state = LiveWindowRecord::default();
@@ -320,7 +332,7 @@ use super::*;
             true,
         );
         state.insert_tab(
-            presentation_tab("preview-b", TabRuntimePhase::Reserved),
+            presentation_tab("tab-b", TabRuntimePhase::Reserved),
             2,
             true,
         );
@@ -332,25 +344,14 @@ use super::*;
             &["role-a".to_owned()],
             "Updated A",
         );
-        statuses.set_presentation_phase("preview-b", TabRuntimePhase::Loading);
+        statuses.set_presentation_phase("tab-b", TabRuntimePhase::Loading);
         state.reorder_known_tabs(&["tab-a".to_owned()]);
 
-        assert_eq!(state.selected_tab_id.as_deref(), Some("preview-b"));
-        assert!(state.contains_tab("preview-b"));
+        assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
+        assert!(state.contains_tab("tab-b"));
         assert_eq!(state.revision, 2);
 
-        state.replace_tab_id(
-            "preview-b",
-            presentation_tab("tab-b", TabRuntimePhase::Attaching),
-            3,
-        );
-        assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
-        assert_eq!(
-            state.aliases.get("preview-b").map(String::as_str),
-            Some("tab-b")
-        );
-
-        statuses.replace_tab_id("preview-b", "tab-b");
+        state.update_metadata("tab-b", "role-b", "role", &["role-b".to_owned()], "Role B");
         statuses.set_presentation_phase("tab-b", TabRuntimePhase::Failed);
         state.select(Some("tab-b".to_owned()), 4);
         assert_eq!(state.selected_tab_id.as_deref(), Some("tab-b"));
@@ -388,9 +389,7 @@ use super::*;
     #[test]
     fn moving_a_selected_presentation_tab_commits_both_windows_without_core_state() {
         let registry = PresentationRegistry::default();
-        let source = registry.coordinator("window-a").unwrap();
-        {
-            let mut source = source.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |source| {
             source.insert_tab(
                 presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
@@ -401,19 +400,16 @@ use super::*;
                 2,
                 true,
             );
-        }
+        });
 
         registry
             .move_tab("tab-b", "window-a", "window-b", 3)
             .unwrap();
 
         let source = registry.existing("window-a").unwrap();
-        let source = source.lock().unwrap();
         assert_eq!(source.selected_tab_id.as_deref(), Some("tab-a"));
         assert!(!source.contains_tab("tab-b"));
-        drop(source);
         let target = registry.existing("window-b").unwrap();
-        let target = target.lock().unwrap();
         assert_eq!(target.selected_tab_id.as_deref(), Some("tab-b"));
         assert!(target.contains_tab("tab-b"));
     }
@@ -421,9 +417,7 @@ use super::*;
     #[test]
     fn moving_a_middle_selected_presentation_tab_prefers_the_next_source_tab() {
         let registry = PresentationRegistry::default();
-        let source = registry.coordinator("window-a").unwrap();
-        {
-            let mut source = source.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |source| {
             source.insert_tab(
                 presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
@@ -439,25 +433,20 @@ use super::*;
                 3,
                 false,
             );
-        }
+        });
 
         registry
             .move_tab("tab-b", "window-a", "window-b", 4)
             .unwrap();
 
         let source = registry.existing("window-a").unwrap();
-        assert_eq!(
-            source.lock().unwrap().selected_tab_id.as_deref(),
-            Some("tab-c")
-        );
+        assert_eq!(source.selected_tab_id.as_deref(), Some("tab-c"));
     }
 
     #[test]
     fn closing_the_selected_third_tab_commits_the_second_tab_as_successor() {
         let registry = PresentationRegistry::default();
-        let window = registry.coordinator("window-a").unwrap();
-        {
-            let mut window = window.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |window| {
             for (revision, tab_id) in [(1, "tab-a"), (2, "tab-b"), (3, "tab-c")] {
                 window.insert_tab(
                     presentation_tab(tab_id, TabRuntimePhase::Ready),
@@ -465,7 +454,7 @@ use super::*;
                     tab_id == "tab-c",
                 );
             }
-        }
+        });
 
         let (successor, revision) = registry
             .commit_live_tab_removal("command", "window-a", "tab-c")
@@ -473,7 +462,6 @@ use super::*;
 
         assert_eq!(successor.as_deref(), Some("tab-b"));
         let window = registry.existing("window-a").unwrap();
-        let window = window.lock().unwrap();
         assert_eq!(window.selected_tab_id.as_deref(), Some("tab-b"));
         assert_eq!(window.tab_ids(), ["tab-a", "tab-b"]);
         assert_eq!(window.revision, revision);
@@ -482,9 +470,7 @@ use super::*;
     #[test]
     fn closing_a_middle_selected_tab_prefers_the_visible_tab_to_its_right() {
         let registry = PresentationRegistry::default();
-        let window = registry.coordinator("window-a").unwrap();
-        {
-            let mut window = window.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |window| {
             for (revision, tab_id) in [(1, "tab-a"), (2, "tab-b"), (3, "tab-c")] {
                 window.insert_tab(
                     presentation_tab(tab_id, TabRuntimePhase::Ready),
@@ -492,7 +478,7 @@ use super::*;
                     tab_id == "tab-b",
                 );
             }
-        }
+        });
 
         let (successor, _) = registry
             .commit_live_tab_removal("command", "window-a", "tab-b")
@@ -504,9 +490,7 @@ use super::*;
     #[test]
     fn tab_drag_presentation_can_detach_attach_and_return_repeatedly() {
         let registry = PresentationRegistry::default();
-        let source = registry.coordinator("window-a").unwrap();
-        {
-            let mut source = source.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |source| {
             for (revision, tab_id, selected) in
                 [(1, "tab-a", false), (2, "tab-b", true), (3, "tab-c", false)]
             {
@@ -516,17 +500,14 @@ use super::*;
                     selected,
                 );
             }
-        }
-        registry
-            .coordinator("window-b")
-            .unwrap()
-            .lock()
-            .unwrap()
-            .insert_tab(
+        });
+        commit_test_live_window(&registry, "window-b", |window| {
+            window.insert_tab(
                 presentation_tab("tab-d", TabRuntimePhase::Ready),
                 4,
                 true,
             );
+        });
 
         for (revision, from, to) in [
             (5, "window-a", "provisional"),
@@ -538,18 +519,20 @@ use super::*;
             assert_eq!(registry.tab_window("tab-b").unwrap().as_deref(), Some(to));
         }
 
+        commit_test_live_window(&registry, "window-a", |source| {
+            source.reorder_known_tabs(&[
+                "tab-a".to_owned(),
+                "tab-b".to_owned(),
+                "tab-c".to_owned(),
+            ]);
+            source.select(Some("tab-b".to_owned()), 9);
+        });
         let source = registry.existing("window-a").unwrap();
-        let mut source = source.lock().unwrap();
-        source.reorder_known_tabs(&["tab-a".to_owned(), "tab-b".to_owned(), "tab-c".to_owned()]);
-        source.select(Some("tab-b".to_owned()), 9);
         assert_eq!(source.tab_ids(), ["tab-a", "tab-b", "tab-c"]);
         assert_eq!(source.selected_tab_id.as_deref(), Some("tab-b"));
-        drop(source);
         assert_eq!(
             registry
                 .existing("window-b")
-                .unwrap()
-                .lock()
                 .unwrap()
                 .selected_tab_id
                 .as_deref(),
@@ -560,9 +543,7 @@ use super::*;
     #[test]
     fn topology_move_preserves_target_selection_until_runtime_selection_commits() {
         let registry = PresentationRegistry::default();
-        let source = registry.coordinator("window-a").unwrap();
-        {
-            let mut source = source.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |source| {
             source.insert_tab(
                 presentation_tab("tab-a", TabRuntimePhase::Ready),
                 1,
@@ -573,28 +554,25 @@ use super::*;
                 2,
                 true,
             );
-        }
-        let target = registry.coordinator("window-b").unwrap();
-        target.lock().unwrap().insert_tab(
-            presentation_tab("tab-c", TabRuntimePhase::Ready),
-            3,
-            true,
-        );
+        });
+        commit_test_live_window(&registry, "window-b", |target| {
+            target.insert_tab(
+                presentation_tab("tab-c", TabRuntimePhase::Ready),
+                3,
+                true,
+            );
+        });
 
         registry
             .move_tab_with_activation("tab-b", "window-a", "window-b", 4, false)
             .unwrap();
 
         let source = registry.existing("window-a").unwrap();
-        let source = source.lock().unwrap();
         assert_eq!(source.selected_tab_id.as_deref(), Some("tab-a"));
         assert!(!source.contains_tab("tab-b"));
-        drop(source);
         let target = registry.existing("window-b").unwrap();
-        let target = target.lock().unwrap();
         assert_eq!(target.selected_tab_id.as_deref(), Some("tab-c"));
         assert!(target.contains_tab("tab-b"));
-        drop(target);
         assert_eq!(
             registry.tab_window("tab-b").unwrap().as_deref(),
             Some("window-b")
@@ -604,24 +582,47 @@ use super::*;
     #[test]
     fn presentation_registry_rejects_duplicate_tab_ownership() {
         let registry = PresentationRegistry::default();
-        for window_id in ["window-a", "window-b"] {
-            registry
-                .coordinator(window_id)
-                .unwrap()
-                .lock()
-                .unwrap()
-                .insert_tab(
-                    presentation_tab("tab-a", TabRuntimePhase::Ready),
-                    1,
-                    false,
-                );
-        }
+        let mut first = LiveWindowRecord {
+            window_id: "window-a".to_owned(),
+            ..LiveWindowRecord::default()
+        };
+        first.insert_tab(
+            presentation_tab("tab-a", TabRuntimePhase::Ready),
+            0,
+            false,
+        );
+        registry
+            .live
+            .apply(RuntimeIntent::ReplaceWindow {
+                expected_revision: None,
+                operation_id: "duplicate-owner-first".to_owned(),
+                source: "command".to_owned(),
+                window: first,
+            })
+            .unwrap();
+        let mut duplicate = LiveWindowRecord {
+            window_id: "window-b".to_owned(),
+            ..LiveWindowRecord::default()
+        };
+        duplicate.insert_tab(
+            presentation_tab("tab-a", TabRuntimePhase::Ready),
+            0,
+            false,
+        );
+        let error = registry
+            .live
+            .apply(RuntimeIntent::ReplaceWindow {
+                expected_revision: None,
+                operation_id: "duplicate-owner-second".to_owned(),
+                source: "command".to_owned(),
+                window: duplicate,
+            })
+            .unwrap_err();
 
-        assert!(
-            registry
-                .tab_window("tab-a")
-                .unwrap_err()
-                .contains("more than one")
+        assert!(error.to_string().contains("conflicting untouched window owners"));
+        assert_eq!(
+            registry.tab_window("tab-a").unwrap().as_deref(),
+            Some("window-a")
         );
     }
 

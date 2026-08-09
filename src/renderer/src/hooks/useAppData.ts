@@ -4,173 +4,26 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
-  type SetStateAction
+  useSyncExternalStore,
 } from "react";
 
-import type {
-  EmbeddedRuntimeState,
-  Game,
-  GameWindow,
-  LaunchWorkspace,
-  Macro,
-  MacroRunStatus,
-  Role,
-  RoleStatus,
-  DisplayTopology
-} from "../../../shared/types";
-import { LatestRequestGate } from "../app/operationState";
+import { appSnapshotStore } from "../app/appSnapshotStore";
 import { createRoleStats } from "../app/statusUtils";
 import { withTimeout } from "../app/withTimeout";
 
 type InitialLoadState = "loading" | "ready" | "failed";
 export const INITIAL_APP_DATA_TIMEOUT_MS = 15_000;
 
-interface VersionedState<T> {
-  beginRequest: () => number;
-  commitRequest: (request: number, value: T) => void;
-  setValue: Dispatch<SetStateAction<T>>;
-  value: T;
-}
-
-function useVersionedState<T>(initialValue: T): VersionedState<T> {
-  const [value, setRawValue] = useState(initialValue);
-  const requestGateRef = useRef(new LatestRequestGate());
-  const setValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
-    requestGateRef.current.invalidate();
-    setRawValue(nextValue);
-  }, []);
-  const beginRequest = useCallback(() => {
-    return requestGateRef.current.begin();
-  }, []);
-  const commitRequest = useCallback((request: number, nextValue: T) => {
-    if (requestGateRef.current.isCurrent(request)) {
-      setRawValue(nextValue);
-    }
-  }, []);
-
-  return { beginRequest, commitRequest, setValue, value };
-}
-
-interface RevisionedProjection {
-  revision: number;
-}
-
-function useRevisionedProjectionState<T extends RevisionedProjection>(
-  initialValue: T
-): VersionedState<T> {
-  const [value, setRawValue] = useState(initialValue);
-  const requestGateRef = useRef(new LatestRequestGate());
-  const latestRevisionRef = useRef(initialValue.revision);
-  const setValue = useCallback<Dispatch<SetStateAction<T>>>((nextValue) => {
-    if (typeof nextValue === "function") {
-      setRawValue((current) => {
-        const resolved = (nextValue as (value: T) => T)(current);
-        if (resolved.revision <= latestRevisionRef.current) return current;
-        latestRevisionRef.current = resolved.revision;
-        requestGateRef.current.invalidate();
-        return resolved;
-      });
-      return;
-    }
-    if (nextValue.revision <= latestRevisionRef.current) return;
-    latestRevisionRef.current = nextValue.revision;
-    requestGateRef.current.invalidate();
-    setRawValue(nextValue);
-  }, []);
-  const beginRequest = useCallback(() => requestGateRef.current.begin(), []);
-  const commitRequest = useCallback((request: number, nextValue: T) => {
-    if (
-      requestGateRef.current.isCurrent(request)
-      && nextValue.revision > latestRevisionRef.current
-    ) {
-      latestRevisionRef.current = nextValue.revision;
-      setRawValue(nextValue);
-    }
-  }, []);
-
-  return { beginRequest, commitRequest, setValue, value };
-}
-
 export function useAppData() {
-  const gameState = useVersionedState<Game[]>([]);
-  const roleState = useVersionedState<Role[]>([]);
-  const embeddedRuntimeState = useRevisionedProjectionState<EmbeddedRuntimeState>({
-    revision: 0,
-    capturedAt: "",
-    windows: [],
-    tabs: []
-  });
-  const workspaceState = useVersionedState<LaunchWorkspace[]>([]);
-  const gameWindowState = useVersionedState<GameWindow[]>([]);
-  const displayState = useRevisionedProjectionState<DisplayTopology>({
-    revision: 0,
-    capturedAt: "",
-    cause: "initial",
-    displays: []
-  });
-  const macroState = useVersionedState<Macro[]>([]);
-  const statusState = useVersionedState<RoleStatus[]>([]);
-  const macroStatusState = useVersionedState<MacroRunStatus[]>([]);
+  const snapshot = useSyncExternalStore(
+    appSnapshotStore.subscribe,
+    appSnapshotStore.getSnapshot,
+    appSnapshotStore.getSnapshot
+  );
   const [error, setErrorState] = useState<unknown | null>(null);
   const [initialLoadState, setInitialLoadState] = useState<InitialLoadState>("loading");
   const errorVersionRef = useRef(0);
   const initialLoadRequestRef = useRef(0);
-
-  const {
-    beginRequest: beginGamesRequest,
-    commitRequest: commitGamesRequest,
-    setValue: setGames,
-    value: games
-  } = gameState;
-  const {
-    beginRequest: beginEmbeddedRuntimeRequest,
-    commitRequest: commitEmbeddedRuntimeRequest,
-    setValue: setEmbeddedRuntimeState,
-    value: embeddedRuntime
-  } = embeddedRuntimeState;
-  const {
-    beginRequest: beginRolesRequest,
-    commitRequest: commitRolesRequest,
-    setValue: setRoles,
-    value: roles
-  } = roleState;
-  const {
-    beginRequest: beginWorkspacesRequest,
-    commitRequest: commitWorkspacesRequest,
-    setValue: setWorkspaces,
-    value: workspaces
-  } = workspaceState;
-  const {
-    beginRequest: beginGameWindowsRequest,
-    commitRequest: commitGameWindowsRequest,
-    setValue: setGameWindows,
-    value: gameWindows
-  } = gameWindowState;
-  const {
-    beginRequest: beginDisplaysRequest,
-    commitRequest: commitDisplaysRequest,
-    setValue: setDisplays,
-    value: displayTopology
-  } = displayState;
-  const {
-    beginRequest: beginMacrosRequest,
-    commitRequest: commitMacrosRequest,
-    setValue: setMacros,
-    value: macros
-  } = macroState;
-  const {
-    beginRequest: beginStatusesRequest,
-    commitRequest: commitStatusesRequest,
-    setValue: setStatuses,
-    value: statuses
-  } = statusState;
-  const {
-    beginRequest: beginMacroStatusesRequest,
-    commitRequest: commitMacroStatusesRequest,
-    setValue: setMacroStatuses,
-    value: macroStatuses
-  } = macroStatusState;
 
   const setError = useCallback((nextError: unknown | null) => {
     errorVersionRef.current += 1;
@@ -180,206 +33,129 @@ export function useAppData() {
   const beginErrorOperation = useCallback(() => {
     const version = ++errorVersionRef.current;
     setErrorState(null);
-
     return (nextError: unknown) => {
-      if (errorVersionRef.current === version) {
-        setErrorState(nextError);
-      }
+      if (errorVersionRef.current === version) setErrorState(nextError);
     };
   }, []);
 
-  const captureErrorReporter = useCallback(() => {
-    const version = errorVersionRef.current;
-
-    return (nextError: unknown) => {
-      if (errorVersionRef.current === version) {
-        setErrorState(nextError);
-      }
-    };
-  }, []);
-
-  const statusByRole = useMemo(() => {
-    return new Map(statuses.map((status) => [status.roleId, status]));
-  }, [statuses]);
-
-  const macroStatusByRun = useMemo(() => {
-    return new Map(macroStatuses.map((status) => [`${status.roleId}:${status.macroId}`, status]));
-  }, [macroStatuses]);
-
-  const roleStats = useMemo(() => {
-    return createRoleStats(roles, statuses);
-  }, [roles, statuses]);
-
-  const loadData = useCallback(async (options: { markInitialLoad?: boolean; resetError?: boolean } = {}) => {
-    const gamesRequest = beginGamesRequest();
-    const rolesRequest = beginRolesRequest();
-    const embeddedRuntimeRequest = beginEmbeddedRuntimeRequest();
-    const statusesRequest = beginStatusesRequest();
-    const workspacesRequest = beginWorkspacesRequest();
-    const gameWindowsRequest = beginGameWindowsRequest();
-    const macrosRequest = beginMacrosRequest();
-    const macroStatusesRequest = beginMacroStatusesRequest();
-    const displaysRequest = beginDisplaysRequest();
-    const reportError = options.resetError ?? true ? beginErrorOperation() : captureErrorReporter();
-    const initialLoadRequest = options.markInitialLoad ? ++initialLoadRequestRef.current : undefined;
-
-    if (options.markInitialLoad) {
-      setInitialLoadState("loading");
-    }
-
+  const loadData = useCallback(async (
+    options: { markInitialLoad?: boolean; resetError?: boolean } = {}
+  ) => {
+    const request = ++initialLoadRequestRef.current;
+    if (options.resetError ?? true) setError(null);
+    if (options.markInitialLoad) setInitialLoadState("loading");
     try {
       if (!window.rionStudio) {
-        throw new Error("Rion Studio desktop bridge is unavailable. Restart the app after rebuilding.");
+        throw new Error(
+          "Rion Studio desktop bridge is unavailable. Restart the app after rebuilding."
+        );
       }
-
       // event-topology-exception: renderer-bounded-bridge-wait
-      const snapshot = await withTimeout(
+      const next = await withTimeout(
         window.rionStudio.getAppSnapshot(),
         INITIAL_APP_DATA_TIMEOUT_MS,
         "Rion Studio data did not load within 15 seconds."
       );
-      commitEmbeddedRuntimeRequest(embeddedRuntimeRequest, snapshot.embeddedRuntimeState);
-      commitGamesRequest(gamesRequest, snapshot.games);
-      commitRolesRequest(rolesRequest, snapshot.roles);
-      commitStatusesRequest(statusesRequest, snapshot.roleStatuses);
-      commitWorkspacesRequest(workspacesRequest, snapshot.launchWorkspaces);
-      commitGameWindowsRequest(gameWindowsRequest, snapshot.gameWindows);
-      commitMacrosRequest(macrosRequest, snapshot.macros);
-      commitMacroStatusesRequest(macroStatusesRequest, snapshot.macroStatuses);
-      commitDisplaysRequest(displaysRequest, snapshot.displayTopology);
-      if (initialLoadRequest !== undefined && initialLoadRequestRef.current === initialLoadRequest) {
+      appSnapshotStore.commit(next);
+      if (options.markInitialLoad && request === initialLoadRequestRef.current) {
         setInitialLoadState("ready");
       }
     } catch (loadError) {
-      reportError(loadError);
-      if (initialLoadRequest !== undefined && initialLoadRequestRef.current === initialLoadRequest) {
-        setInitialLoadState("failed");
+      if (request === initialLoadRequestRef.current) {
+        setErrorState(loadError);
+        if (options.markInitialLoad) setInitialLoadState("failed");
       }
     }
-  }, [
-    beginEmbeddedRuntimeRequest,
-    beginGamesRequest,
-    beginGameWindowsRequest,
-    beginErrorOperation,
-    beginMacrosRequest,
-    beginMacroStatusesRequest,
-    beginRolesRequest,
-    beginStatusesRequest,
-    beginDisplaysRequest,
-    beginWorkspacesRequest,
-    captureErrorReporter,
-    commitEmbeddedRuntimeRequest,
-    commitGamesRequest,
-    commitGameWindowsRequest,
-    commitMacrosRequest,
-    commitMacroStatusesRequest,
-    commitRolesRequest,
-    commitStatusesRequest,
-    commitDisplaysRequest,
-    commitWorkspacesRequest
-  ]);
-
-  useEffect(() => {
-    void loadData({ markInitialLoad: true });
-
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onRoleStatusChanged((nextStatuses) => {
-      setStatuses(nextStatuses);
-    });
-  }, [loadData, setStatuses]);
-
-  useEffect(() => {
-    if (!window.rionStudio) return;
-    return window.rionStudio.onEmbeddedRuntimeStateChanged(setEmbeddedRuntimeState);
-  }, [setEmbeddedRuntimeState]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onDisplayTopologyChanged(setDisplays);
-  }, [setDisplays]);
-
-  useEffect(() => {
-    if (!window.rionStudio) return;
-    return window.rionStudio.onGameWindowsChanged(setGameWindows);
-  }, [setGameWindows]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onWorkspacesChanged(setWorkspaces);
-  }, [setWorkspaces]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onMacroStatusChanged((nextStatuses) => {
-      setMacroStatuses(nextStatuses);
-    });
-  }, [setMacroStatuses]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onMacrosChanged(setMacros);
-  }, [setMacros]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onGamesChanged(setGames);
-  }, [setGames]);
-
-  useEffect(() => {
-    if (!window.rionStudio) {
-      return;
-    }
-
-    return window.rionStudio.onRolesChanged(setRoles);
-  }, [setRoles]);
-
-  useEffect(() => {
-    if (!window.rionStudio) return;
-    return window.rionStudio.onShellError?.(setError);
   }, [setError]);
+
+  useEffect(() => {
+    if (!window.rionStudio) {
+      void loadData({ markInitialLoad: true });
+      return;
+    }
+    // Listener-first: bridge replay buffers any event that arrived before React mounted.
+    const api = window.rionStudio;
+    const legacyUnsubscribers: Array<() => void> = [];
+    const unsubscribeSnapshot = api.onAppSnapshotChanged
+      ? api.onAppSnapshotChanged(appSnapshotStore.commit)
+      : (() => {
+          legacyUnsubscribers.push(
+            api.onGamesChanged((games) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, games })
+            )),
+            api.onRolesChanged((roles) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, roles })
+            )),
+            api.onGameWindowsChanged((gameWindows) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, gameWindows })
+            )),
+            api.onWorkspacesChanged((launchWorkspaces) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, launchWorkspaces })
+            )),
+            api.onMacrosChanged((macros) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, macros })
+            )),
+            api.onRoleStatusChanged((roleStatuses) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, roleStatuses })
+            )),
+            api.onMacroStatusChanged((macroStatuses) => appSnapshotStore.commitProjection(
+              (current) => ({ ...current, macroStatuses })
+            )),
+            api.onEmbeddedRuntimeStateChanged((embeddedRuntimeState) => {
+              appSnapshotStore.commitProjection(
+                (current) => ({ ...current, embeddedRuntimeState }),
+                embeddedRuntimeState.revision
+              );
+            }),
+            api.onDisplayTopologyChanged((displayTopology) => {
+              appSnapshotStore.commitProjection(
+                (current) => ({ ...current, displayTopology }),
+                displayTopology.revision
+              );
+            })
+          );
+          return () => legacyUnsubscribers.splice(0).forEach((unsubscribe) => unsubscribe());
+        })();
+    const unsubscribeError = window.rionStudio.onShellError?.(setError);
+    void loadData({ markInitialLoad: true });
+    return () => {
+      unsubscribeSnapshot();
+      unsubscribeError?.();
+    };
+  }, [loadData, setError]);
+
+  const statusByRole = useMemo(
+    () => new Map(snapshot.roleStatuses.map((status) => [status.roleId, status])),
+    [snapshot.roleStatuses]
+  );
+  const macroStatusByRun = useMemo(
+    () => new Map(
+      snapshot.macroStatuses.map((status) => [`${status.roleId}:${status.macroId}`, status])
+    ),
+    [snapshot.macroStatuses]
+  );
+  const roleStats = useMemo(
+    () => createRoleStats(snapshot.roles, snapshot.roleStatuses),
+    [snapshot.roles, snapshot.roleStatuses]
+  );
 
   return {
     beginErrorOperation,
-    embeddedRuntime,
+    embeddedRuntime: snapshot.embeddedRuntimeState,
     error,
-    gameWindows,
-    games,
+    gameWindows: snapshot.gameWindows,
+    games: snapshot.games,
     initialLoadState,
     loadData,
-    macros,
-    macroStatuses,
+    macros: snapshot.macros,
+    macroStatuses: snapshot.macroStatuses,
     macroStatusByRun,
-    roles,
+    roles: snapshot.roles,
     roleStats,
     setError,
-    setGames,
-    setGameWindows,
-    setMacros,
-    setMacroStatuses,
-    setRoles,
-    setStatuses,
-    setWorkspaces,
     statusByRole,
-    statuses,
-    workspaces,
-    displays: displayTopology.displays
+    statuses: snapshot.roleStatuses,
+    workspaces: snapshot.launchWorkspaces,
+    displays: snapshot.displayTopology.displays
   };
 }

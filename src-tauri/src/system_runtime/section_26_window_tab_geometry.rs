@@ -12,11 +12,9 @@ impl SystemRuntimeExecutor {
         toolbar_revealed: bool,
     ) -> f64 {
         let always_show = self
-            .core
-            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .ok()
-            .and_then(|value| value["alwaysShowToolbarInFullScreen"].as_bool())
-            .unwrap_or(false);
+            .projection_metadata()
+            .window_preferences
+            .always_show_toolbar_in_full_screen;
         if fullscreen && !always_show && !toolbar_revealed {
             2.0
         } else {

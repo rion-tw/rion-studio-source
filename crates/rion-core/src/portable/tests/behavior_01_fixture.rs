@@ -16,6 +16,54 @@ use super::*;
         serde_json::from_str(&fixture(schema)).unwrap()
     }
 
+    #[test]
+    fn runtime_authority_fixture_uses_the_current_portable_contract() {
+        let source = include_str!(
+            "../../../../../tests/fixtures/runtime-authority/portable.json"
+        );
+        let normalized = normalize(source).unwrap();
+        let data = serde_json::from_value::<PortableDataRecord>(normalized).unwrap();
+        assert_eq!(data.schema_version, PORTABLE_SCHEMA_VERSION as u32);
+        assert_eq!(data.games.len(), 1);
+        assert_eq!(data.roles.len(), 4);
+        assert_eq!(data.launch_workspaces.len(), 2);
+        assert_eq!(data.game_windows.len(), 3);
+        assert_eq!(data.macros.len(), 3);
+        assert!(data.roles.iter().all(|role| {
+            role.name.starts_with("[Runtime QA]")
+                && role.launch_url.starts_with("http://127.0.0.1:41739/")
+        }));
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                source,
+                "/tmp/runtime-authority-portable.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let mut repeat = PortableRuntime::default();
+        let repeat_preview = repeat
+            .preview(
+                source,
+                "/tmp/runtime-authority-portable.json".to_owned(),
+                prepared.snapshot,
+            )
+            .unwrap();
+        assert_eq!(repeat_preview.operations.games.unchanged, 1);
+        assert_eq!(repeat_preview.operations.roles.unchanged, 4);
+        assert_eq!(repeat_preview.operations.launch_workspaces.unchanged, 2);
+        assert_eq!(repeat_preview.operations.game_windows.unchanged, 3);
+        assert_eq!(repeat_preview.operations.macros.unchanged, 3);
+    }
+
     fn state_fixture() -> CoreStateSnapshotRecord {
         serde_json::from_value(json!({
             "games": [{

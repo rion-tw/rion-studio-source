@@ -238,7 +238,7 @@ describe("runtime window lifecycle authority", () => {
     expect(saveInput).not.toContain("snapshot.tabs.iter().any(|tab| tab.id == *tab_id)");
   });
 
-  it("scopes window teardown to the tabs owned by the final live topology", async () => {
+  it("scopes window teardown to the atomically admitted Core close plan", async () => {
     const [shellClose, coreClose, closeContract] = await Promise.all([
       readFile(new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url), "utf8"),
       readFile(
@@ -257,16 +257,19 @@ describe("runtime window lifecycle authority", () => {
       )
     ]);
 
-    expect(closeContract).toContain("pub(crate) fn live_window_tab_ids(");
+    expect(closeContract).toContain("pub(crate) fn snapshot_window_stop_request(");
+    expect(shellClose).toContain("CoreCommand::BrowserWindowCloseAdmit { request }");
     expect(shellClose).toContain("runtime.commit_visible_window_close(");
-    expect(closeContract).toContain("let tab_ids = self.live_window_tab_ids(window_id)");
+    expect(closeContract).toContain("let tab_ids = stop_request.tab_ids.clone()");
+    expect(closeContract).toContain("stop_request.parent_operation_id != operation_id");
     expect(closeContract).toContain("self.presentation.remove(window_id)");
     expect(shellClose).toContain("CoreCommand::BrowserWindowStop { request }");
     expect(closeContract).toContain("RuntimeWindowStopRequestRecord {");
-    expect(closeContract).toContain("parent_operation_id: operation_id.to_owned()");
-    expect(coreClose).toContain("let live_tab_ids = request.tab_ids.as_slice()");
+    expect(closeContract).toContain("parent_operation_id");
+    expect(coreClose).toContain("fn admit_embedded_window_close(");
+    expect(coreClose).toContain("request.closing_tabs = closing_tabs");
     expect(coreClose).toContain("Some(&request.parent_operation_id)");
-    expect(coreClose).toContain("live_tab_ids.iter().any(|tab_id| tab_id == &tab.id)");
+    expect(coreClose).toContain("for tab_id in &request.tab_ids");
   });
 
   it("keeps the native parent alive until every closing tab has isolated", async () => {
@@ -371,7 +374,7 @@ describe("runtime window lifecycle authority", () => {
   });
 
   it("accepts relaunch immediately while old native ownership remains generation-fenced", async () => {
-    const [menu, preview, state] = await Promise.all([
+    const [menu, preview, fence] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/runtime_tab_menu/section_03_launch_from_menu.rs",
@@ -397,8 +400,9 @@ describe("runtime window lifecycle authority", () => {
 
     expect(menu).not.toContain("defer_launch_until_close_settles");
     expect(preview).not.toContain('"SYSTEM_RUNTIME_TAB_CLOSING"');
-    expect(state).not.toContain("launcher_source_is_closing");
-    expect(state).toContain("optimistic_closed_tabs");
+    expect(fence).not.toContain("launcher_source_is_closing");
+    expect(fence).not.toContain("optimistic_closed_tabs");
+    expect(fence).toContain("snapshot.tombstones.contains_key(tab_id)");
   });
 
   it("stages saved role slots before an accepted restore can race native tab registration", async () => {
@@ -434,9 +438,10 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     const missingRestore = restore.slice(
-      restore.indexOf("let native_owner ="),
+      restore.indexOf("let logical_owner ="),
       restore.indexOf("if !launch_succeeded")
     );
+    expect(missingRestore).toContain("authoritative_runtime_tab_for_source");
     expect(missingRestore).toContain("prepare_restored_tab_role_slots");
     expect(missingRestore.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
       missingRestore.indexOf('"type": "browserRoleLaunch"')
@@ -528,7 +533,8 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(restore).toContain("prepare_restored_window_tabs");
-    expect(restore).toContain("native_tab_for_source(&tab.source_id, &tab.tab_type)");
+    expect(restore).toContain("authoritative_runtime_tab_for_source(");
+    expect(restore).not.toContain("native_tab_for_source(");
     expect(restore).toContain("prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)");
     expect(restore).not.toContain("match_runtime_restore_tab(");
     expect(restore).not.toContain('"TAURI_RESTORE_TAB_MISSING"');
@@ -543,6 +549,9 @@ describe("runtime window lifecycle authority", () => {
     expect(contract).toContain("self.reserve_native_tab(");
     expect(contract).toContain("self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids)");
     expect(contract).toContain("self.presentation.commit_live_topology(LiveTopologyCommitInput");
+    expect(contract.indexOf("commit_live_topology(LiveTopologyCommitInput")).toBeLessThan(
+      contract.indexOf("with_native_creation_lane(window_id")
+    );
     expect(contract).not.toContain("live.reorder_known_tabs(&prepared.ordered_tab_ids)");
     expect(contract).toContain("mark_restored_native_tab_reserved");
     expect(contract).toContain("prepared.reserved_tab_ids.contains(tab_id)");

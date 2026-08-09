@@ -318,7 +318,7 @@ impl SystemRuntimeExecutor {
         };
         let commit_result = (|| -> RuntimeResult<()> {
             let mut state = self.state()?;
-            let host = state.display_hosts.get_mut(&target.window_id).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get_mut(&target.window_id).ok_or_else(|| {
                 RuntimeError::new(
                     "SYSTEM_GEOMETRY_APPLY_FAILED",
                     "The runtime display host disappeared before geometry could commit.",

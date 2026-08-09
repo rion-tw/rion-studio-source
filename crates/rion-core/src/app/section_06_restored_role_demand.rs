@@ -1,19 +1,36 @@
+struct RestoredRoleDemandRequest {
+    role: StateRoleRecord,
+    runtime_role: crate::model::BrowserRuntimeRoleRecord,
+    target: EmbeddedLaunchTargetRecord,
+    launch_preview_id: Option<String>,
+    launch_tab_id: Option<String>,
+    launch_attempt_id: String,
+    restore_role_slot: GameWindowRoleSlotRecord,
+    runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
+}
+
 impl AppCore {
     fn create_restored_role_demand(
         &self,
-        role: StateRoleRecord,
-        runtime_role: crate::model::BrowserRuntimeRoleRecord,
-        target: EmbeddedLaunchTargetRecord,
-        launch_preview_id: Option<String>,
-        restore_role_slot: GameWindowRoleSlotRecord,
-        runtime_snapshot: crate::model::BrowserRuntimeSnapshot,
+        request: RestoredRoleDemandRequest,
     ) -> CoreResult<EmbeddedRoleLaunchStart> {
+        let RestoredRoleDemandRequest {
+            role,
+            runtime_role,
+            target,
+            launch_preview_id,
+            launch_tab_id,
+            launch_attempt_id,
+            restore_role_slot,
+            runtime_snapshot,
+        } = request;
         let settings = self.read_scalar_state::<GameBrowserSettingsRecord>(
             "gameBrowserSettings",
             "game browser settings are missing",
         )?;
         let created = self.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-            tab_id: self.saved_game_window_tab_id(&target.window_id, "role", &role.id)?,
+            tab_id: launch_tab_id
+                .or(self.saved_game_window_tab_id(&target.window_id, "role", &role.id)?),
             source_id: role.id.clone(),
             name: role.name.clone(),
             tab_type: "role".to_owned(),
@@ -48,7 +65,7 @@ impl AppCore {
             / 100.0;
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
-            attempt_generation: None,
+            attempt_generation: Some(launch_attempt_id),
             launch_preview_id,
             source_id: role.id.clone(),
             name: role.name.clone(),

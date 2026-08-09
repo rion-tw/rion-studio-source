@@ -1,6 +1,16 @@
 //! System WebView state, effect queue, surfaces, navigation, session, overlay, input, and platform adapters.
 //!
-//! Implementation sections are included at compile time and share one private module namespace.
+//! Legacy implementation sections share a private executor namespace. Authority-sensitive
+//! executor, registry, projection, Kernel-event, and platform-adapter boundaries are real Rust
+//! modules with explicit visibility.
+
+mod native_resource_registry;
+use native_resource_registry::NativeResourceRegistry;
+
+mod native_projection;
+use native_projection::{
+    NativeTabProjectionState, NativeTabProjectionStore, SurfacePresentationBinding,
+};
 
 include!("system_runtime/section_01_navigation_timeout.rs");
 include!("system_runtime/section_02_windows_surface_identity_matches.rs");
@@ -13,6 +23,11 @@ include!("system_runtime/section_03_native_presentation_queue.rs");
 include!("system_runtime/section_03_start.rs");
 include!("system_runtime/section_04_native_creation_gate.rs");
 include!("system_runtime/section_04_next_revision.rs");
+mod native_executor;
+pub use native_executor::SystemRuntimeExecutor;
+use native_executor::{
+    ConcurrentRuntimeWork, OptionalHydrationWork, RuntimeHealth, SystemRuntimeWork,
+};
 include!("system_runtime/section_04_live_window_tab_store.rs");
 include!("system_runtime/section_04_test_topology_move.rs");
 include!("system_runtime/section_04_focus_broker.rs");
@@ -60,6 +75,8 @@ include!("system_runtime/section_16_surface_recovery_contract.rs");
 include!("system_runtime/section_16_input_fence_coordinator.rs");
 include!("system_runtime/section_16_input_fence_contract.rs");
 include!("system_runtime/section_17_rebuild_role_surface.rs");
+mod kernel_facade;
+use kernel_facade::seed_persisted_runtime_windows;
 include!("system_runtime/section_18_session_contract.rs");
 include!("system_runtime/section_18_macro_key_guard.rs");
 include!("system_runtime/section_18_coordinate_context.rs");
@@ -92,9 +109,17 @@ include!("system_runtime/section_29_session_storage.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");
 include!("system_runtime/section_31_input_fence.rs");
 include!("system_runtime/platform/shared.rs");
-include!("system_runtime/platform/windows.rs");
-include!("system_runtime/platform/macos.rs");
-include!("system_runtime/platform/unsupported.rs");
+
+// @source "./system_runtime/platform/windows.rs"
+// @source "./system_runtime/platform/macos.rs"
+// @source "./system_runtime/platform/unsupported.rs"
+mod platform;
+#[cfg(target_os = "macos")]
+use platform::macos::*;
+#[cfg(not(any(windows, target_os = "macos")))]
+use platform::unsupported::*;
+#[cfg(any(windows, test))]
+use platform::windows::*;
 
 #[cfg(test)]
 mod tests;

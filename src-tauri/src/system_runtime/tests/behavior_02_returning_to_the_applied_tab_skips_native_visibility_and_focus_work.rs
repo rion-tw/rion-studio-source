@@ -486,33 +486,15 @@
     }
 
     #[test]
-    fn provisional_aliases_resolve_to_the_attached_runtime_tab() {
-        let registry = PresentationRegistry::default();
-        let coordinator = registry.coordinator("window-a").unwrap();
-        coordinator
-            .lock()
-            .unwrap()
-            .aliases
-            .insert("provisional-a".to_owned(), "runtime-a".to_owned());
-        assert_eq!(
-            registry.resolve_tab_alias("provisional-a").as_deref(),
-            Some("runtime-a")
-        );
-        assert_eq!(registry.resolve_tab_alias("unknown"), None);
-    }
-
-    #[test]
     fn launcher_source_lookup_uses_presentation_without_runtime_or_page_readiness() {
         let registry = PresentationRegistry::default();
-        let coordinator = registry.coordinator("window-a").unwrap();
-        {
-            let mut state = coordinator.lock().unwrap();
+        commit_test_live_window(&registry, "window-a", |state| {
             state.insert_tab(
                 LiveTabRecord {
                     audio_muted: false,
                     closable: true,
                     icon_data_url: None,
-                    id: "provisional-a".to_owned(),
+                    id: "runtime-a".to_owned(),
                     persistable: false,
                     role_ids: vec!["role-a".to_owned()],
                     role_slots: Vec::new(),
@@ -525,31 +507,22 @@
                 1,
                 true,
             );
-        }
+        });
         assert_eq!(
             registry.tab_for_source("role-a", "role").as_deref(),
-            Some("provisional-a")
+            Some("runtime-a")
         );
         assert_eq!(registry.tab_for_source("role-a", "workspace"), None);
 
-        coordinator.lock().unwrap().replace_tab_id(
-            "provisional-a",
-            LiveTabRecord {
-                audio_muted: false,
-                closable: true,
-                icon_data_url: None,
-                id: "runtime-a".to_owned(),
-                persistable: true,
-                role_ids: vec!["role-a".to_owned()],
-                role_slots: Vec::new(),
-                source_id: "role-a".to_owned(),
-                tab_type: "role".to_owned(),
-                title: "Role A".to_owned(),
-                #[cfg(any(windows, target_os = "macos"))]
-                workspace_template: None,
-            },
-            2,
-        );
+        commit_test_live_window(&registry, "window-a", |live| {
+            let tab = live
+                .tabs
+                .iter_mut()
+                .find(|tab| tab.id == "runtime-a")
+                .unwrap();
+            tab.persistable = true;
+            tab.title = "Role A".to_owned();
+        });
         assert_eq!(
             registry.tab_for_source("role-a", "role").as_deref(),
             Some("runtime-a")
@@ -559,12 +532,13 @@
     #[test]
     fn launcher_presence_uses_presented_workspace_role_membership_until_removal() {
         let registry = PresentationRegistry::default();
-        let coordinator = registry.coordinator("window-b").unwrap();
         let mut workspace = presentation_tab("workspace-tab", TabRuntimePhase::Failed);
         workspace.source_id = "workspace-a".to_owned();
         workspace.tab_type = "workspace".to_owned();
         workspace.role_ids = vec!["role-a".to_owned(), "role-b".to_owned()];
-        coordinator.lock().unwrap().insert_tab(workspace, 4, true);
+        commit_test_live_window(&registry, "window-b", |window| {
+            window.insert_tab(workspace, 4, true);
+        });
 
         let presence = registry.launcher_presence().unwrap();
         assert_eq!(presence.tabs.len(), 1);
@@ -591,34 +565,30 @@
             ["workspace-tab"]
         );
 
-        coordinator.lock().unwrap().remove_tab("workspace-tab", 5);
+        commit_test_live_window(&registry, "window-b", |window| {
+            window.remove_tab("workspace-tab", 5);
+        });
         assert!(registry.launcher_presence().unwrap().tabs.is_empty());
         assert!(registry.tab_for_launcher_source("role-b", "role").is_none());
     }
 
     #[test]
-    fn launcher_presence_includes_reserved_role_tabs_across_windows() {
+    fn launcher_presence_includes_reserved_role_sources_across_windows() {
         let registry = PresentationRegistry::default();
-        registry
-            .coordinator("window-z")
-            .unwrap()
-            .lock()
-            .unwrap()
-            .insert_tab(
+        commit_test_live_window(&registry, "window-z", |window| {
+            window.insert_tab(
                 presentation_tab("reserved-role", TabRuntimePhase::Reserved),
                 1,
                 true,
             );
-        registry
-            .coordinator("window-a")
-            .unwrap()
-            .lock()
-            .unwrap()
-            .insert_tab(
+        });
+        commit_test_live_window(&registry, "window-a", |window| {
+            window.insert_tab(
                 presentation_tab("ready-role", TabRuntimePhase::Ready),
                 2,
                 true,
             );
+        });
 
         let presence = registry.launcher_presence().unwrap();
         assert_eq!(
@@ -1085,13 +1055,6 @@
                 "Rion Studio"
             );
         }
-    }
-
-    #[test]
-    fn role_zoom_persistence_requires_a_saved_runtime_window() {
-        let saved = HashMap::from([("saved-window".to_owned(), "Game Window 1".to_owned())]);
-        assert!(should_persist_role_zoom(&saved, "saved-window"));
-        assert!(!should_persist_role_zoom(&saved, "transient-window"));
     }
 
     #[test]

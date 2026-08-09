@@ -22,16 +22,9 @@ impl SystemRuntimeExecutor {
             };
         }
         if let Some(preview) = launch_preview {
-            return self.replace_native_tab_reservation(
-                &tab.target.window_id,
-                &preview.id,
-                &tab.tab_id,
-                &tab.name,
-                tab_type,
-                tab.workspace_template.as_deref(),
-                active_tab_id,
-                revision,
-            );
+            debug_assert_eq!(preview.id, tab.tab_id);
+            let _ = (active_tab_id, revision);
+            return Ok(());
         }
         self.reserve_native_tab(
             &tab.target.window_id,

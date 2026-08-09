@@ -9,7 +9,7 @@ impl SystemRuntimeExecutor {
             let window_id = self.resolve_live_tab_window_id(tab_id)?;
             let (window_id, window, fallback_successor_tab_id) = {
                 let state = self.state()?;
-                let host = state.display_hosts.get(&window_id).ok_or_else(|| {
+                let host = state.native_resources.display_hosts.get(&window_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_DISPLAY_NOT_FOUND",
                         "Runtime display host was not found.",
@@ -19,7 +19,7 @@ impl SystemRuntimeExecutor {
                     .filter(|next_tab_id| *next_tab_id != tab_id)
                     .filter(|next_tab_id| {
                         self.presentation.window_contains_tab(&window_id, next_tab_id)
-                            && !state.optimistic_closed_tabs.contains(*next_tab_id)
+                            && !state.tab_close_pending(next_tab_id)
                     })
                     .map(str::to_owned);
                 (window_id, host.window.clone(), fallback_successor_tab_id)
@@ -31,18 +31,12 @@ impl SystemRuntimeExecutor {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
             let plan = {
-                let state = presentation.lock().map_err(|_| {
-                    RuntimeError::new(
-                        "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                        "The runtime tab presentation coordinator is unavailable.",
-                    )
-                })?;
                 let fallback_successor_tab_id = fallback_successor_tab_id
-                    .filter(|next_tab_id| state.contains_tab(next_tab_id));
+                    .filter(|next_tab_id| presentation.contains_tab(next_tab_id));
                 close_preflight_plan(
-                    state.contains_tab(tab_id),
-                    state.revision,
-                    state.selected_tab_id.clone(),
+                    presentation.contains_tab(tab_id),
+                    presentation.revision,
+                    presentation.selected_tab_id.clone(),
                     fallback_successor_tab_id,
                 )
             };
@@ -80,13 +74,7 @@ impl SystemRuntimeExecutor {
                 ClosePreflightPlan::HideWindow => {
                     let revision = self.presentation.current_revision();
                     let (previous_tab_id, previous_surfaces) = {
-                        let state = presentation.lock().map_err(|_| {
-                            RuntimeError::new(
-                                "SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE",
-                                "The runtime tab presentation coordinator is unavailable.",
-                            )
-                        })?;
-                        let previous_tab_id = state.selected_tab_id.clone();
+                        let previous_tab_id = presentation.selected_tab_id.clone();
                         let previous_surfaces = self
                             .presentation
                             .surfaces(&window_id, previous_tab_id.as_deref());

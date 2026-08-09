@@ -641,14 +641,3 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
     }
     let _ = source_window_id;
 }
-
-pub fn runtime_window_preferences(core: &rion_core::AppCore) -> RuntimeWindowPreferencesRecord {
-    core.invoke(CoreCommand::RuntimeWindowPreferencesGet)
-        .ok()
-        .and_then(|value| serde_json::from_value::<RuntimeWindowPreferencesRecord>(value).ok())
-        .unwrap_or(RuntimeWindowPreferencesRecord {
-            always_hide_tab_close_button: false,
-            always_show_toolbar_in_full_screen: false,
-            restore_game_windows_on_startup: true,
-        })
-}

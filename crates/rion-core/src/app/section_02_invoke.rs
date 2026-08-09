@@ -42,6 +42,8 @@ impl AppCore {
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::StateSnapshot => self.with_runtime(|runtime| runtime.state.snapshot()),
+            CoreCommand::AppSnapshot => serde_json::to_value(self.app_snapshot()?)
+                .map_err(|error| CoreError::Internal(error.to_string())),
             CoreCommand::GamesList => self.read_state_collection("games"),
             CoreCommand::GameGet { id } => {
                 self.read_state_record("games", "id", &id, "GAME_NOT_FOUND", "Game not found.")
@@ -697,6 +699,7 @@ impl AppCore {
             | CoreCommand::BrowserRoleStop { .. }
             | CoreCommand::BrowserWorkspaceStop { .. }
             | CoreCommand::EmbeddedTabStop { .. }
+            | CoreCommand::BrowserWindowCloseAdmit { .. }
             | CoreCommand::BrowserWindowStop { .. }
             | CoreCommand::BrowserWindowDelete { .. } => Err(CoreError::Internal(
                 "asynchronous browser intent reached the synchronous core dispatcher".to_owned(),

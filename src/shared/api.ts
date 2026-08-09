@@ -190,6 +190,7 @@ export interface RionStudioApi {
   openUpdateDownload: () => Promise<void>;
   installDownloadedUpdate: () => Promise<AppUpdateInstallAttempt>;
   onRoleStatusChanged: (callback: (statuses: RoleStatus[]) => void) => () => void;
+  onAppSnapshotChanged: (callback: (snapshot: AppSnapshot) => void) => () => void;
   onApplicationQuitRequested: (callback: () => void) => () => void;
   onCurrentWindowStateChanged: (callback: (state: AppWindowState) => void) => () => void;
   onApplicationLifecycleChanged: (

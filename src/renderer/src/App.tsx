@@ -237,11 +237,7 @@ export function App(): JSX.Element {
     beginErrorOperation: data.beginErrorOperation,
     gameNamesById: new Map(data.games.map((game) => [game.id, game.name])),
     roles: data.roles,
-    setMacros: data.setMacros,
     setNotice,
-    setRoles: data.setRoles,
-    setStatuses: data.setStatuses,
-    setWorkspaces: data.setWorkspaces,
     statusByRole: data.statusByRole,
     t: preferences.t
   });
@@ -249,7 +245,6 @@ export function App(): JSX.Element {
   const gameWorkflow = useGameWorkflow({
     beginErrorOperation: data.beginErrorOperation,
     roles: data.roles,
-    setGames: data.setGames,
     setNotice,
     t: preferences.t
   });
@@ -257,9 +252,6 @@ export function App(): JSX.Element {
   const workspaceWorkflow = useWorkspaceWorkflow({
     beginErrorOperation: data.beginErrorOperation,
     setNotice,
-    setRoles: data.setRoles,
-    setStatuses: data.setStatuses,
-    setWorkspaces: data.setWorkspaces,
     t: preferences.t,
     workspaces: data.workspaces
   });
@@ -267,8 +259,6 @@ export function App(): JSX.Element {
   const macroWorkflow = useMacroWorkflow({
     beginErrorOperation: data.beginErrorOperation,
     macros: data.macros,
-    setMacros: data.setMacros,
-    setMacroStatuses: data.setMacroStatuses,
     setNotice,
     t: preferences.t
   });

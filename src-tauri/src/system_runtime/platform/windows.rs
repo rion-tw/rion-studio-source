@@ -1,5 +1,7 @@
 // Windows WebView2/Win32 adapter, statically selected at compile time.
 
+use super::super::*;
+
 include!("windows/input_security.rs");
 include!("windows/lifecycle.rs");
 #[cfg(windows)]
@@ -8,7 +10,7 @@ include!("windows/material.rs");
 include!("windows/reparent.rs");
 
 #[cfg(windows)]
-fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
+pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
@@ -23,11 +25,13 @@ fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
             let _ = sender.send(result.map(|()| zoom_factor));
         })
         .map_err(RuntimeError::tauri)?;
-    let zoom_factor = receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT).map_err(|_| {
-        RuntimeError::new(
-            "BROWSER_PAGE_ZOOM_TIMEOUT",
-            "WebView2 page zoom acknowledgement timed out.",
-        )
-    })??;
+    let zoom_factor = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "BROWSER_PAGE_ZOOM_TIMEOUT",
+                "WebView2 page zoom acknowledgement timed out.",
+            )
+        })??;
     validate_applied_page_zoom(zoom_factor)
 }

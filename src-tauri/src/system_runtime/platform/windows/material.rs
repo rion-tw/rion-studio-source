@@ -1,12 +1,12 @@
 #[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WindowsMicaMaterial {
+pub(in crate::system_runtime) enum WindowsMicaMaterial {
     Mica,
     Opaque,
 }
 
 #[cfg(any(windows, test))]
-fn windows_mica_material_for_version(major: u32, build: u32) -> WindowsMicaMaterial {
+pub(in crate::system_runtime) fn windows_mica_material_for_version(major: u32, build: u32) -> WindowsMicaMaterial {
     if major > 10 || (major == 10 && build >= 22_000) {
         WindowsMicaMaterial::Mica
     } else {
@@ -16,7 +16,7 @@ fn windows_mica_material_for_version(major: u32, build: u32) -> WindowsMicaMater
 
 #[cfg(windows)]
 #[repr(C)]
-struct RtlOsVersionInfo {
+pub(in crate::system_runtime) struct RtlOsVersionInfo {
     size: u32,
     major: u32,
     minor: u32,
@@ -32,7 +32,7 @@ unsafe extern "system" {
 }
 
 #[cfg(windows)]
-fn windows_mica_material_for_current_system() -> WindowsMicaMaterial {
+pub(in crate::system_runtime) fn windows_mica_material_for_current_system() -> WindowsMicaMaterial {
     let mut version = RtlOsVersionInfo {
         size: std::mem::size_of::<RtlOsVersionInfo>() as u32,
         major: 0,
@@ -49,7 +49,7 @@ fn windows_mica_material_for_current_system() -> WindowsMicaMaterial {
 }
 
 #[cfg(windows)]
-fn windows_mica_effects() -> tauri::utils::config::WindowEffectsConfig {
+pub(in crate::system_runtime) fn windows_mica_effects() -> tauri::utils::config::WindowEffectsConfig {
     tauri::window::EffectsBuilder::new()
         .effect(tauri::window::Effect::Mica)
         .build()
@@ -70,7 +70,7 @@ pub(crate) fn apply_windows_mica_to_main_window(window: &tauri::WebviewWindow) -
 }
 
 #[cfg(windows)]
-fn build_windows_runtime_host_window(
+pub(in crate::system_runtime) fn build_windows_runtime_host_window(
     app: &tauri::AppHandle,
     label: &str,
     title: &str,

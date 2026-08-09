@@ -57,12 +57,6 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
                         type:(NSString *)type
            workspaceTemplate:(nullable NSString *)workspaceTemplate
             windowIdentifier:(NSString *)windowIdentifier;
-- (void)replaceTabIdentifier:(NSString *)provisionalIdentifier
-              withIdentifier:(NSString *)tabIdentifier
-                        name:(NSString *)name
-                        type:(NSString *)type
-           workspaceTemplate:(nullable NSString *)workspaceTemplate
-         activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)removeTabIdentifier:(NSString *)tabIdentifier
          activeTabIdentifier:(nullable NSString *)activeTabIdentifier;
 - (void)reorderTabIdentifiers:(NSArray<NSString *> *)tabIdentifiers;
@@ -132,11 +126,6 @@ void rion_runtime_tabs_reserve(
     void * _Nullable controller, const char *tabIdentifier,
     const char *name, const char *type,
     const char * _Nullable workspaceTemplate, const char *windowIdentifier);
-void rion_runtime_tabs_replace(
-    void * _Nullable controller, const char *provisionalIdentifier,
-    const char *tabIdentifier, const char *name, const char *type,
-    const char * _Nullable workspaceTemplate,
-    const char * _Nullable activeTabIdentifier);
 void rion_runtime_tabs_remove(
     void * _Nullable controller, const char *tabIdentifier,
     const char * _Nullable activeTabIdentifier);

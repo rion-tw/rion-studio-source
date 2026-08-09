@@ -30,7 +30,7 @@ impl SystemRuntimeExecutor {
                 return;
             };
             let released_surfaces = state
-                .surface_registry
+                .native_resources.surface_registry
                 .values()
                 .filter(|surface| {
                     surface.kind == ManagedSurfaceKind::Popup
@@ -99,13 +99,7 @@ impl SystemRuntimeExecutor {
         let role_id = role_id.to_owned();
         let window_label = window_label.to_owned();
         tauri::async_runtime::spawn(async move {
-            let fenced = core
-                .invoke_async(CoreCommand::MacroInputFence {
-                    role_id: role_id.clone(),
-                })
-                .await
-                .ok()
-                .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok());
+            let fenced = core.fence_macro_input(&role_id).ok();
             let Some(fenced) = fenced else {
                 if let Some(state) = app.try_state::<crate::CoreState>() {
                     state.runtime.emit_navigation_input_error(
@@ -151,13 +145,8 @@ impl SystemRuntimeExecutor {
                     .record_input_fence_event(&role_id, fenced.input_epoch, "started");
             }
             let drained = core
-                .invoke_async(CoreCommand::MacroInputDrain {
-                    role_id: role_id.clone(),
-                    input_epoch: fenced.input_epoch,
-                })
-                .await
+                .drain_macro_input(&role_id, fenced.input_epoch)
                 .ok()
-                .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
                 .is_some_and(|record| record.current);
             if drained && let Some(state) = app.try_state::<crate::CoreState>() {
                 state
@@ -205,19 +194,19 @@ impl SystemRuntimeExecutor {
         let result = (|| {
             let tab_id = self
                 .state()?
-                .role_tabs
-                .get(&role_id)
+                .native_tab_id_for_role_surface(&role_id)
                 .cloned()
                 .ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_ROLE_NOT_FOUND",
                         "Runtime role was not found while registering its popup.",
                     )
-                })?;
+            })?;
             let window_id = self.resolve_live_tab_window_id(&tab_id)?;
-            let (tab_id, window_id, effective_zoom) = {
+            let window_zoom = self.runtime_window_zoom_factor(&window_id);
+            let (tab_id, window_id, projected_role_zoom) = {
                 let mut state = self.state()?;
-                let tab = state.tabs.get(&tab_id).ok_or_else(|| {
+                let tab = state.native_resources.tabs.get(&tab_id).ok_or_else(|| {
                     RuntimeError::new(
                         "TAURI_RUNTIME_TAB_NOT_FOUND",
                         "Runtime tab was not found while registering its popup.",
@@ -233,20 +222,22 @@ impl SystemRuntimeExecutor {
                             "Runtime role surface was not found while registering its popup.",
                         )
                     })?;
-                let window_zoom = state
-                    .display_hosts
-                    .get(&window_id)
-                    .map(|host| host.zoom_factor)
-                    .unwrap_or(1.0);
                 state
                     .popup_roles
                     .insert(window_label.clone(), role_id.clone());
                 (
                     tab_id,
                     window_id,
-                    effective_zoom_factor(role_zoom, window_zoom),
+                    role_zoom,
                 )
             };
+            let (role_zoom, _) = self.runtime_role_zoom_contract(
+                &window_id,
+                &tab_id,
+                &role_id,
+                projected_role_zoom,
+            );
+            let effective_zoom = effective_zoom_factor(role_zoom, window_zoom);
             operation.tab_id = Some(tab_id.clone());
             operation.window_id = Some(window_id.clone());
             if let Err(error) = self.register_managed_surface(
@@ -290,8 +281,8 @@ impl SystemRuntimeExecutor {
         let role_id = transaction.role_id.clone();
         let lifecycle_epoch = transaction.context.lifecycle_epoch.unwrap_or_default();
         let current_owner = self.state.lock().ok().and_then(|state| {
-            let tab_id = state.role_tabs.get(&role_id)?.clone();
-            let generation = state.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
+            let tab_id = state.native_tab_id_for_role_surface(&role_id)?.clone();
+            let generation = state.native_resources.tabs.get(&tab_id)?.roles.get(&role_id)?.generation;
             Some((tab_id, generation))
         });
         let transaction_is_current = current_owner.is_some_and(|(tab_id, generation)| {
@@ -364,10 +355,11 @@ impl SystemRuntimeExecutor {
             return;
         }
         if !allowed {
-            let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
-                role_id: role_id.clone(),
-                reason: Some(reason.clone()),
-            });
+            self.report_system_surface_state_async(
+                role_id.clone(),
+                Some(reason.clone()),
+                false,
+            );
             if let Ok(mut state) = self.state.lock() {
                 state.recovering_roles.remove(&role_id);
                 state.close_coordinator.quarantined_roles.insert(role_id.clone());
@@ -390,11 +382,8 @@ impl SystemRuntimeExecutor {
         self.update_surface_recovery_phase(&transaction, "fencing");
         let recovery_epoch = self
             .core
-            .invoke(CoreCommand::MacroInputFence {
-                role_id: role_id.clone(),
-            })
+            .fence_macro_input(&role_id)
             .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .map(|record| record.input_epoch);
         let Some(recovery_epoch) = recovery_epoch else {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
@@ -458,12 +447,8 @@ impl SystemRuntimeExecutor {
         self.record_input_fence_event(&role_id, recovery_epoch, "started");
         let drained = self
             .core
-            .invoke(CoreCommand::MacroInputDrain {
-                role_id: role_id.clone(),
-                input_epoch: recovery_epoch,
-            })
+            .drain_macro_input(&role_id, recovery_epoch)
             .ok()
-            .and_then(|value| serde_json::from_value::<MacroInputEpochRecord>(value).ok())
             .is_some_and(|record| record.current);
         if !drained {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
@@ -509,10 +494,7 @@ impl SystemRuntimeExecutor {
         }
         self.record_input_fence_event(&role_id, recovery_epoch, "drained");
         self.clear_role_keys(&role_id);
-        let _ = self.core.invoke(CoreCommand::EmbeddedSystemSurfaceFailed {
-            role_id: role_id.clone(),
-            reason: Some(reason.clone()),
-        });
+        self.report_system_surface_state_async(role_id.clone(), Some(reason.clone()), false);
         let mut destructive_started = false;
         let result = self
             .rebuild_role_surface(&transaction, &mut destructive_started)
@@ -529,25 +511,17 @@ impl SystemRuntimeExecutor {
                     }
                     fence.drained = true;
                     fence.recovery_scheduled = false;
-                    fence.reconciling = false;
                     fence.resuming = false;
                     state
                         .main_frame_navigation_input_fences
                         .retain(|_, ticket| ticket.role_id != role_id);
                 }
-                let recovered = self
-                    .core
-                    .invoke(CoreCommand::EmbeddedSystemSurfaceRecovered {
-                        role_id: role_id.clone(),
-                    })
-                    .is_ok();
-                if recovered {
-                    self.try_resume_navigation_input(&role_id, recovery_epoch);
-                }
+                self.report_system_surface_state_async(role_id.clone(), None, true);
+                self.try_resume_navigation_input(&role_id, recovery_epoch);
                 let resumed = self.state.lock().ok().is_some_and(|state| {
                     !state.role_input_fences.contains_key(&role_id)
                 });
-                if !recovered || !resumed {
+                if !resumed {
                     self.record_input_fence_event_with_reason(
                         &role_id,
                         recovery_epoch,

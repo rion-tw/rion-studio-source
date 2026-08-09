@@ -6,6 +6,63 @@ fn command(value: serde_json::Value) -> BrowserRuntimeCommand {
 }
 
 #[test]
+fn create_tab_is_an_atomic_source_admission() {
+    let mut runtime = RoleOwnershipRuntime::default();
+    let first = runtime
+        .invoke(command(json!({
+            "type":"createTab",
+            "tabId":"10000000-0000-4000-8000-000000000001",
+            "sourceId":"role-a","name":"Role A","tabType":"role","roleSlots":["role-a"]
+        })))
+        .unwrap();
+    let joined = runtime
+        .invoke(command(json!({
+            "type":"createTab",
+            "tabId":"10000000-0000-4000-8000-000000000002",
+            "sourceId":"role-a","name":"Role A","tabType":"role","roleSlots":["role-a"]
+        })))
+        .unwrap();
+
+    assert!(first.tab_created);
+    assert!(!joined.tab_created);
+    assert_eq!(joined.created_tab_id, first.created_tab_id);
+    assert_eq!(joined.snapshot.tabs.len(), 1);
+}
+
+#[test]
+fn close_tabs_removes_the_exact_tabs_and_owned_roles_atomically() {
+    let mut runtime = RoleOwnershipRuntime::default();
+    let mut tab_ids = Vec::new();
+    for (source_id, role_id) in [("role-a", "role-a"), ("role-b", "role-b"), ("role-c", "role-c")]
+    {
+        let created = runtime
+            .invoke(command(json!({
+                "type":"createTab","sourceId":source_id,"name":source_id,
+                "tabType":"role","roleSlots":[role_id]
+            })))
+            .unwrap();
+        let tab_id = created.created_tab_id.unwrap();
+        runtime
+            .invoke(command(json!({
+                "type":"roleTransition","roleId":role_id,"runtime":"embedded",
+                "tabId":tab_id,"state":"launching"
+            })))
+            .unwrap();
+        tab_ids.push(tab_id);
+    }
+
+    let closed = runtime
+        .invoke(BrowserRuntimeCommand::CloseTabs {
+            tab_ids: tab_ids[..2].to_vec(),
+        })
+        .unwrap();
+    assert_eq!(closed.snapshot.tabs.len(), 1);
+    assert_eq!(closed.snapshot.tabs[0].id, tab_ids[2]);
+    assert_eq!(closed.snapshot.roles.len(), 1);
+    assert_eq!(closed.snapshot.roles[0].role_id, "role-c");
+}
+
+#[test]
 fn tracks_role_ownership_without_accepting_live_topology_commands() {
     let mut runtime = RoleOwnershipRuntime::default();
     let created = runtime

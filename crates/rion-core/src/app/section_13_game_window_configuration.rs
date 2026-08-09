@@ -1,4 +1,11 @@
 impl AppCore {
+    pub fn commit_runtime_window_snapshots(
+        &self,
+        input: GameWindowRuntimeSnapshotBatchCommitInputRecord,
+    ) -> CoreResult<RuntimeWindowPersistenceBatchReceiptRecord> {
+        self.commit_runtime_window_snapshot_batch_inner(input.inputs)
+    }
+
     fn commit_runtime_window_snapshot(
         &self,
         input: GameWindowRuntimeSnapshotCommitInputRecord,

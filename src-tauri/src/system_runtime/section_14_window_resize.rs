@@ -36,7 +36,7 @@ impl SystemRuntimeExecutor {
         }
         let Some(window) = self.state.lock().ok().and_then(|state| {
             state
-                .display_hosts
+                .native_resources.display_hosts
                 .values()
                 .find(|host| host.window.label() == label)
                 .map(|host| host.window.clone())
@@ -100,7 +100,7 @@ impl SystemRuntimeExecutor {
                 .ok()
                 .and_then(|state| {
                     state
-                        .display_hosts
+                        .native_resources.display_hosts
                         .get(&window_id)
                         .map(|host| host.window.label().to_owned())
                 })
@@ -139,7 +139,7 @@ impl SystemRuntimeExecutor {
             return;
         }
         let Some((window, label)) = self.state.lock().ok().and_then(|state| {
-            let host = state.display_hosts.get(window_id)?;
+            let host = state.native_resources.display_hosts.get(window_id)?;
             (host.generation == receipt.key.generation
                 && receipt.key.frame_revision > host.last_geometry_receipt_revision)
                 .then(|| (host.window.clone(), host.window.label().to_owned()))
@@ -163,7 +163,7 @@ impl SystemRuntimeExecutor {
             "normal"
         };
         let target = self.state.lock().ok().and_then(|mut state| {
-            let host = state.display_hosts.get_mut(window_id)?;
+            let host = state.native_resources.display_hosts.get_mut(window_id)?;
             if host.generation != receipt.key.generation
                 || receipt.key.frame_revision <= host.last_geometry_receipt_revision
             {
@@ -214,7 +214,7 @@ impl SystemRuntimeExecutor {
             return false;
         }
         let Some((window_id, toolbar_revealed)) = self.state.lock().ok().and_then(|state| {
-            state.display_hosts.iter().find_map(|(window_id, host)| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
                 (host.window.label() == label)
                     .then(|| (window_id.clone(), resize_toolbar_revealed(host)))
             })
@@ -231,7 +231,7 @@ impl SystemRuntimeExecutor {
         let width = (snapshot.physical_width as f64 / snapshot.scale_factor).max(1.0);
         let height = (snapshot.physical_height as f64 / snapshot.scale_factor).max(1.0);
         let live_target = self.state.lock().ok().and_then(|mut state| {
-            let host = state.display_hosts.get_mut(&window_id)?;
+            let host = state.native_resources.display_hosts.get_mut(&window_id)?;
             host.target.presentation = presentation.to_owned();
             if !snapshot.maximized && !snapshot.fullscreen && !snapshot.minimized {
                 host.target.bounds.width = width.round() as i32;
@@ -257,21 +257,16 @@ impl SystemRuntimeExecutor {
         let selected_tab_id = self
             .presentation
             .existing(&window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .and_then(|live| live.selected_tab_id.clone())
-            });
+            .and_then(|presentation| presentation.selected_tab_id.clone());
         let hydrated_tab_ids = self
             .state
             .lock()
             .map(|state| {
                 state
-                    .tabs
+                    .native_resources.tabs
                     .keys()
                     .filter(|tab_id| {
-                        !state.optimistic_closed_tabs.contains(*tab_id)
+                        !state.tab_close_pending(tab_id)
                             && !state.close_coordinator.closing_tabs.contains(*tab_id)
                     })
                     .cloned()
@@ -514,7 +509,7 @@ impl SystemRuntimeExecutor {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(any(windows, test))]
 fn resize_metrics_with_tab_strip(
     mut metrics: WindowContentMetrics,
     tab_strip_height: f64,

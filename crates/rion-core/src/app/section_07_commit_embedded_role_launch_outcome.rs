@@ -1,3 +1,21 @@
+struct EmbeddedWorkspaceLaunchRequest {
+    target: EmbeddedLaunchTargetRecord,
+    launch_preview_id: Option<String>,
+    launch_tab_id: Option<String>,
+    launch_attempt_id: String,
+    restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
+}
+
+struct EmbeddedWorkspaceLeaseLaunchRequest {
+    workspace: StateLaunchWorkspaceRecord,
+    role_ids: Vec<String>,
+    target: EmbeddedLaunchTargetRecord,
+    launch_preview_id: Option<String>,
+    launch_tab_id: Option<String>,
+    launch_attempt_id: String,
+    lease_id: String,
+}
+
 impl AppCore {
     fn commit_embedded_role_launch_outcome(
         &self,
@@ -58,10 +76,15 @@ impl AppCore {
         &self,
         workspace_id: &str,
         expected_role_ids: &[String],
-        target: EmbeddedLaunchTargetRecord,
-        launch_preview_id: Option<String>,
-        restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
+        request: EmbeddedWorkspaceLaunchRequest,
     ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
+        let EmbeddedWorkspaceLaunchRequest {
+            target,
+            launch_preview_id,
+            launch_tab_id,
+            launch_attempt_id,
+            restore_role_slots,
+        } = request;
         if expected_role_ids.is_empty() {
             return Err(CoreError::Domain {
                 code: "WORKSPACE_ROLES_REQUIRED",
@@ -151,11 +174,15 @@ impl AppCore {
                 ));
             }
             self.start_embedded_workspace_with_lease(
-                workspace,
-                role_ids,
-                target,
-                launch_preview_id,
-                lease.id.clone(),
+                EmbeddedWorkspaceLeaseLaunchRequest {
+                    workspace,
+                    role_ids,
+                    target,
+                    launch_preview_id,
+                    launch_tab_id,
+                    launch_attempt_id,
+                    lease_id: lease.id.clone(),
+                },
             )
         })();
         match result {
@@ -175,12 +202,17 @@ impl AppCore {
 
     fn start_embedded_workspace_with_lease(
         &self,
-        workspace: StateLaunchWorkspaceRecord,
-        role_ids: Vec<String>,
-        target: EmbeddedLaunchTargetRecord,
-        launch_preview_id: Option<String>,
-        lease_id: String,
+        request: EmbeddedWorkspaceLeaseLaunchRequest,
     ) -> CoreResult<EmbeddedWorkspaceLaunchStart> {
+        let EmbeddedWorkspaceLeaseLaunchRequest {
+            workspace,
+            role_ids,
+            target,
+            launch_preview_id,
+            launch_tab_id,
+            launch_attempt_id,
+            lease_id,
+        } = request;
         let available_roles = self
             .read_typed_state_collection::<StateRoleRecord>("roles")?
             .into_iter()
@@ -222,13 +254,13 @@ impl AppCore {
             self.resolve_workspace_browser_engine(&roles, &available_games, &settings)?;
         require_system_resolution(&workspace_resolution)?;
         let workspace_resolved_engine = workspace_resolution.resolved_engine;
-        let tab_id = self
-            .invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
-                tab_id: self.saved_game_window_tab_id(
-                    &target.window_id,
-                    "workspace",
-                    &workspace.id,
-                )?,
+        let requested_tab_id = launch_tab_id.or(self.saved_game_window_tab_id(
+            &target.window_id,
+            "workspace",
+            &workspace.id,
+        )?);
+        let tab_admission = self.invoke_browser_runtime(BrowserRuntimeCommand::CreateTab {
+                tab_id: requested_tab_id,
                 source_id: workspace.id.clone(),
                 name: workspace.name.clone(),
                 tab_type: "workspace".to_owned(),
@@ -245,9 +277,13 @@ impl AppCore {
                         })
                     })
                     .collect(),
-            })?
+            })?;
+        let tab_id = tab_admission
             .created_tab_id
             .ok_or_else(|| CoreError::Internal("workspace tab was not created".to_owned()))?;
+        if !tab_admission.tab_created {
+            return Ok(EmbeddedWorkspaceLaunchStart::Completed(Vec::new()));
+        }
         for role in &launch_roles {
             let slot_id = workspace
                 .slots
@@ -323,7 +359,7 @@ impl AppCore {
             .collect::<Vec<_>>();
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
-            attempt_generation: None,
+            attempt_generation: Some(launch_attempt_id),
             launch_preview_id,
             source_id: workspace.id.clone(),
             name: workspace.name.clone(),

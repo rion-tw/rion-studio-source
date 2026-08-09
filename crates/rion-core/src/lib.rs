@@ -21,6 +21,7 @@ pub mod operation_actor;
 mod overlay;
 mod portable;
 mod role_browser_data;
+mod runtime_kernel;
 mod runtime_sequence;
 mod scheduler;
 mod session_import;
@@ -48,43 +49,44 @@ pub use model::{
     BulkDeleteSkippedItemRecord, ChromeProfileEntryRecord, ChromeProfileImportAuthStateRecord,
     ChromeProfileImportItemResultRecord, ChromeProfileImportPreviewRecord,
     ChromeProfileImportProgressRecord, ChromeProfileImportResolutionRecord,
-    ChromeProfileImportResultRecord, ChromeProfileImportUnsupportedCountsRecord, CoreCommand,
-    CoreEffectAction, CoreEffectDispatchReport, CoreEffectMetricsRecord, CoreEffectRequest,
-    CoreEffectResult, CoreEffectTarget, CoreEffectTargetKind, CoreEvent, CoreStateSnapshotRecord,
-    CountedLatencySummaryRecord, DiagnosticDisplayRecord, DiagnosticExportResultRecord,
-    DisplayFingerprintRecord, DisplayInfoRecord, DisplayTargetRecord,
-    DisplayTopologySnapshotRecord, EmbeddedKeyEffectRecord, EmbeddedKeyTransitionRecord,
-    EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord, EmbeddedRoleLoadEffectRecord,
-    EmbeddedRoleSlotEffectRecord, EmbeddedRoleViewEffectRecord, EmbeddedTabEffectRecord,
-    EngineCapabilityEvidenceRecord, EngineCapabilitySnapshotRecord, EngineCapabilityStatus,
-    GameBrowserSettingsPatchRecord, GameBrowserSettingsRecord, GameCreateInputRecord,
-    GameCreateRequest, GameUpdateInputRecord, GameUpdateRequest, GameWindowCreateInputRecord,
-    GameWindowDisplayRemapRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord,
-    GameWindowRoleViewRecord, GameWindowRuntimeSnapshotBatchCommitInputRecord,
-    GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
-    GameWindowTabRecord, GameWindowUpdateInputRecord, HighRefreshRateDiagnosticStatus,
-    LatencySummaryRecord, LayoutBounds, LayoutDividerBounds, LayoutDividerInput, LayoutRect,
-    LayoutRoleBounds, LayoutRoleInput, LegalAcceptDocumentsInputRecord, LegalAcceptanceRecord,
-    LegalAcceptanceStatusRecord, LegalDocumentVersionsRecord, LocalStorageEntryRecord,
-    LogCaptureRecord, LogEntry, LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogSource,
-    LogStorageStatusRecord, MacroBadgePositionRecord, MacroCoordinateContextRecord,
-    MacroCoordinateRecord, MacroCreateInputRecord, MacroCreateRequest, MacroDefinition,
-    MacroInputDiagnosticsRecord, MacroInputEpochRecord, MacroInputRoleDiagnosticRecord,
-    MacroInvocationRequest, MacroLastClick, MacroOverlayRequestRecord,
-    MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord, MacroPressInvocationRequest,
-    MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings,
-    MacroSettingsRecord, MacroShortcutSourceScope, MacroStartRequest, MacroStepDefinition,
-    MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord, MacroUpdateRequest,
-    NativeWindowStateRecord, OperationCancelResultRecord, OperationCompletionPolicy,
-    PerformanceTelemetryRecord, PortableDataRecord, PortableDataSelectionRecord,
-    PortableExportResultRecord, PortableGameRecord, PortableGameWindowRecord,
-    PortableImportOperationSummaryRecord, PortableImportOperationsRecord,
-    PortableImportPreviewRecord, PortableImportResultRecord, PortableImportWarningRecord,
-    PortableLaunchWorkspaceRecord, PortableMacroConflictCandidateRecord,
-    PortableMacroConflictRecord, PortableMacroConflictResolutionRecord, PortableMacroRecord,
-    PortablePreferencesRecord, PortableRoleRecord, ResolvedBrowserEngine, RoleCreateInputRecord,
-    RoleCreateRequest, RoleGameAssignmentRecord, RolePathsRecord, RoleUpdateInputRecord,
-    RoleUpdateRequest, RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord,
+    ChromeProfileImportResultRecord, ChromeProfileImportUnsupportedCountsRecord,
+    CoreAppSnapshotRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
+    CoreEffectMetricsRecord, CoreEffectRequest, CoreEffectResult, CoreEffectTarget,
+    CoreEffectTargetKind, CoreEvent, CoreStateSnapshotRecord, CountedLatencySummaryRecord,
+    DiagnosticDisplayRecord, DiagnosticExportResultRecord, DisplayFingerprintRecord,
+    DisplayInfoRecord, DisplayTargetRecord, DisplayTopologySnapshotRecord, EmbeddedKeyEffectRecord,
+    EmbeddedKeyTransitionRecord, EmbeddedLaunchResultRecord, EmbeddedLaunchTargetRecord,
+    EmbeddedRoleLoadEffectRecord, EmbeddedRoleSlotEffectRecord, EmbeddedRoleViewEffectRecord,
+    EmbeddedTabEffectRecord, EngineCapabilityEvidenceRecord, EngineCapabilitySnapshotRecord,
+    EngineCapabilityStatus, GameBrowserSettingsPatchRecord, GameBrowserSettingsRecord,
+    GameCreateInputRecord, GameCreateRequest, GameUpdateInputRecord, GameUpdateRequest,
+    GameWindowCreateInputRecord, GameWindowDisplayRemapRecord, GameWindowPlacementRecord,
+    GameWindowRoleSlotRecord, GameWindowRoleViewRecord,
+    GameWindowRuntimeSnapshotBatchCommitInputRecord, GameWindowRuntimeSnapshotCommitInputRecord,
+    GameWindowSaveRuntimeInputRecord, GameWindowTabRecord, GameWindowUpdateInputRecord,
+    HighRefreshRateDiagnosticStatus, LatencySummaryRecord, LayoutBounds, LayoutDividerBounds,
+    LayoutDividerInput, LayoutRect, LayoutRoleBounds, LayoutRoleInput,
+    LegalAcceptDocumentsInputRecord, LegalAcceptanceRecord, LegalAcceptanceStatusRecord,
+    LegalDocumentVersionsRecord, LocalStorageEntryRecord, LogCaptureRecord, LogEntry,
+    LogErrorDetails, LogLevel, LogPageRecord, LogQuery, LogSource, LogStorageStatusRecord,
+    MacroBadgePositionRecord, MacroCoordinateContextRecord, MacroCoordinateRecord,
+    MacroCreateInputRecord, MacroCreateRequest, MacroDefinition, MacroInputDiagnosticsRecord,
+    MacroInputEpochRecord, MacroInputRoleDiagnosticRecord, MacroInvocationRequest, MacroLastClick,
+    MacroOverlayRequestRecord, MacroOverlayStartSummaryRecord, MacroOverlayViewModelRecord,
+    MacroPressInvocationRequest, MacroPressRequest, MacroReleaseRequest, MacroRepeat,
+    MacroRunStatus, MacroRuntimeSettings, MacroSettingsRecord, MacroShortcutSourceScope,
+    MacroStartRequest, MacroStepDefinition, MacroStepInputRecord, MacroTrigger,
+    MacroUpdateInputRecord, MacroUpdateRequest, NativeWindowStateRecord,
+    OperationCancelResultRecord, OperationCompletionPolicy, PerformanceTelemetryRecord,
+    PortableDataRecord, PortableDataSelectionRecord, PortableExportResultRecord,
+    PortableGameRecord, PortableGameWindowRecord, PortableImportOperationSummaryRecord,
+    PortableImportOperationsRecord, PortableImportPreviewRecord, PortableImportResultRecord,
+    PortableImportWarningRecord, PortableLaunchWorkspaceRecord,
+    PortableMacroConflictCandidateRecord, PortableMacroConflictRecord,
+    PortableMacroConflictResolutionRecord, PortableMacroRecord, PortablePreferencesRecord,
+    PortableRoleRecord, ResolvedBrowserEngine, RoleCreateInputRecord, RoleCreateRequest,
+    RoleGameAssignmentRecord, RolePathsRecord, RoleUpdateInputRecord, RoleUpdateRequest,
+    RuntimeLaunchIntentReceiptRecord, RuntimeLaunchIntentRecord, RuntimeOperationTraceRecord,
     RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord,
     RuntimeRoleSlotInputRecord, RuntimeRoleSlotRecord, RuntimeTabChromeAcknowledgementRecord,
     RuntimeTabChromeItemRecord, RuntimeTabChromeProjectionRecord, RuntimeTabChromeReadyRecord,
@@ -108,6 +110,17 @@ pub use model::{
     WorkspaceUpdateInputRecord, WorkspaceUpdateRequest,
 };
 pub use portable::PORTABLE_SCHEMA_VERSION;
+pub use runtime_kernel::{
+    FocusPort, LaunchAttemptId, NativeRuntimeEvent, OperationId, RuntimeCommit,
+    RuntimeCommitStatus, RuntimeDesiredEffect, RuntimeIntent, RuntimeKernel,
+    RuntimeLaunchAdmission, RuntimeLaunchDisposition, RuntimeLiveTabRecord,
+    RuntimeLiveWindowRecord, RuntimeLogicalSurfaceRecord, RuntimeNativeProjection,
+    RuntimeNativeSurfaceFence, RuntimeNativeTabProjection, RuntimeOperationPhase,
+    RuntimeOperationRecord, RuntimeSnapshot, RuntimeSurfaceGeneration, RuntimeSurfaceLifecycle,
+    RuntimeTabId, RuntimeTabTombstone, RuntimeTerminalEvent, RuntimeTopologyCommitInput,
+    RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput, RuntimeWindowTopologyCommit,
+    SurfacePort, TabChromePort, WindowPort, apply_runtime_native_projection,
+};
 
 /// Resolves workspace surface geometry without entering [`AppCore`]. Native
 /// window adapters use this during UI-thread resize callbacks, where re-entering
@@ -121,6 +134,18 @@ pub fn resolve_workspace_layout(input: &WorkspaceLayoutInput) -> WorkspaceLayout
 /// the same edge matching rules.
 pub fn create_workspace_dividers(roles: &[LayoutRoleInput]) -> Vec<WorkspaceDividerDescriptor> {
     layout::create_dividers(roles)
+}
+
+/// Resolves adaptive page zoom without re-entering [`AppCore`] from a native resize callback.
+pub fn resolve_adaptive_zoom_percent(viewport_width: f64, current_percent: Option<u32>) -> u32 {
+    layout::adaptive_zoom_percent(viewport_width, current_percent)
+}
+
+/// Resolves a divider drag without re-entering [`AppCore`] from an AppKit/Win32 callback.
+pub fn resize_workspace_divider(
+    input: &WorkspaceDividerResizeInput,
+) -> Option<WorkspaceDividerResizeOutput> {
+    layout::resize_divider(input)
 }
 
 pub const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");

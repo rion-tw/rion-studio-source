@@ -6,28 +6,19 @@ impl SystemRuntimeExecutor {
             "syncNativeTabMetadata",
             PLATFORM_CALLBACK_TIMEOUT,
         );
-        let preferences = crate::runtime_tabs_macos::runtime_window_preferences(&self.core);
+        let metadata = self.projection_metadata();
+        let preferences = metadata.window_preferences;
         let language = self
             .language
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
-        let roles = self
-            .core
-            .invoke(CoreCommand::RolesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
-            .unwrap_or_default();
+        let roles = metadata.roles;
         let role_names = roles
             .iter()
             .map(|role| (role.id.as_str(), role.name.as_str()))
             .collect::<HashMap<_, _>>();
-        let games = self
-            .core
-            .invoke(CoreCommand::GamesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateGameRecord>>(value).ok())
-            .unwrap_or_default();
+        let games = metadata.games;
         let game_icons = games
             .iter()
             .filter_map(|game| {
@@ -49,12 +40,12 @@ impl SystemRuntimeExecutor {
                 snapshot
                     .tabs
                     .iter()
-                    .filter(|tab| !tab.hidden && !state.optimistic_closed_tabs.contains(&tab.id))
+                    .filter(|tab| !tab.hidden && !state.tab_close_pending(&tab.id))
                     .filter_map(|tab| {
-                        let live = state.tabs.get(&tab.id)?;
+                        let live = state.native_resources.tabs.get(&tab.id)?;
                         let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
                         let controller = state
-                            .display_hosts
+                            .native_resources.display_hosts
                             .get(&tab.window_id)?
                             .tabs_controller
                             .clone();
@@ -89,16 +80,14 @@ impl SystemRuntimeExecutor {
                                 active: selected_tabs
                                     .get(&tab.window_id)
                                     .is_some_and(|selected| selected == &tab.id),
-                                audio_muted: live.audio_muted,
+                                audio_muted: presented.audio_muted,
                                 audible: runtime_tab_is_audible(&state, live),
                                 icon_data_url,
                                 id: tab.id.clone(),
                                 name: presented.title,
                                 tooltip,
                                 tab_type: presented.tab_type,
-                                workspace_template: presented
-                                    .workspace_template
-                                    .or_else(|| live.workspace_template.clone()),
+                                workspace_template: presented.workspace_template,
                             },
                         ))
                     })
@@ -144,25 +133,12 @@ impl SystemRuntimeExecutor {
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
-        let preferences = self
-            .core
-            .invoke(CoreCommand::RuntimeWindowPreferencesGet)
-            .unwrap_or(Value::Null);
-        let always_hide_tab_close_button = preferences["alwaysHideTabCloseButton"]
-            .as_bool()
-            .unwrap_or(false);
-        let roles = self
-            .core
-            .invoke(CoreCommand::RolesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateRoleRecord>>(value).ok())
-            .unwrap_or_default();
-        let games = self
-            .core
-            .invoke(CoreCommand::GamesList)
-            .ok()
-            .and_then(|value| serde_json::from_value::<Vec<StateGameRecord>>(value).ok())
-            .unwrap_or_default();
+        let metadata = self.projection_metadata();
+        let always_hide_tab_close_button = metadata
+            .window_preferences
+            .always_hide_tab_close_button;
+        let roles = metadata.roles;
+        let games = metadata.games;
         let icons = roles
             .iter()
             .filter_map(|role| {
@@ -192,12 +168,12 @@ impl SystemRuntimeExecutor {
                     .tabs
                     .iter()
                     .filter(|tab| {
-                        !tab.hidden && !state.optimistic_closed_tabs.contains(&tab.id)
+                        !tab.hidden && !state.tab_close_pending(&tab.id)
                     })
                     .filter_map(|tab| {
-                        let live = state.tabs.get(&tab.id)?;
+                        let live = state.native_resources.tabs.get(&tab.id)?;
                         let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
-                        let tab_strip = state.display_hosts.get(&tab.window_id)?.tab_strip.clone();
+                        let tab_strip = state.native_resources.display_hosts.get(&tab.window_id)?.tab_strip.clone();
                         let names = tab
                             .slots
                             .iter()
@@ -229,15 +205,13 @@ impl SystemRuntimeExecutor {
                                 "id": tab.id,
                                 "name": presented.title,
                                 "type": presented.tab_type,
-                                "workspaceTemplate": presented
-                                    .workspace_template
-                                    .or_else(|| live.workspace_template.clone()),
+                                "workspaceTemplate": presented.workspace_template,
                                 "sourceId": presented.source_id,
                                 "phase": phase.as_str(),
                                 "tooltip": tooltip,
                                 "iconDataUrl": icon_data_url,
                                 "audible": runtime_tab_is_audible(&state, live),
-                                "audioMuted": live.audio_muted,
+                                "audioMuted": presented.audio_muted,
                                 "hideCloseButton": always_hide_tab_close_button || !presented.closable,
                                 "mutedLabel": muted_label,
                                 "playingLabel": playing_label,
@@ -290,14 +264,14 @@ impl SystemRuntimeExecutor {
     fn bind_role_close_operation(&self, role_id: &str, operation_id: &str) -> RuntimeResult<()> {
         let mut state = self.state()?;
         for surface in state
-            .surface_registry
+            .native_resources.surface_registry
             .values_mut()
             .filter(|surface| surface.role_id.as_deref() == Some(role_id))
         {
             surface.close_operation_id = Some(operation_id.to_owned());
         }
         for surface in state
-            .retired_surface_registry
+            .native_resources.retired_surface_registry
             .values_mut()
             .filter(|surface| surface.role_id.as_deref() == Some(role_id))
         {
@@ -309,14 +283,14 @@ impl SystemRuntimeExecutor {
     fn bind_tab_close_operation(&self, tab_id: &str, operation_id: &str) -> RuntimeResult<()> {
         let mut state = self.state()?;
         for surface in state
-            .surface_registry
+            .native_resources.surface_registry
             .values_mut()
             .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
         {
             surface.close_operation_id = Some(operation_id.to_owned());
         }
         for surface in state
-            .retired_surface_registry
+            .native_resources.retired_surface_registry
             .values_mut()
             .filter(|surface| surface.tab_id.as_deref() == Some(tab_id))
         {
@@ -327,13 +301,13 @@ impl SystemRuntimeExecutor {
 
     fn clear_surface_close_operation(&self, operation_id: &str) {
         if let Ok(mut state) = self.state.lock() {
-            for surface in state.surface_registry.values_mut().filter(|surface| {
+            for surface in state.native_resources.surface_registry.values_mut().filter(|surface| {
                 surface.close_operation_id.as_deref() == Some(operation_id)
             }) {
                 surface.close_operation_id = None;
             }
             for surface in state
-                .retired_surface_registry
+                .native_resources.retired_surface_registry
                 .values_mut()
                 .filter(|surface| {
                     surface.close_operation_id.as_deref() == Some(operation_id)
@@ -351,9 +325,9 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|state| {
                 state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values()
-                    .chain(state.retired_surface_registry.values())
+                    .chain(state.native_resources.retired_surface_registry.values())
                     .filter(|surface| {
                         surface.close_operation_id.as_deref() == Some(operation_id)
                     })
@@ -380,9 +354,9 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|state| {
                 state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values()
-                    .chain(state.retired_surface_registry.values())
+                    .chain(state.native_resources.retired_surface_registry.values())
                     .filter(|surface| {
                         window_id.is_none_or(|window_id| surface.window_id == window_id)
                     })
@@ -404,9 +378,9 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|state| {
                 state
-                    .surface_registry
+                    .native_resources.surface_registry
                     .values()
-                    .chain(state.retired_surface_registry.values())
+                    .chain(state.native_resources.retired_surface_registry.values())
                     .filter(|surface| {
                         destroyed_host_surface_identity_matches(
                             &surface.window_id,
@@ -488,13 +462,13 @@ impl SystemRuntimeExecutor {
         }
         if let Ok(mut state) = self.state.lock() {
             for surface in &cancelled {
-                if let Some(current) = state.surface_registry.get_mut(&surface.instance_id)
+                if let Some(current) = state.native_resources.surface_registry.get_mut(&surface.instance_id)
                     && current.generation == surface.generation
                 {
                     current.phase = ManagedSurfacePhase::Quarantined;
                 }
                 if let Some(current) = state
-                    .retired_surface_registry
+                    .native_resources.retired_surface_registry
                     .get_mut(&surface.instance_id)
                     && current.generation == surface.generation
                 {
@@ -764,7 +738,7 @@ impl SystemRuntimeExecutor {
             }
             let (surface, owns_close) = {
                 let mut state = self.state()?;
-                let surface = state.surface_registry.get_mut(instance_id).ok_or_else(|| {
+                let surface = state.native_resources.surface_registry.get_mut(instance_id).ok_or_else(|| {
                     RuntimeError::new(
                         "SYSTEM_SURFACE_REGISTRY_MISSING",
                         "The native surface registry entry is missing.",
@@ -820,7 +794,7 @@ impl SystemRuntimeExecutor {
                 }
                 Err(error) => {
                     if let Ok(mut state) = self.state.lock() {
-                        if let Some(current) = state.surface_registry.get_mut(instance_id) {
+                        if let Some(current) = state.native_resources.surface_registry.get_mut(instance_id) {
                             current.phase = ManagedSurfacePhase::Quarantined;
                         }
                         if let Some(role_id) = surface.role_id.as_ref() {
@@ -886,7 +860,7 @@ impl SystemRuntimeExecutor {
     fn close_popup_and_wait(&self, label: &str, role_id: &str) -> RuntimeResult<()> {
         let instance_id = self
             .state()?
-            .surface_registry
+            .native_resources.surface_registry
             .values()
             .find(|surface| {
                 surface.kind == ManagedSurfaceKind::Popup

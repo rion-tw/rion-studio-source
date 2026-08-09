@@ -15,23 +15,23 @@ use windows::Win32::{
     },
 };
 
-const WM_RION_GEOMETRY_FLUSH: u32 = WM_APP + 0x52;
+pub(in crate::system_runtime) const WM_RION_GEOMETRY_FLUSH: u32 = WM_APP + 0x52;
 
 #[derive(Clone, Debug)]
-struct WindowsLiveResizeRolePlan {
+pub(in crate::system_runtime) struct WindowsLiveResizeRolePlan {
     input: LayoutRoleInput,
     label: String,
 }
 
 #[derive(Clone, Debug)]
-struct WindowsLiveResizeDividerPlan {
+pub(in crate::system_runtime) struct WindowsLiveResizeDividerPlan {
     axis: String,
     index: u32,
     label: String,
 }
 
 #[derive(Clone, Debug)]
-struct WindowsLiveResizePlan {
+pub(in crate::system_runtime) struct WindowsLiveResizePlan {
     dividers: Vec<WindowsLiveResizeDividerPlan>,
     gap: u32,
     generation: u64,
@@ -42,14 +42,14 @@ struct WindowsLiveResizePlan {
 }
 
 #[derive(Clone)]
-struct WindowsLiveResizeSurface {
+pub(in crate::system_runtime) struct WindowsLiveResizeSurface {
     controller: ICoreWebView2Controller,
     hwnd: HWND,
     label: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct WindowsLiveResizeCounters {
+pub(in crate::system_runtime) struct WindowsLiveResizeCounters {
     applied: u64,
     deferred: u64,
     errors: u64,
@@ -74,7 +74,7 @@ impl WindowsLiveResizeCounters {
 
 }
 
-struct WindowsLiveResizeHost {
+pub(in crate::system_runtime) struct WindowsLiveResizeHost {
     counters: WindowsLiveResizeCounters,
     flush_posted: bool,
     frame_sequence: u64,
@@ -91,7 +91,7 @@ struct WindowsLiveResizeHost {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WindowsGeometryKey {
+pub(in crate::system_runtime) struct WindowsGeometryKey {
     dpi: u32,
     frame_revision: u64,
     generation: u64,
@@ -102,29 +102,29 @@ struct WindowsGeometryKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WindowsGeometryPresentation {
+pub(in crate::system_runtime) enum WindowsGeometryPresentation {
     Maximized,
     Restored,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum WindowsGeometryStatus {
+pub(in crate::system_runtime) enum WindowsGeometryStatus {
     Applied,
     Failed,
     Unchanged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WindowsGeometryReceipt {
+pub(in crate::system_runtime) struct WindowsGeometryReceipt {
     key: WindowsGeometryKey,
     status: WindowsGeometryStatus,
     terminal: bool,
 }
 
-type WindowsGeometryReceiptHandler = Arc<dyn Fn(WindowsGeometryReceipt) + Send + Sync>;
+pub(in crate::system_runtime) type WindowsGeometryReceiptHandler = Arc<dyn Fn(WindowsGeometryReceipt) + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WindowsGeometryPendingFrame {
+pub(in crate::system_runtime) struct WindowsGeometryPendingFrame {
     dpi: u32,
     frame_revision: u64,
     height: u32,
@@ -134,7 +134,7 @@ struct WindowsGeometryPendingFrame {
 }
 
 #[derive(Clone)]
-struct WindowsGeometrySubmission {
+pub(in crate::system_runtime) struct WindowsGeometrySubmission {
     bounds: Vec<WindowsLiveResizeBounds>,
     key: WindowsGeometryKey,
     last_batch_failed: bool,
@@ -145,13 +145,13 @@ struct WindowsGeometrySubmission {
 }
 
 #[derive(Default)]
-struct WindowsLiveResizeRegistry {
+pub(in crate::system_runtime) struct WindowsLiveResizeRegistry {
     hosts: HashMap<usize, WindowsLiveResizeHost>,
     surfaces: HashMap<String, WindowsLiveResizeSurface>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct WindowsLiveResizeObservation {
+pub(in crate::system_runtime) struct WindowsLiveResizeObservation {
     client_height: u32,
     client_width: u32,
     counters: WindowsLiveResizeCounters,
@@ -170,15 +170,15 @@ thread_local! {
         RefCell::new(WindowsLiveResizeRegistry::default());
 }
 
-fn windows_hwnd_key(hwnd: HWND) -> usize {
+pub(in crate::system_runtime) fn windows_hwnd_key(hwnd: HWND) -> usize {
     hwnd.0 as usize
 }
 
-fn windows_hwnd_from_key(key: usize) -> HWND {
+pub(in crate::system_runtime) fn windows_hwnd_from_key(key: usize) -> HWND {
     HWND(key as *mut _)
 }
 
-fn windows_live_resize_install_host(
+pub(in crate::system_runtime) fn windows_live_resize_install_host(
     window: &Window,
     generation: u64,
     receipt_handler: WindowsGeometryReceiptHandler,
@@ -237,7 +237,7 @@ fn windows_live_resize_install_host(
         .map_err(RuntimeError::tauri)
 }
 
-fn windows_live_resize_register_webview(webview: &Webview) -> RuntimeResult<()> {
+pub(in crate::system_runtime) fn windows_live_resize_register_webview(webview: &Webview) -> RuntimeResult<()> {
     let label = webview.label().to_owned();
     webview
         .with_webview(move |platform_webview| unsafe {
@@ -266,7 +266,7 @@ fn windows_live_resize_register_webview(webview: &Webview) -> RuntimeResult<()> 
         .map_err(RuntimeError::tauri)
 }
 
-fn windows_live_resize_register_controller(
+pub(in crate::system_runtime) fn windows_live_resize_register_controller(
     label: String,
     controller: ICoreWebView2Controller,
 ) {
@@ -293,7 +293,7 @@ fn windows_live_resize_register_controller(
     }
 }
 
-fn windows_live_resize_unregister_surface(webview: &Webview) {
+pub(in crate::system_runtime) fn windows_live_resize_unregister_surface(webview: &Webview) {
     let label = webview.label().to_owned();
     let app = webview.app_handle().clone();
     let _ = app.run_on_main_thread(move || {
@@ -305,7 +305,7 @@ fn windows_live_resize_unregister_surface(webview: &Webview) {
     });
 }
 
-fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan) {
+pub(in crate::system_runtime) fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan) {
     let publish_window = window.clone();
     let _ = window.run_on_main_thread(move || {
         let Ok(hwnd) = publish_window.hwnd() else {
@@ -342,13 +342,13 @@ fn windows_live_resize_publish_plan(window: &Window, plan: WindowsLiveResizePlan
     });
 }
 
-fn windows_live_resize_advance_epoch(host: &mut WindowsLiveResizeHost) {
+pub(in crate::system_runtime) fn windows_live_resize_advance_epoch(host: &mut WindowsLiveResizeHost) {
     host.plan_epoch = host.plan_epoch.saturating_add(1).max(1);
     host.last_batch_failed = false;
     host.last_materialized_key = None;
 }
 
-fn windows_live_resize_invalidate_surface_plans(
+pub(in crate::system_runtime) fn windows_live_resize_invalidate_surface_plans(
     registry: &mut WindowsLiveResizeRegistry,
     label: &str,
 ) -> Vec<usize> {
@@ -367,13 +367,13 @@ fn windows_live_resize_invalidate_surface_plans(
     invalidated
 }
 
-fn windows_live_resize_plan_contains_label(plan: &WindowsLiveResizePlan, label: &str) -> bool {
+pub(in crate::system_runtime) fn windows_live_resize_plan_contains_label(plan: &WindowsLiveResizePlan, label: &str) -> bool {
     plan.tab_strip_label == label
         || plan.roles.iter().any(|role| role.label == label)
         || plan.dividers.iter().any(|divider| divider.label == label)
 }
 
-fn windows_live_resize_plans_match(
+pub(in crate::system_runtime) fn windows_live_resize_plans_match(
     current: &WindowsLiveResizePlan,
     next: &WindowsLiveResizePlan,
 ) -> bool {
@@ -402,7 +402,7 @@ fn windows_live_resize_plans_match(
             })
 }
 
-fn windows_live_resize_plan_is_current(
+pub(in crate::system_runtime) fn windows_live_resize_plan_is_current(
     host_generation: u64,
     current_revision: Option<u64>,
     plan_generation: u64,
@@ -412,7 +412,7 @@ fn windows_live_resize_plan_is_current(
         && current_revision.is_none_or(|current| plan_revision >= current)
 }
 
-fn windows_live_resize_observe(
+pub(in crate::system_runtime) fn windows_live_resize_observe(
     window: &Window,
     event_width: u32,
     event_height: u32,
@@ -471,7 +471,7 @@ fn windows_live_resize_observe(
     })
 }
 
-fn windows_live_resize_counters_are_unchanged(
+pub(in crate::system_runtime) fn windows_live_resize_counters_are_unchanged(
     counters: WindowsLiveResizeCounters,
     matched_latest_frame: bool,
 ) -> bool {
@@ -484,7 +484,7 @@ fn windows_live_resize_counters_are_unchanged(
         && counters.fallback == 0
 }
 
-fn windows_live_resize_frame_match(
+pub(in crate::system_runtime) fn windows_live_resize_frame_match(
     host: &WindowsLiveResizeHost,
     client_size: Option<(u32, u32)>,
 ) -> (bool, &'static str) {
@@ -510,7 +510,7 @@ fn windows_live_resize_frame_match(
     (true, "matched")
 }
 
-fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
+pub(in crate::system_runtime) fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
     let mut client = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client) }
         .ok()
@@ -521,7 +521,7 @@ fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
         })
 }
 
-fn windows_live_resize_message_is_actionable(
+pub(in crate::system_runtime) fn windows_live_resize_message_is_actionable(
     size_kind: usize,
     width: u32,
     height: u32,
@@ -529,7 +529,7 @@ fn windows_live_resize_message_is_actionable(
     size_kind != SIZE_MINIMIZED as usize && width > 0 && height > 0
 }
 
-fn windows_geometry_presentation(size_kind: usize) -> WindowsGeometryPresentation {
+pub(in crate::system_runtime) fn windows_geometry_presentation(size_kind: usize) -> WindowsGeometryPresentation {
     if size_kind == SIZE_MAXIMIZED as usize {
         WindowsGeometryPresentation::Maximized
     } else {
@@ -537,7 +537,7 @@ fn windows_geometry_presentation(size_kind: usize) -> WindowsGeometryPresentatio
     }
 }
 
-fn windows_live_resize_set_interactive(hwnd: HWND, interactive: bool) {
+pub(in crate::system_runtime) fn windows_live_resize_set_interactive(hwnd: HWND, interactive: bool) {
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
             host.interactive_resize = interactive;
@@ -545,7 +545,7 @@ fn windows_live_resize_set_interactive(hwnd: HWND, interactive: bool) {
     });
 }
 
-fn windows_live_resize_is_interactive(hwnd: HWND) -> bool {
+pub(in crate::system_runtime) fn windows_live_resize_is_interactive(hwnd: HWND) -> bool {
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         registry
             .borrow()
@@ -555,7 +555,7 @@ fn windows_live_resize_is_interactive(hwnd: HWND) -> bool {
     })
 }
 
-fn windows_live_resize_note_minimized(hwnd: HWND) {
+pub(in crate::system_runtime) fn windows_live_resize_note_minimized(hwnd: HWND) {
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
             host.counters.received = host.counters.received.saturating_add(1);
@@ -563,7 +563,7 @@ fn windows_live_resize_note_minimized(hwnd: HWND) {
     });
 }
 
-fn windows_live_resize_queue_current_frame(hwnd: HWND, terminal: bool) {
+pub(in crate::system_runtime) fn windows_live_resize_queue_current_frame(hwnd: HWND, terminal: bool) {
     let Some((width, height)) = windows_live_resize_client_size(hwnd) else {
         return;
     };
@@ -575,7 +575,7 @@ fn windows_live_resize_queue_current_frame(hwnd: HWND, terminal: bool) {
     windows_live_resize_queue_frame(hwnd, width, height, presentation, terminal);
 }
 
-fn windows_live_resize_queue_frame(
+pub(in crate::system_runtime) fn windows_live_resize_queue_frame(
     hwnd: HWND,
     width: u32,
     height: u32,
@@ -631,7 +631,7 @@ fn windows_live_resize_queue_frame(
     }
 }
 
-fn windows_geometry_merge_pending(
+pub(in crate::system_runtime) fn windows_geometry_merge_pending(
     previous: Option<WindowsGeometryPendingFrame>,
     mut next: WindowsGeometryPendingFrame,
 ) -> (WindowsGeometryPendingFrame, bool) {
@@ -712,7 +712,7 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
     result
 }
 
-fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {
+pub(in crate::system_runtime) fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {
     let key = windows_hwnd_key(hwnd);
     let surfaces = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let registry = registry.borrow();
@@ -737,7 +737,7 @@ fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {
     });
 }
 
-fn windows_live_resize_notify_each<T>(
+pub(in crate::system_runtime) fn windows_live_resize_notify_each<T>(
     surfaces: &[T],
     mut notify: impl FnMut(&T) -> Result<(), ()>,
 ) -> (u64, u64) {
@@ -753,7 +753,7 @@ fn windows_live_resize_notify_each<T>(
     (applied, errors)
 }
 
-fn windows_live_resize_all_surface_bounds_match(
+pub(in crate::system_runtime) fn windows_live_resize_all_surface_bounds_match(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
     last_surface_bounds: &HashMap<String, WindowsLiveResizeBounds>,
@@ -771,7 +771,7 @@ fn windows_live_resize_all_surface_bounds_match(
     )
 }
 
-fn windows_geometry_cached_bounds_match(
+pub(in crate::system_runtime) fn windows_geometry_cached_bounds_match(
     labels: &[String],
     bounds: &[WindowsLiveResizeBounds],
     last_surface_bounds: &HashMap<String, WindowsLiveResizeBounds>,
@@ -786,7 +786,7 @@ fn windows_geometry_cached_bounds_match(
             .all(|(label, bounds)| last_surface_bounds.get(label) == Some(bounds))
 }
 
-fn windows_geometry_submission_is_current(
+pub(in crate::system_runtime) fn windows_geometry_submission_is_current(
     host_generation: u64,
     host_plan_epoch: u64,
     host_plan_revision: Option<u64>,
@@ -797,7 +797,7 @@ fn windows_geometry_submission_is_current(
         && host_plan_revision == Some(submission.key.plan_revision)
 }
 
-fn windows_live_resize_prepare_submission(hwnd: HWND) -> Option<WindowsGeometrySubmission> {
+pub(in crate::system_runtime) fn windows_live_resize_prepare_submission(hwnd: HWND) -> Option<WindowsGeometrySubmission> {
     let prepared = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
         let key = windows_hwnd_key(hwnd);
@@ -867,7 +867,7 @@ fn windows_live_resize_prepare_submission(hwnd: HWND) -> Option<WindowsGeometryS
     })
 }
 
-fn windows_live_resize_complete_submission(
+pub(in crate::system_runtime) fn windows_live_resize_complete_submission(
     hwnd: HWND,
     submission: &WindowsGeometrySubmission,
     status: WindowsGeometryStatus,
@@ -918,7 +918,7 @@ fn windows_live_resize_complete_submission(
     }
 }
 
-fn windows_live_resize_flush(hwnd: HWND) {
+pub(in crate::system_runtime) fn windows_live_resize_flush(hwnd: HWND) {
     let Some(submission) = windows_live_resize_prepare_submission(hwnd) else {
         return;
     };
@@ -945,7 +945,7 @@ fn windows_live_resize_flush(hwnd: HWND) {
     windows_live_resize_complete_submission(hwnd, &submission, status);
 }
 
-fn windows_live_resize_collect_surfaces(
+pub(in crate::system_runtime) fn windows_live_resize_collect_surfaces(
     registry: &WindowsLiveResizeRegistry,
     plan: &WindowsLiveResizePlan,
 ) -> Option<Vec<WindowsLiveResizeSurface>> {
@@ -957,7 +957,7 @@ fn windows_live_resize_collect_surfaces(
         .collect()
 }
 
-fn windows_live_resize_plan_surfaces_available(
+pub(in crate::system_runtime) fn windows_live_resize_plan_surfaces_available(
     registry: &WindowsLiveResizeRegistry,
     plan: &WindowsLiveResizePlan,
 ) -> bool {

@@ -1,12 +1,11 @@
 impl SystemRuntimeExecutor {
     pub fn new(app: AppHandle, user_data_dir: PathBuf, core: Arc<AppCore>) -> Result<Self, String> {
-        let settings = core
-            .invoke(CoreCommand::GameBrowserSettingsGet)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<GameBrowserSettingsRecord>(value)
-                    .map_err(|error| error.to_string())
-            })?;
+        let app_snapshot = core.app_snapshot().map_err(|error| error.to_string())?;
+        let settings = app_snapshot
+            .state
+            .game_browser_settings
+            .clone()
+            .ok_or_else(|| "Game browser settings are missing from AppSnapshot.".to_owned())?;
         #[cfg(windows)]
         let additional_browser_arguments = rion_core::additional_browser_arguments(
             rion_platform::Platform::Windows,
@@ -14,6 +13,7 @@ impl SystemRuntimeExecutor {
         )
         .join(" ");
         let runtime_indicator_script = runtime_indicator_document_start_script()?;
+        let projection_metadata = RuntimeProjectionMetadata::from_app_snapshot(&app_snapshot);
         let document_start_script = [
             SYSTEM_RUNTIME_INIT_SCRIPT.to_owned(),
             RUNTIME_AUDIO_OBSERVER_SCRIPT.to_owned(),
@@ -27,23 +27,12 @@ impl SystemRuntimeExecutor {
         let overlay_document_start_script_template =
             macro_overlay_document_start_script_template()?;
         let stored_restore_session = core
-            .invoke(CoreCommand::RuntimeRestoreSessionGet)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<RuntimeRestoreSessionRecord>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let game_windows = core
-            .invoke(CoreCommand::GameWindowsList)
-            .map_err(|error| error.to_string())
-            .and_then(|value| {
-                serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                    .map_err(|error| error.to_string())
-            })?;
-        let saved_window_names = game_windows
-            .iter()
-            .map(|window| (window.id.clone(), window.name.clone()))
-            .collect::<HashMap<_, _>>();
+            .runtime_restore_session()
+            .map_err(|error| error.to_string())?;
+        let game_windows = app_snapshot.state.game_windows.clone();
+        let runtime_kernel = core.runtime_kernel();
+        let runtime_authority_barrier = core.runtime_authority_barrier();
+        seed_persisted_runtime_windows(&core, &game_windows)?;
         let dormant_windows = game_windows
             .iter()
             .filter(|window| !window.tabs.is_empty())
@@ -96,9 +85,7 @@ impl SystemRuntimeExecutor {
         unclean_session.updated_at = chrono::Utc::now().to_rfc3339();
         unclean_session.restore_in_progress_window_ids.clear();
         unclean_session.windows.clear();
-        core.invoke(CoreCommand::RuntimeRestoreSessionReplace {
-            session: unclean_session,
-        })
+        core.replace_runtime_restore_session(unclean_session)
         .map_err(|error| error.to_string())?;
 
         set_application_lifecycle_epoch(0);
@@ -130,7 +117,7 @@ impl SystemRuntimeExecutor {
                 macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
                 overlay_document_start_script_template,
             },
-            core,
+            core: Arc::clone(&core),
             critical_activity_sequence: AtomicU64::new(0),
             effect_sender: OnceLock::new(),
             lifecycle_sender: OnceLock::new(),
@@ -157,7 +144,11 @@ impl SystemRuntimeExecutor {
             optional_hydration_sender: OnceLock::new(),
             optional_idle_changed: Condvar::new(),
             pending_window_activation: Mutex::new(None),
-            presentation: Arc::new(PresentationRegistry::default()),
+            presentation: Arc::new(PresentationRegistry::new(
+                runtime_kernel,
+                runtime_authority_barrier,
+            )),
+            projection_metadata: RwLock::new(projection_metadata),
             surface_recoveries: SurfaceRecoveryRegistry::default(),
             tab_close_changed: Condvar::new(),
             tab_drag_intents: Arc::new(TabDragIntentCoordinator::default()),
@@ -173,6 +164,7 @@ impl SystemRuntimeExecutor {
             restore_persist_changed: Condvar::new(),
             restore_persist_signal: Mutex::new(()),
             runtime_projection: RevisionedJsonProjection::default(),
+            runtime_surface_sequence: AtomicU64::new(0),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
             self_weak: OnceLock::new(),
             shutdown_operation: OnceLock::new(),
@@ -182,7 +174,6 @@ impl SystemRuntimeExecutor {
                 recovery_interrupted_window_ids,
                 recovery_required,
                 recovery_session_generation,
-                saved_window_names,
                 ..RuntimeState::default()
             }),
             window_state_persistence,
@@ -253,7 +244,7 @@ impl SystemRuntimeExecutor {
                         let runtime_tab_exists = runtime
                             .state
                             .lock()
-                            .is_ok_and(|state| state.tabs.contains_key(&tab_id));
+                            .is_ok_and(|state| state.native_resources.tabs.contains_key(&tab_id));
                         if !runtime_tab_exists {
                             runtime.complete_retiring_window_tab(
                                 &window_id,
@@ -709,9 +700,9 @@ impl SystemRuntimeExecutor {
 
     fn hydrate_tab_optional(&self, tab_id: &str) {
         let tab_accepts_optional_hydration = self.state.lock().ok().is_some_and(|state| {
-            state.tabs.contains_key(tab_id)
+            state.native_resources.tabs.contains_key(tab_id)
                 && !state.close_coordinator.closing_tabs.contains(tab_id)
-                && !state.optimistic_closed_tabs.contains(tab_id)
+                && !state.tab_close_pending(tab_id)
                 && !state.close_previews.contains_key(tab_id)
         });
         if !tab_accepts_optional_hydration {
@@ -724,7 +715,7 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| {
-                state.tabs.get(tab_id).map(|tab| {
+                state.native_resources.tabs.get(tab_id).map(|tab| {
                     tab.roles
                         .iter()
                         .map(|(role_id, surface)| {
@@ -739,9 +730,9 @@ impl SystemRuntimeExecutor {
             let current = self.state.lock().ok().is_some_and(|state| {
                 !state.close_coordinator.closing_tabs.contains(tab_id)
                     && !state.close_coordinator.closing_roles.contains(&role_id)
-                    && state.role_tabs.get(&role_id).is_some_and(|current_tab_id| {
+                    && state.native_tab_id_for_role_surface(&role_id).is_some_and(|current_tab_id| {
                         current_tab_id == tab_id
-                            && state.tabs.get(tab_id).is_some_and(|tab| {
+                            && state.native_resources.tabs.get(tab_id).is_some_and(|tab| {
                                 tab.roles.get(&role_id).is_some_and(|surface| {
                                     surface.generation == generation
                                         && surface.webview.label() == webview.label()
@@ -780,9 +771,9 @@ impl SystemRuntimeExecutor {
             .flatten()
             .is_some()
             && self.state.lock().ok().is_some_and(|state| {
-                state.tabs.contains_key(tab_id)
+                state.native_resources.tabs.contains_key(tab_id)
                     && !state.close_coordinator.closing_tabs.contains(tab_id)
-                    && !state.optimistic_closed_tabs.contains(tab_id)
+                    && !state.tab_close_pending(tab_id)
                     && !state.close_previews.contains_key(tab_id)
             });
         if tab_still_live {

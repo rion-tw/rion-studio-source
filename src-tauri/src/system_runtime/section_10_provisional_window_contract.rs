@@ -7,7 +7,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<bool, String> {
         let (window, generation) = {
             let mut state = self.state().map_err(|error| error.message)?;
-            let Some(host) = state.display_hosts.get(window_id) else {
+            let Some(host) = state.native_resources.display_hosts.get(window_id) else {
                 return Ok(false);
             };
             let generation = host.generation;

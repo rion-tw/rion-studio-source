@@ -72,18 +72,18 @@ enum LaunchAdmissionResolution {
 
 fn resolve_launch_admission(
     completion: rion_core::BrowserLaunchAdmissionCompletion,
-    stable_owner: Option<String>,
+    disposition: &str,
+    tab_id: &str,
 ) -> LaunchAdmissionResolution {
-    if let Some(stable_owner) = stable_owner {
-        return LaunchAdmissionResolution::UseStableOwner(stable_owner);
+    if tab_id.trim().is_empty() {
+        return LaunchAdmissionResolution::OwnershipDiverged;
     }
-    match completion {
-        rion_core::BrowserLaunchAdmissionCompletion::PendingNativeCompletion => {
-            LaunchAdmissionResolution::AwaitNativeCompletion
-        }
-        rion_core::BrowserLaunchAdmissionCompletion::Completed => {
-            LaunchAdmissionResolution::OwnershipDiverged
-        }
+    if matches!(disposition, "existing" | "joined")
+        || completion == rion_core::BrowserLaunchAdmissionCompletion::Completed
+    {
+        LaunchAdmissionResolution::UseStableOwner(tab_id.to_owned())
+    } else {
+        LaunchAdmissionResolution::AwaitNativeCompletion
     }
 }
 
@@ -214,6 +214,7 @@ async fn invoke_runtime_source_launch(
     source_type: &str,
     target: EmbeddedLaunchTargetRecord,
     launch_preview_id: Option<String>,
+    launch_tab_id: Option<String>,
     restore_role_slots: Option<Vec<rion_core::GameWindowRoleSlotRecord>>,
 ) -> Result<rion_core::BrowserLaunchAdmissionRecord, CoreErrorPayload> {
     let command = if source_type == "workspace" {
@@ -221,6 +222,7 @@ async fn invoke_runtime_source_launch(
             workspace_id: source_id.to_owned(),
             target,
             launch_preview_id,
+            launch_tab_id,
             restore_role_slots,
         }
     } else {
@@ -228,6 +230,7 @@ async fn invoke_runtime_source_launch(
             role_id: source_id.to_owned(),
             target,
             launch_preview_id,
+            launch_tab_id,
             zoom_factor: None,
             restore_role_slots,
         }
@@ -310,13 +313,10 @@ async fn hydrate_saved_window_for_launch(
 
     let mut requested_statuses = Value::Array(Vec::new());
     for tab in restore_tabs_in_owner_priority(&hydrated) {
-        if let Some(native_tab_id) = state
-            .runtime
-            .native_tab_for_source(&tab.source_id, &tab.tab_type)
+        if let Some(owner) =
+            authoritative_runtime_tab_for_source(state, &tab.source_id, &tab.tab_type)?
         {
-            if state.runtime.live_tab_window_id(&native_tab_id).as_deref()
-                != Some(saved.id.as_str())
-            {
+            if owner.window_id != saved.id {
                 if let Some(preview) = launch_preview.as_ref() {
                     state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
                 }
@@ -338,6 +338,7 @@ async fn hydrate_saved_window_for_launch(
             &tab.tab_type,
             target.clone(),
             None,
+            Some(tab.id.clone()),
             Some(tab.role_slots.clone()),
         )
         .await;
@@ -352,10 +353,11 @@ async fn hydrate_saved_window_for_launch(
                 return Err(error);
             }
         };
-        let stable_owner = state
-            .runtime
-            .presented_stable_tab_for_launcher_source(&tab.source_id, &tab.tab_type);
-        if resolve_launch_admission(admission.completion, stable_owner)
+        if resolve_launch_admission(
+            admission.completion,
+            &admission.disposition,
+            &admission.tab_id,
+        )
             == LaunchAdmissionResolution::OwnershipDiverged
         {
             state.runtime.discard_prepared_tab_role_slots(&tab.id);
@@ -390,6 +392,7 @@ async fn hydrate_saved_window_for_launch(
             &intent.source_type,
             target.clone(),
             Some(preview.launch_preview_id.clone()),
+            Some(preview.provisional_tab_id.clone()),
             None,
         )
         .await
@@ -401,16 +404,17 @@ async fn hydrate_saved_window_for_launch(
                 return Err(error);
             }
         };
+        let resolution = resolve_launch_admission(
+            admission.completion,
+            &admission.disposition,
+            &admission.tab_id,
+        );
         requested_statuses = statuses_for_launch_source(
             serialized_launch_statuses(admission.statuses),
             &intent.source_id,
             &intent.source_type,
         );
-        let stable_owner = state.runtime.presented_stable_tab_for_launcher_source(
-            &intent.source_id,
-            &intent.source_type,
-        );
-        match resolve_launch_admission(admission.completion, stable_owner) {
+        match resolution {
             LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
                 state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
                 resolved_existing_tab_id = Some(stable_owner);
@@ -563,6 +567,7 @@ pub(crate) async fn execute_runtime_launch_intent(
                 &intent.source_type,
                 target.clone(),
                 Some(preview.launch_preview_id.clone()),
+                Some(preview.provisional_tab_id.clone()),
                 None,
             )
             .await
@@ -573,18 +578,17 @@ pub(crate) async fn execute_runtime_launch_intent(
                     return Err(error);
                 }
             };
+            let resolution = resolve_launch_admission(
+                admission.completion,
+                &admission.disposition,
+                &admission.tab_id,
+            );
             let statuses = statuses_for_launch_source(
                 serialized_launch_statuses(admission.statuses),
                 &intent.source_id,
                 &intent.source_type,
             );
-            let stable_owner = state
-                .runtime
-                .presented_stable_tab_for_launcher_source(
-                    &intent.source_id,
-                    &intent.source_type,
-                );
-            match resolve_launch_admission(admission.completion, stable_owner) {
+            match resolution {
                 LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
                     state
                         .runtime

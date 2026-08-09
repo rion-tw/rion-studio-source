@@ -133,6 +133,7 @@ impl NativeFocusBroker {
             })
     }
 
+    #[cfg(any(windows, test))]
     fn current_lease_for(
         &self,
         sequence: u64,
@@ -385,7 +386,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .and_then(|state| state.last_observed.clone())?;
         let is_same_generation = self.state.lock().ok().is_some_and(|state| {
-            state.display_hosts.get(&observed.window_id).is_some_and(|host| {
+            state.native_resources.display_hosts.get(&observed.window_id).is_some_and(|host| {
                 host.generation == observed.window_generation
             })
         });
@@ -406,7 +407,7 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<(u64, Option<String>)> {
         let window_generation = self
             .state()?
-            .display_hosts
+            .native_resources.display_hosts
             .get(window_id)
             .map(|host| host.generation)
             .ok_or_else(|| {
@@ -418,12 +419,7 @@ impl SystemRuntimeExecutor {
         let selected_tab_id = self
             .presentation
             .existing(window_id)
-            .and_then(|presentation| {
-                presentation
-                    .lock()
-                    .ok()
-                    .and_then(|state| state.selected_tab_id.clone())
-            });
+            .and_then(|presentation| presentation.selected_tab_id.clone());
         Ok((window_generation, selected_tab_id))
     }
 
@@ -521,8 +517,8 @@ impl SystemRuntimeExecutor {
         self.require_runtime_accepting()?;
         let owned_tab_id = {
             let state = self.state()?;
-            if let Some(tab_id) = state.role_tabs.get(role_id)
-                && let Some(tab) = state.tabs.get(tab_id)
+            if let Some(tab_id) = state.native_tab_id_for_role_surface(role_id)
+                && let Some(tab) = state.native_resources.tabs.get(tab_id)
                 && tab.roles.get(role_id).is_some_and(|surface| {
                     surface.webview.label() == webview.label()
                 })
@@ -541,7 +537,7 @@ impl SystemRuntimeExecutor {
             let window_id = self.resolve_live_tab_window_id(&tab_id)?;
             let generation = self
                 .state()?
-                .display_hosts
+                .native_resources.display_hosts
                 .get(&window_id)
                 .map(|host| host.generation)
                 .unwrap_or_default();

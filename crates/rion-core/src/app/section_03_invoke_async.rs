@@ -153,6 +153,7 @@ impl AppCore {
                 role_id,
                 target,
                 launch_preview_id,
+                launch_tab_id,
                 zoom_factor,
                 restore_role_slots,
             } => {
@@ -166,6 +167,7 @@ impl AppCore {
                         role_id,
                         target,
                         launch_preview_id,
+                        launch_tab_id,
                         zoom_factor.unwrap_or(1.0),
                         restore_role_slots,
                     )
@@ -177,6 +179,7 @@ impl AppCore {
                 workspace_id,
                 target,
                 launch_preview_id,
+                launch_tab_id,
                 restore_role_slots,
             } => {
                 let admission = self
@@ -184,6 +187,7 @@ impl AppCore {
                         workspace_id,
                         target,
                         launch_preview_id,
+                        launch_tab_id,
                         restore_role_slots,
                     )
                     .await?;
@@ -239,6 +243,16 @@ impl AppCore {
                     serde_json::to_value(snapshot)
                         .map_err(|error| CoreError::Internal(error.to_string()))
                 })
+            }
+            CoreCommand::BrowserWindowCloseAdmit { request } => {
+                let core = Arc::clone(self);
+                let request = tokio::task::spawn_blocking(move || {
+                    core.admit_embedded_window_close(request)
+                })
+                .await
+                .map_err(|error| CoreError::Internal(error.to_string()))??;
+                serde_json::to_value(request)
+                    .map_err(|error| CoreError::Internal(error.to_string()))
             }
             CoreCommand::BrowserWindowStop { request } => {
                 let core = Arc::clone(self);
@@ -607,8 +621,12 @@ impl AppCore {
         workspace_id: String,
         target: EmbeddedLaunchTargetRecord,
         launch_preview_id: Option<String>,
+        launch_tab_id: Option<String>,
         restore_role_slots: Option<Vec<GameWindowRoleSlotRecord>>,
     ) -> CoreResult<crate::model::BrowserLaunchAdmissionRecord> {
+        let admission_operation_id = uuid::Uuid::new_v4().to_string();
+        let admission_attempt_id = uuid::Uuid::new_v4().to_string();
+        let admission_requested_tab_id = launch_tab_id.clone();
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
@@ -624,16 +642,23 @@ impl AppCore {
                 });
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
+            let start_workspace_id = workspace_id.clone();
             let target = target.clone();
             let start_launch_preview_id = launch_preview_id.clone();
+            let start_launch_tab_id = launch_tab_id.clone();
+            let start_attempt_id = admission_attempt_id.clone();
             let start_restore_role_slots = restore_role_slots.clone();
             let result = tokio::task::spawn_blocking(move || {
                 core.start_embedded_workspace_for_roles(
-                    &workspace_id,
+                    &start_workspace_id,
                     &expected_role_ids,
-                    target,
-                    start_launch_preview_id,
-                    start_restore_role_slots,
+                    EmbeddedWorkspaceLaunchRequest {
+                        target,
+                        launch_preview_id: start_launch_preview_id,
+                        launch_tab_id: start_launch_tab_id,
+                        launch_attempt_id: start_attempt_id,
+                        restore_role_slots: start_restore_role_slots,
+                    },
                 )
             })
             .await
@@ -644,16 +669,45 @@ impl AppCore {
                     ..
                 }) => continue,
                 Ok(EmbeddedWorkspaceLaunchStart::Completed(results)) => {
+                    let result_was_empty = results.is_empty();
                     let statuses = self.decorate_browser_statuses(
                         results.into_iter().map(embedded_status).collect(),
                     )?;
+                    let tab_id = self
+                        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+                        .snapshot
+                        .tabs
+                        .into_iter()
+                        .find(|tab| {
+                            tab.tab_type == "workspace" && tab.source_id == workspace_id
+                        })
+                        .map(|tab| tab.id)
+                        .or(admission_requested_tab_id.clone())
+                        .ok_or_else(|| {
+                            CoreError::Internal(
+                                "workspace launch admission omitted its logical tab identity"
+                                    .to_owned(),
+                            )
+                        })?;
                     return Ok(crate::model::BrowserLaunchAdmissionRecord {
+                        attempt_id: admission_attempt_id,
                         completion: crate::model::BrowserLaunchAdmissionCompletion::Completed,
+                        disposition: if result_was_empty {
+                            "joined"
+                        } else if admission_requested_tab_id.as_deref() == Some(tab_id.as_str()) {
+                            "admitted"
+                        } else {
+                            "existing"
+                        }
+                        .to_owned(),
+                        operation_id: admission_operation_id,
                         statuses,
+                        tab_id,
                     });
                 }
                 Ok(EmbeddedWorkspaceLaunchStart::Pending(pending)) => {
                     let accepted_at = Instant::now();
+                    let pending_tab_id = pending.tab_id.clone();
                     let accepted = pending
                         .role_ids
                         .iter()
@@ -714,9 +768,13 @@ impl AppCore {
                         core.emit_browser_statuses();
                     }));
                     return Ok(crate::model::BrowserLaunchAdmissionRecord {
+                        attempt_id: admission_attempt_id,
                         completion:
                             crate::model::BrowserLaunchAdmissionCompletion::PendingNativeCompletion,
+                        disposition: "admitted".to_owned(),
+                        operation_id: admission_operation_id,
                         statuses: accepted,
+                        tab_id: pending_tab_id,
                     });
                 }
                 Err(error) => return Err(error),

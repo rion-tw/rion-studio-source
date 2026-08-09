@@ -65,7 +65,6 @@ fn claim_input_fence_recovery(
         return None;
     }
     fence.recovery_scheduled = true;
-    fence.reconciling = false;
     fence.resuming = false;
     Some(fence.surface_generation)
 }
@@ -123,7 +122,7 @@ fn claim_navigation_input_resume(
     true
 }
 
-fn main_frame_navigation_needs_reconciliation(
+fn main_frame_navigation_deadline_is_current(
     fences: &HashMap<String, RoleInputFence>,
     tickets: &HashMap<String, MainFrameNavigationInputFence>,
     webview_label: &str,
@@ -178,20 +177,4 @@ fn read_document_instance(webview: &Webview) -> RuntimeResult<DocumentInstanceRe
             format!("System WebView returned an invalid input-fence readback: {error}"),
         )
     })
-}
-
-fn document_instance_proves_completed_navigation(
-    readback: &DocumentInstanceReadback,
-    baseline_document_id: Option<&str>,
-) -> bool {
-    let Some(document_id) = readback
-        .document_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    else {
-        return false;
-    };
-    baseline_document_id.is_some_and(|baseline| baseline != document_id)
-        && readback.ready_state == "complete"
-        && matches!(readback.protocol.as_str(), "http:" | "https:")
 }

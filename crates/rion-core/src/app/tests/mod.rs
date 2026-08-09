@@ -29,6 +29,8 @@ fn test_window_stop_request(
         topology_revision: 1,
         tab_ids,
         intent_origin: "test".to_owned(),
+        admission_id: None,
+        closing_tabs: Vec::new(),
     }
 }
 

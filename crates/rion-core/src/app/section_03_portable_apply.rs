@@ -8,9 +8,8 @@ impl AppCore {
     ) -> CoreResult<Value> {
     let runtime_snapshot = self
         .browser_runtime
-        .lock()
-        .map_err(|_| CoreError::Internal("browser runtime lock poisoned".to_owned()))?
-        .snapshot();
+        .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
+        .snapshot;
     let running_role_ids = runtime_snapshot
         .roles
         .iter()
@@ -90,6 +89,10 @@ impl AppCore {
     };
     let result = (|| {
         let _guard = self.state_mutation_guard()?;
+        let _authority_guard = self
+            .runtime_authority_barrier
+            .write()
+            .map_err(|_| CoreError::Internal("runtime authority barrier poisoned".to_owned()))?;
         let current = self.read_typed_snapshot()?;
         if serde_json::to_value(&current)
             .map_err(|error| CoreError::Internal(error.to_string()))?

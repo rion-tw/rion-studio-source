@@ -30,9 +30,13 @@ impl AppCore {
         match self.start_embedded_workspace_for_roles(
             workspace_id,
             expected_role_ids,
-            target,
-            None,
-            None,
+            EmbeddedWorkspaceLaunchRequest {
+                target,
+                launch_preview_id: None,
+                launch_tab_id: None,
+                launch_attempt_id: uuid::Uuid::new_v4().to_string(),
+                restore_role_slots: None,
+            },
         )? {
             EmbeddedWorkspaceLaunchStart::Completed(value) => Ok(value),
             EmbeddedWorkspaceLaunchStart::Pending(pending) => {

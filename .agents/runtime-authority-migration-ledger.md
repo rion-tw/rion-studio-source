@@ -1,7 +1,7 @@
 # Rion Studio Runtime 單一權威全面改造帳本
 
 > 建立日期：2026-08-09
-> 狀態：in-progress
+> 狀態：blocked（等待使用者解除兩個外部門檻；程式工作與本機自動 gate 無 blocker）
 > 執行原則：這是唯一完成清單。所有非帳本任務、macOS 實機驗收、Windows CI 與最終反向盤點完成前不得刪除本檔；真正阻塞時保留本檔並記錄 blocker。
 
 ## 基線
@@ -12,6 +12,11 @@
 - 既有 launch-admission 變更：已在目前 HEAD，視為不可回退的整合基線。
 - 功能凍結：本帳本存在期間，不新增 Runtime／視窗／分頁／角色生命週期功能。
 - 完成狀態規則：每項任務使用 `pending / in-progress / done / blocked`，`done` 必須附程式或測試證據。
+
+## 外部 blockers
+
+- [ ] BL1 `blocked` macOS 已進入登入鎖定畫面，Computer Use明確回報無法自動解鎖；使用者需手動解鎖後才能完成 M3/M4/M6/M9，禁止繞過登入鎖或以靜態測試冒充實機驗收。
+- [ ] BL2 `blocked` `codex/runtime-single-authority` 已在本機建立並提交，但安全審查拒絕將 private repository推送到遠端，直到使用者在對話中明確批准推送至既有 `origin`（`rion-tw/rion-studio-source`）；W1–W4 required Windows CI因此尚未開始，禁止以本機portable/macOS gate取代。
 
 ## 摘要與根因
 

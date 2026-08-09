@@ -252,6 +252,31 @@ fn active_operations_are_never_evicted_for_capacity() {
 }
 
 #[test]
+fn repeated_platform_operation_cycles_leave_the_active_registry_empty() {
+    for platform in ["macos", "windows"] {
+        let registry = NativeOperationRegistry::default();
+        for cycle in 0..5_000 {
+            let operation = NativeOperationContext::new_for_platform(
+                NativeOperationSubsystem::Presentation,
+                "registry-stress",
+                Duration::from_secs(1),
+                platform,
+            )
+            .with_completion_scope(
+                SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
+            );
+            assert!(registry.register(operation.clone()).is_ok(), "{platform} {cycle}");
+            assert!(registry.mark_in_flight(&operation.operation_id));
+            registry.complete(NativeOperationReceipt::applied(
+                operation,
+                "registryStressCompleted",
+            ));
+        }
+        assert_eq!(registry.active_count(), 0, "{platform}");
+    }
+}
+
+#[test]
 fn navigation_is_rejected_before_input_mutation_when_the_registry_is_full() {
     let registry = NativeOperationRegistry::default();
     for _ in 0..ACTIVE_NATIVE_OPERATION_CAPACITY {

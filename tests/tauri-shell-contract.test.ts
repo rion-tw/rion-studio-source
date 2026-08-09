@@ -175,7 +175,7 @@ describe("Tauri shell contract guard", () => {
     expect(tabs).toContain("AcceleratorKeyPressedEventHandler");
     expect(shell).toContain('Some("runtime-tab-shortcut")');
     expect(shell).toContain("overlay_webview_is_selected");
-    expect(shell).toContain("dispatch_runtime_tab_shortcut");
+    expect(shell).toContain("defer_runtime_tab_shortcut");
     expect(nativeTabs).toContain("NSEventModifierFlagControl");
     expect(tabs).toContain('unwrap_or(RION_STUDIO_APP_NAME)');
     expect(tabs).toContain("resize_workspace_divider");
@@ -275,7 +275,7 @@ describe("Tauri shell contract guard", () => {
     expect(windowsInput).toContain("execute_shortcut(");
   });
 
-  it("defers Windows application shortcut effects until after the WebView2 accelerator callback", async () => {
+  it("defers every Windows shortcut effect until after the WebView2 accelerator callback", async () => {
     const windowsInput = await readFile(
       "src-tauri/src/system_runtime/platform/windows/input_security.rs",
       "utf8"
@@ -288,12 +288,31 @@ describe("Tauri shell contract guard", () => {
       callbackStart
     );
     const callback = windowsInput.slice(callbackStart, callbackEnd);
+    const tabShortcutDeferStart = windowsInput.indexOf(
+      "pub(crate) fn defer_runtime_tab_shortcut("
+    );
+    const tabShortcutDeferEnd = windowsInput.indexOf(
+      "fn execute_runtime_tab_shortcut(",
+      tabShortcutDeferStart
+    );
+    const tabShortcutDefer = windowsInput.slice(
+      tabShortcutDeferStart,
+      tabShortcutDeferEnd
+    );
 
     expect(callbackStart).toBeGreaterThanOrEqual(0);
     expect(callbackEnd).toBeGreaterThan(callbackStart);
+    expect(tabShortcutDeferStart).toBeGreaterThanOrEqual(0);
+    expect(tabShortcutDeferEnd).toBeGreaterThan(tabShortcutDeferStart);
     expect(callback).toContain("defer_windows_application_shortcut(");
+    expect(callback).toContain("defer_runtime_tab_shortcut(");
+    expect(callback).not.toContain("execute_runtime_tab_shortcut(");
     expect(callback).not.toContain(".try_state::<crate::CoreState>()");
     expect(callback).not.toContain("execute_shortcut(");
+    expect(tabShortcutDefer).toContain("run_on_main_thread(move || {");
+    expect(tabShortcutDefer).toContain("execute_runtime_tab_shortcut(");
+    expect(tabShortcutDefer).not.toContain(".try_state::<crate::CoreState>()");
+    expect(tabShortcutDefer).not.toContain("preview_adjacent_tab_activation(");
     expect(windowsInput).toContain("app.run_on_main_thread(move || {");
   });
 

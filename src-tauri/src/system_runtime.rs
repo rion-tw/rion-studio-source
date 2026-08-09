@@ -119,7 +119,7 @@ use platform::macos::*;
 #[cfg(not(any(windows, target_os = "macos")))]
 use platform::unsupported::*;
 #[cfg(windows)]
-pub(crate) use platform::windows::dispatch_runtime_tab_shortcut;
+pub(crate) use platform::windows::defer_runtime_tab_shortcut;
 #[cfg(any(windows, test))]
 use platform::windows::*;
 

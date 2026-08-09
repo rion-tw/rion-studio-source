@@ -82,10 +82,10 @@ async fn rion_overlay_request(
             ));
         }
         #[cfg(windows)]
-        system_runtime::dispatch_runtime_tab_shortcut(
-            &app,
-            webview.label(),
-            direction,
+        system_runtime::defer_runtime_tab_shortcut(
+            app.clone(),
+            webview.label().to_owned(),
+            direction.to_owned(),
             modifier_codes,
         );
         #[cfg(not(windows))]

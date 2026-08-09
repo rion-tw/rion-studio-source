@@ -24,6 +24,10 @@ test counts、每個 WUI transcript 的觀察證據、diagnostics 數值、失�
 沒有證據的項目維持 pending/failed。不要刪除
 .agents/runtime-authority-migration-ledger.md；不要宣稱整個 initiative 完成。
 
+如果既有 report 已是 `Status: pass`，但目前 HEAD 晚於 report 的
+`Validated-code SHA`，不得把祖先 SHA 的 pass 直接沿用到新 HEAD。先逐筆 audit commit
+range，再依第 7 節完成 final-audit delta 複驗並把 report 更新到新 exact SHA。
+
 若發現程式缺陷，先找根因並加入 regression，再做最小且架構一致的修正，重跑所有
 受影響 gate。禁止以 allow(dead_code)、skip Windows test、放寬 invariant、polling、
 watchdog、dirty readback 或 timeout-derived success 隱藏失敗。
@@ -229,3 +233,30 @@ Windows端完成後建立 `.agents/windows-runtime-authority-validation-report.m
 ```
 
 只有 WR0–WR5 全部有證據且報告 `Status: pass`，macOS 主工作才可將 W1–W4 標為 done。
+
+## 7. Final-audit delta 複驗
+
+若 macOS 主工作在第一份 Windows pass report 後又推送 final-audit 修正，依下列規則
+驗證；這不是以 targeted tests 取代完整 gate，而是允許沿用未受影響的既有 WUI
+transcript：
+
+- [ ] WR7.1 `git pull --ff-only` 後記錄新 exact HEAD、remote SHA、clean worktree，並證明
+  原 `Validated-code SHA` 是新 HEAD 的 ancestor。
+- [ ] WR7.2 audit 該 commit range 的每一個 production/test 變更；列出為何既有
+  WUI-1、WUI-3–WUI-7 證據仍適用，不能只寫「變更很小」。
+- [ ] WR7.3 在新 exact HEAD 重跑第 1 節全部 required 自動 gate；Rust/Vitest counts、
+  `cargo check --all-targets`、Tauri build、generated clean 與 exit codes全部寫入 report。
+- [ ] WR7.4 對 Windows WebView2 role surface 實際連續執行至少 20 輪
+  `Ctrl+Tab`／`Ctrl+Shift+Tab`，每輪重新確認 active HTML tab、WebView visibility與focus；
+  不得 hang、duplicate commit、失去modifier release或誤攔截 `Alt+Tab`。
+- [ ] WR7.5 在快捷鍵壓力後關閉所有 QA runtime，重跑第 4 節 required idle diagnostics；
+  所有 required count仍須為0，invariant須為true。
+- [ ] WR7.6 反向檢查 WebView2 `AcceleratorKeyPressed` callback只呼叫 defer helper；
+  callback本體不得讀 `CoreState`、執行 tab selection或 application shortcut。defer helper
+  必須先以 `run_on_main_thread`離開callback stack，之後才可讀Core／提交intent。
+- [ ] WR7.7 確認 Windows tab-chrome bootstrap cleanup 仍由 `#[cfg(windows)]` 限定；
+  不得用 `allow(dead_code)` 或 non-Windows no-op掩蓋可達性。
+- [ ] WR7.8 在既有 report 加入 `Final-audit delta validation` 章節，更新
+  `Validated-code SHA`與`最終 branch exact SHA`為新 HEAD，commit、push並核對遠端一致。
+
+只有 WR7.1–WR7.8 全部通過，既有 Windows pass 才能延伸到 final exact SHA。

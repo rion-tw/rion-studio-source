@@ -2,6 +2,17 @@ fn launch_source_key(tab_type: &str, source_id: &str) -> String {
     format!("{tab_type}:{source_id}")
 }
 
+fn allocate_launch_preview_handle(source_id: &str, tab_type: &str) -> LaunchPreviewHandle {
+    // Despite the compatibility field name, this is the permanent logical TabId. Only the
+    // preview/attempt identity rotates on retry; Core, Kernel, and native projection retain this
+    // UUID for the entire tab lifetime.
+    LaunchPreviewHandle {
+        launch_preview_id: uuid::Uuid::new_v4().to_string(),
+        provisional_tab_id: uuid::Uuid::new_v4().to_string(),
+        source_key: launch_source_key(tab_type, source_id),
+    }
+}
+
 fn launch_preview_handle(provisional: &ProvisionalLaunch) -> LaunchPreviewHandle {
     LaunchPreviewHandle {
         launch_preview_id: provisional.launch_preview_id.clone(),

@@ -18,6 +18,32 @@ fn provisional_launch(
 }
 
 #[test]
+fn every_launch_preview_allocates_a_core_compatible_permanent_tab_id() {
+    for (platform, tab_type) in [
+        ("macos", "role"),
+        ("macos", "workspace"),
+        ("windows", "role"),
+        ("windows", "workspace"),
+    ] {
+        let preview = allocate_launch_preview_handle("source-1", tab_type);
+
+        assert!(
+            uuid::Uuid::parse_str(&preview.provisional_tab_id).is_ok(),
+            "{platform} {tab_type}"
+        );
+        assert!(
+            uuid::Uuid::parse_str(&preview.launch_preview_id).is_ok(),
+            "{platform} {tab_type}"
+        );
+        assert_ne!(
+            preview.provisional_tab_id, preview.launch_preview_id,
+            "{platform} {tab_type}"
+        );
+        assert_eq!(preview.source_key, format!("{tab_type}:source-1"));
+    }
+}
+
+#[test]
 fn provisional_source_lookup_requires_its_recorded_live_window_membership() {
     let provisional = provisional_launch(
         "preview-a",

@@ -65,14 +65,8 @@ impl SystemRuntimeExecutor {
             .map(|tab| tab.name.as_str())
             .unwrap_or(RION_STUDIO_APP_NAME);
         let launch_preview = appended_source.map(|(source_id, tab_type)| {
-            let provisional_tab_id = format!("provisional-{}", uuid::Uuid::new_v4());
-            let launch_preview_id = uuid::Uuid::new_v4().to_string();
             (
-                LaunchPreviewHandle {
-                    launch_preview_id,
-                    provisional_tab_id,
-                    source_key: launch_source_key(tab_type, source_id),
-                },
+                allocate_launch_preview_handle(source_id, tab_type),
                 source_id.to_owned(),
                 tab_type.to_owned(),
             )

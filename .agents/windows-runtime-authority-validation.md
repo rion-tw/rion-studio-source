@@ -285,3 +285,45 @@ transcript：
   commit、push並以remote/tracking/local三方一致值回傳；仍不得刪除migration ledger。
 
 只有WR8.1–WR8.7全部通過，主工作才可完成Z4/Z6並把ledger作為最後檔案變更刪除。
+
+## 9. Dormant admission permanent-ID 與 tab-chrome close delta
+
+WR8 pass 後，macOS 以使用者既有資料重播發現一條較早期、獨立的 dormant-window
+hydration 路徑仍產生 `provisional-<uuid>`，會在 desired topology/native chrome 已投影後，
+才以該非 UUID 值呼叫新 Core admission，因而得到 `RUNTIME_TAB_ID_INVALID`。修正保留
+Core 的嚴格 permanent-TabId 契約，並讓 live/dormant preview 共用同一 UUID allocator。
+實機關閉測試另發現 logical close 與 native surface teardown 完成後，平台 tab chrome
+未收到 committed removal effect；修正只在 Kernel close commit 後投影既有
+`try_remove_native_tab_reservation`，不建立第二個 authority 或 correctness timer。
+
+- [ ] WR9.1 `git pull --ff-only` 後記錄新 exact HEAD、remote SHA、clean worktree，證明
+  WR8 validated-code `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7` 與 report commit
+  `9af44f3e` 都是新 HEAD 的 ancestor；逐檔 audit `9af44f3e..HEAD`。
+- [ ] WR9.2 確認 production delta 只做下列契約收斂：live/dormant preview 共用
+  `allocate_launch_preview_handle`、`provisional_tab_id`相容欄位值為普通 UUID、close
+  在 `commit_live_tab_close` 之後投影 native tab removal。不得放寬 Core UUID validation、
+  加 alias/owner probing/dual-write/timer，且 `format!("provisional-` production 命中為零。
+- [ ] WR9.3 在正式 UI 重複匯入更新後的
+  `tests/fixtures/runtime-authority/portable.json`；確認新增 `[Runtime QA] Epsilon`、
+  `[Runtime QA] Zeta`、`[Runtime QA] Dormant Admission`，重跑不增殖，且該 workspace
+  不存在於任何 fixture saved game window，確保會覆蓋 append-source dormant path。
+- [ ] WR9.4 所有 runtime window 都為 dormant／未顯示時，從 main dashboard 開啟
+  `[Runtime QA] Dormant Admission`。必須記錄 `first-eligible-dormant-window`、普通 UUID
+  permanent TabId、兩個 WebView2 fixture surface ready、唯一 logical/native tab，且沒有
+  `RUNTIME_TAB_ID_INVALID`、runtime crash、duplicate surface 或 error payload。
+- [ ] WR9.5 立即再次開啟同一 workspace，必須 terminalize 為
+  `existing-live-source | joined`，不新增 tab/surface；再以 Windows HTML tab strip 的正式
+  「停止並關閉」關閉，確認 chrome item、logical membership、SQLite tab與兩個 surface
+  全部移除。隨後立即 relaunch，必須取得新 permanent TabId且舊 callback不復活。
+- [ ] WR9.6 在新 exact SHA 重跑第1節全部 required Windows automated gates：完整
+  Vitest、完整 Rust、`cargo check -p rion-tauri --all-targets`、native build、production
+  build、source/system-only/dependency hygiene、generated clean與`git diff --check`。
+- [ ] WR9.7 關閉全部 QA runtime，經正式 Diagnostics UI 匯出並解析；所有 required
+  idle counts（特別是 tombstone/pending/logical/native/tab/role/display host）須為0，
+  `runtimeNativeResourceInvariantsOk=true`、failure count=0、`collectionErrorCodes=[]`。
+- [ ] WR9.8 在既有 Windows report 新增 `Dormant admission and tab-chrome close delta`
+  章節，記錄每一步、失敗／重跑、validated-code SHA；commit、push並核對
+  local HEAD/tracking/remote 三方一致。migration ledger仍保留，由macOS主工作完成最後
+  range audit後才可刪除。
+
+只有WR9.1–WR9.8全部通過，才能把Windows pass延伸到本次修正的final exact SHA。

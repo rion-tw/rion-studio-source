@@ -4,13 +4,17 @@ import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
   it("commits launch and restore desired topology before creating native hosts", async () => {
-    const [launchSource, restoreSource] = await Promise.all([
+    const [launchSource, restoreSource, identitySource] = await Promise.all([
       readFile(
         new URL("../src-tauri/src/system_runtime/section_22_with_native_creation_lane.rs", import.meta.url),
         "utf8"
       ),
       readFile(
         new URL("../src-tauri/src/system_runtime/section_12_window_restore_contract.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_05_launch_preview_identity.rs", import.meta.url),
         "utf8"
       )
     ]);
@@ -38,6 +42,10 @@ describe("Tauri System WebView runtime source", () => {
     );
     expect(restore).toContain("host_created: false");
     expect(completionFallback).toContain("host_created: false");
+    expect(preview).toContain("allocate_launch_preview_handle(source_id, tab_type)");
+    expect(restore).toContain("allocate_launch_preview_handle(source_id, tab_type)");
+    expect(identitySource).toContain("provisional_tab_id: uuid::Uuid::new_v4().to_string()");
+    expect(identitySource).not.toContain('format!("provisional-');
   });
 
   it("fences native presentation from an immutable desired projection without Core re-entry", async () => {
@@ -326,11 +334,19 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(closePreview).toContain("next.remove_tab(");
     expect(closePreview).toContain("commit_live_tab_close(");
     expect(closePreview).toContain("successor_tab_after_close(");
+    expect(closePreview).toContain("try_remove_native_tab_reservation(");
+    expect(closePreview).toContain('"tab.chrome-removal-submitted"');
     expect(closePreview).toContain("dispatch_native_presentation(");
     expect(closePreview).toContain("NativePresentationFocus::ContentOnly");
     expect(closePreview).toContain("request_preview_surface_isolation(isolation_surfaces)");
     expect(closePreview.indexOf("dispatch_native_presentation(")).toBeLessThan(
       closePreview.indexOf("request_preview_surface_isolation(isolation_surfaces)")
+    );
+    expect(closePreview.indexOf("commit_live_tab_close(")).toBeLessThan(
+      closePreview.indexOf("try_remove_native_tab_reservation(")
+    );
+    expect(closePreview.indexOf("try_remove_native_tab_reservation(")).toBeLessThan(
+      closePreview.indexOf("dispatch_native_presentation(")
     );
     expect(closePreview).toContain("surface.phase.blocks_role_relaunch()");
     expect(closePreview).not.toContain("BrowserRuntimeSnapshot");

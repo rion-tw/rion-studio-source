@@ -25,14 +25,23 @@ use super::*;
         let data = serde_json::from_value::<PortableDataRecord>(normalized).unwrap();
         assert_eq!(data.schema_version, PORTABLE_SCHEMA_VERSION as u32);
         assert_eq!(data.games.len(), 1);
-        assert_eq!(data.roles.len(), 4);
-        assert_eq!(data.launch_workspaces.len(), 2);
+        assert_eq!(data.roles.len(), 6);
+        assert_eq!(data.launch_workspaces.len(), 3);
         assert_eq!(data.game_windows.len(), 3);
         assert_eq!(data.macros.len(), 3);
         assert!(data.roles.iter().all(|role| {
             role.name.starts_with("[Runtime QA]")
                 && role.launch_url.starts_with("http://127.0.0.1:41739/")
         }));
+        let dormant_workspace = data
+            .launch_workspaces
+            .iter()
+            .find(|workspace| workspace.name == "[Runtime QA] Dormant Admission")
+            .unwrap();
+        assert!(data.game_windows.iter().all(|window| window
+            .tabs
+            .iter()
+            .all(|tab| tab.source_id != dormant_workspace.id)));
         let mut runtime = PortableRuntime::default();
         let preview = runtime
             .preview(
@@ -58,8 +67,8 @@ use super::*;
             )
             .unwrap();
         assert_eq!(repeat_preview.operations.games.unchanged, 1);
-        assert_eq!(repeat_preview.operations.roles.unchanged, 4);
-        assert_eq!(repeat_preview.operations.launch_workspaces.unchanged, 2);
+        assert_eq!(repeat_preview.operations.roles.unchanged, 6);
+        assert_eq!(repeat_preview.operations.launch_workspaces.unchanged, 3);
         assert_eq!(repeat_preview.operations.game_windows.unchanged, 3);
         assert_eq!(repeat_preview.operations.macros.unchanged, 3);
     }

@@ -4,17 +4,19 @@
 - Original validation starting exact SHA: `027cacba24986d2b066c04cb4eb81d82f58edd3d`
 - Final-audit delta starting exact SHA: `865d2a07d887745563afcb7e5cba4b4992fd6194`
 - Final-ledger successor starting exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
-- Final validated-code exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
+- Dormant-admission delta starting / validated-code exact SHA: `e468b39685016595323dd56a42bf8292ae37890a`
+- Final validated-code exact SHA: `e468b39685016595323dd56a42bf8292ae37890a`
 - Final branch exact SHA: the pushed report commit containing this field; its exact
   value is recorded by the post-push remote verification and final handoff because
   a Git commit cannot embed its own content-dependent SHA.
 - Branch: `codex/runtime-single-authority`
 - Windows build / architecture: Microsoft Windows 11 Pro 25H2, build `26200.8875` (`BuildLabEx 26100.1.arm64fre.ge_release.240331-1435`), ARM64
 - WebView2 Runtime: `151.0.4129.72`
-- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T17:24:43.0673818+08:00`
+- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T19:04:32.4942122+08:00`
 
 This report is Windows-native evidence for WR0-WR5, the final-audit WR7 delta,
-and the WR8 final-ledger successor. It does not claim that the overall Runtime
+the WR8 final-ledger successor, and the WR9 dormant-admission/tab-chrome-close
+delta. It does not claim that the overall Runtime
 single-authority initiative is complete. No macOS, Linux
 portable build, mock runtime, or shared-crate-only compilation is used as native
 evidence. Every automated timeout is reported as a failure or incomplete run,
@@ -594,8 +596,224 @@ and verifies local HEAD, the tracking ref, and the remote branch exact SHA are
 identical. The migration ledger remains present, and this section does not
 declare the wider initiative complete.
 
+## Dormant admission and tab-chrome close delta
+
+### WR9.1 starting exact SHA and range
+
+Status: **pass**. This Windows-native successor validated code exact SHA
+`e468b39685016595323dd56a42bf8292ae37890a` on
+`codex/runtime-single-authority`. The report commit is intentionally a successor
+to that code SHA.
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `git fetch origin` | 0 | Remote refs refreshed before switching. |
+| `git switch codex/runtime-single-authority` | 0 | Required branch selected. |
+| `git pull --ff-only` | 0 | Fast-forwarded `9af44f3e..e468b396`; no merge commit. |
+| `git status --short` | 0 | Empty before validation. |
+| `git rev-parse HEAD` | 0 | `e468b39685016595323dd56a42bf8292ae37890a`. |
+| `git rev-parse origin/codex/runtime-single-authority` | 0 | `e468b39685016595323dd56a42bf8292ae37890a`. |
+| `git merge-base --is-ancestor 91f9d52df69ec87cb20c0f70ef171d9847ee4dc7 HEAD` | 0 | WR8 validated code is an ancestor. |
+| `git merge-base --is-ancestor 9af44f3ecd7bdcd2c5584a4c0983694e2019bd2d HEAD` | 0 | WR8 report commit is an ancestor; audited range is `9af44f3e..e468b396`. |
+
+The host remains Windows 11 Pro 25H2 build `26200.8875`, ARM64. The formal
+Diagnostics export reports WebView2 `151.0.4129.72`, Tauri `2.11.5`, and build
+commit `e468b39685016595323dd56a42bf8292ae37890a`.
+
+### WR9.2 commit-range and reverse source audit
+
+`9af44f3e..e468b396` contains one commit,
+`e468b396 fix(runtime): fence dormant launch and tab chrome close`, with 11
+changed files and 186 insertions / 39 deletions. Production changes are limited
+to these four System Runtime files:
+
+- `section_05_launch_preview_identity.rs` adds the shared
+  `allocate_launch_preview_handle` allocator. Both `launch_preview_id` and the
+  compatibility-named `provisional_tab_id` are ordinary UUIDs; the latter is the
+  permanent logical TabId for the accepted tab lifetime.
+- `section_12_window_restore_contract.rs` makes dormant appended-source
+  hydration use the same allocator as live launch.
+- `section_22_with_native_creation_lane.rs` makes live launch use that allocator
+  without adding a second owner or write path.
+- `section_14_preview_tab_close.rs` projects native tab-chrome removal only after
+  `commit_live_tab_close` has committed Kernel membership, before successor
+  presentation and surface isolation. Failure is logged and proceeds forward;
+  it cannot compensate the committed close.
+
+The remaining seven files are validation instructions/ledger, fixture data, or
+focused regression tests. The only `crates/rion-core/src` change is the portable
+fixture test; an exclude-tests diff over Core production source is empty. Core's
+strict UUID admission was not changed. The exact production search for
+`format!("provisional-` has zero hits (`rg` no-match exit 1, normalized audit
+exit 0). No alias, owner probing, dual-write, polling, watchdog, correctness
+timer, timeout-derived success, or `allow(dead_code)` was added.
+
+The existing `try_remove_native_tab_reservation` implementation remains
+platform-explicit: AppKit is under `#[cfg(target_os = "macos")]`, the HTML tab
+strip dispatch of `window.__rionRemoveRuntimeTab` is under `#[cfg(windows)]`,
+and the committed logical close remains the sole authority. Range
+`git diff --check` is exit 0.
+
+Focused regressions all passed:
+
+| Command | Exit | Tests |
+| --- | ---: | ---: |
+| `cargo test -p rion-core runtime_authority_fixture_uses_the_current_portable_contract -- --nocapture` | 0 | 1 passed; 567 filtered |
+| `cargo test -p rion-tauri every_launch_preview_allocates_a_core_compatible_permanent_tab_id -- --nocapture` | 0 | 1 passed; 369 filtered |
+| `cargo test -p rion-tauri dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch -- --nocapture` | 0 | 1 passed; 369 filtered |
+| `pnpm.cmd exec vitest run tests/tauri-system-runtime-source.test.ts` | 0 | 1 file; 18 passed |
+
+The first combined focused invocation reached all three Rust passes but the
+final JavaScript command selected the host-blocked `pnpm.ps1` shim (exit 1).
+The exact Vitest command was immediately rerun through `pnpm.cmd` and passed as
+shown above; this was a shell execution-policy issue, not a product failure.
+
+### WR9.3 repeated formal-UI fixture import
+
+The exact repository debug binary was launched with the local runtime-authority
+fixture service healthy on `127.0.0.1:41739`. Computer Use drove
+Settings > Data > Import JSON and the native file dialog to import
+`tests/fixtures/runtime-authority/portable.json` twice. State was re-read after
+every action.
+
+- First preview: game unchanged 1; roles new 2 / unchanged 4; workspaces new 1 /
+  unchanged 2; game windows overwrite 3; macros unchanged 3; no warnings.
+  Result: `new 3 / overwrite 3 / unchanged 10 / skipped 0`.
+- Second preview: game unchanged 1; roles new 0 / unchanged 6; workspaces new 0 /
+  unchanged 3; game windows overwrite 3; macros unchanged 3; no warnings.
+  Result: `new 0 / overwrite 3 / unchanged 13 / skipped 0`.
+- Dashboard totals settled at roles 11 and workspaces 5. There was exactly one
+  `[Runtime QA] Epsilon`, one `[Runtime QA] Zeta`, and one
+  `[Runtime QA] Dormant Admission`; none proliferated.
+- The fixture regression and SQLite inspection prove Dormant Admission is absent
+  from every saved game-window tab, so this exercises appended-source dormant
+  admission rather than saved membership.
+
+### WR9.4 dormant admission native evidence
+
+With all runtime windows dormant and Dashboard running roles `0/11`, Computer
+Use opened `[Runtime QA] Dormant Admission` from the formal workspace card.
+Authoritative logs recorded:
+
+- source/workspace ID `cca4e491-202e-4aaa-91df-a24ae3f1131f`;
+- destination `first-eligible-dormant-window`;
+- native/logical window ID `08b253c2-c6f4-4288-b457-738eabf8cf73`;
+- permanent TabId `2141f4c0-cf1c-493b-bbbc-f0278bae23f5`;
+- launch-preview ID `fcbe9839-b1ef-4e18-aeda-7d59575e422b`.
+
+The Windows HTML strip showed exactly one Dormant Admission tab. SQLite showed
+that same UUID and source exactly once. Two real WebView2 role surfaces became
+ready and visible: Epsilon role `9258a5f3-f1f0-4767-a32a-f188c42e20de` and Zeta
+role `01f46d17-11d6-46de-b55b-568bebcc6403`; both fixture pages rendered with
+`visibility=1`. The optional divider was separately registered once. There was
+no `RUNTIME_TAB_ID_INVALID`, runtime crash, duplicate tab/surface, warning, or
+error payload.
+
+### WR9.5 duplicate launch, close, and immediate relaunch
+
+Computer Use immediately invoked the same workspace again from the formal
+Dashboard. Adapter sequence 2 terminalized as `existing-live-source` against
+the same window and TabId. Window count stayed at one runtime plus the main
+window, the HTML strip stayed at one Dormant Admission item, SQLite membership
+stayed single, and the two role WebViews stayed single and ready. No new surface
+registration or error was emitted.
+
+The Dormant Admission close button in the Windows HTML tab strip then drove the
+typed close path. Evidence for old TabId `2141f4c0...f5` is:
+
+- `surface.presentation-closed`, Kernel revision 33, successor selected;
+- `tab.chrome-removal-submitted` followed by native HTML-strip operation
+  `remove`, status `applied`, revision 8;
+- both role surfaces and the divider progressed through exact isolation,
+  `surface.native-released`, wrapper close, and `surface.released`;
+- `surface.close-effect-completed` reported `nativeSucceeded=true` and accepted
+  Core acknowledgement;
+- `tab.close-tombstone-resolved` terminalized the live close;
+- SQLite retained only the unrelated `test5` tab, with no old Dormant Admission
+  tab or source membership.
+
+Immediate formal relaunch allocated new permanent TabId
+`7eed9c3c-0388-4275-8ed9-2c998ec189a8` and new launch-preview ID
+`26685db8-741a-408b-a71b-eb31eb50d9ab`. It resolved to the now-live eligible
+window, settled successfully, recreated exactly the two intended role WebViews,
+and committed the new UUID to SQLite. Log inspection after the relaunch found
+zero references to the old TabId, proving late old-generation callbacks did not
+revive it. There were no UUID-invalid, crash, warning, or error records.
+
+Finally the relaunched QA tab and the unrelated last runtime tab were each
+closed through the HTML strip. The runtime window disappeared and the formal
+Dashboard read `0/11` running roles before Diagnostics collection.
+
+### WR9.6 complete Windows required automated/native/production gates
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `pnpm.cmd install --frozen-lockfile` | 0 | Lockfile unchanged; already up to date. |
+| `pnpm.cmd run verify:system-only` | 0 | Tauri-only System WebView boundary verified. |
+| `pnpm.cmd run check:hygiene` | 0 | Source hygiene passed for 1068 tracked files; cargo dependency hygiene passed for 3 crates. |
+| `pnpm.cmd exec vitest run tests/rust-architecture-boundaries.test.ts tests/thin-typescript-boundary.test.ts` | 0 | 2 files; 6 tests passed. |
+| `pnpm.cmd run typecheck` | 0 | TypeScript build check passed. |
+| `pnpm.cmd run lint` | 0 | 0 errors; 23 existing Fast Refresh warnings. |
+| `pnpm.cmd run test` | 0 | 146 files; 822 tests passed. |
+| `pnpm.cmd run lint:rust` | 0 | `cargo fmt --check` and workspace/all-target clippy with `-D warnings` passed. |
+| `pnpm.cmd run test:rust` | 0 | Core 568 + platform 18 + Tauri library 370 = **956 passed**, 0 failed/ignored. |
+| `cargo check -p rion-tauri --all-targets` | 0 | Windows Tauri all targets passed. |
+| `cargo build -p rion-tauri` | 0 | Windows native debug binary built. |
+| `pnpm.cmd run build` | 1 | Renderer built; Rust relink found the formally closed QA process still holding `target/debug/rion-tauri.exe` (`os error 5`, cargo exit 101). |
+| exact-path process inspection and `Stop-Process -Id 1916` | 0 | Confirmed and stopped only the windowless repository debug QA process; no product/state data changed. |
+| `pnpm.cmd run build` (rerun) | 0 | Production renderer (2746 modules) and Windows native binary built successfully. |
+| `git diff --exit-code -- src/shared/generated` | 0 | Generated bindings clean. |
+| `git diff --check` | 0 | Clean before report edit; rerun after report edit also required below. |
+
+The first production-build result is retained rather than hidden. Its root cause
+was an exact Windows executable lock after the UI windows had formally closed,
+not a runtime-authority product defect. The affected production build was rerun
+unchanged and passed.
+
+### WR9.7 formal Diagnostics idle-zero gate
+
+The newly built exact binary was relaunched with no runtime windows. Computer
+Use drove Settings > Diagnostics and the formal native Save dialog. The exported
+ZIP is `Rion-Studio-Diagnostics-WR9-e468b396.zip`; `diagnostics.json` reports
+`generatedAt=2026-08-10T11:01:16.126621300+00:00`, build commit
+`e468b39685016595323dd56a42bf8292ae37890a`, and WebView2
+`151.0.4129.72`.
+
+| Diagnostics field | Value |
+| --- | ---: |
+| `healthy` / `snapshotComplete` | `true` / `true` |
+| `runtimeNativeResourceInvariantsOk` | `true` |
+| `runtimeNativeResourceInvariantFailureCount` | `0` |
+| `collectionErrorCodes` | `[]` |
+| `activeInputFenceCount` / `activeLifecycleOperationCount` | `0` / `0` |
+| `activeNativeCreationCount` / `activeNavigationOperationCount` | `0` / `0` |
+| `runtimeKernelPendingOperationCount` / `runtimeKernelLogicalSurfaceCount` | `0` / `0` |
+| `runtimeKernelTombstoneCount` / `pendingCloseTabCount` | `0` / `0` |
+| `managedSurfaceCount` / `closingSurfaceCount` / `retiredSurfaceCount` | `0` / `0` / `0` |
+| `quarantinedSurfaceCount` / `quarantinedRoleCount` / `recoveringRoleCount` | `0` / `0` / `0` |
+| `launchingTabCount` / `degradedTabCount` | `0` / `0` |
+| `failedLaunchCount` / `retryableFailedLaunchCount` | `0` / `0` |
+| `tabCount` / `roleCount` / `displayHostCount` | `0` / `0` / `0` |
+| `recentFailures` / active roles / active workspaces | `[]` / `[]` / `[]` |
+
+`recoveryRequired=true` remains the historical marker caused by exact QA process
+stops between Windows native rebuilds; it is not a live ownership count and all
+required current resources and failures are zero.
+
+### WR9.8 publication
+
+No product defect was found in the WR9 delta. The two environmental command
+failures and their unchanged passing reruns are recorded above. Only this report
+is changed by the Windows WR9 validation. It is committed as a successor to the
+validated code SHA and pushed to `codex/runtime-single-authority`; the handoff
+records the report/final exact SHA after verifying local HEAD, the tracking ref,
+and the remote branch are identical.
+
+The migration ledger remains present. This section does not declare the wider
+Runtime single-authority initiative complete.
+
 ## Remaining blockers
 
-None for Windows WR8.1-WR8.7. The migration ledger remains present. This report
+None for Windows WR9.1-WR9.8. The migration ledger remains present. This report
 deliberately does not declare the wider initiative complete; the macOS primary
 work still owns the final reverse audit and eventual ledger deletion.

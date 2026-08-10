@@ -362,6 +362,78 @@ use super::*;
     }
 
     #[test]
+    fn content_surfaces_wait_for_authoritative_usable_phases() {
+        let statuses = TabRuntimeStatusStore::default();
+        for phase in [
+            TabRuntimePhase::Dormant,
+            TabRuntimePhase::Activating,
+            TabRuntimePhase::Attaching,
+            TabRuntimePhase::Loading,
+            TabRuntimePhase::Failed,
+        ] {
+            statuses.set_presentation_phase("tab-a", phase);
+            assert!(!statuses.permits_content_surface("tab-a"), "{phase:?}");
+        }
+        for phase in [TabRuntimePhase::Ready, TabRuntimePhase::Degraded] {
+            statuses.set_presentation_phase("tab-a", phase);
+            assert!(statuses.permits_content_surface("tab-a"), "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn failed_status_retry_requires_the_complete_runtime_identity() {
+        let current = RuntimeTabStatusIdentityRecord {
+            attempt_id: "attempt-1".to_owned(),
+            phase: RuntimeTabActivationPhaseRecord::Failed,
+            tab_id: "tab-a".to_owned(),
+            window_generation: 7,
+            window_id: "window-a".to_owned(),
+        };
+        assert!(failed_tab_status_identity_matches(Some(&current), &current));
+        for stale in [
+            RuntimeTabStatusIdentityRecord {
+                attempt_id: "attempt-old".to_owned(),
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
+                window_generation: 6,
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
+                window_id: "window-b".to_owned(),
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
+                phase: RuntimeTabActivationPhaseRecord::Activating,
+                ..current.clone()
+            },
+        ] {
+            assert!(!failed_tab_status_identity_matches(Some(&current), &stale));
+        }
+    }
+
+    #[test]
+    fn tab_phase_and_failure_copy_is_complete_for_every_supported_language() {
+        let expectations = [
+            ("en", "Not started. Select to start this tab.", "Try Again"),
+            ("zh-TW", "尚未啟動。選取時啟動此分頁。", "再試一次"),
+            ("zh-CN", "尚未启动。选择时启动此标签页。", "重试"),
+            (
+                "ja",
+                "まだ起動していません。選択するとこのタブを起動します。",
+                "もう一度試す",
+            ),
+        ];
+        for (language, dormant, retry) in expectations {
+            assert_eq!(
+                runtime_tab_phase_label(language, TabRuntimePhase::Dormant),
+                Some(dormant)
+            );
+            assert_eq!(runtime_tab_failure_labels(language, "Beta").retry, retry);
+        }
+    }
+
+    #[test]
     fn live_hidden_state_controls_visible_order_and_selection_without_core() {
         let mut state = LiveWindowRecord::default();
         state.insert_tab(

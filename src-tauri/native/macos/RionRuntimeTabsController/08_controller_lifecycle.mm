@@ -166,6 +166,9 @@
 
 - (void)destroy {
   if (_destroyed) return;
+  [self hideFailureStatus];
+  [_failureBackdrop removeFromSuperview];
+  _failureBackdrop = nil;
   RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
   [self flushTabShortcutModifierHandoffWithAction:
             @"modifierHandoffAbandoned"];

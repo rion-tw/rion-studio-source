@@ -213,7 +213,7 @@ describe("Tauri shell contract guard", () => {
     );
     expect(JSON.parse(capability)).toMatchObject({
       local: true,
-      webviews: ["game-tab-strip-*", "game-divider-*"],
+      webviews: ["game-tab-strip-*", "game-tab-status-*", "game-divider-*"],
       permissions: ["allow-rion-divider-pointer", "allow-rion-runtime-tab-action"]
     });
     expect(JSON.parse(placeholderCapability)).toMatchObject({

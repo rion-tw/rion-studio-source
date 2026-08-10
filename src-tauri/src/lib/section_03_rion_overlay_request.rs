@@ -216,15 +216,57 @@ async fn rion_runtime_tab_action(
     state: State<'_, CoreState>,
     action: Value,
 ) -> Result<Value, CoreErrorPayload> {
-    let window_id = state
+    let action_type = action.get("type").and_then(Value::as_str);
+    let tab_strip_window_id = state
         .runtime
-        .tab_strip_window_for_webview(webview.label())
-        .ok_or_else(|| {
-            shell_error(
-                "TAURI_RUNTIME_CHROME_UNAUTHORIZED",
-                "Runtime tab actions are restricted to the local tab-strip WebView.",
-            )
-        })?;
+        .tab_strip_window_for_webview(webview.label());
+    let tab_status_window_id = state
+        .runtime
+        .tab_status_window_for_webview(webview.label());
+    let window_id = if action_type == Some("retryFailed") {
+        tab_status_window_id
+    } else {
+        tab_strip_window_id
+    }
+    .ok_or_else(|| {
+        shell_error(
+            "TAURI_RUNTIME_CHROME_UNAUTHORIZED",
+            "Runtime tab actions are restricted to the matching local chrome WebView.",
+        )
+    })?;
+    if action_type == Some("retryFailed") {
+        let identity = action
+            .get("identity")
+            .cloned()
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_TAB_STATUS_INVALID",
+                    "The runtime tab failure status identity is required.",
+                )
+            })
+            .and_then(|value| {
+                serde_json::from_value::<rion_core::RuntimeTabStatusIdentityRecord>(value)
+                    .map_err(|error| {
+                        shell_error("TAURI_RUNTIME_TAB_STATUS_INVALID", error.to_string())
+                    })
+            })?;
+        state
+            .runtime
+            .hide_runtime_tab_failure_status(&window_id);
+        if identity.window_id != window_id
+            || !state
+                .runtime
+                .failed_tab_status_identity_is_current(&identity)
+        {
+            state.runtime.publish_projection();
+            return Ok(serde_json::json!({ "status": "superseded" }));
+        }
+        let receipt =
+            activate_runtime_tab_on_demand(&app, &state, &identity.tab_id, false).await?;
+        return serde_json::to_value(receipt).map_err(|error| {
+            shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
+        });
+    }
     #[cfg(windows)]
     if action.get("type").and_then(Value::as_str) == Some("tabChromeReady") {
         let ready = action

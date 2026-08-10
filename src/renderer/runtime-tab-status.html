@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src ipc: http://ipc.localhost" />
+    <title>Rion Studio Tab Status</title>
+    <link rel="stylesheet" href="/runtime-tab-status.css" />
+  </head>
+  <body>
+    <main id="failure-status" role="status" aria-live="polite">
+      <svg class="failure-symbol" aria-hidden="true" viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r="16" />
+        <path d="M18 9.5v11M18 26h.01" />
+      </svg>
+      <h1 id="failure-title"></h1>
+      <p id="failure-body"></p>
+      <button id="failure-retry" type="button"></button>
+    </main>
+    <script type="module" src="/runtime-shell/runtimeTabStatus.ts"></script>
+  </body>
+</html>

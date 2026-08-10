@@ -86,6 +86,17 @@ static void RionForwardRuntimeTabsAction(
                                                  encoding:NSUTF8StringEncoding];
     }
   }
+  NSDictionary<NSString *, id> *statusIdentity = action[@"statusIdentity"];
+  NSString *statusIdentityJSON = nil;
+  if ([statusIdentity isKindOfClass:NSDictionary.class]) {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:statusIdentity
+                                                   options:0
+                                                     error:nil];
+    if (data) {
+      statusIdentityJSON = [[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding];
+    }
+  }
   NSString *sourceWindowID = action[@"sourceWindowId"];
   NSString *targetWindowID = action[@"windowId"];
   NSNumber *screenX = action[@"screenX"];
@@ -98,6 +109,7 @@ static void RionForwardRuntimeTabsAction(
   actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
                 sourceWindowID.UTF8String, targetWindowID.UTF8String,
                 beforeTabID.UTF8String, orderedTabIDsJSON.UTF8String,
+                statusIdentityJSON.UTF8String,
                 screenX ? screenX.doubleValue : NAN,
                 screenY ? screenY.doubleValue : NAN,
                 grabRatioX ? grabRatioX.doubleValue : NAN,
@@ -203,6 +215,13 @@ void rion_runtime_tabs_set_active(
   }
 }
 
+void rion_runtime_tabs_hide_failure_status(void * _Nullable rawController) {
+  @autoreleasepool {
+    if (!rawController) return;
+    [(__bridge RionRuntimeTabsController *)rawController hideFailureStatus];
+  }
+}
+
 void rion_runtime_tabs_ensure(void * _Nullable rawController,
                               const char *tabIdentifier,
                               const char *name, const char *type,
@@ -289,6 +308,20 @@ void rion_runtime_tabs_update_metadata(
     tab.identifier = RionStringFromUTF8(input->identifier) ?: @"";
     tab.name = RionStringFromUTF8(input->name) ?: tab.identifier;
     tab.phase = RionStringFromUTF8(input->phase) ?: @"ready";
+    tab.failureBody = RionStringFromUTF8(input->failureBody) ?: @"";
+    tab.failureTitle = RionStringFromUTF8(input->failureTitle) ?: @"";
+    tab.retryLabel = RionStringFromUTF8(input->retryLabel) ?: @"";
+    NSString *statusIdentityJSON = RionStringFromUTF8(input->statusIdentityJSON);
+    if (statusIdentityJSON.length > 0) {
+      NSData *data = [statusIdentityJSON dataUsingEncoding:NSUTF8StringEncoding];
+      id value = data ? [NSJSONSerialization JSONObjectWithData:data
+                                                        options:0
+                                                          error:nil]
+                      : nil;
+      if ([value isKindOfClass:NSDictionary.class]) {
+        tab.statusIdentity = value;
+      }
+    }
     tab.tooltip = RionStringFromUTF8(input->tooltip) ?: tab.name;
     tab.type = RionStringFromUTF8(input->type) ?: @"role";
     tab.iconDataURL = RionStringFromUTF8(input->iconDataURL);
@@ -369,6 +402,7 @@ static void RionRuntimeTabsActionScopeProbeCallback(
     const char *tabIdentifier,
     const char *sourceWindowID, const char *targetWindowID,
     const char *beforeTabIdentifier, const char *orderedTabIdentifiersJSON,
+    const char *statusIdentityJSON,
     double screenX, double screenY,
     double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
     bool cancelled) {
@@ -376,6 +410,7 @@ static void RionRuntimeTabsActionScopeProbeCallback(
   (void)tabIdentifier;
   (void)beforeTabIdentifier;
   (void)orderedTabIdentifiersJSON;
+  (void)statusIdentityJSON;
   (void)screenX;
   (void)screenY;
   (void)grabRatioX;
@@ -684,6 +719,9 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @interface RionRuntimeWindowNameField : NSTextField
 @end
 
+@interface RionRuntimeFailureBackdropView : NSView
+@end
+
 @interface RionRuntimeSurfaceView : NSView
 
 @property(nonatomic, strong, readonly) NSView *contentView;
@@ -754,6 +792,9 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @property(nonatomic, readwrite) BOOL revealLocked;
 
 - (void)activateTab:(NSString *)tabIdentifier;
+- (void)hideFailureStatus;
+- (void)retryFailedTab:(id)sender;
+- (void)showFailureStatusForTab:(RionRuntimeTabModel *)tab;
 - (void)closeTab:(NSString *)tabIdentifier;
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;

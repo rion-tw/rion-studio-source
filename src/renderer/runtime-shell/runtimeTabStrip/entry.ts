@@ -93,21 +93,57 @@ function phaseLabel(
   return undefined;
 }
 
-function patchPhaseIndicator(
+const PHASE_SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function createPhaseSymbol(phase: "dormant" | "degraded" | "failed"): SVGSVGElement {
+  const svg = document.createElementNS(PHASE_SVG_NAMESPACE, "svg");
+  svg.classList.add("phase-symbol");
+  svg.setAttribute("viewBox", "0 0 12 12");
+  svg.setAttribute("focusable", "false");
+  const shape = document.createElementNS(PHASE_SVG_NAMESPACE, "path");
+  if (phase === "dormant") {
+    shape.setAttribute("d", "M6 1.25a4.75 4.75 0 1 1-4.75 4.75A4.75 4.75 0 0 1 6 1.25Z");
+    shape.setAttribute("class", "phase-ring");
+    svg.append(shape);
+    return svg;
+  }
+  shape.setAttribute(
+    "d",
+    phase === "degraded"
+      ? "M6 1 11.25 10.5H.75L6 1Z"
+      : "M6 1a5 5 0 1 1 0 10A5 5 0 0 1 6 1Z"
+  );
+  shape.setAttribute("class", "phase-fill");
+  const mark = document.createElementNS(PHASE_SVG_NAMESPACE, "path");
+  mark.setAttribute("d", "M6 3.5v3.35M6 8.75h.01");
+  mark.setAttribute("class", "phase-mark");
+  svg.append(shape, mark);
+  return svg;
+}
+
+function patchPhaseAccessory(
   button: HTMLButtonElement,
-  phase: RuntimeTabActivationPhaseRecord,
-  label?: string
+  phase: RuntimeTabActivationPhaseRecord
 ): void {
   button.dataset.phase = phase;
-  let indicator = button.querySelector<HTMLElement>(".phase-indicator");
-  if (!indicator) {
-    indicator = document.createElement("span");
-    indicator.className = "phase-indicator";
-    indicator.ariaHidden = "true";
-    button.querySelector(".name")?.after(indicator);
+  const current = button.querySelector<HTMLElement>(".phase-accessory");
+  if (phase === "ready") {
+    current?.remove();
+    return;
   }
-  indicator.dataset.phase = phase;
-  indicator.title = label ?? "";
+  const accessory = current ?? document.createElement("span");
+  accessory.className = "phase-accessory";
+  accessory.ariaHidden = "true";
+  accessory.dataset.phase = phase;
+  accessory.replaceChildren();
+  if (["activating", "attaching", "loading"].includes(phase)) {
+    const spinner = document.createElement("span");
+    spinner.className = "phase-spinner";
+    accessory.append(spinner);
+  } else {
+    accessory.append(createPhaseSymbol(phase as "dormant" | "degraded" | "failed"));
+  }
+  if (!current) button.querySelector(".name")?.after(accessory);
 }
 
 function patchTabButton(
@@ -147,7 +183,7 @@ function patchTabButton(
     icon.after(name);
   }
   if (name.textContent !== tab.name) name.textContent = tab.name;
-  patchPhaseIndicator(button, phase, status);
+  patchPhaseAccessory(button, phase);
 
   const audioSignature = `${tab.audioMuted}\u0000${tab.audible}\u0000${labels.tabMuted}\u0000${labels.playingAudio}`;
   const audio = button.querySelector<HTMLElement>(".audio");
@@ -159,7 +195,7 @@ function patchTabButton(
       labels.playingAudio
     );
     if (audio) audio.replaceWith(replacement);
-    else name.after(replacement);
+    else (button.querySelector(".phase-accessory") ?? name).after(replacement);
     audioSignatureByButton.set(button, audioSignature);
   }
 
@@ -484,12 +520,9 @@ export function installRuntimeTabStrip(): void {
       name.className = "name";
       name.textContent = tab.name;
       const audio = createAudioIndicator(false, false, "", "");
-      const phase = document.createElement("span");
-      phase.className = "phase-indicator";
-      phase.dataset.phase = "activating";
-      phase.ariaHidden = "true";
       const close = createCloseControl(tab.id, labels.closeTab);
-      button.append(icon, name, phase, audio, close);
+      button.append(icon, name, audio, close);
+      patchPhaseAccessory(button, "activating");
       iconSignatureByButton.set(button, `${tab.type}\u0000${tab.workspaceTemplate ?? ""}\u0000`);
       audioSignatureByButton.set(button, "false\u0000false\u0000\u0000");
       root.append(button);
@@ -545,11 +578,7 @@ export function installRuntimeTabStrip(): void {
     button.dataset.sourceId = tab.sourceId;
     const name = button.querySelector<HTMLElement>(".name");
     if (name) name.textContent = tab.name;
-    patchPhaseIndicator(
-      button,
-      tab.phase,
-      phaseLabel(tab.phase, runtimeTabStripLabels(runtimeState.current?.language ?? "en"))
-    );
+    patchPhaseAccessory(button, tab.phase);
     const previousIcon = button.querySelector<HTMLElement>(".icon");
     const icon = createTabIcon(
       tab.type,

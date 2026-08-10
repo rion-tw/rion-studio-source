@@ -348,7 +348,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
-  NSView *_phaseView;
+  NSView *_phaseAccessory;
+  NSImageView *_phaseImageView;
+  NSProgressIndicator *_phaseProgress;
   NSPoint _pointerDownInTab;
   NSPoint _pointerDownLocation;
   BOOL _pointerTracking;
@@ -380,10 +382,20 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _audioView.contentTintColor = NSColor.secondaryLabelColor;
   _audioView.toolTip = @"";
 
-  _phaseView = [[NSView alloc] initWithFrame:NSZeroRect];
-  _phaseView.accessibilityElement = NO;
-  _phaseView.wantsLayer = YES;
-  _phaseView.layer.cornerRadius = 3.5;
+  _phaseAccessory = [[NSView alloc] initWithFrame:NSZeroRect];
+  _phaseAccessory.accessibilityElement = NO;
+  _phaseImageView = [[NSImageView alloc] initWithFrame:NSZeroRect];
+  _phaseImageView.imageAlignment = NSImageAlignCenter;
+  _phaseImageView.imageScaling = NSImageScaleProportionallyDown;
+  _phaseImageView.accessibilityElement = NO;
+  _phaseProgress = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+  _phaseProgress.style = NSProgressIndicatorStyleSpinning;
+  _phaseProgress.controlSize = NSControlSizeSmall;
+  _phaseProgress.displayedWhenStopped = NO;
+  _phaseProgress.indeterminate = YES;
+  _phaseProgress.accessibilityElement = NO;
+  [_phaseAccessory addSubview:_phaseImageView];
+  [_phaseAccessory addSubview:_phaseProgress];
 
   RionRuntimeVerticallyCenteredTextFieldCell *titleCell =
       [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
@@ -414,7 +426,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   [self addSubview:_iconView];
   [self addSubview:_titleField];
-  [self addSubview:_phaseView];
+  [self addSubview:_phaseAccessory];
   [self addSubview:_audioView];
   [self addSubview:_moreButton];
   return self;
@@ -533,17 +545,46 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _iconView.image = image;
   _titleField.stringValue = tab.name;
   NSString *phase = tab.phase.length > 0 ? tab.phase : @"ready";
-  _phaseView.hidden = [phase isEqualToString:@"ready"];
-  _phaseView.layer.borderWidth = [phase isEqualToString:@"dormant"] ? 1.5 : 0.0;
-  if ([phase isEqualToString:@"dormant"]) {
-    _phaseView.layer.borderColor = NSColor.secondaryLabelColor.CGColor;
-    _phaseView.layer.backgroundColor = NSColor.clearColor.CGColor;
-  } else if ([phase isEqualToString:@"degraded"]) {
-    _phaseView.layer.backgroundColor = NSColor.systemOrangeColor.CGColor;
-  } else if ([phase isEqualToString:@"failed"]) {
-    _phaseView.layer.backgroundColor = NSColor.systemRedColor.CGColor;
+  BOOL ready = [phase isEqualToString:@"ready"];
+  BOOL progressing = [phase isEqualToString:@"activating"] ||
+      [phase isEqualToString:@"attaching"] ||
+      [phase isEqualToString:@"loading"];
+  BOOL wasHidden = _phaseAccessory.hidden;
+  _phaseAccessory.hidden = ready;
+  _phaseImageView.hidden = ready || progressing;
+  _phaseProgress.hidden = !progressing;
+  if (progressing) {
+    [_phaseProgress startAnimation:nil];
   } else {
-    _phaseView.layer.backgroundColor = NSColor.systemBlueColor.CGColor;
+    [_phaseProgress stopAnimation:nil];
+  }
+  if (!ready && !progressing) {
+    NSString *symbol = [phase isEqualToString:@"dormant"]
+        ? @"circle.dashed"
+        : [phase isEqualToString:@"degraded"]
+            ? @"exclamationmark.triangle.fill"
+            : @"exclamationmark.circle.fill";
+    NSColor *color = [phase isEqualToString:@"dormant"]
+        ? NSColor.secondaryLabelColor
+        : [phase isEqualToString:@"degraded"]
+            ? NSColor.systemOrangeColor
+            : NSColor.systemRedColor;
+    NSImage *image = [NSImage imageWithSystemSymbolName:symbol
+                               accessibilityDescription:nil];
+    _phaseImageView.image = [image imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPointSize:11.0
+                                                         weight:NSFontWeightMedium]];
+    _phaseImageView.contentTintColor = color;
+  }
+  if (!ready && wasHidden &&
+      !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+    _phaseAccessory.alphaValue = 0.0;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+      context.duration = 0.12;
+      self->_phaseAccessory.animator.alphaValue = 1.0;
+    } completionHandler:nil];
+  } else {
+    _phaseAccessory.alphaValue = ready ? 0.0 : 1.0;
   }
   NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;
   NSString *audioSymbol = tab.audioMuted ? @"speaker.slash.fill" : @"speaker.wave.2.fill";
@@ -594,12 +635,15 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       NSMakeRect(audioX, (kRionTabHeight - kRionTabAudioIconSize) / 2.0,
                  kRionTabAudioIconSize, kRionTabAudioIconSize);
   CGFloat titleEnd = audioX - kRionTabAccessorySpacing;
-  if (!_phaseView.hidden) {
-    CGFloat phaseX = titleEnd - 7.0;
-    _phaseView.frame = NSMakeRect(phaseX, (kRionTabHeight - 7.0) / 2.0, 7.0, 7.0);
+  if (!_phaseAccessory.hidden) {
+    CGFloat phaseX = titleEnd - 12.0;
+    _phaseAccessory.frame = NSMakeRect(
+        phaseX, (kRionTabHeight - 12.0) / 2.0, 12.0, 12.0);
+    _phaseImageView.frame = _phaseAccessory.bounds;
+    _phaseProgress.frame = _phaseAccessory.bounds;
     titleEnd = phaseX - kRionTabAccessorySpacing;
   } else {
-    _phaseView.frame = NSZeroRect;
+    _phaseAccessory.frame = NSZeroRect;
   }
   _titleField.frame =
       NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);

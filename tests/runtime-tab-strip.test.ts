@@ -1021,7 +1021,7 @@ it("keeps a newly active offscreen tab visible without resetting status-only upd
   });
 });
 
-it("renders the shared dormant, progress, degraded, and failed phase indicators", () => {
+it("renders semantic dormant, progress, warning, and error accessories", () => {
     window.__rionApplyRuntimeTabState?.({
       ...stateWithTabs(0),
       tabPhases: {
@@ -1033,10 +1033,31 @@ it("renders the shared dormant, progress, degraded, and failed phase indicators"
     });
 
     const phases = Array.from(
-      document.querySelectorAll<HTMLElement>(".phase-indicator")
-    ).map((indicator) => indicator.dataset.phase);
+      document.querySelectorAll<HTMLElement>(".phase-accessory")
+    ).map((accessory) => accessory.dataset.phase);
     expect(phases).toEqual(["dormant", "activating", "degraded", "failed"]);
     const dormant = document.querySelector<HTMLButtonElement>("[data-tab-id=\"tab-1\"]")!;
-    expect(dormant.title).toContain("分頁待命中");
-    expect(dormant.ariaLabel).toContain("分頁待命中");
+    expect(dormant.querySelector(".phase-ring")).not.toBeNull();
+    expect(document.querySelector("[data-tab-id=\"tab-2\"] .phase-spinner")).not.toBeNull();
+    expect(document.querySelector("[data-tab-id=\"tab-3\"] .phase-fill")).not.toBeNull();
+    expect(document.querySelector("[data-tab-id=\"tab-4\"] .phase-fill")).not.toBeNull();
+    expect(dormant.title).toContain("尚未啟動。選取時啟動此分頁。");
+    expect(dormant.ariaLabel).toContain("尚未啟動。選取時啟動此分頁。");
+    for (const accessory of document.querySelectorAll<HTMLElement>(".phase-accessory")) {
+      expect(accessory.ariaHidden).toBe("true");
+    }
+});
+
+it("removes the accessory slot entirely when a tab becomes ready", () => {
+    window.__rionApplyRuntimeTabState?.({
+      ...stateWithTabs(0),
+      tabPhases: { "tab-1": "loading" }
+    });
+    expect(document.querySelector("[data-tab-id=\"tab-1\"] .phase-accessory")).not.toBeNull();
+
+    window.__rionApplyRuntimeTabState?.({
+      ...stateWithTabs(0),
+      tabPhases: { "tab-1": "ready" }
+    });
+    expect(document.querySelector("[data-tab-id=\"tab-1\"] .phase-accessory")).toBeNull();
 });

@@ -8,7 +8,50 @@ pub(crate) struct DormantTabActivationRequest {
     pub(crate) target: EmbeddedLaunchTargetRecord,
 }
 
+fn failed_tab_status_identity_matches(
+    current: Option<&RuntimeTabStatusIdentityRecord>,
+    requested: &RuntimeTabStatusIdentityRecord,
+) -> bool {
+    requested.phase == RuntimeTabActivationPhaseRecord::Failed && current == Some(requested)
+}
+
 impl SystemRuntimeExecutor {
+    pub(crate) fn active_failed_tab_status_identity(
+        &self,
+        window_id: &str,
+    ) -> Option<RuntimeTabStatusIdentityRecord> {
+        let snapshot = self.core.runtime_kernel().snapshot().ok()?;
+        let window = snapshot.windows.get(window_id)?;
+        let tab_id = window.selected_tab_id.as_ref()?;
+        let activation = snapshot.tab_activations.get(tab_id.as_str())?;
+        let host_generation = self
+            .state
+            .lock()
+            .ok()?
+            .native_resources
+            .display_hosts
+            .get(window_id)?
+            .generation;
+        (activation.phase == RuntimeTabActivationPhaseRecord::Failed
+            && activation.owner_window_id == window_id
+            && activation.window_generation.0 == host_generation)
+            .then(|| RuntimeTabStatusIdentityRecord {
+                attempt_id: activation.attempt_id.as_str().to_owned(),
+                tab_id: activation.tab_id.as_str().to_owned(),
+                window_id: activation.owner_window_id.clone(),
+                window_generation: activation.window_generation.0,
+                phase: activation.phase,
+            })
+    }
+
+    pub(crate) fn failed_tab_status_identity_is_current(
+        &self,
+        identity: &RuntimeTabStatusIdentityRecord,
+    ) -> bool {
+        let current = self.active_failed_tab_status_identity(&identity.window_id);
+        failed_tab_status_identity_matches(current.as_ref(), identity)
+    }
+
     pub(crate) fn adjacent_runtime_tab_id(
         &self,
         window_id: &str,
@@ -146,6 +189,9 @@ impl SystemRuntimeExecutor {
             tab_id,
             rion_core::RuntimeTabActivationPhaseRecord::Failed,
         );
+        if let Ok(Some(window_id)) = self.presentation.tab_window(tab_id) {
+            let _ = self.reconcile_window_presentation(&window_id, "tab-activation-failed");
+        }
         self.publish_projection();
     }
 

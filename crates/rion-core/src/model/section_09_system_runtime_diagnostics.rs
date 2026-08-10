@@ -239,6 +239,18 @@ pub enum RuntimeTabActivationPhaseRecord {
     Failed,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct RuntimeTabStatusIdentityRecord {
+    pub attempt_id: String,
+    pub tab_id: String,
+    pub window_id: String,
+    #[ts(type = "number")]
+    pub window_generation: u64,
+    pub phase: RuntimeTabActivationPhaseRecord,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

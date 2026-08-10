@@ -25,6 +25,103 @@ NS_ASSUME_NONNULL_BEGIN
        audioPlayingLabel:audioPlayingLabel
           audioMutedLabel:audioMutedLabel
              windowActive:_window.isKeyWindow];
+  if (tab.active && [tab.phase isEqualToString:@"failed"] &&
+      tab.statusIdentity.count > 0) {
+    [self showFailureStatusForTab:tab];
+  } else if (tab.active) {
+    [self hideFailureStatus];
+  }
+}
+
+- (void)showFailureStatusForTab:(RionRuntimeTabModel *)tab {
+  if (_destroyed || !_window.contentView || tab.statusIdentity.count == 0) return;
+  if (!_failureBackdrop) {
+    _failureBackdrop = [[RionRuntimeFailureBackdropView alloc]
+        initWithFrame:_window.contentView.bounds];
+    _failureBackdrop.accessibilityElement = YES;
+    _failureBackdrop.accessibilityRole = NSAccessibilityGroupRole;
+
+    NSStackView *stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+    stack.alignment = NSLayoutAttributeCenterX;
+    stack.spacing = 10.0;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+
+    _failureImageView = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    NSImage *image = [NSImage imageWithSystemSymbolName:@"exclamationmark.circle.fill"
+                               accessibilityDescription:nil];
+    _failureImageView.image = [image imageWithSymbolConfiguration:
+        [NSImageSymbolConfiguration configurationWithPointSize:32.0
+                                                         weight:NSFontWeightRegular]];
+    _failureImageView.contentTintColor = NSColor.systemRedColor;
+    _failureImageView.accessibilityElement = NO;
+
+    _failureTitleField = [NSTextField labelWithString:@""];
+    _failureTitleField.font = [NSFont systemFontOfSize:17.0
+                                               weight:NSFontWeightSemibold];
+    _failureTitleField.alignment = NSTextAlignmentCenter;
+    _failureTitleField.maximumNumberOfLines = 2;
+    _failureTitleField.lineBreakMode = NSLineBreakByWordWrapping;
+
+    _failureBodyField = [NSTextField wrappingLabelWithString:@""];
+    _failureBodyField.textColor = NSColor.secondaryLabelColor;
+    _failureBodyField.alignment = NSTextAlignmentCenter;
+    _failureBodyField.maximumNumberOfLines = 3;
+
+    _failureRetryButton = [NSButton buttonWithTitle:@""
+                                             target:self
+                                             action:@selector(retryFailedTab:)];
+    _failureRetryButton.bezelStyle = NSBezelStyleRounded;
+    _failureRetryButton.keyEquivalent = @"";
+
+    [stack addArrangedSubview:_failureImageView];
+    [stack addArrangedSubview:_failureTitleField];
+    [stack addArrangedSubview:_failureBodyField];
+    [stack setCustomSpacing:16.0 afterView:_failureBodyField];
+    [stack addArrangedSubview:_failureRetryButton];
+    [_failureBackdrop addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+      [stack.centerXAnchor constraintEqualToAnchor:_failureBackdrop.centerXAnchor],
+      [stack.centerYAnchor constraintEqualToAnchor:_failureBackdrop.centerYAnchor],
+      [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_failureBackdrop.leadingAnchor
+                                                       constant:24.0],
+      [stack.trailingAnchor constraintLessThanOrEqualToAnchor:_failureBackdrop.trailingAnchor
+                                                      constant:-24.0],
+      [_failureTitleField.widthAnchor constraintLessThanOrEqualToConstant:480.0],
+      [_failureBodyField.widthAnchor constraintLessThanOrEqualToConstant:440.0],
+      [_failureImageView.widthAnchor constraintEqualToConstant:36.0],
+      [_failureImageView.heightAnchor constraintEqualToConstant:36.0]
+    ]];
+    [_window.contentView addSubview:_failureBackdrop
+                         positioned:NSWindowAbove
+                         relativeTo:nil];
+  }
+  _failureStatusIdentity = [tab.statusIdentity copy];
+  _failureTitleField.stringValue = tab.failureTitle ?: @"";
+  _failureBodyField.stringValue = tab.failureBody ?: @"";
+  _failureRetryButton.title = tab.retryLabel ?: @"";
+  _failureRetryButton.accessibilityLabel = tab.retryLabel ?: @"";
+  _failureBackdrop.accessibilityLabel = tab.failureTitle ?: @"";
+  _failureBackdrop.frame = _window.contentView.bounds;
+  _failureBackdrop.hidden = NO;
+}
+
+- (void)hideFailureStatus {
+  _failureStatusIdentity = nil;
+  _failureBackdrop.hidden = YES;
+}
+
+- (void)retryFailedTab:(id)sender {
+  (void)sender;
+  NSDictionary<NSString *, id> *identity = _failureStatusIdentity;
+  NSString *tabIdentifier = identity[@"tabId"];
+  [self hideFailureStatus];
+  if (_actionHandler && identity.count > 0 && tabIdentifier.length > 0) {
+    _actionHandler(@{ @"type" : @"retryFailed",
+                      @"tabId" : tabIdentifier,
+                      @"sourceWindowId" : _windowID,
+                      @"statusIdentity" : identity });
+  }
 }
 
 - (NSImage *)imageForTab:(RionRuntimeTabModel *)tab {
@@ -364,6 +461,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
   if (_destroyed) return;
+  [self hideFailureStatus];
   RionRuntimeTabItemView *nextItem = tabIdentifier.length > 0
       ? _tabItemsByIdentifier[tabIdentifier]
       : nil;

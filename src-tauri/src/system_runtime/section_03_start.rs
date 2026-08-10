@@ -522,6 +522,13 @@ impl TabRuntimeStatusStore {
             .unwrap_or(TabRuntimePhase::Ready)
     }
 
+    fn permits_content_surface(&self, tab_id: &str) -> bool {
+        matches!(
+            self.presentation_phase(tab_id),
+            TabRuntimePhase::Ready | TabRuntimePhase::Degraded
+        )
+    }
+
     fn launch_phases(&self) -> Vec<LaunchPhase> {
         self.tabs
             .lock()

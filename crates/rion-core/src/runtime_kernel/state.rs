@@ -400,11 +400,19 @@ fn apply_to_candidate(
             let removed = state.windows.remove(&window_id);
             if removed.is_some() {
                 let operations = &state.operations;
-                state.tombstones.retain(|_, tombstone| {
-                    tombstone.window_id != window_id
-                        || !operations
-                            .get(tombstone.operation_id.as_str())
-                            .is_some_and(|operation| operation.phase.is_terminal())
+                let logical_surfaces = &state.logical_surfaces;
+                state.tombstones.retain(|tab_id, tombstone| {
+                    let exact_surface_is_terminal = !logical_surfaces.contains_key(tab_id)
+                        && operations.get(tombstone.operation_id.as_str()).is_some_and(
+                            |operation| {
+                                matches!(
+                                    operation.phase,
+                                    RuntimeOperationPhase::Completed
+                                        | RuntimeOperationPhase::Failed
+                                )
+                            },
+                        );
+                    tombstone.window_id != window_id || !exact_surface_is_terminal
                 });
                 next_revision(state);
             }

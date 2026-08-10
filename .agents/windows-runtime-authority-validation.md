@@ -260,3 +260,28 @@ transcript：
   `Validated-code SHA`與`最終 branch exact SHA`為新 HEAD，commit、push並核對遠端一致。
 
 只有 WR7.1–WR7.8 全部通過，既有 Windows pass 才能延伸到 final exact SHA。
+
+## 8. Final-ledger audit successor
+
+如果主工作在WR7 pass後發現 tombstone cleanup 對
+`Indeterminate/Cancelled` terminal outcome過度清理，最終後繼SHA還必須完成：
+
+- [ ] WR8.1 記錄新exact HEAD／remote／clean worktree，證明WR7的
+  `Validated-code SHA`為ancestor，逐檔audit該range。
+- [ ] WR8.2 確認`RemoveWindow`只能清除沒有logical surface、且close operation為
+  authoritative `Completed | Failed`的tombstone；`Indeterminate`與event-stream failure
+  必須保留tombstone及`Closing` logical surface，晚到ready不得復活。
+- [ ] WR8.3 執行exact focused regression，必須同時涵蓋正常`Closed -> RemoveWindow`、
+  `RemoveWindow -> Closed`、duplicate closed、直接`Indeterminate/Cancelled/Failed`
+  terminalization與`FailEventStream`。
+- [ ] WR8.4 在新exact SHA重跑第1節全部required Windows automated gates，包括完整
+  Vitest、完整Rust、all-targets check、native build、production build與generated clean。
+- [ ] WR8.5 以新binary完成至少一次實際role launch與正式runtime window close，再由正式
+  Diagnostics UI證明正常authoritative closed path仍使全部required idle counts（含
+  tombstone）為0、invariant=true；不得故意把unknown teardown當成功來製造0。
+- [ ] WR8.6 既有WR7的20輪shortcut與其他WUI可在逐檔差異稽核後沿用，因本delta只能修改
+  pure RuntimeKernel tombstone predicate/tests/docs；若range出現其他production檔則不得沿用。
+- [ ] WR8.7 在Windows report新增`Final-ledger audit successor`章節，更新validated-code SHA，
+  commit、push並以remote/tracking/local三方一致值回傳；仍不得刪除migration ledger。
+
+只有WR8.1–WR8.7全部通過，主工作才可完成Z4/Z6並把ledger作為最後檔案變更刪除。

@@ -336,13 +336,14 @@ async fn restore_saved_game_windows(
             )
             .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;
         let mut active_runtime_tab_id = None;
-        let mut window_revealed = false;
         if focus_window_id.as_deref() == Some(saved.id.as_str()) {
             match state
                 .runtime
                 .activate_live_runtime_window(&saved.id, "saved-window-restore")
             {
-                Ok(true) => window_revealed = true,
+                Ok(true) => state
+                    .runtime
+                    .mark_prepared_restored_window_visible(&saved.id),
                 Ok(false) => failures.push(json!({
                     "windowId": saved.id,
                     "code": "TAURI_RESTORE_ACTIVATION_FAILED",
@@ -435,24 +436,6 @@ async fn restore_saved_game_windows(
             }
             if saved.active_tab_id.as_deref() == Some(tab.id.as_str()) {
                 active_runtime_tab_id = Some(restored_tab_id.clone());
-                if !window_revealed {
-                    match state.runtime.reveal_live_runtime_window(
-                        &saved.id,
-                        "saved-window-active-surface-attached",
-                    ) {
-                        Ok(true) => window_revealed = true,
-                        Ok(false) => {}
-                        Err(error) => {
-                            failures.push(json!({
-                                "windowId": saved.id,
-                                "tabId": tab.id,
-                                "code": "TAURI_RESTORE_REVEAL_FAILED",
-                                "message": error
-                            }));
-                            window_failed = true;
-                        }
-                    }
-                }
             }
             if prepared_role_slots && restored_tab_id != tab.id {
                 state.runtime.discard_prepared_tab_role_slots(&tab.id);

@@ -817,6 +817,7 @@ struct NativePresentationRequest {
     observed_previous_tab_id: Option<String>,
     observed_previous_surfaces: Vec<Webview>,
     operation: NativeOperationContext,
+    launch_latency_trace: Option<RuntimeLaunchLatencyTrace>,
     operations: Arc<NativeOperationRegistry>,
     requested_at: Instant,
     revision: u64,

@@ -563,6 +563,55 @@ impl InputReadinessRegistry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RuntimeLaunchLatencyTrace {
+    hydration_operation_id: String,
+    intent_id: String,
+    started_at: Instant,
+}
+
+#[derive(Clone, Debug)]
+struct RestoredVisibilitySignal {
+    changed: watch::Sender<Option<String>>,
+    signal_id: String,
+}
+
+impl RestoredVisibilitySignal {
+    fn new() -> Self {
+        let (changed, _) = watch::channel(None);
+        Self {
+            changed,
+            signal_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    fn submit(&self, operation_id: &str) {
+        self.changed.send_replace(Some(operation_id.to_owned()));
+    }
+
+    fn subscribe(&self) -> watch::Receiver<Option<String>> {
+        self.changed.subscribe()
+    }
+}
+
+impl PartialEq for RestoredVisibilitySignal {
+    fn eq(&self, other: &Self) -> bool {
+        self.signal_id == other.signal_id
+    }
+}
+
+impl Eq for RestoredVisibilitySignal {}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RestoredWindowVisibilityFence {
+    foreground_tab_id: String,
+    launch_trace: Option<RuntimeLaunchLatencyTrace>,
+    reveal_dispatched: bool,
+    topology_revision: u64,
+    visibility_signal: RestoredVisibilitySignal,
+    window_generation: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingWindowTabRestore {
     active_tab_id: Option<String>,
     host_created: bool,
@@ -570,6 +619,7 @@ struct PendingWindowTabRestore {
     reserved_tab_ids: HashSet<String>,
     successful_tab_ids: HashSet<String>,
     terminal_tab_ids: HashSet<String>,
+    visibility_fence: Option<RestoredWindowVisibilityFence>,
     visible_tab_ids: Vec<String>,
 }
 

@@ -2,11 +2,12 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}},
     thread,
+    time::Instant,
 };
 
 use rion_core::{
     AppCore, CoreCommand, EmbeddedLaunchTargetRecord, RuntimeLaunchIntentReceiptRecord,
-    RuntimeLaunchIntentRecord, StateGameWindowRecord,
+    RuntimeLaunchIntentRecord, StateGameWindowRecord, LogCaptureRecord,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -28,10 +29,28 @@ const TAB_MENU_INTENT_CAPACITY: usize = 16;
 const MAX_CONCURRENT_TAB_MENU_MODELS: usize = 2;
 
 struct LaunchIntent {
+    enqueued_at: Instant,
     exact_window_id: Option<String>,
     origin: &'static str,
     record: RuntimeLaunchIntentRecord,
     reply: Option<tokio::sync::oneshot::Sender<Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload>>>,
+}
+
+pub(crate) struct LaunchAdmissionSignal(
+    Option<tokio::sync::oneshot::Sender<()>>,
+);
+
+impl LaunchAdmissionSignal {
+    fn channel() -> (Self, tokio::sync::oneshot::Receiver<()>) {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        (Self(Some(sender)), receiver)
+    }
+
+    pub(crate) fn complete(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
+        }
+    }
 }
 
 pub(crate) struct RuntimeLaunchOutcome {
@@ -49,6 +68,7 @@ struct TabMenuIntent {
 
 #[derive(Clone)]
 pub(crate) struct LaunchIntentDispatcher {
+    launch_log_sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
     next_sequence: Arc<AtomicU64>,
     sender: tokio::sync::mpsc::Sender<LaunchIntent>,
     tab_menu_sender: tokio::sync::mpsc::Sender<TabMenuIntent>,
@@ -73,33 +93,79 @@ impl LaunchIntentDispatcher {
             }
         });
         let launch_app = app.clone();
+        let actor_launch_log_sender = launch_log_sender.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(intent) = receiver.recv().await {
-                let terminal_intent = intent.record.clone();
-                let result = crate::execute_runtime_launch_intent(
-                    &launch_app,
-                    intent.record,
-                    intent.exact_window_id,
-                    intent.origin,
-                    &launch_log_sender,
-                )
-                .await;
-                if let Err(error) = result.as_ref() {
-                    let mut events = crate::RuntimeLaunchEventBatch::new(
-                        launch_log_sender.clone(),
-                    );
-                    events.record(
-                        "launch.intent-terminal",
-                        &terminal_intent,
-                        None,
-                        Some(&error.code),
-                    );
-                }
-                if let Some(reply) = intent.reply {
-                    let _ = reply.send(result);
-                } else if let Err(error) = result {
-                    crate::reveal_shell_error(&launch_app, error);
-                }
+            let (job_completed_sender, mut job_completed_receiver) =
+                tokio::sync::mpsc::unbounded_channel::<String>();
+            let mut execution_jobs = HashMap::new();
+            loop {
+                let intent = tokio::select! {
+                    completed_intent_id = job_completed_receiver.recv() => {
+                        if let Some(completed_intent_id) = completed_intent_id {
+                            execution_jobs.remove(&completed_intent_id);
+                        }
+                        continue;
+                    }
+                    intent = receiver.recv() => {
+                        let Some(intent) = intent else {
+                            break;
+                        };
+                        intent
+                    }
+                };
+                let queue_wait_ms = intent
+                    .enqueued_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64;
+                let (mut admission_signal, admission_completed) =
+                    LaunchAdmissionSignal::channel();
+                let job_app = launch_app.clone();
+                let job_launch_log_sender = actor_launch_log_sender.clone();
+                let job_completed_sender = job_completed_sender.clone();
+                let tracked_intent_id = intent.record.intent_id.clone();
+                let job = tauri::async_runtime::spawn(async move {
+                    let terminal_intent = intent.record.clone();
+                    let result = crate::execute_runtime_launch_intent(
+                        &job_app,
+                        intent.record,
+                        crate::RuntimeLaunchExecutionContext::new(
+                            intent.exact_window_id,
+                            intent.origin,
+                            &job_launch_log_sender,
+                            intent.enqueued_at,
+                            queue_wait_ms,
+                            &mut admission_signal,
+                        ),
+                    )
+                    .await;
+                    if let Err(error) = result.as_ref() {
+                        let mut events = crate::RuntimeLaunchEventBatch::with_timing(
+                            job_launch_log_sender,
+                            intent.enqueued_at,
+                            queue_wait_ms,
+                        );
+                        events.record(
+                            "launch.intent-terminal",
+                            &terminal_intent,
+                            None,
+                            Some(&error.code),
+                        );
+                    }
+                    if let Some(reply) = intent.reply {
+                        let _ = reply.send(result);
+                    } else if let Err(error) = result {
+                        crate::reveal_shell_error(&job_app, error);
+                    }
+                    let _ = job_completed_sender.send(terminal_intent.intent_id);
+                });
+                execution_jobs.insert(tracked_intent_id, job);
+                // A dropped signal means the job failed before committing an admission. Either
+                // outcome releases the next mailbox item without waiting for native execution.
+                let _ = admission_completed.await;
+            }
+            for (_, job) in execution_jobs {
+                job.abort();
             }
         });
 
@@ -154,6 +220,7 @@ impl LaunchIntentDispatcher {
             }
         });
         Self {
+            launch_log_sender,
             next_sequence: Arc::new(AtomicU64::new(0)),
             sender,
             tab_menu_sender,
@@ -173,6 +240,12 @@ impl LaunchIntentDispatcher {
     }
 
     fn enqueue(&self, intent: LaunchIntent) -> Result<(), String> {
+        let mut queued_event = crate::RuntimeLaunchEventBatch::with_timing(
+            self.launch_log_sender.clone(),
+            intent.enqueued_at,
+            0,
+        );
+        queued_event.record("launch.intent-enqueued", &intent.record, None, Some(intent.origin));
         self.sender.try_send(intent).map_err(|error| match error {
             tokio::sync::mpsc::error::TrySendError::Full(_) => {
                 "The background launch queue is full. Close or wait for an existing launch before retrying."
@@ -181,7 +254,9 @@ impl LaunchIntentDispatcher {
             tokio::sync::mpsc::error::TrySendError::Closed(_) => {
                 "The background launch queue is unavailable.".to_owned()
             }
-        })
+        })?;
+        queued_event.submit();
+        Ok(())
     }
 
     pub(crate) fn try_launch_source(
@@ -192,6 +267,7 @@ impl LaunchIntentDispatcher {
         origin: &'static str,
     ) -> Result<(), String> {
         self.enqueue(LaunchIntent {
+            enqueued_at: Instant::now(),
             exact_window_id,
             origin,
             record: self.intent_record(source_id, workspace),
@@ -208,6 +284,7 @@ impl LaunchIntentDispatcher {
     ) -> Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload> {
         let (reply, receiver) = tokio::sync::oneshot::channel();
         self.enqueue(LaunchIntent {
+            enqueued_at: Instant::now(),
             exact_window_id,
             origin,
             record: self.intent_record(source_id, workspace),

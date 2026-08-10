@@ -985,9 +985,18 @@ impl SystemRuntimeExecutor {
                     state
                         .quarantined_window_hosts
                         .insert(window_id.to_owned());
-                } else if expected_retirement_revision.is_some() {
+                } else if should_preserve_window_retirement_fence(
+                    expected_retirement_revision,
+                    state
+                        .native_resources
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.retirement_revision),
+                ) {
                     // Keep a continuous close fence until host removal atomically
-                    // replaces this marker with a native-window tombstone.
+                    // replaces this marker with a native-window tombstone. A late
+                    // duplicate completion after that handoff must not recreate an
+                    // orphaned fence that no future destroyed event can retire.
                     state
                         .retiring_window_tabs
                         .insert(window_id.to_owned(), HashSet::new());
@@ -1037,6 +1046,13 @@ impl SystemRuntimeExecutor {
 
 fn window_retirement_revision_is_current(active: u64, expected: Option<u64>) -> bool {
     expected.is_none_or(|expected| active == expected)
+}
+
+fn should_preserve_window_retirement_fence(
+    expected: Option<u64>,
+    live_host_revision: Option<u64>,
+) -> bool {
+    expected.is_some() && expected == live_host_revision
 }
 
 fn native_surface_channel_is_unavailable(message: &str) -> bool {

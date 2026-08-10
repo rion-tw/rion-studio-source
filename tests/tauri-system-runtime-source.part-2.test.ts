@@ -38,6 +38,30 @@ it("terminalizes Kernel close operations and input fences from exact native rele
   );
 });
 
+it("releases ordered launch admission before tracked native execution completes", async () => {
+  const [dispatcher, launch, runtime] = await Promise.all([
+    readFile("src-tauri/src/runtime_tab_menu/section_01_activate_prefix.rs", "utf8"),
+    readFile("src-tauri/src/lib/section_04_runtime_launch_intent.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/section_22_with_native_creation_lane.rs", "utf8")
+  ]);
+
+  expect(dispatcher).toContain("let mut execution_jobs = HashMap::new()");
+  expect(dispatcher).toContain("execution_jobs.insert(tracked_intent_id, job)");
+  expect(dispatcher).toContain("let _ = admission_completed.await");
+  expect(dispatcher).toContain("execution_jobs.remove(&completed_intent_id)");
+  expect(dispatcher).toContain("job.abort()");
+  expect(launch).toContain("preview_tab_launch_for_intent(");
+  expect(launch).toContain("admission_signal.complete()");
+  const preview = runtime.slice(
+    runtime.indexOf("pub(crate) fn preview_tab_launch_for_intent("),
+    runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
+  );
+  const topologyCommit = preview.indexOf("commit_live_window_record");
+  const committedSignal = preview.indexOf("signal.complete()", topologyCommit);
+  expect(topologyCommit).toBeLessThan(committedSignal);
+  expect(committedSignal).toBeLessThan(preview.indexOf("with_native_creation_lane"));
+});
+
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
     const [runtime, shell, macInput, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
@@ -323,8 +347,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       shell.indexOf("fn browser_runtime_snapshot(")
     );
     expect(restoreSavedWindows).toContain("activate_live_runtime_window(");
-    expect(restoreSavedWindows).toContain("reveal_live_runtime_window(");
-    expect(restoreSavedWindows).toContain('"saved-window-active-surface-attached"');
+    expect(restoreSavedWindows).toContain("mark_prepared_restored_window_visible(");
+    expect(restoreSavedWindows).not.toContain("reveal_live_runtime_window(");
+    expect(runtime).toContain('"saved-window-foreground-surfaces-attached"');
+    expect(runtime).toContain("take_restored_foreground_visibility_fence(");
     expect(restoreSavedWindows).toContain('"saved-window-restore"');
     expect(restoreSavedWindows).toContain('"TAURI_RESTORE_ACTIVATION_FAILED"');
     expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");

@@ -141,29 +141,32 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
         trigger: &'static str,
-    ) -> Result<bool, String> {
+        launch_latency_trace: Option<RuntimeLaunchLatencyTrace>,
+    ) -> Result<Option<String>, String> {
         let started = Instant::now();
         let live_tab_count = self
             .presentation
             .existing(window_id)
             .map(|live| live.all_tab_ids().len());
         if !live_tab_count.is_some_and(|tab_count| tab_count > 0) {
-            return Ok(false);
+            return Ok(None);
         }
-        self.request_window_contract_presentation(
-            window_id,
-            Some(true),
-            NativePresentationFocus::None,
-            None,
-            trigger,
-        )
-        .map_err(|error| error.message)?;
+        let (_, operation_id) = self
+            .request_window_contract_presentation_with_launch_trace(
+                window_id,
+                Some(true),
+                NativePresentationFocus::None,
+                None,
+                trigger,
+                launch_latency_trace,
+            )
+            .map_err(|error| error.message)?;
         self.record_runtime_stage(
-            format!("window.first-visible:{window_id}"),
-            "completed",
+            format!("window.first-visible-requested:{window_id}:{operation_id}"),
+            "submitted",
             started,
         );
-        Ok(true)
+        Ok(Some(operation_id))
     }
 
     pub fn hide_runtime_window(

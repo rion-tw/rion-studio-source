@@ -684,7 +684,15 @@ impl SystemRuntimeExecutor {
             self.set_launch_phase(&tab.tab_id, LaunchPhase::Navigating);
             Ok(())
         })();
-        self.finish_restored_tab_creation(&target.window_id, &created_tab_id, result.is_ok());
+        self.finish_restored_tab_creation(
+            &target.window_id,
+            &created_tab_id,
+            operation_id,
+            &attempt_generation,
+            window_generation,
+            surface_generation,
+            result.is_ok(),
+        );
         if result.is_err() {
             #[cfg(windows)]
             let tab_chrome_bootstrap_failed = result.as_ref().err().is_some_and(|error| {

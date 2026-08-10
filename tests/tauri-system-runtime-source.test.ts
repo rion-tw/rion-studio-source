@@ -19,7 +19,7 @@ describe("Tauri System WebView runtime source", () => {
       )
     ]);
     const preview = launchSource.slice(
-      launchSource.indexOf("pub(crate) fn preview_tab_launch("),
+      launchSource.indexOf("pub(crate) fn preview_tab_launch_for_intent("),
       launchSource.indexOf("pub(crate) fn cancel_tab_launch_preview(")
     );
     const completionFallback = launchSource.slice(
@@ -512,7 +512,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).toContain("preview_and_commit_tab_selection");
     expect(shell).toContain("schedule_live_window_state_persistence(window_id)");
     expect(shell).toContain("execute_runtime_launch_intent(");
-    expect(shell).toContain(".preview_tab_launch(&target, &intent.source_id, &intent.source_type)");
+    expect(shell).toContain(".preview_tab_launch_for_intent(");
+    expect(shell).toContain("admission_signal,");
     const launchMatch = shell.indexOf(
       "match destination {",
       shell.indexOf("execute_runtime_launch_intent(")
@@ -521,7 +522,7 @@ it("keeps tab interaction responsive while native launch verification is pending
       shell.indexOf("RuntimeLaunchDestination::Live { reason, target }", launchMatch),
       shell.indexOf("RuntimeLaunchDestination::Dormant {", launchMatch)
     );
-    expect(liveLaunch.indexOf(".preview_tab_launch(")).toBeLessThan(
+    expect(liveLaunch.indexOf(".preview_tab_launch_for_intent(")).toBeLessThan(
       liveLaunch.indexOf('"launch.destination-resolved"')
     );
     expect(liveLaunch.indexOf('"launch.destination-resolved"')).toBeLessThan(
@@ -531,9 +532,13 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(shell).toContain("BrowserLaunchAdmissionCompletion::Completed");
     expect(shell).toContain("LaunchAdmissionResolution::AwaitNativeCompletion");
     expect(shell).toContain("TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED");
-    expect(menu).toContain("while let Some(intent) = receiver.recv().await");
+    expect(menu).toContain("let intent = tokio::select!");
+    expect(menu).toContain("intent = receiver.recv()");
+    expect(menu.indexOf("execution_jobs.insert(")).toBeLessThan(
+      menu.indexOf("admission_completed.await")
+    );
     expect(menu).toContain("unbounded_channel::<Vec<rion_core::LogCaptureRecord>>");
-    expect(runtime).toContain("pub(crate) fn preview_tab_launch(");
+    expect(runtime).toContain("pub(crate) fn preview_tab_launch_for_intent(");
     expect(runtime).toContain('"zh-TW" => "載入中…"');
     expect(runtime).toContain('"launch-preview"');
     expect(quickMenu).toContain('name("rion-quick-menu-model".to_owned())');
@@ -688,7 +693,7 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       readFile(new URL("../src-tauri/src/runtime_tabs_macos.rs", import.meta.url), "utf8")
     ]);
     const launchPreview = runtime.slice(
-      runtime.indexOf("pub(crate) fn preview_tab_launch("),
+      runtime.indexOf("pub(crate) fn preview_tab_launch_for_intent("),
       runtime.indexOf("pub(crate) fn cancel_tab_launch_preview(")
     );
     expect(launchPreview).toContain("commit_live_window_record");
@@ -699,16 +704,20 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     expect(launchPreview).toContain("launch_still_current");
     expect(launchPreview).toContain("reserve_native_tab(");
 
-    expect(menu).toContain("while let Some(intent) = receiver.recv().await");
+    expect(menu).toContain("let intent = tokio::select!");
+    expect(menu).toContain("intent = receiver.recv()");
+    expect(menu.indexOf("execution_jobs.insert(")).toBeLessThan(
+      menu.indexOf("admission_completed.await")
+    );
     expect(shell).toContain("execute_runtime_launch_intent(");
     expect(quickMenu).toContain("launch_intents.try_launch_source(");
-    expect(quickMenu).not.toContain("preview_tab_launch(");
+    expect(quickMenu).not.toContain("preview_tab_launch_for_intent(");
     const menuLaunch = menu.slice(
       menu.indexOf("fn launch_from_menu("),
       menu.indexOf("fn reveal_menu_error(")
     );
     expect(menuLaunch).toContain("launch_intents.try_launch_source(");
-    expect(menuLaunch).not.toContain("preview_tab_launch(");
+    expect(menuLaunch).not.toContain("preview_tab_launch_for_intent(");
     expect(menuLaunch).not.toContain("spawn_blocking");
     expect(menuLaunch).not.toContain("launch_target_for_game_window");
     expect(menuLaunch).not.toContain("core.invoke");

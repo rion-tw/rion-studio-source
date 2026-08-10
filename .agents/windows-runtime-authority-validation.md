@@ -1,8 +1,8 @@
 # Rion Studio Runtime 單一權威：Windows 實機驗收與稽核提示
 
-本文件永久保留，供另一台 Windows 電腦上的 Codex／工程師執行。它是
-`.agents/runtime-authority-migration-ledger.md` 的 Windows 證據入口，不得在 Windows
-驗收時刪除主帳本。
+本文件永久保留，供另一台 Windows 電腦上的 Codex／工程師執行。已完成的 migration
+ledger 不因後續 Windows delta 驗收而重建；每次驗收的 exact-SHA 證據持續寫入
+`.agents/windows-runtime-authority-validation-report.md`。
 
 ## 可直接貼給 Windows Codex 的提示
 
@@ -21,8 +21,8 @@ tests/fixtures/runtime-authority/portable.json 測資。
 完成後建立或更新 .agents/windows-runtime-authority-validation-report.md，填入：
 exact git SHA、Windows 版本、架構、WebView2 Runtime 版本、每個命令的 exit code／
 test counts、每個 WUI transcript 的觀察證據、diagnostics 數值、失敗／修正與重跑結果。
-沒有證據的項目維持 pending/failed。不要刪除
-.agents/runtime-authority-migration-ledger.md；不要宣稱整個 initiative 完成。
+沒有證據的項目維持 pending/failed。若 migration ledger 已依其完成制度移除，不得為
+本次 delta 驗收自行重建；Windows 尚未通過前不要宣稱本次跨平台 latency initiative 完成。
 
 如果既有 report 已是 `Status: pass`，但目前 HEAD 晚於 report 的
 `Validated-code SHA`，不得把祖先 SHA 的 pass 直接沿用到新 HEAD。先逐筆 audit commit
@@ -95,7 +95,7 @@ pnpm run dev
 
 - [ ] WR2.1 `http://127.0.0.1:41739/health` 回覆健康。
 - [ ] WR2.2 由正式 Rion Studio UI 匯入 `tests/fixtures/runtime-authority/portable.json`。
-- [ ] WR2.3 確認 1 game、4 個 `[Runtime QA]` roles、2 workspaces、3 game windows、3 macros。
+- [ ] WR2.3 確認 1 game、6 個 `[Runtime QA]` roles、3 workspaces、3 game windows、3 macros。
 - [ ] WR2.4 再匯入一次時資料不增殖；fixture資料驗收後保留。
 - [ ] WR2.5 所有角色實際載入 System WebView2，沒有 external Chrome、remote debugging或 runtime fallback。
 
@@ -258,6 +258,48 @@ transcript：
   不得用 `allow(dead_code)` 或 non-Windows no-op掩蓋可達性。
 - [ ] WR7.8 在既有 report 加入 `Final-audit delta validation` 章節，更新
   `Validated-code SHA`與`最終 branch exact SHA`為新 HEAD，commit、push並核對遠端一致。
+
+## 8. Runtime launch latency／queue delta 驗收
+
+本節只驗證 privacy-safe native trace 與實際 WebView2 畫面。trace 不得包含 URL、Cookie、
+頁面內容、憑證或 token；elapsed time 必須來自 monotonic launch clock，不得用 SQLite
+寫入 timestamp 倒推。正式驗收前，若 fixture 沒有單角色 workspace，可透過正式 UI 新增
+並永久保留 `[Runtime QA] Single Role Latency`，只指派一個 localhost fixture role。
+
+報告新增 `Runtime launch latency delta` 章節並逐項附上 operation／attempt／tab／window
+generation／surface generation／revision fence 與 elapsed evidence：
+
+- [ ] WR8.1 確認每個 launch 都有唯一且順序合理的
+  `enqueued → admitted → topology-committed → host-created → foreground-surfaces-attached →
+  first-visible → followers-terminal → intent-terminal`；`first-visible` 必須是 WebView2／Win32
+  presentation terminal，不是 reveal request submission。
+- [ ] WR8.2 分別驗證 1-tab 與 3-tab `dormant-existing-source`：foreground attach 後才
+  first-visible，且 first-visible 嚴格早於刻意較慢的 followers terminal；實際 HTML tab
+  strip 與 foreground WebView2 內容一致。
+- [ ] WR8.3 驗證 `first-eligible-dormant-window` appended source：新永久 TabId 的 source
+  必須先顯示，不能排在全部 saved tabs 後；followers 失敗只能 degraded／retryable，不能
+  關閉或隱藏已成功 foreground。
+- [ ] WR8.4 驗證單角色與雙角色 workspace：唯一 role surface／全部必要 role surfaces
+  attached 後才 reveal；不得因 divider 或 inactive follower 形成 false-visible。
+- [ ] WR8.5 以正式 UI 執行 20 組快速 launch pair，保存每組 queue wait。計算 p50／p95／
+  max；p95 必須 ≤ 50ms。第二個 admission 不得等待第一個 native execution terminal，且
+  destination、TabId、surface、role lease 不得重複。
+- [ ] WR8.6 對 already-running source 快速重複啟動 20 次，全部以 existing／joined 唯一
+  terminal；每次只有一個 logical tab 與一個 WebView2 surface。
+- [ ] WR8.7 執行 20 輪 3-tab dormant launch → close → immediate relaunch。close-before-attach、
+  stale attempt／generation／revision、duplicate attach／closed callback 都不得 reveal 舊
+  surface；不得留下 orphan retirement fence 或只到 `enqueued` 的 intent。
+- [ ] WR8.8 分開列出 dormant 與既有 live-window path 的 click-to-first-visible median／p95。
+  live-window path p95 不得比本次驗收起始基線退化超過 10%；若無可重現起始基線，明確
+  標為 `baseline unavailable`，不得虛構改善百分比，但 WR8.1–WR8.7 仍全部必須通過。
+- [ ] WR8.9 trace 中每個 operation 必須唯一 terminal；`first-visible` 不可早於 foreground
+  attach、不可晚到 followers terminal 後，duplicate callback 不可產生第二個 reveal。
+- [ ] WR8.10 關閉所有 QA runtime 後重跑第 4 節 diagnostics；所有 required count 為 0、
+  tombstone／close fence 為 0、`runtimeNativeResourceInvariantsOk = true`，並確認沒有
+  `RUNTIME_TAB_ID_INVALID`、crash、duplicate surface 或 invariant failure。
+- [ ] WR8.11 在新 exact SHA 重跑第 1 節完整 Vitest、Rust、Windows all-targets 與 Tauri
+  build；更新 report 的 `Validated-code SHA`、final exact SHA、local／tracking／remote SHA，
+  commit、push後再次核對三者一致。
 
 只有 WR7.1–WR7.8 全部通過，既有 Windows pass 才能延伸到 final exact SHA。
 

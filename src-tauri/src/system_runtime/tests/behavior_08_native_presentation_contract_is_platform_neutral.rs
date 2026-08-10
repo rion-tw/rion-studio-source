@@ -52,6 +52,32 @@ fn presentation_plan(platform: &'static str) -> NativePresentationPlan {
 }
 
 #[test]
+fn macos_and_windows_share_exact_launch_visibility_terminal_semantics() {
+    for platform in ["macos", "windows"] {
+        assert_eq!(
+            launch_visibility_terminal_status(true, Some(true), false),
+            "completed",
+            "{platform}"
+        );
+        assert_eq!(
+            launch_visibility_terminal_status(true, Some(false), false),
+            "degraded",
+            "{platform}"
+        );
+        assert_eq!(
+            launch_visibility_terminal_status(false, None, false),
+            "superseded",
+            "{platform}"
+        );
+        assert_eq!(
+            launch_visibility_terminal_status(false, None, true),
+            "failed",
+            "{platform}"
+        );
+    }
+}
+
+#[test]
 fn macos_and_windows_share_presentation_receipt_semantics() {
     for platform in ["macos", "windows"] {
         let plan = presentation_plan(platform);

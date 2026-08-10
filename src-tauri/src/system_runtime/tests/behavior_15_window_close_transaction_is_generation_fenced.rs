@@ -108,6 +108,28 @@ fn retired_native_host_blocks_reopen_until_destroyed() {
 }
 
 #[test]
+fn late_tab_cleanup_cannot_recreate_a_fence_after_native_host_retirement() {
+    for platform in ["macos", "windows"] {
+        assert!(
+            should_preserve_window_retirement_fence(Some(7), Some(7)),
+            "{platform}: the exact live host needs a continuous retirement fence"
+        );
+        assert!(
+            !should_preserve_window_retirement_fence(Some(7), Some(8)),
+            "{platform}: a stale cleanup must not fence a newer generation"
+        );
+        assert!(
+            !should_preserve_window_retirement_fence(Some(7), None),
+            "{platform}: a late completion after host handoff or destruction must stay terminal"
+        );
+        assert!(
+            !should_preserve_window_retirement_fence(None, Some(7)),
+            "{platform}: an unfenced cleanup cannot establish window retirement"
+        );
+    }
+}
+
+#[test]
 fn failed_native_cleanup_terminalizes_reopen_instead_of_waiting_forever() {
     let mut state = RuntimeState::default();
     state

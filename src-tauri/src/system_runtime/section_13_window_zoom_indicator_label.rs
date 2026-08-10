@@ -493,6 +493,7 @@ impl SystemRuntimeExecutor {
             window_visibility,
             focus,
             None,
+            None,
         );
         Ok(Some((window_id, presentation_operation_id)))
     }
@@ -547,6 +548,7 @@ impl SystemRuntimeExecutor {
             window_visibility,
             NativePresentationFocus::None,
             None,
+            None,
         );
         Ok((revision, operation_id))
     }
@@ -591,6 +593,25 @@ impl SystemRuntimeExecutor {
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
         trigger: &'static str,
+    ) -> RuntimeResult<(u64, String)> {
+        self.request_window_contract_presentation_with_launch_trace(
+            window_id,
+            window_visibility,
+            focus,
+            window_mode,
+            trigger,
+            None,
+        )
+    }
+
+    fn request_window_contract_presentation_with_launch_trace(
+        &self,
+        window_id: &str,
+        window_visibility: Option<bool>,
+        focus: NativePresentationFocus,
+        window_mode: Option<NativeWindowMode>,
+        trigger: &'static str,
+        launch_latency_trace: Option<RuntimeLaunchLatencyTrace>,
     ) -> RuntimeResult<(u64, String)> {
         self.mark_critical_activity();
         let window = {
@@ -637,6 +658,7 @@ impl SystemRuntimeExecutor {
             window_visibility,
             focus,
             window_mode,
+            launch_latency_trace,
         );
         Ok((revision, operation_id))
     }
@@ -736,6 +758,7 @@ impl SystemRuntimeExecutor {
             active_webview,
             window_visibility,
             focus,
+            None,
             None,
         );
         Ok((window_id, revision, presentation_operation_id))

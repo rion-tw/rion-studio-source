@@ -12,14 +12,56 @@ enum RuntimeLaunchDestination {
 
 struct RuntimeLaunchEventBatch {
     entries: Vec<LogCaptureRecord>,
+    queue_wait_ms: u64,
     sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+    started_at: Instant,
+}
+
+pub(crate) struct RuntimeLaunchExecutionContext<'a> {
+    admission_signal: &'a mut runtime_tab_menu::LaunchAdmissionSignal,
+    exact_window_id: Option<String>,
+    launch_log_sender: &'a tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+    origin: &'static str,
+    queue_wait_ms: u64,
+    started_at: Instant,
+}
+
+impl<'a> RuntimeLaunchExecutionContext<'a> {
+    pub(crate) fn new(
+        exact_window_id: Option<String>,
+        origin: &'static str,
+        launch_log_sender: &'a tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+        started_at: Instant,
+        queue_wait_ms: u64,
+        admission_signal: &'a mut runtime_tab_menu::LaunchAdmissionSignal,
+    ) -> Self {
+        Self {
+            admission_signal,
+            exact_window_id,
+            launch_log_sender,
+            origin,
+            queue_wait_ms,
+            started_at,
+        }
+    }
 }
 
 impl RuntimeLaunchEventBatch {
+    #[cfg(test)]
     fn new(sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>) -> Self {
+        Self::with_timing(sender, Instant::now(), 0)
+    }
+
+    fn with_timing(
+        sender: tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+        started_at: Instant,
+        queue_wait_ms: u64,
+    ) -> Self {
         Self {
             entries: Vec::new(),
+            queue_wait_ms,
             sender,
+            started_at,
         }
     }
 
@@ -30,9 +72,16 @@ impl RuntimeLaunchEventBatch {
         window_id: Option<&str>,
         reason: Option<&str>,
     ) {
+        let elapsed_ms = self
+            .started_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         let context = json!({
             "adapterSequence": intent.adapter_sequence,
+            "elapsedMs": elapsed_ms,
             "intentId": intent.intent_id,
+            "queueWaitMs": self.queue_wait_ms,
             "sourceId": intent.source_id,
             "sourceType": intent.source_type,
             "windowId": window_id,
@@ -95,6 +144,10 @@ fn record_runtime_launch_event(
     reason: Option<&str>,
 ) {
     events.record(event, intent, window_id, reason);
+    // Persist every transition independently. Admission and close-before-reopen waits are
+    // intentionally event-bound and may remain pending for an external native callback, so a
+    // terminal-only batch would erase the exact phase needed to diagnose that wait.
+    events.submit();
 }
 
 fn runtime_launch_receipt(
@@ -271,11 +324,153 @@ fn serialized_launch_statuses(statuses: Vec<rion_core::BrowserRoleStatusRecord>)
     serde_json::to_value(statuses).unwrap_or_else(|_| Value::Array(Vec::new()))
 }
 
+enum SavedWindowHydrationStep<'a> {
+    Appended {
+        preview: &'a system_runtime::LaunchPreviewHandle,
+    },
+    Saved {
+        foreground: bool,
+        tab: &'a GameWindowTabRecord,
+    },
+}
+
+struct SavedWindowHydrationPlan<'a> {
+    steps: Vec<SavedWindowHydrationStep<'a>>,
+}
+
+fn saved_window_hydration_plan<'a>(
+    window: &'a StateGameWindowRecord,
+    existing_saved_tab_id: Option<&str>,
+    launch_preview: Option<&'a system_runtime::LaunchPreviewHandle>,
+) -> SavedWindowHydrationPlan<'a> {
+    let mut steps = Vec::new();
+    if let Some(preview) = launch_preview {
+        steps.push(SavedWindowHydrationStep::Appended { preview });
+    }
+    steps.extend(
+        restore_tabs_in_owner_priority(window)
+            .into_iter()
+            .map(|tab| SavedWindowHydrationStep::Saved {
+                foreground: existing_saved_tab_id == Some(tab.id.as_str()),
+                tab,
+            }),
+    );
+    SavedWindowHydrationPlan { steps }
+}
+
+async fn hydrate_saved_tab_step(
+    state: &CoreState,
+    saved: &StateGameWindowRecord,
+    target: &EmbeddedLaunchTargetRecord,
+    intent: &RuntimeLaunchIntentRecord,
+    tab: &GameWindowTabRecord,
+) -> Result<Option<Value>, CoreErrorPayload> {
+    if let Some(owner) = authoritative_runtime_tab_for_source(
+        state,
+        &tab.source_id,
+        &tab.tab_type,
+    )? {
+        if owner.window_id != saved.id {
+            return Err(shell_error(
+                "TAURI_RESTORE_SOURCE_CONFLICT",
+                "A saved source acquired a different live owner before hydration committed.",
+            ));
+        }
+        return Ok(None);
+    }
+    state
+        .runtime
+        .prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)
+        .map_err(|message| shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", message))?;
+    let admission = match invoke_runtime_source_launch(
+        state,
+        &tab.source_id,
+        &tab.tab_type,
+        target.clone(),
+        None,
+        Some(tab.id.clone()),
+        Some(tab.role_slots.clone()),
+    )
+    .await
+    {
+        Ok(admission) => admission,
+        Err(error) => {
+            state.runtime.discard_prepared_tab_role_slots(&tab.id);
+            return Err(error);
+        }
+    };
+    if resolve_launch_admission(
+        admission.completion,
+        &admission.disposition,
+        &admission.tab_id,
+    ) == LaunchAdmissionResolution::OwnershipDiverged
+    {
+        state.runtime.discard_prepared_tab_role_slots(&tab.id);
+        return Err(shell_error(
+            "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+            "Core completed a restored launch without a stable live presentation owner.",
+        ));
+    }
+    if tab.audio_muted {
+        let _ = state.runtime.restore_tab_audio_muted(&tab.source_id, true);
+    }
+    Ok((tab.source_id == intent.source_id && tab.tab_type == intent.source_type).then(|| {
+        statuses_for_launch_source(
+            serialized_launch_statuses(admission.statuses),
+            &intent.source_id,
+            &intent.source_type,
+        )
+    }))
+}
+
+async fn hydrate_appended_launch_step(
+    state: &CoreState,
+    target: &EmbeddedLaunchTargetRecord,
+    intent: &RuntimeLaunchIntentRecord,
+    preview: &system_runtime::LaunchPreviewHandle,
+) -> Result<(Value, Option<String>), CoreErrorPayload> {
+    let admission = invoke_runtime_source_launch(
+        state,
+        &intent.source_id,
+        &intent.source_type,
+        target.clone(),
+        Some(preview.launch_preview_id.clone()),
+        Some(preview.provisional_tab_id.clone()),
+        None,
+    )
+    .await?;
+    let resolution = resolve_launch_admission(
+        admission.completion,
+        &admission.disposition,
+        &admission.tab_id,
+    );
+    let statuses = statuses_for_launch_source(
+        serialized_launch_statuses(admission.statuses),
+        &intent.source_id,
+        &intent.source_type,
+    );
+    match resolution {
+        LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
+            state
+                .runtime
+                .cancel_tab_launch_preview(&preview.launch_preview_id);
+            Ok((statuses, Some(stable_owner)))
+        }
+        LaunchAdmissionResolution::OwnershipDiverged => Err(shell_error(
+            "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+            "Core completed a launch without a stable live presentation owner.",
+        )),
+        LaunchAdmissionResolution::AwaitNativeCompletion => Ok((statuses, None)),
+    }
+}
+
 async fn hydrate_saved_window_for_launch(
     state: &CoreState,
     saved: &StateGameWindowRecord,
     target: &EmbeddedLaunchTargetRecord,
     intent: &RuntimeLaunchIntentRecord,
+    launch_started_at: Instant,
+    admission_signal: &mut runtime_tab_menu::LaunchAdmissionSignal,
 ) -> Result<(Value, Option<String>, String), CoreErrorPayload> {
     let hydration_operation_id = uuid::Uuid::new_v4().to_string();
     let existing_saved_tab = saved_tab_for_launcher_source(
@@ -286,14 +481,21 @@ async fn hydrate_saved_window_for_launch(
     .cloned();
     let mut resolved_existing_tab_id = existing_saved_tab.as_ref().map(|tab| tab.id.clone());
     let mut hydrated = saved.clone();
+    let mut launch_admission = system_runtime::RestoredLaunchAdmission::new(
+        &intent.intent_id,
+        &hydration_operation_id,
+        launch_started_at,
+        admission_signal,
+    );
     let launch_preview = if let Some(existing) = existing_saved_tab.as_ref() {
         hydrated.active_tab_id = Some(existing.id.clone());
         state
             .runtime
-            .prepare_restored_window_tabs(
+            .prepare_restored_window_tabs_for_launch(
                 target,
                 &hydrated.tabs,
                 hydrated.active_tab_id.clone(),
+                &mut launch_admission,
             )
             .map_err(|message| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", message))?;
         None
@@ -301,135 +503,83 @@ async fn hydrate_saved_window_for_launch(
         Some(
             state
                 .runtime
-                .prepare_restored_window_tabs_with_launch(
+                .prepare_restored_window_tabs_with_launch_for_intent(
                     target,
                     &hydrated.tabs,
                     &intent.source_id,
                     &intent.source_type,
+                    &mut launch_admission,
                 )
                 .map_err(|message| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", message))?,
         )
     };
 
     let mut requested_statuses = Value::Array(Vec::new());
-    for tab in restore_tabs_in_owner_priority(&hydrated) {
-        if let Some(owner) =
-            authoritative_runtime_tab_for_source(state, &tab.source_id, &tab.tab_type)?
-        {
-            if owner.window_id != saved.id {
+    let plan = saved_window_hydration_plan(
+        &hydrated,
+        existing_saved_tab.as_ref().map(|tab| tab.id.as_str()),
+        launch_preview.as_ref(),
+    );
+    for step in plan.steps {
+        let (foreground, tab_id, result) = match step {
+            SavedWindowHydrationStep::Appended { preview } => (
+                true,
+                preview.provisional_tab_id.as_str(),
+                hydrate_appended_launch_step(state, target, intent, preview)
+                    .await
+                    .map(|(statuses, stable_owner)| {
+                        requested_statuses = statuses;
+                        if stable_owner.is_some() {
+                            resolved_existing_tab_id = stable_owner;
+                        }
+                    }),
+            ),
+            SavedWindowHydrationStep::Saved { foreground, tab } => (
+                foreground,
+                tab.id.as_str(),
+                hydrate_saved_tab_step(state, saved, target, intent, tab)
+                    .await
+                    .map(|statuses| {
+                        if let Some(statuses) = statuses {
+                            requested_statuses = statuses;
+                        }
+                    }),
+            ),
+        };
+        if let Err(error) = result {
+            if foreground {
                 if let Some(preview) = launch_preview.as_ref() {
-                    state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
+                    state
+                        .runtime
+                        .cancel_tab_launch_preview(&preview.launch_preview_id);
                 }
-                state.runtime.discard_prepared_restored_window_tabs(&saved.id);
-                return Err(shell_error(
-                    "TAURI_RESTORE_SOURCE_CONFLICT",
-                    "A saved source acquired a different live owner before hydration committed.",
-                ));
-            }
-            continue;
-        }
-        state
-            .runtime
-            .prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)
-            .map_err(|message| shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", message))?;
-        let result = invoke_runtime_source_launch(
-            state,
-            &tab.source_id,
-            &tab.tab_type,
-            target.clone(),
-            None,
-            Some(tab.id.clone()),
-            Some(tab.role_slots.clone()),
-        )
-        .await;
-        let admission = match result {
-            Ok(admission) => admission,
-            Err(error) => {
-                state.runtime.discard_prepared_tab_role_slots(&tab.id);
-                if let Some(preview) = launch_preview.as_ref() {
-                    state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
-                }
-                state.runtime.discard_prepared_restored_window_tabs(&saved.id);
+                state
+                    .runtime
+                    .discard_prepared_restored_window_tabs(&saved.id);
                 return Err(error);
             }
-        };
-        if resolve_launch_admission(
-            admission.completion,
-            &admission.disposition,
-            &admission.tab_id,
-        )
-            == LaunchAdmissionResolution::OwnershipDiverged
+            state
+                .runtime
+                .fail_prepared_restored_tab(&saved.id, tab_id, &error.code);
+        } else if foreground
+            && !(launch_preview.is_some() && resolved_existing_tab_id.is_some())
+            && let Err(message) = state
+                .runtime
+                .wait_for_prepared_restored_foreground_visible(&saved.id)
+                .await
         {
-            state.runtime.discard_prepared_tab_role_slots(&tab.id);
             if let Some(preview) = launch_preview.as_ref() {
-                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
+                state
+                    .runtime
+                    .cancel_tab_launch_preview(&preview.launch_preview_id);
             }
-            state.runtime.discard_prepared_restored_window_tabs(&saved.id);
+            state
+                .runtime
+                .discard_prepared_restored_window_tabs(&saved.id);
             return Err(shell_error(
-                "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
-                "Core completed a restored launch without a stable live presentation owner.",
+                "TAURI_RESTORE_FOREGROUND_VISIBILITY_FAILED",
+                message,
             ));
-        }
-        if existing_saved_tab
-            .as_ref()
-            .is_some_and(|existing| existing.id == tab.id)
-        {
-            requested_statuses = statuses_for_launch_source(
-                serialized_launch_statuses(admission.statuses),
-                &intent.source_id,
-                &intent.source_type,
-            );
-        }
-        if tab.audio_muted {
-            let _ = state.runtime.restore_tab_audio_muted(&tab.source_id, true);
-        }
-    }
-
-    if let Some(preview) = launch_preview.as_ref() {
-        let admission = match invoke_runtime_source_launch(
-            state,
-            &intent.source_id,
-            &intent.source_type,
-            target.clone(),
-            Some(preview.launch_preview_id.clone()),
-            Some(preview.provisional_tab_id.clone()),
-            None,
-        )
-        .await
-        {
-            Ok(admission) => admission,
-            Err(error) => {
-                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
-                state.runtime.discard_prepared_restored_window_tabs(&saved.id);
-                return Err(error);
-            }
-        };
-        let resolution = resolve_launch_admission(
-            admission.completion,
-            &admission.disposition,
-            &admission.tab_id,
-        );
-        requested_statuses = statuses_for_launch_source(
-            serialized_launch_statuses(admission.statuses),
-            &intent.source_id,
-            &intent.source_type,
-        );
-        match resolution {
-            LaunchAdmissionResolution::UseStableOwner(stable_owner) => {
-                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
-                resolved_existing_tab_id = Some(stable_owner);
-            }
-            LaunchAdmissionResolution::OwnershipDiverged => {
-                state.runtime.cancel_tab_launch_preview(&preview.launch_preview_id);
-                state.runtime.discard_prepared_restored_window_tabs(&saved.id);
-                return Err(shell_error(
-                    "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
-                    "Core completed a launch without a stable live presentation owner.",
-                ));
-            }
-            LaunchAdmissionResolution::AwaitNativeCompletion => {
-                // The identity-fenced create effect owns preview replacement or failure.
-            }
         }
     }
     state
@@ -441,10 +591,6 @@ async fn hydrate_saved_window_for_launch(
         .runtime
         .persist_restore_session(false)
         .map_err(|message| shell_error("TAURI_RESTORE_PERSIST_FAILED", message))?;
-    let _ = state.runtime.reveal_live_runtime_window(
-        &saved.id,
-        "saved-window-hydration-committed",
-    );
     Ok((
         requested_statuses,
         resolved_existing_tab_id,
@@ -455,17 +601,27 @@ async fn hydrate_saved_window_for_launch(
 pub(crate) async fn execute_runtime_launch_intent(
     app: &AppHandle,
     intent: RuntimeLaunchIntentRecord,
-    exact_window_id: Option<String>,
-    origin: &'static str,
-    launch_log_sender: &tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
+    execution: RuntimeLaunchExecutionContext<'_>,
 ) -> Result<runtime_tab_menu::RuntimeLaunchOutcome, CoreErrorPayload> {
+    let RuntimeLaunchExecutionContext {
+        admission_signal,
+        exact_window_id,
+        launch_log_sender,
+        origin,
+        queue_wait_ms,
+        started_at: launch_started_at,
+    } = execution;
     let state = app.try_state::<CoreState>().ok_or_else(|| {
         shell_error(
             "TAURI_RUNTIME_LAUNCH_STATE_UNAVAILABLE",
             "The runtime launch actor started before application state was available.",
         )
     })?;
-    let mut events = RuntimeLaunchEventBatch::new(launch_log_sender.clone());
+    let mut events = RuntimeLaunchEventBatch::with_timing(
+        launch_log_sender.clone(),
+        launch_started_at,
+        queue_wait_ms,
+    );
     record_runtime_launch_event(
         &mut events,
         "launch.intent-admitted",
@@ -483,6 +639,7 @@ pub(crate) async fn execute_runtime_launch_intent(
         .runtime
         .presented_stable_tab_for_launcher_source(&intent.source_id, &intent.source_type)
     {
+        admission_signal.complete();
         state
             .runtime
             .cancel_active_launch_preview_for_source(&intent.source_id, &intent.source_type);
@@ -518,6 +675,7 @@ pub(crate) async fn execute_runtime_launch_intent(
         .presented_tab_for_launcher_source(&intent.source_id, &intent.source_type)
     {
         if let Some(window_id) = state.runtime.live_tab_window_id(&tab_id) {
+            admission_signal.complete();
             preview_and_schedule_launcher_tab_selection(app, &state, &tab_id).map_err(
                 |message| shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message),
             )?;
@@ -551,7 +709,12 @@ pub(crate) async fn execute_runtime_launch_intent(
         RuntimeLaunchDestination::Live { reason, target } => {
             let preview = state
                 .runtime
-                .preview_tab_launch(&target, &intent.source_id, &intent.source_type)
+                .preview_tab_launch_for_intent(
+                    &target,
+                    &intent.source_id,
+                    &intent.source_type,
+                    admission_signal,
+                )
                 .map_err(|error| shell_error(error.code, error.message))?;
             record_runtime_launch_event(
                 &mut events,
@@ -676,7 +839,15 @@ pub(crate) async fn execute_runtime_launch_intent(
             .map_err(|error| shell_error("TAURI_RESTORE_WINDOW_FAILED", error.to_string()))?
             .map_err(|message| shell_error("TAURI_RESTORE_WINDOW_CLOSE_PENDING", message))?;
             let (statuses, existing_tab_id, hydration_operation_id) =
-                hydrate_saved_window_for_launch(&state, &saved, &target, &intent).await?;
+                hydrate_saved_window_for_launch(
+                    &state,
+                    &saved,
+                    &target,
+                    &intent,
+                    launch_started_at,
+                    admission_signal,
+                )
+                .await?;
             events.submit();
             record_runtime_launch_event(
                 &mut events,

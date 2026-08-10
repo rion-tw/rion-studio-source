@@ -128,7 +128,8 @@ fn live_topology_commit_is_atomic_and_primary_destination_owns_duplicates() {
 #[test]
 fn dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch() {
     let store = LiveWindowTabStore::default();
-    let mut appended = topology_tab("provisional-test");
+    let preview = allocate_launch_preview_handle("source-test", "workspace");
+    let mut appended = topology_tab(&preview.provisional_tab_id);
     appended.persistable = false;
     appended.source_id = "source-test".to_owned();
     let receipt = store
@@ -149,14 +150,13 @@ fn dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch() {
 
     assert_eq!(receipt.status, LiveTopologyCommitStatus::Applied);
     let window = store.kernel.snapshot_window("window-1").unwrap().unwrap();
-    assert_eq!(
-        window.all_tab_ids(),
-        ["test4", "test5", "provisional-test"]
-    );
+    assert_eq!(window.all_tab_ids()[..2], ["test4", "test5"]);
+    assert_eq!(window.all_tab_ids()[2], preview.provisional_tab_id);
     assert_eq!(
         window.selected_tab_id.as_deref(),
-        Some("provisional-test")
+        Some(preview.provisional_tab_id.as_str())
     );
+    assert!(uuid::Uuid::parse_str(&preview.provisional_tab_id).is_ok());
 }
 
 #[test]

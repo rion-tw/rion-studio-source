@@ -16,7 +16,7 @@
 ## 外部 blockers
 
 - [x] BL1 `done` 使用者已於2026-08-09手動解鎖macOS；Computer Use可繼續，未繞過登入鎖。
-- [ ] BL2 `in-progress` Windows原生完整驗收已先在`a055e170`通過，WR7又在`87a3c8bb516b056975d9d079ace899af10f8a101`完成callback/cfg delta、954 Rust、20/20 shortcuts與含tombstone的idle-zero。主工作獨立audit `87a3c8bb` 時發現`RemoveWindow`以過寬的`is_terminal()`清理tombstone，會把`Indeterminate/Cancelled`未知teardown誤當已證實終止。現已限縮為surface確實消失且phase為`Completed|Failed`，並補直接indeterminate與event-stream-failure regression；待Windows依永久清單WR8將pass延伸到最終exact SHA。
+- [ ] BL2 `in-progress` Windows WR8已在validated code `91f9d52d`完成955 Rust、822 Vitest、正式WebView2 close與全idle-zero，report commit為`9af44f3e`。2026-08-10 macOS使用者資料重播又抓出WR8後的兩個shared/native projection delta：dormant hydration仍產生`provisional-<uuid>`，以及visible tab close漏送native chrome removal。兩者已在macOS修正並實機通過；因修改shared System Runtime與Windows HTML tab strip可達路徑，Windows必須依永久清單WR9把pass延伸到本次最終exact SHA。
 
 ## 摘要與根因
 
@@ -58,13 +58,13 @@
 
 ## C. 重建 launch、close、restore
 
-- [x] C1 `done` role/workspace/restore 從 admission 傳入永久 UUID `launch_tab_id`，Core effect 與 native create 全程沿用；相關 Core/Tauri no-run 編譯及 admission 測試通過。
+- [x] C1 `done` role/workspace/restore 從 admission 傳入永久 UUID `launch_tab_id`，Core effect 與 native create 全程沿用。2026-08-10反向實機稽核發現獨立dormant hydration path仍在相容欄位產生`provisional-<uuid>`；現已讓live/dormant共同使用`allocate_launch_preview_handle`，相容欄位名稱保留但值從配置起就是Core-compatible permanent UUID。focused Rust/source tests與macOS真實dormant launch通過。
 - [x] C2 `done` retry 沿用 TabId 並以 attempt generation fencing；alias、replace-tab-id、AppKit replace C ABI 與 completion owner probing 已移除。
 - [x] C3 `done` `BrowserRuntimeState::CreateTab` 將 source查找與建立合為單一 transaction；2-thread Kernel admission及 darwin/win32 overlapping role/workspace完整 Core effect replay均證明兩個 caller共用一個 TabId且只有 creator送 native create。Computer Use 重複 role launch維持一個 logical/native surface；restore以同一 exact-ID admission進入。
 - [x] C4 `done` Runtime admission/close plan 為 immutable identity plan，Core先提交 pending/close desired state再送 effect；全 repo `launch_plans`為零，effect-stack source hygiene禁止同步 `.core.invoke(`，native lifecycle只經 typed kernel facade回傳。
 - [x] C5 `done` Tauri executor 已將 `attached/ready/failed/closed` 以 operation/tab/attempt/window generation/surface generation envelope 實際送回 Kernel；tombstone/attempt tests 證明過期事件為 Duplicate 且不能復活 surface。2026-08-09 實機 SQLite trace 重播 `surface.registered → tab.surface-attached → launch phases → ready/settled` 與 close/release，永久 TabId 與 window generation 全程一致；loading close 後立即 relaunch 的新 surface 計數歸零且舊 callback 未復活。
-- [x] C6 `done` `preview_tab_close` 先以 `RuntimeIntent::CloseTab` 原子移除 membership、建立 tombstone/teardown desired effect，native teardown 完成後只 terminalize 同一 Kernel operation；late events 由 tombstone tests 拒絕。
-- [x] C7 `done` preview launch、無 preview completion fallback 與 restore 都先提交完整 desired topology／永久 TabId，再建立 native host；native host 失敗保留可重試 desired state。restore/launch 均走同一 Core source admission；source ordering regression 與 dormant hydration test 通過。
+- [x] C6 `done` `preview_tab_close` 先以 `RuntimeIntent::CloseTab` 原子移除 membership、建立 tombstone/teardown desired effect，native teardown 完成後只 terminalize同一Kernel operation；late events由tombstone tests拒絕。2026-08-10實機又證明logical close成功後舊程式漏送native tab-chrome removal，現於commit後、successor presentation/surface isolation前投影既有`try_remove_native_tab_reservation`；AppKit ghost tab regression已由source order test與Computer Use關閉重播證明移除。
+- [x] C7 `done` preview launch、無 preview completion fallback 與 restore 都先提交完整 desired topology／永久 TabId，再建立 native host；native host失敗保留可重試desired state。2026-08-10把先前漏盤的dormant append-source orchestration改為同一permanent UUID allocator；`dormant_hydration_first_commit_contains_saved_tabs_and_appended_launch`與真實`first-eligible-dormant-window`重播皆通過。
 - [x] C8 `done` window close由 `BrowserWindowCloseAdmit`先取得 exact lease並以單一 Kernel revision移除 desired tabs/owners；native teardown消費 immutable identity-keyed `closing_tabs`至唯一 terminal。Window persistence lane以 `(window_generation, revision)` latest-wins coalesce/retry，Core batch在單一 SQLite transaction逐 window拒絕 stale/duplicate revision；revision/batch atomic tests通過。
 - [x] C9 `done` 全 repo runtime source 已移除 `launch_plans`、`role_tabs`、`native_tab_hosts`、`optimistic_closed_tabs`；需要的 native 查詢由 handle registry 即時計算，不再有額外 logical owner map。
 
@@ -92,10 +92,10 @@
 
 - [x] F1 `done` `scripts/runtimeAuthorityFixtureServer.mjs` 只 listen `127.0.0.1:41739`，具 `/health`、role page、鍵盤/點擊/focus/visibility state API；`curl` health/page 實測通過。
 - [x] F2 `done` `tests/fixtures/runtime-authority/portable.json` 為 schema 17，Core portable normalize/deserialize/preview/prepare regression test 通過且不含敏感資料。
-- [x] F3 `done` fixture 固定包含 1 game、4 roles、2 workspace layouts、3 個多 tab windows、once/loop/nested macros。
+- [x] F3 `done` fixture 固定包含1 game、6 roles、3 workspace layouts、3個多tab windows、once/loop/nested macros；新增Epsilon/Zeta與不屬於任何saved window的`[Runtime QA] Dormant Admission`，永久覆蓋append-source dormant hydration。
 - [x] F4 `done` fixture 全部 launch URL 為 `http://127.0.0.1:41739`；macro 僅有安全 key/click/delay/nested call。
 - [x] F5 `done` fixture 使用固定 UUID；Core test 對 imported snapshot 再次 preview，所有 collection 均為 unchanged，證明重跑不增殖。
-- [x] F6 `done` 2026-08-09 透過 Rion Studio Dev 正式「設定 → 資料 → 匯入 JSON」UI 匯入；畫面回報新增 13、警告 0，dashboard 顯示總數 +1 game/+4 roles/+2 workspaces/+3 windows/+3 macros，資料永久保留。
+- [x] F6 `done` 2026-08-09透過正式UI匯入原fixture；2026-08-10再以正式UI匯入delta，preview為2 new roles/1 new workspace、警告0，結果`新增3／覆蓋0／不變7／略過0`。dashboard永久保留Epsilon、Zeta、Dormant Admission；為避免覆寫既有本機QA window位置，delta匯入時未選game windows/macros。
 
 ## 內部介面
 
@@ -129,15 +129,16 @@
 - [x] M7 `done` Once 對 Alpha 精確造成 click +1/keydown +1；Loop 對 Beta 造成 click 累積至 72，停止後 1.5 秒仍為 72；Nested 執行期間顯示 parent+child 兩個 running，terminal 歸零且 Alpha 精確 click +1/keydown +2；macro-running window close 亦完成 cleanup。
 - [x] M8 `done` Beta fixture 先保留 click=1，再對主 renderer 執行 reload；AppSnapshot projection 恢復後重新聚焦既有 Beta WKWebView，click 仍為 1，證明 renderer reload 未重建原生 WebView。
 - [x] M9 `done` 多輪launch/close/relaunch/restore與AppKit move完成。第一次正式Diagnostics揭露native handles歸零但Kernel仍有3 logical surfaces/3 pending closes及4 input fences；根因是window-close destroy path退休Tauri tombstone卻未送Kernel `closed`，且成功native effect未terminalize Core macro stopping、native input lane亦未neutralize。三層均改為exact native/effect terminal event並補regression。最終隱私安全snapshot：`healthy=true`、`snapshotComplete=true`、`collectionErrorCodes=[]`、native invariant=true/failures=0，Kernel pending/logical=0，managed/closing/quarantine/pending-close/native-creation/lifecycle/navigation/input/recovery/tab/role皆=0，recent nonterminal=[]。含本機logs的ZIP移至`/private/tmp`，repo只留數值證據。
+- [x] M10 `done` 2026-08-10 Computer Use從首頁以4個dormant saved windows重播新`[Runtime QA] Dormant Admission`及使用者原`坦法雙開`。兩者均記錄`first-eligible-dormant-window`，使用普通永久UUID、terminal success且WebView ready，`RUNTIME_TAB_ID_INVALID`/error/runtime crash為0。QA workspace close前實機發現AppKit ghost tab；補上commit後native chrome removal後重播，AX由3 tabs確實降為2、SQLite一致，projection submission成功且沒有`tab.chrome-removal-submit-failed`。立即relaunch取得新TabId，duplicate launch terminal為`existing-live-source`且無新surface；原`坦法雙開`兩個真實WKWebView ready後以正式close移除。最終正式Diagnostics ZIP解析：`healthy=true`、`snapshotComplete=true`、`collectionErrorCodes=[]`、invariant=true/failures=0，display/tab/role/managed/retired/closing/quarantine/pending-close/input/native-creation/lifecycle/navigation/Kernel logical/pending/tombstone全部0。ZIP移至`/tmp/rion-runtime-authority-diagnostics.UFwrtx/`，repo未保留。
 
 Computer Use 規則：每次操作後重新讀取 accessibility/App state，不沿用舊 element index；必要時以 screenshot 驗證。只操作本機 Rion Studio 與 localhost fixture，不傳輸敏感資料。
 
 ## Windows 門檻
 
-- [ ] W1 `in-progress` Windows原生`87a3c8bb`已完成全部required automated gates（Vitest 822、Rust 954、Windows all-targets/build）及source audit；pure-Kernel final-ledger後繼SHA仍須依WR8.4重跑完整Windows gate。
-- [ ] W2 `in-progress` `87a3c8bb`已證明WebView2/Win32實際reachability、callback deferral、兩處Windows cfg且無`allow(dead_code)`；final-ledger delta不碰platform code，仍待final exact SHA all-targets/build證據。
-- [ ] W3 `in-progress` 原WUI-1–WUI-7、20/20 runtime壓力、5/5 Quit/relaunch，以及WR7的20/20 Ctrl+Tab/Ctrl+Shift+Tab與含tombstone idle-zero均通過；final-ledger delta需以新binary完成WR8.5正常close/idle-zero，其他native transcript經range audit可沿用。
-- [ ] W4 `in-progress` `.agents/windows-runtime-authority-validation-report.md` 已以`Status: pass`記錄validated code`87a3c8bb`與遠端report commit`6e1789b2`；仍待WR8 successor章節、最終validated SHA及遠端SHA核對。
+- [ ] W1 `in-progress` Windows原生WR8已對`91f9d52d`完成全部required automated gates（Vitest 822、Rust 955、Windows all-targets/native/production build）及source audit；本次dormant admission/tab-chrome delta仍須依WR9.6在final exact SHA重跑完整Windows gate。
+- [ ] W2 `in-progress` WR8已證明WebView2/Win32實際reachability、callback deferral、Windows cfg且無`allow(dead_code)`；本次直接觸及shared native tab removal與Windows HTML tab strip remove call，須由WR9新binary重新證明可達與ack。
+- [ ] W3 `in-progress` 原WUI-1–WUI-7、20/20 runtime壓力、5/5 Quit/relaunch、20/20 shortcuts與WR8 idle-zero均通過；本次必須新增WR9 dormant append-source、duplicate、HTML chrome close、immediate relaunch及新idle diagnostics實機證據。
+- [ ] W4 `in-progress` `.agents/windows-runtime-authority-validation-report.md` 已以`Status: pass`記錄WR8 validated code`91f9d52d`與report commit`9af44f3e`；待WR9 successor章節、最終validated SHA及遠端SHA三方核對。
 
 ## 舊權威移除表
 
@@ -166,16 +167,17 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 | Build | done | `pnpm run build`最終重跑通過（typecheck、Vite renderer、`cargo build -p rion-tauri`） |
 | System-only validation | done | `pnpm run verify:system-only`通過；`pnpm run check:hygiene`亦以exit 0通過 |
 | macOS Computer Use | done | M1–M9全部完成；正式Quit/restore與Diagnostics idle zero均有實機證據；單monitor限制已記錄 |
-| Windows CI | in-progress | `87a3c8bb`原生完整gate/WR7 shortcut/diagnostics已pass；pure-Kernel final-ledger後繼SHA待WR8複驗 |
+| Windows CI | in-progress | WR8已在`91f9d52d`完成原生完整gate、正式WebView2 close與idle-zero diagnostics；本次dormant admission/tab-chrome final exact SHA待WR9複驗 |
 | Final-audit delta local gates | done | source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 565/Platform 20/Tauri 372、all-targets check、build、system-only與dependency hygiene全綠；Windows cross-target在進入project code前因macOS主機缺Windows C SDK header停止，不作Windows通過證據 |
 | Final-ledger audit local gates | done | tombstone normal/indeterminate focused 2/2；source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 567/Platform 20/Tauri 372、macOS all-targets check、build、system-only與dependency hygiene全部通過；generated diff與`git diff --check`為空 |
+| Dormant admission/tab-chrome delta local gates | done | 2026-08-10 source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 567/Platform 20/Tauri 373（total 960）、build、system-only、dependency hygiene、generated clean與`git diff --check`全部通過。Computer Use另完成QA與原`坦法雙開`真實dormant launch、close/relaunch/duplicate及idle-zero diagnostics。 |
 
 ## 最終完成與刪除門檻
 
 - [x] Z1 `done` 最終source hygiene與writer反向搜尋證明logical runtime mutation只經typed Kernel facade／RuntimeIntent；LiveWindow只剩immutable snapshot與Kernel commit facade。
 - [x] Z2 `done` legacy token反搜只有否定式regression與hygiene規則命中；production無alias、owner probing、舊authority map、implicit dirty writer或System Runtime effect-stack `core.invoke`。
 - [x] Z3 `done` Kernel model/stress、Tauri lifecycle regressions、revision store tests與macOS idle diagnostics共同證明operation terminal、projection monotonic及native owner可追溯；所有required idle count為0且native invariant為true。
-- [ ] Z4 全部自動測試、macOS 實機測試、Windows CI 全綠。
+- [ ] Z4 本次全部macOS自動測試與實機測試全綠；Windows WR8只覆蓋祖先`91f9d52d`，仍待WR9把原生pass延伸到dormant admission/tab-chrome final exact SHA。
 - [x] Z5 `done` 2026-08-09最終全repo反搜：舊authority關鍵字僅存在於禁止回歸測試／hygiene規則；pure RuntimeKernel無平台cfg；crates/Tauri無`allow(dead_code)`；generated無diff；repo無diagnostic ZIP。所有production timer/deadline通過event-topology分類；`reconcile`命中逐筆屬event-triggered projection/display/install-journal套用，不從timer、readback或dirty scan建立logical truth。
 - [ ] Z6 每項任務附證據並完成獨立 final audit。
 - [ ] Z7 刪除本帳本作為最後一項檔案變更；永久 fixture 與本機 QA 測資保留。
@@ -229,3 +231,5 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - 2026-08-10：Windows原生驗收report以`a055e170`記錄WUI-1–WUI-7、20/20壓力、5/5正式Quit/relaunch、Vitest 822、Rust 953與required idle-zero全部pass；獨立檢查commit range時發現WebView2 `AcceleratorKeyPressed`的application shortcut雖已defer，Ctrl+Tab fallback仍透過helper在callback stack內同步讀Core／提交selection。已將整條tab shortcut派送移到`run_on_main_thread`之後，source regression同時檢查callback與defer helper邊界。
 - 2026-08-10：final-audit本機Rust lint再抓出Windows新增的tab-chrome bootstrap failure cleanup call未受`#[cfg(windows)]`保護，使`a055e170`在macOS無法編譯；已對failure detection與retirement call加入明確cfg並補source regression。修正後本機完整gates全綠；Windows pass仍只屬祖先SHA，依WR7完成final exact SHA增量複驗前不刪帳本。
 - 2026-08-10：Windows WR7在`87a3c8bb`完成954 Rust、20/20實體shortcut與含`tombstone=0`的idle audit，並從真實`RemoveWindow -> Closed`順序補上雙順序cleanup。主工作逐行稽核後發現cleanup predicate使用`phase.is_terminal()`，會連`Indeterminate/Cancelled`未知結果也移除close fence；這不會在正常closed實機路徑顯現。已改為僅在logical surface已消失且operation為`Completed|Failed`時清除；regression逐一直接terminalize為`Indeterminate/Cancelled/Failed`及走`FailEventStream`，四者只要Closing surface仍存在都必須保留tombstone，且晚到ready為duplicate。正常兩種closed順序與未知結果focused tests共2項通過；WR8 final exact SHA複驗前帳本保留。
+- 2026-08-10：使用者既有`坦法雙開`在dormant window重播時回傳`RUNTIME_TAB_ID_INVALID`。Git blame與資料庫反搜證明不是舊SQLite資料：所有目前／歷史backup皆無`provisional-*`持久值；真正根因是2026-08-08加入的`section_12_window_restore_contract.rs`每次動態產生`provisional-<uuid>`，先commit desired/native preview後才把它當`launch_tab_id`送進新Core嚴格UUID契約。2026-08-09 single-authority migration只修到normal live preview，漏掉獨立dormant hydration orchestration。決策是不清空角色／工作區／視窗／巨集，也不放寬Core；改為live/dormant共用permanent UUID allocator並加入fixture保證覆蓋該path。
+- 2026-08-10：修正admission後的Computer Use close揭露第二個既有投影缺口：Kernel membership、SQLite、surface registry與tombstone皆正確terminal，但AppKit tab chrome仍顯示ghost tab。根因是`preview_tab_close_with_presentation`在logical commit後只dispatch successor內容與surface isolation，未送已存在的native reservation removal。現於commit後投影同一remove effect，失敗只記錄並保持forward-only close，不回滾Kernel或建立timer/probing；AppKit/SQLite/Diagnostics重播全一致。

@@ -47,7 +47,6 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<LaunchPreviewHandle> {
         let preview_started = Instant::now();
         self.mark_critical_activity();
-        let source_key = launch_source_key(tab_type, source_id);
         let existing = {
             let state = self.state()?;
             active_provisional_launch(&state, source_id, tab_type).map(launch_preview_handle)
@@ -62,8 +61,9 @@ impl SystemRuntimeExecutor {
                     RuntimeError::new("SYSTEM_RUNTIME_WINDOW_CLOSING", message)
                 })?;
         }
-        let provisional_id = uuid::Uuid::new_v4().to_string();
-        let launch_preview_id = uuid::Uuid::new_v4().to_string();
+        let preview = allocate_launch_preview_handle(source_id, tab_type);
+        let provisional_id = preview.provisional_tab_id.clone();
+        let launch_preview_id = preview.launch_preview_id.clone();
         let placeholder_name = self
             .language
             .lock()
@@ -235,11 +235,7 @@ impl SystemRuntimeExecutor {
             None,
             None,
         );
-        Ok(LaunchPreviewHandle {
-            launch_preview_id,
-            provisional_tab_id: provisional_id,
-            source_key,
-        })
+        Ok(preview)
     }
 
     pub(crate) fn cancel_tab_launch_preview(&self, launch_preview_id: &str) {

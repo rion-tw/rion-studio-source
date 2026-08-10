@@ -15,7 +15,9 @@
     { "id": "02000000-0000-4000-8000-000000000001", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Alpha", "launchUrl": "http://127.0.0.1:41739/role/qa-alpha", "notes": "Permanent local runtime-authority fixture." },
     { "id": "02000000-0000-4000-8000-000000000002", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Beta", "launchUrl": "http://127.0.0.1:41739/role/qa-beta", "notes": "Permanent local runtime-authority fixture." },
     { "id": "02000000-0000-4000-8000-000000000003", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Gamma", "launchUrl": "http://127.0.0.1:41739/role/qa-gamma", "notes": "Permanent local runtime-authority fixture." },
-    { "id": "02000000-0000-4000-8000-000000000004", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Delta", "launchUrl": "http://127.0.0.1:41739/role/qa-delta", "notes": "Permanent local runtime-authority fixture." }
+    { "id": "02000000-0000-4000-8000-000000000004", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Delta", "launchUrl": "http://127.0.0.1:41739/role/qa-delta", "notes": "Permanent local runtime-authority fixture." },
+    { "id": "02000000-0000-4000-8000-000000000005", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Epsilon", "launchUrl": "http://127.0.0.1:41739/role/qa-epsilon", "notes": "Permanent dormant-admission fixture; intentionally absent from every saved Game Window." },
+    { "id": "02000000-0000-4000-8000-000000000006", "gameId": "01000000-0000-4000-8000-000000000001", "name": "[Runtime QA] Zeta", "launchUrl": "http://127.0.0.1:41739/role/qa-zeta", "notes": "Permanent dormant-admission fixture; intentionally absent from every saved Game Window." }
   ],
   "launchWorkspaces": [
     {
@@ -36,6 +38,15 @@
         { "id": "03200000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000002", "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 0.5 } },
         { "id": "03200000-0000-4000-8000-000000000003", "roleId": "02000000-0000-4000-8000-000000000003", "rect": { "x": 0, "y": 0.5, "width": 0.5, "height": 0.5 } },
         { "id": "03200000-0000-4000-8000-000000000004", "roleId": "02000000-0000-4000-8000-000000000004", "rect": { "x": 0.5, "y": 0.5, "width": 0.5, "height": 0.5 } }
+      ]
+    },
+    {
+      "id": "03000000-0000-4000-8000-000000000003",
+      "name": "[Runtime QA] Dormant Admission",
+      "template": "two_columns",
+      "slots": [
+        { "id": "03300000-0000-4000-8000-000000000001", "roleId": "02000000-0000-4000-8000-000000000005", "browserZoomPercent": 100, "rect": { "x": 0, "y": 0, "width": 0.5, "height": 1 } },
+        { "id": "03300000-0000-4000-8000-000000000002", "roleId": "02000000-0000-4000-8000-000000000006", "browserZoomPercent": 100, "rect": { "x": 0.5, "y": 0, "width": 0.5, "height": 1 } }
       ]
     }
   ],

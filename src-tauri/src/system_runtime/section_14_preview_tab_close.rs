@@ -181,6 +181,44 @@ impl SystemRuntimeExecutor {
         self.publish_launcher_presence();
         if present_successor {
             self.record_tab_close_presentation(tab_id, next_tab_id.as_deref(), revision, elapsed);
+
+            // The Kernel close commit above is the sole membership authority. Project its
+            // removal to native tab chrome before presenting the successor; otherwise AppKit
+            // and the Windows HTML strip can retain a selectable ghost for a tab whose logical
+            // owner and surfaces are already terminally closing. A native projection failure
+            // cannot compensate or roll back the committed close, so record it and continue
+            // forward with surface isolation.
+            let native_close_started = Instant::now();
+            let native_close = self.try_remove_native_tab_reservation(
+                &window_id,
+                tab_id,
+                next_tab_id.as_deref(),
+            );
+            self.record_presentation_event(
+                if native_close.is_ok() {
+                    LogLevel::Debug
+                } else {
+                    LogLevel::Warn
+                },
+                if native_close.is_ok() {
+                    "tab.chrome-removal-submitted"
+                } else {
+                    "tab.chrome-removal-submit-failed"
+                },
+                if native_close.is_ok() {
+                    "Native tab chrome accepted the committed logical tab removal projection."
+                } else {
+                    "Native tab chrome rejected the committed logical tab removal projection."
+                },
+                &window_id,
+                Some(tab_id),
+                revision,
+                "close",
+                native_close_started
+                    .elapsed()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64,
+            );
         }
         if present_successor
             && let Some(window) = self.window_for_id(&window_id)

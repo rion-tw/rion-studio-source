@@ -1,11 +1,13 @@
 # Windows Runtime Authority Validation Report
 
-- Status: pass
+- Status: pass through WR9; runtime launch latency / queue delta pending
 - Original validation starting exact SHA: `027cacba24986d2b066c04cb4eb81d82f58edd3d`
 - Final-audit delta starting exact SHA: `865d2a07d887745563afcb7e5cba4b4992fd6194`
 - Final-ledger successor starting exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
 - Dormant-admission delta starting / validated-code exact SHA: `e468b39685016595323dd56a42bf8292ae37890a`
 - Final validated-code exact SHA: `e468b39685016595323dd56a42bf8292ae37890a`
+- Runtime launch latency candidate exact SHA: `434c7d9c1745c116329022bd7b4cba68306a2c8b`
+- Runtime launch latency validation status: partial Windows evidence only; WR8.1-WR8.11 are not yet accepted
 - Final branch exact SHA: the pushed report commit containing this field; its exact
   value is recorded by the post-push remote verification and final handoff because
   a Git commit cannot embed its own content-dependent SHA.
@@ -812,8 +814,162 @@ and the remote branch are identical.
 The migration ledger remains present. This section does not declare the wider
 Runtime single-authority initiative complete.
 
+## Runtime launch latency delta handoff (pending)
+
+This is an in-progress WR8 handoff for the next Windows-native session. It does
+not extend the prior Windows pass to the latency/queue delta and must not be used
+as a cross-platform completion claim.
+
+### Exact identity and scope
+
+- Candidate validated-code SHA: `434c7d9c1745c116329022bd7b4cba68306a2c8b`.
+- Branch: `codex/runtime-single-authority`.
+- At the start of this partial run, local HEAD, tracking ref, and remote branch
+  were identical at the candidate SHA and both macOS and Windows worktrees were
+  clean.
+- `e468b39685016595323dd56a42bf8292ae37890a` is an ancestor of the candidate.
+  The range also contains the already completed WR9 report/final audit and the
+  report-only migration-ledger retirement before the latency implementation.
+- The latency implementation commit is `434c7d9c` with parent `ac2d4df4`.
+- Windows host used for this partial run: Windows 11 Pro 25H2 build
+  `26200.8875`, ARM64, WebView2 `151.0.4129.72`, Node `24.19.0`, pnpm
+  `11.13.0`, rustc `1.97.0` (`aarch64-pc-windows-msvc`).
+- Loopback fixture health was confirmed at `127.0.0.1:41739`; the exact current
+  fixture script and exact candidate debug binary were used.
+
+### Completed automated gates at the candidate SHA
+
+These commands completed on the Windows ARM64 host before this handoff. They do
+not replace the remaining native WR8 transcripts or final diagnostics export.
+
+| Command | Exit | Result |
+| --- | ---: | --- |
+| `pnpm install --frozen-lockfile` | 0 | Lockfile unchanged; dependencies current. |
+| `pnpm run verify:system-only` | 0 | Tauri/System WebView-only boundary passed. |
+| `pnpm run check:hygiene` | 0 | 1,069 tracked files and 3 Cargo crates checked; Knip informational findings remained non-failing. |
+| targeted Rust architecture/thin-boundary Vitest | 0 | 2 files, 6/6 tests. |
+| `pnpm run typecheck` | 0 | Passed. |
+| `pnpm run lint` | 0 | 0 errors; 23 existing Fast Refresh warnings. |
+| `pnpm run test` | 0 | 146/146 files, 823/823 tests. |
+| `pnpm run lint:rust` | 0 | Format and all-target Clippy passed. |
+| `pnpm run test:rust` | 0 | 968/968 tests passed. |
+| `cargo check -p rion-tauri --all-targets` | 0 | Windows WebView2/Win32 all-target reachability passed. |
+| first `cargo build -p rion-tauri` | 101 | Exact stale candidate binary PID `13280` held `target\\debug\\rion-tauri.exe` (`os error 5`); no success inferred. |
+| exact PID inspection/stop, unchanged `cargo build -p rion-tauri` rerun | 0 | Stopped only the inspected repository debug binary; rerun passed. |
+| `pnpm run build` | 0 | Typecheck, 2,746-module renderer build, and native build passed; only the existing chunk-size warning remained. |
+
+The final generated-binding check, `git diff --check`, source reverse audit, and
+final local/tracking/remote comparison must be rerun after this report is
+finished. No generated binding was changed during the partial run.
+
+### Native evidence already obtained
+
+- A formal Dashboard launch of `[Runtime QA] Dormant Admission` selected a new
+  permanent foreground tab in saved native window
+  `08b253c2-c6f4-4288-b457-738eabf8cf73`. The Windows HTML strip contained the
+  unrelated saved follower `test5` plus exactly one selected Dormant Admission
+  tab.
+- The selected foreground content was two real WebView2 fixture documents,
+  `[Runtime QA] qa-epsilon` and `[Runtime QA] qa-zeta`, each with
+  `visibility=1`. A fresh Windows screenshot confirmed the split foreground
+  content and a single selected HTML tab.
+- Native stderr for the candidate binary recorded host creation in 4 ms,
+  visible-host submission in 9 ms, tab-strip creation in 181 ms, foreground
+  surface attachment at approximately 917 ms, and first-visible request
+  submission immediately after attachment. The unrelated saved follower did
+  not reach page-ready until approximately 2,084 ms later. This is useful
+  ordering evidence, but **not** WR8.1 acceptance: the exact `first-visible`
+  presentation terminal and full monotonic trace still have to come from the
+  exported structured logs.
+- Twenty formal Dashboard invocations of the already-running Dormant Admission
+  source completed in one 2.23-second UIAutomation batch. A fresh screenshot
+  afterwards still showed one Dormant Admission HTML tab and the same two
+  visible WebView2 documents; the Epsilon fixture focus counter was `20`. This
+  is partial WR8.6 evidence. The structured log must still prove 20 unique
+  existing/joined terminal intents and no duplicate logical/native surface.
+- The runtime window was closed through its formal HTML window-close control.
+  Native teardown recorded both tab destroy effects as successful, the runtime
+  window disappeared, and the Dashboard returned to `0/11` running roles.
+- Settings > Diagnostics & Logs > Export diagnostics bundle reached the native
+  Save dialog. The dialog was deliberately cancelled when this handoff was
+  requested, so there is no current candidate-SHA diagnostics ZIP and WR8.10
+  remains pending.
+
+### Test-driver incident retained as non-evidence
+
+One 20-round UIAutomation script rebuilt and traversed every live WebView2
+accessibility subtree on every round. Parallels buffered stdout and the driver
+did not return within the bounded observation window, while the exact Rion and
+fixture processes remained responsive. Only the matching host-side `prlctl`
+process was terminated; no VM, database, fixture, or product process was
+mutated. The run had already driven tab teardown, but none of its unreturned
+rounds is counted as pass evidence. On the next host, use direct Computer Use or
+fresh targeted UIAutomation elements, avoid full `FindAll(TrueCondition)` scans
+of a live WebView subtree, and emit/persist evidence in batches of at most five
+rounds.
+
+### Remaining Windows-native acceptance work
+
+- [ ] **WR8.1 structured sequence and fences:** export the formal Diagnostics
+  bundle and parse `runtime.launch-latency` plus ordered launch-intent events.
+  For every sampled launch record exactly one ordered
+  `enqueued -> admitted -> topology-committed -> host-created ->
+  foreground-surfaces-attached -> first-visible -> followers-terminal ->
+  intent-terminal` sequence with monotonic elapsed time, operation/attempt,
+  permanent TabId, window generation, surface generation, and topology revision.
+  Prove `first-visible` is the Win32/WebView2 presentation terminal, not request
+  submission.
+- [ ] **WR8.2 one-tab and three-tab dormant paths:** run both saved dormant
+  layouts from formal UI. For each, freshly verify HTML active-tab state and
+  foreground WebView2 content. Prove foreground attach precedes first-visible
+  and first-visible strictly precedes deliberately slower follower terminal.
+- [ ] **WR8.3 appended source:** repeat `[Runtime QA] Dormant Admission` from an
+  eligible dormant window, prove the new permanent TabId/source is foreground
+  first, and verify a follower failure can only terminalize degraded/retryable
+  without hiding or closing the successful foreground.
+- [ ] **WR8.4 workspace arities:** run a formally created/retained
+  `[Runtime QA] Single Role Latency` workspace with exactly one fixture role,
+  then the existing two-role Dormant Admission workspace. Prove reveal occurs
+  after the unique/all required role surfaces attach and is not satisfied by a
+  divider or inactive follower.
+- [ ] **WR8.5 rapid launch pairs:** perform 20 formal-UI pairs against independent
+  sources. Preserve every queue wait, calculate p50/p95/max, require p95
+  `<= 50 ms`, and prove the second admission does not wait for the first native
+  execution terminal or duplicate destination/TabId/surface/lease.
+- [ ] **WR8.6 already-running repetitions:** the 20 formal invocations above may
+  be retained only if the exported logs identify all 20 as unique
+  existing/joined terminal intents. Otherwise repeat them in smaller observable
+  batches. End with exactly one logical tab and the expected role surfaces.
+- [ ] **WR8.7 close/immediate relaunch stress:** complete 20 observable rounds of
+  three-tab dormant launch -> close -> immediate relaunch. Verify every round
+  against fresh UI and logs; no close-before-attach reveal, stale
+  attempt/generation/revision, duplicate attach/closed callback, orphan
+  retirement fence, or intent stuck only at `enqueued` is allowed.
+- [ ] **WR8.8 latency summaries:** separately calculate dormant and existing
+  live-window click-to-first-visible median/p95. If the original Windows baseline
+  cannot be reproduced, record `baseline unavailable`; do not infer a percentage.
+- [ ] **WR8.9 trace audit:** group by operation/intent and prove exactly one
+  terminal outcome/reveal per operation, no revision rollback, no first-visible
+  before foreground attach or after followers terminal, and no privacy-sensitive
+  URL/content/token data in the trace.
+- [ ] **WR8.10 final idle gate:** formally close every QA tab/window and stop all
+  macros, export a new bundle through the native Save dialog, and record every
+  required diagnostics field. Pending, logical/native/managed/closing/
+  quarantined surfaces, leases, tombstones, pending close fences, creation/
+  lifecycle/navigation/input operations, recovering roles, and invariant
+  failures must all be `0`; `healthy`, `snapshotComplete`, and native invariants
+  must be true; collection errors and recent failures must be empty. Search logs
+  for `RUNTIME_TAB_ID_INVALID`, crash, duplicate surface, and invariant failure.
+- [ ] **WR8.11 finalization:** rerun `git diff --check`, generated-binding clean
+  check, the section 5 reverse source audit, and status. Update this section with
+  exact bundle paths/timestamps and all computed statistics, set the latency
+  status to pass only when WR8.1-WR8.10 have evidence, commit the report as a
+  successor to validated-code SHA `434c7d9c...`, push, and verify local HEAD,
+  tracking ref, and remote branch are identical. If any production code changes,
+  rerun the full Windows gate matrix rather than reusing the table above.
+
 ## Remaining blockers
 
-None for Windows WR9.1-WR9.8. The migration ledger remains present. This report
-deliberately does not declare the wider initiative complete; the macOS primary
-work still owns the final reverse audit and eventual ledger deletion.
+Windows WR9.1-WR9.8 remain complete at their recorded SHA. The runtime launch
+latency/queue delta is blocked only on the Windows-native WR8 work listed above;
+it is intentionally not marked pass and no cross-platform completion is claimed.

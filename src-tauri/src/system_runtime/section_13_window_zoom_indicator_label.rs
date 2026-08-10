@@ -372,6 +372,8 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         self.sync_windows_tab_metadata(&snapshot);
         #[cfg(windows)]
+        self.sync_windows_tab_failure_status_surfaces();
+        #[cfg(windows)]
         self.sync_windows_tab_chrome_projections(&snapshot);
         self.publish_launcher_presence();
         let _ = self

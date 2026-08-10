@@ -166,6 +166,9 @@ impl PresentationRegistry {
     }
 
     fn surfaces(&self, window_id: &str, tab_id: Option<&str>) -> Vec<Webview> {
+        if tab_id.is_some_and(|tab_id| !self.statuses.permits_content_surface(tab_id)) {
+            return Vec::new();
+        }
         self.projection_coordinator(window_id)
             .ok()
             .and_then(|projection| {

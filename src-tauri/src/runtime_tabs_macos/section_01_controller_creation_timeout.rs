@@ -64,6 +64,10 @@ struct NativeTabInput {
     identifier: *const c_char,
     name: *const c_char,
     phase: *const c_char,
+    failure_body: *const c_char,
+    failure_title: *const c_char,
+    retry_label: *const c_char,
+    status_identity_json: *const c_char,
     tooltip: *const c_char,
     tab_type: *const c_char,
     icon_data_url: *const c_char,
@@ -72,6 +76,7 @@ struct NativeTabInput {
 
 type ActionCallback = unsafe extern "C" fn(
     *mut c_void,
+    *const c_char,
     *const c_char,
     *const c_char,
     *const c_char,
@@ -108,6 +113,7 @@ unsafe extern "C" {
         focus_window: bool,
     ) -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    fn rion_runtime_tabs_hide_failure_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
         controller: *mut c_void,
@@ -244,6 +250,10 @@ pub struct MacRuntimeTabState {
     pub id: String,
     pub name: String,
     pub phase: String,
+    pub failure_body: String,
+    pub failure_title: String,
+    pub retry_label: String,
+    pub status_identity_json: Option<String>,
     pub tooltip: String,
     pub tab_type: String,
     pub workspace_template: Option<String>,
@@ -453,6 +463,14 @@ impl MacRuntimeTabsController {
         .map_err(|error| error.to_string())
     }
 
+    pub fn hide_failure_status(&self) {
+        let inner = Arc::clone(&self.inner);
+        let app = inner.app.clone();
+        let _ = app.run_on_main_thread(move || unsafe {
+            rion_runtime_tabs_hide_failure_status(inner.raw);
+        });
+    }
+
     pub fn set_window_name(&self, window_name: Option<&str>) -> Result<(), String> {
         let inner = Arc::clone(&self.inner);
         let window_name = window_name.map(c_string);
@@ -650,6 +668,10 @@ fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingM
         tooltip: c_string(&tab.tooltip),
         workspace_template: tab.workspace_template.as_deref().map(c_string),
     };
+    let failure_body = c_string(&tab.failure_body);
+    let failure_title = c_string(&tab.failure_title);
+    let retry_label = c_string(&tab.retry_label);
+    let status_identity_json = tab.status_identity_json.as_deref().map(c_string);
     let labels = labels(&update.language);
     let muted = c_string(labels.muted);
     let playing = c_string(labels.playing);
@@ -664,6 +686,12 @@ fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingM
         identifier: strings.id.as_ptr(),
         name: strings.name.as_ptr(),
         phase: strings.phase.as_ptr(),
+        failure_body: failure_body.as_ptr(),
+        failure_title: failure_title.as_ptr(),
+        retry_label: retry_label.as_ptr(),
+        status_identity_json: status_identity_json
+            .as_ref()
+            .map_or(std::ptr::null(), |value| value.as_ptr()),
         tooltip: strings.tooltip.as_ptr(),
         tab_type: strings.tab_type.as_ptr(),
         icon_data_url: strings

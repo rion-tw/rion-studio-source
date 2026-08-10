@@ -636,9 +636,12 @@ impl AppCore {
                     Ok(EmbeddedRoleLaunchStart::Completed(value))
                 }
                 Ok(EmbeddedRoleLaunchStart::Pending(pending)) if restoring => {
-                    let value = core.settle_embedded_role_launch_blocking(*pending)?;
-                    core.browser_operations.complete(&lease.id)?;
-                    Ok(EmbeddedRoleLaunchStart::Completed(value))
+                    let result = core.settle_embedded_role_launch_blocking(*pending);
+                    let completion = core.browser_operations.complete(&lease.id);
+                    match (result, completion) {
+                        (Ok(value), Ok(())) => Ok(EmbeddedRoleLaunchStart::Completed(value)),
+                        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+                    }
                 }
                 Ok(EmbeddedRoleLaunchStart::Pending(pending)) => {
                     Ok(EmbeddedRoleLaunchStart::Pending(pending))

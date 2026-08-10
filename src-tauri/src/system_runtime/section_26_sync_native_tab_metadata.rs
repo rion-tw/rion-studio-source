@@ -1,24 +1,26 @@
 fn runtime_tab_phase_label(language: &str, phase: TabRuntimePhase) -> Option<&'static str> {
     match (language, phase) {
         (_, TabRuntimePhase::Ready) => None,
-        ("zh-TW", TabRuntimePhase::Dormant) => Some("分頁待命中"),
-        ("zh-TW", TabRuntimePhase::Degraded) => Some("分頁以降級模式運行"),
-        ("zh-TW", TabRuntimePhase::Failed) => Some("分頁啟動失敗，選取可重試"),
-        ("zh-TW", _) => Some("分頁啟動中"),
-        ("zh-CN", TabRuntimePhase::Dormant) => Some("标签页待命中"),
-        ("zh-CN", TabRuntimePhase::Degraded) => Some("标签页以降级模式运行"),
-        ("zh-CN", TabRuntimePhase::Failed) => Some("标签页启动失败，选择可重试"),
-        ("zh-CN", _) => Some("标签页启动中"),
-        ("ja", TabRuntimePhase::Dormant) => Some("タブは待機中"),
-        ("ja", TabRuntimePhase::Degraded) => Some("タブは機能を制限して実行中"),
-        ("ja", TabRuntimePhase::Failed) => {
-            Some("タブの起動に失敗しました。選択すると再試行します")
+        ("zh-TW", TabRuntimePhase::Dormant) => Some("尚未啟動。選取時啟動此分頁。"),
+        ("zh-TW", TabRuntimePhase::Degraded) => Some("部分功能目前無法使用。"),
+        ("zh-TW", TabRuntimePhase::Failed) => Some("無法啟動分頁。選取以重試。"),
+        ("zh-TW", _) => Some("正在啟動分頁…"),
+        ("zh-CN", TabRuntimePhase::Dormant) => Some("尚未启动。选择时启动此标签页。"),
+        ("zh-CN", TabRuntimePhase::Degraded) => Some("部分功能当前无法使用。"),
+        ("zh-CN", TabRuntimePhase::Failed) => Some("无法启动标签页。选择以重试。"),
+        ("zh-CN", _) => Some("正在启动标签页…"),
+        ("ja", TabRuntimePhase::Dormant) => {
+            Some("まだ起動していません。選択するとこのタブを起動します。")
         }
-        ("ja", _) => Some("タブを起動中"),
-        (_, TabRuntimePhase::Dormant) => Some("Tab on standby"),
-        (_, TabRuntimePhase::Degraded) => Some("Tab running with reduced functionality"),
-        (_, TabRuntimePhase::Failed) => Some("Tab failed to start; select it to retry"),
-        (_, _) => Some("Starting tab"),
+        ("ja", TabRuntimePhase::Degraded) => Some("一部の機能は現在利用できません。"),
+        ("ja", TabRuntimePhase::Failed) => {
+            Some("タブを起動できませんでした。選択すると再試行します。")
+        }
+        ("ja", _) => Some("タブを起動中…"),
+        (_, TabRuntimePhase::Dormant) => Some("Not started. Select to start this tab."),
+        (_, TabRuntimePhase::Degraded) => Some("Some features are currently unavailable."),
+        (_, TabRuntimePhase::Failed) => Some("Couldn’t start this tab. Select to try again."),
+        (_, _) => Some("Starting tab…"),
     }
 }
 
@@ -26,6 +28,37 @@ fn runtime_tab_tooltip(base: String, language: &str, phase: TabRuntimePhase) -> 
     runtime_tab_phase_label(language, phase)
         .map(|status| format!("{base} — {status}"))
         .unwrap_or(base)
+}
+
+struct RuntimeTabFailureLabels {
+    body: &'static str,
+    retry: &'static str,
+    title: String,
+}
+
+fn runtime_tab_failure_labels(language: &str, tab_name: &str) -> RuntimeTabFailureLabels {
+    match language {
+        "zh-TW" => RuntimeTabFailureLabels {
+            body: "此分頁未能完成啟動，請再試一次。",
+            retry: "再試一次",
+            title: format!("無法開啟「{tab_name}」"),
+        },
+        "zh-CN" => RuntimeTabFailureLabels {
+            body: "此标签页未能完成启动，请重试。",
+            retry: "重试",
+            title: format!("无法打开“{tab_name}”"),
+        },
+        "ja" => RuntimeTabFailureLabels {
+            body: "このタブの起動を完了できませんでした。もう一度お試しください。",
+            retry: "もう一度試す",
+            title: format!("「{tab_name}」を開けませんでした"),
+        },
+        _ => RuntimeTabFailureLabels {
+            body: "This tab couldn’t finish starting. Try again.",
+            retry: "Try Again",
+            title: format!("Couldn’t Open “{tab_name}”"),
+        },
+    }
 }
 
 impl SystemRuntimeExecutor {
@@ -93,11 +126,8 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .filter(|(_, tab)| !state.tab_close_pending(&tab.id))
                     .filter_map(|(window_id, presented)| {
-                        let controller = state
-                            .native_resources.display_hosts
-                            .get(window_id)?
-                            .tabs_controller
-                            .clone();
+                        let host = state.native_resources.display_hosts.get(window_id)?;
+                        let controller = host.tabs_controller.clone();
                         let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
                         let role_ids = core_tab
                             .map(|tab| {
@@ -128,6 +158,29 @@ impl SystemRuntimeExecutor {
                                 self.presentation.statuses.presentation_phase(&presented.id)
                             });
                         let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
+                        let active = selected_tabs
+                            .get(window_id)
+                            .is_some_and(|selected| selected == &presented.id);
+                        let status_identity_json = active
+                            .then(|| authoritative_phases.get(&presented.id))
+                            .flatten()
+                            .filter(|activation| {
+                                activation.phase == RuntimeTabActivationPhaseRecord::Failed
+                                    && activation.owner_window_id == window_id.as_str()
+                                    && activation.window_generation.0 == host.generation
+                            })
+                            .and_then(|activation| {
+                                serde_json::to_string(&RuntimeTabStatusIdentityRecord {
+                                    attempt_id: activation.attempt_id.as_str().to_owned(),
+                                    tab_id: activation.tab_id.as_str().to_owned(),
+                                    window_id: activation.owner_window_id.clone(),
+                                    window_generation: activation.window_generation.0,
+                                    phase: activation.phase,
+                                })
+                                .ok()
+                            });
+                        let failure_labels =
+                            runtime_tab_failure_labels(&language, &presented.title);
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
                             role_ids.first().and_then(|role_id| {
                                 role_games
@@ -141,9 +194,7 @@ impl SystemRuntimeExecutor {
                             controller,
                             !presented.closable,
                             crate::runtime_tabs_macos::MacRuntimeTabState {
-                                active: selected_tabs
-                                    .get(window_id)
-                                    .is_some_and(|selected| selected == &presented.id),
+                                active,
                                 audio_muted: presented.audio_muted,
                                 audible: state
                                     .native_resources
@@ -154,6 +205,10 @@ impl SystemRuntimeExecutor {
                                 id: presented.id.clone(),
                                 name: presented.title.clone(),
                                 phase: phase.as_str().to_owned(),
+                                failure_body: failure_labels.body.to_owned(),
+                                failure_title: failure_labels.title,
+                                retry_label: failure_labels.retry.to_owned(),
+                                status_identity_json,
                                 tooltip,
                                 tab_type: presented.tab_type.clone(),
                                 workspace_template: presented.workspace_template.clone(),

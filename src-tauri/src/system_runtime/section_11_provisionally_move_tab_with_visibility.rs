@@ -310,6 +310,23 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(windows)]
+    pub fn tab_status_window_for_webview(&self, webview_label: &str) -> Option<String> {
+        self.state.lock().ok().and_then(|state| {
+            state.native_resources.display_hosts.values().find_map(|host| {
+                host.tab_failure_status
+                    .as_ref()
+                    .filter(|status| status.webview.label() == webview_label)
+                    .map(|_| host.target.window_id.clone())
+            })
+        })
+    }
+
+    #[cfg(not(windows))]
+    pub fn tab_status_window_for_webview(&self, _webview_label: &str) -> Option<String> {
+        None
+    }
+
     #[cfg(not(windows))]
     pub fn tab_strip_window_for_webview(&self, _webview_label: &str) -> Option<String> {
         None

@@ -334,34 +334,70 @@ button {
   white-space: nowrap;
 }
 
-.phase-indicator {
-  width: 7px;
-  height: 7px;
+.phase-accessory {
+  display: grid;
+  width: 12px;
+  height: 12px;
   flex: none;
-  border: 1.5px solid hsl(var(--muted-foreground));
+  place-items: center;
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+  transition: opacity 120ms ease-out;
+}
+
+.phase-accessory[data-phase="activating"],
+.phase-accessory[data-phase="attaching"],
+.phase-accessory[data-phase="loading"] {
+  color: hsl(var(--activity));
+}
+
+.phase-accessory[data-phase="degraded"] {
+  color: hsl(var(--warning-foreground));
+}
+
+.phase-accessory[data-phase="failed"] {
+  color: hsl(var(--destructive));
+}
+
+.phase-spinner {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
   border-radius: var(--radius-pill);
-  background: transparent;
+  animation: phase-spinner-rotation 700ms linear infinite;
 }
 
-.phase-indicator[data-phase="activating"],
-.phase-indicator[data-phase="attaching"],
-.phase-indicator[data-phase="loading"] {
-  border-color: hsl(var(--activity));
-  background: hsl(var(--activity));
+.phase-symbol {
+  display: block;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
 }
 
-.phase-indicator[data-phase="degraded"] {
-  border-color: hsl(var(--warning-foreground));
-  background: hsl(var(--warning-foreground));
+.phase-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-dasharray: 1.8 1.45;
+  stroke-linecap: round;
+  stroke-width: 1.35;
 }
 
-.phase-indicator[data-phase="failed"] {
-  border-color: hsl(var(--destructive));
-  background: hsl(var(--destructive));
+.phase-fill {
+  fill: currentColor;
 }
 
-.phase-indicator[data-phase="ready"] {
-  display: none;
+.phase-mark {
+  fill: none;
+  stroke: hsl(var(--background));
+  stroke-linecap: round;
+  stroke-width: 1.25;
+}
+
+@keyframes phase-spinner-rotation {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .audio,
@@ -435,5 +471,42 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .tab {
     transition: none !important;
+  }
+
+  .phase-accessory {
+    transition: none;
+  }
+
+  .phase-spinner {
+    animation: none;
+    border-right-color: transparent;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .phase-spinner,
+  .phase-ring {
+    stroke-width: 1.7;
+  }
+
+  .phase-spinner {
+    border-width: 2px;
+  }
+}
+
+@media (forced-colors: active) {
+  .phase-accessory {
+    color: CanvasText;
+    forced-color-adjust: auto;
+  }
+
+  .phase-accessory[data-phase="activating"],
+  .phase-accessory[data-phase="attaching"],
+  .phase-accessory[data-phase="loading"] {
+    color: Highlight;
+  }
+
+  .phase-mark {
+    stroke: Canvas;
   }
 }

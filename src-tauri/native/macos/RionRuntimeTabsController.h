@@ -24,6 +24,10 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, copy) NSString *identifier;
 @property(nonatomic, copy) NSString *name;
 @property(nonatomic, copy) NSString *phase;
+@property(nonatomic, copy) NSString *failureBody;
+@property(nonatomic, copy) NSString *failureTitle;
+@property(nonatomic, copy) NSString *retryLabel;
+@property(nonatomic, copy, nullable) NSDictionary<NSString *, id> *statusIdentity;
 @property(nonatomic, copy) NSString *tooltip;
 @property(nonatomic, copy) NSString *type;
 @property(nonatomic, copy, nullable) NSString *workspaceTemplate;
@@ -48,6 +52,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)setRevealLocked:(BOOL)locked;
 - (void)setWindowName:(nullable NSString *)windowName;
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
+- (void)hideFailureStatus;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name
                        type:(NSString *)type
@@ -79,6 +84,10 @@ typedef struct {
   const char *identifier;
   const char *name;
   const char *phase;
+  const char *failureBody;
+  const char *failureTitle;
+  const char *retryLabel;
+  const char * _Nullable statusIdentityJSON;
   const char *tooltip;
   const char *type;
   const char * _Nullable iconDataURL;
@@ -91,7 +100,8 @@ typedef void (*RionRuntimeTabsCActionHandler)(
     const char * _Nullable sourceWindowID,
     const char * _Nullable targetWindowID,
     const char * _Nullable beforeTabIdentifier,
-    const char * _Nullable orderedTabIdentifiersJSON, double screenX,
+    const char * _Nullable orderedTabIdentifiersJSON,
+    const char * _Nullable statusIdentityJSON, double screenX,
     double screenY, double grabRatioX, double grabRatioY,
     double tabWidth, double tabHeight, bool cancelled);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
@@ -120,6 +130,7 @@ void rion_runtime_tabs_set_window_name(
     void * _Nullable controller, const char * _Nullable windowName);
 void rion_runtime_tabs_set_active(
     void * _Nullable controller, const char * _Nullable tabIdentifier);
+void rion_runtime_tabs_hide_failure_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(
     void * _Nullable controller, const char *tabIdentifier,
     const char *name, const char *type,

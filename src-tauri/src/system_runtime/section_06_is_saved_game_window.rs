@@ -558,6 +558,17 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
             self.publish_projection();
+            if matches!(
+                activation_phase,
+                RuntimeTabActivationPhaseRecord::Ready
+                    | RuntimeTabActivationPhaseRecord::Degraded
+            ) && let Ok(Some(window_id)) = self.presentation.tab_window(tab_id)
+            {
+                let _ = self.reconcile_window_presentation(
+                    &window_id,
+                    "tab-content-became-visible",
+                );
+            }
         }
     }
 

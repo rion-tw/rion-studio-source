@@ -204,6 +204,12 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
   CGFloat _externalDragGhostLayoutWidth;
+  RionRuntimeFailureBackdropView *_failureBackdrop;
+  NSImageView *_failureImageView;
+  NSTextField *_failureBodyField;
+  NSTextField *_failureTitleField;
+  NSButton *_failureRetryButton;
+  NSDictionary<NSString *, id> *_failureStatusIdentity;
   CGFloat _dragSurfaceCanvasX;
   NSString *_dragSurfacePositionTabIdentifier;
   BOOL _dragSurfaceOverlayActive;

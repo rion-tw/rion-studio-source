@@ -54,6 +54,14 @@ pub struct BrowserOperationCoordinator {
 }
 
 impl BrowserOperationCoordinator {
+    #[cfg(test)]
+    pub(crate) fn active_ticket_count(&self) -> usize {
+        self.state
+            .lock()
+            .map(|state| state.tickets.len())
+            .unwrap_or(usize::MAX)
+    }
+
     pub fn acquire(&self, request: BrowserOperationRequest) -> CoreResult<BrowserOperationLease> {
         let kind = OperationKind::parse(&request.kind)?;
         let mut role_ids = request

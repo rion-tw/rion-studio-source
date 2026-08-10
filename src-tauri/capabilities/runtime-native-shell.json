@@ -3,7 +3,7 @@
   "identifier": "runtime-native-shell-local-only",
   "description": "Allows only the bundled runtime tab strip and dividers to call their bounded Tauri commands.",
   "local": true,
-  "webviews": ["game-tab-strip-*", "game-divider-*"],
+  "webviews": ["game-tab-strip-*", "game-tab-status-*", "game-divider-*"],
   "permissions": [
     "allow-rion-divider-pointer",
     "allow-rion-runtime-tab-action"

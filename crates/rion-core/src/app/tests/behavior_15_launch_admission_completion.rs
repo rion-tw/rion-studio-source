@@ -55,6 +55,68 @@ fn already_running_role_returns_completed_launch_admission() {
 }
 
 #[test]
+fn failed_restored_role_launch_releases_its_operation_lease_for_retry() {
+    for platform in ["darwin", "win32"] {
+        let (_directory, core) = core_for_platform(platform);
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let tab_id = "11000000-0000-4000-8000-000000000001";
+        let target = EmbeddedLaunchTargetRecord {
+            window_id: "restore-retry-window".to_owned(),
+            display_id: 1,
+            scale_factor: 1.0,
+            work_area: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1440,
+                height: 900,
+            },
+            bounds: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 960,
+                height: 640,
+            },
+            presentation: "normal".to_owned(),
+        };
+        let command = || CoreCommand::BrowserRoleLaunch {
+            launch_tab_id: Some(tab_id.to_owned()),
+            role_id: role_id.clone(),
+            target: target.clone(),
+            launch_preview_id: None,
+            zoom_factor: None,
+            restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
+                slot_id: "saved-role-slot".to_owned(),
+                role_id: role_id.clone(),
+                rect: StateNormalizedRectRecord {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+                browser_zoom_percent: Some(100.0),
+            }]),
+        };
+
+        let (failed, _, _) = drive_async_command(
+            Arc::clone(&core),
+            command(),
+            Some("embeddedLoadRoles"),
+        );
+        assert!(failed.is_err(), "{platform}");
+        assert_eq!(core.browser_operations.active_ticket_count(), 0, "{platform}");
+
+        let (retried, actions, _) = drive_async_command(Arc::clone(&core), command(), None);
+        assert!(retried.is_ok(), "{platform}: {retried:?}");
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::EmbeddedCreateTab { tab } if tab.tab_id == tab_id
+        )));
+        assert_eq!(core.browser_operations.active_ticket_count(), 0, "{platform}");
+        core.shutdown();
+    }
+}
+
+#[test]
 fn overlapping_role_launches_share_one_logical_tab_and_one_native_create() {
     for platform in ["darwin", "win32"] {
         let (_directory, core) = core_for_platform(platform);

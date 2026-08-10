@@ -83,6 +83,7 @@ unsafe extern "C" fn action_callback(
     target_window_id: *const c_char,
     before_tab_id: *const c_char,
     ordered_tab_ids_json: *const c_char,
+    status_identity_json: *const c_char,
     screen_x: f64,
     screen_y: f64,
     grab_ratio_x: f64,
@@ -104,6 +105,9 @@ unsafe extern "C" fn action_callback(
         let before_tab_id = c_string_from_pointer(before_tab_id);
         let ordered_tab_ids = c_string_from_pointer(ordered_tab_ids_json)
             .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok());
+        let status_identity = c_string_from_pointer(status_identity_json).and_then(|value| {
+            serde_json::from_str::<rion_core::RuntimeTabStatusIdentityRecord>(&value).ok()
+        });
         let source_window_id = c_string_from_pointer(source_window_id);
         let target_window_id = c_string_from_pointer(target_window_id);
         if matches!(
@@ -187,6 +191,7 @@ unsafe extern "C" fn action_callback(
                 target_window_id,
                 before_tab_id,
                 ordered_tab_ids,
+                status_identity,
                 screen_x,
                 screen_y,
                 grab_ratio_x,
@@ -282,6 +287,7 @@ pub(crate) struct NativeTabAction {
     target_window_id: Option<String>,
     before_tab_id: Option<String>,
     ordered_tab_ids: Option<Vec<String>>,
+    status_identity: Option<rion_core::RuntimeTabStatusIdentityRecord>,
     screen_x: f64,
     screen_y: f64,
     grab_ratio_x: f64,
@@ -460,6 +466,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         target_window_id,
         before_tab_id,
         ordered_tab_ids,
+        status_identity,
         screen_x,
         screen_y,
         grab_ratio_x,
@@ -560,6 +567,33 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         if let Some(tab_id) = tab_id.as_deref()
             && let Err(error) =
                 crate::activate_runtime_tab_on_demand(&app, &state, tab_id, true).await
+        {
+            crate::reveal_shell_error(
+                &app,
+                crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", error.message),
+            );
+        }
+        return;
+    }
+    if action_type == "retryFailed" {
+        let Some(identity) = status_identity else {
+            return;
+        };
+        let identity_matches_host = host_window_id.as_deref() == Some(identity.window_id.as_str())
+            && tab_id.as_deref() == Some(identity.tab_id.as_str());
+        state
+            .runtime
+            .hide_runtime_tab_failure_status(&identity.window_id);
+        if !identity_matches_host
+            || !state
+                .runtime
+                .failed_tab_status_identity_is_current(&identity)
+        {
+            state.runtime.publish_projection();
+            return;
+        }
+        if let Err(error) =
+            crate::activate_runtime_tab_on_demand(&app, &state, &identity.tab_id, true).await
         {
             crate::reveal_shell_error(
                 &app,

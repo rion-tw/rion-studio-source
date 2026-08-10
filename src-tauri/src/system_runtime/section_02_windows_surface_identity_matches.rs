@@ -388,8 +388,17 @@ struct RuntimeDisplayHost {
     toolbar_revealed: bool,
     #[cfg(windows)]
     tab_chrome_reveal: WindowsTabChromeRevealState,
+    #[cfg(windows)]
+    tab_failure_status: Option<RuntimeTabFailureStatusSurface>,
+    #[cfg(windows)]
+    tab_failure_status_creating: bool,
     #[cfg(target_os = "macos")]
     tabs_controller: crate::runtime_tabs_macos::MacRuntimeTabsController,
+}
+
+#[cfg(windows)]
+struct RuntimeTabFailureStatusSurface {
+    webview: Webview,
 }
 
 #[derive(Debug, PartialEq, Eq)]

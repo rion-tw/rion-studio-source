@@ -23,6 +23,32 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
+@implementation RionRuntimeFailureBackdropView
+
+- (BOOL)wantsUpdateLayer {
+  return YES;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect {
+  self = [super initWithFrame:frameRect];
+  if (self) {
+    self.wantsLayer = YES;
+    self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  }
+  return self;
+}
+
+- (void)updateLayer {
+  self.layer.backgroundColor = NSColor.windowBackgroundColor.CGColor;
+}
+
+- (void)viewDidChangeEffectiveAppearance {
+  [super viewDidChangeEffectiveAppearance];
+  self.needsDisplay = YES;
+}
+
+@end
+
 @implementation RionRuntimeBackdropView
 
 - (BOOL)isFlipped {

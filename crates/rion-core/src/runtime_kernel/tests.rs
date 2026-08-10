@@ -682,6 +682,101 @@ fn removed_window_retires_terminal_close_tombstones_in_either_event_order() {
 }
 
 #[test]
+fn removed_window_preserves_a_close_fence_without_exact_surface_terminal() {
+    let terminalizations = [
+        Some((
+            RuntimeOperationPhase::Indeterminate,
+            "NATIVE_TAB_TEARDOWN_INDETERMINATE",
+        )),
+        Some((
+            RuntimeOperationPhase::Cancelled,
+            "NATIVE_TAB_TEARDOWN_CANCELLED",
+        )),
+        Some((RuntimeOperationPhase::Failed, "NATIVE_TAB_TEARDOWN_FAILED")),
+        None,
+    ];
+    for terminalization in terminalizations {
+        let kernel = RuntimeKernel::default();
+        kernel
+            .apply(topology(
+                "seed-indeterminate-window-retirement",
+                "window-a",
+                vec![("window-a", 1, vec![tab("tab-a", "role-a")])],
+            ))
+            .unwrap();
+        kernel
+            .apply(RuntimeIntent::BeginOperation(operation(
+                "launch-a",
+                "attempt-a",
+                "tab-a",
+            )))
+            .unwrap();
+        kernel
+            .apply(RuntimeIntent::CloseTab {
+                attempt_id: Some(id::<LaunchAttemptId>("attempt-a")),
+                expected_revision: Some(kernel.snapshot().unwrap().windows["window-a"].revision),
+                operation_id: id::<OperationId>("close-a"),
+                surface_generation: RuntimeSurfaceGeneration(1),
+                successor_tab_id: None,
+                tab_id: id::<RuntimeTabId>("tab-a"),
+                window_generation: RuntimeWindowGeneration(1),
+                window_id: "window-a".to_owned(),
+            })
+            .unwrap();
+        let expected_phase = if let Some((phase, terminal_code)) = terminalization {
+            kernel
+                .apply(RuntimeIntent::TerminalizeOperation {
+                    operation_id: id::<OperationId>("close-a"),
+                    phase,
+                    terminal_code: Some(terminal_code.to_owned()),
+                })
+                .unwrap();
+            phase
+        } else {
+            kernel
+                .apply(RuntimeIntent::FailEventStream {
+                    operation_ids: vec![id::<OperationId>("close-a")],
+                    source: "nativeEventStream".to_owned(),
+                    stream_id: id::<OperationId>("stream-a"),
+                    terminal_code: "NATIVE_EVENT_STREAM_STOPPED".to_owned(),
+                })
+                .unwrap();
+            RuntimeOperationPhase::Indeterminate
+        };
+        kernel
+            .apply(RuntimeIntent::RemoveWindow {
+                operation_id: "remove-window-a".to_owned(),
+                window_id: "window-a".to_owned(),
+            })
+            .unwrap();
+
+        let snapshot = kernel.snapshot().unwrap();
+        assert!(!snapshot.windows.contains_key("window-a"));
+        assert!(snapshot.tombstones.contains_key("tab-a"));
+        assert_eq!(
+            snapshot.logical_surfaces["tab-a"].lifecycle,
+            RuntimeSurfaceLifecycle::Closing
+        );
+        assert_eq!(snapshot.operations["close-a"].phase, expected_phase);
+        let audit = kernel.audit().unwrap();
+        assert_eq!(audit.pending_operation_count, 0);
+        assert_eq!(audit.logical_surface_count, 1);
+        assert_eq!(audit.tombstone_count, 1);
+
+        let late_ready = kernel
+            .apply(RuntimeIntent::NativeEvent(native_event(
+                "close-a",
+                "attempt-a",
+                "tab-a",
+                "ready",
+            )))
+            .unwrap();
+        assert_eq!(late_ready.status, RuntimeCommitStatus::Duplicate);
+        assert!(kernel.snapshot().unwrap().tombstones.contains_key("tab-a"));
+    }
+}
+
+#[test]
 fn completed_close_allows_new_attempt_without_reopening_old_surface() {
     let kernel = RuntimeKernel::default();
     kernel

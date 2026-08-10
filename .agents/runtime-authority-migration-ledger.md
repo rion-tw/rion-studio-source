@@ -16,7 +16,7 @@
 ## 外部 blockers
 
 - [x] BL1 `done` 使用者已於2026-08-09手動解鎖macOS；Computer Use可繼續，未繞過登入鎖。
-- [ ] BL2 `in-progress` Windows原生完整驗收已在 `a055e17029573524b4878b9bdda47435b203c337` 通過並提交 report；獨立 final audit 隨後找到 WebView2 Ctrl+Tab native callback仍透過helper同步回查Core，以及Windows-only tab-chrome cleanup未加cfg導致macOS編譯失敗。兩項已在後繼變更修正並有本機 regression／完整gate，仍待Windows依永久清單第7節把pass延伸到最終exact SHA。
+- [ ] BL2 `in-progress` Windows原生完整驗收已先在`a055e170`通過，WR7又在`87a3c8bb516b056975d9d079ace899af10f8a101`完成callback/cfg delta、954 Rust、20/20 shortcuts與含tombstone的idle-zero。主工作獨立audit `87a3c8bb` 時發現`RemoveWindow`以過寬的`is_terminal()`清理tombstone，會把`Indeterminate/Cancelled`未知teardown誤當已證實終止。現已限縮為surface確實消失且phase為`Completed|Failed`，並補直接indeterminate與event-stream-failure regression；待Windows依永久清單WR8將pass延伸到最終exact SHA。
 
 ## 摘要與根因
 
@@ -134,10 +134,10 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 
 ## Windows 門檻
 
-- [ ] W1 `in-progress` Windows原生 `a055e170` 已完成全部required automated gates（Vitest 822、Rust 953、Windows all-targets/build）及source audit；final-audit後繼SHA仍須依WR7.3重跑完整Windows gate。
-- [ ] W2 `in-progress` `a055e170` 已證明WebView2/Win32實際reachability且無`allow(dead_code)`；final audit另修正一個未cfg的Windows-only cleanup call，本機macOS all-targets已通過，仍待final SHA Windows all-targets/build。
-- [ ] W3 `in-progress` `a055e170` 的WUI-1–WUI-7、20/20 runtime壓力、5/5 Quit/relaunch與idle-zero全部通過；因Ctrl+Tab native fallback改為callback-return後派送，仍待WR7.4–WR7.5的20輪快捷鍵實機delta與idle audit。
-- [ ] W4 `in-progress` `.agents/windows-runtime-authority-validation-report.md` 已以`Status: pass`記錄`a055e170`；仍待WR7 final-audit delta章節、最終validated SHA與遠端SHA核對。
+- [ ] W1 `in-progress` Windows原生`87a3c8bb`已完成全部required automated gates（Vitest 822、Rust 954、Windows all-targets/build）及source audit；pure-Kernel final-ledger後繼SHA仍須依WR8.4重跑完整Windows gate。
+- [ ] W2 `in-progress` `87a3c8bb`已證明WebView2/Win32實際reachability、callback deferral、兩處Windows cfg且無`allow(dead_code)`；final-ledger delta不碰platform code，仍待final exact SHA all-targets/build證據。
+- [ ] W3 `in-progress` 原WUI-1–WUI-7、20/20 runtime壓力、5/5 Quit/relaunch，以及WR7的20/20 Ctrl+Tab/Ctrl+Shift+Tab與含tombstone idle-zero均通過；final-ledger delta需以新binary完成WR8.5正常close/idle-zero，其他native transcript經range audit可沿用。
+- [ ] W4 `in-progress` `.agents/windows-runtime-authority-validation-report.md` 已以`Status: pass`記錄validated code`87a3c8bb`與遠端report commit`6e1789b2`；仍待WR8 successor章節、最終validated SHA及遠端SHA核對。
 
 ## 舊權威移除表
 
@@ -166,8 +166,9 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 | Build | done | `pnpm run build`最終重跑通過（typecheck、Vite renderer、`cargo build -p rion-tauri`） |
 | System-only validation | done | `pnpm run verify:system-only`通過；`pnpm run check:hygiene`亦以exit 0通過 |
 | macOS Computer Use | done | M1–M9全部完成；正式Quit/restore與Diagnostics idle zero均有實機證據；單monitor限制已記錄 |
-| Windows CI | in-progress | `a055e170`原生完整gate/WUI/diagnostics已pass；final-audit後繼SHA待WR7 delta複驗 |
+| Windows CI | in-progress | `87a3c8bb`原生完整gate/WR7 shortcut/diagnostics已pass；pure-Kernel final-ledger後繼SHA待WR8複驗 |
 | Final-audit delta local gates | done | source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 565/Platform 20/Tauri 372、all-targets check、build、system-only與dependency hygiene全綠；Windows cross-target在進入project code前因macOS主機缺Windows C SDK header停止，不作Windows通過證據 |
+| Final-ledger audit local gates | done | tombstone normal/indeterminate focused 2/2；source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 567/Platform 20/Tauri 372、macOS all-targets check、build、system-only與dependency hygiene全部通過；generated diff與`git diff --check`為空 |
 
 ## 最終完成與刪除門檻
 
@@ -227,3 +228,4 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - 2026-08-09：最新版idle狀態再以Computer Use走自訂application menu正式Quit；Finder fresh state證明UI已離開，instance lock無owner，SQLite `cleanExit=1`，最新privacy-safe trace為`applied/shutdownClosed/nativeAcknowledgement`。
 - 2026-08-10：Windows原生驗收report以`a055e170`記錄WUI-1–WUI-7、20/20壓力、5/5正式Quit/relaunch、Vitest 822、Rust 953與required idle-zero全部pass；獨立檢查commit range時發現WebView2 `AcceleratorKeyPressed`的application shortcut雖已defer，Ctrl+Tab fallback仍透過helper在callback stack內同步讀Core／提交selection。已將整條tab shortcut派送移到`run_on_main_thread`之後，source regression同時檢查callback與defer helper邊界。
 - 2026-08-10：final-audit本機Rust lint再抓出Windows新增的tab-chrome bootstrap failure cleanup call未受`#[cfg(windows)]`保護，使`a055e170`在macOS無法編譯；已對failure detection與retirement call加入明確cfg並補source regression。修正後本機完整gates全綠；Windows pass仍只屬祖先SHA，依WR7完成final exact SHA增量複驗前不刪帳本。
+- 2026-08-10：Windows WR7在`87a3c8bb`完成954 Rust、20/20實體shortcut與含`tombstone=0`的idle audit，並從真實`RemoveWindow -> Closed`順序補上雙順序cleanup。主工作逐行稽核後發現cleanup predicate使用`phase.is_terminal()`，會連`Indeterminate/Cancelled`未知結果也移除close fence；這不會在正常closed實機路徑顯現。已改為僅在logical surface已消失且operation為`Completed|Failed`時清除；regression逐一直接terminalize為`Indeterminate/Cancelled/Failed`及走`FailEventStream`，四者只要Closing surface仍存在都必須保留tombstone，且晚到ready為duplicate。正常兩種closed順序與未知結果focused tests共2項通過；WR8 final exact SHA複驗前帳本保留。

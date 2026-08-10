@@ -3,17 +3,19 @@
 - Status: pass
 - Original validation starting exact SHA: `027cacba24986d2b066c04cb4eb81d82f58edd3d`
 - Final-audit delta starting exact SHA: `865d2a07d887745563afcb7e5cba4b4992fd6194`
-- Final validated-code exact SHA: `87a3c8bb516b056975d9d079ace899af10f8a101`
+- Final-ledger successor starting exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
+- Final validated-code exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
 - Final branch exact SHA: the pushed report commit containing this field; its exact
   value is recorded by the post-push remote verification and final handoff because
   a Git commit cannot embed its own content-dependent SHA.
 - Branch: `codex/runtime-single-authority`
 - Windows build / architecture: Microsoft Windows 11 Pro 25H2, build `26200.8875` (`BuildLabEx 26100.1.arm64fre.ge_release.240331-1435`), ARM64
 - WebView2 Runtime: `151.0.4129.72`
-- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T08:36:46.0657295+08:00`
+- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T17:24:43.0673818+08:00`
 
-This report is Windows-native evidence for WR0-WR5 and the final-audit WR7
-delta. It does not claim that the overall Runtime single-authority initiative is complete. No macOS, Linux
+This report is Windows-native evidence for WR0-WR5, the final-audit WR7 delta,
+and the WR8 final-ledger successor. It does not claim that the overall Runtime
+single-authority initiative is complete. No macOS, Linux
 portable build, mock runtime, or shared-crate-only compilation is used as native
 evidence. Every automated timeout is reported as a failure or incomplete run,
 never as success.
@@ -432,8 +434,168 @@ commit and the exit-0 comparison of local HEAD against
 `refs/heads/codex/runtime-single-authority`; embedding that commit's own SHA in
 its tracked contents would change the SHA recursively.
 
+## Final-ledger audit successor
+
+- Status: pass
+- Validated-code exact SHA: `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
+- Audit range: `87a3c8bb516b056975d9d079ace899af10f8a101..91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`
+- Host: Windows 11 Pro 25H2 build `26200.8875`, ARM64, System WebView2
+  `151.0.4129.72`
+
+### WR8.1-WR8.2 synchronization and range audit
+
+| Command / check | Exit | Evidence |
+| --- | ---: | --- |
+| `git switch codex/runtime-single-authority` | 0 | Already on the requested branch. |
+| `git pull --ff-only` | 0 | Fast-forwarded `6e1789b2..91f9d52d`. |
+| `git status --short` | 0 | Empty before validation. |
+| `git rev-parse HEAD` | 0 | `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`. |
+| `git rev-parse origin/codex/runtime-single-authority` | 0 | Same exact SHA as local HEAD. |
+| `git merge-base --is-ancestor 87a3c8bb516b056975d9d079ace899af10f8a101 HEAD` | 0 | Required WR7 validated-code SHA is an ancestor. |
+| `git log --oneline 87a3c8bb..HEAD` | 0 | Two commits: `6e1789b2 docs(validation): record Windows final audit delta` and `91f9d52d fix(runtime): preserve uncertain close fences`. |
+| `git diff --stat 87a3c8bb..HEAD` | 0 | 5 files, 355 insertions, 18 deletions. |
+| Production-only range filter | 0 | Excluding `.agents/**` and `crates/rion-core/src/runtime_kernel/tests.rs`, the only production file is `crates/rion-core/src/runtime_kernel/state.rs`. |
+| Runtime/platform/renderer reverse diff | 0 | No range delta in `src-tauri`, `src/renderer`, `src/shared`, or `crates/rion-platform`. |
+
+The production delta is a pure RuntimeKernel predicate in `RemoveWindow`.
+It retires a matching close tombstone only when the exact logical surface is
+already absent and the matching operation is `Completed` or `Failed`.
+`Indeterminate`, `Cancelled`, and `FailEventStream` retain both the tombstone
+and the `Closing` logical surface, so a late ready event remains fenced. There
+is no timer, polling, watchdog, readback, invariant relaxation, platform branch,
+or second state owner. The remaining four changed files are the focused kernel
+tests and the three requested validation/ledger documents.
+
+### WR8.3 focused tombstone regression
+
+| Command | Exit | Counts / coverage |
+| --- | ---: | --- |
+| `cargo test -p rion-core runtime_kernel::tests::removed_window_ -- --nocapture` | 0 | 2 passed, 0 failed, 566 filtered out. `removed_window_retires_terminal_close_tombstones_in_either_event_order` covers `Closed -> RemoveWindow`, `RemoveWindow -> Closed`, and duplicate `Closed`; `removed_window_preserves_a_close_fence_without_exact_surface_terminal` covers `Indeterminate`, `Cancelled`, `Failed`, and `FailEventStream`, including a rejected late ready event. |
+
+### WR8.4 complete Windows required automated gates
+
+Every required gate ran against exact code SHA
+`91f9d52df69ec87cb20c0f70ef171d9847ee4dc7`; the full Vitest and Rust suites
+were not replaced by targeted tests.
+
+| Gate | Exit | Counts / evidence |
+| --- | ---: | --- |
+| `pnpm.cmd install --frozen-lockfile` | 0 | Lockfile install was already up to date. |
+| `pnpm.cmd run verify:system-only` | 0 | System-runtime boundary verification passed. |
+| `pnpm.cmd run check:hygiene` | 0 | 1,068 tracked files and 3 Rust crates checked; only the existing informational unused-export/type/hint inventory was printed. |
+| `pnpm.cmd exec vitest run tests/rust-architecture-boundaries.test.ts tests/thin-typescript-boundary.test.ts` | 0 | 2/2 files, 6/6 tests. |
+| `pnpm.cmd run typecheck` | 0 | TypeScript typecheck passed. |
+| `pnpm.cmd run lint` | 0 | 0 errors; 23 existing warnings. |
+| `pnpm.cmd run test` | 0 | Full Vitest: 146/146 files, 822/822 tests. |
+| `pnpm.cmd run lint:rust` | 0 | `cargo fmt --check` plus workspace/all-target Clippy with `-D warnings` passed. |
+| `pnpm.cmd run test:rust` | 0 | Full workspace/all-target Rust: `rion-core` 568, `rion-platform` 18, `rion-tauri` library 369, binary 0; total 955/955 passed. |
+| `cargo check -p rion-tauri --all-targets` | 0 | Windows WebView2/Win32 production and test reachability compiled. |
+| First `cargo build -p rion-tauri` | 1 | Environmental harness failure: an earlier exact debug binary process (PID 13040) still held `target\\debug\\rion-tauri.exe`, producing Windows OS error 5. No build result was accepted. |
+| Re-run `cargo build -p rion-tauri` | 0 | After verifying and stopping only that exact stale PID, the native Windows build passed in 6.13 s. |
+| `pnpm.cmd run build` | 0 | Production TypeScript/Vite/native build passed; 2,746 Vite modules transformed, with only the existing chunk-size warning. |
+| `git diff --check` | 0 | Clean. |
+| `git diff --exit-code -- src/shared/generated` | 0 | Generated bindings clean. |
+| `git status --short` at validated-code SHA | 0 | Empty. |
+
+### WR8.5 native launch, formal close, and Diagnostics idle gate
+
+The exact new binary was launched from
+`C:\Users\aron\rion-studio-source\target\debug\rion-tauri.exe` (PID 8236).
+Through the formal main UI, one `Open: [Runtime QA] Alpha` action opened the
+single saved QA runtime window titled
+`[Runtime QA] Window One Renamed — Rion Studio`. Its live System WebView2
+surface visibly rendered the local fixture (`[Runtime QA] qa-alpha` and
+`qa-beta` counters) in the HTML tab/workspace chrome. The saved window included
+its prior QA membership, but only one runtime window was created by the one UI
+launch action.
+
+The runtime window was formally closed with Win32 `Alt+F4`. A fresh post-action
+read first showed the renderer dashboard return to roles `0/9` and actors
+`0/4`; the next authoritative window enumeration contained only the main Rion
+window. The live Diagnostics log showed, in order, native wrapper close
+acceptance, exact native surface release, native destroyed dispatch, Core close
+completion, and `The live tab tombstone completed after role isolation.` No
+QA runtime window remained.
+
+The final bundle was exported through **Settings > Diagnostics & Logs > Export
+diagnostics bundle** and the native Save dialog. The retained evidence file is
+`C:\Users\aron\AppData\Local\Temp\Rion-Studio-Diagnostics-WR8-91f9d52d.zip`,
+8,174,446 bytes, timestamp `2026-08-10T17:21:54+08:00`; `diagnostics.json` was
+read directly from the ZIP and was not used to repair state.
+
+| Required final field | Value |
+| --- | ---: |
+| `buildCommit` | `91f9d52df69ec87cb20c0f70ef171d9847ee4dc7` |
+| Engine / version / platform / architecture | `webview2` / `151.0.4129.72` / `win32` / `aarch64` |
+| `healthy` / `snapshotComplete` | `true` / `true` |
+| `collectionErrorCodes` | `[]` |
+| `runtimeNativeResourceInvariantsOk` | `true` |
+| `runtimeNativeResourceInvariantFailureCount` | `0` |
+| `runtimeKernelPendingOperationCount` | `0` |
+| `runtimeKernelLogicalSurfaceCount` | `0` |
+| `runtimeKernelTombstoneCount` | `0` |
+| `managedSurfaceCount` / `closingSurfaceCount` | `0` / `0` |
+| `quarantinedSurfaceCount` / `pendingCloseTabCount` | `0` / `0` |
+| `activeNativeCreationCount` | `0` |
+| `activeLifecycleOperationCount` | `0` |
+| `activeNavigationOperationCount` | `0` |
+| `activeInputFenceCount` | `0` |
+| `recoveringRoleCount` | `0` |
+| `roleCount` / `tabCount` / `displayHostCount` | `0` / `0` / `0` |
+| `launchingTabCount` / `degradedTabCount` | `0` / `0` |
+| `failedLaunchCount` / `retryableFailedLaunchCount` | `0` / `0` |
+| `quarantinedRoleCount` / `retiredSurfaceCount` | `0` / `0` |
+| `recentFailures` | `[]` |
+| Recent native operations | 61 records, 61 unique operation IDs: 58 `applied`, 2 terminal `superseded`, 1 terminal `degraded`, 0 nonterminal. |
+| RuntimeKernel revision / shutdown state | `36` / `accepting` |
+| Persisted data | games 3, roles 9, workspaces 4, macros 4 |
+| Win32 graphics events | available, 0 events in the diagnostic window |
+
+The terminal degraded record is the previously documented startup presentation
+receipt `native-presentation-4`, code `MAIN_WINDOW_STATE_UNCONFIRMED`, with
+`elapsedMs=1`; it did not infer success from its 5 s deadline. The two
+`superseded` presentation receipts are also explicit terminal outcomes.
+`recoveryRequired=true` remains the historical marker from exact process stops
+between native rebuilds and is not a current resource count. All WR8 required
+current ownership/activity values, including tombstone, are zero.
+
+### WR8.6 evidence reuse and reverse source audit
+
+The 20-round Ctrl+Tab/Ctrl+Shift+Tab stress and Alt+Tab ownership evidence from
+WR7 is reused because the complete `87a3c8bb..91f9d52d` audit found no change to
+shortcut, renderer, Win32/WebView2 platform, or tab-chrome production code.
+Exact diffs of `src-tauri/src/system_runtime/platform/windows/input_security.rs`
+and `crates/rion-core/src/coordinator/section_23_create_tab.rs` are empty.
+Therefore the WR7 WUI-1 and WUI-3-WUI-7 transcripts remain applicable; WR8 adds
+the new focused tombstone regression and new-binary close/idle-zero proof.
+
+The unchanged `AcceleratorKeyPressed` callback still only recognizes the key,
+marks it handled, and calls a defer helper. It does not read `CoreState`, preview
+selection, or commit selection inside the callback. The unchanged tab-chrome
+failure flag and cleanup call remain separately guarded by `#[cfg(windows)]`;
+there is no non-Windows no-op or `allow(dead_code)` suppression.
+
+### WR8 failures, root causes, reruns, and publication
+
+- No product defect was found in the WR8 production delta.
+- The first native build failed only because the previous validation binary
+  locked the exact output path. After path/PID verification, only that stale
+  process was stopped and the identical build command passed.
+- During Diagnostics export, an expanded Windows filename-history combo caused
+  an indexed automation click to select a historical suggestion instead of the
+  Save button. No overwrite was accepted. The export was repeated through the
+  same formal UI with a unique short filename and confirmed with `Return`; the
+  resulting ZIP parsed successfully at the expected SHA and all required zero
+  counts.
+
+Only this report is changed by WR8 validation. It will be committed and pushed
+on `codex/runtime-single-authority`; the final handoff records the report commit
+and verifies local HEAD, the tracking ref, and the remote branch exact SHA are
+identical. The migration ledger remains present, and this section does not
+declare the wider initiative complete.
+
 ## Remaining blockers
 
-None for Windows WR7.1-WR7.8. The migration ledger remains present. This report
+None for Windows WR8.1-WR8.7. The migration ledger remains present. This report
 deliberately does not declare the wider initiative complete; the macOS primary
 work still owns the final reverse audit and eventual ledger deletion.

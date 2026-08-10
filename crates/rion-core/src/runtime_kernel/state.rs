@@ -399,6 +399,13 @@ fn apply_to_candidate(
         RuntimeIntent::RemoveWindow { window_id, .. } => {
             let removed = state.windows.remove(&window_id);
             if removed.is_some() {
+                let operations = &state.operations;
+                state.tombstones.retain(|_, tombstone| {
+                    tombstone.window_id != window_id
+                        || !operations
+                            .get(tombstone.operation_id.as_str())
+                            .is_some_and(|operation| operation.phase.is_terminal())
+                });
                 next_revision(state);
             }
             basic_commit(state, removed.is_some(), vec![window_id])
@@ -905,6 +912,13 @@ fn apply_native_event(
             RuntimeSurfaceLifecycle::Closed | RuntimeSurfaceLifecycle::Failed
         ) {
             state.logical_surfaces.remove(event.tab_id.as_str());
+            let owner_window_is_retired = state
+                .tombstones
+                .get(event.tab_id.as_str())
+                .is_some_and(|tombstone| !state.windows.contains_key(&tombstone.window_id));
+            if owner_window_is_retired {
+                state.tombstones.remove(event.tab_id.as_str());
+            }
         }
     }
     let revision = next_revision(state);

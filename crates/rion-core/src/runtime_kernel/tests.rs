@@ -596,6 +596,92 @@ fn close_tombstone_rejects_late_attach_and_terminalizes_once() {
 }
 
 #[test]
+fn removed_window_retires_terminal_close_tombstones_in_either_event_order() {
+    fn close_tab(kernel: &RuntimeKernel, operation_id: &str, attempt_id: &str, tab_id: &str) {
+        kernel
+            .apply(RuntimeIntent::CloseTab {
+                attempt_id: Some(id::<LaunchAttemptId>(attempt_id)),
+                expected_revision: Some(kernel.snapshot().unwrap().windows["window-a"].revision),
+                operation_id: id::<OperationId>(operation_id),
+                surface_generation: RuntimeSurfaceGeneration(1),
+                successor_tab_id: None,
+                tab_id: id::<RuntimeTabId>(tab_id),
+                window_generation: RuntimeWindowGeneration(1),
+                window_id: "window-a".to_owned(),
+            })
+            .unwrap();
+    }
+
+    for close_event_precedes_window_removal in [false, true] {
+        let kernel = RuntimeKernel::default();
+        kernel
+            .apply(topology(
+                "seed-window-retirement",
+                "window-a",
+                vec![("window-a", 1, vec![tab("tab-a", "role-a")])],
+            ))
+            .unwrap();
+        kernel
+            .apply(RuntimeIntent::BeginOperation(operation(
+                "launch-a",
+                "attempt-a",
+                "tab-a",
+            )))
+            .unwrap();
+        close_tab(&kernel, "close-a", "attempt-a", "tab-a");
+
+        if close_event_precedes_window_removal {
+            kernel
+                .apply(RuntimeIntent::NativeEvent(native_event(
+                    "close-a",
+                    "attempt-a",
+                    "tab-a",
+                    "closed",
+                )))
+                .unwrap();
+        }
+        kernel
+            .apply(RuntimeIntent::RemoveWindow {
+                operation_id: "remove-window-a".to_owned(),
+                window_id: "window-a".to_owned(),
+            })
+            .unwrap();
+        if !close_event_precedes_window_removal {
+            kernel
+                .apply(RuntimeIntent::NativeEvent(native_event(
+                    "close-a",
+                    "attempt-a",
+                    "tab-a",
+                    "closed",
+                )))
+                .unwrap();
+        }
+
+        let snapshot = kernel.snapshot().unwrap();
+        assert!(!snapshot.windows.contains_key("window-a"));
+        assert!(!snapshot.tombstones.contains_key("tab-a"));
+        assert!(!snapshot.logical_surfaces.contains_key("tab-a"));
+        assert_eq!(
+            snapshot.operations["close-a"].phase,
+            RuntimeOperationPhase::Completed
+        );
+        let audit = kernel.audit().unwrap();
+        assert_eq!(audit.pending_operation_count, 0);
+        assert_eq!(audit.tombstone_count, 0);
+
+        let duplicate = kernel
+            .apply(RuntimeIntent::NativeEvent(native_event(
+                "close-a",
+                "attempt-a",
+                "tab-a",
+                "closed",
+            )))
+            .unwrap();
+        assert_eq!(duplicate.status, RuntimeCommitStatus::Duplicate);
+    }
+}
+
+#[test]
 fn completed_close_allows_new_attempt_without_reopening_old_surface() {
     let kernel = RuntimeKernel::default();
     kernel

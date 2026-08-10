@@ -1,3 +1,33 @@
+fn runtime_tab_phase_label(language: &str, phase: TabRuntimePhase) -> Option<&'static str> {
+    match (language, phase) {
+        (_, TabRuntimePhase::Ready) => None,
+        ("zh-TW", TabRuntimePhase::Dormant) => Some("分頁待命中"),
+        ("zh-TW", TabRuntimePhase::Degraded) => Some("分頁以降級模式運行"),
+        ("zh-TW", TabRuntimePhase::Failed) => Some("分頁啟動失敗，選取可重試"),
+        ("zh-TW", _) => Some("分頁啟動中"),
+        ("zh-CN", TabRuntimePhase::Dormant) => Some("标签页待命中"),
+        ("zh-CN", TabRuntimePhase::Degraded) => Some("标签页以降级模式运行"),
+        ("zh-CN", TabRuntimePhase::Failed) => Some("标签页启动失败，选择可重试"),
+        ("zh-CN", _) => Some("标签页启动中"),
+        ("ja", TabRuntimePhase::Dormant) => Some("タブは待機中"),
+        ("ja", TabRuntimePhase::Degraded) => Some("タブは機能を制限して実行中"),
+        ("ja", TabRuntimePhase::Failed) => {
+            Some("タブの起動に失敗しました。選択すると再試行します")
+        }
+        ("ja", _) => Some("タブを起動中"),
+        (_, TabRuntimePhase::Dormant) => Some("Tab on standby"),
+        (_, TabRuntimePhase::Degraded) => Some("Tab running with reduced functionality"),
+        (_, TabRuntimePhase::Failed) => Some("Tab failed to start; select it to retry"),
+        (_, _) => Some("Starting tab"),
+    }
+}
+
+fn runtime_tab_tooltip(base: String, language: &str, phase: TabRuntimePhase) -> String {
+    runtime_tab_phase_label(language, phase)
+        .map(|status| format!("{base} — {status}"))
+        .unwrap_or(base)
+}
+
 impl SystemRuntimeExecutor {
     #[cfg(target_os = "macos")]
     fn sync_native_tab_metadata(&self, snapshot: &BrowserRuntimeSnapshot) {
@@ -32,42 +62,76 @@ impl SystemRuntimeExecutor {
             .map(|role| (role.id.as_str(), role.game_id.as_str()))
             .collect::<HashMap<_, _>>();
         let selected_tabs = self.presentation.selected_tabs();
+        let authoritative_phases = self
+            .core
+            .runtime_kernel()
+            .snapshot()
+            .ok()
+            .map(|snapshot| snapshot.tab_activations)
+            .unwrap_or_default();
+        let presented_tabs = self
+            .presentation
+            .snapshot_states()
+            .map(|windows| {
+                windows
+                    .into_iter()
+                    .flat_map(|(window_id, window)| {
+                        window.tabs.into_iter().filter_map(move |tab| {
+                            (!window.hidden_tab_ids.contains(&tab.id))
+                                .then(|| (window_id.clone(), tab))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let updates = self
             .state
             .lock()
             .ok()
             .map(|state| {
-                snapshot
-                    .tabs
+                presented_tabs
                     .iter()
-                    .filter(|tab| !tab.hidden && !state.tab_close_pending(&tab.id))
-                    .filter_map(|tab| {
-                        let live = state.native_resources.tabs.get(&tab.id)?;
-                        let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
+                    .filter(|(_, tab)| !state.tab_close_pending(&tab.id))
+                    .filter_map(|(window_id, presented)| {
                         let controller = state
                             .native_resources.display_hosts
-                            .get(&tab.window_id)?
+                            .get(window_id)?
                             .tabs_controller
                             .clone();
-                        let names = tab
-                            .slots
+                        let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
+                        let role_ids = core_tab
+                            .map(|tab| {
+                                tab.slots
+                                    .iter()
+                                    .map(|slot| slot.role_id.clone())
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_else(|| presented.role_ids.clone());
+                        let names = role_ids
                             .iter()
-                            .filter_map(|slot| role_names.get(slot.role_id.as_str()).copied())
+                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
                             .collect::<Vec<_>>();
-                        let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
+                        let base_tooltip = if presented.tab_type == "workspace" && !names.is_empty() {
                             let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
                                 "："
                             } else {
                                 ":"
                             };
-                            format!("{}{separator}{}", tab.name, names.join(", "))
+                            format!("{}{separator}{}", presented.title, names.join(", "))
                         } else {
-                            tab.name.clone()
+                            presented.title.clone()
                         };
+                        let phase = authoritative_phases
+                            .get(&presented.id)
+                            .map(|activation| TabRuntimePhase::from_record(activation.phase))
+                            .unwrap_or_else(|| {
+                                self.presentation.statuses.presentation_phase(&presented.id)
+                            });
+                        let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
-                            tab.slots.first().and_then(|slot| {
+                            role_ids.first().and_then(|role_id| {
                                 role_games
-                                    .get(slot.role_id.as_str())
+                                    .get(role_id.as_str())
                                     .and_then(|game_id| game_icons.get(*game_id))
                                     .map(|value| (*value).to_owned())
                             })
@@ -78,16 +142,21 @@ impl SystemRuntimeExecutor {
                             !presented.closable,
                             crate::runtime_tabs_macos::MacRuntimeTabState {
                                 active: selected_tabs
-                                    .get(&tab.window_id)
-                                    .is_some_and(|selected| selected == &tab.id),
+                                    .get(window_id)
+                                    .is_some_and(|selected| selected == &presented.id),
                                 audio_muted: presented.audio_muted,
-                                audible: runtime_tab_is_audible(&state, live),
+                                audible: state
+                                    .native_resources
+                                    .tabs
+                                    .get(&presented.id)
+                                    .is_some_and(|live| runtime_tab_is_audible(&state, live)),
                                 icon_data_url,
-                                id: tab.id.clone(),
-                                name: presented.title,
+                                id: presented.id.clone(),
+                                name: presented.title.clone(),
+                                phase: phase.as_str().to_owned(),
                                 tooltip,
-                                tab_type: presented.tab_type,
-                                workspace_template: presented.workspace_template,
+                                tab_type: presented.tab_type.clone(),
+                                workspace_template: presented.workspace_template.clone(),
                             },
                         ))
                     })
@@ -159,50 +228,78 @@ impl SystemRuntimeExecutor {
             "ja" => ("タブはミュート中", "音声を再生中", "停止してタブを閉じる"),
             _ => ("Tab muted", "Playing audio", "Stop and close tab"),
         };
+        let authoritative_phases = self
+            .core
+            .runtime_kernel()
+            .snapshot()
+            .ok()
+            .map(|snapshot| snapshot.tab_activations)
+            .unwrap_or_default();
+        let presented_tabs = self
+            .presentation
+            .snapshot_states()
+            .map(|windows| {
+                windows
+                    .into_iter()
+                    .flat_map(|(window_id, window)| {
+                        window.tabs.into_iter().filter_map(move |tab| {
+                            (!window.hidden_tab_ids.contains(&tab.id))
+                                .then(|| (window_id.clone(), tab))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let updates = self
             .state
             .lock()
             .ok()
             .map(|state| {
-                snapshot
-                    .tabs
+                presented_tabs
                     .iter()
-                    .filter(|tab| {
-                        !tab.hidden && !state.tab_close_pending(&tab.id)
-                    })
-                    .filter_map(|tab| {
-                        let live = state.native_resources.tabs.get(&tab.id)?;
-                        let presented = self.presentation.tab(&tab.window_id, &tab.id)?;
-                        let tab_strip = state.native_resources.display_hosts.get(&tab.window_id)?.tab_strip.clone();
-                        let names = tab
-                            .slots
+                    .filter(|(_, tab)| !state.tab_close_pending(&tab.id))
+                    .filter_map(|(window_id, presented)| {
+                        let tab_strip = state.native_resources.display_hosts.get(window_id)?.tab_strip.clone();
+                        let core_tab = snapshot.tabs.iter().find(|tab| tab.id == presented.id);
+                        let role_ids = core_tab
+                            .map(|tab| {
+                                tab.slots
+                                    .iter()
+                                    .map(|slot| slot.role_id.clone())
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_else(|| presented.role_ids.clone());
+                        let names = role_ids
                             .iter()
-                            .filter_map(|slot| role_names.get(slot.role_id.as_str()).copied())
+                            .filter_map(|role_id| role_names.get(role_id.as_str()).copied())
                             .collect::<Vec<_>>();
-                        let tooltip = if tab.tab_type == "workspace" && !names.is_empty() {
+                        let base_tooltip = if presented.tab_type == "workspace" && !names.is_empty() {
                             let separator = if matches!(language.as_str(), "zh-TW" | "zh-CN") {
                                 "："
                             } else {
                                 ":"
                             };
-                            format!("{}{separator}{}", tab.name, names.join(", "))
+                            format!("{}{separator}{}", presented.title, names.join(", "))
                         } else {
-                            tab.name.clone()
+                            presented.title.clone()
                         };
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
-                            tab.slots
+                            role_ids
                                 .first()
-                                .and_then(|slot| icons.get(slot.role_id.as_str()))
+                                .and_then(|role_id| icons.get(role_id.as_str()))
                                 .cloned()
                         });
-                        let phase = self
-                            .presentation
-                            .statuses
-                            .presentation_phase(&tab.id);
+                        let phase = authoritative_phases
+                            .get(&presented.id)
+                            .map(|activation| TabRuntimePhase::from_record(activation.phase))
+                            .unwrap_or_else(|| {
+                                self.presentation.statuses.presentation_phase(&presented.id)
+                            });
+                        let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
                         Some((
                             tab_strip,
                             json!({
-                                "id": tab.id,
+                                "id": presented.id,
                                 "name": presented.title,
                                 "type": presented.tab_type,
                                 "workspaceTemplate": presented.workspace_template,
@@ -210,7 +307,11 @@ impl SystemRuntimeExecutor {
                                 "phase": phase.as_str(),
                                 "tooltip": tooltip,
                                 "iconDataUrl": icon_data_url,
-                                "audible": runtime_tab_is_audible(&state, live),
+                                "audible": state
+                                    .native_resources
+                                    .tabs
+                                    .get(&presented.id)
+                                    .is_some_and(|live| runtime_tab_is_audible(&state, live)),
                                 "audioMuted": presented.audio_muted,
                                 "hideCloseButton": always_hide_tab_close_button || !presented.closable,
                                 "mutedLabel": muted_label,

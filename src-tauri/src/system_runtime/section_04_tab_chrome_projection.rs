@@ -851,15 +851,27 @@ impl SystemRuntimeExecutor {
                 "The runtime tab-strip renderer belongs to an obsolete window generation.",
             ));
         }
+        let authoritative_phases = self
+            .core
+            .runtime_kernel()
+            .snapshot()
+            .ok()
+            .map(|snapshot| snapshot.tab_activations)
+            .unwrap_or_default();
         let phases = presentation
             .tabs
             .iter()
             .map(|presented| {
                 (
                     presented.id.clone(),
-                    self.presentation
-                        .statuses
-                        .presentation_phase(&presented.id),
+                    authoritative_phases
+                        .get(&presented.id)
+                        .map(|activation| TabRuntimePhase::from_record(activation.phase))
+                        .unwrap_or_else(|| {
+                            self.presentation
+                                .statuses
+                                .presentation_phase(&presented.id)
+                        }),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -927,14 +939,15 @@ impl SystemRuntimeExecutor {
                                 muted: presented.audio_muted,
                                 loading: matches!(
                                     phase,
-                                    TabRuntimePhase::Reserved
+                                    TabRuntimePhase::Activating
+                                        | TabRuntimePhase::Reserved
                                         | TabRuntimePhase::Attaching
                                         | TabRuntimePhase::Loading
                                 ),
                                 degraded: phase == TabRuntimePhase::Degraded,
                                 closable: presented.closable,
                                 source_id: presented.source_id.clone(),
-                                phase: phase.as_str().to_owned(),
+                                phase: phase.as_record(),
                                 role_names: role_ids
                                     .iter()
                                     .filter_map(|role_id| {

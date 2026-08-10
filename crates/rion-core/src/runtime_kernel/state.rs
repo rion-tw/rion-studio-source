@@ -3,15 +3,16 @@ use std::sync::mpsc::{self, Sender, SyncSender};
 
 use crate::browser_runtime::RoleOwnershipRuntime;
 use crate::error::{CoreError, CoreResult};
-use crate::model::{BrowserRuntimeCommand, BrowserRuntimeResult};
+use crate::model::{BrowserRuntimeCommand, BrowserRuntimeResult, RuntimeTabActivationPhaseRecord};
 
 use super::types::{
     LaunchAttemptId, NativeRuntimeEvent, OperationId, RuntimeCommit, RuntimeCommitStatus,
     RuntimeDesiredEffect, RuntimeIntent, RuntimeInvariantAudit, RuntimeLiveWindowRecord,
     RuntimeLogicalSurfaceRecord, RuntimeOperationPhase, RuntimeOperationRecord,
     RuntimeOperationTraceRecord, RuntimeSnapshot, RuntimeSurfaceGeneration,
-    RuntimeSurfaceLifecycle, RuntimeTabId, RuntimeTabTombstone, RuntimeTerminalEvent,
-    RuntimeTopologyCommitInput, RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput,
+    RuntimeSurfaceLifecycle, RuntimeTabActivationRecord, RuntimeTabId, RuntimeTabTombstone,
+    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowGeneration,
+    RuntimeWindowPlacementCommitInput,
 };
 
 const RETAINED_OPERATION_IDS: usize = 4_096;
@@ -24,6 +25,7 @@ struct RuntimeKernelState {
     operations: HashMap<String, RuntimeOperationRecord>,
     ownership: RoleOwnershipRuntime,
     revision: u64,
+    tab_activations: HashMap<String, RuntimeTabActivationRecord>,
     trace: VecDeque<RuntimeOperationTraceRecord>,
     tombstones: HashMap<String, RuntimeTabTombstone>,
     logical_surfaces: HashMap<String, RuntimeLogicalSurfaceRecord>,
@@ -186,6 +188,29 @@ fn apply_to_candidate(
                 window.window_id = window_id.clone();
                 window.window_generation = generation.max(current);
                 window.revision = revision;
+                let next_generation = RuntimeWindowGeneration(window.window_generation);
+                let tab_ids = window
+                    .tabs
+                    .iter()
+                    .map(|tab| tab.id.clone())
+                    .collect::<Vec<_>>();
+                for tab_id in tab_ids {
+                    if let Some(activation) = state.tab_activations.get_mut(&tab_id)
+                        && activation.window_generation != next_generation
+                    {
+                        if matches!(
+                            activation.phase,
+                            RuntimeTabActivationPhaseRecord::Activating
+                                | RuntimeTabActivationPhaseRecord::Attaching
+                                | RuntimeTabActivationPhaseRecord::Loading
+                        ) {
+                            activation.phase = RuntimeTabActivationPhaseRecord::Failed;
+                        }
+                        activation.native_operation_id = None;
+                        activation.owner_window_id.clone_from(&window_id);
+                        activation.window_generation = next_generation;
+                    }
+                }
             }
             basic_commit(state, false, vec![window_id])
         }
@@ -358,6 +383,21 @@ fn apply_to_candidate(
             }
             basic_commit(state, false, vec![window_id])
         }
+        RuntimeIntent::SeedDormantTabs {
+            tab_ids, window_id, ..
+        } => seed_dormant_tabs(state, &window_id, tab_ids)?,
+        RuntimeIntent::ActivateTab {
+            expected_revision,
+            operation_id,
+            tab_id,
+            window_id,
+        } => activate_tab(state, expected_revision, operation_id, tab_id, window_id)?,
+        RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id,
+            phase,
+            tab_id,
+            ..
+        } => set_tab_activation_phase(state, activation_attempt_id, tab_id, phase)?,
         RuntimeIntent::ReplaceWindow {
             expected_revision,
             mut window,
@@ -399,6 +439,14 @@ fn apply_to_candidate(
         RuntimeIntent::RemoveWindow { window_id, .. } => {
             let removed = state.windows.remove(&window_id);
             if removed.is_some() {
+                let retained_tab_ids = state
+                    .windows
+                    .values()
+                    .flat_map(|window| window.tabs.iter().map(|tab| tab.id.as_str()))
+                    .collect::<HashSet<_>>();
+                state
+                    .tab_activations
+                    .retain(|tab_id, _| retained_tab_ids.contains(tab_id.as_str()));
                 let operations = &state.operations;
                 let logical_surfaces = &state.logical_surfaces;
                 state.tombstones.retain(|tab_id, tombstone| {
@@ -469,6 +517,7 @@ fn snapshot_state(state: &RuntimeKernelState) -> CoreResult<RuntimeSnapshot> {
         logical_surfaces: state.logical_surfaces.clone(),
         operations: state.operations.clone(),
         revision: state.revision,
+        tab_activations: state.tab_activations.clone(),
         trace: state.trace.iter().cloned().collect(),
         tombstones: state.tombstones.clone(),
         windows: state.windows.clone(),
@@ -513,136 +562,9 @@ fn apply_browser_runtime(
     })
 }
 
-fn intent_trace_identity(intent: &RuntimeIntent) -> (&'static str, &'static str) {
-    match intent {
-        RuntimeIntent::BrowserRuntime(_) => ("browserRuntime", "appCore"),
-        RuntimeIntent::CommitTopology(input) => {
-            ("commitTopology", normalized_event_source(&input.source))
-        }
-        RuntimeIntent::CommitPlacement(input) => {
-            ("commitPlacement", normalized_event_source(&input.source))
-        }
-        RuntimeIntent::EnsureWindow { .. } => ("ensureWindow", "executor"),
-        RuntimeIntent::SetWindowGeneration { .. } => ("setWindowGeneration", "nativeEvent"),
-        RuntimeIntent::SetPersistedName { .. } => ("setPersistedName", "command"),
-        RuntimeIntent::SetTabAudioMuted { .. } => ("setTabAudioMuted", "command"),
-        RuntimeIntent::SetRoleZoom { .. } => ("setRoleZoom", "command"),
-        RuntimeIntent::ReplaceTabRoleSlots { .. } => ("replaceTabRoleSlots", "command"),
-        RuntimeIntent::SetWindowZoomFactor { .. } => ("setWindowZoomFactor", "command"),
-        RuntimeIntent::ReplaceWindow { source, .. } => {
-            ("replaceWindow", normalized_event_source(source))
-        }
-        RuntimeIntent::RemoveWindow { .. } => ("removeWindow", "nativeEvent"),
-        RuntimeIntent::BeginOperation(_) => ("beginOperation", "appCore"),
-        RuntimeIntent::CloseTab { .. } => ("closeTab", "command"),
-        RuntimeIntent::NativeEvent(_) => ("nativeEvent", "nativeEvent"),
-        RuntimeIntent::FailEventStream { source, .. } => {
-            ("failEventStream", normalized_event_source(source))
-        }
-        RuntimeIntent::TerminalizeOperation { .. } => ("terminalizeOperation", "appCore"),
-    }
-}
+include!("state/trace.rs");
 
-fn normalized_event_source(source: &str) -> &'static str {
-    match source {
-        "appKit" => "appKit",
-        "html" => "html",
-        "nativeEventStream" => "nativeEventStream",
-        "restore" => "restore",
-        _ => "command",
-    }
-}
-
-#[derive(Default)]
-struct RuntimeTraceContext {
-    attempt_id: Option<String>,
-    phase: Option<String>,
-    surface_generation: Option<u64>,
-    tab_id: Option<String>,
-    window_generation: Option<u64>,
-}
-
-fn intent_trace_context(intent: &RuntimeIntent) -> RuntimeTraceContext {
-    match intent {
-        RuntimeIntent::BeginOperation(operation) => RuntimeTraceContext {
-            attempt_id: operation
-                .attempt_id
-                .as_ref()
-                .map(|attempt| attempt.as_str().to_owned()),
-            phase: Some(format!("{:?}", operation.phase).to_lowercase()),
-            surface_generation: Some(operation.surface_generation.0),
-            tab_id: operation.tab_id.as_ref().map(|tab| tab.as_str().to_owned()),
-            window_generation: Some(operation.window_generation.0),
-        },
-        RuntimeIntent::CloseTab {
-            attempt_id,
-            surface_generation,
-            tab_id,
-            window_generation,
-            ..
-        } => RuntimeTraceContext {
-            attempt_id: attempt_id
-                .as_ref()
-                .map(|attempt| attempt.as_str().to_owned()),
-            phase: Some("pending".to_owned()),
-            surface_generation: Some(surface_generation.0),
-            tab_id: Some(tab_id.as_str().to_owned()),
-            window_generation: Some(window_generation.0),
-        },
-        RuntimeIntent::NativeEvent(event) => RuntimeTraceContext {
-            attempt_id: Some(event.attempt_id.as_str().to_owned()),
-            phase: Some(event.event_kind.clone()),
-            surface_generation: Some(event.surface_generation.0),
-            tab_id: Some(event.tab_id.as_str().to_owned()),
-            window_generation: Some(event.window_generation.0),
-        },
-        RuntimeIntent::TerminalizeOperation { phase, .. } => RuntimeTraceContext {
-            phase: Some(format!("{phase:?}").to_lowercase()),
-            ..RuntimeTraceContext::default()
-        },
-        RuntimeIntent::FailEventStream { .. } => RuntimeTraceContext {
-            phase: Some("indeterminate".to_owned()),
-            ..RuntimeTraceContext::default()
-        },
-        RuntimeIntent::SetTabAudioMuted { tab_id, .. }
-        | RuntimeIntent::SetRoleZoom { tab_id, .. }
-        | RuntimeIntent::ReplaceTabRoleSlots { tab_id, .. } => RuntimeTraceContext {
-            tab_id: Some(tab_id.clone()),
-            ..RuntimeTraceContext::default()
-        },
-        _ => RuntimeTraceContext::default(),
-    }
-}
-
-fn record_trace(
-    state: &mut RuntimeKernelState,
-    commit: &RuntimeCommit,
-    intent_kind: &str,
-    event_source: &str,
-    context: RuntimeTraceContext,
-) {
-    let status = match commit.status {
-        RuntimeCommitStatus::Applied => "applied",
-        RuntimeCommitStatus::Duplicate => "duplicate",
-        RuntimeCommitStatus::Superseded => "superseded",
-    };
-    state.trace.push_back(RuntimeOperationTraceRecord {
-        attempt_id: context.attempt_id,
-        event_source: event_source.to_owned(),
-        intent_kind: intent_kind.to_owned(),
-        operation_id: commit.operation_id.clone(),
-        phase: context.phase.unwrap_or_else(|| "terminal".to_owned()),
-        revision: commit.revision,
-        status: status.to_owned(),
-        surface_generation: context.surface_generation,
-        tab_id: context.tab_id,
-        window_generation: context.window_generation,
-        window_ids: commit.window_ids.clone(),
-    });
-    while state.trace.len() > RETAINED_OPERATION_TRACES {
-        state.trace.pop_front();
-    }
-}
+include!("state/tab_activation.rs");
 
 fn begin_operation(
     state: &mut RuntimeKernelState,
@@ -691,10 +613,30 @@ fn begin_operation(
                 lifecycle: RuntimeSurfaceLifecycle::Desired,
                 operation_id: operation.operation_id.clone(),
                 surface_generation: operation.surface_generation,
-                tab_id,
+                tab_id: tab_id.clone(),
                 window_generation: operation.window_generation,
             },
         );
+        let current_owner = state.windows.iter().find_map(|(window_id, window)| {
+            window.contains_tab(tab_id.as_str()).then(|| {
+                (
+                    window_id.clone(),
+                    RuntimeWindowGeneration(window.window_generation),
+                )
+            })
+        });
+        if let Some(activation) = state.tab_activations.get_mut(tab_id.as_str())
+            && operation.window_id.as_deref() == Some(activation.owner_window_id.as_str())
+            && current_owner.as_ref()
+                == Some(&(
+                    activation.owner_window_id.clone(),
+                    operation.window_generation,
+                ))
+            && activation.window_generation == operation.window_generation
+        {
+            activation.native_operation_id = Some(operation.operation_id.clone());
+            activation.phase = RuntimeTabActivationPhaseRecord::Attaching;
+        }
     }
     state.operations.insert(operation_id.clone(), operation);
     let revision = next_revision(state);
@@ -751,6 +693,11 @@ fn close_tab(
             vec![window_id],
         ));
     }
+    let dormant_without_surface = state
+        .tab_activations
+        .get(tab_id.as_str())
+        .is_some_and(|activation| activation.phase == RuntimeTabActivationPhaseRecord::Dormant)
+        && !state.logical_surfaces.contains_key(tab_id.as_str());
     let revision = next_revision(state);
     let window = state
         .windows
@@ -762,6 +709,7 @@ fn close_tab(
     } else if window.selected_tab_id.is_none() {
         window.select(None, revision);
     }
+    state.tab_activations.remove(tab_id.as_str());
     let mut terminal_events = Vec::new();
     for previous in state.operations.values_mut().filter(|previous| {
         previous.tab_id.as_ref() == Some(&tab_id) && !previous.phase.is_terminal()
@@ -778,38 +726,50 @@ fn close_tab(
         attempt_id,
         kind: "closeTab".to_owned(),
         operation_id: operation_id.clone(),
-        phase: RuntimeOperationPhase::Pending,
+        phase: if dormant_without_surface {
+            RuntimeOperationPhase::Completed
+        } else {
+            RuntimeOperationPhase::Pending
+        },
         surface_generation,
         tab_id: Some(tab_id.clone()),
         terminal_code: None,
         window_generation,
+        window_id: Some(window_id.clone()),
     };
     state
         .operations
         .insert(operation_id.as_str().to_owned(), operation);
-    state.tombstones.insert(
-        tab_id.as_str().to_owned(),
-        RuntimeTabTombstone {
-            operation_id: operation_id.clone(),
-            revision,
-            surface_generation,
-            tab_id: tab_id.clone(),
-            window_generation,
-            window_id: window_id.clone(),
-        },
-    );
+    if !dormant_without_surface {
+        state.tombstones.insert(
+            tab_id.as_str().to_owned(),
+            RuntimeTabTombstone {
+                operation_id: operation_id.clone(),
+                revision,
+                surface_generation,
+                tab_id: tab_id.clone(),
+                window_generation,
+                window_id: window_id.clone(),
+            },
+        );
+    }
     if let Some(surface) = state.logical_surfaces.get_mut(tab_id.as_str()) {
         surface.lifecycle = RuntimeSurfaceLifecycle::Closing;
         surface.operation_id = operation_id.clone();
         surface.surface_generation = surface_generation;
         surface.window_generation = window_generation;
     }
-    Ok(RuntimeCommit {
-        desired_effects: vec![RuntimeDesiredEffect::TeardownTab {
+    let desired_effects = if dormant_without_surface {
+        Vec::new()
+    } else {
+        vec![RuntimeDesiredEffect::TeardownTab {
             operation_id,
             tab_id,
             window_id: window_id.clone(),
-        }],
+        }]
+    };
+    Ok(RuntimeCommit {
+        desired_effects,
         membership_changed: true,
         operation_id: None,
         revision,
@@ -866,6 +826,23 @@ fn apply_native_event(
     if has_tombstone && event.event_kind != "closed" && event.event_kind != "failed" {
         return Ok(superseded_commit(state, Some(operation_id), window_ids));
     }
+    let activation_event_matches =
+        state
+            .tab_activations
+            .get(event.tab_id.as_str())
+            .map(|activation| {
+                activation.native_operation_id.as_ref() == Some(&event.operation_id)
+                    && activation.window_generation == event.window_generation
+                    && state.windows.iter().any(|(window_id, window)| {
+                        window.contains_tab(event.tab_id.as_str())
+                            && activation.owner_window_id == *window_id
+                            && RuntimeWindowGeneration(window.window_generation)
+                                == event.window_generation
+                    })
+            });
+    if activation_event_matches == Some(false) {
+        return Ok(superseded_commit(state, Some(operation_id), window_ids));
+    }
     let (lifecycle, terminal_phase, terminal_code) = match event.event_kind.as_str() {
         "attached" => (RuntimeSurfaceLifecycle::Attached, None, None),
         "ready" => (
@@ -889,6 +866,21 @@ fn apply_native_event(
             ));
         }
     };
+    if activation_event_matches == Some(true)
+        && let Some(activation) = state.tab_activations.get_mut(event.tab_id.as_str())
+    {
+        let next_phase = match event.event_kind.as_str() {
+            "attached" => RuntimeTabActivationPhaseRecord::Attaching,
+            "ready" => RuntimeTabActivationPhaseRecord::Ready,
+            "failed" => RuntimeTabActivationPhaseRecord::Failed,
+            _ => activation.phase,
+        };
+        if activation.phase == next_phase
+            || tab_activation_transition_allowed(activation.phase, next_phase)
+        {
+            activation.phase = next_phase;
+        }
+    }
     if let Some(surface) = state.logical_surfaces.get_mut(event.tab_id.as_str()) {
         if surface.lifecycle == lifecycle {
             return Ok(RuntimeCommit {
@@ -1208,6 +1200,64 @@ fn apply_topology(
             state.windows.insert(window_id.clone(), window);
         }
     }
+    let retained_tab_ids = state
+        .windows
+        .values()
+        .flat_map(|window| window.tabs.iter().map(|tab| tab.id.as_str()))
+        .collect::<HashSet<_>>();
+    state
+        .tab_activations
+        .retain(|tab_id, _| retained_tab_ids.contains(tab_id.as_str()));
+    let activation_owners = state
+        .windows
+        .iter()
+        .flat_map(|(window_id, window)| {
+            window.tabs.iter().map(move |tab| {
+                (
+                    tab.id.clone(),
+                    (
+                        window_id.clone(),
+                        RuntimeWindowGeneration(window.window_generation),
+                    ),
+                )
+            })
+        })
+        .collect::<HashMap<_, _>>();
+    let mut terminal_events = Vec::new();
+    for (tab_id, activation) in &mut state.tab_activations {
+        let Some((owner_window_id, window_generation)) = activation_owners.get(tab_id) else {
+            continue;
+        };
+        if activation.owner_window_id == *owner_window_id
+            && activation.window_generation == *window_generation
+        {
+            continue;
+        }
+        if matches!(
+            activation.phase,
+            RuntimeTabActivationPhaseRecord::Activating
+                | RuntimeTabActivationPhaseRecord::Attaching
+                | RuntimeTabActivationPhaseRecord::Loading
+        ) {
+            activation.phase = RuntimeTabActivationPhaseRecord::Failed;
+            if let Some(native_operation_id) = activation.native_operation_id.take()
+                && let Some(operation) = state.operations.get_mut(native_operation_id.as_str())
+                && !operation.phase.is_terminal()
+            {
+                operation.phase = RuntimeOperationPhase::Cancelled;
+                operation.terminal_code = Some("TAB_ACTIVATION_OWNER_CHANGED".to_owned());
+                terminal_events.push(RuntimeTerminalEvent {
+                    operation_id: operation.operation_id.clone(),
+                    phase: RuntimeOperationPhase::Cancelled,
+                    terminal_code: operation.terminal_code.clone(),
+                });
+            }
+            state.logical_surfaces.remove(tab_id);
+        }
+        activation.native_operation_id = None;
+        activation.owner_window_id.clone_from(owner_window_id);
+        activation.window_generation = *window_generation;
+    }
     validate_state(state)?;
     Ok(RuntimeCommit {
         desired_effects: Vec::new(),
@@ -1215,7 +1265,7 @@ fn apply_topology(
         operation_id: Some(input.commit_id),
         revision,
         status: RuntimeCommitStatus::Applied,
-        terminal_events: Vec::new(),
+        terminal_events,
         window_ids,
         browser_result: None,
     })
@@ -1333,6 +1383,18 @@ fn validate_candidate_ownership(
 
 fn validate_state(state: &RuntimeKernelState) -> CoreResult<()> {
     validate_candidate_ownership(&state.windows, &HashSet::new())?;
+    for (tab_id, activation) in &state.tab_activations {
+        if activation.tab_id.as_str() != tab_id
+            || !state
+                .windows
+                .values()
+                .any(|window| window.contains_tab(tab_id))
+        {
+            return Err(CoreError::Internal(
+                "runtime tab activation references missing topology".to_owned(),
+            ));
+        }
+    }
     for (tab_id, tombstone) in &state.tombstones {
         if state
             .windows

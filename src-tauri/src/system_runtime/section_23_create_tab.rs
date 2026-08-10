@@ -263,9 +263,7 @@ impl SystemRuntimeExecutor {
             );
         drop(state);
         self.schedule_live_projection_membership_follow();
-        self.presentation
-            .statuses
-            .set_launch_phase(&created_tab_id, LaunchPhase::Attaching);
+        self.set_launch_phase(&created_tab_id, LaunchPhase::Attaching);
         self.publish_launcher_presence();
         self.record_runtime_stage(
             format!("tab-reserved:{}:{}", target.window_id, created_tab_id),

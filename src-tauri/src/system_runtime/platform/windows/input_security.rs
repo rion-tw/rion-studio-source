@@ -165,21 +165,30 @@ fn execute_runtime_tab_shortcut(
     let Some(window_id) = state.runtime.window_id_for_webview(webview_label) else {
         return;
     };
-    let target = state
+    let Some(tab_id) = state
         .runtime
-        .preview_adjacent_tab_activation(&window_id, direction)
-        .ok();
-    let Some((tab_id, provisional, _operation_id)) = target else {
+        .adjacent_runtime_tab_id(&window_id, direction)
+        .ok()
+    else {
         return;
     };
-    if !provisional {
-        let _ = crate::commit_previewed_tab_selection(
-            app,
+    let activation_app = app.clone();
+    let activation_tab_id = tab_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let Some(state) = activation_app.try_state::<crate::CoreState>() else {
+            return;
+        };
+        if let Err(error) = crate::activate_runtime_tab_on_demand(
+            &activation_app,
             &state,
-            &window_id,
-            &tab_id,
-        );
-    }
+            &activation_tab_id,
+            false,
+        )
+        .await
+        {
+            crate::reveal_shell_error(&activation_app, error);
+        }
+    });
     let Ok(Some(handoff_window_id)) = state.runtime.begin_windows_shortcut_modifier_handoff(
         webview_label,
         modifier_codes,

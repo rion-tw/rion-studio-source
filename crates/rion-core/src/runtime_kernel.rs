@@ -14,9 +14,9 @@ pub use types::{
     RuntimeDesiredEffect, RuntimeIntent, RuntimeLaunchAdmission, RuntimeLaunchDisposition,
     RuntimeLiveTabRecord, RuntimeLiveWindowRecord, RuntimeLogicalSurfaceRecord,
     RuntimeOperationPhase, RuntimeOperationRecord, RuntimeSnapshot, RuntimeSurfaceGeneration,
-    RuntimeSurfaceLifecycle, RuntimeTabId, RuntimeTabTombstone, RuntimeTerminalEvent,
-    RuntimeTopologyCommitInput, RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput,
-    RuntimeWindowTopologyCommit,
+    RuntimeSurfaceLifecycle, RuntimeTabActivationRecord, RuntimeTabId, RuntimeTabTombstone,
+    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowGeneration,
+    RuntimeWindowPlacementCommitInput, RuntimeWindowTopologyCommit,
 };
 
 #[cfg(test)]

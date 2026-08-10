@@ -18,6 +18,7 @@ import type { RuntimeTabAction, RuntimeTabStripState } from "../../shared/runtim
 import type {
   RuntimeTabIntentReceiptRecord,
   RuntimeTabIntentRecord,
+  RuntimeTabActivationPhaseRecord,
   RuntimeTabChromeProjectionRecord,
   SystemRuntimeOperationSummaryRecord
 } from "../../shared/generated";
@@ -90,7 +91,7 @@ type RuntimeTabMetadata = ProvisionalRuntimeTab & {
   hideCloseButton: boolean;
   iconDataUrl?: string | null;
   mutedLabel: string;
-  phase: "reserved" | "attaching" | "loading" | "ready" | "degraded" | "failed";
+  phase: RuntimeTabActivationPhaseRecord;
   playingLabel: string;
   sourceId: string;
   tooltip: string;

@@ -293,7 +293,8 @@ it("keeps tab interaction responsive while native launch verification is pending
       ]);
 
     expect(runtime).toContain("fn preview_tab_activation_background(");
-    expect(runtime).toContain("fn preview_adjacent_tab_activation(");
+    expect(shell).toContain("async fn activate_runtime_tab_on_demand(");
+    expect(shell).toContain("async fn activate_adjacent_runtime_tab_on_demand(");
     expect(runtime).toContain("fn preview_tab_close(");
     expect(runtime).not.toContain("optimistic_closed_tabs");
     expect(runtime).toContain("close_previews");
@@ -317,7 +318,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(activationInfrastructure).not.toContain("presentation_lane");
     const pointerActivation = runtime.slice(
       runtime.indexOf("pub(crate) fn preview_tab_activation_background("),
-      runtime.indexOf("pub(crate) fn preview_adjacent_tab_activation_background(")
+      runtime.indexOf("fn preview_tab_close(")
     );
     expect(pointerActivation).toContain("NativePresentationFocus::ContentOnly");
     expect(pointerActivation).not.toContain("NativePresentationFocus::WindowAndContent");
@@ -600,8 +601,8 @@ it("keeps tab interaction responsive while native launch verification is pending
       quickMenu.indexOf("fn handle_menu_event(")
     );
     expect(quickMenuNativeBuild).not.toContain("core.invoke(");
-    expect(menu).toContain("preview_adjacent_tab_activation(&window_id, direction)");
-    expect(menu).toContain("crate::execute_tab_stop(state, tab_id)");
+    expect(menu).toContain("crate::activate_adjacent_runtime_tab_on_demand(");
+    expect(menu).toContain("crate::execute_tab_stop(app, state, tab_id)");
     expect(menu).not.toContain("fn stop_command(");
     expect(macBridge).not.toContain("fn stop_command_for_tab(");
     expect(macBridge).toContain("metadata_pending: Mutex<HashMap<String, PendingMacTabMetadata>>");
@@ -756,13 +757,14 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     expect(stopTransaction).toContain("tab_surface_release_confirmed(tab_id)");
     expect(stopTransaction).toContain("tab_stop_terminal_outcome(");
     expect(shell).toContain("complete_background_presentation_summary(&operation_id)");
-    expect(shell).toContain("preview_and_schedule_native_tab_selection");
-    const scheduledNativeSelection = shell.slice(
-      shell.indexOf("pub(crate) fn preview_and_schedule_native_tab_selection("),
-      shell.indexOf("fn monitor_background_tab_presentation(")
+    expect(shell).toContain("async fn activate_runtime_tab_on_demand(");
+    const onDemandSelection = shell.slice(
+      shell.indexOf("async fn activate_runtime_tab_on_demand("),
+      shell.indexOf("async fn activate_adjacent_runtime_tab_on_demand(")
     );
-    expect(scheduledNativeSelection).not.toContain("wait_native_operation_summary");
-    expect(menu).toContain("crate::execute_tab_stop(state, tab_id)");
+    expect(onDemandSelection).toContain("claim_runtime_tab_activation(tab_id)");
+    expect(onDemandSelection).not.toContain("wait_native_operation_summary");
+    expect(menu).toContain("crate::execute_tab_stop(app, state, tab_id)");
     const scopedTabAction = menu.slice(
       menu.indexOf("pub async fn handle_scoped_action("),
       menu.indexOf("fn launch_from_menu(")
@@ -771,7 +773,7 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     expect(scopedTabAction).toContain("live_tab_window_id(tab_id)");
     expect(scopedTabAction).not.toContain("BrowserRuntimeSnapshot");
     expect(scopedTabAction).not.toContain("snapshot(&state.core)");
-    expect(macBridge).toContain("crate::execute_tab_stop(&state, tab_id).await");
+    expect(macBridge).toContain("crate::execute_tab_stop(&app, &state, tab_id).await");
     expect(macBridge).toContain("state.runtime.preview_tab_close(tab_id)");
     expect(runtime).toContain("resolve_live_presentation_tab_owner(tab_id)?");
     expect(runtime).not.toContain("repair_missing_tab_presentation");

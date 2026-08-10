@@ -614,9 +614,11 @@ struct RestoredWindowVisibilityFence {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingWindowTabRestore {
     active_tab_id: Option<String>,
+    completion_tab_ids: HashSet<String>,
     host_created: bool,
     ordered_tab_ids: Vec<String>,
     reserved_tab_ids: HashSet<String>,
+    submission_complete: bool,
     successful_tab_ids: HashSet<String>,
     terminal_tab_ids: HashSet<String>,
     visibility_fence: Option<RestoredWindowVisibilityFence>,

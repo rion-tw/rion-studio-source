@@ -99,8 +99,7 @@ async fn rion_overlay_request(
                         "The overlay WebView is no longer attached to a runtime window.",
                     )
                 })?;
-            preview_and_commit_adjacent_tab_selection(&app, &state, &window_id, direction)
-                .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+            activate_adjacent_runtime_tab_on_demand(&app, &state, &window_id, direction).await?;
             let _ = modifier_codes;
         }
         return Ok(Value::Null);
@@ -337,8 +336,7 @@ async fn rion_runtime_tab_action(
                 shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
             });
         }
-        let receipt = preview_and_commit_tab_selection(&app, &state, tab_id)
-            .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+        let receipt = activate_runtime_tab_on_demand(&app, &state, tab_id, false).await?;
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });
@@ -354,13 +352,8 @@ async fn rion_runtime_tab_action(
                     "runtime tab direction is invalid",
                 )
             })?;
-        let receipt = preview_and_commit_adjacent_tab_selection(
-            &app,
-            &state,
-            &window_id,
-            direction,
-        )
-        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+        let receipt =
+            activate_adjacent_runtime_tab_on_demand(&app, &state, &window_id, direction).await?;
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });
@@ -424,7 +417,7 @@ async fn rion_runtime_tab_action(
                     "runtime tab ID is required",
                 )
             })?;
-        let receipt = execute_tab_stop(&state, tab_id).await?;
+        let receipt = execute_tab_stop(&app, &state, tab_id).await?;
         #[cfg(windows)]
         {
             let intent_receipt = rion_core::RuntimeTabIntentReceiptRecord {

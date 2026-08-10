@@ -4,14 +4,17 @@ use std::thread;
 
 use serde_json::json;
 
-use crate::model::{BrowserRuntimeCommand, GameWindowRoleSlotRecord, StateNormalizedRectRecord};
+use crate::model::{
+    BrowserRuntimeCommand, GameWindowRoleSlotRecord, RuntimeTabActivationPhaseRecord,
+    StateNormalizedRectRecord,
+};
 
 use super::{
     FocusPort, LaunchAttemptId, NativeRuntimeEvent, OperationId, RuntimeCommitStatus,
-    RuntimeIntent, RuntimeKernel, RuntimeLiveTabRecord, RuntimeNativeProjection,
-    RuntimeOperationPhase, RuntimeOperationRecord, RuntimeSurfaceGeneration,
-    RuntimeSurfaceLifecycle, RuntimeTabId, RuntimeTopologyCommitInput, RuntimeWindowGeneration,
-    RuntimeWindowTopologyCommit, SurfacePort, TabChromePort, WindowPort,
+    RuntimeDesiredEffect, RuntimeIntent, RuntimeKernel, RuntimeLiveTabRecord,
+    RuntimeNativeProjection, RuntimeOperationPhase, RuntimeOperationRecord,
+    RuntimeSurfaceGeneration, RuntimeSurfaceLifecycle, RuntimeTabId, RuntimeTopologyCommitInput,
+    RuntimeWindowGeneration, RuntimeWindowTopologyCommit, SurfacePort, TabChromePort, WindowPort,
     apply_runtime_native_projection,
 };
 
@@ -269,6 +272,289 @@ fn topology(
             })
             .collect(),
     })
+}
+
+#[test]
+fn dormant_topology_creates_no_surface_and_repeated_activation_joins_one_attempt() {
+    let kernel = RuntimeKernel::default();
+    let tabs = (0..50)
+        .map(|index| tab(&format!("tab-{index}"), &format!("role-{index}")))
+        .collect::<Vec<_>>();
+    kernel
+        .apply(topology(
+            "seed-fifty",
+            "window-a",
+            vec![("window-a", 1, tabs)],
+        ))
+        .unwrap();
+    let seeded = kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-dormant".to_owned(),
+            tab_ids: (0..50).map(|index| format!("tab-{index}")).collect(),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert!(seeded.desired_effects.is_empty());
+    let snapshot = kernel.snapshot().unwrap();
+    assert!(snapshot.logical_surfaces.is_empty());
+    assert_eq!(snapshot.tab_activations.len(), 50);
+    assert!(
+        snapshot
+            .tab_activations
+            .values()
+            .all(|activation| { activation.phase == RuntimeTabActivationPhaseRecord::Dormant })
+    );
+
+    let first_attempt = id::<OperationId>("activate-25");
+    let first = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(snapshot.windows["window-a"].revision),
+            operation_id: first_attempt.clone(),
+            tab_id: id::<RuntimeTabId>("tab-25"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert!(matches!(
+        first.desired_effects.as_slice(),
+        [RuntimeDesiredEffect::ActivateTab { activation_attempt_id, tab_id, window_id }]
+            if activation_attempt_id == &first_attempt
+                && tab_id.as_str() == "tab-25"
+                && window_id == "window-a"
+    ));
+
+    let after_first = kernel.snapshot().unwrap();
+    let repeated = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(after_first.windows["window-a"].revision),
+            operation_id: id::<OperationId>("activate-25-again"),
+            tab_id: id::<RuntimeTabId>("tab-25"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert!(repeated.desired_effects.is_empty());
+    assert_eq!(
+        kernel.snapshot().unwrap().tab_activations["tab-25"].attempt_id,
+        first_attempt
+    );
+}
+
+#[test]
+fn activation_completion_never_steals_selection_and_failed_retry_rotates_its_fence() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(topology(
+            "seed-two",
+            "window-a",
+            vec![(
+                "window-a",
+                1,
+                vec![tab("tab-a", "role-a"), tab("tab-b", "role-b")],
+            )],
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-dormant-two".to_owned(),
+            tab_ids: vec!["tab-a".to_owned(), "tab-b".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let before_b = kernel.snapshot().unwrap();
+    let attempt_b = id::<OperationId>("activate-b");
+    kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(before_b.windows["window-a"].revision),
+            operation_id: attempt_b.clone(),
+            tab_id: id::<RuntimeTabId>("tab-b"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let before_a = kernel.snapshot().unwrap();
+    let attempt_a = id::<OperationId>("activate-a");
+    kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(before_a.windows["window-a"].revision),
+            operation_id: attempt_a.clone(),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::BeginOperation(operation(
+            "native-b",
+            "native-attempt-b",
+            "tab-b",
+        )))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::NativeEvent(native_event(
+            "native-b",
+            "native-attempt-b",
+            "tab-b",
+            "ready",
+        )))
+        .unwrap();
+    assert_eq!(
+        kernel.snapshot().unwrap().windows["window-a"]
+            .selected_tab_id
+            .as_deref(),
+        Some("tab-a")
+    );
+
+    kernel
+        .apply(RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id: attempt_a.clone(),
+            operation_id: "fail-a".to_owned(),
+            phase: RuntimeTabActivationPhaseRecord::Failed,
+            tab_id: id::<RuntimeTabId>("tab-a"),
+        })
+        .unwrap();
+    let before_retry = kernel.snapshot().unwrap();
+    let retry_attempt = id::<OperationId>("retry-a");
+    let retry = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(before_retry.windows["window-a"].revision),
+            operation_id: retry_attempt.clone(),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert_eq!(retry.desired_effects.len(), 1);
+    let stale = kernel
+        .apply(RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id: attempt_a,
+            operation_id: "stale-ready-a".to_owned(),
+            phase: RuntimeTabActivationPhaseRecord::Ready,
+            tab_id: id::<RuntimeTabId>("tab-a"),
+        })
+        .unwrap();
+    assert_eq!(stale.status, RuntimeCommitStatus::Superseded);
+    let retried = &kernel.snapshot().unwrap().tab_activations["tab-a"];
+    assert_eq!(retried.attempt_id, retry_attempt);
+    assert_eq!(retried.phase, RuntimeTabActivationPhaseRecord::Activating);
+}
+
+#[test]
+fn closing_a_dormant_tab_removes_topology_without_a_teardown_effect() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(topology(
+            "seed-close-dormant",
+            "window-a",
+            vec![(
+                "window-a",
+                1,
+                vec![tab("tab-a", "role-a"), tab("tab-b", "role-b")],
+            )],
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-close-phases".to_owned(),
+            tab_ids: vec!["tab-a".to_owned(), "tab-b".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let snapshot = kernel.snapshot().unwrap();
+    let close = kernel
+        .apply(RuntimeIntent::CloseTab {
+            attempt_id: None,
+            expected_revision: Some(snapshot.windows["window-a"].revision),
+            operation_id: id::<OperationId>("close-dormant-b"),
+            successor_tab_id: Some(id::<RuntimeTabId>("tab-a")),
+            surface_generation: RuntimeSurfaceGeneration(1),
+            tab_id: id::<RuntimeTabId>("tab-b"),
+            window_generation: RuntimeWindowGeneration(1),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert!(close.desired_effects.is_empty());
+    let after = kernel.snapshot().unwrap();
+    assert!(!after.windows["window-a"].contains_tab("tab-b"));
+    assert!(!after.tab_activations.contains_key("tab-b"));
+    assert!(!after.tombstones.contains_key("tab-b"));
+}
+
+#[test]
+fn moving_an_activating_tab_fences_its_old_owner_completion() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(topology(
+            "seed-move-activation",
+            "window-a",
+            vec![
+                ("window-a", 1, vec![tab("tab-a", "role-a")]),
+                ("window-b", 1, Vec::new()),
+            ],
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-moving-dormant".to_owned(),
+            tab_ids: vec!["tab-a".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let snapshot = kernel.snapshot().unwrap();
+    kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(snapshot.windows["window-a"].revision),
+            operation_id: id::<OperationId>("activate-before-move"),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::BeginOperation(operation(
+            "native-before-move",
+            "native-attempt-before-move",
+            "tab-a",
+        )))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::CommitTopology(RuntimeTopologyCommitInput {
+            commit_id: "move-while-activating".to_owned(),
+            source: "appKit".to_owned(),
+            primary_window_id: "window-b".to_owned(),
+            windows: vec![
+                RuntimeWindowTopologyCommit {
+                    active_tab_id: None,
+                    hidden_tab_ids: HashSet::new(),
+                    tabs: Vec::new(),
+                    ui_sequence: 2,
+                    window_generation: 1,
+                    window_id: "window-a".to_owned(),
+                },
+                RuntimeWindowTopologyCommit {
+                    active_tab_id: Some("tab-a".to_owned()),
+                    hidden_tab_ids: HashSet::new(),
+                    tabs: vec![tab("tab-a", "role-a")],
+                    ui_sequence: 2,
+                    window_generation: 1,
+                    window_id: "window-b".to_owned(),
+                },
+            ],
+        }))
+        .unwrap();
+    let stale = kernel
+        .apply(RuntimeIntent::NativeEvent(native_event(
+            "native-before-move",
+            "native-attempt-before-move",
+            "tab-a",
+            "ready",
+        )))
+        .unwrap();
+    assert!(matches!(
+        stale.status,
+        RuntimeCommitStatus::Duplicate | RuntimeCommitStatus::Superseded
+    ));
+    let after = kernel.snapshot().unwrap();
+    assert!(!after.logical_surfaces.contains_key("tab-a"));
+    assert_eq!(
+        after.tab_activations["tab-a"].phase,
+        RuntimeTabActivationPhaseRecord::Failed
+    );
+    assert_eq!(after.tab_activations["tab-a"].owner_window_id, "window-b");
 }
 
 #[test]
@@ -1188,6 +1474,7 @@ fn operation(operation_id: &str, attempt_id: &str, tab_id: &str) -> RuntimeOpera
         tab_id: Some(id::<RuntimeTabId>(tab_id)),
         terminal_code: None,
         window_generation: RuntimeWindowGeneration(1),
+        window_id: Some("window-a".to_owned()),
     }
 }
 

@@ -540,7 +540,17 @@ impl SystemRuntimeExecutor {
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
         let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
-        if changed {
+        let activation_phase = match phase {
+            LaunchPhase::Attaching => RuntimeTabActivationPhaseRecord::Attaching,
+            LaunchPhase::Navigating => RuntimeTabActivationPhaseRecord::Loading,
+            LaunchPhase::EssentialReady
+            | LaunchPhase::OptionalHydrating
+            | LaunchPhase::Ready => RuntimeTabActivationPhaseRecord::Ready,
+            LaunchPhase::Degraded => RuntimeTabActivationPhaseRecord::Degraded,
+        };
+        let authority_changed =
+            self.set_authoritative_tab_activation_phase(tab_id, activation_phase);
+        if changed || authority_changed {
             self.notify_optional_idle_changed();
             self.record_runtime_stage(
                 format!("launch-phase:{tab_id}:{}", phase.as_str()),

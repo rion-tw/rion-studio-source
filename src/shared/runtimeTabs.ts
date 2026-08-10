@@ -7,6 +7,7 @@ import type {
   ResolvedTheme,
   WorkspaceLayoutTemplate
 } from "./types";
+import type { RuntimeTabActivationPhaseRecord } from "./generated";
 
 export function formatRuntimeTabTooltip(
   tab: Pick<EmbeddedRuntimeTabSummary, "name" | "type" | "roleNames">,
@@ -93,6 +94,7 @@ export interface RuntimeTabStripState extends EmbeddedRuntimeState {
   language: AppLanguage;
   resolvedTheme: ResolvedTheme;
   tabIconDataUrls: Record<string, string>;
+  tabPhases: Record<string, RuntimeTabActivationPhaseRecord>;
   tabWorkspaceTemplates: Record<string, WorkspaceLayoutTemplate>;
   toolbarVisible: boolean;
   windowMaximized: boolean;

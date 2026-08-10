@@ -417,16 +417,6 @@ impl SystemRuntimeExecutor {
             .ok_or_else(|| "Runtime tab is no longer available for activation.".to_owned())
     }
 
-    fn request_provisional_tab_activation(
-        &self,
-        tab_id: &str,
-        focus: NativePresentationFocus,
-        trigger: &'static str,
-        window_visibility: Option<bool>,
-    ) -> Result<Option<(String, String)>, String> {
-        self.request_provisional_tab_presentation(tab_id, focus, trigger, window_visibility)
-    }
-
     fn request_provisional_tab_presentation(
         &self,
         tab_id: &str,
@@ -569,21 +559,6 @@ impl SystemRuntimeExecutor {
         {
             self.reconcile_surface_membership(&window_id, trigger);
         }
-    }
-
-    fn request_tab_activation_with_window_visibility(
-        &self,
-        tab_id: &str,
-        focus: NativePresentationFocus,
-        trigger: &'static str,
-        window_visibility: Option<bool>,
-    ) -> Result<(String, u64, String), String> {
-        self.request_tab_presentation_with_window_visibility(
-            tab_id,
-            focus,
-            trigger,
-            window_visibility,
-        )
     }
 
     fn request_window_contract_presentation(
@@ -762,49 +737,6 @@ impl SystemRuntimeExecutor {
             None,
         );
         Ok((window_id, revision, presentation_operation_id))
-    }
-
-    pub(crate) fn preview_adjacent_tab_activation(
-        &self,
-        window_id: &str,
-        direction: &str,
-    ) -> Result<(String, bool, String), String> {
-        let (candidates, current_tab_id) = {
-            let presentation = self.presentation.coordinator(window_id)?;
-            (presentation.tab_ids(), presentation.selected_tab_id.clone())
-        };
-        if candidates.is_empty() {
-            return Err("The runtime window has no selectable tabs.".to_owned());
-        }
-        let current = current_tab_id
-            .as_ref()
-            .and_then(|active_id| candidates.iter().position(|tab_id| tab_id == active_id))
-            .unwrap_or(0);
-        let target_index = if direction == "previous" {
-            (current + candidates.len() - 1) % candidates.len()
-        } else {
-            (current + 1) % candidates.len()
-        };
-        let target_id = candidates[target_index].clone();
-        let provisional = self
-            .request_provisional_tab_activation(
-                &target_id,
-                NativePresentationFocus::ContentOnly,
-                "shortcut",
-                None,
-            )?;
-        let (provisional, operation_id) = if let Some((_, operation_id)) = provisional {
-            (true, operation_id)
-        } else {
-            let (_, _, operation_id) = self.request_tab_activation_with_window_visibility(
-                &target_id,
-                NativePresentationFocus::ContentOnly,
-                "shortcut",
-                None,
-            )?;
-            (false, operation_id)
-        };
-        Ok((target_id, provisional, operation_id))
     }
 
 }

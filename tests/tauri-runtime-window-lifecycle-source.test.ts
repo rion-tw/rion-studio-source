@@ -428,10 +428,10 @@ describe("runtime window lifecycle authority", () => {
   });
 
   it("stages saved role slots before an accepted restore can race native tab registration", async () => {
-    const [restore, create, roleSlots, state] = await Promise.all([
+    const [activation, create, roleSlots, state] = await Promise.all([
       readFile(
         new URL(
-          "../src-tauri/src/lib/section_05_invoke_core_async.rs",
+          "../src-tauri/src/lib/section_01_on_demand_tab_activation.rs",
           import.meta.url
         ),
         "utf8"
@@ -459,16 +459,21 @@ describe("runtime window lifecycle authority", () => {
       )
     ]);
 
-    const missingRestore = restore.slice(
-      restore.indexOf("let logical_owner ="),
-      restore.indexOf("if !launch_succeeded")
+    const onDemandLaunch = activation.slice(
+      activation.indexOf("async fn activate_runtime_tab_on_demand("),
+      activation.indexOf("async fn activate_adjacent_runtime_tab_on_demand(")
     );
-    expect(missingRestore).toContain("authoritative_runtime_tab_for_source");
-    expect(missingRestore).toContain("prepare_restored_tab_role_slots");
-    expect(missingRestore.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
-      missingRestore.indexOf('"type": "browserRoleLaunch"')
+    expect(onDemandLaunch).toContain("claim_runtime_tab_activation(tab_id)");
+    expect(onDemandLaunch.indexOf("claim_runtime_tab_activation(tab_id)")).toBeLessThan(
+      onDemandLaunch.indexOf("preview_and_commit_tab_selection_inner(")
     );
-    expect(restore).toContain("if !prepared_role_slots");
+    expect(onDemandLaunch).toContain("prepare_restored_tab_role_slots");
+    expect(onDemandLaunch.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
+      onDemandLaunch.indexOf("invoke_runtime_source_launch(")
+    );
+    expect(onDemandLaunch).toContain("Some(launch.tab_id.clone())");
+    expect(onDemandLaunch).toContain("Some(launch.role_slots)");
+    expect(onDemandLaunch).toContain("mark_runtime_tab_activation_failed(tab_id)");
     expect(state).toContain("pending_restore_role_slots");
     expect(create).toContain("apply_prepared_role_slots_to_effect(&mut state, &mut tab)");
     expect(roleSlots).toContain("fn apply_prepared_role_slots_to_effect");
@@ -493,7 +498,7 @@ describe("runtime window lifecycle authority", () => {
     expect(discard).not.toContain("tabs: Some(Vec::new())");
   });
 
-  it("restores surfaces in owner priority without changing saved tab order or active tab", async () => {
+  it("restores full tab topology while launching only the valid foreground tab", async () => {
     const [
       restore,
       create,
@@ -555,11 +560,10 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(restore).toContain("prepare_restored_window_tabs");
-    expect(restore).toContain("authoritative_runtime_tab_for_source(");
-    expect(restore).not.toContain("native_tab_for_source(");
-    expect(restore).toContain("prepare_restored_tab_role_slots(&tab.id, &tab.role_slots)");
-    expect(restore).not.toContain("match_runtime_restore_tab(");
-    expect(restore).not.toContain('"TAURI_RESTORE_TAB_MISSING"');
+    expect(restore).toContain("let foreground_tab = saved_window_foreground_tab(&saved)");
+    expect(restore).toContain("activate_runtime_tab_on_demand(");
+    expect(restore).not.toContain("authoritative_runtime_tab_for_source(");
+    expect(restore).not.toContain('"type": "browserRoleLaunch"');
     expect(restore).toContain("&target");
     expect(restore).toContain("&saved.tabs");
     expect(restore).toContain("finish_prepared_restored_window_tabs");
@@ -567,7 +571,9 @@ describe("runtime window lifecycle authority", () => {
     expect(restore).not.toContain("restore_workspace_conflict_metadata");
     expect(create).toContain("restored_tab_selection_intent");
     expect(create).toContain("reconcile_prepared_restored_window_tabs");
-    expect(contract).toContain(".set_presentation_phase(&tab.id, TabRuntimePhase::Reserved)");
+    expect(contract).toContain("self.seed_dormant_runtime_tabs(window_id, ordered_tab_ids.clone())");
+    expect(contract).toContain(".set_presentation_phase(&tab.id, TabRuntimePhase::Dormant)");
+    expect(contract).toContain("completion_tab_ids: foreground_tab_id.iter().cloned().collect()");
     expect(contract).toContain("self.reserve_native_tab(");
     expect(contract).toContain("self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids)");
     expect(contract).toContain("self.presentation.commit_live_topology(LiveTopologyCommitInput");
@@ -580,7 +586,7 @@ describe("runtime window lifecycle authority", () => {
     expect(contract).toContain("mark_restored_tab_creation_terminal");
     expect(contract).toContain("prepared.terminal_tab_ids.contains(tab_id)");
     expect(contract).toContain("prepared.successful_tab_ids.contains(tab_id)");
-    expect(contract).toContain("active_tab_id\n                    .clone()");
+    expect(contract).toContain("active_tab_id: foreground_tab_id.clone()");
     expect(contract).not.toContain("self.reorder_native_tabs(");
     expect(persistence).toContain("self.pending_window_tab_restore(window_id).is_some()");
     expect(projection).toContain("state.pending_window_tab_restores.clone()");
@@ -592,7 +598,7 @@ describe("runtime window lifecycle authority", () => {
       "pending_window_tab_restores.contains_key(&runtime_window.window_id)"
     );
     expect(projection).not.toContain("restore.active_tab_id.clone()");
-    expect(contract).toContain("active_tab_id\n                    .clone()");
+    expect(contract).toContain("visibility_fence: foreground_tab_id.clone()");
     expect(configuration).toContain("GameWindowRuntimeSnapshotBatch");
     expect(configuration).not.toContain("pending_game_window_configurations");
     expect(state).toContain("pending_window_tab_restores");

@@ -334,6 +334,36 @@ button {
   white-space: nowrap;
 }
 
+.phase-indicator {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border: 1.5px solid hsl(var(--muted-foreground));
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.phase-indicator[data-phase="activating"],
+.phase-indicator[data-phase="attaching"],
+.phase-indicator[data-phase="loading"] {
+  border-color: hsl(var(--activity));
+  background: hsl(var(--activity));
+}
+
+.phase-indicator[data-phase="degraded"] {
+  border-color: hsl(var(--warning-foreground));
+  background: hsl(var(--warning-foreground));
+}
+
+.phase-indicator[data-phase="failed"] {
+  border-color: hsl(var(--destructive));
+  background: hsl(var(--destructive));
+}
+
+.phase-indicator[data-phase="ready"] {
+  display: none;
+}
+
 .audio,
 .close {
   display: grid;

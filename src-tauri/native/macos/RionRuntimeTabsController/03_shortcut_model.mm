@@ -348,6 +348,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
+  NSView *_phaseView;
   NSPoint _pointerDownInTab;
   NSPoint _pointerDownLocation;
   BOOL _pointerTracking;
@@ -379,6 +380,11 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _audioView.contentTintColor = NSColor.secondaryLabelColor;
   _audioView.toolTip = @"";
 
+  _phaseView = [[NSView alloc] initWithFrame:NSZeroRect];
+  _phaseView.accessibilityElement = NO;
+  _phaseView.wantsLayer = YES;
+  _phaseView.layer.cornerRadius = 3.5;
+
   RionRuntimeVerticallyCenteredTextFieldCell *titleCell =
       [[RionRuntimeVerticallyCenteredTextFieldCell alloc] initTextCell:@""];
   titleCell.alignment = NSTextAlignmentLeft;
@@ -408,6 +414,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   [self addSubview:_iconView];
   [self addSubview:_titleField];
+  [self addSubview:_phaseView];
   [self addSubview:_audioView];
   [self addSubview:_moreButton];
   return self;
@@ -525,6 +532,19 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _hideTabCloseButton = hideTabCloseButton;
   _iconView.image = image;
   _titleField.stringValue = tab.name;
+  NSString *phase = tab.phase.length > 0 ? tab.phase : @"ready";
+  _phaseView.hidden = [phase isEqualToString:@"ready"];
+  _phaseView.layer.borderWidth = [phase isEqualToString:@"dormant"] ? 1.5 : 0.0;
+  if ([phase isEqualToString:@"dormant"]) {
+    _phaseView.layer.borderColor = NSColor.secondaryLabelColor.CGColor;
+    _phaseView.layer.backgroundColor = NSColor.clearColor.CGColor;
+  } else if ([phase isEqualToString:@"degraded"]) {
+    _phaseView.layer.backgroundColor = NSColor.systemOrangeColor.CGColor;
+  } else if ([phase isEqualToString:@"failed"]) {
+    _phaseView.layer.backgroundColor = NSColor.systemRedColor.CGColor;
+  } else {
+    _phaseView.layer.backgroundColor = NSColor.systemBlueColor.CGColor;
+  }
   NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;
   NSString *audioSymbol = tab.audioMuted ? @"speaker.slash.fill" : @"speaker.wave.2.fill";
   NSImage *audioImage = [NSImage imageWithSystemSymbolName:audioSymbol
@@ -541,8 +561,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _moreButton.accessibilityElement = !hideTabCloseButton;
   self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
   self.accessibilityLabel = _audioView.hidden
-      ? tab.name
-      : [NSString stringWithFormat:@"%@, %@", tab.name, audioLabel];
+      ? self.toolTip
+      : [NSString stringWithFormat:@"%@, %@", self.toolTip, audioLabel];
   self.accessibilityValue = @(tab.active);
 
   [self invalidateIntrinsicContentSize];
@@ -574,6 +594,13 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       NSMakeRect(audioX, (kRionTabHeight - kRionTabAudioIconSize) / 2.0,
                  kRionTabAudioIconSize, kRionTabAudioIconSize);
   CGFloat titleEnd = audioX - kRionTabAccessorySpacing;
+  if (!_phaseView.hidden) {
+    CGFloat phaseX = titleEnd - 7.0;
+    _phaseView.frame = NSMakeRect(phaseX, (kRionTabHeight - 7.0) / 2.0, 7.0, 7.0);
+    titleEnd = phaseX - kRionTabAccessorySpacing;
+  } else {
+    _phaseView.frame = NSZeroRect;
+  }
   _titleField.frame =
       NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);
 }

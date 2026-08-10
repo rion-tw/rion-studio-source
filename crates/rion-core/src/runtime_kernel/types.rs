@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::model::RuntimeOperationTraceRecord;
 use crate::model::{
     BrowserRuntimeResult, BrowserRuntimeSnapshot, DisplayTargetRecord, GameWindowPlacementRecord,
-    GameWindowRoleSlotRecord,
+    GameWindowRoleSlotRecord, RuntimeTabActivationPhaseRecord,
 };
 
 macro_rules! identity_type {
@@ -257,6 +257,23 @@ pub enum RuntimeIntent {
         window_id: String,
         zoom_factor: f64,
     },
+    SeedDormantTabs {
+        operation_id: String,
+        tab_ids: Vec<String>,
+        window_id: String,
+    },
+    ActivateTab {
+        expected_revision: Option<u64>,
+        operation_id: OperationId,
+        tab_id: RuntimeTabId,
+        window_id: String,
+    },
+    SetTabActivationPhase {
+        activation_attempt_id: OperationId,
+        operation_id: String,
+        phase: RuntimeTabActivationPhaseRecord,
+        tab_id: RuntimeTabId,
+    },
     ReplaceWindow {
         expected_revision: Option<u64>,
         operation_id: String,
@@ -305,10 +322,13 @@ impl RuntimeIntent {
             | Self::SetRoleZoom { operation_id, .. }
             | Self::ReplaceTabRoleSlots { operation_id, .. }
             | Self::SetWindowZoomFactor { operation_id, .. }
+            | Self::SeedDormantTabs { operation_id, .. }
+            | Self::SetTabActivationPhase { operation_id, .. }
             | Self::ReplaceWindow { operation_id, .. }
             | Self::RemoveWindow { operation_id, .. } => Some(operation_id),
             Self::BeginOperation(operation) => Some(operation.operation_id.as_str()),
-            Self::CloseTab { operation_id, .. }
+            Self::ActivateTab { operation_id, .. }
+            | Self::CloseTab { operation_id, .. }
             | Self::TerminalizeOperation { operation_id, .. } => Some(operation_id.as_str()),
             Self::NativeEvent(event) => Some(event.operation_id.as_str()),
             Self::FailEventStream { stream_id, .. } => Some(stream_id.as_str()),
@@ -350,9 +370,20 @@ pub struct RuntimeSnapshot {
     pub logical_surfaces: HashMap<String, RuntimeLogicalSurfaceRecord>,
     pub operations: HashMap<String, RuntimeOperationRecord>,
     pub revision: u64,
+    pub tab_activations: HashMap<String, RuntimeTabActivationRecord>,
     pub trace: Vec<RuntimeOperationTraceRecord>,
     pub tombstones: HashMap<String, RuntimeTabTombstone>,
     pub windows: HashMap<String, RuntimeLiveWindowRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeTabActivationRecord {
+    pub attempt_id: OperationId,
+    pub native_operation_id: Option<OperationId>,
+    pub owner_window_id: String,
+    pub phase: RuntimeTabActivationPhaseRecord,
+    pub tab_id: RuntimeTabId,
+    pub window_generation: RuntimeWindowGeneration,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -421,6 +452,8 @@ pub struct RuntimeOperationRecord {
     pub tab_id: Option<RuntimeTabId>,
     pub terminal_code: Option<String>,
     pub window_generation: RuntimeWindowGeneration,
+    #[serde(default)]
+    pub window_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -458,6 +491,11 @@ pub struct RuntimeTabTombstone {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeDesiredEffect {
+    ActivateTab {
+        activation_attempt_id: OperationId,
+        tab_id: RuntimeTabId,
+        window_id: String,
+    },
     TeardownTab {
         operation_id: OperationId,
         tab_id: RuntimeTabId,

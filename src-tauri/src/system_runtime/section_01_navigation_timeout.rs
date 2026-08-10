@@ -52,7 +52,7 @@ use rion_core::{
     RuntimeLiveTabRecord as LiveTabRecord,
     RuntimeLiveWindowRecord as LiveWindowRecord,
     RuntimeNativeProjection, RuntimeOperationPhase, RuntimeSnapshot, RuntimeSurfaceGeneration,
-    RuntimeTabId,
+    RuntimeTabActivationPhaseRecord, RuntimeTabId,
     RuntimeTopologyCommitInput as KernelTopologyCommitInput, RuntimeWindowGeneration,
     RuntimeWindowPlacementCommitInput as KernelWindowPlacementCommitInput,
     RuntimeWindowTopologyCommit as KernelWindowTopologyCommit, RuntimeWindowPreferencesRecord,

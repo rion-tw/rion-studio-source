@@ -226,6 +226,19 @@ pub struct RuntimeTabMoveResultRecord {
     pub receipt: SystemRuntimeOperationSummaryRecord,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum RuntimeTabActivationPhaseRecord {
+    Dormant,
+    Activating,
+    Attaching,
+    Loading,
+    Ready,
+    Degraded,
+    Failed,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
@@ -242,7 +255,7 @@ pub struct RuntimeTabChromeItemRecord {
     pub degraded: bool,
     pub closable: bool,
     pub source_id: String,
-    pub phase: String,
+    pub phase: RuntimeTabActivationPhaseRecord,
     pub role_ids: Vec<String>,
     pub role_names: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

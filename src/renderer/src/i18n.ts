@@ -20,6 +20,10 @@ type RuntimeTabStripLabels = {
   restoreWindow: string;
   scrollLeft: string;
   scrollRight: string;
+  statusActivating: string;
+  statusDegraded: string;
+  statusDormant: string;
+  statusFailed: string;
   tabMuted: string;
   windowControls: string;
 };
@@ -36,6 +40,10 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     restoreWindow: "Restore window",
     scrollLeft: "Scroll tabs left",
     scrollRight: "Scroll tabs right",
+    statusActivating: "Starting tab",
+    statusDegraded: "Tab running with reduced functionality",
+    statusDormant: "Tab on standby",
+    statusFailed: "Tab failed to start; select it to retry",
     tabMuted: "Tab muted",
     windowControls: "Window controls"
   },
@@ -50,6 +58,10 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     restoreWindow: "還原視窗",
     scrollLeft: "向左捲動分頁",
     scrollRight: "向右捲動分頁",
+    statusActivating: "分頁啟動中",
+    statusDegraded: "分頁以降級模式運行",
+    statusDormant: "分頁待命中",
+    statusFailed: "分頁啟動失敗，選取可重試",
     tabMuted: "分頁已靜音",
     windowControls: "視窗控制項"
   },
@@ -64,6 +76,10 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     restoreWindow: "还原窗口",
     scrollLeft: "向左滚动标签页",
     scrollRight: "向右滚动标签页",
+    statusActivating: "标签页启动中",
+    statusDegraded: "标签页以降级模式运行",
+    statusDormant: "标签页待命中",
+    statusFailed: "标签页启动失败，选择可重试",
     tabMuted: "标签页已静音",
     windowControls: "窗口控件"
   },
@@ -78,6 +94,10 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     restoreWindow: "ウインドウを元に戻す",
     scrollLeft: "タブを左へスクロール",
     scrollRight: "タブを右へスクロール",
+    statusActivating: "タブを起動中",
+    statusDegraded: "タブは機能を制限して実行中",
+    statusDormant: "タブは待機中",
+    statusFailed: "タブの起動に失敗しました。選択すると再試行します",
     tabMuted: "タブはミュート中",
     windowControls: "ウインドウコントロール"
   }

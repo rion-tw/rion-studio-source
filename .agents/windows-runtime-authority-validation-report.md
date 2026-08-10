@@ -1,15 +1,19 @@
 # Windows Runtime Authority Validation Report
 
 - Status: pass
-- Starting exact SHA: `027cacba24986d2b066c04cb4eb81d82f58edd3d`
-- Final validated-code exact SHA: `1dc52bf58c64096f7a9ddea143c1bcbb082b7fbb`
+- Original validation starting exact SHA: `027cacba24986d2b066c04cb4eb81d82f58edd3d`
+- Final-audit delta starting exact SHA: `865d2a07d887745563afcb7e5cba4b4992fd6194`
+- Final validated-code exact SHA: `87a3c8bb516b056975d9d079ace899af10f8a101`
+- Final branch exact SHA: the pushed report commit containing this field; its exact
+  value is recorded by the post-push remote verification and final handoff because
+  a Git commit cannot embed its own content-dependent SHA.
 - Branch: `codex/runtime-single-authority`
 - Windows build / architecture: Microsoft Windows 11 Pro 25H2, build `26200.8875` (`BuildLabEx 26100.1.arm64fre.ge_release.240331-1435`), ARM64
 - WebView2 Runtime: `151.0.4129.72`
-- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T07:14:52.2786447+08:00`
+- Started / finished at: `2026-08-09T18:36:37.0342067+08:00` / `2026-08-10T08:36:46.0657295+08:00`
 
-This report is Windows-native evidence for WR0-WR5 only. It does not claim that
-the overall Runtime single-authority initiative is complete. No macOS, Linux
+This report is Windows-native evidence for WR0-WR5 and the final-audit WR7
+delta. It does not claim that the overall Runtime single-authority initiative is complete. No macOS, Linux
 portable build, mock runtime, or shared-crate-only compilation is used as native
 evidence. Every automated timeout is reported as a failure or incomplete run,
 never as success.
@@ -226,7 +230,210 @@ enumerated the Windows desktop. From that point onward the complete WUI run used
 fresh states as recorded above. The earlier empty-list condition was not treated
 as product evidence or as a pass.
 
+## Final-audit delta validation
+
+- Status: pass
+- Required starting SHA: `865d2a07d887745563afcb7e5cba4b4992fd6194`
+- Validated-code SHA: `87a3c8bb516b056975d9d079ace899af10f8a101`
+- Audited range: `a055e17029573524b4878b9bdda47435b203c337..87a3c8bb516b056975d9d079ace899af10f8a101`
+- Host: Windows 11 Pro 25H2 build `26200.8875`, ARM64
+- Runtime: System WebView2 `151.0.4129.72`
+- Validation window: 2026-08-10, Asia/Taipei
+
+### WR7.1 worktree and ancestry
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `git switch codex/runtime-single-authority` | 0 | Switched to the required branch. |
+| `git pull --ff-only` | 0 | Fast-forwarded `a055e170..865d2a07`; no merge commit. |
+| `git status --short` | 0 | Empty at the required start and again at validated-code SHA. |
+| `git rev-parse HEAD` | 0 | `865d2a07d887745563afcb7e5cba4b4992fd6194` at start. |
+| `git rev-parse origin/codex/runtime-single-authority` | 0 | Same `865d2a07d887745563afcb7e5cba4b4992fd6194` at start. |
+| `git merge-base --is-ancestor a055e17029573524b4878b9bdda47435b203c337 HEAD` | 0 | The prior Windows report commit is an ancestor of both the required start and final validated code. |
+| `git rev-parse HEAD` after the defect fix | 0 | `87a3c8bb516b056975d9d079ace899af10f8a101`. |
+
+The native environment was reconfirmed with exit 0: Node `v24.19.0`, pnpm
+`11.13.0`, Rust `1.97.0` host `aarch64-pc-windows-msvc`, ARM64 native PowerShell,
+and WebView2 `151.0.4129.72`. No production signing credential or distribution
+policy changed.
+
+### WR7.2 commit-range audit and evidence reuse
+
+`git log`, `git diff --stat`, and `git diff --name-status` all exited 0. The
+range contains two commits, 10 files, 209 insertions and 18 deletions:
+
+| File / change | Authority audit | WUI consequence |
+| --- | --- | --- |
+| `.agents/runtime-authority-migration-ledger.md` | Bookkeeping keeps Windows W1-W4 and the wider initiative in progress; the ledger remains present. | No product path; all prior WUI evidence remains applicable. |
+| `.agents/windows-runtime-authority-validation.md` | Adds only the permanent WR7 delta procedure. | No product path. |
+| `src-tauri/src/lib/section_03_rion_overlay_request.rs` and `src-tauri/src/system_runtime.rs` | Rename/copy inputs into `defer_runtime_tab_shortcut`; no topology, launch, close, restore, macro, or renderer-reload writer is added. | Only WUI-2 shortcut dispatch required a physical delta retest. |
+| `src-tauri/src/system_runtime/platform/windows/input_security.rs` | WebView2 callback now leaves its stack through `run_on_main_thread`; Core lookup and selection occur only in the later executor. | WUI-2/WR7.4 retested; Alt+Tab ownership also retested. |
+| `src-tauri/src/system_runtime/section_23_create_tab.rs` | Both Windows-only tab-chrome bootstrap-failure flag and retirement call are explicitly `#[cfg(windows)]`; Windows behavior is unchanged. | No successful launch/restore path changed. |
+| `tests/tauri-shell-contract.test.ts` and `tests/tauri-system-runtime-source.part-2.test.ts` | Regressions enforce callback/defer separation and both Windows cfg fences. | Test-only. |
+| `crates/rion-core/src/runtime_kernel/state.rs` | After WR7.5 exposed two completed tombstones, terminal tombstones are retired when their owner window is absent, in either authoritative event order. No timer, polling, readback, invariant relaxation, or new state owner is introduced. | The live close/relaunch contract is unchanged; terminal cleanup after owner removal is strengthened. |
+| `crates/rion-core/src/runtime_kernel/tests.rs` | New regression covers `Closed -> RemoveWindow` and `RemoveWindow -> Closed`, duplicate `Closed`, completed close operations, and zero pending/tombstone/logical ownership. | Test-only proof for WUI-4/WUI-7 terminal cleanup. |
+
+Existing evidence reuse was reviewed item by item:
+
+| Existing evidence | Reuse decision and reason |
+| --- | --- |
+| WUI-1 | Reused. Neither commit changes launch admission, permanent TabId selection, role/source deduplication, or effect admission. Full architecture, Core model, Rust, and renderer suites passed at the successor SHA. |
+| WUI-3 | Reused. Native geometry, DPI, rename, resize, maximize, zoom, mute, hide/show, and generation code is outside the range. |
+| WUI-4 | Reused with new regression and final physical close/idle proof. The fix only discards a terminal tombstone after its owning window no longer exists; live-window close/relaunch fencing and admission are untouched. |
+| WUI-5 | Reused. Quit coordinator, process exit, SQLite clean-exit, restore projection, placement, tab order, and active selection are outside the range. The existing 5/5 formal Quit/relaunch evidence remains authoritative. |
+| WUI-6 | Reused. Macro execution/input terminalization and renderer/AppSnapshot reload paths are outside the range. |
+| WUI-7 | Reused for the broad 20-cycle launch/reorder/move/macro/close/relaunch and 5 formal Quit/relaunch transcript. WR7 additionally supplied 20 fresh shortcut cycles, a physical final runtime close, zero native/logical resources, and the two-order tombstone regression. |
+
+### WR7.3 complete Windows required automated gates
+
+The first complete run at `865d2a07` passed all required gates after one Rust
+suite rerun, then WR7.5 found the tombstone defect. After the root fix, every
+required command was run again from the beginning at exact SHA `87a3c8bb`; this
+second run is the authoritative final gate, not a targeted-test substitute.
+
+| Required command at `87a3c8bb` | Exit | Counts / evidence |
+| --- | ---: | --- |
+| `pnpm install --frozen-lockfile` | 0 | Lockfile unchanged; dependencies already current. |
+| `pnpm run verify:system-only` | 0 | Tauri/System-runtime-only boundary passed. |
+| `pnpm run check:hygiene` | 0 | 1,068 tracked files and 3 Rust crates; Knip output informational only. |
+| `pnpm exec vitest run tests/rust-architecture-boundaries.test.ts tests/thin-typescript-boundary.test.ts` | 0 | 2/2 files, 6/6 tests. |
+| `pnpm run typecheck` | 0 | TypeScript no errors. |
+| `pnpm run lint` | 0 | 0 errors; 23 pre-existing react-refresh warnings. |
+| `pnpm run test` | 0 | 146/146 files, 822/822 tests. |
+| `pnpm run lint:rust` | 0 | `cargo fmt --check` and Clippy with warnings denied passed on Windows ARM64. |
+| `pnpm run test:rust` | 0 | rion-core 567, rion-platform 18, rion-tauri library 369, binary 0: **954/954 passed**, 0 failed/ignored. |
+| `cargo check -p rion-tauri --all-targets` | 0 | Windows-only WebView2/Win32 production and test reachability compiled. |
+| `cargo build -p rion-tauri` | 0 | Native Windows ARM64 debug binary built. |
+| `pnpm run build` | 0 | Typecheck, Vite 2,746 modules, and native Tauri Cargo build passed; only the existing bundle-size warning. |
+| `git diff --check` | 0 | No whitespace errors. |
+| `git diff --exit-code -- src/shared/generated` | 0 | Generated bindings clean; none hand-edited. |
+
+The earlier `865d2a07` Rust suite had exit 1 for two deadline-contract tests
+under host contention. Both exact tests immediately passed, and the complete
+workspace rerun passed 953/953. No timeout, deadline, test, or production code
+was relaxed and the failed run was not counted as success. The later
+authoritative post-fix full Rust run passed 954/954 on its first run.
+
+The new regression was first invoked with an incorrect exact filter that ran
+0 tests; that invocation was explicitly not counted. The corrected command
+`cargo test -p rion-core runtime_kernel::tests::removed_window_retires_terminal_close_tombstones_in_either_event_order -- --exact`
+exited 0 with 1/1 test, before the complete final gates above.
+
+### WR7.4 Windows WebView2 shortcut stress
+
+The rebuilt `target\debug\rion-tauri.exe` at `87a3c8bb` used the loopback
+fixture (`127.0.0.1:41739`, HTTP 200) and System WebView2. Computer Use
+re-resolved the current runtime window and called `get_window_state` after every
+Ctrl+Tab, Ctrl+Shift+Tab, and plain `a` probe; accessibility was null, so each
+current screenshot and the fixture counters were the evidence. No stale element
+index was reused.
+
+| Checkpoint | Active HTML tab / exact fresh counters |
+| --- | --- |
+| Before round 1 | Gamma active: `keydown=0`, `focus=1`, `visibility=1`. |
+| Round 5 | Gamma restored active: `keydown=10`, `focus=16`, `visibility=6`; Two Columns Beta `visibility=6`. |
+| Round 10 | Gamma `keydown=20`, `focus=31`, `visibility=11`; Beta `visibility=11`. |
+| Round 15 | Gamma `keydown=30`, `focus=46`, `visibility=16`; Beta `visibility=16`. |
+| Round 20 | Gamma active: `keydown=40`, `focus=61`, `visibility=21`; Beta `visibility=21`. |
+
+All 20/20 forward selections showed the Two Columns HTML tab and its visible
+Beta WebView2. All 20/20 reverse selections showed Gamma active and visible.
+The following plain `a` increased Gamma keydown exactly once per round, proving
+Ctrl/Shift release. No cycle hung, skipped, or produced a duplicate selection
+commit. Physical Alt+Tab switched to the Rion main window rather than another
+HTML tab; after reactivation Gamma was still active at `40/61/21`, so Alt+Tab
+was not intercepted and did not commit selection. A fresh target click changed
+`click=0` to `click=1`, proving the runtime remained responsive.
+
+### WR7.5 final idle diagnostics and defect repair
+
+At `865d2a07`, after the first 20-round shortcut run and physical runtime close,
+the official UI-exported diagnostic bundle had every WR4 required count at zero
+and invariant true **except** `runtimeKernelTombstoneCount=2`. This was treated
+as a defect, not as an idle pass.
+
+The exact trace showed `RemoveWindow` revision 77 before two authoritative
+native `Closed` events at revisions 78 and 79. RuntimeKernel removed tombstones
+when relaunching the same tab, but did not retire a completed close tombstone
+when its owning window had already been removed. Commit
+`87a3c8bb516b056975d9d079ace899af10f8a101` fixes the event-order gap and adds
+the two-order/duplicate-terminal regression described above.
+
+After rebuilding and repeating WR7.4, Alt+Tab, and the official runtime close,
+only the main Rion window remained and its live dashboard showed roles `0/9`
+and actors `0/4`. The final bundle was exported through **Settings > Diagnostics
+& Logs > Export diagnostics bundle** and the native Save dialog to
+`C:\Users\aron\AppData\Local\Temp\Rion-Studio-Diagnostics-final-audit-87a3c8bb.zip`.
+The ZIP was 8,183,924 bytes; `diagnostics.json` was read directly without using
+the query to repair state.
+
+| Required final field | Value |
+| --- | ---: |
+| `buildCommit` | `87a3c8bb516b056975d9d079ace899af10f8a101` |
+| Engine / version / platform / architecture | `webview2` / `151.0.4129.72` / `win32` / `aarch64` |
+| `healthy` / `snapshotComplete` | `true` / `true` |
+| `collectionErrorCodes` | `[]` |
+| `runtimeNativeResourceInvariantsOk` | `true` |
+| `runtimeNativeResourceInvariantFailureCount` | `0` |
+| `runtimeKernelPendingOperationCount` | `0` |
+| `runtimeKernelLogicalSurfaceCount` | `0` |
+| `runtimeKernelTombstoneCount` | `0` |
+| `managedSurfaceCount` / `closingSurfaceCount` | `0` / `0` |
+| `quarantinedSurfaceCount` / `pendingCloseTabCount` | `0` / `0` |
+| `activeNativeCreationCount` | `0` |
+| `activeLifecycleOperationCount` | `0` |
+| `activeNavigationOperationCount` | `0` |
+| `activeInputFenceCount` | `0` |
+| `recoveringRoleCount` | `0` |
+| `roleCount` / `tabCount` / `displayHostCount` | `0` / `0` / `0` |
+| `recentFailures` | `[]` |
+| Recent native operations | 80 records, 80 unique operation IDs, all 80 `applied`, 0 nonterminal |
+| RuntimeKernel revision / shutdown state | `77` / `accepting` |
+| Win32 graphics events | available, 0 events in the 30-minute diagnostic window |
+
+`recoveryRequired=true` remains the historical marker from exact abnormal stops
+used only between source rebuilds. As in the original report, it is not a WR4
+required resource count and was not used to excuse a nonzero ownership value.
+All required current ownership/activity values, including the newly audited
+tombstone count, are zero.
+
+### WR7.6-WR7.7 reverse source audit
+
+| Audit command / slice | Exit | Result |
+| --- | ---: | --- |
+| Legacy authority/reconciliation `rg` from section 5 | 0 | One test-name hit, `renderer_readiness_cancels_the_startup_watchdog_and_clears_failure`; no production legacy authority, owner probe, polling, dirty scan, watchdog, or navigation reconciliation path. |
+| RuntimeKernel `#[cfg(...)]` `rg` | 0 | Only `#[cfg(test)]` at `runtime_kernel.rs:22`; no platform branch in the pure kernel. |
+| `rg -n "allow\(dead_code\)" crates src-tauri/src` | 1 | Expected no-hit exit; no dead-code suppression. |
+| Renderer direct-runtime import audit excluding `tauri/installTauriBridge.ts` | 1 | Expected no-hit exit for Tauri, Node, Playwright, Puppeteer, and `__TAURI__`; 20 renderer files use typed `window.rionStudio`. |
+| `NativeResourceRegistry` source audit | 0 | Exactly `display_hosts`, `retired_surface_registry`, `surface_registry`, and `tabs`, all native handle/projection metadata; the source comment explicitly excludes logical membership, role ownership, relaunch eligibility, and persisted settings. |
+| `git diff --exit-code -- src/shared/generated` | 0 | Empty. |
+| `git diff --check` at validated-code SHA | 0 | Clean. |
+| `git status --short` at validated-code SHA | 0 | Empty. |
+
+The exact WebView2 `AcceleratorKeyPressed` callback slice is
+`input_security.rs:318-380`. It reads the event and physical modifiers, marks a
+recognized shortcut handled, then calls only `defer_runtime_tab_shortcut` or
+`defer_windows_application_shortcut`. The slice contains no `CoreState`,
+`try_state`, selection preview/commit, or application-shortcut execution.
+`defer_runtime_tab_shortcut` calls `app.run_on_main_thread` at lines 126-153;
+only `execute_runtime_tab_shortcut` below it reads Core and submits selection.
+
+The Windows tab-chrome bootstrap cleanup remains explicitly fenced twice in
+`section_23_create_tab.rs`: `#[cfg(windows)]` before the failure flag at line 689
+and before `retire_failed_windows_tab_chrome_host` at line 804. The regression
+requires both exact source shapes; there is no non-Windows no-op or dead-code
+allowance.
+
+### WR7.8 report and publication
+
+The report and the necessary RuntimeKernel fix are committed on
+`codex/runtime-single-authority`. The final handoff records the exact report
+commit and the exit-0 comparison of local HEAD against
+`refs/heads/codex/runtime-single-authority`; embedding that commit's own SHA in
+its tracked contents would change the SHA recursively.
+
 ## Remaining blockers
 
-None for Windows WR0-WR5. The migration ledger remains present and unchanged.
-This report deliberately does not declare the wider initiative complete.
+None for Windows WR7.1-WR7.8. The migration ledger remains present. This report
+deliberately does not declare the wider initiative complete; the macOS primary
+work still owns the final reverse audit and eventual ledger deletion.

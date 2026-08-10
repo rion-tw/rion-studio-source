@@ -1,7 +1,7 @@
 # Rion Studio Runtime 單一權威全面改造帳本
 
 > 建立日期：2026-08-09
-> 狀態：in-progress
+> 狀態：final-audit-complete；等待以獨立最後 commit 移除本帳本
 > 執行原則：這是唯一完成清單。所有非帳本任務、macOS 實機驗收、Windows CI 與最終反向盤點完成前不得刪除本檔；真正阻塞時保留本檔並記錄 blocker。
 
 ## 基線
@@ -16,7 +16,7 @@
 ## 外部 blockers
 
 - [x] BL1 `done` 使用者已於2026-08-09手動解鎖macOS；Computer Use可繼續，未繞過登入鎖。
-- [ ] BL2 `in-progress` Windows WR8已在validated code `91f9d52d`完成955 Rust、822 Vitest、正式WebView2 close與全idle-zero，report commit為`9af44f3e`。2026-08-10 macOS使用者資料重播又抓出WR8後的兩個shared/native projection delta：dormant hydration仍產生`provisional-<uuid>`，以及visible tab close漏送native chrome removal。兩者已在macOS修正並實機通過；因修改shared System Runtime與Windows HTML tab strip可達路徑，Windows必須依永久清單WR9把pass延伸到本次最終exact SHA。
+- [x] BL2 `done` Windows WR9已在validated code `e468b39685016595323dd56a42bf8292ae37890a`完成822 Vitest、956 Rust、Windows all-targets/native/production build、正式WebView2 dormant admission/duplicate/HTML chrome close/immediate relaunch與全idle-zero；report commit `f85e4424309912ff4047eab224fc10bc236df121`已push，local/tracking/remote三方一致，無剩餘blocker。
 
 ## 摘要與根因
 
@@ -135,10 +135,10 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 
 ## Windows 門檻
 
-- [ ] W1 `in-progress` Windows原生WR8已對`91f9d52d`完成全部required automated gates（Vitest 822、Rust 955、Windows all-targets/native/production build）及source audit；本次dormant admission/tab-chrome delta仍須依WR9.6在final exact SHA重跑完整Windows gate。
-- [ ] W2 `in-progress` WR8已證明WebView2/Win32實際reachability、callback deferral、Windows cfg且無`allow(dead_code)`；本次直接觸及shared native tab removal與Windows HTML tab strip remove call，須由WR9新binary重新證明可達與ack。
-- [ ] W3 `in-progress` 原WUI-1–WUI-7、20/20 runtime壓力、5/5 Quit/relaunch、20/20 shortcuts與WR8 idle-zero均通過；本次必須新增WR9 dormant append-source、duplicate、HTML chrome close、immediate relaunch及新idle diagnostics實機證據。
-- [ ] W4 `in-progress` `.agents/windows-runtime-authority-validation-report.md` 已以`Status: pass`記錄WR8 validated code`91f9d52d`與report commit`9af44f3e`；待WR9 successor章節、最終validated SHA及遠端SHA三方核對。
+- [x] W1 `done` Windows原生WR9在`e468b396`完成source/system/dependency hygiene、typecheck、lint、146 files/822 Vitest、Core 568/Platform 18/Tauri 370（956 Rust）、all-targets check、native build與production build；首次production relink只因已無UI的精確QA process持有exe，確認並停止該process後原命令不變重跑通過。
+- [x] W2 `done` Windows 11 ARM64 + WebView2 `151.0.4129.72`實際觸及shared native removal與HTML tab strip `remove/applied` acknowledgement；strict Core UUID validation、Windows cfg reachability與無`allow(dead_code)`反向audit通過。
+- [x] W3 `done` WR9正式UI重複匯入不增殖；`first-eligible-dormant-window`以永久TabId啟動Epsilon/Zeta兩個WebView2，duplicate以`existing-live-source`終結；HTML tab close完整移除chrome/SQLite/logical/surfaces，立即relaunch取得新TabId且舊callback命中0。最終Diagnostics所有required count為0、invariant=true/failures=0、`collectionErrorCodes=[]`。
+- [x] W4 `done` `.agents/windows-runtime-authority-validation-report.md`已新增完整WR9 transcript，validated code為`e468b39685016595323dd56a42bf8292ae37890a`，report/final SHA為`f85e4424309912ff4047eab224fc10bc236df121`；local/tracking/remote三方一致且無blocker。
 
 ## 舊權威移除表
 
@@ -167,7 +167,7 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 | Build | done | `pnpm run build`最終重跑通過（typecheck、Vite renderer、`cargo build -p rion-tauri`） |
 | System-only validation | done | `pnpm run verify:system-only`通過；`pnpm run check:hygiene`亦以exit 0通過 |
 | macOS Computer Use | done | M1–M9全部完成；正式Quit/restore與Diagnostics idle zero均有實機證據；單monitor限制已記錄 |
-| Windows CI | in-progress | WR8已在`91f9d52d`完成原生完整gate、正式WebView2 close與idle-zero diagnostics；本次dormant admission/tab-chrome final exact SHA待WR9複驗 |
+| Windows CI | done | WR9在`e468b396`完成822 Vitest、956 Rust、all-targets/native/production build、正式WebView2 dormant/duplicate/HTML close/relaunch與idle-zero diagnostics；報告已push為`f85e4424` |
 | Final-audit delta local gates | done | source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 565/Platform 20/Tauri 372、all-targets check、build、system-only與dependency hygiene全綠；Windows cross-target在進入project code前因macOS主機缺Windows C SDK header停止，不作Windows通過證據 |
 | Final-ledger audit local gates | done | tombstone normal/indeterminate focused 2/2；source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 567/Platform 20/Tauri 372、macOS all-targets check、build、system-only與dependency hygiene全部通過；generated diff與`git diff --check`為空 |
 | Dormant admission/tab-chrome delta local gates | done | 2026-08-10 source hygiene 1068、typecheck、lint 0 errors/23既有warnings、Vitest 146/822、Rust fmt/clippy、Core 567/Platform 20/Tauri 373（total 960）、build、system-only、dependency hygiene、generated clean與`git diff --check`全部通過。Computer Use另完成QA與原`坦法雙開`真實dormant launch、close/relaunch/duplicate及idle-zero diagnostics。 |
@@ -177,10 +177,10 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - [x] Z1 `done` 最終source hygiene與writer反向搜尋證明logical runtime mutation只經typed Kernel facade／RuntimeIntent；LiveWindow只剩immutable snapshot與Kernel commit facade。
 - [x] Z2 `done` legacy token反搜只有否定式regression與hygiene規則命中；production無alias、owner probing、舊authority map、implicit dirty writer或System Runtime effect-stack `core.invoke`。
 - [x] Z3 `done` Kernel model/stress、Tauri lifecycle regressions、revision store tests與macOS idle diagnostics共同證明operation terminal、projection monotonic及native owner可追溯；所有required idle count為0且native invariant為true。
-- [ ] Z4 本次全部macOS自動測試與實機測試全綠；Windows WR8只覆蓋祖先`91f9d52d`，仍待WR9把原生pass延伸到dormant admission/tab-chrome final exact SHA。
+- [x] Z4 `done` macOS完整自動測試、Computer Use與idle-zero Diagnostics全綠；Windows WR9已把原生pass延伸到本次validated code exact SHA `e468b396`，report/final SHA `f85e4424`三方一致。
 - [x] Z5 `done` 2026-08-09最終全repo反搜：舊authority關鍵字僅存在於禁止回歸測試／hygiene規則；pure RuntimeKernel無平台cfg；crates/Tauri無`allow(dead_code)`；generated無diff；repo無diagnostic ZIP。所有production timer/deadline通過event-topology分類；`reconcile`命中逐筆屬event-triggered projection/display/install-journal套用，不從timer、readback或dirty scan建立logical truth。
-- [ ] Z6 每項任務附證據並完成獨立 final audit。
-- [ ] Z7 刪除本帳本作為最後一項檔案變更；永久 fixture 與本機 QA 測資保留。
+- [x] Z6 `done` 2026-08-10獨立final audit核對Windows report與SHA；重跑source hygiene 1068、System Runtime focused Vitest 18、Rust fmt、generated clean與`git diff --check`。production反搜無provisional prefix、舊authority maps/owner probing/dirty guard/effect-stack Core re-entry、`allow(dead_code)`或RuntimeKernel平台cfg，repo無diagnostic ZIP/dump/trace。
+- [ ] Z7 `in-progress` 所有非帳本任務與Z6均完成；下一個獨立commit只刪除本帳本。永久fixture、已匯入本機QA測資、Windows checklist/report全部保留。
 
 ## 執行假設
 
@@ -233,3 +233,4 @@ Computer Use 規則：每次操作後重新讀取 accessibility/App state，不�
 - 2026-08-10：Windows WR7在`87a3c8bb`完成954 Rust、20/20實體shortcut與含`tombstone=0`的idle audit，並從真實`RemoveWindow -> Closed`順序補上雙順序cleanup。主工作逐行稽核後發現cleanup predicate使用`phase.is_terminal()`，會連`Indeterminate/Cancelled`未知結果也移除close fence；這不會在正常closed實機路徑顯現。已改為僅在logical surface已消失且operation為`Completed|Failed`時清除；regression逐一直接terminalize為`Indeterminate/Cancelled/Failed`及走`FailEventStream`，四者只要Closing surface仍存在都必須保留tombstone，且晚到ready為duplicate。正常兩種closed順序與未知結果focused tests共2項通過；WR8 final exact SHA複驗前帳本保留。
 - 2026-08-10：使用者既有`坦法雙開`在dormant window重播時回傳`RUNTIME_TAB_ID_INVALID`。Git blame與資料庫反搜證明不是舊SQLite資料：所有目前／歷史backup皆無`provisional-*`持久值；真正根因是2026-08-08加入的`section_12_window_restore_contract.rs`每次動態產生`provisional-<uuid>`，先commit desired/native preview後才把它當`launch_tab_id`送進新Core嚴格UUID契約。2026-08-09 single-authority migration只修到normal live preview，漏掉獨立dormant hydration orchestration。決策是不清空角色／工作區／視窗／巨集，也不放寬Core；改為live/dormant共用permanent UUID allocator並加入fixture保證覆蓋該path。
 - 2026-08-10：修正admission後的Computer Use close揭露第二個既有投影缺口：Kernel membership、SQLite、surface registry與tombstone皆正確terminal，但AppKit tab chrome仍顯示ghost tab。根因是`preview_tab_close_with_presentation`在logical commit後只dispatch successor內容與surface isolation，未送已存在的native reservation removal。現於commit後投影同一remove effect，失敗只記錄並保持forward-only close，不回滾Kernel或建立timer/probing；AppKit/SQLite/Diagnostics重播全一致。
+- 2026-08-10：Windows WR9在`e468b396`以真實Windows 11 ARM64/WebView2完成dormant admission、duplicate、HTML chrome close、immediate relaunch、完整822 Vitest/956 Rust/native+production build與idle-zero Diagnostics；報告commit `f85e4424`已push且三方SHA一致。macOS主工作核對report後重跑source hygiene/focused contract/fmt並完成全repo legacy/registry/timer/cfg/artifact反向audit，無剩餘blocker；ledger已進入獨立最後刪除步驟。

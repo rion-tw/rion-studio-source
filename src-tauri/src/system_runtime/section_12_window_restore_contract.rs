@@ -1,3 +1,60 @@
+struct RestoredForegroundVisibilitySnapshot<'a> {
+    host_current: bool,
+    live_contains_tab: bool,
+    live_revision: u64,
+    live_selected_tab_id: Option<&'a str>,
+    live_window_generation: u64,
+    tab_current: bool,
+}
+
+fn restored_foreground_visibility_is_current(
+    fence: &RestoredWindowVisibilityFence,
+    tab_id: &str,
+    window_generation: u64,
+    snapshot: RestoredForegroundVisibilitySnapshot<'_>,
+) -> bool {
+    !fence.reveal_dispatched
+        && fence.foreground_tab_id == tab_id
+        && fence.window_generation == window_generation
+        && snapshot.live_window_generation == window_generation
+        && snapshot.live_revision >= fence.topology_revision
+        && snapshot.live_selected_tab_id == Some(tab_id)
+        && snapshot.live_contains_tab
+        && snapshot.host_current
+        && snapshot.tab_current
+}
+
+pub(crate) struct RestoredLaunchAdmission<'a> {
+    admission_signal: &'a mut crate::runtime_tab_menu::LaunchAdmissionSignal,
+    hydration_operation_id: &'a str,
+    intent_id: &'a str,
+    started_at: Instant,
+}
+
+impl<'a> RestoredLaunchAdmission<'a> {
+    pub(crate) fn new(
+        intent_id: &'a str,
+        hydration_operation_id: &'a str,
+        started_at: Instant,
+        admission_signal: &'a mut crate::runtime_tab_menu::LaunchAdmissionSignal,
+    ) -> Self {
+        Self {
+            admission_signal,
+            hydration_operation_id,
+            intent_id,
+            started_at,
+        }
+    }
+
+    fn latency_trace(&self) -> RuntimeLaunchLatencyTrace {
+        RuntimeLaunchLatencyTrace {
+            hydration_operation_id: self.hydration_operation_id.to_owned(),
+            intent_id: self.intent_id.to_owned(),
+            started_at: self.started_at,
+        }
+    }
+}
+
 impl SystemRuntimeExecutor {
     pub fn prepare_restored_window_tabs(
         &self,
@@ -5,22 +62,45 @@ impl SystemRuntimeExecutor {
         tabs: &[GameWindowTabRecord],
         active_tab_id: Option<String>,
     ) -> Result<(), String> {
-        self.prepare_restored_window_tabs_internal(target, tabs, active_tab_id, None)
+        self.prepare_restored_window_tabs_internal(target, tabs, active_tab_id, None, None, None)
             .map(|_| ())
     }
 
-    pub(crate) fn prepare_restored_window_tabs_with_launch(
+    pub(crate) fn prepare_restored_window_tabs_for_launch(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        tabs: &[GameWindowTabRecord],
+        active_tab_id: Option<String>,
+        admission: &mut RestoredLaunchAdmission<'_>,
+    ) -> Result<(), String> {
+        let launch_trace = admission.latency_trace();
+        self.prepare_restored_window_tabs_internal(
+            target,
+            tabs,
+            active_tab_id,
+            None,
+            Some(launch_trace),
+            Some(&mut *admission.admission_signal),
+        )
+        .map(|_| ())
+    }
+
+    pub(crate) fn prepare_restored_window_tabs_with_launch_for_intent(
         &self,
         target: &EmbeddedLaunchTargetRecord,
         tabs: &[GameWindowTabRecord],
         source_id: &str,
         tab_type: &str,
+        admission: &mut RestoredLaunchAdmission<'_>,
     ) -> Result<LaunchPreviewHandle, String> {
+        let launch_trace = admission.latency_trace();
         self.prepare_restored_window_tabs_internal(
             target,
             tabs,
             None,
             Some((source_id, tab_type)),
+            Some(launch_trace),
+            Some(&mut *admission.admission_signal),
         )?
         .ok_or_else(|| "The restored launch preview was not created.".to_owned())
     }
@@ -31,6 +111,8 @@ impl SystemRuntimeExecutor {
         tabs: &[GameWindowTabRecord],
         active_tab_id: Option<String>,
         appended_source: Option<(&str, &str)>,
+        launch_trace: Option<RuntimeLaunchLatencyTrace>,
+        mut admission_signal: Option<&mut crate::runtime_tab_menu::LaunchAdmissionSignal>,
     ) -> Result<Option<LaunchPreviewHandle>, String> {
         let window_id = target.window_id.as_str();
         let ordered_tab_ids = tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
@@ -163,6 +245,25 @@ impl SystemRuntimeExecutor {
             }],
         })?;
         let revision = receipt.revision;
+        let foreground_tab_id = launch_preview
+            .as_ref()
+            .map(|(preview, _, _)| preview.provisional_tab_id.clone())
+            .or(active_tab_id.clone())
+            .or_else(|| visible_tab_ids.first().cloned());
+        if let Some(trace) = launch_trace.as_ref() {
+            self.record_runtime_launch_latency(
+                trace,
+                "topology-committed",
+                "completed",
+                window_id,
+                foreground_tab_id.as_deref(),
+                None,
+                None,
+                generation,
+                None,
+                revision,
+            );
+        }
         {
             let mut state = self.state().map_err(|error| error.message)?;
             if let Some((preview, source_id, tab_type)) = launch_preview.as_ref() {
@@ -196,9 +297,22 @@ impl SystemRuntimeExecutor {
                     reserved_tab_ids,
                     successful_tab_ids: existing_tab_ids.clone(),
                     terminal_tab_ids: existing_tab_ids,
+                    visibility_fence: foreground_tab_id.clone().map(|foreground_tab_id| {
+                        RestoredWindowVisibilityFence {
+                            foreground_tab_id,
+                            launch_trace: launch_trace.clone(),
+                            reveal_dispatched: false,
+                            topology_revision: revision,
+                            visibility_signal: RestoredVisibilitySignal::new(),
+                            window_generation: generation,
+                        }
+                    }),
                     visible_tab_ids: visible_tab_ids.clone(),
                 },
             );
+        }
+        if let Some(signal) = admission_signal.as_mut() {
+            signal.complete();
         }
         // Restore commits the complete desired topology before creating a native window or tab
         // reservation. The host generation is then projected back into the same Kernel aggregate
@@ -214,15 +328,44 @@ impl SystemRuntimeExecutor {
                 return Err(error.message);
             }
         };
+        let host_generation = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .native_resources
+                    .display_hosts
+                    .get(window_id)
+                    .map(|host| host.generation)
+            })
+            .unwrap_or_default();
         if let Ok(mut state) = self.state.lock() {
             if let Some(restore) = state.pending_window_tab_restores.get_mut(window_id) {
                 restore.host_created = host_created;
+                if let Some(fence) = restore.visibility_fence.as_mut() {
+                    fence.window_generation = host_generation;
+                }
             }
             if let Some((preview, _, _)) = launch_preview.as_ref()
                 && let Some(launch) = state.provisional_launches.get_mut(&preview.launch_preview_id)
             {
                 launch.host_created = host_created;
             }
+        }
+        if let Some(trace) = launch_trace.as_ref() {
+            self.record_runtime_launch_latency(
+                trace,
+                "host-created",
+                "completed",
+                window_id,
+                foreground_tab_id.as_deref(),
+                None,
+                None,
+                host_generation,
+                None,
+                revision,
+            );
         }
         self.schedule_live_projection_membership_follow();
         for tab in tabs {
@@ -378,6 +521,56 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    pub(crate) fn mark_prepared_restored_window_visible(&self, window_id: &str) {
+        if let Ok(mut state) = self.state.lock()
+            && let Some(fence) = state
+                .pending_window_tab_restores
+                .get_mut(window_id)
+                .and_then(|restore| restore.visibility_fence.as_mut())
+        {
+            fence.reveal_dispatched = true;
+        }
+    }
+
+    pub(crate) async fn wait_for_prepared_restored_foreground_visible(
+        &self,
+        window_id: &str,
+    ) -> Result<(), String> {
+        let mut visibility = self
+            .pending_window_tab_restore(window_id)
+            .and_then(|restore| restore.visibility_fence)
+            .map(|fence| fence.visibility_signal.subscribe())
+            .ok_or_else(|| {
+                "The saved-window foreground visibility fence is no longer active.".to_owned()
+            })?;
+        let operation_id = loop {
+            if let Some(operation_id) = visibility.borrow().clone() {
+                break operation_id;
+            }
+            visibility.changed().await.map_err(|_| {
+                "The saved-window foreground visibility stream stopped before native terminal."
+                    .to_owned()
+            })?;
+        };
+        let operations = Arc::clone(&self.operations);
+        let summary = tauri::async_runtime::spawn_blocking(move || {
+            operations
+                .wait(&operation_id)
+                .map(|receipt| receipt.summary())
+                .map_err(str::to_owned)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        if summary.status == SystemRuntimeOperationStatus::Applied {
+            Ok(())
+        } else {
+            Err(format!(
+                "The saved-window foreground visibility operation ended as {:?}.",
+                summary.status
+            ))
+        }
+    }
+
     fn mark_restored_tab_creation_terminal(
         &self,
         window_id: &str,
@@ -395,7 +588,180 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    fn finish_restored_tab_creation(&self, window_id: &str, tab_id: &str, succeeded: bool) {
+    pub(crate) fn fail_prepared_restored_tab(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        _failure_code: &str,
+    ) {
+        self.presentation
+            .statuses
+            .set_presentation_phase(tab_id, TabRuntimePhase::Failed);
+        let trace = self.pending_window_tab_restore(window_id).and_then(|restore| {
+            restore.visibility_fence.and_then(|fence| {
+                fence.launch_trace.map(|trace| {
+                    (
+                        trace,
+                        fence.foreground_tab_id,
+                        fence.window_generation,
+                        fence.topology_revision,
+                    )
+                })
+            })
+        });
+        if let Some((trace, foreground_tab_id, window_generation, topology_revision)) = trace {
+            self.record_runtime_launch_latency(
+                &trace,
+                "follower-admission-failed",
+                "failed",
+                window_id,
+                Some(tab_id),
+                None,
+                None,
+                window_generation,
+                None,
+                topology_revision,
+            );
+            if foreground_tab_id == tab_id {
+                return;
+            }
+        }
+        self.mark_restored_tab_creation_terminal(window_id, tab_id, false);
+        let _ = self.reconcile_prepared_restored_window_tabs(window_id);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn take_restored_foreground_visibility_fence(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        operation_id: &str,
+        attempt_id: &str,
+        window_generation: u64,
+        surface_generation: u64,
+    ) -> Option<RestoredWindowVisibilityFence> {
+        let live = self.presentation.existing(window_id)?;
+        let mut state = self.state.lock().ok()?;
+        let host_current = state
+            .native_resources
+            .display_hosts
+            .get(window_id)
+            .is_some_and(|host| host.generation == window_generation);
+        let tab_current = state.native_resources.tabs.contains_key(tab_id)
+            && !state.tab_close_pending(tab_id)
+            && !state.close_coordinator.closing_tabs.contains(tab_id);
+        let restore = state.pending_window_tab_restores.get_mut(window_id)?;
+        let fence = restore.visibility_fence.as_mut()?;
+        if fence.foreground_tab_id != tab_id {
+            return None;
+        }
+        let eligible = restored_foreground_visibility_is_current(
+            fence,
+            tab_id,
+            window_generation,
+            RestoredForegroundVisibilitySnapshot {
+                host_current,
+                live_contains_tab: live.contains_tab(tab_id),
+                live_revision: live.revision,
+                live_selected_tab_id: live.selected_tab_id.as_deref(),
+                live_window_generation: live.window_generation,
+                tab_current,
+            },
+        );
+        if !eligible {
+            let trace = fence.launch_trace.clone();
+            drop(state);
+            if let Some(trace) = trace.as_ref() {
+                self.record_runtime_launch_latency(
+                    trace,
+                    "foreground-surfaces-attached",
+                    "superseded",
+                    window_id,
+                    Some(tab_id),
+                    Some(operation_id),
+                    Some(attempt_id),
+                    window_generation,
+                    Some(surface_generation),
+                    live.revision,
+                );
+            }
+            return None;
+        }
+        fence.reveal_dispatched = true;
+        Some(fence.clone())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_restored_tab_creation(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        operation_id: &str,
+        attempt_id: &str,
+        window_generation: u64,
+        surface_generation: u64,
+        succeeded: bool,
+    ) {
+        let visibility_fence = succeeded.then(|| {
+            self.take_restored_foreground_visibility_fence(
+                window_id,
+                tab_id,
+                operation_id,
+                attempt_id,
+                window_generation,
+                surface_generation,
+            )
+        }).flatten();
+        if let Some(fence) = visibility_fence {
+            if let Some(trace) = fence.launch_trace.as_ref() {
+                self.record_runtime_launch_latency(
+                    trace,
+                    "foreground-surfaces-attached",
+                    "completed",
+                    window_id,
+                    Some(tab_id),
+                    Some(operation_id),
+                    Some(attempt_id),
+                    window_generation,
+                    Some(surface_generation),
+                    fence.topology_revision,
+                );
+            }
+            match self.reveal_live_runtime_window(
+                window_id,
+                "saved-window-foreground-surfaces-attached",
+                fence.launch_trace.clone(),
+            ) {
+                Ok(Some(visibility_operation_id)) => {
+                    fence.visibility_signal.submit(&visibility_operation_id);
+                    if let Some(trace) = fence.launch_trace.as_ref() {
+                        self.record_runtime_launch_latency(
+                            trace,
+                            "first-visible-requested",
+                            "submitted",
+                            window_id,
+                            Some(tab_id),
+                            Some(operation_id),
+                            Some(attempt_id),
+                            window_generation,
+                            Some(surface_generation),
+                            fence.topology_revision,
+                        );
+                    }
+                }
+                Ok(None) | Err(_) => {
+                    if let Ok(mut state) = self.state.lock()
+                        && let Some(current) = state
+                            .pending_window_tab_restores
+                            .get_mut(window_id)
+                            .and_then(|restore| restore.visibility_fence.as_mut())
+                        && current == &fence
+                    {
+                        current.reveal_dispatched = false;
+                    }
+                }
+            }
+        }
         self.mark_restored_tab_creation_terminal(window_id, tab_id, succeeded);
         if let Err(error) = self.reconcile_prepared_restored_window_tabs(window_id) {
             eprintln!(
@@ -453,6 +819,36 @@ impl SystemRuntimeExecutor {
             });
         if retired && all_successful {
             self.schedule_live_window_state_persistence(window_id);
+        }
+        if retired
+            && let Some(fence) = prepared.visibility_fence.as_ref()
+            && let Some(trace) = fence.launch_trace.as_ref()
+        {
+            let status = if all_successful { "completed" } else { "degraded" };
+            self.record_runtime_launch_latency(
+                trace,
+                "followers-terminal",
+                status,
+                window_id,
+                Some(&fence.foreground_tab_id),
+                None,
+                None,
+                fence.window_generation,
+                None,
+                fence.topology_revision,
+            );
+            self.record_runtime_launch_latency(
+                trace,
+                "intent-terminal",
+                status,
+                window_id,
+                Some(&fence.foreground_tab_id),
+                None,
+                None,
+                fence.window_generation,
+                None,
+                fence.topology_revision,
+            );
         }
         Ok(())
     }

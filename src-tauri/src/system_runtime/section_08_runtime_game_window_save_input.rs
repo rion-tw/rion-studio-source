@@ -136,6 +136,62 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn record_runtime_launch_latency(
+        &self,
+        trace: &RuntimeLaunchLatencyTrace,
+        phase: &'static str,
+        status: &'static str,
+        window_id: &str,
+        tab_id: Option<&str>,
+        operation_id: Option<&str>,
+        attempt_id: Option<&str>,
+        window_generation: u64,
+        surface_generation: Option<u64>,
+        topology_revision: u64,
+    ) {
+        let elapsed_ms = trace
+            .started_at
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let context = json!({
+            "attemptId": attempt_id,
+            "elapsedMs": elapsed_ms,
+            "hydrationOperationId": trace.hydration_operation_id,
+            "intentId": trace.intent_id,
+            "operationId": operation_id,
+            "phase": phase,
+            "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+            "status": status,
+            "surfaceGeneration": surface_generation,
+            "tabId": tab_id,
+            "topologyRevision": topology_revision,
+            "windowGeneration": window_generation,
+            "windowId": window_id,
+        });
+        let core = Arc::clone(&self.core);
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: if status == "failed" {
+                            LogLevel::Warn
+                        } else {
+                            LogLevel::Debug
+                        },
+                        source: LogSource::Browser,
+                        event: "runtime.launch-latency".to_owned(),
+                        message: "Runtime launch advanced to an identity-fenced latency stage."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
     fn install_surface_lifecycle_tracker(
         &self,
         webview: &Webview,

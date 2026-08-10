@@ -443,6 +443,7 @@ impl SystemRuntimeExecutor {
         window_visibility: Option<bool>,
         focus: NativePresentationFocus,
         window_mode: Option<NativeWindowMode>,
+        launch_latency_trace: Option<RuntimeLaunchLatencyTrace>,
     ) -> String {
         let window_generation = self
             .state
@@ -603,6 +604,7 @@ impl SystemRuntimeExecutor {
             observed_previous_tab_id: previous_tab_id,
             observed_previous_surfaces: previous_surfaces,
             operation,
+            launch_latency_trace,
             operations: Arc::clone(&self.operations),
             requested_at,
             revision,

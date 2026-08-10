@@ -25,6 +25,22 @@ fn failed_native_presentation_outcome(message: String) -> NativePresentationOutc
     }
 }
 
+fn launch_visibility_terminal_status(
+    applied: bool,
+    window_visible_after: Option<bool>,
+    has_visibility_errors: bool,
+) -> &'static str {
+    if has_visibility_errors {
+        "failed"
+    } else if applied && window_visible_after != Some(false) {
+        "completed"
+    } else if applied {
+        "degraded"
+    } else {
+        "superseded"
+    }
+}
+
 fn capture_presentation_batch_events(
     batch: &NativePresentationBatch,
     outcome: &NativePresentationOutcome,
@@ -41,7 +57,7 @@ fn capture_presentation_batch_events(
     } else {
         batch.first_revision
     };
-    let context = json!({
+    let mut context = json!({
         "coalescedCount": batch.request_count.saturating_sub(1),
         "elapsedMs": elapsed_ms,
         "firstRevision": first_revision,
@@ -84,6 +100,12 @@ fn capture_presentation_batch_events(
         "windowVisibilityMs": outcome.window_visibility_ms,
         "windowWasMinimized": outcome.window_was_minimized,
     });
+    if let Value::Object(context) = &mut context {
+        context.insert(
+            "operationId".to_owned(),
+            Value::String(request.operation.operation_id.clone()),
+        );
+    }
     let completion_event = if !outcome.visibility_errors.is_empty() {
         "native.presentation-failed"
     } else if outcome.applied {
@@ -126,6 +148,42 @@ fn capture_presentation_batch_events(
             }),
         },
     ];
+    let launch_status = launch_visibility_terminal_status(
+        outcome.applied,
+        outcome.window_visible_after,
+        !outcome.visibility_errors.is_empty(),
+    );
+    if let Some(trace) = request.launch_latency_trace.as_ref() {
+        let launch_context = json!({
+            "attemptId": null,
+            "elapsedMs": trace.started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            "hydrationOperationId": trace.hydration_operation_id,
+            "intentId": trace.intent_id,
+            "operationId": request.operation.operation_id,
+            "phase": "first-visible",
+            "revision": request.revision,
+            "status": launch_status,
+            "surfaceGeneration": null,
+            "tabId": request.tab_id,
+            "trigger": request.trigger,
+            "windowGeneration": request.window_generation,
+            "windowId": request.window_id,
+            "windowVisibleAfter": outcome.window_visible_after,
+        });
+        entries.push(LogCaptureRecord {
+            level: if launch_status == "failed" {
+                LogLevel::Warn
+            } else {
+                LogLevel::Info
+            },
+            source: LogSource::Browser,
+            event: "runtime.launch-latency".to_owned(),
+            message: "The native launch visibility projection reached its exact terminal event."
+                .to_owned(),
+            context_raw_json: serde_json::to_string(&launch_context).ok(),
+            error: None,
+        });
+    }
     if request.window_visibility == Some(false) && outcome.visibility_errors.is_empty() {
         entries.push(LogCaptureRecord {
             level: LogLevel::Debug,

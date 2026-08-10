@@ -29,3 +29,4 @@ include!("behavior_27_drag_cursor_and_close_relaunch_are_generation_fenced.rs");
 include!("behavior_28_live_topology_store_is_one_way.rs");
 include!("behavior_29_window_activation.rs");
 include!("behavior_30_windows_mica.rs");
+include!("behavior_31_restored_foreground_visibility.rs");

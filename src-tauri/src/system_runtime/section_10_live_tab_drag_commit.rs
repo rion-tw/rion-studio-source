@@ -193,6 +193,7 @@ impl SystemRuntimeExecutor {
             next_tab_id.is_none().then_some(false),
             NativePresentationFocus::ContentOnly,
             None,
+            None,
         );
         self.schedule_live_window_state_persistence(&window_id);
         Ok(())

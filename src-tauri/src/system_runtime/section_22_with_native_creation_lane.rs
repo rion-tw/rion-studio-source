@@ -39,12 +39,14 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    pub(crate) fn preview_tab_launch(
+    pub(crate) fn preview_tab_launch_for_intent(
         &self,
         target: &EmbeddedLaunchTargetRecord,
         source_id: &str,
         tab_type: &str,
+        admission_signal: &mut crate::runtime_tab_menu::LaunchAdmissionSignal,
     ) -> RuntimeResult<LaunchPreviewHandle> {
+        let mut admission_signal = Some(admission_signal);
         let preview_started = Instant::now();
         self.mark_critical_activity();
         let existing = {
@@ -52,6 +54,9 @@ impl SystemRuntimeExecutor {
             active_provisional_launch(&state, source_id, tab_type).map(launch_preview_handle)
         };
         if let Some(existing) = existing {
+            if let Some(signal) = admission_signal.as_mut() {
+                signal.complete();
+            }
             return Ok(existing);
         }
         if self.current_window_close_in_progress(&target.window_id) {
@@ -97,6 +102,9 @@ impl SystemRuntimeExecutor {
             }
         };
         if let Some(existing) = duplicate {
+            if let Some(signal) = admission_signal.as_mut() {
+                signal.complete();
+            }
             return Ok(existing);
         }
         // Clone the live record and release its window mutex before committing.
@@ -149,6 +157,9 @@ impl SystemRuntimeExecutor {
             .statuses
             .set_presentation_phase(&provisional_id, TabRuntimePhase::Reserved);
         let revision = receipt.revision;
+        if let Some(signal) = admission_signal.as_mut() {
+            signal.complete();
+        }
         self.publish_launcher_presence();
         // Desired topology and the permanent TabId are authoritative before any native host or
         // tab-chrome resource exists. Native creation is a one-way projection of this committed
@@ -211,6 +222,7 @@ impl SystemRuntimeExecutor {
             None,
             Some(true),
             NativePresentationFocus::WindowAndContent,
+            None,
             None,
         );
         self.record_launch_presentation_event_with_error_diagnostic(

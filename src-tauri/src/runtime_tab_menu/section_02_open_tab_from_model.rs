@@ -189,9 +189,19 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
         return true;
     };
     if let Some(tab_id) = id.strip_prefix(ACTIVATE_PREFIX) {
-        if let Err(message) = crate::preview_and_schedule_native_tab_selection(app, &state, tab_id) {
-            reveal_menu_error(app, message);
-        }
+        let app = app.clone();
+        let tab_id = tab_id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let Some(state) = app.try_state::<crate::CoreState>() else {
+                reveal_menu_error(&app, "runtime state is unavailable");
+                return;
+            };
+            if let Err(error) =
+                crate::activate_runtime_tab_on_demand(&app, &state, &tab_id, true).await
+            {
+                reveal_menu_error(&app, error.message);
+            }
+        });
     } else if let Some(tab_id) = id.strip_prefix(HIDE_PREFIX) {
         spawn_tab_mutation(app, tab_id, "hide", None, None);
     } else if let Some(tab_id) = id.strip_prefix(RELOAD_PREFIX) {
@@ -509,18 +519,15 @@ pub async fn handle_scoped_action(
             .as_str()
             .filter(|value| matches!(*value, "next" | "previous"))
             .ok_or_else(|| "runtime tab direction is invalid".to_owned())?;
-        let (target_tab_id, provisional, _operation_id) = state
-            .runtime
-            .preview_adjacent_tab_activation(&window_id, direction)?;
-        if provisional {
-            return Ok(());
-        }
-        return crate::commit_previewed_tab_selection(
+        return crate::activate_adjacent_runtime_tab_on_demand(
             app,
             state,
             &window_id,
-            &target_tab_id,
-        );
+            direction,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| error.message);
     }
     if action_type == "windowControl" {
         let control = action["control"]
@@ -554,10 +561,13 @@ pub async fn handle_scoped_action(
             state.runtime.publish_projection();
             return Ok(());
         }
-        return crate::preview_and_schedule_native_tab_selection(app, state, tab_id);
+        return crate::activate_runtime_tab_on_demand(app, state, tab_id, true)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.message);
     }
     if action_type == "stop" {
-        return crate::execute_tab_stop(state, tab_id)
+        return crate::execute_tab_stop(app, state, tab_id)
             .await
             .map_err(|error| format!("{}: {}", error.code, error.message))
             .and_then(crate::runtime_operation_receipt_result);
@@ -649,7 +659,7 @@ fn spawn_tab_stop(app: &AppHandle, tab_id: &str) {
             reveal_menu_error(&app, "runtime state is unavailable");
             return;
         };
-        let result = crate::execute_tab_stop(&state, &tab_id)
+        let result = crate::execute_tab_stop(&app, &state, &tab_id)
             .await
             .map_err(|error| error.message)
             .and_then(crate::runtime_operation_receipt_result);

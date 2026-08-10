@@ -432,6 +432,7 @@ NS_ASSUME_NONNULL_BEGIN
     tab.audioMuted = NO;
     tab.identifier = tabIdentifier;
     tab.name = name.length > 0 ? name : tabIdentifier;
+    tab.phase = @"activating";
     tab.tooltip = tab.name;
     tab.type = type.length > 0 ? type : @"role";
     tab.workspaceTemplate = workspaceTemplate;

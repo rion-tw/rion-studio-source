@@ -203,44 +203,12 @@ struct CoreState {
     updates: Arc<update_manager::UpdateManager>,
 }
 
-pub(crate) fn preview_and_commit_tab_selection(
-    app: &AppHandle,
-    state: &CoreState,
-    tab_id: &str,
-) -> Result<SystemRuntimeOperationSummaryRecord, String> {
-    preview_and_commit_tab_selection_inner(app, state, tab_id, false)
-}
-
 pub(crate) fn stale_live_tab_action_error(message: &str) -> bool {
     let message = message.to_ascii_lowercase();
     (message.contains("runtime tab") || message.contains("tab presentation"))
         && (message.contains("not found")
             || message.contains("no longer")
             || message.contains("closing"))
-}
-
-pub(crate) fn preview_and_commit_adjacent_tab_selection(
-    app: &AppHandle,
-    state: &CoreState,
-    window_id: &str,
-    direction: &str,
-) -> Result<SystemRuntimeOperationSummaryRecord, String> {
-    let (target_tab_id, provisional, operation_id) = state
-        .runtime
-        .preview_adjacent_tab_activation_background(window_id, direction)?;
-    if !provisional
-        && let Err(message) = commit_previewed_tab_selection(
-            app,
-            state,
-            window_id,
-            &target_tab_id,
-        )
-    {
-        eprintln!("Adjacent tab selection commit could not be scheduled: {message}");
-    }
-    state
-        .runtime
-        .complete_background_presentation_summary(&operation_id)
 }
 
 fn preview_and_commit_tab_selection_inner(
@@ -273,25 +241,6 @@ fn preview_and_commit_tab_selection_inner(
     state
         .runtime
         .complete_background_presentation_summary(&operation_id)
-}
-
-pub(crate) fn preview_and_schedule_native_tab_selection(
-    app: &AppHandle,
-    state: &CoreState,
-    tab_id: &str,
-) -> Result<(), String> {
-    let (window_id, provisional, resolved_tab_id, operation_id) = match state
-        .runtime
-        .preview_tab_activation_background(tab_id, true)
-    {
-        Err(message) if stale_live_tab_action_error(&message) => return Ok(()),
-        result => result?,
-    };
-    if !provisional {
-        commit_previewed_tab_selection(app, state, &window_id, &resolved_tab_id)?;
-    }
-    monitor_background_tab_presentation(Arc::clone(&state.runtime), operation_id);
-    Ok(())
 }
 
 fn monitor_background_tab_presentation(runtime: Arc<SystemRuntimeExecutor>, operation_id: String) {

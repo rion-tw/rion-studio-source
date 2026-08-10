@@ -31,45 +31,4 @@ impl SystemRuntimeExecutor {
         })
     }
 
-    pub(crate) fn preview_adjacent_tab_activation_background(
-        &self,
-        window_id: &str,
-        direction: &str,
-    ) -> Result<(String, bool, String), String> {
-        let (candidates, current_tab_id) = {
-            let presentation = self.presentation.coordinator(window_id)?;
-            (presentation.tab_ids(), presentation.selected_tab_id.clone())
-        };
-        if candidates.is_empty() {
-            return Err("The runtime window has no selectable tabs.".to_owned());
-        }
-        let current = current_tab_id
-            .as_ref()
-            .and_then(|active_id| candidates.iter().position(|tab_id| tab_id == active_id))
-            .unwrap_or(0);
-        let target_index = if direction == "previous" {
-            (current + candidates.len() - 1) % candidates.len()
-        } else {
-            (current + 1) % candidates.len()
-        };
-        let target_id = candidates[target_index].clone();
-        let provisional = self.request_provisional_tab_presentation(
-            &target_id,
-            NativePresentationFocus::ContentOnly,
-            "shortcut",
-            None,
-        )?;
-        let (provisional, operation_id) = if let Some((_, operation_id)) = provisional {
-            (true, operation_id)
-        } else {
-            let (_, _, operation_id) = self.request_tab_presentation_with_window_visibility(
-                &target_id,
-                NativePresentationFocus::ContentOnly,
-                "shortcut",
-                None,
-            )?;
-            (false, operation_id)
-        };
-        Ok((target_id, provisional, operation_id))
-    }
 }

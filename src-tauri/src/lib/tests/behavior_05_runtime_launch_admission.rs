@@ -111,7 +111,7 @@ fn hydration_step_identity(step: &SavedWindowHydrationStep<'_>) -> (String, bool
 }
 
 #[test]
-fn dormant_hydration_always_schedules_the_requested_foreground_first() {
+fn dormant_hydration_schedules_only_the_requested_foreground() {
     let window = hydration_window();
     let existing = saved_window_hydration_plan(&window, Some("tab-active"), None);
     assert_eq!(
@@ -120,7 +120,7 @@ fn dormant_hydration_always_schedules_the_requested_foreground_first() {
             .iter()
             .map(hydration_step_identity)
             .collect::<Vec<_>>(),
-        [("tab-active".to_owned(), true), ("tab-first".to_owned(), false)]
+        [("tab-active".to_owned(), true)]
     );
 
     let preview = LaunchPreviewHandle {
@@ -135,12 +135,53 @@ fn dormant_hydration_always_schedules_the_requested_foreground_first() {
             .iter()
             .map(hydration_step_identity)
             .collect::<Vec<_>>(),
-        [
-            ("tab-appended".to_owned(), true),
-            ("tab-active".to_owned(), false),
-            ("tab-first".to_owned(), false),
-        ]
+        [("tab-appended".to_owned(), true)]
     );
+}
+
+#[test]
+fn restored_windows_with_one_ten_or_fifty_tabs_choose_exactly_one_launch_candidate() {
+    for count in [1_usize, 10, 50] {
+        let mut window = hydration_window();
+        let template = window.tabs[0].clone();
+        window.tabs = (0..count)
+            .map(|index| {
+                let mut tab = template.clone();
+                tab.id = format!("tab-{index}");
+                tab.source_id = format!("role-{index}");
+                tab.name = format!("Role {index}");
+                tab
+            })
+            .collect();
+        window.active_tab_id = Some(format!("tab-{}", count - 1));
+
+        let foreground = saved_window_foreground_tab(&window)
+            .expect("a visible restored window must choose one foreground tab");
+        assert_eq!(foreground.id, format!("tab-{}", count - 1));
+        assert_eq!(
+            window
+                .tabs
+                .iter()
+                .filter(|tab| tab.id == foreground.id)
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn restored_window_foreground_falls_back_to_visible_and_all_hidden_launches_none() {
+    let mut window = hydration_window();
+    window.active_tab_id = Some("missing-tab".to_owned());
+    window.tabs[0].hidden = true;
+    assert_eq!(
+        saved_window_foreground_tab(&window).map(|tab| tab.id.as_str()),
+        Some("tab-active")
+    );
+    for tab in &mut window.tabs {
+        tab.hidden = true;
+    }
+    assert!(saved_window_foreground_tab(&window).is_none());
 }
 
 #[test]

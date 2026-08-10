@@ -23,6 +23,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, copy, nullable) NSString *iconDataURL;
 @property(nonatomic, copy) NSString *identifier;
 @property(nonatomic, copy) NSString *name;
+@property(nonatomic, copy) NSString *phase;
 @property(nonatomic, copy) NSString *tooltip;
 @property(nonatomic, copy) NSString *type;
 @property(nonatomic, copy, nullable) NSString *workspaceTemplate;
@@ -77,6 +78,7 @@ typedef struct {
   bool audioMuted;
   const char *identifier;
   const char *name;
+  const char *phase;
   const char *tooltip;
   const char *type;
   const char * _Nullable iconDataURL;

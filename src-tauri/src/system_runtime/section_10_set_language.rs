@@ -69,6 +69,18 @@ impl SystemRuntimeExecutor {
         if let Some(tab_id) = self.presented_stable_tab_for_launcher_source(source_id, tab_type) {
             return Some(tab_id);
         }
+        if let Ok(snapshot) = self.core.runtime_kernel().snapshot()
+            && let Some(tab_id) = snapshot.windows.values().find_map(|window| {
+                window.tabs.iter().find_map(|tab| {
+                    (tab.source_id == source_id
+                        && tab.tab_type == tab_type
+                        && snapshot.tab_activations.contains_key(&tab.id))
+                    .then(|| tab.id.clone())
+                })
+            })
+        {
+            return Some(tab_id);
+        }
         let provisional = self.state.lock().ok().and_then(|state| {
             active_provisional_launch(&state, source_id, tab_type).cloned()
         })?;

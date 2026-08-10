@@ -68,17 +68,19 @@ fn select_auto_restore_saved_windows(
     select_non_conflicting_saved_windows(&eligible, last_focused_window_id)
 }
 
-fn restore_tabs_in_owner_priority(
+fn saved_window_foreground_tab(
     window: &StateGameWindowRecord,
-) -> Vec<&GameWindowTabRecord> {
-    let mut tabs = window.tabs.iter().collect::<Vec<_>>();
-    if let Some(active_tab_id) = window.active_tab_id.as_deref()
-        && let Some(index) = tabs.iter().position(|tab| tab.id == active_tab_id)
-    {
-        let active = tabs.remove(index);
-        tabs.insert(0, active);
-    }
-    tabs
+) -> Option<&GameWindowTabRecord> {
+    window
+        .active_tab_id
+        .as_ref()
+        .and_then(|active| {
+            window
+                .tabs
+                .iter()
+                .find(|tab| &tab.id == active && !tab.hidden)
+        })
+        .or_else(|| window.tabs.iter().find(|tab| !tab.hidden))
 }
 
 fn saved_window_conflicts_with_runtime(

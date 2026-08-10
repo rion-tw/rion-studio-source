@@ -365,8 +365,7 @@ async fn rion_shell_invoke(
         }
         "showGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            let receipt = preview_and_commit_tab_selection(&app, &state, &tab_id)
-                .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?;
+            let receipt = activate_runtime_tab_on_demand(&app, &state, &tab_id, false).await?;
             serde_json::to_value(receipt).map_err(|error| {
                 shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", error.to_string())
             })
@@ -445,15 +444,14 @@ async fn rion_shell_invoke(
             let receipt = if hidden {
                 execute_tab_mutation(&state, "hide", &tab_id, None, None).await?
             } else {
-                preview_and_commit_tab_selection(&app, &state, &tab_id)
-                    .map_err(|message| shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message))?
+                activate_runtime_tab_on_demand(&app, &state, &tab_id, false).await?
             };
             serde_json::to_value(receipt)
                 .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }
         "stopGameWindowTab" => {
             let tab_id = string_argument(&args, 0, "Runtime tab ID")?;
-            let receipt = execute_tab_stop(&state, &tab_id).await?;
+            let receipt = execute_tab_stop(&app, &state, &tab_id).await?;
             serde_json::to_value(receipt)
                 .map_err(|error| shell_error("TAURI_RUNTIME_TAB_MUTATION_FAILED", error.to_string()))
         }

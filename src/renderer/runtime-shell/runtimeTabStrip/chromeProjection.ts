@@ -28,6 +28,7 @@ export function stateFromChromeProjection(
     tabIconDataUrls: Object.fromEntries(
       projection.tabs.flatMap((tab) => tab.iconDataUrl ? [[tab.id, tab.iconDataUrl]] : [])
     ),
+    tabPhases: Object.fromEntries(projection.tabs.map((tab) => [tab.id, tab.phase])),
     tabWorkspaceTemplates: Object.fromEntries(
       projection.tabs.flatMap((tab) => tab.workspaceTemplate
         ? [[tab.id, tab.workspaceTemplate]]

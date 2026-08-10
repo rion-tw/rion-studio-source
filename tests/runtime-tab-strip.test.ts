@@ -29,6 +29,7 @@ const state: RuntimeTabStripState = {
   resolvedTheme: "light",
   savedWindows: [],
   tabIconDataUrls: {},
+  tabPhases: {},
   tabWorkspaceTemplates: {},
   tabs: [{
     active: true,
@@ -1018,4 +1019,24 @@ it("keeps a newly active offscreen tab visible without resetting status-only upd
     expect(geometry.scrollTo).not.toHaveBeenCalled();
     expect(geometry.scrollLeft).toBe(170);
   });
+});
+
+it("renders the shared dormant, progress, degraded, and failed phase indicators", () => {
+    window.__rionApplyRuntimeTabState?.({
+      ...stateWithTabs(0),
+      tabPhases: {
+        "tab-1": "dormant",
+        "tab-2": "activating",
+        "tab-3": "degraded",
+        "tab-4": "failed"
+      }
+    });
+
+    const phases = Array.from(
+      document.querySelectorAll<HTMLElement>(".phase-indicator")
+    ).map((indicator) => indicator.dataset.phase);
+    expect(phases).toEqual(["dormant", "activating", "degraded", "failed"]);
+    const dormant = document.querySelector<HTMLButtonElement>("[data-tab-id=\"tab-1\"]")!;
+    expect(dormant.title).toContain("分頁待命中");
+    expect(dormant.ariaLabel).toContain("分頁待命中");
 });

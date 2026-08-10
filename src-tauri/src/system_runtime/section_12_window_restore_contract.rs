@@ -119,12 +119,6 @@ impl SystemRuntimeExecutor {
         if ordered_tab_ids.is_empty() && appended_source.is_none() {
             return Ok(None);
         }
-        if active_tab_id
-            .as_ref()
-            .is_some_and(|tab_id| !ordered_tab_ids.contains(tab_id))
-        {
-            return Err("The saved active tab is outside its saved window order.".to_owned());
-        }
         if ordered_tab_ids.iter().collect::<HashSet<_>>().len() != ordered_tab_ids.len() {
             return Err("The saved window contains duplicate runtime tab identifiers.".to_owned());
         }
@@ -140,12 +134,6 @@ impl SystemRuntimeExecutor {
                 ));
             }
         }
-        let title = active_tab_id
-            .as_ref()
-            .and_then(|active| tabs.iter().find(|tab| &tab.id == active))
-            .or_else(|| tabs.first())
-            .map(|tab| tab.name.as_str())
-            .unwrap_or(RION_STUDIO_APP_NAME);
         let launch_preview = appended_source.map(|(source_id, tab_type)| {
             (
                 allocate_launch_preview_handle(source_id, tab_type),
@@ -169,6 +157,19 @@ impl SystemRuntimeExecutor {
         if let Some((preview, _, _)) = launch_preview.as_ref() {
             visible_tab_ids.push(preview.provisional_tab_id.clone());
         }
+        let saved_foreground_tab_id = active_tab_id
+            .clone()
+            .filter(|tab_id| visible_tab_ids.contains(tab_id))
+            .or_else(|| visible_tab_ids.first().cloned());
+        let foreground_tab_id = launch_preview
+            .as_ref()
+            .map(|(preview, _, _)| preview.provisional_tab_id.clone())
+            .or(saved_foreground_tab_id);
+        let title = foreground_tab_id
+            .as_ref()
+            .and_then(|foreground| tabs.iter().find(|tab| &tab.id == foreground))
+            .map(|tab| tab.name.as_str())
+            .unwrap_or(RION_STUDIO_APP_NAME);
         let mut reserved_tab_ids = existing_tab_ids.clone();
         reserved_tab_ids.extend(
             tabs.iter()
@@ -231,12 +232,7 @@ impl SystemRuntimeExecutor {
             source: "restore",
             primary_window_id: window_id.to_owned(),
             windows: vec![LiveWindowTopologyCommit {
-                active_tab_id: launch_preview
-                    .as_ref()
-                    .map(|(preview, _, _)| preview.provisional_tab_id.clone())
-                    .or(active_tab_id
-                    .clone()
-                    .or_else(|| visible_tab_ids.first().cloned())),
+                active_tab_id: foreground_tab_id.clone(),
                 hidden_tab_ids,
                 tabs: live_tabs,
                 ui_sequence: 1,
@@ -245,11 +241,6 @@ impl SystemRuntimeExecutor {
             }],
         })?;
         let revision = receipt.revision;
-        let foreground_tab_id = launch_preview
-            .as_ref()
-            .map(|(preview, _, _)| preview.provisional_tab_id.clone())
-            .or(active_tab_id.clone())
-            .or_else(|| visible_tab_ids.first().cloned());
         if let Some(trace) = launch_trace.as_ref() {
             self.record_runtime_launch_latency(
                 trace,
@@ -288,13 +279,12 @@ impl SystemRuntimeExecutor {
             state.pending_window_tab_restores.insert(
                 window_id.to_owned(),
                 PendingWindowTabRestore {
-                    active_tab_id: launch_preview
-                        .as_ref()
-                        .map(|(preview, _, _)| preview.provisional_tab_id.clone())
-                        .or(active_tab_id.clone()),
+                    active_tab_id: foreground_tab_id.clone(),
+                    completion_tab_ids: foreground_tab_id.iter().cloned().collect(),
                     host_created: false,
                     ordered_tab_ids: ordered_tab_ids.clone(),
                     reserved_tab_ids,
+                    submission_complete: false,
                     successful_tab_ids: existing_tab_ids.clone(),
                     terminal_tab_ids: existing_tab_ids,
                     visibility_fence: foreground_tab_id.clone().map(|foreground_tab_id| {
@@ -368,10 +358,11 @@ impl SystemRuntimeExecutor {
             );
         }
         self.schedule_live_projection_membership_follow();
+        self.seed_dormant_runtime_tabs(window_id, ordered_tab_ids.clone())?;
         for tab in tabs {
             self.presentation
                 .statuses
-                .set_presentation_phase(&tab.id, TabRuntimePhase::Reserved);
+                .set_presentation_phase(&tab.id, TabRuntimePhase::Dormant);
         }
         for tab in tabs.iter().filter(|tab| !tab.hidden) {
             if let Err(error) = self.reserve_native_tab(
@@ -413,11 +404,7 @@ impl SystemRuntimeExecutor {
         self.schedule_native_tab_order_projection(window_id.to_owned(), visible_tab_ids);
         self.apply_native_active_style(
             window_id,
-            launch_preview
-                .as_ref()
-                .map(|(preview, _, _)| preview.provisional_tab_id.as_str())
-                .or(active_tab_id.as_deref())
-                .or_else(|| ordered_tab_ids.first().map(String::as_str)),
+            foreground_tab_id.as_deref(),
             revision,
             "saved-window-restore-seeded",
         );
@@ -579,7 +566,7 @@ impl SystemRuntimeExecutor {
     ) {
         if let Ok(mut state) = self.state.lock()
             && let Some(restore) = state.pending_window_tab_restores.get_mut(window_id)
-            && restore.ordered_tab_ids.iter().any(|saved| saved == tab_id)
+            && restore.completion_tab_ids.contains(tab_id)
         {
             restore.terminal_tab_ids.insert(tab_id.to_owned());
             if succeeded {
@@ -772,6 +759,11 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn finish_prepared_restored_window_tabs(&self, window_id: &str) -> Result<(), String> {
+        if let Ok(mut state) = self.state.lock()
+            && let Some(restore) = state.pending_window_tab_restores.get_mut(window_id)
+        {
+            restore.submission_complete = true;
+        }
         self.reconcile_prepared_restored_window_tabs(window_id)
             .map_err(|error| error.message)
     }
@@ -798,17 +790,18 @@ impl SystemRuntimeExecutor {
                     .iter()
                     .all(|tab_id| prepared.reserved_tab_ids.contains(tab_id));
             let all_terminal = prepared
-                .ordered_tab_ids
+                .completion_tab_ids
                 .iter()
                 .all(|tab_id| prepared.terminal_tab_ids.contains(tab_id));
             let all_successful = all_terminal
                 && prepared
-                    .ordered_tab_ids
+                    .completion_tab_ids
                     .iter()
                     .all(|tab_id| prepared.successful_tab_ids.contains(tab_id));
             (topology_ready, all_terminal, all_successful)
         };
-        let retired = all_terminal
+        let retired = prepared.submission_complete
+            && all_terminal
             && (!all_successful || topology_ready)
             && self.state.lock().is_ok_and(|mut state| {
                 if state.pending_window_tab_restores.get(window_id) != Some(&prepared) {

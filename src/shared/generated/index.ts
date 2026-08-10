@@ -78,6 +78,7 @@ export type { RuntimeLaunchIntentRecord } from "./RuntimeLaunchIntentRecord";
 export type { RuntimeLaunchIntentReceiptRecord } from "./RuntimeLaunchIntentReceiptRecord";
 export type { RuntimeWindowStopRequestRecord } from "./RuntimeWindowStopRequestRecord";
 export type { RuntimeTabMoveResultRecord } from "./RuntimeTabMoveResultRecord";
+export type { RuntimeTabActivationPhaseRecord } from "./RuntimeTabActivationPhaseRecord";
 export type { RuntimeTabChromeItemRecord } from "./RuntimeTabChromeItemRecord";
 export type { RuntimeTabChromeProjectionRecord } from "./RuntimeTabChromeProjectionRecord";
 export type { RuntimeTabChromeReadyRecord } from "./RuntimeTabChromeReadyRecord";

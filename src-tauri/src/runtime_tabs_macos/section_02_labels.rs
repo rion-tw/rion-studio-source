@@ -48,6 +48,7 @@ struct NativeTabStrings {
     icon: Option<CString>,
     id: CString,
     name: CString,
+    phase: CString,
     tab_type: CString,
     tooltip: CString,
     workspace_template: Option<CString>,
@@ -557,12 +558,12 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
     }
     if action_type == "activate" {
         if let Some(tab_id) = tab_id.as_deref()
-            && let Err(message) =
-                crate::preview_and_schedule_native_tab_selection(&app, &state, tab_id)
+            && let Err(error) =
+                crate::activate_runtime_tab_on_demand(&app, &state, tab_id, true).await
         {
             crate::reveal_shell_error(
                 &app,
-                crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", message),
+                crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", error.message),
             );
         }
         return;
@@ -604,7 +605,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
             None
         };
         let result = if action_type == "stop" {
-            crate::execute_tab_stop(&state, tab_id).await
+            crate::execute_tab_stop(&app, &state, tab_id).await
         } else {
             crate::execute_tab_mutation(&state, &action_type, tab_id, target, before_tab_id).await
         };

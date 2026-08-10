@@ -14,7 +14,8 @@ it("projects authoritative launch-phase changes into Windows tab chrome", async 
   );
 
   expect(setLaunchPhase).toContain("let changed = self.presentation.statuses.set_launch_phase");
-  expect(setLaunchPhase).toContain("if changed {");
+  expect(setLaunchPhase).toContain("self.set_authoritative_tab_activation_phase(tab_id, activation_phase)");
+  expect(setLaunchPhase).toContain("if changed || authority_changed {");
   expect(setLaunchPhase).toContain("self.publish_projection();");
   expect(setLaunchPhase.indexOf("set_launch_phase(tab_id, phase)"))
     .toBeLessThan(setLaunchPhase.indexOf("self.publish_projection()"));
@@ -236,7 +237,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(windowsTabStrip).toContain("__rionUpdateRuntimeTabMetadataBatch");
     expect(windowsTabStrip).not.toContain("__rionApplyRuntimeTabState");
     expect(windowsTabStrip).not.toContain("display_inventory");
-    expect(windowsTabStrip).toContain(".presentation_phase(&tab.id)");
+    expect(windowsTabStrip).toContain("let authoritative_phases = self");
+    expect(windowsTabStrip).toContain("snapshot.tab_activations");
+    expect(windowsTabStrip).toContain("TabRuntimePhase::from_record(activation.phase)");
+    expect(windowsTabStrip).toContain("statuses.presentation_phase(&presented.id)");
     const nativeMacTabs = runtime.slice(
       runtime.indexOf("fn sync_native_tab_metadata("),
       runtime.indexOf("fn sync_windows_tab_metadata(")
@@ -356,9 +360,11 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(restoreSavedWindows).not.toContain("CoreCommand::EmbeddedWindowsShow");
     expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
     expect(restoreSavedWindows).not.toContain("game_windows.retain");
+    expect(restoreSavedWindows).toContain("let foreground_tab = saved_window_foreground_tab(&saved)");
+    expect(restoreSavedWindows).toContain("activate_runtime_tab_on_demand(");
     expect(
       restoreSavedWindows.indexOf("activate_live_runtime_window(")
-    ).toBeLessThan(restoreSavedWindows.indexOf("for tab in restore_tabs_in_owner_priority"));
+    ).toBeLessThan(restoreSavedWindows.indexOf("activate_runtime_tab_on_demand("));
     const restoreCompletion = restoreSavedWindows.slice(
       restoreSavedWindows.indexOf("restore_progress.finish()?")
     );
@@ -589,7 +595,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(dividerPointer).toContain("previous_active_resize");
     expect(dividerPointer).toContain("state_rolled_back");
     expect(dividerPointer).not.toContain("persist_restore_session(false)");
-    expect(runtime).toContain("pub fn restore_tab_role_slots(");
+    expect(runtime).toContain("pub fn prepare_restored_tab_role_slots(");
+    expect(runtime).toContain("fn apply_prepared_role_slots_to_effect(");
 
     expect(shell).toContain("on_web_content_process_terminate");
     expect(powerLifecycle).toContain("WM_DISPLAYCHANGE");

@@ -23,6 +23,55 @@ pub(super) fn seed_persisted_runtime_windows(
 }
 
 impl SystemRuntimeExecutor {
+    pub(super) fn seed_kernel_dormant_tabs(
+        &self,
+        window_id: &str,
+        tab_ids: Vec<String>,
+    ) -> RuntimeResult<()> {
+        self.core
+            .apply_runtime_intent(RuntimeIntent::SeedDormantTabs {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                tab_ids,
+                window_id: window_id.to_owned(),
+            })
+            .map(|_| ())
+            .map_err(|error| RuntimeError::new("SYSTEM_RUNTIME_KERNEL_FAILED", error.to_string()))
+    }
+
+    pub(super) fn activate_kernel_tab(
+        &self,
+        expected_revision: u64,
+        operation_id: OperationId,
+        tab_id: RuntimeTabId,
+        window_id: String,
+    ) -> RuntimeResult<rion_core::RuntimeCommit> {
+        self.core
+            .apply_runtime_intent(RuntimeIntent::ActivateTab {
+                expected_revision: Some(expected_revision),
+                operation_id,
+                tab_id,
+                window_id,
+            })
+            .map_err(|error| RuntimeError::new("SYSTEM_RUNTIME_KERNEL_FAILED", error.to_string()))
+    }
+
+    pub(super) fn set_kernel_tab_activation_phase(
+        &self,
+        activation_attempt_id: OperationId,
+        phase: RuntimeTabActivationPhaseRecord,
+        tab_id: RuntimeTabId,
+    ) -> RuntimeResult<RuntimeCommitStatus> {
+        self.core
+            .apply_runtime_intent(RuntimeIntent::SetTabActivationPhase {
+                activation_attempt_id,
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                phase,
+                tab_id,
+            })
+            .map(|commit| commit.status)
+            .map_err(|error| RuntimeError::new("SYSTEM_RUNTIME_KERNEL_FAILED", error.to_string()))
+    }
+
     pub(super) fn report_system_surface_state_async(
         &self,
         role_id: String,
@@ -50,6 +99,10 @@ impl SystemRuntimeExecutor {
         window_generation: u64,
         surface_generation: u64,
     ) -> RuntimeResult<bool> {
+        let window_id = self
+            .presentation
+            .tab_window(tab_id)
+            .map_err(|message| RuntimeError::new("SYSTEM_RUNTIME_TAB_OWNER_INVALID", message))?;
         let commit = self
             .core
             .apply_runtime_intent(RuntimeIntent::BeginOperation(
@@ -68,6 +121,7 @@ impl SystemRuntimeExecutor {
                     })?),
                     terminal_code: None,
                     window_generation: RuntimeWindowGeneration(window_generation),
+                    window_id,
                 },
             ))
             .map_err(|error| {

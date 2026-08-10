@@ -89,6 +89,7 @@ fn export_bindings_index() {
                 "export type { RuntimeLaunchIntentReceiptRecord } from \"./RuntimeLaunchIntentReceiptRecord\";\n",
                 "export type { RuntimeWindowStopRequestRecord } from \"./RuntimeWindowStopRequestRecord\";\n",
                 "export type { RuntimeTabMoveResultRecord } from \"./RuntimeTabMoveResultRecord\";\n",
+                "export type { RuntimeTabActivationPhaseRecord } from \"./RuntimeTabActivationPhaseRecord\";\n",
                 "export type { RuntimeTabChromeItemRecord } from \"./RuntimeTabChromeItemRecord\";\n",
                 "export type { RuntimeTabChromeProjectionRecord } from \"./RuntimeTabChromeProjectionRecord\";\n",
                 "export type { RuntimeTabChromeReadyRecord } from \"./RuntimeTabChromeReadyRecord\";\n",

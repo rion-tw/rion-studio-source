@@ -506,7 +506,7 @@ use super::*;
     }
 
     #[test]
-    fn restore_owner_priority_launches_the_saved_active_tab_before_saved_order() {
+    fn dormant_window_hydration_launches_only_the_requested_saved_tab() {
         let window = serde_json::from_value::<StateGameWindowRecord>(json!({
             "id": "window-priority",
             "name": "Priority",
@@ -548,13 +548,13 @@ use super::*;
         }))
         .unwrap();
 
-        assert_eq!(
-            restore_tabs_in_owner_priority(&window)
-                .iter()
-                .map(|tab| tab.id.as_str())
-                .collect::<Vec<_>>(),
-            ["tab-active", "tab-first", "tab-last"]
-        );
+        let plan = saved_window_hydration_plan(&window, Some("tab-active"), None);
+        assert_eq!(plan.steps.len(), 1);
+        assert!(matches!(
+            &plan.steps[0],
+            SavedWindowHydrationStep::Saved { foreground: true, tab }
+                if tab.id == "tab-active"
+        ));
     }
 
     #[test]

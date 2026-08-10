@@ -7,7 +7,10 @@ import { applicationShortcutForKeyEvent } from "../../../shared/applicationShort
 
 import type { RuntimeTabStripState } from "../../../shared/runtimeTabs";
 
-import type { RuntimeTabChromeProjectionRecord } from "../../../shared/generated";
+import type {
+  RuntimeTabActivationPhaseRecord,
+  RuntimeTabChromeProjectionRecord
+} from "../../../shared/generated";
 
 import { runtimeTabStripLabels } from "../../src/i18n";
 
@@ -77,6 +80,36 @@ function createTabButton(tabId: string): HTMLButtonElement {
   return button;
 }
 
+function phaseLabel(
+  phase: RuntimeTabActivationPhaseRecord,
+  labels: ReturnType<typeof runtimeTabStripLabels>
+): string | undefined {
+  if (phase === "dormant") return labels.statusDormant;
+  if (phase === "degraded") return labels.statusDegraded;
+  if (phase === "failed") return labels.statusFailed;
+  if (["activating", "attaching", "loading"].includes(phase)) {
+    return labels.statusActivating;
+  }
+  return undefined;
+}
+
+function patchPhaseIndicator(
+  button: HTMLButtonElement,
+  phase: RuntimeTabActivationPhaseRecord,
+  label?: string
+): void {
+  button.dataset.phase = phase;
+  let indicator = button.querySelector<HTMLElement>(".phase-indicator");
+  if (!indicator) {
+    indicator = document.createElement("span");
+    indicator.className = "phase-indicator";
+    indicator.ariaHidden = "true";
+    button.querySelector(".name")?.after(indicator);
+  }
+  indicator.dataset.phase = phase;
+  indicator.title = label ?? "";
+}
+
 function patchTabButton(
   button: HTMLButtonElement,
   tab: RuntimeTabModel,
@@ -87,9 +120,13 @@ function patchTabButton(
   button.classList.toggle("active", active);
   button.draggable = false;
   button.setAttribute("aria-selected", String(active));
-  button.title = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
+  const phase = state.tabPhases[tab.id] ?? "ready";
+  const status = phaseLabel(phase, labels);
+  const baseTooltip = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
     ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
     : tab.name;
+  button.title = status ? `${baseTooltip} — ${status}` : baseTooltip;
+  button.ariaLabel = button.title;
 
   const workspaceTemplate = workspaceTemplateByTabId.get(tab.id);
   const iconDataUrl = state.tabIconDataUrls[tab.id];
@@ -110,6 +147,7 @@ function patchTabButton(
     icon.after(name);
   }
   if (name.textContent !== tab.name) name.textContent = tab.name;
+  patchPhaseIndicator(button, phase, status);
 
   const audioSignature = `${tab.audioMuted}\u0000${tab.audible}\u0000${labels.tabMuted}\u0000${labels.playingAudio}`;
   const audio = button.querySelector<HTMLElement>(".audio");
@@ -446,8 +484,12 @@ export function installRuntimeTabStrip(): void {
       name.className = "name";
       name.textContent = tab.name;
       const audio = createAudioIndicator(false, false, "", "");
+      const phase = document.createElement("span");
+      phase.className = "phase-indicator";
+      phase.dataset.phase = "activating";
+      phase.ariaHidden = "true";
       const close = createCloseControl(tab.id, labels.closeTab);
-      button.append(icon, name, audio, close);
+      button.append(icon, name, phase, audio, close);
       iconSignatureByButton.set(button, `${tab.type}\u0000${tab.workspaceTemplate ?? ""}\u0000`);
       audioSignatureByButton.set(button, "false\u0000false\u0000\u0000");
       root.append(button);
@@ -498,10 +540,16 @@ export function installRuntimeTabStrip(): void {
     if (!button) return;
     if (tab.workspaceTemplate) workspaceTemplateByTabId.set(tab.id, tab.workspaceTemplate);
     button.title = tab.tooltip;
+    button.ariaLabel = tab.tooltip;
     button.dataset.phase = tab.phase;
     button.dataset.sourceId = tab.sourceId;
     const name = button.querySelector<HTMLElement>(".name");
     if (name) name.textContent = tab.name;
+    patchPhaseIndicator(
+      button,
+      tab.phase,
+      phaseLabel(tab.phase, runtimeTabStripLabels(runtimeState.current?.language ?? "en"))
+    );
     const previousIcon = button.querySelector<HTMLElement>(".icon");
     const icon = createTabIcon(
       tab.type,

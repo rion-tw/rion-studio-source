@@ -363,6 +363,8 @@ impl NativeWindowActorState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TabRuntimePhase {
+    Dormant,
+    Activating,
     Reserved,
     Attaching,
     Loading,
@@ -372,15 +374,40 @@ enum TabRuntimePhase {
 }
 
 impl TabRuntimePhase {
-    #[cfg(windows)]
     fn as_str(self) -> &'static str {
         match self {
-            Self::Reserved => "reserved",
+            Self::Dormant => "dormant",
+            Self::Activating | Self::Reserved => "activating",
             Self::Attaching => "attaching",
             Self::Loading => "loading",
             Self::Ready => "ready",
             Self::Degraded => "degraded",
             Self::Failed => "failed",
+        }
+    }
+
+    #[cfg(windows)]
+    fn as_record(self) -> RuntimeTabActivationPhaseRecord {
+        match self {
+            Self::Dormant => RuntimeTabActivationPhaseRecord::Dormant,
+            Self::Activating | Self::Reserved => RuntimeTabActivationPhaseRecord::Activating,
+            Self::Attaching => RuntimeTabActivationPhaseRecord::Attaching,
+            Self::Loading => RuntimeTabActivationPhaseRecord::Loading,
+            Self::Ready => RuntimeTabActivationPhaseRecord::Ready,
+            Self::Degraded => RuntimeTabActivationPhaseRecord::Degraded,
+            Self::Failed => RuntimeTabActivationPhaseRecord::Failed,
+        }
+    }
+
+    fn from_record(phase: RuntimeTabActivationPhaseRecord) -> Self {
+        match phase {
+            RuntimeTabActivationPhaseRecord::Dormant => Self::Dormant,
+            RuntimeTabActivationPhaseRecord::Activating => Self::Activating,
+            RuntimeTabActivationPhaseRecord::Attaching => Self::Attaching,
+            RuntimeTabActivationPhaseRecord::Loading => Self::Loading,
+            RuntimeTabActivationPhaseRecord::Ready => Self::Ready,
+            RuntimeTabActivationPhaseRecord::Degraded => Self::Degraded,
+            RuntimeTabActivationPhaseRecord::Failed => Self::Failed,
         }
     }
 }
@@ -486,7 +513,6 @@ impl NativeTabProjectionState {
 }
 
 impl TabRuntimeStatusStore {
-    #[cfg(windows)]
     fn presentation_phase(&self, tab_id: &str) -> TabRuntimePhase {
         self.tabs
             .lock()

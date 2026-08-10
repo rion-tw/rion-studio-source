@@ -48,9 +48,14 @@ fn tab_stop_terminal_outcome(native_release_confirmed: bool) -> (
 }
 
 async fn execute_tab_stop(
+    app: &AppHandle,
     state: &CoreState,
     tab_id: &str,
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
+    let owner_window_id = state.runtime.live_tab_window_id(tab_id);
+    let dormant = state.runtime.authoritative_tab_activation_phase(tab_id)
+        == Some(rion_core::RuntimeTabActivationPhaseRecord::Dormant)
+        && !state.runtime.native_tab_exists(tab_id);
     let acceptance = state
         .runtime
         .accept_tab_stop(tab_id, state.runtime.live_topology_revision())
@@ -109,6 +114,18 @@ async fn execute_tab_stop(
             ));
         }
     };
+    if dormant {
+        if let Some(window_id) = owner_window_id.as_deref() {
+            activate_selected_runtime_tab_on_demand(app, state, window_id).await;
+        }
+        return Ok(state.runtime.complete_tab_mutation(
+            &operation_id,
+            "dormantTabStopCommitted",
+            RuntimeTabMutationTerminalStatus::Applied,
+            None,
+            0,
+        ));
+    }
     let result = Arc::clone(&state.core)
         .invoke_async(CoreCommand::EmbeddedTabStop {
             request: lease.request.clone(),
@@ -146,6 +163,9 @@ async fn execute_tab_stop(
         }
     }
     state.runtime.resolve_tab_close_preview(tab_id, true);
+    if let Some(window_id) = owner_window_id.as_deref() {
+        activate_selected_runtime_tab_on_demand(app, state, window_id).await;
+    }
     let native_release_confirmed = state.runtime.tab_surface_release_confirmed(tab_id);
     let (stage, status, failure_code) = tab_stop_terminal_outcome(native_release_confirmed);
     Ok(state.runtime.complete_tab_mutation(

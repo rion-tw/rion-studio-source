@@ -7,7 +7,7 @@ fn main_window_request_for_test(
     } else {
         "macos"
     };
-    let mut operation = if command.requests_focus() {
+    let mut operation = if command.requests_focus() || command.awaits_window_state_event() {
         NativeOperationContext::new_event_bound_for_platform(
             NativeOperationSubsystem::Presentation,
             "main-window-actor-test",
@@ -97,7 +97,7 @@ fn main_window_queue_is_bounded_fifo_and_rejects_work_after_stop() {
     for sequence in 0..MAIN_WINDOW_ACTOR_CAPACITY as u64 {
         state
             .enqueue(main_window_request_for_test(
-                MainWindowCommand::ToggleMaximized,
+                MainWindowCommand::ToggleFullscreen,
                 sequence,
             ))
             .unwrap();
@@ -122,13 +122,13 @@ fn main_window_queue_is_bounded_fifo_and_rejects_work_after_stop() {
 
     state.stopped = true;
     assert_eq!(
-        state.enqueue(main_window_request_for_test(MainWindowCommand::Hide, 101)),
+        state.enqueue(main_window_request_for_test(MainWindowCommand::Minimize, 101)),
         Err(MainWindowQueueError::Stopped)
     );
 }
 
 #[test]
-fn hide_lifecycle_and_shutdown_drain_each_focus_continuation_exactly_once() {
+fn minimize_lifecycle_and_shutdown_drain_each_focus_continuation_exactly_once() {
     let mut state = MainWindowActorState::default();
     let queued = main_window_request_for_test(MainWindowCommand::Show { focus: true }, 201);
     let pending = main_window_request_for_test(MainWindowCommand::Show { focus: true }, 202);
@@ -165,15 +165,15 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
         let hidden = main_window_semantic_state(false, false, false, false);
         let minimized = minimized_main_window_semantic_state(true, false, false, false);
         assert!(main_window_readback_matches_for_platform(
-            MainWindowCommand::Hide,
+            MainWindowCommand::Minimize,
             &before,
-            if is_windows { &minimized } else { &hidden },
+            &minimized,
             is_windows,
         ), "{platform}");
         assert!(!main_window_readback_matches_for_platform(
-            MainWindowCommand::Hide,
+            MainWindowCommand::Minimize,
             &before,
-            if is_windows { &hidden } else { &minimized },
+            &hidden,
             is_windows,
         ), "{platform}");
         assert!(!main_window_readback_matches_for_platform(
@@ -190,22 +190,25 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
         ), "{platform}");
         assert!(MainWindowCommand::Show { focus: true }.requests_focus());
         assert!(main_window_readback_matches_for_platform(
-            MainWindowCommand::ToggleMaximized,
-            &before,
-            &main_window_semantic_state(true, false, true, false),
-            is_windows,
-        ), "{platform}");
-        assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::ToggleFullscreen,
             &before,
             &main_window_semantic_state(true, false, false, true),
             is_windows,
         ), "{platform}");
+        assert!(!main_window_readback_matches_for_platform(
+            MainWindowCommand::ToggleMaximized,
+            &before,
+            &main_window_semantic_state(true, false, true, false),
+            is_windows,
+        ), "{platform}");
+        assert!(!MainWindowCommand::ToggleMaximized.requests_focus());
+        assert!(MainWindowCommand::ToggleMaximized.awaits_window_state_event());
+        let request = main_window_request_for_test(MainWindowCommand::ToggleMaximized, 300);
         assert_eq!(
-            MainWindowCommand::StartDragging.completion_scope(),
-            SystemRuntimeOperationCompletionScope::NativeSubmission,
-            "{platform}"
+            request.operation.completion_policy,
+            OperationCompletionPolicy::EventBound
         );
+        assert!(request.operation.deadline.is_none() && request.operation.timeout.is_none());
     }
 }
 

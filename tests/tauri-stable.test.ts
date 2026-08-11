@@ -44,7 +44,7 @@ describe("Tauri Stable shell", () => {
     });
   });
 
-  it("grants window dragging only to the local main window", async () => {
+  it("keeps titlebar gestures inside the bounded local shell commands", async () => {
     const [capabilitySource, runtimeCapabilitySource, roleCapabilitySource] = await Promise.all([
       readFile("src-tauri/capabilities/main.json", "utf8"),
       readFile("src-tauri/capabilities/runtime-native-shell.json", "utf8"),
@@ -58,10 +58,12 @@ describe("Tauri Stable shell", () => {
       identifier: "main-local-only",
       windows: ["main"]
     });
-    expect(capability.permissions).toContain("core:window:allow-start-dragging");
+    expect(capability.permissions).not.toContain("core:window:allow-start-dragging");
     expect(capability).not.toHaveProperty("remote");
     expect(runtimeCapability.permissions).not.toContain("core:window:allow-start-dragging");
+    expect(runtimeCapability.permissions).not.toContain("core:window:allow-internal-toggle-maximize");
     expect(roleCapability.permissions).not.toContain("core:window:allow-start-dragging");
+    expect(roleCapability.permissions).not.toContain("core:window:allow-internal-toggle-maximize");
   });
 
   it("reuses the stable shared data directory and application lock", async () => {

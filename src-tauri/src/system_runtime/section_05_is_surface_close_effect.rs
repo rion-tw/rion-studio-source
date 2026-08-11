@@ -749,41 +749,33 @@ fn apply_native_presentation_batch(
             .min(u64::MAX as u128) as u64;
 
         if let Some(window_mode) = window_mode {
-            let mode_result = match window_mode {
+            let mode_result: Result<(), String> = match window_mode {
                 NativeWindowMode::Fullscreen => {
-                    if window.is_fullscreen().unwrap_or(false) {
-                        Ok(())
-                    } else {
-                        window.set_fullscreen(true)
-                    }
+                    request_platform_window_set_fullscreen(&window, true)
                 }
                 NativeWindowMode::Maximized => {
                     if window.is_maximized().unwrap_or(false) {
                         Ok(())
                     } else {
-                        window.maximize()
+                        window.maximize().map_err(|error| error.to_string())
                     }
                 }
                 NativeWindowMode::Minimized => {
                     if window.is_minimized().unwrap_or(false) {
                         Ok(())
                     } else {
-                        window.minimize()
+                        window.minimize().map_err(|error| error.to_string())
                     }
                 }
-                NativeWindowMode::ToggleFullscreen => window
-                    .is_fullscreen()
-                    .and_then(|fullscreen| window.set_fullscreen(!fullscreen)),
-                NativeWindowMode::ToggleMaximized => window.is_maximized().and_then(|maximized| {
-                    if maximized {
-                        window.unmaximize()
-                    } else {
-                        window.maximize()
-                    }
-                }),
+                NativeWindowMode::ToggleFullscreen => {
+                    request_platform_window_toggle_fullscreen(&window)
+                }
+                NativeWindowMode::ToggleMaximized => {
+                    request_platform_window_toggle_maximized(&window)
+                }
             };
             if let Err(error) = mode_result {
-                visibility_errors.push(error.to_string());
+                visibility_errors.push(error);
             }
         }
 

@@ -149,6 +149,37 @@ fn lifecycle_readiness_never_creates_focus_and_external_foreground_blocks_user_f
 }
 
 #[test]
+fn runtime_window_mode_controls_do_not_create_or_replace_a_focus_lease() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    let existing = broker.accept(
+        "window-a",
+        3,
+        2,
+        Some("tab-a".to_owned()),
+        NativePresentationFocus::WindowAndContent,
+    );
+    let before = broker.snapshot();
+
+    for trigger in ["toggle-fullscreen", "toggle-maximized-runtime-window"] {
+        let origin = native_focus_intent_origin(trigger);
+        assert_eq!(origin, NativeFocusIntentOrigin::RuntimeContinuation);
+        assert_eq!(
+            broker.admitted_focus(
+                NativePresentationFocus::None,
+                "window-b",
+                7,
+                origin,
+            ),
+            NativePresentationFocus::None,
+            "{trigger}"
+        );
+        assert_eq!(broker.snapshot(), before, "{trigger}");
+        assert!(broker.is_current(&existing));
+    }
+}
+
+#[test]
 fn native_focus_observation_confirms_matching_intent_and_supersedes_other_windows() {
     let broker = NativeFocusBroker::default();
     broker.observe_application_foreground();

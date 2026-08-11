@@ -101,25 +101,13 @@ async fn rion_shell_invoke(
             Ok(Value::Null)
         }
         "requestCurrentWindowClose" => {
-            let receipt = state
-                .runtime
-                .hide_main_window("renderer-close-requested")
-                .map_err(|error| shell_error(error.code, error.message))?;
-            serde_json::to_value(receipt)
-                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
+            app.exit(0);
+            Ok(Value::Null)
         }
         "minimizeCurrentWindow" => {
             let receipt = state
                 .runtime
-                .hide_main_window("renderer-minimize-requested")
-                .map_err(|error| shell_error(error.code, error.message))?;
-            serde_json::to_value(receipt)
-                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
-        }
-        "startCurrentWindowDrag" => {
-            let receipt = state
-                .runtime
-                .start_main_window_drag()
+                .minimize_main_window("renderer-minimize-requested")
                 .map_err(|error| shell_error(error.code, error.message))?;
             serde_json::to_value(receipt)
                 .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
@@ -129,8 +117,10 @@ async fn rion_shell_invoke(
                 .runtime
                 .toggle_main_window_maximized()
                 .map_err(|error| shell_error(error.code, error.message))?;
-            serde_json::to_value(receipt)
-                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
+            runtime_operation_receipt_result(receipt).map_err(|code| {
+                shell_error(&code, "The main window maximize state could not be changed.")
+            })?;
+            Ok(Value::Null)
         }
         "executeApplicationShortcut" => {
             if window.label() != "main" {

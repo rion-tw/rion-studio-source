@@ -17,6 +17,10 @@
     -webkit-app-region: no-drag;
   }
 
+  :root[data-window-fullscreen="true"] .app-drag {
+    -webkit-app-region: no-drag;
+  }
+
   .liquid-app-shell {
     position: relative;
     isolation: isolate;

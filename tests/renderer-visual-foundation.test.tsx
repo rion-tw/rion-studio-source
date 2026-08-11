@@ -39,6 +39,12 @@ describe("renderer visual foundation", () => {
     expect(runtimeTabStyles).toMatch(
       /\.tab\.runtime-tab-sort-fallback \{[\s\S]*?opacity: 1;/
     );
+    expect(runtimeTabStyles).toMatch(
+      /\.window-drag-surface \{[\s\S]*?-webkit-app-region: drag;/
+    );
+    expect(runtimeTabStyles).toMatch(
+      /body\[data-window-fullscreen="true"\] \.window-drag-surface \{[\s\S]*?-webkit-app-region: no-drag;/
+    );
     expect(tokens).toContain('--font-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif');
     expect(styles).not.toContain("@font-face");
   });
@@ -108,6 +114,10 @@ describe("renderer visual foundation", () => {
     expect(styles).not.toContain(':root[data-platform="windows"] .app-page-header');
     expect(styles).not.toContain(':root[data-platform="windows"] .app-editor-header');
     expect(styles).not.toContain(':root[data-platform="windows"] .liquid-app-shell > header');
+    expect(styles).toContain(".app-drag {\n    -webkit-app-region: drag;");
+    expect(styles).toContain(
+      ':root[data-window-fullscreen="true"] .app-drag {\n    -webkit-app-region: no-drag;'
+    );
   });
 
   it("reserves backdrop blur for top-level glass surfaces", () => {

@@ -386,7 +386,7 @@ impl SystemRuntimeExecutor {
     ) -> Result<(), String> {
         if scope == GeometryMutationScope::WindowAndLayout {
             if window.is_fullscreen().unwrap_or(false) {
-                window.set_fullscreen(false).map_err(|error| error.to_string())?;
+                request_platform_window_set_fullscreen(window, false)?;
             }
             if window.is_maximized().unwrap_or(false) {
                 window.unmaximize().map_err(|error| error.to_string())?;
@@ -406,9 +406,7 @@ impl SystemRuntimeExecutor {
                 .map_err(|error| error.to_string())?;
             self.submit_window_tab_layouts(tab_ids);
             match target.presentation.as_str() {
-                "fullscreen" => window
-                    .set_fullscreen(true)
-                    .map_err(|error| error.to_string())?,
+                "fullscreen" => request_platform_window_set_fullscreen(window, true)?,
                 "maximized" => window.maximize().map_err(|error| error.to_string())?,
                 _ => {}
             }
@@ -425,7 +423,7 @@ impl SystemRuntimeExecutor {
     ) -> Vec<String> {
         let mut errors = Vec::new();
         if window.is_fullscreen().unwrap_or(false)
-            && let Err(error) = window.set_fullscreen(false)
+            && let Err(error) = request_platform_window_set_fullscreen(window, false)
         {
             errors.push(format!("exit fullscreen: {error}"));
         }
@@ -448,7 +446,7 @@ impl SystemRuntimeExecutor {
                 errors.push(format!("size: {error}"));
             }
             if snapshot.fullscreen {
-                if let Err(error) = window.set_fullscreen(true) {
+                if let Err(error) = request_platform_window_set_fullscreen(window, true) {
                     errors.push(format!("fullscreen: {error}"));
                 }
             } else if snapshot.maximized

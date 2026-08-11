@@ -23,9 +23,12 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
   const navigate = useNavigate();
 
   return (
-    <aside data-tauri-drag-region className="app-sidebar app-main-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground">
+    <aside
+      className="app-sidebar app-main-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground"
+      data-window-drag-handle
+    >
       <WindowDragHandle
-        className="app-sidebar-brand-region app-no-drag -mx-3 px-3 pb-5"
+        className="app-sidebar-brand-region -mx-3 px-3 pb-5"
       >
         <div className="flex w-full items-center gap-2 rounded-md px-2 text-left">
           <img className="size-9 shrink-0 rounded-lg" src={appIconUrl} alt="" aria-hidden="true" draggable={false} />

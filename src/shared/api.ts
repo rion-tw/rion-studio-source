@@ -81,10 +81,9 @@ export interface RionStudioApi {
   acceptLegalDocuments: (input: AcceptLegalDocumentsInput) => Promise<LegalAcceptanceStatus>;
   quitApplication: () => Promise<void>;
   confirmApplicationQuit: () => Promise<void>;
-  requestCurrentWindowClose: () => Promise<SystemRuntimeOperationSummaryRecord>;
+  requestCurrentWindowClose: () => Promise<void>;
   minimizeCurrentWindow: () => Promise<SystemRuntimeOperationSummaryRecord>;
-  startCurrentWindowDrag: () => Promise<SystemRuntimeOperationSummaryRecord>;
-  toggleCurrentWindowMaximize: () => Promise<SystemRuntimeOperationSummaryRecord>;
+  toggleCurrentWindowMaximize: () => Promise<void>;
   executeApplicationShortcut: (command: ApplicationShortcutCommand) => Promise<void>;
   getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;
   listGameWindows: () => Promise<GameWindow[]>;

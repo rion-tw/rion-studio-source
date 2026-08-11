@@ -35,7 +35,6 @@ import {
   syncCloseControlState,
   windowCloseButton,
   windowControls,
-  windowDragRegion,
   windowIdentity,
   windowMaximizeButton,
   windowMinimizeButton,
@@ -51,8 +50,6 @@ import {
   installRuntimeTabSorting,
   type RuntimeTabSortingController
 } from "./localSorting";
-
-import { installWindowDragGesture } from "./windowDragGesture";
 
 import {
   acknowledgeChromeProjection,
@@ -657,30 +654,15 @@ export function installRuntimeTabStrip(): void {
   window.__rionRuntimeTabChromeReady = true;
   window.__rionAnnounceRuntimeTabChromeReady();
 
-  const installChromeWindowDrag = (target: HTMLElement): void => {
-    installWindowDragGesture({
-      canStart: (event) => event.button === 0
-        && event.detail === 1
-        && !runtimeState.current?.windowFullscreen,
-      onStart: () => dispatch({ type: "startWindowDrag" }),
-      target
-    });
-    target.addEventListener("dblclick", (event) => {
-      if (event.button !== 0 || runtimeState.current?.windowFullscreen) return;
-      event.preventDefault();
-      dispatch({ type: "windowControl", control: "zoom" });
-    });
-  };
-  installChromeWindowDrag(windowIdentity);
-  installChromeWindowDrag(windowDragRegion);
   windowMinimizeButton.addEventListener("click", () => {
     dispatch({ type: "windowControl", control: "minimize" });
   });
   windowMaximizeButton.addEventListener("click", () => {
-    dispatch({
-      type: "windowControl",
-      control: runtimeState.current?.windowFullscreen ? "toggleFullscreen" : "zoom"
-    });
+    if (runtimeState.current?.windowFullscreen) {
+      dispatch({ type: "windowControl", control: "toggleFullscreen" });
+      return;
+    }
+    dispatch({ type: "windowControl", control: "zoom" });
   });
   windowCloseButton.addEventListener("click", () => {
     dispatch({ type: "windowControl", control: "close" });

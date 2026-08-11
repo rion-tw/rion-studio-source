@@ -141,9 +141,25 @@ pub struct RuntimeTabIntentReceiptRecord {
     pub failure_code: Option<String>,
 }
 
+/// An optional destination selected by the trusted main renderer. The native
+/// shell resolves every ID against authoritative live or saved Game Windows.
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum RuntimeLaunchDestinationRequest {
+    #[default]
+    Automatic,
+    NewWindow,
+    GameWindow {
+        #[serde(rename = "windowId")]
+        #[ts(rename = "windowId")]
+        window_id: String,
+    },
+}
+
 /// A launcher action after its native adapter has been authenticated. Renderer
-/// supplied window identity is deliberately absent; the System Runtime resolves
-/// the destination from the registered adapter and native focus history.
+/// supplied destination requests remain separate from the adapter-authenticated
+/// runtime-window identity carried by the native tab launcher.
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]

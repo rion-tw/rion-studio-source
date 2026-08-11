@@ -112,7 +112,7 @@ fn handle_menu_event(app: &AppHandle, core: &Arc<AppCore>, id: &str) {
             if let Err(message) = state.launch_intents.try_launch_source(
                 &source_id,
                 workspace,
-                None,
+                crate::runtime_tab_menu::RuntimeLaunchTargetPolicy::Automatic,
                 "quick-menu",
             ) {
                 crate::reveal_shell_error(

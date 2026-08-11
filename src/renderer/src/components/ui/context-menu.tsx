@@ -81,6 +81,19 @@ export const ContextMenuRadioItem = forwardRef<
 
 ContextMenuRadioItem.displayName = ContextMenuPrimitive.RadioItem.displayName;
 
+export const ContextMenuLabel = forwardRef<
+  React.ComponentRef<typeof ContextMenuPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.Label
+    ref={ref}
+    className={cn("px-2 py-1.5 text-caption font-semibold text-muted-foreground", className)}
+    {...props}
+  />
+));
+
+ContextMenuLabel.displayName = ContextMenuPrimitive.Label.displayName;
+
 export const ContextMenuSeparator = forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>

@@ -1,6 +1,7 @@
 use super::{
     LaunchAdmissionResolution, RuntimeLaunchEventBatch, SavedWindowHydrationStep,
-    resolve_launch_admission, saved_window_hydration_plan,
+    collect_launchable_live_targets, preferred_automatic_live_window, resolve_launch_admission,
+    saved_window_hydration_plan,
 };
 use crate::system_runtime::LaunchPreviewHandle;
 use rion_core::{
@@ -214,5 +215,52 @@ fn completed_launch_without_a_live_owner_is_an_explicit_divergence() {
     assert_eq!(
         resolve_launch_admission(BrowserLaunchAdmissionCompletion::Completed, "admitted", ""),
         LaunchAdmissionResolution::OwnershipDiverged,
+    );
+}
+
+#[test]
+fn automatic_launch_prefers_live_focus_history_without_ordinal_fallback() {
+    let live = vec!["window-a".to_owned(), "window-b".to_owned()];
+    assert_eq!(
+        preferred_automatic_live_window(Some("window-b"), Some("window-a"), &live),
+        Some(("last-native-focused-live-window", "window-b".to_owned()))
+    );
+    assert_eq!(
+        preferred_automatic_live_window(Some("stale"), Some("window-a"), &live),
+        Some((
+            "last-persisted-focused-live-window",
+            "window-a".to_owned()
+        ))
+    );
+    assert_eq!(preferred_automatic_live_window(None, None, &live), None);
+}
+
+#[test]
+fn automatic_launch_reuses_the_only_live_window_and_never_selects_zero_live_windows() {
+    assert_eq!(
+        preferred_automatic_live_window(None, None, &["window-a".to_owned()]),
+        Some(("only-live-window", "window-a".to_owned()))
+    );
+    assert_eq!(preferred_automatic_live_window(None, None, &[]), None);
+}
+
+#[test]
+fn automatic_launch_ignores_stale_presentation_windows() {
+    let candidates = collect_launchable_live_targets(
+        vec![
+            "stale-a".to_owned(),
+            "live".to_owned(),
+            "stale-b".to_owned(),
+        ],
+        |window_id| (window_id == "live").then_some(window_id.to_owned()),
+    );
+    let live_window_ids = candidates
+        .iter()
+        .map(|(window_id, _)| window_id.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        preferred_automatic_live_window(None, None, &live_window_ids),
+        Some(("only-live-window", "live".to_owned()))
     );
 }

@@ -276,9 +276,10 @@ generation／surface generation／revision fence 與 elapsed evidence：
 - [ ] WR8.2 分別驗證 1-tab 與 3-tab `dormant-existing-source`：foreground attach 後才
   first-visible，且 first-visible 嚴格早於刻意較慢的 followers terminal；實際 HTML tab
   strip 與 foreground WebView2 內容一致。
-- [ ] WR8.3 驗證 `first-eligible-dormant-window` appended source：新永久 TabId 的 source
-  必須先顯示，不能排在全部 saved tabs 後；followers 失敗只能 degraded／retryable，不能
-  關閉或隱藏已成功 foreground。
+- [ ] WR8.3 從角色／工作區卡片的正式「開啟於…」選單指定 dormant saved Game Window，
+  驗證 `requested-saved-game-window-appended-source`：新永久 TabId 的 source 必須先顯示，
+  不能排在全部 saved tabs 後；followers 失敗只能 degraded／retryable，不能關閉或隱藏
+  已成功 foreground。一般單擊不得依 ordinal／UUID 自動選取 dormant window。
 - [ ] WR8.4 驗證單角色與雙角色 workspace：唯一 role surface／全部必要 role surfaces
   attached 後才 reveal；不得因 divider 或 inactive follower 形成 false-visible。
 - [ ] WR8.5 以正式 UI 執行 20 組快速 launch pair，保存每組 queue wait。計算 p50／p95／
@@ -349,10 +350,13 @@ Core 的嚴格 permanent-TabId 契約，並讓 live/dormant preview 共用同一
   `tests/fixtures/runtime-authority/portable.json`；確認新增 `[Runtime QA] Epsilon`、
   `[Runtime QA] Zeta`、`[Runtime QA] Dormant Admission`，重跑不增殖，且該 workspace
   不存在於任何 fixture saved game window，確保會覆蓋 append-source dormant path。
-- [ ] WR9.4 所有 runtime window 都為 dormant／未顯示時，從 main dashboard 開啟
-  `[Runtime QA] Dormant Admission`。必須記錄 `first-eligible-dormant-window`、普通 UUID
-  permanent TabId、兩個 WebView2 fixture surface ready、唯一 logical/native tab，且沒有
-  `RUNTIME_TAB_ID_INVALID`、runtime crash、duplicate surface 或 error payload。
+- [ ] WR9.4 所有 runtime window 都為 dormant／未顯示時，從工作區卡片的正式
+  「開啟於…」選單指定 `[Runtime QA] Race Window`，再開啟
+  `[Runtime QA] Dormant Admission`。必須記錄
+  `requested-saved-game-window-appended-source`、普通 UUID permanent TabId、兩個 WebView2
+  fixture surface ready、唯一 logical/native tab，且沒有 `RUNTIME_TAB_ID_INVALID`、runtime
+  crash、duplicate surface 或 error payload。另以一般單擊驗證建立 transient window，
+  不得自動挑選任一 dormant saved window。
 - [ ] WR9.5 立即再次開啟同一 workspace，必須 terminalize 為
   `existing-live-source | joined`，不新增 tab/surface；再以 Windows HTML tab strip 的正式
   「停止並關閉」關閉，確認 chrome item、logical membership、SQLite tab與兩個 surface

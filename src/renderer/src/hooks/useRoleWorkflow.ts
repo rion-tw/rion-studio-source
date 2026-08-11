@@ -5,7 +5,7 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { RoleFormState, SidebarFilter } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { Role, RoleStatus } from "../../../shared/types";
+import type { Role, RoleStatus, RuntimeLaunchDestination } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseRoleWorkflowOptions {
@@ -99,7 +99,10 @@ export function useRoleWorkflow({
     }
   }
 
-  async function handleLaunch(roleId: string): Promise<RoleStatus | undefined> {
+  async function handleLaunch(
+    roleId: string,
+    destination?: RuntimeLaunchDestination
+  ): Promise<RoleStatus | undefined> {
     const finishBusy = beginBusy(roleId);
     if (!finishBusy) {
       return undefined;
@@ -109,7 +112,7 @@ export function useRoleWorkflow({
     setNotice?.(null);
 
     try {
-      const { status } = await window.rionStudio.launchRole(roleId);
+      const { status } = await window.rionStudio.launchRole(roleId, destination);
       if (!status) {
         return undefined;
       }

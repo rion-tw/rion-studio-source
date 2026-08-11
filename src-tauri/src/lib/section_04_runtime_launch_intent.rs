@@ -19,16 +19,16 @@ struct RuntimeLaunchEventBatch {
 
 pub(crate) struct RuntimeLaunchExecutionContext<'a> {
     admission_signal: &'a mut runtime_tab_menu::LaunchAdmissionSignal,
-    exact_window_id: Option<String>,
     launch_log_sender: &'a tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
     origin: &'static str,
     queue_wait_ms: u64,
     started_at: Instant,
+    target_policy: runtime_tab_menu::RuntimeLaunchTargetPolicy,
 }
 
 impl<'a> RuntimeLaunchExecutionContext<'a> {
     pub(crate) fn new(
-        exact_window_id: Option<String>,
+        target_policy: runtime_tab_menu::RuntimeLaunchTargetPolicy,
         origin: &'static str,
         launch_log_sender: &'a tokio::sync::mpsc::UnboundedSender<Vec<LogCaptureRecord>>,
         started_at: Instant,
@@ -37,11 +37,11 @@ impl<'a> RuntimeLaunchExecutionContext<'a> {
     ) -> Self {
         Self {
             admission_signal,
-            exact_window_id,
             launch_log_sender,
             origin,
             queue_wait_ms,
             started_at,
+            target_policy,
         }
     }
 }
@@ -175,47 +175,156 @@ fn runtime_launch_receipt(
     }
 }
 
+fn preferred_automatic_live_window(
+    native_focused_window_id: Option<&str>,
+    persisted_focused_window_id: Option<&str>,
+    live_window_ids: &[String],
+) -> Option<(&'static str, String)> {
+    if let Some(window_id) = native_focused_window_id
+        .filter(|window_id| live_window_ids.iter().any(|live| live == window_id))
+    {
+        return Some(("last-native-focused-live-window", window_id.to_owned()));
+    }
+    if let Some(window_id) = persisted_focused_window_id
+        .filter(|window_id| live_window_ids.iter().any(|live| live == window_id))
+    {
+        return Some((
+            "last-persisted-focused-live-window",
+            window_id.to_owned(),
+        ));
+    }
+    match live_window_ids {
+        [window_id] => Some(("only-live-window", window_id.clone())),
+        _ => None,
+    }
+}
+
+fn collect_launchable_live_targets<T>(
+    window_ids: Vec<String>,
+    mut resolve: impl FnMut(&str) -> Option<T>,
+) -> Vec<(String, T)> {
+    window_ids
+        .into_iter()
+        .filter_map(|window_id| resolve(&window_id).map(|target| (window_id, target)))
+        .collect()
+}
+
 fn resolve_runtime_launch_destination(
     app: &AppHandle,
     state: &CoreState,
     intent: &RuntimeLaunchIntentRecord,
-    exact_window_id: Option<&str>,
+    target_policy: &runtime_tab_menu::RuntimeLaunchTargetPolicy,
 ) -> Result<RuntimeLaunchDestination, CoreErrorPayload> {
-    if let Some(window_id) = exact_window_id {
-        let target = state
-            .runtime
-            .launch_target_for_window_id(window_id)
-            .map_err(|message| shell_error("TAURI_RUNTIME_LAUNCH_ADAPTER_STALE", message))?;
+    if let Some(window_id) = state.runtime.live_window_id_for_launcher_source(
+        &intent.source_id,
+        &intent.source_type,
+    ) && let Ok(target) = state.runtime.launch_target_for_window_id(&window_id)
+    {
         return Ok(RuntimeLaunchDestination::Live {
-            reason: "authenticated-source-window",
+            reason: "existing-source-window",
             target,
         });
     }
 
-    if let Some(window_id) = state.runtime.last_native_focused_live_window_id()
-        && let Ok(target) = state.runtime.launch_target_for_window_id(&window_id)
-    {
-        return Ok(RuntimeLaunchDestination::Live {
-            reason: "last-native-focused-live-window",
-            target,
-        });
-    }
-    for window_id in state.runtime.live_window_ids() {
-        if let Ok(target) = state.runtime.launch_target_for_window_id(&window_id) {
+    match target_policy {
+        runtime_tab_menu::RuntimeLaunchTargetPolicy::AuthenticatedLiveWindow(window_id) => {
+            let target = state
+                .runtime
+                .launch_target_for_window_id(window_id)
+                .map_err(|message| shell_error("TAURI_RUNTIME_LAUNCH_ADAPTER_STALE", message))?;
             return Ok(RuntimeLaunchDestination::Live {
-                reason: "first-eligible-live-window",
+                reason: "authenticated-source-window",
                 target,
             });
         }
+        runtime_tab_menu::RuntimeLaunchTargetPolicy::NewWindow => {
+            return new_runtime_launch_destination(app, state, "requested-new-game-window");
+        }
+        runtime_tab_menu::RuntimeLaunchTargetPolicy::RequestedGameWindow(window_id) => {
+            return resolve_requested_game_window_destination(
+                app,
+                state,
+                intent,
+                window_id,
+            );
+        }
+        runtime_tab_menu::RuntimeLaunchTargetPolicy::Automatic => {}
     }
 
-    let runtime_snapshot = browser_runtime_snapshot(state)?;
-    let dormant_ids = state
-        .runtime
-        .dormant_windows()
-        .into_iter()
-        .map(|window| window.id)
-        .collect::<HashSet<_>>();
+    let live_launch_targets =
+        collect_launchable_live_targets(state.runtime.live_window_ids(), |window_id| {
+            state.runtime.launch_target_for_window_id(window_id).ok()
+        });
+    let live_window_ids = live_launch_targets
+        .iter()
+        .map(|(window_id, _)| window_id.clone())
+        .collect::<Vec<_>>();
+    if let Some((reason, window_id)) = preferred_automatic_live_window(
+        state.runtime.last_native_focused_live_window_id().as_deref(),
+        None,
+        &live_window_ids,
+    ) && reason == "last-native-focused-live-window"
+        && let Some((_, target)) = live_launch_targets
+            .iter()
+            .find(|(candidate, _)| candidate == &window_id)
+    {
+        return Ok(RuntimeLaunchDestination::Live {
+            reason,
+            target: target.clone(),
+        });
+    }
+    let persisted_last_focused_window_id = state
+        .core
+        .invoke(CoreCommand::RuntimeRestoreSessionGet)
+        .map_err(error_payload)
+        .and_then(|value| {
+            serde_json::from_value::<rion_core::RuntimeRestoreSessionRecord>(value).map_err(
+                |error| {
+                    shell_error(
+                        "TAURI_RUNTIME_LAUNCH_SESSION_INVALID",
+                        format!("Runtime restore session is invalid: {error}"),
+                    )
+                },
+            )
+        })?
+        .last_focused_window_id;
+    if let Some((reason, window_id)) = preferred_automatic_live_window(
+        None,
+        persisted_last_focused_window_id.as_deref(),
+        &live_window_ids,
+    )
+        && let Some((_, target)) = live_launch_targets
+            .iter()
+            .find(|(candidate, _)| candidate == &window_id)
+    {
+        return Ok(RuntimeLaunchDestination::Live {
+            reason,
+            target: target.clone(),
+        });
+    }
+
+    new_runtime_launch_destination(app, state, "new-game-window")
+}
+
+fn resolve_requested_game_window_destination(
+    app: &AppHandle,
+    state: &CoreState,
+    intent: &RuntimeLaunchIntentRecord,
+    window_id: &str,
+) -> Result<RuntimeLaunchDestination, CoreErrorPayload> {
+    if window_id.trim().is_empty() {
+        return Err(shell_error(
+            "TAURI_RUNTIME_LAUNCH_DESTINATION_INVALID",
+            "Requested Game Window ID is required.",
+        ));
+    }
+    if let Ok(target) = state.runtime.launch_target_for_window_id(window_id) {
+        return Ok(RuntimeLaunchDestination::Live {
+            reason: "requested-live-game-window",
+            target,
+        });
+    }
+
     let game_windows = state
         .core
         .invoke(CoreCommand::GameWindowsList)
@@ -224,31 +333,56 @@ fn resolve_runtime_launch_destination(
             serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
                 .map_err(|error| shell_error("TAURI_RUNTIME_LAUNCH_SAVED_INVALID", error.to_string()))
         })?;
-    let mut eligible_saved = game_windows
+    let saved = game_windows
         .into_iter()
-        .filter(|saved| {
-            dormant_ids.contains(&saved.id)
-                && !saved_window_conflicts_with_runtime(saved, &runtime_snapshot)
-        })
-        .collect::<Vec<_>>();
-    let source_owner_index = eligible_saved.iter().position(|saved| {
-        saved_tab_for_launcher_source(saved, &intent.source_id, &intent.source_type).is_some()
-    });
-    if let Some(index) = source_owner_index.or((!eligible_saved.is_empty()).then_some(0)) {
-        let saved = eligible_saved.remove(index);
-        let reason = if source_owner_index.is_some() {
-            "dormant-existing-source"
-        } else {
-            "first-eligible-dormant-window"
-        };
-        let target = launch_target_for_game_window(app, &saved.id)?;
-        return Ok(RuntimeLaunchDestination::Dormant {
-            reason,
-            saved: Box::new(saved),
+        .find(|saved| saved.id == window_id)
+        .ok_or_else(|| {
+            shell_error(
+                "TAURI_RUNTIME_LAUNCH_TARGET_NOT_FOUND",
+                "Requested Game Window was not found.",
+            )
+        })?;
+    let target = launch_target_for_game_window(app, &saved.id)?;
+    if saved.tabs.is_empty() {
+        return Ok(RuntimeLaunchDestination::Live {
+            reason: "requested-empty-saved-game-window",
             target,
         });
     }
+    let dormant = state
+        .runtime
+        .dormant_windows()
+        .iter()
+        .any(|window| window.id == saved.id);
+    if !dormant {
+        return Err(shell_error(
+            "TAURI_RUNTIME_LAUNCH_TARGET_UNAVAILABLE",
+            "Requested Game Window is changing state and cannot accept a launch yet.",
+        ));
+    }
+    let reason = if saved_tab_for_launcher_source(
+        &saved,
+        &intent.source_id,
+        &intent.source_type,
+    )
+    .is_some()
+    {
+        "requested-saved-game-window-existing-source"
+    } else {
+        "requested-saved-game-window-appended-source"
+    };
+    Ok(RuntimeLaunchDestination::Dormant {
+        reason,
+        saved: Box::new(saved),
+        target,
+    })
+}
 
+fn new_runtime_launch_destination(
+    app: &AppHandle,
+    state: &CoreState,
+    reason: &'static str,
+) -> Result<RuntimeLaunchDestination, CoreErrorPayload> {
     let main_window = app.get_webview_window("main").ok_or_else(|| {
         shell_error(
             "TAURI_RUNTIME_LAUNCH_MAIN_WINDOW_MISSING",
@@ -256,7 +390,7 @@ fn resolve_runtime_launch_destination(
         )
     })?;
     Ok(RuntimeLaunchDestination::Live {
-        reason: "new-game-window",
+        reason,
         target: new_game_window_launch_target(state, &main_window)?,
     })
 }
@@ -537,11 +671,11 @@ pub(crate) async fn execute_runtime_launch_intent(
 ) -> Result<runtime_tab_menu::RuntimeLaunchOutcome, CoreErrorPayload> {
     let RuntimeLaunchExecutionContext {
         admission_signal,
-        exact_window_id,
         launch_log_sender,
         origin,
         queue_wait_ms,
         started_at: launch_started_at,
+        target_policy,
     } = execution;
     let state = app.try_state::<CoreState>().ok_or_else(|| {
         shell_error(
@@ -643,8 +777,7 @@ pub(crate) async fn execute_runtime_launch_intent(
         state.runtime.cancel_provisional_tab_launch(&tab_id);
     }
 
-    let destination =
-        resolve_runtime_launch_destination(app, &state, &intent, exact_window_id.as_deref())?;
+    let destination = resolve_runtime_launch_destination(app, &state, &intent, &target_policy)?;
     match destination {
         RuntimeLaunchDestination::Live { reason, target } => {
             let preview = state

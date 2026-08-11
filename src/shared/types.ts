@@ -65,6 +65,7 @@ import type {
   RoleCreateRequest,
   RolePathsRecord,
   RoleUpdateRequest,
+  RuntimeLaunchDestinationRequest,
   RuntimeRoleSlotRecord,
   RuntimeWindowPreferencesRecord,
   ResolvedBrowserEngine as RustResolvedBrowserEngine,
@@ -225,6 +226,8 @@ export interface EmbeddedRuntimeState {
 }
 
 export type RuntimeWindowPreferences = RuntimeWindowPreferencesRecord;
+
+export type RuntimeLaunchDestination = RuntimeLaunchDestinationRequest;
 
 export type RestoreSavedGameWindowsInput =
   | { scope: "last-visible" | "all" }

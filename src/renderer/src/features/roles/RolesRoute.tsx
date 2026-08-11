@@ -33,7 +33,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger
 } from "../../components/ui/context-menu";
-import { PageFrame, PageHeader, SegmentedControl, Surface } from "../../components/ui/patterns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "../../components/ui/dropdown-menu";
+import { PageFrame, PageHeader, SegmentedControl } from "../../components/ui/patterns";
 import { EmptyState } from "../../components/EmptyState";
 import { CreateItemCard } from "../../components/CreateListItem";
 import {
@@ -47,12 +54,24 @@ import { moveItemById } from "../../app/reorderItems";
 import { DEFAULT_ROLE_COVER_COLOR, roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import { type Language, type TranslationKey, type Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
-import type { Game, Role, RoleStatus } from "../../../../shared/types";
+import type {
+  EmbeddedRuntimeState,
+  Game,
+  GameWindow,
+  Role,
+  RoleStatus,
+  RuntimeLaunchDestination
+} from "../../../../shared/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import type { AppStats, SidebarFilter } from "../../app/types";
 import { createRoleCardStyle } from "./roleCardStyle";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
+import {
+  RuntimeLaunchDestinationContextSubmenu,
+  RuntimeLaunchDestinationDropdownSubmenu
+} from "../game-windows/runtimeLaunchDestination";
+import { automaticRuntimeLaunchTitle } from "../game-windows/runtimeLaunchDestinationModel";
 
 const filterLabelKeys: Record<SidebarFilter, TranslationKey> = {
   all: "roles.filter.all",
@@ -73,10 +92,12 @@ interface RolesViewProps {
   busyRoleIds: ReadonlySet<string>;
   filteredRoles: Role[];
   games: Game[];
+  gameWindows: GameWindow[];
   isReordering: boolean;
   language?: Language;
   roleStats: AppStats;
   roles: Role[];
+  runtime: EmbeddedRuntimeState;
   scrollPositionRef: MutableRefObject<number>;
   query: string;
   statusByRole: Map<string, RoleStatus>;
@@ -89,7 +110,7 @@ interface RolesViewProps {
   onDeleteMany: (roles: Role[]) => Promise<boolean>;
   onEdit: (role: Role) => void;
   onFilterChange: (filter: SidebarFilter) => void;
-  onLaunch: (roleId: string) => void;
+  onLaunch: (roleId: string, destination?: RuntimeLaunchDestination) => void;
   onNewRole: () => void;
   onQueryChange: (query: string) => void;
   onReorder: (orderedIds: string[]) => void;
@@ -100,9 +121,11 @@ function RolesView({
   busyRoleIds,
   filteredRoles,
   games,
+  gameWindows,
   isReordering,
   roleStats,
   roles,
+  runtime,
   scrollPositionRef,
   query,
   statusByRole,
@@ -272,7 +295,9 @@ function RolesView({
               <RoleCard
                 key={role.id}
                 game={gameById.get(role.gameId)}
+                gameWindows={gameWindows}
                 role={role}
+                runtime={runtime}
                 status={status}
                 canReorder={canReorder}
                 isDragging={roleDrag.activePayload === role.id}
@@ -285,7 +310,13 @@ function RolesView({
                 onClearBrowserData={() => onClearBrowserData(role)}
                 onDelete={() => onDelete(role)}
                 onEdit={() => onEdit(role)}
-                onLaunch={() => onLaunch(role.id)}
+                onLaunch={(destination) => {
+                  if (destination) {
+                    onLaunch(role.id, destination);
+                  } else {
+                    onLaunch(role.id);
+                  }
+                }}
                 onReorderPointerDown={(event) => roleDrag.start(event, role.id)}
                 onSelectionClick={(event) => selection.handleItemClick(event, role.id)}
               />
@@ -324,6 +355,7 @@ function RoleFilterTabs({ activeFilter, counts, t, onFilterChange }: RoleFilterT
 
 interface RoleCardProps {
   game?: Game;
+  gameWindows: GameWindow[];
   canReorder: boolean;
   isBusy: boolean;
   isDragging: boolean;
@@ -334,9 +366,10 @@ interface RoleCardProps {
   onDelete: () => void;
   onEdit: () => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
-  onLaunch: () => void;
+  onLaunch: (destination?: RuntimeLaunchDestination) => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   role: Role;
+  runtime: EmbeddedRuntimeState;
   status?: RoleStatus;
   selectionRef: RefCallback<HTMLElement>;
   t: Translator;
@@ -344,6 +377,7 @@ interface RoleCardProps {
 
 function RoleCard({
   game,
+  gameWindows,
   canReorder,
   isBusy,
   isDragging,
@@ -357,6 +391,7 @@ function RoleCard({
   onLaunch,
   onSelectionClick,
   role,
+  runtime,
   status,
   selectionRef,
   t
@@ -365,7 +400,12 @@ function RoleCard({
   const coverImageUrl = role.coverImageDataUrl ?? roleCoverPlaceholderUrl;
   const canUsePrimaryOverlayAction = true;
   const hasBottomAction = false;
-  const primaryActionLabel = t("role.launch");
+  const primaryActionLabel = automaticRuntimeLaunchTitle(
+    gameWindows,
+    runtime,
+    { id: role.id, type: "role" },
+    t
+  );
   const cardStyle = createRoleCardStyle({
     color: role.coverImageDominantColor ?? DEFAULT_ROLE_COVER_COLOR,
     hasCoverImage: true,
@@ -409,11 +449,15 @@ function RoleCard({
           isDragging={isDragging}
           isBusy={isBusy}
           isOnCover
+          gameWindows={gameWindows}
+          runtime={runtime}
+          source={{ id: role.id, type: "role" }}
           t={t}
           onCopy={onCopy}
           onClearBrowserData={onClearBrowserData}
           onDelete={onDelete}
           onEdit={onEdit}
+          onLaunchDestination={onLaunch}
           onReorderPointerDown={onReorderPointerDown}
         />
       </div>
@@ -434,8 +478,8 @@ function RoleCard({
             type="button"
             variant="media"
             title={primaryActionLabel}
-            aria-label={primaryActionLabel}
-            onClick={onLaunch}
+            aria-label={t("role.launch")}
+            onClick={() => onLaunch()}
             disabled={isBusy}
           >
             {isBusy ? (
@@ -486,12 +530,16 @@ function RoleCard({
         </Card>
       </ContextMenuTrigger>
       <RoleContextMenuContent
+        gameWindows={gameWindows}
         isBusy={isBusy}
+        runtime={runtime}
+        source={{ id: role.id, type: "role" }}
         t={t}
         onCopy={onCopy}
         onClearBrowserData={onClearBrowserData}
         onDelete={onDelete}
         onEdit={onEdit}
+        onLaunchDestination={onLaunch}
       />
     </ContextMenu>
   );
@@ -499,6 +547,7 @@ function RoleCard({
 
 interface RoleActionMenuProps {
   canReorder: boolean;
+  gameWindows: GameWindow[];
   isBusy: boolean;
   isDragging: boolean;
   isOnCover?: boolean;
@@ -506,12 +555,16 @@ interface RoleActionMenuProps {
   onClearBrowserData: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onLaunchDestination: (destination?: RuntimeLaunchDestination) => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  runtime: EmbeddedRuntimeState;
+  source: { id: string; type: "role" };
   t: Translator;
 }
 
 function RoleActionMenu({
   canReorder,
+  gameWindows,
   isBusy,
   isDragging,
   isOnCover = false,
@@ -519,11 +572,13 @@ function RoleActionMenu({
   onClearBrowserData,
   onDelete,
   onEdit,
+  onLaunchDestination,
   onReorderPointerDown,
+  runtime,
+  source,
   t
 }: RoleActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isDragging) {
@@ -531,136 +586,76 @@ function RoleActionMenu({
     }
   }, [isDragging]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent): void {
-      if (menuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsOpen(false);
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  function handleEdit(): void {
-    setIsOpen(false);
-    onEdit();
-  }
-
-  function handleCopy(): void {
-    setIsOpen(false);
-    onCopy();
-  }
-
-  function handleDelete(): void {
-    setIsOpen(false);
-    onDelete();
-  }
-
-  function handleClearBrowserData(): void {
-    setIsOpen(false);
-    onClearBrowserData();
-  }
-
   return (
-    <div ref={menuRef} className="relative shrink-0">
-      <Button
-        className={cn(
-          "h-7 w-7 touch-none",
-          canReorder && "cursor-grab active:cursor-grabbing",
-          isDragging && "cursor-grabbing",
-          isOnCover && "role-cover-menu-control text-on-media hover:text-on-media"
-        )}
-        type="button"
-        variant="ghost"
-        size="icon"
-        title={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
-        aria-label={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((current) => !current)}
-        onPointerDown={canReorder ? onReorderPointerDown : undefined}
-      >
-        <MoreHorizontal size={14} />
-      </Button>
-
-      {isOpen ? (
-        <Surface
-          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-44 overflow-hidden text-popover-foreground"
-          padding="xs"
-          variant="popover"
-          role="menu"
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className={cn(
+            "h-7 w-7 touch-none",
+            canReorder && "cursor-grab active:cursor-grabbing",
+            isDragging && "cursor-grabbing",
+            isOnCover && "role-cover-menu-control text-on-media hover:text-on-media"
+          )}
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
+          aria-label={t(canReorder ? "role.actionsAndReorder" : "role.actions")}
+          onPointerDown={canReorder ? onReorderPointerDown : undefined}
         >
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground"
-            type="button"
-            role="menuitem"
-            onClick={handleEdit}
-          >
+          <MoreHorizontal size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuItem className="gap-1.5" onSelect={onEdit}>
             <Pencil size={14} />
             <span>{t("role.edit")}</span>
-          </button>
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-accent/45 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-            type="button"
-            role="menuitem"
-            onClick={handleCopy}
-            disabled={isBusy}
-          >
+          </DropdownMenuItem>
+          <DropdownMenuItem className="gap-1.5" disabled={isBusy} onSelect={onCopy}>
             <Copy size={14} />
             <span>{t("role.copy")}</span>
-          </button>
-          <div className="my-1 border-t border-border/60" role="separator" />
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-            type="button"
-            role="menuitem"
-            onClick={handleClearBrowserData}
+          </DropdownMenuItem>
+          <RuntimeLaunchDestinationDropdownSubmenu
             disabled={isBusy}
+            gameWindows={gameWindows}
+            runtime={runtime}
+            source={source}
+            t={t}
+            onSelect={onLaunchDestination}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="gap-1.5 text-destructive"
+            disabled={isBusy}
+            onSelect={onClearBrowserData}
           >
             <Eraser size={14} />
             <span>{t("role.clearSavedData")}</span>
-          </button>
-          <button
-            className="flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-            type="button"
-            role="menuitem"
-            onClick={handleDelete}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="gap-1.5 text-destructive"
             disabled={isBusy}
+            onSelect={onDelete}
           >
             <Trash2 size={14} />
             <span>{t("role.delete")}</span>
-          </button>
-        </Surface>
-      ) : null}
-    </div>
+          </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 function RoleContextMenuContent({
+  gameWindows,
   isBusy,
+  runtime,
+  source,
   t,
   onCopy,
   onClearBrowserData,
   onDelete,
-  onEdit
+  onEdit,
+  onLaunchDestination
 }: Omit<RoleActionMenuProps, "canReorder" | "isDragging" | "isOnCover" | "onReorderPointerDown">): JSX.Element {
   return (
     <ContextMenuContent className="min-w-44">
@@ -672,6 +667,14 @@ function RoleContextMenuContent({
         <Copy size={14} />
         <span>{t("role.copy")}</span>
       </ContextMenuItem>
+      <RuntimeLaunchDestinationContextSubmenu
+        disabled={isBusy}
+        gameWindows={gameWindows}
+        runtime={runtime}
+        source={source}
+        t={t}
+        onSelect={onLaunchDestination}
+      />
       <ContextMenuSeparator />
       <ContextMenuItem className="gap-1.5 text-destructive" disabled={isBusy} onSelect={onClearBrowserData}>
         <Eraser size={14} />

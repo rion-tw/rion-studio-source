@@ -27,9 +27,10 @@ async fn launch_role_from_shell(
     args: &[Value],
 ) -> Result<Value, CoreErrorPayload> {
     let role_id = string_argument(args, 0, "Role ID")?;
+    let destination = runtime_launch_destination_argument(args)?;
     let outcome = state
         .launch_intents
-        .submit(&role_id, false, None, "renderer-role-list")
+        .submit(&role_id, false, destination, "renderer-role-list")
         .await
         ?;
     let status = outcome
@@ -52,9 +53,15 @@ async fn launch_workspace_from_shell(
     args: &[Value],
 ) -> Result<Value, CoreErrorPayload> {
     let workspace_id = string_argument(args, 0, "Workspace ID")?;
+    let destination = runtime_launch_destination_argument(args)?;
     let outcome = state
         .launch_intents
-        .submit(&workspace_id, true, None, "renderer-workspace-list")
+        .submit(
+            &workspace_id,
+            true,
+            destination,
+            "renderer-workspace-list",
+        )
         .await
         ?;
     Ok(json!({
@@ -63,4 +70,18 @@ async fn launch_workspace_from_shell(
         "statuses": outcome.statuses,
         "launchReceipt": outcome.receipt
     }))
+}
+
+fn runtime_launch_destination_argument(
+    args: &[Value],
+) -> Result<rion_core::RuntimeLaunchDestinationRequest, CoreErrorPayload> {
+    match args.get(1) {
+        None | Some(Value::Null) => Ok(rion_core::RuntimeLaunchDestinationRequest::Automatic),
+        Some(value) => serde_json::from_value(value.clone()).map_err(|error| {
+            shell_error(
+                "TAURI_RUNTIME_LAUNCH_DESTINATION_INVALID",
+                format!("Runtime launch destination is invalid: {error}"),
+            )
+        }),
+    }
 }

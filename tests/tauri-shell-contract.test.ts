@@ -152,15 +152,16 @@ describe("Tauri shell contract guard", () => {
       shell.indexOf("async fn launch_workspace_from_shell(")
     );
     expect(roleLaunch).toContain(".launch_intents");
-    expect(roleLaunch).toContain('submit(&role_id, false, None, "renderer-role-list")');
+    expect(roleLaunch).toContain("runtime_launch_destination_argument(args)?");
+    expect(roleLaunch).toContain('submit(&role_id, false, destination, "renderer-role-list")');
     expect(roleLaunch).not.toContain("CoreCommand::BrowserRoleLaunch");
     const workspaceLaunch = shell.slice(
       shell.indexOf("async fn launch_workspace_from_shell("),
-      shell.indexOf("enum RuntimeLaunchDestination")
+      shell.indexOf("fn runtime_launch_destination_argument(")
     );
     expect(workspaceLaunch).toContain(".launch_intents");
     expect(workspaceLaunch).toContain(
-      'submit(&workspace_id, true, None, "renderer-workspace-list")'
+      'submit(\n            &workspace_id,\n            true,\n            destination,\n            "renderer-workspace-list",'
     );
     expect(workspaceLaunch).not.toContain("CoreCommand::BrowserWorkspaceLaunch");
     expect(quickMenu).toContain("launch_intents.try_launch_source(");

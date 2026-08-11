@@ -99,6 +99,15 @@ impl SystemRuntimeExecutor {
         None
     }
 
+    pub(crate) fn live_window_id_for_launcher_source(
+        &self,
+        source_id: &str,
+        tab_type: &str,
+    ) -> Option<String> {
+        let tab_id = self.presented_tab_for_launcher_source(source_id, tab_type)?;
+        self.live_tab_window_id(&tab_id)
+    }
+
     pub(crate) fn presented_stable_tab_for_launcher_source(
         &self,
         source_id: &str,

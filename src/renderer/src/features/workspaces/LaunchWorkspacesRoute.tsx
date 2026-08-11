@@ -36,10 +36,12 @@ import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
   Game,
-  EmbeddedRuntimeTabSummary,
+  EmbeddedRuntimeState,
+  GameWindow,
   LaunchWorkspace,
   LaunchWorkspaceSlot,
   Role,
+  RuntimeLaunchDestination,
   WorkspaceLayoutTemplate
 } from "../../../../shared/types";
 import {
@@ -51,14 +53,16 @@ import { workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 import { WorkspaceActionMenu, WorkspaceContextMenuContent } from "./WorkspaceActionMenu";
+import { automaticRuntimeLaunchTitle } from "../game-windows/runtimeLaunchDestinationModel";
 
 interface LaunchWorkspacesViewProps {
   busyWorkspaceIds: ReadonlySet<string>;
   games: Game[];
+  gameWindows: GameWindow[];
   isReordering: boolean;
   query: string;
   roles: Role[];
-  runtimeTabs: EmbeddedRuntimeTabSummary[];
+  runtime: EmbeddedRuntimeState;
   scrollPositionRef: MutableRefObject<number>;
   t: Translator;
   workspaces: LaunchWorkspace[];
@@ -67,7 +71,10 @@ interface LaunchWorkspacesViewProps {
   onDeleteWorkspace: (workspace: LaunchWorkspace) => void;
   onDeleteWorkspaces: (workspaces: LaunchWorkspace[]) => Promise<boolean>;
   onEditWorkspace: (workspace: LaunchWorkspace) => void;
-  onLaunchWorkspace: (workspace: LaunchWorkspace) => void;
+  onLaunchWorkspace: (
+    workspace: LaunchWorkspace,
+    destination?: RuntimeLaunchDestination
+  ) => void;
   onQueryChange: (query: string) => void;
   onReorderWorkspaces: (orderedIds: string[]) => void;
 }
@@ -75,10 +82,11 @@ interface LaunchWorkspacesViewProps {
 function LaunchWorkspacesView({
   busyWorkspaceIds,
   games,
+  gameWindows,
   isReordering,
   query,
   roles,
-  runtimeTabs,
+  runtime,
   scrollPositionRef,
   t,
   workspaces,
@@ -94,8 +102,8 @@ function LaunchWorkspacesView({
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const gameNameById = useMemo(() => new Map(games.map((game) => [game.id, game.name])), [games]);
   const openWorkspaceIds = useMemo(
-    () => new Set(runtimeTabs.filter((tab) => tab.type === "workspace").map((tab) => tab.sourceId)),
-    [runtimeTabs]
+    () => new Set(runtime.tabs.filter((tab) => tab.type === "workspace").map((tab) => tab.sourceId)),
+    [runtime.tabs]
   );
   const pageRef = useRef<HTMLElement | null>(null);
   const filteredWorkspaces = useMemo(() => {
@@ -216,7 +224,9 @@ function LaunchWorkspacesView({
               isDropTarget={workspaceDrag.targetId === workspace.id && workspaceDrag.activePayload !== workspace.id}
               isSelected={selection.isSelected(workspace.id)}
               gameNameById={gameNameById}
+              gameWindows={gameWindows}
               roleById={roleById}
+              runtime={runtime}
               isRunning={openWorkspaceIds.has(workspace.id)}
               t={t}
               workspace={workspace}
@@ -224,7 +234,13 @@ function LaunchWorkspacesView({
               onCopy={() => onCopyWorkspace(workspace)}
               onDelete={() => onDeleteWorkspace(workspace)}
               onEdit={() => onEditWorkspace(workspace)}
-              onLaunch={() => onLaunchWorkspace(workspace)}
+              onLaunch={(destination) => {
+                if (destination) {
+                  onLaunchWorkspace(workspace, destination);
+                } else {
+                  onLaunchWorkspace(workspace);
+                }
+              }}
               onReorderPointerDown={(event) => workspaceDrag.start(event, workspace.id)}
               onSelectionClick={(event) => selection.handleItemClick(event, workspace.id)}
             />
@@ -240,6 +256,7 @@ function LaunchWorkspacesView({
 interface WorkspaceCardProps {
   busyWorkspaceIds: ReadonlySet<string>;
   gameNameById: Map<string, string>;
+  gameWindows: GameWindow[];
   canReorder: boolean;
   isDragging: boolean;
   isDropTarget: boolean;
@@ -248,9 +265,10 @@ interface WorkspaceCardProps {
   onDelete: () => void;
   onEdit: () => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
-  onLaunch: () => void;
+  onLaunch: (destination?: RuntimeLaunchDestination) => void;
   onSelectionClick: (event: ReactMouseEvent<HTMLElement>) => void;
   roleById: Map<string, Role>;
+  runtime: EmbeddedRuntimeState;
   isRunning: boolean;
   t: Translator;
   selectionRef: RefCallback<HTMLElement>;
@@ -260,6 +278,7 @@ interface WorkspaceCardProps {
 function WorkspaceCard({
   busyWorkspaceIds,
   gameNameById,
+  gameWindows,
   canReorder,
   isDragging,
   isDropTarget,
@@ -271,6 +290,7 @@ function WorkspaceCard({
   onLaunch,
   onSelectionClick,
   roleById,
+  runtime,
   isRunning,
   t,
   selectionRef,
@@ -278,7 +298,12 @@ function WorkspaceCard({
 }: WorkspaceCardProps): JSX.Element {
   const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
   const isBusy = busyWorkspaceIds.has(workspace.id);
-  const primaryActionLabel = t("workspaces.launch");
+  const primaryActionLabel = automaticRuntimeLaunchTitle(
+    gameWindows,
+    runtime,
+    { id: workspace.id, type: "workspace" },
+    t
+  );
 
   return (
     <ContextMenu>
@@ -307,7 +332,7 @@ function WorkspaceCard({
 
         <div className="pointer-events-none absolute inset-0 z-[var(--layer-selection)] grid place-items-center">
           <Button
-            aria-label={primaryActionLabel}
+            aria-label={t("workspaces.launch")}
             className={cn(
               "pointer-events-auto size-16 rounded-full p-0 text-on-media shadow-lg",
               "transition-[opacity,transform,background-color] duration-150 hover:text-on-media",
@@ -319,7 +344,7 @@ function WorkspaceCard({
             title={primaryActionLabel}
             type="button"
             variant="media"
-            onClick={onLaunch}
+            onClick={() => onLaunch()}
           >
             {isBusy ? (
               <Loader2 className="spin" size={30} />
@@ -333,12 +358,16 @@ function WorkspaceCard({
       <div className="pointer-events-none absolute right-3 top-3 z-[var(--layer-selection)] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         <WorkspaceActionMenu
           canReorder={canReorder}
+          gameWindows={gameWindows}
           isDragging={isDragging}
           isBusy={isBusy}
+          runtime={runtime}
+          sourceId={workspace.id}
           t={t}
           onCopy={onCopy}
           onDelete={onDelete}
           onEdit={onEdit}
+          onLaunchDestination={onLaunch}
           onReorderPointerDown={onReorderPointerDown}
         />
       </div>
@@ -349,11 +378,15 @@ function WorkspaceCard({
         </Card>
       </ContextMenuTrigger>
       <WorkspaceContextMenuContent
+        gameWindows={gameWindows}
         isBusy={isBusy}
+        runtime={runtime}
+        sourceId={workspace.id}
         t={t}
         onCopy={onCopy}
         onDelete={onDelete}
         onEdit={onEdit}
+        onLaunchDestination={onLaunch}
       />
     </ContextMenu>
   );

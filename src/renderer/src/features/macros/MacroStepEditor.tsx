@@ -757,9 +757,10 @@ export function createStep(
       return {
         id,
         type: "click",
+        unit: "reference-px",
         anchor: "center",
-        xPercent: 0,
-        yPercent: 0
+        xReferencePx: 0,
+        yReferencePx: 0
       };
     case "delay":
       return {

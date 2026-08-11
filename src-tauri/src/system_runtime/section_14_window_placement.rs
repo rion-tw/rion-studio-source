@@ -76,6 +76,7 @@ fn reduce_observed_window_placement(
 }
 
 impl SystemRuntimeExecutor {
+    #[cfg(not(windows))]
     fn next_window_placement_observation_sequence() -> u64 {
         WINDOW_PLACEMENT_OBSERVATION_SEQUENCE
             .fetch_add(1, Ordering::Relaxed)
@@ -235,7 +236,7 @@ impl SystemRuntimeExecutor {
             return false;
         }
         self.publish_projection();
-        self.schedule_live_window_state_persistence(&observed.window_id);
+        self.persist_observed_window_placement(&observed.window_id);
         self.record_presentation_event(
             LogLevel::Debug,
             "native.window-placement-observed",

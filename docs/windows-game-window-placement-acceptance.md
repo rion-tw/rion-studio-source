@@ -196,7 +196,7 @@ SELECT
   json_extract(payload_json, '$.placement.normalBounds.y') AS y,
   json_extract(payload_json, '$.placement.normalBounds.width') AS width,
   json_extract(payload_json, '$.placement.normalBounds.height') AS height,
-  json_extract(payload_json, '$.placement.scaleFactor') AS scale_factor
+  json_extract(payload_json, '$.targetDisplay.fingerprint.scaleFactor') AS scale_factor
 FROM game_windows
 ORDER BY ordinal;
 '@

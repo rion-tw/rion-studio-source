@@ -40,6 +40,12 @@ describe("Tauri System WebView runtime source", () => {
     expect(restore.indexOf("commit_live_topology")).toBeLessThan(
       restore.indexOf("ensure_display_host")
     );
+    expect(restore).toContain(
+      "self.set_live_window_persisted_name(window_id, Some(saved.name.to_owned()))"
+    );
+    expect(restore.indexOf("set_live_window_persisted_name")).toBeLessThan(
+      restore.indexOf("ensure_display_host")
+    );
     expect(restore).toContain("host_created: false");
     expect(completionFallback).toContain("host_created: false");
     expect(preview).toContain("allocate_launch_preview_handle(source_id, tab_type)");

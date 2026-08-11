@@ -87,6 +87,7 @@ impl NativeWindowMutationLane {
         Ok(NativeWindowMutationPermit { lane: self })
     }
 
+    #[cfg(not(windows))]
     fn is_busy(&self) -> bool {
         self.active.lock().map(|active| *active).unwrap_or(true)
     }
@@ -156,6 +157,7 @@ impl NativeWindowMutationRegistry {
             == Some(revision)
     }
 
+    #[cfg(not(windows))]
     fn is_busy(&self, window_id: &str) -> bool {
         let lane = self
             .lanes

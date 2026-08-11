@@ -7,6 +7,11 @@ struct RestoredForegroundVisibilitySnapshot<'a> {
     tab_current: bool,
 }
 
+struct RestoredWindowDefinition<'a> {
+    name: &'a str,
+    tabs: &'a [GameWindowTabRecord],
+}
+
 fn restored_foreground_visibility_is_current(
     fence: &RestoredWindowVisibilityFence,
     tab_id: &str,
@@ -59,16 +64,28 @@ impl SystemRuntimeExecutor {
     pub fn prepare_restored_window_tabs(
         &self,
         target: &EmbeddedLaunchTargetRecord,
+        saved_name: &str,
         tabs: &[GameWindowTabRecord],
         active_tab_id: Option<String>,
     ) -> Result<(), String> {
-        self.prepare_restored_window_tabs_internal(target, tabs, active_tab_id, None, None, None)
-            .map(|_| ())
+        self.prepare_restored_window_tabs_internal(
+            target,
+            RestoredWindowDefinition {
+                name: saved_name,
+                tabs,
+            },
+            active_tab_id,
+            None,
+            None,
+            None,
+        )
+        .map(|_| ())
     }
 
     pub(crate) fn prepare_restored_window_tabs_for_launch(
         &self,
         target: &EmbeddedLaunchTargetRecord,
+        saved_name: &str,
         tabs: &[GameWindowTabRecord],
         active_tab_id: Option<String>,
         admission: &mut RestoredLaunchAdmission<'_>,
@@ -76,7 +93,10 @@ impl SystemRuntimeExecutor {
         let launch_trace = admission.latency_trace();
         self.prepare_restored_window_tabs_internal(
             target,
-            tabs,
+            RestoredWindowDefinition {
+                name: saved_name,
+                tabs,
+            },
             active_tab_id,
             None,
             Some(launch_trace),
@@ -88,6 +108,7 @@ impl SystemRuntimeExecutor {
     pub(crate) fn prepare_restored_window_tabs_with_launch_for_intent(
         &self,
         target: &EmbeddedLaunchTargetRecord,
+        saved_name: &str,
         tabs: &[GameWindowTabRecord],
         source_id: &str,
         tab_type: &str,
@@ -96,7 +117,10 @@ impl SystemRuntimeExecutor {
         let launch_trace = admission.latency_trace();
         self.prepare_restored_window_tabs_internal(
             target,
-            tabs,
+            RestoredWindowDefinition {
+                name: saved_name,
+                tabs,
+            },
             None,
             Some((source_id, tab_type)),
             Some(launch_trace),
@@ -108,13 +132,14 @@ impl SystemRuntimeExecutor {
     fn prepare_restored_window_tabs_internal(
         &self,
         target: &EmbeddedLaunchTargetRecord,
-        tabs: &[GameWindowTabRecord],
+        saved: RestoredWindowDefinition<'_>,
         active_tab_id: Option<String>,
         appended_source: Option<(&str, &str)>,
         launch_trace: Option<RuntimeLaunchLatencyTrace>,
         mut admission_signal: Option<&mut crate::runtime_tab_menu::LaunchAdmissionSignal>,
     ) -> Result<Option<LaunchPreviewHandle>, String> {
         let window_id = target.window_id.as_str();
+        let tabs = saved.tabs;
         let ordered_tab_ids = tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
         if ordered_tab_ids.is_empty() && appended_source.is_none() {
             return Ok(None);
@@ -241,6 +266,11 @@ impl SystemRuntimeExecutor {
             }],
         })?;
         let revision = receipt.revision;
+        // A closed saved window has no live RuntimeKernel record. Rehydrating its
+        // topology must restore the persisted identity before native host
+        // creation; otherwise the host is treated as transient and terminal
+        // geometry receipts cannot update the saved SQLite definition.
+        self.set_live_window_persisted_name(window_id, Some(saved.name.to_owned()))?;
         if let Some(trace) = launch_trace.as_ref() {
             self.record_runtime_launch_latency(
                 trace,

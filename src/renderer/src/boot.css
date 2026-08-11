@@ -37,6 +37,13 @@ body {
   display: flex;
 }
 
+:root[data-platform="windows"][data-window-fullscreen="false"][data-window-controls-scrolled="true"] .windows-window-controls {
+  background: hsl(var(--windows-caption-scrolled-background));
+  box-shadow: inset 0 -1px 0 hsl(var(--glass-border-muted));
+  -webkit-backdrop-filter: blur(var(--blur-surface)) saturate(1.08);
+  backdrop-filter: blur(var(--blur-surface)) saturate(1.08);
+}
+
 .windows-window-controls button {
   display: grid;
   width: 46px;

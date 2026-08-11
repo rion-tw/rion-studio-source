@@ -120,6 +120,19 @@ describe("renderer visual foundation", () => {
     );
   });
 
+  it("fills the Windows caption control group with themed material after page scrolling", () => {
+    const bootStyles = readFileSync(rendererPath("src", "boot.css"), "utf8");
+    const tokens = readFileSync(path.join(process.cwd(), "src", "shared", "designTokens.css"), "utf8");
+
+    expect(bootStyles).toMatch(
+      /:root\[data-platform="windows"\]\[data-window-fullscreen="false"\]\[data-window-controls-scrolled="true"\] \.windows-window-controls \{[\s\S]*?background: hsl\(var\(--windows-caption-scrolled-background\)\);/
+    );
+    expect(bootStyles).toMatch(
+      /data-window-controls-scrolled="true"[\s\S]*?backdrop-filter: blur\(var\(--blur-surface\)\) saturate\(1\.08\);/
+    );
+    expect(tokens.match(/--windows-caption-scrolled-background:/g)).toHaveLength(2);
+  });
+
   it("reserves backdrop blur for top-level glass surfaces", () => {
     const styles = readSourceTreeSync(rendererPath("src", "styles.css"), "utf8");
 

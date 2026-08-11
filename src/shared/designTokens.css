@@ -113,6 +113,7 @@
   --sidebar-foreground: 222 15% 13%;
   --sidebar-accent: 0 0% 100%;
   --sidebar-accent-foreground: 222 15% 10%;
+  --windows-caption-scrolled-background: 216 24% 94% / 0.82;
 
   --app-material: 216 24% 94% / 0.38;
   --app-material-strong: 216 26% 96% / 0.5;
@@ -196,6 +197,7 @@
   --sidebar-foreground: 220 14% 88%;
   --sidebar-accent: 0 0% 100%;
   --sidebar-accent-foreground: 0 0% 100%;
+  --windows-caption-scrolled-background: 230 13% 13% / 0.84;
 
   --app-material: 230 14% 12% / 0.48;
   --app-material-strong: 230 14% 13% / 0.58;

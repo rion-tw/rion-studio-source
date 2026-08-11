@@ -129,6 +129,48 @@ describe("Windows runtime tab chrome projection", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("acknowledges an authoritative empty projection after the paint boundary", async () => {
+    const emptyProjection: RuntimeTabChromeProjectionRecord = {
+      rendererInstanceId,
+      windowId: "window-1",
+      windowGeneration: 7,
+      lifecycleEpoch: 3,
+      projectionRevision: 10,
+      topologyRevision: 22,
+      tabs: [],
+      tabOrder: [],
+      displayId: 11,
+      displays: [],
+      windowName: "Empty Game Window",
+      windowMaximized: false,
+      fullscreen: false,
+      windowFullscreen: false,
+      toolbarVisible: true,
+      alwaysHideTabCloseButton: false,
+      alwaysShowToolbarInFullScreen: false,
+      language: "en",
+      theme: "light"
+    };
+
+    window.__rionApplyRuntimeTabChromeProjection?.(emptyProjection);
+
+    expect(document.querySelectorAll("button.tab")).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalled();
+    await nextPaint();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: {
+        type: "tabChromeProjectionApplied",
+        acknowledgement: {
+          rendererInstanceId,
+          projectionRevision: 10,
+          topologyRevision: 22,
+          observedTabOrder: [],
+          status: "applied"
+        }
+      }
+    });
+  });
+
   it("rejects projections for an obsolete renderer instance without mutating the DOM", () => {
     const before = document.querySelector("#tabs")?.innerHTML;
     window.__rionApplyRuntimeTabChromeProjection?.({

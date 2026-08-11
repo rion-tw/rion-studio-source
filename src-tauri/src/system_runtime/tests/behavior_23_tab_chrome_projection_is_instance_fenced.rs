@@ -121,6 +121,71 @@ fn windows_tab_chrome_reveal_waits_for_visibility_and_renderer_readiness() {
 }
 
 #[test]
+fn empty_windows_tab_chrome_projection_acknowledgement_allows_reveal() {
+    let coordinator = TabChromeProjectionCoordinator::default();
+    coordinator
+        .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+        .unwrap();
+    let mut requested = tab_chrome_projection("renderer-1", None);
+    requested.tab_order.clear();
+    let projection = coordinator.resolve_projection(requested).unwrap();
+    assert!(coordinator.claim_delivery(&projection));
+    coordinator
+        .acknowledge(
+            "tab-strip-1",
+            RuntimeTabChromeAcknowledgementRecord {
+                renderer_instance_id: "renderer-1".to_owned(),
+                projection_revision: projection.projection_revision,
+                topology_revision: projection.topology_revision,
+                observed_tab_order: Vec::new(),
+                observed_active_tab_id: None,
+                status: "applied".to_owned(),
+            },
+        )
+        .unwrap();
+
+    let outcome = coordinator.wait(
+        "window-1",
+        "renderer-1",
+        projection.projection_revision,
+        Duration::from_millis(1),
+    );
+    assert_eq!(outcome, TabChromeProjectionWaitOutcome::Applied);
+    let reveal_signal = windows_tab_chrome_reveal_signal_for_projection(outcome)
+        .expect("an applied empty projection must allow the Windows host to reveal");
+
+    let mut reveal = WindowsTabChromeRevealState::new(true);
+    assert!(!reveal.request_presentation(None).reveal);
+    assert!(
+        !reveal
+            .observe(WindowsTabChromeRevealSignal::RendererReady)
+            .reveal
+    );
+    assert!(reveal.observe(reveal_signal).reveal);
+}
+
+#[test]
+fn only_applied_tab_chrome_projections_allow_windows_reveal() {
+    assert_eq!(
+        windows_tab_chrome_reveal_signal_for_projection(
+            TabChromeProjectionWaitOutcome::Applied
+        ),
+        Some(WindowsTabChromeRevealSignal::ProjectionApplied)
+    );
+    for outcome in [
+        TabChromeProjectionWaitOutcome::Failed,
+        TabChromeProjectionWaitOutcome::Superseded,
+        TabChromeProjectionWaitOutcome::Timeout,
+    ] {
+        assert_eq!(
+            windows_tab_chrome_reveal_signal_for_projection(outcome),
+            None,
+            "{outcome:?}"
+        );
+    }
+}
+
+#[test]
 fn windows_tab_chrome_reveal_defers_the_latest_focus_intent_until_uncloaked() {
     let mut reveal = WindowsTabChromeRevealState::new(true);
     let first = reveal.request_presentation(Some(41));

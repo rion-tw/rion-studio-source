@@ -638,6 +638,7 @@ function MacroForm({
               roles={roles}
               selectedStepId={mindMapStepId}
               t={t}
+              onClearStepSelection={() => setMindMapStepId(undefined)}
               onSelectStep={selectMindMapStep}
             />
           </div>

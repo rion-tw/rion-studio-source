@@ -24,6 +24,7 @@ export interface MacroRootNodeData extends MacroMindMapNodeBase {
   kind: "macroRoot";
   name: string;
   scopeLabel: string;
+  statusLabel: string;
   stepCount: number;
   stepCountLabel: string;
   warnings: string[];
@@ -40,7 +41,9 @@ export interface MacroStepNodeData extends MacroMindMapNodeBase {
     canExpand: boolean;
     isExpanded: boolean;
     mode: MacroCallMode;
+    modeLabel: string;
     occurrenceId: string;
+    statusLabel: string;
     targetEnabled?: boolean;
     targetName: string;
     targetStepCount?: number;
@@ -52,6 +55,7 @@ export interface MacroStepNodeData extends MacroMindMapNodeBase {
   index: number;
   kind: "macroStep";
   stepType: MacroStep["type"];
+  stepTypeLabel: string;
 }
 
 export interface MacroWarningNodeData extends MacroMindMapNodeBase {
@@ -125,12 +129,12 @@ interface BuildMacroMindMapOptions {
 }
 
 const estimatedNodeSizeByKind: Record<MacroMindMapNodeKind, { height: number; width: number }> = {
-  macroRoot: { height: 104, width: 252 },
-  macroSettings: { height: 164, width: 284 },
-  macroStep: { height: 84, width: 276 },
-  macroWarning: { height: 84, width: 264 }
+  macroRoot: { height: 148, width: 252 },
+  macroSettings: { height: 224, width: 284 },
+  macroStep: { height: 112, width: 276 },
+  macroWarning: { height: 104, width: 264 }
 };
-const estimatedMacroCallNodeSize = { height: 126, width: 276 };
+const estimatedMacroCallNodeSize = { height: 220, width: 276 };
 
 export function buildMacroMindMap({
   expandedOccurrenceIds,
@@ -228,6 +232,7 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
     kind: "macroRoot",
     name: definition.name,
     scopeLabel: t(definition.isCurrent ? "mindMap.currentMacro" : "mindMap.calledMacro"),
+    statusLabel: t(definition.enabled ? "mindMap.status.enabled" : "mindMap.status.disabled"),
     stepCount: definition.steps.length,
     stepCountLabel: t("mindMap.stepCount").replace("{count}", String(definition.steps.length)),
     warnings
@@ -277,7 +282,8 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
       detail,
       index,
       kind: "macroStep",
-      stepType: step.type
+      stepType: step.type,
+      stepTypeLabel: getStepTypeLabel(step.type, t)
     }, nodeHeights));
     edges.push(createEdge(`${previousStepId}->${stepId}`, previousStepId, stepId, "sequence"));
     previousStepId = stepId;
@@ -359,7 +365,11 @@ function createMacroCallData({
     canExpand,
     isExpanded: canExpand && expandedOccurrenceIds.has(callOccurrenceId),
     mode: step.callMode ?? "wait",
+    modeLabel: t((step.callMode ?? "wait") === "trigger"
+      ? "macroForm.macroCallMode.trigger"
+      : "macroForm.macroCallMode.wait"),
     occurrenceId: callOccurrenceId,
+    statusLabel: getCallStatusLabel(target, warnings, t),
     targetEnabled: target?.enabled,
     targetName: target?.name ?? t("macros.unknownMacro"),
     targetStepCount: target?.steps.length,
@@ -368,6 +378,25 @@ function createMacroCallData({
       : undefined,
     warnings
   };
+}
+
+function getCallStatusLabel(
+  target: MacroDefinition | undefined,
+  warnings: readonly string[],
+  t: Translator
+): string {
+  if (!target) return t("mindMap.status.attention");
+  if (!target.enabled) return t("mindMap.status.disabled");
+  return t(warnings.length > 0 ? "mindMap.status.attention" : "mindMap.status.enabled");
+}
+
+function getStepTypeLabel(stepType: MacroStep["type"], t: Translator): string {
+  switch (stepType) {
+    case "key": return t("macroForm.addKey");
+    case "click": return t("macroForm.addClick");
+    case "delay": return t("macroForm.addDelay");
+    case "macro": return t("macroForm.addMacro");
+  }
 }
 
 function addCallWarning(

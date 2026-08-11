@@ -142,32 +142,62 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
-    // ParentWindow is the runtime host HWND, not a per-WebView child HWND.
-    // Keep the host geometry authoritative and place each controller with
-    // Bounds coordinates relative to that shared parent.
-    windows_live_resize_submit_ordered(surfaces, bounds, |surface, bounds| {
-        windows_live_resize_submit_controller_bounds(
-            surface,
-            bounds,
-            |surface, bounds| unsafe {
-                surface
-                    .controller
-                    .SetBounds(windows_live_resize_controller_rect(bounds))
+    // Wry owns one WS_CHILD host HWND per WebView2 controller. Move those
+    // hosts into the runtime layout first, then fill each host with its
+    // controller. Controller bounds alone are clipped by the host's old size.
+    windows_live_resize_submit_ordered(
+        surfaces,
+        bounds,
+        |surfaces, bounds| {
+            let mut deferred =
+                unsafe { BeginDeferWindowPos(surfaces.len() as i32) }.map_err(|_| ())?;
+            let flags = windows_live_resize_window_pos_flags();
+            for (surface, bounds) in surfaces.iter().zip(bounds) {
+                deferred = unsafe {
+                    DeferWindowPos(
+                        deferred,
+                        surface.hwnd,
+                        None,
+                        bounds.x,
+                        bounds.y,
+                        bounds.width,
+                        bounds.height,
+                        flags,
+                    )
+                }
+                .map_err(|_| ())?;
             }
-            .map_err(|_| ()),
-        )
-    })
+            unsafe { EndDeferWindowPos(deferred) }.map_err(|_| ())
+        },
+        |surface, bounds| {
+            windows_live_resize_submit_controller_bounds(
+                surface,
+                bounds,
+                |surface, bounds| unsafe {
+                    surface
+                        .controller
+                        .SetBounds(windows_live_resize_controller_rect(bounds))
+                }
+                .map_err(|_| ()),
+            )
+        },
+    )
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_controller_rect(
     bounds: &WindowsLiveResizeBounds,
 ) -> RECT {
     RECT {
-        bottom: bounds.y.saturating_add(bounds.height),
-        left: bounds.x,
-        right: bounds.x.saturating_add(bounds.width),
-        top: bounds.y,
+        bottom: bounds.height,
+        left: 0,
+        right: bounds.width,
+        top: 0,
     }
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_window_pos_flags(
+) -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {
+    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOZORDER
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>(
@@ -181,11 +211,13 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>
 pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     surfaces: &[T],
     bounds: &[WindowsLiveResizeBounds],
+    submit_child_batch: impl FnOnce(&[T], &[WindowsLiveResizeBounds]) -> Result<(), ()>,
     mut submit_controller_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
 ) -> Result<(), ()> {
     if surfaces.len() != bounds.len() || surfaces.is_empty() {
         return Err(());
     }
+    submit_child_batch(surfaces, bounds)?;
     for (surface, bounds) in surfaces.iter().zip(bounds) {
         submit_controller_bounds(surface, bounds)?;
     }

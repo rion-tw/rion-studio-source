@@ -430,10 +430,10 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("SIZE_MINIMIZED");
     expect(runtime).toContain("WM_RION_GEOMETRY_FLUSH");
     expect(runtime).toContain("PostMessageW");
-    expect(runtime).not.toContain("BeginDeferWindowPos");
-    expect(runtime).not.toContain("DeferWindowPos(");
+    expect(runtime).toContain("BeginDeferWindowPos");
+    expect(runtime).toContain("DeferWindowPos(");
     expect(runtime).toContain(".SetBounds(windows_live_resize_controller_rect(bounds))");
-    expect(runtime).not.toContain("surface.hwnd");
+    expect(runtime).toContain("surface.hwnd");
     expect(runtime).not.toContain("windows_live_resize_surface_bounds_match");
     expect(runtime).not.toContain("MapWindowPoints");
     expect(runtime).not.toContain("controller.Bounds(&mut");

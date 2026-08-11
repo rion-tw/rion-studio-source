@@ -377,6 +377,8 @@ impl LaunchPhase {
 
 struct RuntimeDisplayHost {
     generation: u64,
+    last_placement_observation_sequence: u64,
+    placement_observation_lane: Arc<Mutex<()>>,
     retirement_revision: u64,
     target: EmbeddedLaunchTargetRecord,
     window: Window,

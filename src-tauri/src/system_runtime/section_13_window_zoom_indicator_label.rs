@@ -154,6 +154,20 @@ impl SystemRuntimeExecutor {
             .map(|role| (role.id, role.name))
             .collect::<HashMap<_, _>>();
         let selected_tabs = self.presentation.selected_tabs();
+        let live_presentations = self
+            .presentation
+            .snapshot_states()
+            .map(|windows| {
+                windows
+                    .into_iter()
+                    .filter_map(|(window_id, window)| {
+                        window
+                            .placement
+                            .map(|placement| (window_id, placement.presentation))
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
         let (tabs, window_inputs, saved_windows, recovery) = {
             let Ok(state) = self.state.lock() else {
                 return json!({ "windows": [], "tabs": [] });
@@ -215,6 +229,10 @@ impl SystemRuntimeExecutor {
                         runtime_window.window_id.clone(),
                         host.target.display_id,
                         host.target.work_area.clone(),
+                        live_presentations
+                            .get(&runtime_window.window_id)
+                            .cloned()
+                            .unwrap_or_else(|| host.target.presentation.clone()),
                         host.window.clone(),
                         presented_active_tab_id,
                         runtime_window.tab_ids.len(),
@@ -286,7 +304,7 @@ impl SystemRuntimeExecutor {
         let windows = window_inputs
             .into_iter()
             .map(
-                |(_label, window_id, display_id, bounds, window, tab_id, tab_count)| {
+                |(_label, window_id, display_id, bounds, presentation, window, tab_id, tab_count)| {
                     json!({
                         "id": window_id,
                         "windowId": window_id,
@@ -294,6 +312,7 @@ impl SystemRuntimeExecutor {
                         "bounds": bounds,
                         "visible": window.is_visible().unwrap_or(false),
                         "focused": window.is_focused().unwrap_or(false),
+                        "presentation": presentation,
                         "activeTabId": tab_id,
                         "tabCount": tab_count
                     })

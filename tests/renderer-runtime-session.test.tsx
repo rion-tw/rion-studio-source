@@ -57,7 +57,8 @@ describe("Game Window recovery dashboard", () => {
             displayId: 1,
             bounds: { x: 0, y: 0, width: 1920, height: 1040 },
             visible: false,
-            tabCount: 1
+            tabCount: 1,
+            presentation: "normal"
           }]
         }}
         gameCount={0}

@@ -127,6 +127,7 @@ static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(not(windows))]
 static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+static WINDOW_PLACEMENT_OBSERVATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_RETIREMENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]
 static WINDOWS_TAB_CHROME_REVISION: AtomicU64 = AtomicU64::new(1);
@@ -144,7 +145,7 @@ fn point_in_runtime_tab_control_row(
     screen_x >= left && screen_x < left + width && screen_y >= top && screen_y < top + height
 }
 #[cfg(not(windows))]
-const WINDOW_PLACEMENT_PERSIST_DEBOUNCE: Duration = Duration::from_millis(180);
+const WINDOW_RESIZE_LAYOUT_SETTLE_DEBOUNCE: Duration = Duration::from_millis(180);
 #[cfg(not(windows))]
 const WINDOW_RESIZE_FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const WINDOW_STATE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(200);

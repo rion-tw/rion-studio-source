@@ -204,6 +204,7 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         role_id: &str,
         generation: u64,
+        navigation: Arc<NavigationTracker>,
     ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
         let ownership = self.state().ok().and_then(|state| {
             let tab_id = state.native_tab_id_for_role_surface(role_id)?.clone();
@@ -233,6 +234,7 @@ impl SystemRuntimeExecutor {
                 role_id: role_id.to_owned(),
                 generation,
             },
+            navigation,
         );
         let receipt = match result.as_ref() {
             Ok(_) => NativeOperationReceipt::applied(operation, "securityPolicyInstalled"),

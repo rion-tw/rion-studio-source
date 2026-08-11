@@ -391,7 +391,11 @@ impl NavigationTracker {
             .lock()
             .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
         state.active_operation_id = Some(context.operation_id.clone());
+        state.active_native_navigation_id = None;
+        state.failure_code = None;
         state.finished = false;
+        state.native_completion_succeeded = None;
+        state.page_finished = false;
         state.started = false;
         self.changed.notify_all();
         self.signal_async_changed();
@@ -414,6 +418,8 @@ impl NavigationTracker {
             .map_err(|_| "navigation tracker lock poisoned".to_owned())?;
         if state.active_operation_id.as_deref() != Some(context.operation_id.as_str()) {
             Ok(NavigationOperationState::Superseded)
+        } else if let Some(code) = state.failure_code.as_ref() {
+            Ok(NavigationOperationState::Failed(code.clone()))
         } else if state.finished {
             Ok(NavigationOperationState::Finished)
         } else {
@@ -443,6 +449,14 @@ impl NavigationTracker {
                 );
             }
             if state.finished {
+                if let Some(code) = state.failure_code.as_deref() {
+                    return NativeOperationReceipt::with_status(
+                        context,
+                        "navigationFailed",
+                        NativeOperationStatus::Failed,
+                        Some(code),
+                    );
+                }
                 return NativeOperationReceipt::applied(context, "pageFinished");
             }
             let remaining = context.remaining();
@@ -485,8 +499,15 @@ impl NavigationTracker {
         let wait = async {
             loop {
                 match self.operation_state(&context) {
-                    Ok(NavigationOperationState::Finished) => return Ok(true),
-                    Ok(NavigationOperationState::Superseded) => return Ok(false),
+                    Ok(NavigationOperationState::Finished) => {
+                        return Ok(NavigationOperationState::Finished);
+                    }
+                    Ok(NavigationOperationState::Failed(code)) => {
+                        return Ok(NavigationOperationState::Failed(code));
+                    }
+                    Ok(NavigationOperationState::Superseded) => {
+                        return Ok(NavigationOperationState::Superseded);
+                    }
                     Ok(NavigationOperationState::Pending) => {}
                     Err(error) => return Err(error),
                 }
@@ -497,12 +518,25 @@ impl NavigationTracker {
             }
         };
         match tokio::time::timeout(context.remaining(), wait).await {
-            Ok(Ok(true)) => NativeOperationReceipt::applied(context, "pageFinished"),
-            Ok(Ok(false)) => NativeOperationReceipt::with_status(
+            Ok(Ok(NavigationOperationState::Finished)) => {
+                NativeOperationReceipt::applied(context, "pageFinished")
+            }
+            Ok(Ok(NavigationOperationState::Failed(code))) => {
+                NativeOperationReceipt::with_status(
+                    context,
+                    "navigationFailed",
+                    NativeOperationStatus::Failed,
+                    Some(&code),
+                )
+            }
+            Ok(Ok(NavigationOperationState::Superseded)) => NativeOperationReceipt::with_status(
                 context,
                 "navigationSuperseded",
                 NativeOperationStatus::Superseded,
                 Some("SYSTEM_NAVIGATION_SUPERSEDED"),
+            ),
+            Ok(Ok(NavigationOperationState::Pending)) => unreachable!(
+                "navigation wait cannot terminate while its operation remains pending"
             ),
             Ok(Err(_)) => NativeOperationReceipt::with_status(
                 context,
@@ -520,8 +554,9 @@ impl NavigationTracker {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum NavigationOperationState {
+    Failed(String),
     Finished,
     Pending,
     Superseded,

@@ -453,7 +453,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("selection.insert_tab(presentation_tab, 0, should_select)");
     expect(createTab).not.toContain("replace_tab_id");
     expect(createTab).toContain("presentation.bind_surface(");
-    expect(createTab).toContain("self.setup_role_surface(&webview, &role_id, generation)");
+    expect(createTab).toMatch(
+      /self\.setup_role_surface\(\s*&webview,\s*&role_id,\s*generation,\s*Arc::clone\(&navigation\),?\s*\)/
+    );
     expect(createTab).not.toContain("install_platform_security_policy(&webview)");
     const createTabLaunch = createTab.slice(
       0,

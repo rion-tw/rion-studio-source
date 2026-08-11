@@ -454,7 +454,12 @@ impl SystemRuntimeExecutor {
                 let setup_started = Instant::now();
                 let setup_stage = format!("native-role-setup:{role_id}");
                 self.record_runtime_stage(&setup_stage, "started", setup_started);
-                let lifecycle = match self.setup_role_surface(&webview, &role_id, generation) {
+                let lifecycle = match self.setup_role_surface(
+                    &webview,
+                    &role_id,
+                    generation,
+                    Arc::clone(&navigation),
+                ) {
                     Ok(lifecycle) => {
                         self.record_runtime_stage(&setup_stage, "completed", setup_started);
                         self.record_runtime_stage(

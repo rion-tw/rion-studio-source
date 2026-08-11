@@ -98,6 +98,71 @@ describe("macro mind map UI", () => {
       expect(Number.parseFloat(canvas?.style.height ?? "0")).toBeGreaterThan(collapsedHeight);
     });
     expect(inlineMap.querySelector("button[aria-label='Collapse Child']")).toBeTruthy();
+    expect(inlineMap.textContent).toContain("Trigger and continue");
+    expect(inlineMap.textContent).toContain("Enabled");
+  });
+
+  it("renders the refined hierarchy and compact sticky toolbar", () => {
+    const { container } = renderEditor([macro()]);
+    const inlineMap = container.querySelector<HTMLElement>("[data-macro-mind-map='inline']");
+    if (!inlineMap) throw new Error("Inline mind map was not rendered.");
+    const toolbar = inlineMap.querySelector<HTMLElement>(".macro-mind-map-toolbar");
+    const step = inlineMap.querySelector<HTMLElement>("[data-macro-mind-map-step-type='key']");
+
+    expect(toolbar?.className).toContain("sticky");
+    expect(inlineMap.textContent).toContain("Live preview");
+    expect(inlineMap.textContent).toContain("Key");
+    expect(step?.querySelector(".macro-mind-map-node-rail")).toBeTruthy();
+    expect(step?.querySelectorAll(".macro-mind-map-handle")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();
+    expect(inlineMap.querySelector(".react-flow__controls")).toBeNull();
+  });
+
+  it("lets hover override selection focus and clears focus from the pane", async () => {
+    const root = macro({
+      steps: [
+        { id: "first", type: "key", code: "F1" },
+        { id: "second", type: "delay", ms: 100 },
+        { id: "third", type: "key", code: "F3" }
+      ]
+    });
+    const { container } = renderEditor([root]);
+    const nodeForStep = (stepId: string): HTMLElement => {
+      const card = container.querySelector<HTMLElement>(
+        `[data-macro-mind-map-current-step='${stepId}']`
+      );
+      const node = card?.closest<HTMLElement>(".react-flow__node");
+      if (!node) throw new Error(`Mind map node ${stepId} was not rendered.`);
+      return node;
+    };
+    const secondNode = nodeForStep("second");
+    const thirdNode = nodeForStep("third");
+    const settingsNode = container.querySelector<HTMLElement>(
+      "[data-macro-mind-map-node-kind='macroSettings']"
+    )?.closest<HTMLElement>(".react-flow__node");
+    if (!settingsNode) throw new Error("Settings node was not rendered.");
+
+    fireEvent.mouseEnter(secondNode);
+    await waitFor(() => expect(thirdNode.className).toContain("macro-mind-map-node-dimmed"));
+    expect(settingsNode.className).toContain("macro-mind-map-node-dimmed");
+    expect(secondNode.className).toContain("macro-mind-map-node-active");
+
+    fireEvent.mouseLeave(secondNode);
+    await waitFor(() => expect(thirdNode.className).not.toContain("macro-mind-map-node-dimmed"));
+
+    fireEvent.click(secondNode);
+    await waitFor(() => expect(thirdNode.className).toContain("macro-mind-map-node-dimmed"));
+    fireEvent.mouseEnter(settingsNode);
+    await waitFor(() => expect(secondNode.className).toContain("macro-mind-map-node-dimmed"));
+    fireEvent.mouseLeave(settingsNode);
+    await waitFor(() => expect(secondNode.className).toContain("macro-mind-map-node-active"));
+
+    const pane = container.querySelector<HTMLElement>(".react-flow__pane");
+    if (!pane) throw new Error("Mind map pane was not rendered.");
+    fireEvent.click(pane);
+    await waitFor(() => expect(thirdNode.className).not.toContain("macro-mind-map-node-dimmed"));
+    expect(screen.getByTestId("macro-step-second").className).not.toContain("ring-inset");
   });
 
   it("grows with long flows without offering fullscreen or forced fit controls", async () => {

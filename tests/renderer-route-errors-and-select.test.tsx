@@ -13,7 +13,14 @@ import RolesRoute from "../src/renderer/src/features/roles/RolesRoute";
 import { LANGUAGE_STORAGE_KEY } from "../src/renderer/src/app/constants";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { Game, Macro, Role } from "../src/shared/types";
+import type { EmbeddedRuntimeState, Game, Macro, Role } from "../src/shared/types";
+
+const emptyRuntime: EmbeddedRuntimeState = {
+  revision: 0,
+  capturedAt: "2026-01-01T00:00:00.000Z",
+  windows: [],
+  tabs: []
+};
 
 beforeAll(() => {
   if (!("PointerEvent" in window)) {
@@ -96,10 +103,12 @@ describe("list select filters", () => {
         busyRoleIds={new Set()}
         filteredRoles={roles}
         games={games}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 2, running: 0, stopped: 2 }}
         roles={roles}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}

@@ -134,6 +134,24 @@ across the main window and runtime windows wins, a matching native focus
 observation confirms it, and a different observation supersedes older leases.
 Every lease is scoped to the exact window generation and lifecycle epoch.
 
+### Launcher destination policy
+
+Role and workspace launch always reuses an already admitted live source owner,
+regardless of a renderer destination request. Otherwise an automatic launch
+chooses the last native-focused live Game Window, then the persisted
+last-focused ID only while it is still live, then the sole live Game Window.
+Zero live windows, or multiple live windows without usable focus history,
+creates a new transient Game Window. Automatic launch never selects a dormant
+saved window by list order, UUID, or another implicit fallback.
+
+The trusted main renderer may explicitly request a new transient window or an
+exact live/saved Game Window. Rust resolves the requested ID against the
+authoritative live topology and saved catalog. A live target receives the new
+foreground tab. A dormant saved target focuses its existing matching source tab
+or appends the source as the foreground tab before event-bound hydration. Empty
+saved windows are valid targets. Missing, stale, recovering, restoring, or
+failed targets reject with a stable error and never fall back silently.
+
 ### Role slot and native-surface ownership
 
 A runtime tab owns a stable list of role slots. Every slot keeps its slot ID,

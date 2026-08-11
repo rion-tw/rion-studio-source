@@ -7,7 +7,8 @@ use std::{
 
 use rion_core::{
     AppCore, CoreCommand, EmbeddedLaunchTargetRecord, RuntimeLaunchIntentReceiptRecord,
-    RuntimeLaunchIntentRecord, StateGameWindowRecord, LogCaptureRecord,
+    RuntimeLaunchDestinationRequest, RuntimeLaunchIntentRecord, StateGameWindowRecord,
+    LogCaptureRecord,
 };
 use tauri::{
     AppHandle, Manager, Window,
@@ -30,10 +31,30 @@ const MAX_CONCURRENT_TAB_MENU_MODELS: usize = 2;
 
 struct LaunchIntent {
     enqueued_at: Instant,
-    exact_window_id: Option<String>,
     origin: &'static str,
     record: RuntimeLaunchIntentRecord,
     reply: Option<tokio::sync::oneshot::Sender<Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload>>>,
+    target_policy: RuntimeLaunchTargetPolicy,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeLaunchTargetPolicy {
+    Automatic,
+    NewWindow,
+    RequestedGameWindow(String),
+    AuthenticatedLiveWindow(String),
+}
+
+impl From<RuntimeLaunchDestinationRequest> for RuntimeLaunchTargetPolicy {
+    fn from(request: RuntimeLaunchDestinationRequest) -> Self {
+        match request {
+            RuntimeLaunchDestinationRequest::Automatic => Self::Automatic,
+            RuntimeLaunchDestinationRequest::NewWindow => Self::NewWindow,
+            RuntimeLaunchDestinationRequest::GameWindow { window_id } => {
+                Self::RequestedGameWindow(window_id)
+            }
+        }
+    }
 }
 
 pub(crate) struct LaunchAdmissionSignal(
@@ -130,7 +151,7 @@ impl LaunchIntentDispatcher {
                         &job_app,
                         intent.record,
                         crate::RuntimeLaunchExecutionContext::new(
-                            intent.exact_window_id,
+                            intent.target_policy,
                             intent.origin,
                             &job_launch_log_sender,
                             intent.enqueued_at,
@@ -263,15 +284,15 @@ impl LaunchIntentDispatcher {
         &self,
         source_id: &str,
         workspace: bool,
-        exact_window_id: Option<String>,
+        target_policy: RuntimeLaunchTargetPolicy,
         origin: &'static str,
     ) -> Result<(), String> {
         self.enqueue(LaunchIntent {
             enqueued_at: Instant::now(),
-            exact_window_id,
             origin,
             record: self.intent_record(source_id, workspace),
             reply: None,
+            target_policy,
         })
     }
 
@@ -279,16 +300,16 @@ impl LaunchIntentDispatcher {
         &self,
         source_id: &str,
         workspace: bool,
-        exact_window_id: Option<String>,
+        destination: RuntimeLaunchDestinationRequest,
         origin: &'static str,
     ) -> Result<RuntimeLaunchOutcome, rion_core::CoreErrorPayload> {
         let (reply, receiver) = tokio::sync::oneshot::channel();
         self.enqueue(LaunchIntent {
             enqueued_at: Instant::now(),
-            exact_window_id,
             origin,
             record: self.intent_record(source_id, workspace),
             reply: Some(reply),
+            target_policy: destination.into(),
         })
         .map_err(|message| rion_core::CoreErrorPayload {
             code: "TAURI_RUNTIME_TAB_LAUNCH_QUEUE_FAILED".to_owned(),

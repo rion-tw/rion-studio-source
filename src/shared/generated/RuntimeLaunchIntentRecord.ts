@@ -2,7 +2,7 @@
 
 /**
  * A launcher action after its native adapter has been authenticated. Renderer
- * supplied window identity is deliberately absent; the System Runtime resolves
- * the destination from the registered adapter and native focus history.
+ * supplied destination requests remain separate from the adapter-authenticated
+ * runtime-window identity carried by the native tab launcher.
  */
 export type RuntimeLaunchIntentRecord = { intentId: string, adapterSequence: number, sourceId: string, sourceType: "role" | "workspace", };

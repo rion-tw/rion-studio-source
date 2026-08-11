@@ -85,6 +85,7 @@ fn export_bindings_index() {
                 "export type { RuntimeTabMutationRequestRecord } from \"./RuntimeTabMutationRequestRecord\";\n",
                 "export type { RuntimeTabIntentRecord } from \"./RuntimeTabIntentRecord\";\n",
                 "export type { RuntimeTabIntentReceiptRecord } from \"./RuntimeTabIntentReceiptRecord\";\n",
+                "export type { RuntimeLaunchDestinationRequest } from \"./RuntimeLaunchDestinationRequest\";\n",
                 "export type { RuntimeLaunchIntentRecord } from \"./RuntimeLaunchIntentRecord\";\n",
                 "export type { RuntimeLaunchIntentReceiptRecord } from \"./RuntimeLaunchIntentReceiptRecord\";\n",
                 "export type { RuntimeWindowStopRequestRecord } from \"./RuntimeWindowStopRequestRecord\";\n",

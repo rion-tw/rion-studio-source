@@ -8,7 +8,7 @@ fn launch_from_menu(
     if let Err(message) = state.launch_intents.try_launch_source(
         source_id,
         workspace,
-        Some(target.window_id),
+        RuntimeLaunchTargetPolicy::AuthenticatedLiveWindow(target.window_id),
         "native-tab-launcher",
     ) {
         reveal_menu_error(app, message);

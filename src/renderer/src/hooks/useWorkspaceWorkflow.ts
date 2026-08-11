@@ -5,7 +5,7 @@ import { formatBulkDeleteResult } from "../app/bulkDelete";
 import type { WorkspaceFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
-import type { LaunchWorkspace } from "../../../shared/types";
+import type { LaunchWorkspace, RuntimeLaunchDestination } from "../../../shared/types";
 import { useBusyIds } from "./useBusyIds";
 
 interface UseWorkspaceWorkflowOptions {
@@ -159,7 +159,10 @@ export function useWorkspaceWorkflow({
     }
   }
 
-  async function handleLaunchWorkspace(workspace: LaunchWorkspace): Promise<void> {
+  async function handleLaunchWorkspace(
+    workspace: LaunchWorkspace,
+    destination?: RuntimeLaunchDestination
+  ): Promise<void> {
     if (launchInProgressRef.current) {
       return;
     }
@@ -175,7 +178,7 @@ export function useWorkspaceWorkflow({
     setNotice?.(null);
 
     try {
-      const result = await window.rionStudio.launchWorkspace(workspace.id);
+      const result = await window.rionStudio.launchWorkspace(workspace.id, destination);
       const nextStatuses = result.statuses;
 
       const notice = nextStatuses.find((status) => status.notice)?.notice;

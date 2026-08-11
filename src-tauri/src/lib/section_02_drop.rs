@@ -800,7 +800,12 @@ async fn rion_core_invoke(
     if let Some((source_id, workspace, origin)) = runtime_launch {
         return state
             .launch_intents
-            .submit(&source_id, workspace, None, origin)
+            .submit(
+                &source_id,
+                workspace,
+                rion_core::RuntimeLaunchDestinationRequest::Automatic,
+                origin,
+            )
             .await
             .map(|outcome| outcome.statuses);
     }

@@ -12,7 +12,14 @@ import RolesRoute from "../src/renderer/src/features/roles/RolesRoute";
 import LaunchWorkspacesRoute from "../src/renderer/src/features/workspaces/LaunchWorkspacesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { Game, LaunchWorkspace, Macro, Role } from "../src/shared/types";
+import type { EmbeddedRuntimeState, Game, LaunchWorkspace, Macro, Role } from "../src/shared/types";
+
+const emptyRuntime: EmbeddedRuntimeState = {
+  revision: 0,
+  capturedAt: "2026-01-01T00:00:00.000Z",
+  windows: [],
+  tabs: []
+};
 
 afterEach(cleanup);
 
@@ -49,10 +56,12 @@ describe("create controls at the end of lists", () => {
         busyRoleIds={new Set()}
         filteredRoles={[role()]}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[role()]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -89,10 +98,12 @@ describe("create controls at the end of lists", () => {
           busyRoleIds={new Set()}
           filteredRoles={[role()]}
           games={[game()]}
+          gameWindows={[]}
           isReordering={false}
           language="en"
           roleStats={{ total: 1, running: 0, stopped: 1 }}
           roles={[role()]}
+          runtime={emptyRuntime}
           scrollPositionRef={{ current: 0 }}
           query=""
           statusByRole={new Map()}
@@ -125,10 +136,11 @@ describe("create controls at the end of lists", () => {
       <LaunchWorkspacesRoute
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[]}
-        runtimeTabs={[]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={[workspace()]}

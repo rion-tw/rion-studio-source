@@ -7,7 +7,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import RolesView from "../src/renderer/src/features/roles/RolesRoute";
 import LaunchWorkspacesView from "../src/renderer/src/features/workspaces/LaunchWorkspacesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
-import type { LaunchWorkspace, Role } from "../src/shared/types";
+import type { EmbeddedRuntimeState, LaunchWorkspace, Role } from "../src/shared/types";
+
+const emptyRuntime: EmbeddedRuntimeState = {
+  revision: 0,
+  capturedAt: "2026-01-01T00:00:00.000Z",
+  windows: [],
+  tabs: []
+};
 
 beforeAll(() => {
   Object.defineProperty(document, "elementFromPoint", {
@@ -35,10 +42,12 @@ describe("list editor navigation", () => {
         busyRoleIds={new Set()}
         filteredRoles={[item]}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[item]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -80,10 +89,12 @@ describe("list editor navigation", () => {
         busyRoleIds={new Set()}
         filteredRoles={[item]}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[item]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -118,10 +129,12 @@ describe("list editor navigation", () => {
         busyRoleIds={new Set()}
         filteredRoles={[item]}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 1, running: 0, stopped: 1 }}
         roles={[item]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -162,10 +175,12 @@ describe("list editor navigation", () => {
           busyRoleIds={new Set()}
           filteredRoles={[item]}
           games={[]}
+          gameWindows={[]}
           isReordering={false}
           language="en"
           roleStats={{ total: 1, running: 1, stopped: 0 }}
           roles={[item]}
+          runtime={emptyRuntime}
           scrollPositionRef={{ current: 0 }}
           query=""
           statusByRole={new Map([
@@ -209,10 +224,11 @@ describe("list editor navigation", () => {
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[assignedRole]}
-        runtimeTabs={[]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={[item]}
@@ -250,22 +266,35 @@ describe("list editor navigation", () => {
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[assignedRole]}
-        runtimeTabs={[{
-          id: "tab-1",
-          type: "workspace",
-          sourceId: item.id,
-          name: item.name,
-          windowId: "window-1",
-          roleIds: [assignedRole.id],
-          slots: [],
-          hidden: false,
-          active: true,
-          audible: false,
-          audioMuted: false
-        }]}
+        runtime={{
+          ...emptyRuntime,
+          windows: [{
+            id: "window-1",
+            windowId: "window-1",
+            displayId: 1,
+            bounds: { x: 0, y: 0, width: 800, height: 600 },
+            visible: true,
+            activeTabId: "tab-1",
+            tabCount: 1
+          }],
+          tabs: [{
+            id: "tab-1",
+            type: "workspace",
+            sourceId: item.id,
+            name: item.name,
+            windowId: "window-1",
+            roleIds: [assignedRole.id],
+            slots: [],
+            hidden: false,
+            active: true,
+            audible: false,
+            audioMuted: false
+          }]
+        }}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={[item]}
@@ -295,10 +324,11 @@ describe("list editor navigation", () => {
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[]}
-        runtimeTabs={[]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={[item]}
@@ -332,10 +362,12 @@ describe("list editor navigation", () => {
         busyRoleIds={new Set()}
         filteredRoles={roles}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: roles.length, running: 0, stopped: roles.length }}
         roles={roles}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -372,10 +404,11 @@ describe("list editor navigation", () => {
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[]}
-        runtimeTabs={[]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={workspaces}

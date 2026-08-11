@@ -600,7 +600,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     deleteRoles: (input) => invokeCore({ type: "rolesDelete", ids: input.ids }),
     clearRoleBrowserData: (id) => invokeCore({ type: "roleBrowserDataClear", roleId: id }),
     getRolePaths: (id) => invokeCore({ type: "rolePathsResolve", id }),
-    launchRole: (id) => invokeShell("launchRole", [id]),
+    launchRole: (id, destination) =>
+      invokeShell("launchRole", destination ? [id, destination] : [id]),
     stopRole: (id) => invokeCore({ type: "browserRoleStop", roleId: id }).then(() => undefined),
     listRoleStatuses: () => invokeCore({ type: "browserStatuses" }),
     listLaunchWorkspaces: () => invokeCore({ type: "workspacesList" }),
@@ -618,7 +619,8 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     deleteLaunchWorkspaces: (input) =>
       invokeCore({ type: "workspacesDelete", ids: input.ids }),
     getDisplayTopology: () => invokeShell("displayTopology"),
-    launchWorkspace: (id) => invokeShell("launchWorkspace", [id]),
+    launchWorkspace: (id, destination) =>
+      invokeShell("launchWorkspace", destination ? [id, destination] : [id]),
     stopLaunchWorkspace: (id) =>
       invokeCore({ type: "browserWorkspaceStop", workspaceId: id }).then(() => undefined),
     listMacros: () => invokeCore({ type: "macrosList" }),

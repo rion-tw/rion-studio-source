@@ -74,6 +74,7 @@ export type { SystemRuntimeOperationSummaryRecord } from "./SystemRuntimeOperati
 export type { RuntimeTabMutationRequestRecord } from "./RuntimeTabMutationRequestRecord";
 export type { RuntimeTabIntentRecord } from "./RuntimeTabIntentRecord";
 export type { RuntimeTabIntentReceiptRecord } from "./RuntimeTabIntentReceiptRecord";
+export type { RuntimeLaunchDestinationRequest } from "./RuntimeLaunchDestinationRequest";
 export type { RuntimeLaunchIntentRecord } from "./RuntimeLaunchIntentRecord";
 export type { RuntimeLaunchIntentReceiptRecord } from "./RuntimeLaunchIntentReceiptRecord";
 export type { RuntimeWindowStopRequestRecord } from "./RuntimeWindowStopRequestRecord";

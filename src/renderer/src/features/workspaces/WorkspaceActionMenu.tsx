@@ -1,23 +1,43 @@
 import { Copy, type LucideIcon, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { type JSX, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import { type JSX, type PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
 
 import { Button } from "../../components/ui/button";
 import {
   ContextMenuContent,
-  ContextMenuItem
+  ContextMenuItem,
+  ContextMenuSeparator
 } from "../../components/ui/context-menu";
-import { Surface } from "../../components/ui/patterns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from "../../components/ui/dropdown-menu";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
+import type {
+  EmbeddedRuntimeState,
+  GameWindow,
+  RuntimeLaunchDestination
+} from "../../../../shared/types";
+import {
+  RuntimeLaunchDestinationContextSubmenu,
+  RuntimeLaunchDestinationDropdownSubmenu
+} from "../game-windows/runtimeLaunchDestination";
 
 interface WorkspaceActionMenuProps {
   canReorder: boolean;
+  gameWindows: GameWindow[];
   isDragging: boolean;
   isBusy: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onLaunchDestination: (destination?: RuntimeLaunchDestination) => void;
   onReorderPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
+  runtime: EmbeddedRuntimeState;
+  sourceId: string;
   t: Translator;
 }
 
@@ -32,16 +52,19 @@ interface WorkspaceAction {
 
 export function WorkspaceActionMenu({
   canReorder,
+  gameWindows,
   isBusy,
   isDragging,
   onCopy,
   onDelete,
+  onLaunchDestination,
   onReorderPointerDown,
   onEdit,
+  runtime,
+  sourceId,
   t
 }: WorkspaceActionMenuProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const actions = createWorkspaceActions({ isBusy, onCopy, onDelete, onEdit, t });
 
   useEffect(() => {
@@ -50,106 +73,101 @@ export function WorkspaceActionMenu({
     }
   }, [isDragging]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent): void {
-      if (menuRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
-      setIsOpen(false);
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  function run(action: () => void): void {
-    setIsOpen(false);
-    action();
-  }
-
   return (
-    <div ref={menuRef} className="relative shrink-0">
-      <Button
-        className={cn(
-          "h-7 w-7 touch-none",
-          canReorder && "cursor-grab active:cursor-grabbing",
-          isDragging && "cursor-grabbing"
-        )}
-        type="button"
-        variant="secondary"
-        size="icon"
-        title={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
-        aria-label={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((current) => !current)}
-        onPointerDown={canReorder ? onReorderPointerDown : undefined}
-      >
-        <MoreHorizontal size={14} />
-      </Button>
-
-      {isOpen ? (
-        <Surface
-          className="absolute right-0 top-8 z-[var(--layer-popover)] min-w-32 overflow-hidden text-popover-foreground"
-          padding="xs"
-          variant="popover"
-          role="menu"
+    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className={cn(
+            "h-7 w-7 touch-none",
+            canReorder && "cursor-grab active:cursor-grabbing",
+            isDragging && "cursor-grabbing"
+          )}
+          type="button"
+          variant="secondary"
+          size="icon"
+          title={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
+          aria-label={t(canReorder ? "workspaces.actionsAndReorder" : "workspaces.actions")}
+          onPointerDown={canReorder ? onReorderPointerDown : undefined}
         >
-          {actions.map(({ Icon, id, isDestructive, isDisabled, label, onSelect }) => (
-            <button
+          <MoreHorizontal size={14} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+          {actions.filter((action) => !action.isDestructive).map(({ Icon, id, isDisabled, label, onSelect }) => (
+            <DropdownMenuItem
               key={id}
-              className={cn(
-                "flex h-7 w-full items-center gap-1.5 rounded-sm px-2 text-left text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-50",
-                isDestructive
-                  ? "text-destructive hover:bg-destructive/10"
-                  : "text-foreground hover:bg-accent/45 hover:text-accent-foreground"
-              )}
-              type="button"
-              role="menuitem"
+              className="gap-1.5"
               disabled={isDisabled}
-              onClick={() => run(onSelect)}
+              onSelect={onSelect}
             >
               <Icon size={14} />
               <span>{label}</span>
-            </button>
+            </DropdownMenuItem>
           ))}
-        </Surface>
-      ) : null}
-    </div>
+          <RuntimeLaunchDestinationDropdownSubmenu
+            disabled={isBusy}
+            gameWindows={gameWindows}
+            runtime={runtime}
+            source={{ id: sourceId, type: "workspace" }}
+            t={t}
+            onSelect={onLaunchDestination}
+          />
+          <DropdownMenuSeparator />
+          {actions.filter((action) => action.isDestructive).map(({ Icon, id, isDisabled, label, onSelect }) => (
+            <DropdownMenuItem
+              key={id}
+              className="gap-1.5 text-destructive"
+              disabled={isDisabled}
+              onSelect={onSelect}
+            >
+              <Icon size={14} />
+              <span>{label}</span>
+            </DropdownMenuItem>
+          ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
 export function WorkspaceContextMenuContent({
+  gameWindows,
   isBusy,
   onCopy,
   onDelete,
   onEdit,
+  onLaunchDestination,
+  runtime,
+  sourceId,
   t
 }: Omit<WorkspaceActionMenuProps, "canReorder" | "isDragging" | "onReorderPointerDown">): JSX.Element {
   const actions = createWorkspaceActions({ isBusy, onCopy, onDelete, onEdit, t });
 
   return (
     <ContextMenuContent>
-      {actions.map(({ Icon, id, isDestructive, isDisabled, label, onSelect }) => (
+      {actions.filter((action) => !action.isDestructive).map(({ Icon, id, isDisabled, label, onSelect }) => (
         <ContextMenuItem
           key={id}
-          className={cn("gap-1.5", isDestructive && "text-destructive")}
+          className="gap-1.5"
+          disabled={isDisabled}
+          onSelect={onSelect}
+        >
+          <Icon size={14} />
+          <span>{label}</span>
+        </ContextMenuItem>
+      ))}
+      <RuntimeLaunchDestinationContextSubmenu
+        disabled={isBusy}
+        gameWindows={gameWindows}
+        runtime={runtime}
+        source={{ id: sourceId, type: "workspace" }}
+        t={t}
+        onSelect={onLaunchDestination}
+      />
+      <ContextMenuSeparator />
+      {actions.filter((action) => action.isDestructive).map(({ Icon, id, isDisabled, label, onSelect }) => (
+        <ContextMenuItem
+          key={id}
+          className="gap-1.5 text-destructive"
           disabled={isDisabled}
           onSelect={onSelect}
         >

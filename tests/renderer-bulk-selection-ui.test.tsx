@@ -11,7 +11,14 @@ import RolesRoute from "../src/renderer/src/features/roles/RolesRoute";
 import LaunchWorkspacesRoute from "../src/renderer/src/features/workspaces/LaunchWorkspacesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
-import type { Game, LaunchWorkspace, Macro, Role } from "../src/shared/types";
+import type { EmbeddedRuntimeState, Game, LaunchWorkspace, Macro, Role } from "../src/shared/types";
+
+const emptyRuntime: EmbeddedRuntimeState = {
+  revision: 0,
+  capturedAt: "2026-01-01T00:00:00.000Z",
+  windows: [],
+  tabs: []
+};
 
 beforeAll(() => {
   if (!("PointerEvent" in window)) {
@@ -131,10 +138,12 @@ describe("bulk selection UI", () => {
         busyRoleIds={new Set()}
         filteredRoles={[item, otherItem]}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         language="en"
         roleStats={{ total: 2, running: 0, stopped: 2 }}
         roles={[item, otherItem]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         query=""
         statusByRole={new Map()}
@@ -182,10 +191,11 @@ describe("bulk selection UI", () => {
       <LaunchWorkspacesRoute
         busyWorkspaceIds={new Set()}
         games={[]}
+        gameWindows={[]}
         isReordering={false}
         query=""
         roles={[]}
-        runtimeTabs={[]}
+        runtime={emptyRuntime}
         scrollPositionRef={{ current: 0 }}
         t={t}
         workspaces={[item]}

@@ -555,8 +555,10 @@ export function App(): JSX.Element {
                     busyRoleIds={busyRoleIds}
                     filteredRoles={roleWorkflow.filteredRoles}
                     games={data.games}
+                    gameWindows={data.gameWindows}
                     roleStats={data.roleStats}
                     roles={data.roles}
+                    runtime={data.embeddedRuntime}
                     scrollPositionRef={roleWorkflow.listScrollTopRef}
                     query={roleWorkflow.query}
                     statusByRole={data.statusByRole}
@@ -569,7 +571,9 @@ export function App(): JSX.Element {
                     onEdit={(role) => navigateToEditRole(role.id)}
                     onError={data.setError}
                     onFilterChange={roleWorkflow.setActiveFilter}
-                    onLaunch={(roleId) => void roleWorkflow.handleLaunch(roleId)}
+                    onLaunch={(roleId, destination) =>
+                      void roleWorkflow.handleLaunch(roleId, destination)
+                    }
                     onNewRole={navigateToNewRole}
                     onQueryChange={roleWorkflow.setQuery}
                     onReorder={(orderedIds) => void roleWorkflow.handleReorder(orderedIds)}
@@ -589,9 +593,10 @@ export function App(): JSX.Element {
                   <LaunchWorkspacesRoute
                     busyWorkspaceIds={workspaceWorkflow.busyWorkspaceIds}
                     games={data.games}
+                    gameWindows={data.gameWindows}
                     query={workspaceWorkflow.query}
                     roles={data.roles}
-                    runtimeTabs={data.embeddedRuntime.tabs}
+                    runtime={data.embeddedRuntime}
                     scrollPositionRef={workspaceWorkflow.listScrollTopRef}
                     t={preferences.t}
                     workspaces={data.workspaces}
@@ -600,7 +605,9 @@ export function App(): JSX.Element {
                     onDeleteWorkspace={(workspace) => void workspaceWorkflow.handleDeleteWorkspace(workspace)}
                     onDeleteWorkspaces={workspaceWorkflow.handleDeleteWorkspaces}
                     onEditWorkspace={(workspace) => navigateToEditWorkspace(workspace.id)}
-                    onLaunchWorkspace={(workspace) => void workspaceWorkflow.handleLaunchWorkspace(workspace)}
+                    onLaunchWorkspace={(workspace, destination) =>
+                      void workspaceWorkflow.handleLaunchWorkspace(workspace, destination)
+                    }
                     onQueryChange={workspaceWorkflow.setQuery}
                     onReorderWorkspaces={(orderedIds) => void workspaceWorkflow.handleReorderWorkspaces(orderedIds)}
                     isReordering={workspaceWorkflow.isReorderingWorkspaces}

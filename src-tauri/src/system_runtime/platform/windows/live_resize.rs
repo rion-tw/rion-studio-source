@@ -7,9 +7,10 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, IsZoomed, PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, WM_APP,
-            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY,
-            WM_SIZE,
+            BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect, IsZoomed,
+            PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
+            SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE,
+            WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SIZE,
         },
     },
 };
@@ -43,6 +44,7 @@ pub(in crate::system_runtime) struct WindowsLiveResizePlan {
 #[derive(Clone)]
 pub(in crate::system_runtime) struct WindowsLiveResizeSurface {
     pub(in crate::system_runtime) controller: ICoreWebView2Controller,
+    pub(in crate::system_runtime) hwnd: HWND,
     pub(in crate::system_runtime) label: String,
 }
 
@@ -248,6 +250,7 @@ pub(in crate::system_runtime) fn windows_live_resize_register_webview(webview: &
                         label.clone(),
                         WindowsLiveResizeSurface {
                             controller,
+                            hwnd,
                             label: label.clone(),
                         },
                     );
@@ -277,6 +280,7 @@ pub(in crate::system_runtime) fn windows_live_resize_register_controller(
             label.clone(),
             WindowsLiveResizeSurface {
                 controller,
+                hwnd,
                 label: label.clone(),
             },
         );

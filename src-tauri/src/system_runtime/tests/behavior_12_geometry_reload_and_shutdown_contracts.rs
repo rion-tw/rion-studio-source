@@ -1,7 +1,7 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED;
+use windows::Win32::UI::WindowsAndMessaging::{SIZE_MINIMIZED, SWP_NOCOPYBITS};
 
 #[cfg(windows)]
 #[test]
@@ -590,11 +590,13 @@ fn live_resize_counters_keep_resize_and_parent_position_events_distinct() {
 
 #[cfg(windows)]
 #[test]
-fn live_resize_batch_updates_controller_bounds_without_moving_parent_windows() {
+fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth() {
     let surfaces = ["tabs", "left", "right"];
     let events = RefCell::new(Vec::new());
+    let child_batch_complete = std::cell::Cell::new(false);
     let controller_heights = RefCell::new(HashMap::new());
     let submit = |height| {
+        child_batch_complete.set(false);
         let bounds = surfaces
             .iter()
             .enumerate()
@@ -608,7 +610,15 @@ fn live_resize_batch_updates_controller_bounds_without_moving_parent_windows() {
         windows_live_resize_submit_ordered(
             &surfaces,
             &bounds,
+            |children, _| {
+                events
+                    .borrow_mut()
+                    .extend(children.iter().map(|label| format!("child:{label}")));
+                child_batch_complete.set(true);
+                Ok(())
+            },
             |label, bounds| {
+                assert!(child_batch_complete.get());
                 events.borrow_mut().push(format!("controller:{label}"));
                 controller_heights.borrow_mut().insert(*label, bounds.height);
                 Ok(())
@@ -618,14 +628,15 @@ fn live_resize_batch_updates_controller_bounds_without_moving_parent_windows() {
 
     submit(320).unwrap();
     submit(900).unwrap();
+    assert!(windows_live_resize_window_pos_flags().contains(SWP_NOCOPYBITS));
     assert_eq!(controller_heights.borrow().get("left"), Some(&900));
     assert_eq!(controller_heights.borrow().get("right"), Some(&900));
     assert_eq!(
-        events.into_inner(),
+        &events.borrow()[..6],
         [
-            "controller:tabs",
-            "controller:left",
-            "controller:right",
+            "child:tabs",
+            "child:left",
+            "child:right",
             "controller:tabs",
             "controller:left",
             "controller:right",
@@ -642,12 +653,30 @@ fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
         x: 0,
         y: 0,
     }];
-    assert!(windows_live_resize_submit_ordered(&["role"], &bounds, |_, _| Err(())).is_err());
+    let controller_called = std::cell::Cell::new(false);
+    assert!(windows_live_resize_submit_ordered(
+        &["role"],
+        &bounds,
+        |_, _| Err(()),
+        |_, _| {
+            controller_called.set(true);
+            Ok(())
+        },
+    )
+    .is_err());
+    assert!(!controller_called.get());
+    assert!(windows_live_resize_submit_ordered(
+        &["role"],
+        &bounds,
+        |_, _| Ok(()),
+        |_, _| Err(())
+    )
+    .is_err());
 }
 
 #[cfg(windows)]
 #[test]
-fn live_resize_controller_rect_keeps_pane_offsets_relative_to_the_host() {
+fn live_resize_controller_rect_fills_its_child_host_from_the_origin() {
     let rect = windows_live_resize_controller_rect(&WindowsLiveResizeBounds {
         height: 900,
         width: 600,
@@ -655,8 +684,8 @@ fn live_resize_controller_rect_keeps_pane_offsets_relative_to_the_host() {
         y: 44,
     });
 
-    assert_eq!((rect.left, rect.top), (620, 44));
-    assert_eq!((rect.right, rect.bottom), (1_220, 944));
+    assert_eq!((rect.left, rect.top), (0, 0));
+    assert_eq!((rect.right, rect.bottom), (600, 900));
 }
 
 #[cfg(windows)]

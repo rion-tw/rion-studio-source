@@ -74,7 +74,8 @@ describe("runtime launch destination menu", () => {
         bounds: { x: 0, y: 0, width: 900, height: 700 },
         visible: true,
         activeTabId: "tab-role",
-        tabCount: 1
+        tabCount: 1,
+        presentation: "normal"
       }],
       tabs: [{
         id: "tab-role",

@@ -131,6 +131,64 @@ fn runtime_window_snapshot_commit_is_latest_revision_wins() {
 }
 
 #[test]
+fn runtime_window_snapshot_restores_saved_bounds_and_presentation_after_restart() {
+    let (directory, core) = core();
+    let window_id = create_saved_window(&core, "Placement restore");
+    let commit = |revision: u64, presentation: &str, x: i32| {
+        core.invoke(command(json!({
+            "type": "gameWindowRuntimeSnapshotCommit",
+            "input": {
+                "snapshot": {
+                    "windowId": window_id.clone(),
+                    "windowGeneration": 9,
+                    "revision": revision,
+                    "tabs": [],
+                    "activeTabId": null
+                },
+                "name": "Placement restore",
+                "targetDisplay": { "id": 1 },
+                "placement": {
+                    "normalBounds": { "x": x, "y": 44, "width": 1110, "height": 720 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": presentation
+                }
+            }
+        })))
+        .unwrap()
+    };
+
+    assert_eq!(commit(2, "maximized", 33)["status"], "applied");
+    let maximized = core
+        .invoke(CoreCommand::GameWindowGet {
+            id: window_id.clone(),
+        })
+        .unwrap();
+    assert_eq!(maximized["placement"]["presentation"], "maximized");
+    assert_eq!(maximized["placement"]["normalBounds"]["x"], 33);
+
+    assert_eq!(commit(3, "fullscreen", 55)["status"], "applied");
+    core.shutdown();
+    drop(core);
+
+    let restored = AppCore::create(AppCoreOptions {
+        app_version: "2.1.0-test".to_owned(),
+        platform: "darwin".to_owned(),
+        user_data_dir: directory.path().to_string_lossy().into_owned(),
+        performance_telemetry_path: None,
+    })
+    .unwrap();
+    let saved = restored
+        .invoke(CoreCommand::GameWindowGet { id: window_id })
+        .unwrap();
+    assert_eq!(saved["placement"]["presentation"], "fullscreen");
+    assert_eq!(
+        saved["placement"]["normalBounds"],
+        json!({ "x": 55, "y": 44, "width": 1110, "height": 720 })
+    );
+    restored.shutdown();
+}
+
+#[test]
 fn runtime_window_snapshot_batch_is_atomic_and_latest_revision_wins_per_window() {
     let (_directory, core) = core();
     let window_a = create_saved_window(&core, "A0");

@@ -66,6 +66,7 @@ include!("system_runtime/section_13_window_zoom_indicator_label.rs");
 include!("system_runtime/section_13_background_tab_activation.rs");
 include!("system_runtime/section_13_on_demand_tab_activation.rs");
 include!("system_runtime/section_13_shutdown_contract.rs");
+include!("system_runtime/section_14_window_placement.rs");
 include!("system_runtime/section_14_window_resize.rs");
 include!("system_runtime/section_14_preview_tab_close.rs");
 include!("system_runtime/section_14_quarantined_tab_retirement.rs");

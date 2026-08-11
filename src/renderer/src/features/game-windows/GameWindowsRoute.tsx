@@ -19,6 +19,7 @@ import type {
   DisplayTarget,
   EmbeddedRuntimeState,
   GameWindow,
+  GameWindowPresentation,
   PixelBounds,
   SavedEmbeddedRuntimeWindowSummary
 } from "../../../../shared/types";
@@ -59,7 +60,7 @@ import { RenameGameWindowDialog } from "./RenameGameWindowDialog";
 const windowBusyKey = (windowId: string): string => `window:${windowId}`;
 const newWindowBusyKey = "window:new";
 
-type GameWindowListSortKey = "name" | "status" | "display" | "active" | "tabs";
+type GameWindowListSortKey = "name" | "status" | "display" | "mode" | "active" | "tabs";
 type GameWindowListSortDirection = "asc" | "desc";
 
 interface GameWindowListSortState {
@@ -167,9 +168,16 @@ export default function GameWindowsRoute({
     () => new Map(Array.from(stateByWindowId, ([windowId, state]) => [windowId, state.label])),
     [stateByWindowId]
   );
+  const presentationByWindowId = useMemo(
+    () => new Map(gameWindows.map((gameWindow) => [
+      gameWindow.id,
+      liveWindowById.get(gameWindow.id)?.presentation ?? gameWindow.placement.presentation
+    ])),
+    [gameWindows, liveWindowById]
+  );
   const sortedGameWindows = useMemo(
-    () => sortGameWindows(gameWindows, sort, displayById, stateLabelByWindowId, t),
-    [displayById, gameWindows, sort, stateLabelByWindowId, t]
+    () => sortGameWindows(gameWindows, sort, displayById, stateLabelByWindowId, presentationByWindowId, t),
+    [displayById, gameWindows, presentationByWindowId, sort, stateLabelByWindowId, t]
   );
   const gameWindowIds = useMemo(() => sortedGameWindows.map((gameWindow) => gameWindow.id), [sortedGameWindows]);
   const selection = useListSelection({
@@ -367,7 +375,7 @@ export default function GameWindowsRoute({
         <div className="grid justify-items-start gap-2">
           <Surface className="game-window-list-surface w-full overflow-hidden" variant="panel">
             <div ref={setGameWindowListScrollContainer} className="relative overflow-auto">
-              <table className="game-window-list-table w-full min-w-[900px] border-collapse text-left">
+              <table className="game-window-list-table w-full min-w-[1000px] border-collapse text-left">
                 <caption className="sr-only">{t("gameWindows.title")}</caption>
                 <thead className="glass-divider border-b text-caption uppercase tracking-normal text-muted-foreground">
                   <tr>
@@ -389,6 +397,13 @@ export default function GameWindowsRoute({
                       label={t("gameWindows.column.display")}
                       sort={sort}
                       sortKey="display"
+                      t={t}
+                      onSort={handleSortChange}
+                    />
+                    <GameWindowSortHeader
+                      label={t("gameWindows.column.mode")}
+                      sort={sort}
+                      sortKey="mode"
                       t={t}
                       onSort={handleSortChange}
                     />
@@ -417,6 +432,7 @@ export default function GameWindowsRoute({
                     const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
                     const display = displayById.get(gameWindow.targetDisplay.id);
                     const displayLabel = getGameWindowDisplayLabel(gameWindow, displayById, t);
+                    const presentation = presentationByWindowId.get(gameWindow.id)!;
                     return (
                       <ContextMenu key={gameWindow.id}>
                         <ContextMenuTrigger asChild>
@@ -458,6 +474,9 @@ export default function GameWindowsRoute({
                             <Monitor aria-hidden="true" className="shrink-0" size={14} />
                             <span className="min-w-0 truncate">{displayLabel}</span>
                           </span>
+                        </td>
+                        <td className="max-w-[140px] px-4 py-2 align-middle text-muted-foreground">
+                          {getGameWindowPresentationLabel(presentation, t)}
                         </td>
                         <td className="max-w-[240px] px-4 py-2 align-middle text-muted-foreground">
                           {activeTab ? <span className="block truncate">{activeTab.name}</span> : "—"}
@@ -722,12 +741,21 @@ function sortGameWindows(
   sort: GameWindowListSortState,
   displayById: ReadonlyMap<number, DisplayInfo>,
   stateLabelByWindowId: ReadonlyMap<string, string>,
+  presentationByWindowId: ReadonlyMap<string, GameWindowPresentation>,
   t: Translator
 ): GameWindow[] {
   return gameWindows
     .map((gameWindow, index) => ({ gameWindow, index }))
     .sort((first, second) => {
-      const primary = compareGameWindows(first.gameWindow, second.gameWindow, sort.key, displayById, stateLabelByWindowId, t);
+      const primary = compareGameWindows(
+        first.gameWindow,
+        second.gameWindow,
+        sort.key,
+        displayById,
+        stateLabelByWindowId,
+        presentationByWindowId,
+        t
+      );
       if (primary !== 0) {
         return sort.direction === "asc" ? primary : -primary;
       }
@@ -745,6 +773,7 @@ function compareGameWindows(
   sortKey: GameWindowListSortKey,
   displayById: ReadonlyMap<number, DisplayInfo>,
   stateLabelByWindowId: ReadonlyMap<string, string>,
+  presentationByWindowId: ReadonlyMap<string, GameWindowPresentation>,
   t: Translator
 ): number {
   switch (sortKey) {
@@ -754,6 +783,9 @@ function compareGameWindows(
       return compareText(stateLabelByWindowId.get(first.id)!, stateLabelByWindowId.get(second.id)!);
     case "display":
       return compareText(getGameWindowDisplayLabel(first, displayById, t), getGameWindowDisplayLabel(second, displayById, t));
+    case "mode":
+      return gameWindowPresentationRank(presentationByWindowId.get(first.id)!)
+        - gameWindowPresentationRank(presentationByWindowId.get(second.id)!);
     case "active":
       return compareText(
         first.tabs.find((tab) => tab.id === first.activeTabId)?.name ?? "",
@@ -761,6 +793,27 @@ function compareGameWindows(
       );
     case "tabs":
       return first.tabs.length - second.tabs.length;
+  }
+}
+
+function getGameWindowPresentationLabel(
+  presentation: GameWindowPresentation,
+  t: Translator
+): string {
+  switch (presentation) {
+    case "normal": return t("gameWindows.presentation.normal");
+    case "maximized": return t("gameWindows.presentation.maximized");
+    case "fullscreen": return t("gameWindows.presentation.fullscreen");
+    default: return presentation satisfies never;
+  }
+}
+
+function gameWindowPresentationRank(presentation: GameWindowPresentation): number {
+  switch (presentation) {
+    case "normal": return 0;
+    case "maximized": return 1;
+    case "fullscreen": return 2;
+    default: return presentation satisfies never;
   }
 }
 

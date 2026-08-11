@@ -2,12 +2,15 @@
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RuntimeWindowResizeSnapshot {
     content_metrics: WindowContentMetrics,
+    #[cfg(not(target_os = "macos"))]
     fullscreen: bool,
+    #[cfg(not(target_os = "macos"))]
     maximized: bool,
     minimized: bool,
     physical_height: u32,
     physical_width: u32,
     received_at: Instant,
+    #[cfg(not(target_os = "macos"))]
     scale_factor: f64,
     sequence: u64,
 }
@@ -71,17 +74,18 @@ impl SystemRuntimeExecutor {
         #[cfg(not(windows))]
         let snapshot = RuntimeWindowResizeSnapshot {
             content_metrics,
+            #[cfg(not(target_os = "macos"))]
             fullscreen: window.is_fullscreen().unwrap_or(false),
+            #[cfg(not(target_os = "macos"))]
             maximized: window.is_maximized().unwrap_or(false),
             minimized: window.is_minimized().unwrap_or(false),
             physical_height,
             physical_width,
             received_at: Instant::now(),
+            #[cfg(not(target_os = "macos"))]
             scale_factor,
             sequence: WINDOW_RESIZE_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         };
-        #[cfg(target_os = "macos")]
-        self.prepare_runtime_window_fullscreen(label, snapshot.fullscreen);
         #[cfg(not(windows))]
         self.schedule_resize_window(label.to_owned(), snapshot);
     }
@@ -138,62 +142,29 @@ impl SystemRuntimeExecutor {
         if self.require_runtime_accepting().is_err() {
             return;
         }
-        let Some((window, label)) = self.state.lock().ok().and_then(|state| {
-            let host = state.native_resources.display_hosts.get(window_id)?;
-            (host.generation == receipt.key.generation
-                && receipt.key.frame_revision > host.last_geometry_receipt_revision)
-                .then(|| (host.window.clone(), host.window.label().to_owned()))
-        }) else {
-            return;
-        };
-
-        // Native getters intentionally run after the runtime-state guard has
-        // been released. WebView2 and Tauri callbacks may re-enter the runtime.
-        let fullscreen = window.is_fullscreen().unwrap_or(false);
-        let minimized = window.is_minimized().unwrap_or(false);
-        if minimized {
-            return;
-        }
-        let scale_factor = (f64::from(receipt.key.dpi) / 96.0).max(f64::EPSILON);
-        let presentation = if fullscreen {
-            "fullscreen"
-        } else if receipt.key.presentation == WindowsGeometryPresentation::Maximized {
-            "maximized"
-        } else {
-            "normal"
-        };
-        let target = self.state.lock().ok().and_then(|mut state| {
-            let host = state.native_resources.display_hosts.get_mut(window_id)?;
-            if host.generation != receipt.key.generation
-                || receipt.key.frame_revision <= host.last_geometry_receipt_revision
-            {
-                return None;
-            }
-            host.last_geometry_receipt_revision = receipt.key.frame_revision;
-            host.target.presentation = presentation.to_owned();
-            host.target.scale_factor = scale_factor;
-            if presentation == "normal" {
-                host.target.bounds.width =
-                    (f64::from(receipt.key.width) / scale_factor).round().max(1.0) as i32;
-                host.target.bounds.height =
-                    (f64::from(receipt.key.height) / scale_factor).round().max(1.0) as i32;
-            }
-            Some(host.target.clone())
+        let eligible = self.state.lock().ok().is_some_and(|state| {
+            state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
+                host.generation == receipt.key.generation
+                    && receipt.key.frame_revision > host.last_geometry_receipt_revision
+            })
         });
-        let Some(target) = target else {
-            return;
-        };
-        if let Err(error) = self.update_live_window_target(&target, true) {
-            eprintln!(
-                "Windows geometry receipt commit failed: window={window_id} error={error}"
-            );
+        if !eligible {
             return;
         }
-        self.publish_projection();
-        if let Err(error) = self.persist_game_window_placement(&label) {
-            eprintln!(
-                "Windows geometry receipt persistence failed: window={window_id} error={error}"
-            );
+        let presentation_hint = Some(match receipt.key.presentation {
+            WindowsGeometryPresentation::Maximized => ObservedWindowPresentation::Maximized,
+            WindowsGeometryPresentation::Restored => ObservedWindowPresentation::Normal,
+        });
+        if self.observe_native_window_placement(
+            window_id,
+            receipt.key.frame_revision,
+            presentation_hint,
+        ) && let Ok(mut state) = self.state.lock()
+            && let Some(host) = state.native_resources.display_hosts.get_mut(window_id)
+            && host.generation == receipt.key.generation
+            && receipt.key.frame_revision > host.last_geometry_receipt_revision
+        {
+            host.last_geometry_receipt_revision = receipt.key.frame_revision;
         }
     }
 
@@ -221,24 +192,26 @@ impl SystemRuntimeExecutor {
         }) else {
             return false;
         };
-        let presentation = if snapshot.fullscreen {
-            "fullscreen"
-        } else if snapshot.maximized {
-            "maximized"
-        } else {
-            "normal"
-        };
-        let width = (snapshot.physical_width as f64 / snapshot.scale_factor).max(1.0);
-        let height = (snapshot.physical_height as f64 / snapshot.scale_factor).max(1.0);
+        #[cfg(not(target_os = "macos"))]
         let live_target = self.state.lock().ok().and_then(|mut state| {
             let host = state.native_resources.display_hosts.get_mut(&window_id)?;
-            host.target.presentation = presentation.to_owned();
+            host.target.presentation = if snapshot.fullscreen {
+                "fullscreen"
+            } else if snapshot.maximized {
+                "maximized"
+            } else {
+                "normal"
+            }
+            .to_owned();
             if !snapshot.maximized && !snapshot.fullscreen && !snapshot.minimized {
-                host.target.bounds.width = width.round() as i32;
-                host.target.bounds.height = height.round() as i32;
+                host.target.bounds.width =
+                    (snapshot.physical_width as f64 / snapshot.scale_factor).round().max(1.0) as i32;
+                host.target.bounds.height =
+                    (snapshot.physical_height as f64 / snapshot.scale_factor).round().max(1.0) as i32;
             }
             Some(host.target.clone())
         });
+        #[cfg(not(target_os = "macos"))]
         if settled
             && let Some(target) = live_target
             && let Err(error) = self.update_live_window_target(&target, true)
@@ -406,6 +379,7 @@ impl SystemRuntimeExecutor {
             if settled
                 && self.resize_pending_sequence_matches(&label, pending.snapshot.sequence)
             {
+                #[cfg(not(target_os = "macos"))]
                 if let Err(error) = self.persist_game_window_placement(&label) {
                     eprintln!(
                         "Runtime resize placement persistence failed: window={label} error={error}"
@@ -564,7 +538,7 @@ fn native_resize_should_retry(
 
 #[cfg(not(windows))]
 fn resize_snapshot_is_settled(elapsed: Duration) -> bool {
-    elapsed >= WINDOW_PLACEMENT_PERSIST_DEBOUNCE
+    elapsed >= WINDOW_RESIZE_LAYOUT_SETTLE_DEBOUNCE
 }
 
 #[cfg(not(windows))]

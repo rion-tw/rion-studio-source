@@ -590,6 +590,40 @@ impl SystemRuntimeExecutor {
             .map(|receipt| receipt.revision)
     }
 
+    fn update_live_window_target_for_generation(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        expected_generation: u64,
+    ) -> Result<Option<u64>, String> {
+        let target_display = self
+            .window_state_persistence
+            .cached_target_display(&target.window_id, target.display_id)
+            .unwrap_or(DisplayTargetRecord {
+                id: target.display_id,
+                fingerprint: None,
+            });
+        let placement = GameWindowPlacementRecord {
+            normal_bounds: target.bounds.clone(),
+            saved_work_area: target.work_area.clone(),
+            presentation: target.presentation.clone(),
+        };
+        let live = self.presentation.coordinator(&target.window_id)?;
+        if live.window_generation != expected_generation {
+            return Ok(None);
+        }
+        let receipt = self.presentation.live.commit_placement(
+            LiveWindowPlacementCommitInput {
+                placement,
+                target_display,
+                ui_sequence: live.ui_sequence.saturating_add(1).max(1),
+                window_generation: expected_generation,
+                window_id: target.window_id.clone(),
+            },
+        )?;
+        Ok((receipt.status != LiveTopologyCommitStatus::Superseded)
+            .then_some(receipt.revision))
+    }
+
     fn set_live_window_persisted_name(
         &self,
         window_id: &str,

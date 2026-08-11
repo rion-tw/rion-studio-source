@@ -163,6 +163,7 @@ type ResolvedRuntimeLayout = (
     Vec<(u32, WorkspaceDividerDescriptor, RoleBounds)>,
 );
 
+#[cfg(test)]
 fn query_unlocked_snapshot<State, Snapshot, Output>(
     mutex: &Mutex<State>,
     snapshot: impl FnOnce(&State) -> Option<Snapshot>,

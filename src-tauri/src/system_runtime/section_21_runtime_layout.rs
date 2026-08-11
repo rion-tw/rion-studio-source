@@ -784,6 +784,8 @@ impl SystemRuntimeExecutor {
             target.window_id.clone(),
             RuntimeDisplayHost {
                 generation: window_generation,
+                last_placement_observation_sequence: 0,
+                placement_observation_lane: Arc::new(Mutex::new(())),
                 retirement_revision: 0,
                 target: target.clone(),
                 window: window.clone(),

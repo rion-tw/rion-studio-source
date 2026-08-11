@@ -59,7 +59,10 @@ export function stateFromChromeProjection(
       bounds,
       visible: true,
       activeTabId: projection.activeTabId,
-      tabCount: projection.tabs.length
+      tabCount: projection.tabs.length,
+      presentation: projection.windowFullscreen
+        ? "fullscreen"
+        : projection.windowMaximized ? "maximized" : "normal"
     }]
   };
 }

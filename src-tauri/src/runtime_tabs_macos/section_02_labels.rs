@@ -110,6 +110,17 @@ unsafe extern "C" fn action_callback(
         });
         let source_window_id = c_string_from_pointer(source_window_id);
         let target_window_id = c_string_from_pointer(target_window_id);
+        if action_type == "windowPlacementChanged" {
+            if let (Some(window_id), Some(state)) = (
+                source_window_id.as_deref(),
+                context.app.try_state::<crate::CoreState>(),
+            ) {
+                state
+                    .runtime
+                    .queue_macos_window_placement_observation(window_id);
+            }
+            return;
+        }
         if matches!(
             action_type.as_str(),
             "modifierHandoffStarted" | "modifierHandoffCompleted" | "modifierHandoffAbandoned"

@@ -186,7 +186,7 @@ export interface EmbeddedRuntimeWindowSummary {
   focused?: boolean;
   activeTabId?: string;
   tabCount: number;
-  presentation?: GameWindowPresentation;
+  presentation: GameWindowPresentation;
 }
 
 export type SavedGameWindowState =
@@ -302,7 +302,7 @@ export type PixelBounds = StatePixelBoundsRecord;
 
 export type DisplayTarget = DisplayTargetRecord;
 
-type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
+export type GameWindowPresentation = GameWindowPlacementRecord["presentation"];
 
 export type GameWindow = StateGameWindowRecord;
 

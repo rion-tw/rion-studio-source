@@ -13,6 +13,7 @@ use native_projection::{
 };
 
 include!("system_runtime/section_01_navigation_timeout.rs");
+include!("system_runtime/section_01_navigation_completion.rs");
 include!("system_runtime/section_02_windows_surface_identity_matches.rs");
 include!("system_runtime/section_02_native_operation_contract.rs");
 include!("system_runtime/section_02_geometry_shutdown_contract.rs");

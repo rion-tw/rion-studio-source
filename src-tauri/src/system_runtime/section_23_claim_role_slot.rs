@@ -108,7 +108,12 @@ impl SystemRuntimeExecutor {
         let mut surface_instance_id = None;
         let result = (|| -> RuntimeResult<()> {
             let installed_lifecycle = self
-                .setup_role_surface(&webview, &role.role.id, native_generation)
+                .setup_role_surface(
+                    &webview,
+                    &role.role.id,
+                    native_generation,
+                    Arc::clone(&navigation),
+                )
                 .map_err(|failure| failure.error)?;
             lifecycle = Some(Arc::clone(&installed_lifecycle));
             let instance_id = self.register_managed_surface(

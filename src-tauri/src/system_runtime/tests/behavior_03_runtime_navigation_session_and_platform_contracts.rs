@@ -123,8 +123,8 @@ use uuid::Uuid;
     }
 
     #[test]
-    fn navigation_tracker_ignores_blank_pages_and_accepts_http_finish_without_started() {
-        let tracker = NavigationTracker::default();
+    fn macos_navigation_tracker_accepts_http_finish_without_started() {
+        let tracker = NavigationTracker::new_for_platform("macos");
         tracker.reset();
         tracker.page_event(PageLoadEvent::Finished, &Url::parse("about:blank").unwrap());
         assert!(!tracker.state.lock().unwrap().finished);
@@ -138,7 +138,7 @@ use uuid::Uuid;
 
     #[tokio::test]
     async fn navigation_tracker_async_wait_does_not_require_a_blocking_worker() {
-        let tracker = Arc::new(NavigationTracker::default());
+        let tracker = Arc::new(NavigationTracker::new_for_platform("macos"));
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Navigation,
             "contract-test",
@@ -160,7 +160,7 @@ use uuid::Uuid;
 
     #[tokio::test]
     async fn closing_a_launching_surface_supersedes_its_async_navigation_wait_immediately() {
-        let tracker = Arc::new(NavigationTracker::default());
+        let tracker = Arc::new(NavigationTracker::new_for_platform("windows"));
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Navigation,
             "contract-test",
@@ -186,7 +186,7 @@ use uuid::Uuid;
 
     #[tokio::test]
     async fn navigation_tracker_retains_completion_before_async_subscription() {
-        let tracker = NavigationTracker::default();
+        let tracker = NavigationTracker::new_for_platform("macos");
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Navigation,
             "contract-test",
@@ -199,6 +199,104 @@ use uuid::Uuid;
         );
         assert_eq!(
             tracker.wait_operation_async(operation).await.status,
+            NativeOperationStatus::Applied
+        );
+    }
+
+    #[tokio::test]
+    async fn windows_navigation_failure_terminalizes_the_exact_operation() {
+        let tracker = NavigationTracker::new_for_platform("windows");
+        let operation = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(1),
+            "windows",
+        );
+        tracker.begin_operation(&operation).unwrap();
+        assert!(tracker.native_navigation_started(41));
+        tracker.page_event(
+            PageLoadEvent::Finished,
+            &Url::parse("https://example.test/error-page").unwrap(),
+        );
+        assert_eq!(
+            tracker.operation_state(&operation).unwrap(),
+            NavigationOperationState::Pending
+        );
+        assert!(tracker.native_navigation_completed(
+            41,
+            false,
+            Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED"),
+        ));
+
+        let receipt = tracker.wait_operation(operation.clone());
+        assert_eq!(receipt.status, NativeOperationStatus::Failed);
+        assert_eq!(
+            receipt.failure_code.as_deref(),
+            Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED")
+        );
+        let async_receipt = tracker.wait_operation_async(operation).await;
+        assert_eq!(async_receipt.status, NativeOperationStatus::Failed);
+        assert_eq!(
+            async_receipt.failure_code.as_deref(),
+            Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED")
+        );
+    }
+
+    #[test]
+    fn windows_navigation_success_requires_native_and_page_completion() {
+        let tracker = NavigationTracker::new_for_platform("windows");
+        let operation = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(1),
+            "windows",
+        );
+        tracker.begin_operation(&operation).unwrap();
+        assert!(tracker.native_navigation_started(51));
+        assert!(!tracker.native_navigation_completed(51, true, None));
+        assert_eq!(
+            tracker.operation_state(&operation).unwrap(),
+            NavigationOperationState::Pending
+        );
+
+        tracker.page_event(
+            PageLoadEvent::Finished,
+            &Url::parse("https://example.test/ready").unwrap(),
+        );
+        assert_eq!(
+            tracker.wait_operation(operation).status,
+            NativeOperationStatus::Applied
+        );
+    }
+
+    #[test]
+    fn windows_navigation_tracker_ignores_a_stale_native_completion() {
+        let tracker = NavigationTracker::new_for_platform("windows");
+        let operation = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Navigation,
+            "contract-test",
+            Duration::from_secs(1),
+            "windows",
+        );
+        tracker.begin_operation(&operation).unwrap();
+        assert!(tracker.native_navigation_started(61));
+        assert!(tracker.native_navigation_started(62));
+        assert!(!tracker.native_navigation_completed(
+            61,
+            false,
+            Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED"),
+        ));
+        tracker.page_event(
+            PageLoadEvent::Finished,
+            &Url::parse("https://example.test/latest").unwrap(),
+        );
+        assert_eq!(
+            tracker.operation_state(&operation).unwrap(),
+            NavigationOperationState::Pending
+        );
+        assert!(tracker.native_navigation_completed(62, true, None));
+        assert_eq!(
+            tracker.wait_operation(operation).status,
             NativeOperationStatus::Applied
         );
     }

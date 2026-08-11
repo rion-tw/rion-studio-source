@@ -274,6 +274,13 @@ impl SystemRuntimeExecutor {
             let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
             return Err(error);
         }
+        if let Err(error) = install_platform_navigation_completion_tracker(
+            &webview,
+            Arc::clone(&navigation),
+        ) {
+            let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+            return Err(error);
+        }
         Ok((window, webview, navigation, lifecycle))
     }
 

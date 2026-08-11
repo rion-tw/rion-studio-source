@@ -93,7 +93,7 @@ fn popup_policy_is_engine_independent_and_fail_closed() {
 #[test]
 fn navigation_receipt_supersedes_an_obsolete_operation_before_applying_the_latest() {
     for platform in ["macos", "windows"] {
-        let tracker = NavigationTracker::default();
+        let tracker = NavigationTracker::new_for_platform(platform);
         let first = NativeOperationContext::new_for_platform(
             NativeOperationSubsystem::Navigation,
             "contract-test",
@@ -112,10 +112,16 @@ fn navigation_receipt_supersedes_an_obsolete_operation_before_applying_the_lates
             tracker.wait_operation(first).status,
             NativeOperationStatus::Superseded
         );
+        if platform == "windows" {
+            assert!(tracker.native_navigation_started(71));
+        }
         tracker.page_event(
             PageLoadEvent::Finished,
             &Url::parse("https://example.test/ready").unwrap(),
         );
+        if platform == "windows" {
+            assert!(tracker.native_navigation_completed(71, true, None));
+        }
         assert_eq!(
             tracker.wait_operation(latest).status,
             NativeOperationStatus::Applied

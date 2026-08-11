@@ -485,10 +485,19 @@ fn macos_role_zoom_action(
 }
 
 #[cfg(not(windows))]
+fn install_platform_navigation_completion_tracker(
+    _webview: &Webview,
+    _navigation: Arc<NavigationTracker>,
+) -> RuntimeResult<()> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
 fn platform_role_surface_setup(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
+    _navigation: Arc<NavigationTracker>,
 ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
     platform_role_surface_setup_inner(webview, app, target).map_err(|error| {
         RoleSurfaceSetupFailure {

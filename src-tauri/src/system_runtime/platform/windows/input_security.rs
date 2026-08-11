@@ -407,16 +407,116 @@ fn install_windows_application_shortcut_handler(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn install_platform_navigation_completion_tracker(
+    webview: &Webview,
+    navigation: Arc<NavigationTracker>,
+) -> RuntimeResult<()> {
+    use webview2_com::{
+        take_pwstr, NavigationCompletedEventHandler, NavigationStartingEventHandler,
+        Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    };
+
+    navigation
+        .require_native_completion()
+        .map_err(|message| RuntimeError::new("SYSTEM_NAVIGATION_TRACKER_UNAVAILABLE", message))?;
+    let starting_navigation = Arc::clone(&navigation);
+    let completed_navigation = Arc::clone(&navigation);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let result = (|| -> RuntimeResult<()> {
+                let core: ICoreWebView2 = platform_webview
+                    .controller()
+                    .CoreWebView2()
+                    .map_err(|error| windows_role_setup_error("navigation-core", error))?;
+                let starting = NavigationStartingEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut uri = windows::core::PWSTR::null();
+                        args.Uri(&mut uri)?;
+                        let Ok(url) = Url::parse(&take_pwstr(uri)) else {
+                            return Ok(());
+                        };
+                        if !matches!(url.scheme(), "http" | "https") {
+                            return Ok(());
+                        }
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        starting_navigation.native_navigation_started(navigation_id);
+                        Ok(())
+                    },
+                ));
+                let mut starting_token = 0;
+                core.add_NavigationStarting(&starting, &mut starting_token)
+                    .map_err(|error| {
+                        windows_role_setup_error("navigation-starting-handler", error)
+                    })?;
+
+                let completed = NavigationCompletedEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut navigation_id = 0;
+                        args.NavigationId(&mut navigation_id)?;
+                        let mut succeeded = windows::core::BOOL::default();
+                        args.IsSuccess(&mut succeeded)?;
+                        completed_navigation.native_navigation_completed(
+                            navigation_id,
+                            succeeded.as_bool(),
+                            (!succeeded.as_bool())
+                                .then_some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED"),
+                        );
+                        Ok(())
+                    },
+                ));
+                let mut completed_token = 0;
+                core.add_NavigationCompleted(&completed, &mut completed_token)
+                    .map_err(|error| {
+                        windows_role_setup_error("navigation-completed-handler", error)
+                    })?;
+                Ok(())
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| {
+            RuntimeError::new(
+                "SYSTEM_NAVIGATION_TRACKER_SETUP_FAILED",
+                format!("WebView2 navigation callback could not run: {error}"),
+            )
+            .with_setup_diagnostic("navigation-with-webview", None)
+        })?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_NAVIGATION_TRACKER_SETUP_TIMEOUT",
+                "WebView2 navigation completion setup timed out.",
+            )
+            .with_setup_diagnostic("navigation-handler-timeout", None)
+        })?
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn platform_role_surface_setup(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
+    navigation: Arc<NavigationTracker>,
 ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
     let lifecycle =
         platform_surface_lifecycle_tracker(webview).map_err(|error| RoleSurfaceSetupFailure {
             error: windows_role_lifecycle_setup_error(error),
             lifecycle: None,
         })?;
+    install_platform_navigation_completion_tracker(webview, navigation).map_err(|error| {
+        RoleSurfaceSetupFailure {
+            error,
+            lifecycle: Some(Arc::clone(&lifecycle)),
+        }
+    })?;
     install_windows_role_surface_handlers(webview, app, target).map_err(|error| {
         RoleSurfaceSetupFailure {
             error,

@@ -185,6 +185,10 @@ impl SystemRuntimeExecutor {
             // The replacement remains about:blank until the old native surface is gone.
             webview.hide().map_err(RuntimeError::tauri)?;
             install_platform_security_policy(&webview)?;
+            install_platform_navigation_completion_tracker(
+                &webview,
+                Arc::clone(&navigation),
+            )?;
             install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
             install_process_failure_monitor(
                 &webview,

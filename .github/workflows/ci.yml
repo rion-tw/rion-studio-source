@@ -168,6 +168,10 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Install dependencies for Windows renderer tests
+        if: runner.os == 'Windows'
+        run: pnpm install --frozen-lockfile
+
       - name: Resolve pinned Rust toolchain
         run: rustup show active-toolchain
 

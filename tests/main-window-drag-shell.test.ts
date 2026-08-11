@@ -19,6 +19,19 @@ describe("main window chrome shell", () => {
     const closeStart = shellInvoke.indexOf('"requestCurrentWindowClose"');
     const minimizeStart = shellInvoke.indexOf('"minimizeCurrentWindow"', closeStart);
     const closeBranch = shellInvoke.slice(closeStart, minimizeStart);
+    const quitStart = shellInvoke.indexOf('"quitApplication"');
+    const confirmQuitStart = shellInvoke.indexOf('"confirmApplicationQuit"', quitStart);
+    const quitBranch = shellInvoke.slice(quitStart, confirmQuitStart);
+    const runEventStart = shell.indexOf("tauri::RunEvent::WindowEvent");
+    const osCloseStart = shell.indexOf(
+      'tauri::WindowEvent::CloseRequested { api, .. } if label == "main"',
+      runEventStart
+    );
+    const gameWindowCloseStart = shell.indexOf(
+      'tauri::WindowEvent::CloseRequested { api, .. } if label != "main"',
+      osCloseStart
+    );
+    const osCloseBranch = shell.slice(osCloseStart, gameWindowCloseStart);
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
@@ -26,8 +39,16 @@ describe("main window chrome shell", () => {
     expect(shellInvoke).toContain('minimize_main_window("renderer-minimize-requested")');
     expect(closeStart).toBeGreaterThanOrEqual(0);
     expect(minimizeStart).toBeGreaterThan(closeStart);
-    expect(closeBranch).toContain("app.exit(0)");
-    expect(closeBranch).not.toContain("main_window_hide");
+    expect(closeBranch).toContain('hide_main_window("renderer-close-requested")');
+    expect(closeBranch).not.toContain("app.exit(");
+    expect(quitStart).toBeGreaterThanOrEqual(0);
+    expect(confirmQuitStart).toBeGreaterThan(quitStart);
+    expect(quitBranch).toContain("app.exit(0)");
+    expect(osCloseStart).toBeGreaterThan(runEventStart);
+    expect(gameWindowCloseStart).toBeGreaterThan(osCloseStart);
+    expect(osCloseBranch).toContain("api.prevent_close()");
+    expect(osCloseBranch).toContain('request_main_window_hide("os-close-requested")');
+    expect(osCloseBranch).not.toContain("app_handle.exit(");
     expect(shellInvoke).not.toContain('"startCurrentWindowDrag"');
     expect(shellInvoke).not.toContain(".start_main_window_drag()");
     expect(shellInvoke).toContain('"toggleCurrentWindowMaximize"');

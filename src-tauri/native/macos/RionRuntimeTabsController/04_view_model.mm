@@ -259,6 +259,7 @@ NS_ASSUME_NONNULL_BEGIN
   BOOL _hasLastNotifiedContentLayout;
   BOOL _fullscreenTransitionActive;
   BOOL _fullscreenHostReady;
+  BOOL _placementZoomed;
   RionRuntimeContentLayout _lastNotifiedContentLayout;
   CGFloat _stableTrafficLightReserveWidth;
 }
@@ -311,6 +312,7 @@ NS_ASSUME_NONNULL_BEGIN
   _fullscreenTransitionActive =
       (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   _fullscreenHostReady = _fullscreenTransitionActive;
+  _placementZoomed = window.isZoomed;
   _stableTrafficLightReserveWidth = kRionTrafficLightFallbackWidth;
 
   window.titleVisibility = NSWindowTitleHidden;

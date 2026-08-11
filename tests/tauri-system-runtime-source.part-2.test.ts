@@ -3,6 +3,31 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+it("funnels terminal AppKit and Win32 placement events through one fenced reducer", async () => {
+  const [runtime, macLayout, macCallback, windowsResize] = await Promise.all([
+    readFile("src-tauri/src/system_runtime/section_14_window_placement.rs", "utf8"),
+    readFile("src-tauri/native/macos/RionRuntimeTabsController/05_layout.mm", "utf8"),
+    readFile("src-tauri/src/runtime_tabs_macos/section_02_labels.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/platform/windows/live_resize.rs", "utf8")
+  ]);
+
+  expect(runtime).toContain("update_live_window_target_for_generation");
+  expect(runtime).toContain("observed.sequence <= last_sequence");
+  expect(macLayout).toContain("NSWindowDidMoveNotification");
+  expect(macLayout).toContain("NSWindowDidEndLiveResizeNotification");
+  expect(macLayout).toContain("NSWindowDidChangeBackingPropertiesNotification");
+  expect(macLayout).toContain("NSWindowDidChangeScreenNotification");
+  expect(macLayout).toContain("NSWindowDidEnterFullScreenNotification");
+  expect(macLayout).toContain("NSWindowDidExitFullScreenNotification");
+  expect(macLayout).toContain("_window.isZoomed");
+  expect(macCallback).toContain('action_type == "windowPlacementChanged"');
+  expect(macCallback).toContain("queue_macos_window_placement_observation");
+  expect(runtime).toContain('name("rion-macos-window-placement".to_owned())');
+  expect(windowsResize).toContain("WM_EXITSIZEMOVE");
+  expect(windowsResize).toContain("WM_DPICHANGED");
+  expect(windowsResize).toContain("WM_WINDOWPOSCHANGED");
+});
+
 it("projects authoritative launch-phase changes into Windows tab chrome", async () => {
   const runtime = await readFile(
     "src-tauri/src/system_runtime/section_06_is_saved_game_window.rs",
@@ -384,16 +409,18 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(resizeObserver).toContain("record_windows_live_resize_counters");
     expect(resizeObserver).not.toContain("windows_resize_snapshot_is_unchanged");
     expect(runtime).toContain("#[cfg(not(windows))]\nconst WINDOW_RESIZE_FRAME_INTERVAL");
-    expect(runtime).toContain("#[cfg(not(windows))]\nconst WINDOW_PLACEMENT_PERSIST_DEBOUNCE");
+    expect(runtime).toContain("#[cfg(not(windows))]\nconst WINDOW_RESIZE_LAYOUT_SETTLE_DEBOUNCE");
     expect(runtime).toContain("commit_windows_geometry_receipt");
     const geometryReceiptCommit = runtime.slice(
       runtime.indexOf("fn commit_windows_geometry_receipt("),
       runtime.indexOf("pub fn resize_window(")
     );
-    expect(geometryReceiptCommit.indexOf("window.is_fullscreen()")).toBeLessThan(
-      geometryReceiptCommit.indexOf("let target = self.state.lock()")
-    );
-    expect(geometryReceiptCommit).toContain("persist_game_window_placement");
+    expect(geometryReceiptCommit).toContain("last_geometry_receipt_revision");
+    expect(geometryReceiptCommit).toContain("observe_native_window_placement");
+    expect(geometryReceiptCommit).not.toContain("host.target.bounds");
+    expect(geometryReceiptCommit).not.toContain("persist_game_window_placement");
+    expect(runtime).toContain("fn reduce_observed_window_placement(");
+    expect(runtime).toContain("schedule_live_window_state_persistence(&observed.window_id)");
     const resizeLayoutStart = runtime.indexOf("fn layout_runtime_tab_inner_with_metrics(");
     const resizeLayout = runtime.slice(
       resizeLayoutStart,

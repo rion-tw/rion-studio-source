@@ -11,6 +11,7 @@ use windows::Win32::{
             PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
             SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE,
             WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SIZE,
+            WM_WINDOWPOSCHANGED,
         },
     },
 };
@@ -679,6 +680,9 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
                 hwnd,
                 !windows_live_resize_is_interactive(hwnd),
             );
+        }
+        WM_WINDOWPOSCHANGED if !windows_live_resize_is_interactive(hwnd) => {
+            windows_live_resize_queue_current_frame(hwnd, true);
         }
         WM_RION_GEOMETRY_FLUSH => windows_live_resize_flush(hwnd),
         message if message == WM_MOVE || message == WM_MOVING => {

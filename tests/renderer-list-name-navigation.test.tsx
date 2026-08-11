@@ -279,7 +279,8 @@ describe("list editor navigation", () => {
             bounds: { x: 0, y: 0, width: 800, height: 600 },
             visible: true,
             activeTabId: "tab-1",
-            tabCount: 1
+            tabCount: 1,
+            presentation: "normal"
           }],
           tabs: [{
             id: "tab-1",

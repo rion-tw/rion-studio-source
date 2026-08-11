@@ -704,73 +704,25 @@ impl SystemRuntimeExecutor {
         if self.require_runtime_accepting().is_err() {
             return;
         }
-        // Tauri window queries can synchronously marshal to AppKit's main thread.
-        // Snapshot the native window while holding the runtime lock, then release
-        // the lock before making any of those calls to avoid lock inversion with
-        // window callbacks handled by the main event loop.
-        let Some((window_id, logical_x, logical_y, monitor_target)) = query_unlocked_snapshot(
-            &self.state,
-            |state| {
-                state
-                    .native_resources.display_hosts
-                    .iter()
-                    .find(|(_, host)| host.window.label() == label)
-                    .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
-            },
-            |(window_id, window)| {
-                if window.is_maximized().unwrap_or(false)
-                    || window.is_fullscreen().unwrap_or(false)
-                    || window.is_minimized().unwrap_or(false)
-                {
-                    return None;
-                }
-                let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
-                let (logical_x, logical_y) = logical_window_position(physical_x, physical_y, scale);
-                let monitor_target = window.current_monitor().ok().flatten().map(|monitor| {
-                    let scale = monitor.scale_factor().max(f64::EPSILON);
-                    let work_area = monitor.work_area();
-                    (
-                        super::monitor_id(&monitor),
-                        StatePixelBoundsRecord {
-                            x: (work_area.position.x as f64 / scale).round() as i32,
-                            y: (work_area.position.y as f64 / scale).round() as i32,
-                            width: (work_area.size.width as f64 / scale).round() as i32,
-                            height: (work_area.size.height as f64 / scale).round() as i32,
-                        },
-                        scale,
-                    )
-                });
-                Some((window_id, logical_x, logical_y, monitor_target))
-            },
-        )
-        .flatten() else {
-            return;
-        };
-        if self.state.lock().ok().is_some_and(|state| {
-            state.active_geometry_windows.contains(&window_id)
-        }) {
-            return;
-        }
-        if self.native_window_mutations.is_busy(&window_id) {
-            return;
-        }
-        let live_target = self.state.lock().ok().and_then(|mut state| {
-            let host = state.native_resources.display_hosts.get_mut(&window_id)?;
-            host.target.bounds.x = logical_x;
-            host.target.bounds.y = logical_y;
-            if let Some((display_id, work_area, scale_factor)) = monitor_target {
-                host.target.display_id = display_id;
-                host.target.work_area = work_area;
-                host.target.scale_factor = scale_factor;
-            }
-            Some(host.target.clone())
-        });
-        if let Some(target) = live_target
-            && let Err(error) = self.update_live_window_target(&target, true)
+        #[cfg(any(windows, target_os = "macos"))]
         {
-            eprintln!("Live Game Window move commit failed: window={window_id} error={error}");
+            // AppKit and Win32 terminal native events own persisted placement.
+            // Tauri move callbacks remain presentation-only on those platforms.
+            let _ = (label, physical_x, physical_y);
         }
-        self.schedule_window_placement_persistence(label.to_owned());
+        #[cfg(not(any(windows, target_os = "macos")))]
+        if let Some(window_id) = self.state.lock().ok().and_then(|state| {
+            state.native_resources.display_hosts.iter().find_map(|(window_id, host)| {
+                (host.window.label() == label).then(|| window_id.clone())
+            })
+        }) {
+            let _ = (physical_x, physical_y);
+            self.observe_native_window_placement(
+                &window_id,
+                Self::next_window_placement_observation_sequence(),
+                None,
+            );
+        }
     }
 
     pub fn relocate_game_window(&self, target: EmbeddedLaunchTargetRecord) -> Result<(), String> {

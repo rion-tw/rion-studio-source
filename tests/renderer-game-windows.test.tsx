@@ -8,6 +8,9 @@ import { ConfirmationProvider } from "../src/renderer/src/components/Confirmatio
 import GameWindowsRoute from "../src/renderer/src/features/game-windows/GameWindowsRoute";
 import type { Translator } from "../src/renderer/src/i18n";
 import en from "../src/renderer/src/i18n/en.json";
+import ja from "../src/renderer/src/i18n/ja.json";
+import zhCN from "../src/renderer/src/i18n/zh-CN.json";
+import zhTW from "../src/renderer/src/i18n/zh-TW.json";
 import type { EmbeddedRuntimeState, GameWindow } from "../src/shared/types";
 
 const t: Translator = (key) => en[key] ?? key;
@@ -52,14 +55,24 @@ describe("Game Window management", () => {
     renderRoute();
 
     const table = screen.getByRole("table", { name: "Game Windows" });
-    expect(within(table).getByRole("columnheader", { name: /^Window/ })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: /^Window(?:Ascending)?$/ })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Runtime status" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Target display" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Window mode" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Active" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Tabs" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Actions" })).toBeTruthy();
     expect(within(table).getByText("Raid window")).toBeTruthy();
     expect(within(table).getByText("Mina")).toBeTruthy();
+  });
+
+  it("provides the window mode column and values in every supported language", () => {
+    for (const dictionary of [en, zhTW, zhCN, ja]) {
+      expect(dictionary["gameWindows.column.mode"]).toBeTruthy();
+      expect(dictionary["gameWindows.presentation.normal"]).toBeTruthy();
+      expect(dictionary["gameWindows.presentation.maximized"]).toBeTruthy();
+      expect(dictionary["gameWindows.presentation.fullscreen"]).toBeTruthy();
+    }
   });
 
   it("separates per-window recovery, visibility, and unopened runtime states", () => {
@@ -184,6 +197,7 @@ describe("Game Window management", () => {
     expect(within(table).getByTitle("Sort by Window")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Runtime status")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Target display")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Window mode")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Active")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Tabs")).toBeTruthy();
     expect(windowRowIds(table)).toEqual(["window-2", "window-1", "window-3"]);
@@ -264,7 +278,7 @@ describe("Game Window management", () => {
 
     expect(screen.getByText("Raid window")).toBeTruthy();
     expect(screen.getByText("Hidden")).toBeTruthy();
-    expect(screen.queryByText("Windowed")).toBeNull();
+    expect(screen.getByText("Windowed")).toBeTruthy();
     expect(screen.getByText("1 tabs")).toBeTruthy();
     expect(screen.getByText("Mina")).toBeTruthy();
     expect(screen.getByText("Studio Display · Primary")).toBeTruthy();
@@ -273,6 +287,7 @@ describe("Game Window management", () => {
     const cells = within(row).getAllByRole("cell");
     expect(within(cells[1]).queryByText("Windowed")).toBeNull();
     expect(within(cells[2]).getByText("Studio Display · Primary")).toBeTruthy();
+    expect(within(cells[3]).getByText("Windowed")).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Target display" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename or change display" })).toBeNull();
@@ -316,7 +331,7 @@ describe("Game Window management", () => {
     expect(screen.queryByRole("button", { name: "Stop tab" })).toBeNull();
   });
 
-  it("never presents saved window modes as live target-display information", () => {
+  it("presents saved window modes in their own column", () => {
     Object.defineProperty(window, "rionStudio", {
       configurable: true,
       value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
@@ -332,10 +347,44 @@ describe("Game Window management", () => {
 
     renderRoute({ gameWindows });
 
-    expect(screen.queryByText("Windowed")).toBeNull();
-    expect(screen.queryByText("Maximized")).toBeNull();
-    expect(screen.queryByText("Full screen")).toBeNull();
+    expect(screen.getByText("Windowed")).toBeTruthy();
+    expect(screen.getByText("Maximized")).toBeTruthy();
+    expect(screen.getByText("Full screen")).toBeTruthy();
     expect(screen.getAllByText("Studio Display · Primary")).toHaveLength(3);
+  });
+
+  it("prefers the authoritative live mode and sorts modes semantically", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+    const gameWindows = ([
+      ["normal", "Zulu window"],
+      ["maximized", "Alpha window"],
+      ["fullscreen", "Beta window"],
+      ["normal", "Gamma window"]
+    ] as const).map(([presentation, name], index): GameWindow => ({
+      ...gameWindow,
+      id: `mode-${index}`,
+      name,
+      placement: { ...gameWindow.placement, presentation }
+    }));
+    const liveRuntime: EmbeddedRuntimeState = {
+      ...emptyRuntime,
+      windows: [{
+        ...runtime.windows[0],
+        id: "mode-0",
+        windowId: "mode-0",
+        presentation: "fullscreen"
+      }]
+    };
+
+    renderRoute({ gameWindows, runtime: liveRuntime });
+
+    expect(windowMode("Zulu window").textContent).toBe("Full screen");
+    const table = screen.getByRole("table", { name: "Game Windows" });
+    fireEvent.click(within(table).getByTitle("Sort by Window mode"));
+    expect(windowRowIds(table)).toEqual(["mode-3", "mode-1", "mode-2", "mode-0"]);
   });
 
   it("shows unavailable targets as text while still offering connected displays in the action submenu", async () => {
@@ -617,6 +666,12 @@ function windowStatus(windowName: string): HTMLElement {
   const row = screen.getByText(windowName).closest("tr");
   if (!row) throw new Error(`Expected row for ${windowName}.`);
   return within(within(row).getAllByRole("cell")[1]).getByText(/.+/);
+}
+
+function windowMode(windowName: string): HTMLElement {
+  const row = screen.getByText(windowName).closest("tr");
+  if (!row) throw new Error(`Expected row for ${windowName}.`);
+  return within(within(row).getAllByRole("cell")[3]).getByText(/.+/);
 }
 
 function savedWindowSummary(

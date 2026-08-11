@@ -31,3 +31,4 @@ include!("behavior_29_window_activation.rs");
 include!("behavior_30_windows_mica.rs");
 include!("behavior_31_restored_foreground_visibility.rs");
 include!("behavior_32_dormant_window_restore_state.rs");
+include!("behavior_33_window_placement_observation.rs");

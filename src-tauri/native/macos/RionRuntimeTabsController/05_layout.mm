@@ -94,6 +94,14 @@ NS_ASSUME_NONNULL_BEGIN
   return item;
 }
 
+- (void)emitWindowPlacementObservation {
+  if (_destroyed || !_actionHandler || _windowID.length == 0) return;
+  _actionHandler(@{
+    @"type" : @"windowPlacementChanged",
+    @"sourceWindowId" : _windowID
+  });
+}
+
 - (void)installWindowObservers {
   [_window addObserver:self
             forKeyPath:@"contentLayoutRect"
@@ -105,7 +113,10 @@ NS_ASSUME_NONNULL_BEGIN
   __weak RionRuntimeTabsController *weakSelf = self;
   NSArray<NSNotificationName> *names = @[
     NSWindowDidResizeNotification,
+    NSWindowDidMoveNotification,
+    NSWindowDidEndLiveResizeNotification,
     NSWindowDidChangeBackingPropertiesNotification,
+    NSWindowDidChangeScreenNotification,
     NSWindowDidBecomeKeyNotification,
     NSWindowDidResignKeyNotification,
     NSWindowWillEnterFullScreenNotification,
@@ -122,10 +133,27 @@ NS_ASSUME_NONNULL_BEGIN
       if (!strongSelf) return;
       if ([notification.name isEqualToString:NSWindowDidResizeNotification] ||
           [notification.name
-              isEqualToString:NSWindowDidChangeBackingPropertiesNotification]) {
+              isEqualToString:NSWindowDidChangeBackingPropertiesNotification] ||
+          [notification.name isEqualToString:NSWindowDidChangeScreenNotification]) {
         [strongSelf layoutTitlebarContent];
         if ([notification.name isEqualToString:NSWindowDidResizeNotification]) {
           [strongSelf scheduleContentLayoutNotification];
+          BOOL zoomed = strongSelf->_window.isZoomed;
+          if (!strongSelf->_fullscreenTransitionActive &&
+              !strongSelf->_window.inLiveResize &&
+              zoomed != strongSelf->_placementZoomed) {
+            strongSelf->_placementZoomed = zoomed;
+            [strongSelf emitWindowPlacementObservation];
+          }
+        } else {
+          [strongSelf emitWindowPlacementObservation];
+        }
+      } else if ([notification.name isEqualToString:NSWindowDidMoveNotification] ||
+                 [notification.name
+                     isEqualToString:NSWindowDidEndLiveResizeNotification]) {
+        if (!strongSelf->_fullscreenTransitionActive) {
+          strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
+          [strongSelf emitWindowPlacementObservation];
         }
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
@@ -150,6 +178,7 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowDidEnterFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = YES;
         strongSelf->_fullscreenHostReady = YES;
+        strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
         [strongSelf updateFullscreenToolbarPresentationPolicy];
         // AppKit has already built NSToolbarFullScreenWindow. Never replace its
         // toolbar here; apply the final native visibility and frame geometry.
@@ -157,6 +186,7 @@ NS_ASSUME_NONNULL_BEGIN
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
         [strongSelf scheduleFullscreenHostRefresh];
+        [strongSelf emitWindowPlacementObservation];
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
         strongSelf->_fullscreenHostReady = NO;
@@ -173,6 +203,7 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowDidExitFullScreenNotification]) {
         strongSelf->_fullscreenTransitionActive = NO;
         strongSelf->_fullscreenHostReady = NO;
+        strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
         [strongSelf updateFullscreenToolbarPresentationPolicy];
         [strongSelf detachTitlebarWidgetInsetOverrides];
         if (!strongSelf->_previousFullSizeContentView) {
@@ -192,6 +223,7 @@ NS_ASSUME_NONNULL_BEGIN
         // established the windowed button geometry.
         [strongSelf applyLiquidGlassTitlebarAppearance];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
+        [strongSelf emitWindowPlacementObservation];
       } else {
         [strongSelf applyFullScreenPolicy];
       }

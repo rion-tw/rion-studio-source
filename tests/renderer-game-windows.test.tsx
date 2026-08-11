@@ -264,7 +264,7 @@ describe("Game Window management", () => {
 
     expect(screen.getByText("Raid window")).toBeTruthy();
     expect(screen.getByText("Hidden")).toBeTruthy();
-    expect(screen.getByText("Windowed")).toBeTruthy();
+    expect(screen.queryByText("Windowed")).toBeNull();
     expect(screen.getByText("1 tabs")).toBeTruthy();
     expect(screen.getByText("Mina")).toBeTruthy();
     expect(screen.getByText("Studio Display · Primary")).toBeTruthy();
@@ -272,7 +272,7 @@ describe("Game Window management", () => {
     if (!row) throw new Error("Expected game window row.");
     const cells = within(row).getAllByRole("cell");
     expect(within(cells[1]).queryByText("Windowed")).toBeNull();
-    expect(within(cells[2]).getByText("Windowed")).toBeTruthy();
+    expect(within(cells[2]).getByText("Studio Display · Primary")).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Target display" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename or change display" })).toBeNull();
@@ -314,6 +314,28 @@ describe("Game Window management", () => {
     expect(screen.queryByRole("button", { name: "Mute tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Hide tab" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stop tab" })).toBeNull();
+  });
+
+  it("never presents saved window modes as live target-display information", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+    const gameWindows = (["normal", "maximized", "fullscreen"] as const).map(
+      (presentation, index): GameWindow => ({
+        ...gameWindow,
+        id: `window-${index + 1}`,
+        name: `${presentation} window`,
+        placement: { ...gameWindow.placement, presentation }
+      })
+    );
+
+    renderRoute({ gameWindows });
+
+    expect(screen.queryByText("Windowed")).toBeNull();
+    expect(screen.queryByText("Maximized")).toBeNull();
+    expect(screen.queryByText("Full screen")).toBeNull();
+    expect(screen.getAllByText("Studio Display · Primary")).toHaveLength(3);
   });
 
   it("shows unavailable targets as text while still offering connected displays in the action submenu", async () => {

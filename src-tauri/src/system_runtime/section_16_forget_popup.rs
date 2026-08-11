@@ -555,6 +555,33 @@ impl SystemRuntimeExecutor {
                 self.publish_projection();
             }
             Err(error) => {
+                let owner_closed = error.code == "SYSTEM_SURFACE_RECOVERY_CANCELLED"
+                    || self
+                        .surface_recoveries
+                        .operation_was_cancelled(&transaction.context.operation_id);
+                let failure_outcome = surface_recovery_failure_outcome(
+                    error.code,
+                    destructive_started,
+                    owner_closed,
+                );
+                if owner_closed {
+                    self.clear_role_keys(&role_id);
+                    self.discard_role_navigation_input_fences(
+                        &role_id,
+                        "surface-recovery-owner-closed",
+                    );
+                    self.complete_surface_recovery(
+                        transaction.clone(),
+                        failure_outcome.stage,
+                        failure_outcome.native_status,
+                        Some("SYSTEM_SURFACE_RECOVERY_CANCELLED"),
+                        failure_outcome.restart_required,
+                    );
+                    if let Ok(mut state) = self.state.lock() {
+                        state.recovering_roles.remove(&role_id);
+                    }
+                    return;
+                }
                 self.record_input_fence_event_with_reason(
                     &role_id,
                     recovery_epoch,
@@ -571,8 +598,9 @@ impl SystemRuntimeExecutor {
                         "reason": reason
                     }),
                 );
-                let restart_required = surface_recovery_requires_restart(destructive_started);
-                if error.code == "SYSTEM_LIFECYCLE_STALE" && !restart_required {
+                if error.code == "SYSTEM_LIFECYCLE_STALE"
+                    && !failure_outcome.restart_required
+                {
                     self.retry_surface_recovery_after_lifecycle(
                         transaction.clone(),
                         reason.clone(),
@@ -580,27 +608,17 @@ impl SystemRuntimeExecutor {
                     );
                     return;
                 }
-                if restart_required
+                if failure_outcome.restart_required
                     && let Ok(mut state) = self.state.lock()
                 {
                     state.close_coordinator.quarantined_roles.insert(role_id.clone());
                 }
                 self.complete_surface_recovery(
                     transaction.clone(),
-                    if restart_required {
-                        "surfaceRecoveryIndeterminate"
-                    } else {
-                        "surfaceRecoveryFailed"
-                    },
-                    if restart_required {
-                        NativeOperationStatus::Indeterminate
-                    } else if error.code == "SYSTEM_SURFACE_RECOVERY_STALE" {
-                        NativeOperationStatus::Superseded
-                    } else {
-                        NativeOperationStatus::Failed
-                    },
+                    failure_outcome.stage,
+                    failure_outcome.native_status,
                     Some(error.code),
-                    restart_required,
+                    failure_outcome.restart_required,
                 );
             }
         }

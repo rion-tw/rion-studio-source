@@ -315,7 +315,10 @@ impl SystemRuntimeExecutor {
                     .values()
                     .flat_map(|tab| tab.roles.values())
                     .collect::<Vec<_>>();
-                record.recovery_required = Some(state.recovery_required);
+                record.recovery_required = Some(
+                    state.runtime_restart_required
+                        || !state.session_recovery_window_ids.is_empty(),
+                );
                 record.display_host_count = Some(runtime_diagnostic_count(state.native_resources.display_hosts.len()));
                 record.tab_count = Some(runtime_diagnostic_count(state.native_resources.tabs.len()));
                 record.role_count = Some(runtime_diagnostic_count(role_surfaces.len()));

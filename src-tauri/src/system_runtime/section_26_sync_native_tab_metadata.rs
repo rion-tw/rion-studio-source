@@ -636,16 +636,8 @@ impl SystemRuntimeExecutor {
                         .quarantined_roles
                         .insert(role_id.clone());
                 }
-                if !state
-                    .recovery_interrupted_window_ids
-                    .contains(&surface.window_id)
-                {
-                    state
-                        .recovery_interrupted_window_ids
-                        .push(surface.window_id.clone());
-                }
             }
-            state.recovery_required = true;
+            state.runtime_restart_required = true;
         }
         for surface in &cancelled {
             self.record_surface_event(
@@ -918,6 +910,11 @@ impl SystemRuntimeExecutor {
             };
             if !owns_close {
                 return self.wait_for_managed_surface_release(instance_id, &surface).await;
+            }
+            if surface.kind == ManagedSurfaceKind::Recovery
+                && let Some(role_id) = surface.role_id.as_deref()
+            {
+                self.surface_recoveries.cancel_active_for_role(role_id);
             }
             self.record_surface_event(
                 LogLevel::Debug,

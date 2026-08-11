@@ -360,7 +360,13 @@ impl SystemRuntimeExecutor {
                 state.dormant_windows.push(retired_snapshot);
                 state
                     .dormant_window_states
-                    .insert(retired_window_id, DormantWindowState::Dormant);
+                    .insert(retired_window_id.clone(), DormantWindowState::Dormant);
+                state
+                    .session_recovery_window_ids
+                    .remove(&retired_window_id);
+                state
+                    .recovery_interrupted_window_ids
+                    .retain(|candidate| candidate != &retired_window_id);
             }
             let native_window = state.native_resources.display_hosts.get_mut(window_id).map(|host| {
                 let retirement_revision = WINDOW_RETIREMENT_SEQUENCE

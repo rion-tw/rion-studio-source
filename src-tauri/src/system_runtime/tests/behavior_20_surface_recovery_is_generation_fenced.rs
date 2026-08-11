@@ -106,6 +106,66 @@ fn surface_recovery_generation_and_destructive_boundary_are_explicit() {
 }
 
 #[test]
+fn owner_close_cancels_the_exact_surface_recovery_without_restart() {
+    for platform in ["macos", "windows"] {
+        let registry = SurfaceRecoveryRegistry::default();
+        let context = NativeOperationContext::new_for_platform(
+            NativeOperationSubsystem::Recovery,
+            "processFailure",
+            Duration::from_secs(1),
+            platform,
+        )
+        .with_role("role-1")
+        .with_window("window-1")
+        .with_surface_generation(7);
+        let operation_id = context.operation_id.clone();
+        let SurfaceRecoveryBegin::Started(_, _) = registry.begin(
+            context,
+            "role-1".to_owned(),
+            "window-1".to_owned(),
+            7,
+            3,
+        ) else {
+            panic!("{platform}: recovery must start");
+        };
+        let navigation = Arc::new(NavigationTracker::new_for_platform(platform));
+        assert!(!registry.attach_navigation(&operation_id, &navigation));
+        assert_eq!(registry.cancel_active_for_role("role-1"), 1);
+        assert!(registry.operation_was_cancelled(&operation_id));
+        assert!(navigation.owner_close_cancelled());
+        assert!(navigation.wait().is_err());
+        assert!(!navigation.native_navigation_started(91));
+
+        let outcome = surface_recovery_failure_outcome(
+            "SYSTEM_SURFACE_RECOVERY_FAILED",
+            true,
+            true,
+        );
+        assert_eq!(outcome.stage, "surfaceRecoveryCancelled");
+        assert_eq!(outcome.native_status, NativeOperationStatus::Cancelled);
+        assert!(!outcome.restart_required);
+
+        let terminal = registry
+            .complete(
+                &operation_id,
+                "blocked",
+                "failed",
+                Some("SYSTEM_SURFACE_RECOVERY_CANCELLED".to_owned()),
+            )
+            .unwrap();
+        let late = registry
+            .complete(
+                &operation_id,
+                "blocked",
+                "restartRequired",
+                Some("SYSTEM_SURFACE_RECOVERY_FAILED".to_owned()),
+            )
+            .unwrap();
+        assert_eq!(late, terminal, "{platform}: cancellation is terminal");
+    }
+}
+
+#[test]
 fn clean_exit_requires_a_terminal_shutdown_drain() {
     for _platform in ["macos", "windows"] {
         assert!(shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Applied));

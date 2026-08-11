@@ -110,6 +110,7 @@ pub fn default_runtime_restore_session() -> RuntimeRestoreSessionRecord {
         clean_exit: true,
         last_focused_window_id: None,
         restore_in_progress_window_ids: Vec::new(),
+        live_window_ids: Some(Vec::new()),
         windows: Vec::new(),
     }
 }
@@ -221,6 +222,17 @@ pub fn normalize_runtime_restore_session(
     restore_in_progress_window_ids.sort();
     restore_in_progress_window_ids.dedup();
     restore_in_progress_window_ids.truncate(MAX_WINDOWS);
+    let live_window_ids = session.live_window_ids.map(|window_ids| {
+        let mut window_ids = window_ids
+            .into_iter()
+            .map(|id| id.trim().to_owned())
+            .filter(|id| !id.is_empty() && id.len() <= 128)
+            .collect::<Vec<_>>();
+        window_ids.sort();
+        window_ids.dedup();
+        window_ids.truncate(MAX_WINDOWS);
+        window_ids
+    });
     Ok(RuntimeRestoreSessionRecord {
         schema_version: 2,
         session_generation: session.session_generation,
@@ -228,6 +240,7 @@ pub fn normalize_runtime_restore_session(
         clean_exit: session.clean_exit,
         last_focused_window_id,
         restore_in_progress_window_ids,
+        live_window_ids,
         windows,
     })
 }

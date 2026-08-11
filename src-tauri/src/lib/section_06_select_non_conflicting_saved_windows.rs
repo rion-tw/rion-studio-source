@@ -105,40 +105,6 @@ fn saved_window_conflicts_with_runtime(
     })
 }
 
-fn game_window_restore_record(
-    window: &StateGameWindowRecord,
-) -> rion_core::RuntimeRestoreWindowRecord {
-    let active_source_id = window.active_tab_id.as_ref().and_then(|active_tab_id| {
-        window
-            .tabs
-            .iter()
-            .find(|tab| &tab.id == active_tab_id && !tab.hidden)
-            .map(|tab| tab.source_id.clone())
-    });
-    rion_core::RuntimeRestoreWindowRecord {
-        id: window.id.clone(),
-        target_display: window.target_display.clone(),
-        was_visible: true,
-        active_source_id,
-        tabs: window
-            .tabs
-            .iter()
-            .map(|tab| rion_core::RuntimeRestoreTabRecord {
-                tab_type: tab.tab_type.clone(),
-                source_id: tab.source_id.clone(),
-                name: tab.name.clone(),
-                role_ids: tab
-                    .role_slots
-                    .iter()
-                    .map(|slot| slot.role_id.clone())
-                    .collect(),
-                hidden: tab.hidden,
-                audio_muted: tab.audio_muted,
-            })
-            .collect(),
-    }
-}
-
 fn replace_restore_progress(
     state: &CoreState,
     window_ids: Vec<String>,
@@ -193,38 +159,21 @@ fn discard_saved_game_windows(
     } else {
         None
     };
-    let game_windows = state
-        .core
-        .invoke(CoreCommand::GameWindowsList)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<Vec<StateGameWindowRecord>>(value)
-                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
-        })?;
-    let selected = game_windows
-        .iter()
-        .filter(|window| requested_window_id.is_none_or(|id| id == window.id))
-        .collect::<Vec<_>>();
     // Discarding crash recovery retires only the previous runtime session.
     // Permanent Game Window definitions remain reusable; clearing their tabs
     // here made a recovery choice indistinguishable from deleting saved state.
     replace_restore_progress(state, Vec::new())?;
-    let remaining_windows = game_windows
-        .iter()
-        .filter(|window| {
-            !window.tabs.is_empty() && !selected.iter().any(|item| item.id == window.id)
-        })
-        .map(game_window_restore_record)
-        .collect::<Vec<_>>();
-    state
+    let requested_window_ids = requested_window_id
+        .map(|window_id| HashSet::from([window_id.to_owned()]));
+    let discarded_window_ids = state
         .runtime
-        .replace_dormant_windows(remaining_windows, false);
+        .discard_dormant_window_recovery(requested_window_ids.as_ref());
     state
         .runtime
         .persist_restore_session(false)
         .map_err(|error| shell_error("TAURI_RESTORE_PERSIST_FAILED", error))?;
     Ok(json!({
-        "discardedWindowIds": selected.iter().map(|window| window.id.clone()).collect::<Vec<_>>()
+        "discardedWindowIds": discarded_window_ids
     }))
 }
 

@@ -212,6 +212,9 @@ pub struct RuntimeRestoreSessionRecord {
     pub last_focused_window_id: Option<String>,
     #[serde(default)]
     pub restore_in_progress_window_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub live_window_ids: Option<Vec<String>>,
     // Kept only as a one-version migration input. GameWindow records are the
     // authoritative source of restorable windows and tabs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

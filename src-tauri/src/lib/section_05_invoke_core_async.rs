@@ -209,6 +209,22 @@ enum SavedWindowRestoreActivation {
     UserInitiated,
 }
 
+fn saved_window_restore_candidate_ids(
+    activation: SavedWindowRestoreActivation,
+    scope: &str,
+    dormant_window_ids: &HashSet<String>,
+    session_recovery_window_ids: &HashSet<String>,
+) -> HashSet<String> {
+    if scope != "window"
+        && activation == SavedWindowRestoreActivation::UserInitiated
+        && !session_recovery_window_ids.is_empty()
+    {
+        session_recovery_window_ids.clone()
+    } else {
+        dormant_window_ids.clone()
+    }
+}
+
 fn saved_window_restore_focus_target(
     activation: SavedWindowRestoreActivation,
     selected: &[StateGameWindowRecord],
@@ -258,8 +274,21 @@ async fn restore_saved_game_windows(
         .invoke(CoreCommand::RuntimeRestoreSessionGet)
         .ok()
         .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned));
+    let dormant_window_ids = state.runtime.dormant_window_ids();
+    let session_recovery_window_ids = state.runtime.session_recovery_window_ids();
+    let restore_candidate_ids = saved_window_restore_candidate_ids(
+        activation,
+        scope,
+        &dormant_window_ids,
+        &session_recovery_window_ids,
+    );
+    let eligible_game_windows = game_windows
+        .iter()
+        .filter(|saved| restore_candidate_ids.contains(&saved.id))
+        .cloned()
+        .collect::<Vec<_>>();
     let selected = if scope == "window" {
-        game_windows
+        eligible_game_windows
             .iter()
             .filter(|saved| Some(saved.id.as_str()) == input["windowId"].as_str())
             .cloned()
@@ -267,26 +296,36 @@ async fn restore_saved_game_windows(
     } else {
         let runtime_before_restore = browser_runtime_snapshot(state)?;
         select_auto_restore_saved_windows(
-            &game_windows,
+            &eligible_game_windows,
             last_focused_window_id.as_deref(),
             &runtime_before_restore,
         )
     };
+    let requested_window_ids = selected
+        .iter()
+        .map(|saved| saved.id.clone())
+        .collect::<Vec<_>>();
+    let selected_window_ids = state
+        .runtime
+        .begin_dormant_window_restore(&requested_window_ids);
+    if selected_window_ids.is_empty() {
+        return Ok(json!({
+            "restoredWindowIds": [],
+            "failures": []
+        }));
+    }
+    let selected_window_id_set = selected_window_ids.iter().cloned().collect::<HashSet<_>>();
+    let selected = selected
+        .into_iter()
+        .filter(|saved| selected_window_id_set.contains(&saved.id))
+        .collect::<Vec<_>>();
     let focus_window_id = saved_window_restore_focus_target(
         activation,
         &selected,
         last_focused_window_id.as_deref(),
     );
-    let recovery_flow = state.runtime.recovery_required();
-    let selected_window_ids = selected
-        .iter()
-        .map(|saved| saved.id.clone())
-        .collect::<Vec<_>>();
+    let restore_progress = RestoreProgressGuard::new(state, selected_window_ids.clone());
     replace_restore_progress(state, selected_window_ids.clone())?;
-    state
-        .runtime
-        .begin_dormant_window_restore(&selected_window_ids);
-    let restore_progress = RestoreProgressGuard::new(state, selected_window_ids);
     let mut restored_ids = Vec::new();
     let mut failures = Vec::new();
     let mut failed_window_messages = HashMap::new();
@@ -442,16 +481,9 @@ async fn restore_saved_game_windows(
             restored_ids.push(saved.id.clone());
         }
     }
-    let remaining_windows = game_windows
-        .iter()
-        .filter(|saved| {
-            !saved.tabs.is_empty() && !restored_ids.iter().any(|restored| restored == &saved.id)
-        })
-        .map(game_window_restore_record)
-        .collect::<Vec<_>>();
     state.runtime.finish_dormant_window_restore(
-        remaining_windows.clone(),
-        recovery_flow && !remaining_windows.is_empty(),
+        &selected_window_ids,
+        &restored_ids,
         &failed_window_messages,
     );
     restore_progress.finish()?;

@@ -415,6 +415,7 @@ use serde_json::json;
             "updatedAt": "stale",
             "cleanExit": false,
             "lastFocusedWindowId": "window-2",
+            "liveWindowIds": [" window-2 ", "window-1", "window-2", ""],
             "windows": [
                 {
                     "id": " window-1 ",
@@ -494,6 +495,10 @@ use serde_json::json;
         assert_eq!(normalized.windows[1].tabs[1].source_id, "role-2");
         assert_eq!(normalized.windows[1].tabs[1].name, "role-2");
         assert_eq!(normalized.windows[1].active_source_id, None);
+        assert_eq!(
+            normalized.live_window_ids,
+            Some(vec!["window-1".to_owned(), "window-2".to_owned()])
+        );
     }
 
     #[test]

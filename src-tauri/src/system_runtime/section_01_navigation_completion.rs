@@ -55,6 +55,7 @@ impl NavigationTracker {
         self.signal_async_changed();
     }
 
+    #[cfg(windows)]
     fn require_native_completion(&self) -> Result<(), String> {
         let mut state = self
             .state
@@ -101,6 +102,7 @@ impl NavigationTracker {
         }
     }
 
+    #[cfg(any(windows, test))]
     fn native_navigation_started(&self, navigation_id: u64) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
@@ -115,6 +117,7 @@ impl NavigationTracker {
         true
     }
 
+    #[cfg(any(windows, test))]
     fn native_navigation_completed(
         &self,
         navigation_id: u64,

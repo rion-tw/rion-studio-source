@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MacroFormState } from "../src/renderer/src/app/types";
+import { calculateMacroMindMapFocus } from "../src/renderer/src/features/macros/macroMindMapFocus";
 import { buildMacroMindMap } from "../src/renderer/src/features/macros/macroMindMapModel";
 import {
   calculateMacroMindMapViewport,
@@ -35,7 +36,12 @@ describe("macro mind map model", () => {
     const settings = model.nodes.find((node) => node.id === "root:settings");
     const rootSteps = model.nodes.filter((node) => node.data.kind === "macroStep");
 
-    expect(root?.data).toMatchObject({ kind: "macroRoot", name: "Unsaved name", stepCount: 2 });
+    expect(root?.data).toMatchObject({
+      kind: "macroRoot",
+      name: "Unsaved name",
+      statusLabel: "Enabled",
+      stepCount: 2
+    });
     expect(settings?.data).toMatchObject({
       kind: "macroSettings",
       fields: expect.arrayContaining([
@@ -44,6 +50,9 @@ describe("macro mind map model", () => {
       ])
     });
     expect(rootSteps.map((node) => node.id)).toEqual(["root:step:key", "root:step:delay"]);
+    expect(rootSteps.map((node) => (
+      node.data.kind === "macroStep" ? node.data.stepTypeLabel : ""
+    ))).toEqual(["Key", "Delay"]);
     expect(model.edges.map((edge) => [edge.source, edge.target])).toEqual(expect.arrayContaining([
       ["root:macro", "root:step:key"],
       ["root:step:key", "root:step:delay"]
@@ -91,6 +100,10 @@ describe("macro mind map model", () => {
       "Wait for completion",
       "Trigger and continue"
     ]);
+    expect(expanded.nodes.find((node) => node.id === "root:step:call-a")?.data).toMatchObject({
+      kind: "macroStep",
+      call: { modeLabel: "Wait for completion", statusLabel: "Enabled" }
+    });
   });
 
   it("guards missing targets and dependency cycles without abandoning the map", () => {
@@ -167,7 +180,7 @@ describe("macro mind map model", () => {
     const model = buildMacroMindMap({
       ...options,
       nodeHeights: new Map([
-        ["root:macro", 148],
+        ["root:macro", 176],
         ["root:settings", 236],
         ["root:step:key", 137],
         ["root:step:call", 208]
@@ -176,10 +189,10 @@ describe("macro mind map model", () => {
     const normalStep = model.nodes.find((node) => node.id === "root:step:key");
     const callStep = model.nodes.find((node) => node.id === "root:step:call");
 
-    expect(initialModel.nodes.find((node) => node.id === "root:step:key")?.height).toBe(84);
+    expect(initialModel.nodes.find((node) => node.id === "root:step:key")?.height).toBe(112);
     expect(normalStep?.height).toBe(137);
     expect(callStep?.height).toBe(208);
-    expect(model.nodes.find((node) => node.id === "root:macro")?.height).toBe(148);
+    expect(model.nodes.find((node) => node.id === "root:macro")?.height).toBe(176);
     expect(model.nodes.find((node) => node.id === "root:settings")?.height).toBe(236);
     for (const node of model.nodes) {
       expect(node.position.x).toBeGreaterThanOrEqual(model.bounds.x);
@@ -248,6 +261,107 @@ describe("macro mind map viewport", () => {
 
     expect(mediumPlan.height).toBeGreaterThan(1_000);
     expect(longPlan.height).toBeGreaterThan(mediumPlan.height * 4);
+  });
+});
+
+describe("macro mind map focus", () => {
+  it("focuses the complete upstream path without the main downstream steps", () => {
+    const model = buildMacroMindMap({
+      expandedOccurrenceIds: new Set(),
+      form: formState({
+        steps: [
+          { id: "first", type: "key", code: "F1" },
+          { id: "second", type: "delay", ms: 100 },
+          { id: "third", type: "click", xPercent: 10, yPercent: 20 }
+        ]
+      }),
+      macros: [macro()],
+      roles: [role()],
+      t
+    });
+    const focus = calculateMacroMindMapFocus(model, "root:step:second");
+
+    expect([...focus?.nodeIds ?? []]).toEqual([
+      "root:step:second",
+      "root:step:first",
+      "root:macro"
+    ]);
+    expect(focus?.nodeIds.has("root:step:third")).toBe(false);
+    expect(focus?.nodeIds.has("root:settings")).toBe(false);
+  });
+
+  it("includes a direct expanded call branch and its nested upstream path", () => {
+    const child = macro({
+      id: "child",
+      name: "Child",
+      steps: [{ id: "child-step", type: "delay", ms: 250 }]
+    });
+    const form = formState({
+      steps: [
+        { id: "before", type: "key", code: "F1" },
+        { id: "call", type: "macro", macroId: child.id },
+        { id: "after", type: "key", code: "F2" }
+      ]
+    });
+    const collapsed = buildMacroMindMap({
+      expandedOccurrenceIds: new Set(), form, macros: [macro(), child], roles: [role()], t
+    });
+    const occurrenceId = collapsed.expandableOccurrenceIds[0];
+    const model = buildMacroMindMap({
+      expandedOccurrenceIds: new Set([occurrenceId]), form, macros: [macro(), child], roles: [role()], t
+    });
+    const callFocus = calculateMacroMindMapFocus(model, "root:step:call");
+    const childStepId = `${occurrenceId}:step:child-step`;
+
+    expect(callFocus?.nodeIds.has(`${occurrenceId}:macro`)).toBe(true);
+    expect(callFocus?.nodeIds.has(`${occurrenceId}:settings`)).toBe(true);
+    expect(callFocus?.nodeIds.has(childStepId)).toBe(true);
+    expect(callFocus?.nodeIds.has("root:step:after")).toBe(false);
+
+    const nestedFocus = calculateMacroMindMapFocus(model, childStepId);
+    expect(nestedFocus?.nodeIds.has("root:step:call")).toBe(true);
+    expect(nestedFocus?.nodeIds.has("root:macro")).toBe(true);
+  });
+
+  it("focuses warnings and keeps repeated call occurrences isolated", () => {
+    const child = macro({ id: "child", name: "Child" });
+    const form = formState({
+      steps: [
+        { id: "missing", type: "macro", macroId: "gone" },
+        { id: "first-call", type: "macro", macroId: child.id },
+        { id: "second-call", type: "macro", macroId: child.id }
+      ]
+    });
+    const collapsed = buildMacroMindMap({
+      expandedOccurrenceIds: new Set(), form, macros: [macro(), child], roles: [role()], t
+    });
+    const model = buildMacroMindMap({
+      expandedOccurrenceIds: new Set(collapsed.expandableOccurrenceIds),
+      form,
+      macros: [macro(), child],
+      roles: [role()],
+      t
+    });
+    const warningFocus = calculateMacroMindMapFocus(model, "root:step:missing");
+    expect([...warningFocus?.nodeIds ?? []].some((id) => id.endsWith(":warning"))).toBe(true);
+
+    const firstFocus = calculateMacroMindMapFocus(model, "root:step:first-call");
+    const [firstOccurrence, secondOccurrence] = collapsed.expandableOccurrenceIds;
+    expect(firstFocus?.nodeIds.has(`${firstOccurrence}:macro`)).toBe(true);
+    expect(firstFocus?.nodeIds.has(`${secondOccurrence}:macro`)).toBe(false);
+  });
+
+  it("returns no focus for missing node ids", () => {
+    const model = buildMacroMindMap({
+      expandedOccurrenceIds: new Set(),
+      form: formState(),
+      macros: [macro()],
+      roles: [role()],
+      t
+    });
+
+    expect(calculateMacroMindMapFocus(model, "missing")).toBeUndefined();
+    expect(calculateMacroMindMapFocus(model)).toBeUndefined();
   });
 });
 

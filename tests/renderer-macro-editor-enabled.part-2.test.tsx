@@ -420,7 +420,7 @@ it("edits pixel clicks and converts seconds back to milliseconds", async () => {
     })));
   });
 
-it("adds new click steps in percent mode at the center anchor", async () => {
+it("adds new click steps in pixel mode at the center anchor", async () => {
     const selectedMacro = macro({
       steps: [{ id: "key", type: "key", code: "F2" }]
     });
@@ -447,7 +447,7 @@ it("adds new click steps in percent mode at the center anchor", async () => {
     render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Click" }));
 
-    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent).toContain("%");
+    expect(screen.getByRole("combobox", { name: "Coordinate unit" }).textContent).toContain("px");
     expect(screen.getByRole("combobox", { name: "Coordinate anchor" }).textContent).toContain("Center");
     expect((screen.getByRole("spinbutton", { name: "X offset" }) as HTMLInputElement).value).toBe("0");
     expect((screen.getByRole("spinbutton", { name: "Y offset" }) as HTMLInputElement).value).toBe("0");
@@ -459,9 +459,10 @@ it("adds new click steps in percent mode at the center anchor", async () => {
         { id: "key", type: "key", code: "F2" },
         expect.objectContaining({
           type: "click",
+          unit: "reference-px",
           anchor: "center",
-          xPercent: 0,
-          yPercent: 0
+          xReferencePx: 0,
+          yReferencePx: 0
         })
       ]
     })));

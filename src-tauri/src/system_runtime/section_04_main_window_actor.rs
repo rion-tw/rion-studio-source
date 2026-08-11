@@ -1,5 +1,6 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MainWindowCommand {
+    Hide,
     Minimize,
     Show { focus: bool },
     ToggleFullscreen,
@@ -21,6 +22,7 @@ impl MainWindowCommand {
 
     fn success_stage(self) -> &'static str {
         match self {
+            Self::Hide => "mainWindowHidden",
             Self::Minimize => "mainWindowMinimized",
             Self::Show { .. } => "mainWindowShown",
             Self::ToggleFullscreen => "mainWindowFullscreenToggled",
@@ -439,7 +441,10 @@ impl MainWindowActor {
                 NativeOperationStatus::Superseded,
                 None,
             ))
-        } else if request.command == MainWindowCommand::Minimize {
+        } else if matches!(
+            request.command,
+            MainWindowCommand::Hide | MainWindowCommand::Minimize
+        ) {
             self.focus_broker.revoke_window("main", self.generation());
             Some((
                 "mainWindowFocusCancelled",
@@ -765,6 +770,16 @@ fn apply_main_window_command(
     };
     let mut native_failed = false;
     match command {
+        MainWindowCommand::Hide => {
+            #[cfg(windows)]
+            {
+                native_failed |= request_platform_webview_window_minimize(window).is_err();
+            }
+            #[cfg(not(windows))]
+            {
+                native_failed |= window.hide().is_err();
+            }
+        }
         MainWindowCommand::Minimize => {
             native_failed |= request_platform_webview_window_minimize(window).is_err();
         }
@@ -844,9 +859,16 @@ fn main_window_readback_matches_for_platform(
     command: MainWindowCommand,
     before: &MainWindowSemanticState,
     after: &MainWindowSemanticState,
-    _is_windows: bool,
+    is_windows: bool,
 ) -> bool {
     match command {
+        MainWindowCommand::Hide => {
+            if is_windows {
+                after.minimized && after.visible
+            } else {
+                !after.visible
+            }
+        }
         MainWindowCommand::Minimize => after.minimized && after.visible,
         MainWindowCommand::Show { focus: false } => after.visible,
         MainWindowCommand::Show { focus: true } => {
@@ -1014,6 +1036,21 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
         let operation_id = self.request_main_window_show(focus, trigger)?;
         self.wait_main_window_operation(&operation_id)
+    }
+
+    pub(crate) fn hide_main_window(
+        &self,
+        trigger: &'static str,
+    ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
+        let operation_id = self.request_main_window_hide(trigger)?;
+        self.wait_main_window_operation(&operation_id)
+    }
+
+    pub(crate) fn request_main_window_hide(
+        &self,
+        trigger: &'static str,
+    ) -> RuntimeResult<String> {
+        self.submit_main_window_operation(MainWindowCommand::Hide, trigger)
     }
 
     pub(crate) fn minimize_main_window(

@@ -101,8 +101,12 @@ async fn rion_shell_invoke(
             Ok(Value::Null)
         }
         "requestCurrentWindowClose" => {
-            app.exit(0);
-            Ok(Value::Null)
+            let receipt = state
+                .runtime
+                .hide_main_window("renderer-close-requested")
+                .map_err(|error| shell_error(error.code, error.message))?;
+            serde_json::to_value(receipt)
+                .map_err(|error| shell_error("SHELL_WINDOW_RECEIPT_INVALID", error.to_string()))
         }
         "minimizeCurrentWindow" => {
             let receipt = state

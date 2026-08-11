@@ -430,7 +430,19 @@ pub fn run() {
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {
                             api.prevent_close();
-                            app_handle.exit(0);
+                            if let Err(error) = state
+                                .runtime
+                                .request_main_window_hide("os-close-requested")
+                            {
+                                let _ = app_handle.emit(
+                                    "rion://shell-error",
+                                    json!({
+                                        "code": error.code,
+                                        "message": error.message,
+                                        "windowLabel": label
+                                    }),
+                                );
+                            }
                         }
                         tauri::WindowEvent::CloseRequested { api, .. } if label != "main" => {
                             match state.runtime.begin_window_close_requested(&label) {

@@ -122,13 +122,13 @@ fn main_window_queue_is_bounded_fifo_and_rejects_work_after_stop() {
 
     state.stopped = true;
     assert_eq!(
-        state.enqueue(main_window_request_for_test(MainWindowCommand::Minimize, 101)),
+        state.enqueue(main_window_request_for_test(MainWindowCommand::Hide, 101)),
         Err(MainWindowQueueError::Stopped)
     );
 }
 
 #[test]
-fn minimize_lifecycle_and_shutdown_drain_each_focus_continuation_exactly_once() {
+fn hide_lifecycle_and_shutdown_drain_each_focus_continuation_exactly_once() {
     let mut state = MainWindowActorState::default();
     let queued = main_window_request_for_test(MainWindowCommand::Show { focus: true }, 201);
     let pending = main_window_request_for_test(MainWindowCommand::Show { focus: true }, 202);
@@ -165,6 +165,26 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
         let hidden = main_window_semantic_state(false, false, false, false);
         let minimized = minimized_main_window_semantic_state(true, false, false, false);
         let hidden_minimized = minimized_main_window_semantic_state(false, false, false, false);
+        assert!(main_window_readback_matches_for_platform(
+            MainWindowCommand::Hide,
+            &before,
+            if is_windows { &minimized } else { &hidden },
+            is_windows,
+        ), "{platform}");
+        assert!(!main_window_readback_matches_for_platform(
+            MainWindowCommand::Hide,
+            &before,
+            if is_windows { &hidden } else { &minimized },
+            is_windows,
+        ), "{platform}");
+        if is_windows {
+            assert!(!main_window_readback_matches_for_platform(
+                MainWindowCommand::Hide,
+                &before,
+                &hidden_minimized,
+                is_windows,
+            ), "{platform}");
+        }
         assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::Minimize,
             &before,

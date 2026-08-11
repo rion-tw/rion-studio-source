@@ -41,12 +41,12 @@
 }
 
 [data-macro-mind-map] .macro-mind-map-floating-controls {
-  background: hsl(var(--glass-popover));
+  background: hsl(var(--glass-control));
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
   backdrop-filter: blur(18px) saturate(1.08);
   box-shadow:
     inset 0 1px hsl(var(--glass-highlight-muted)),
-    0 8px 24px hsl(var(--glass-shadow-strong));
+    0 4px 12px hsl(var(--glass-shadow));
 }
 
 [data-macro-mind-map] .react-flow__node {

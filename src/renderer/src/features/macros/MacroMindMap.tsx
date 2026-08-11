@@ -195,10 +195,10 @@ function MindMapFrame({
       data-macro-mind-map="inline"
     >
       <div
-        className="macro-mind-map-controls pointer-events-none sticky top-0 z-[var(--layer-decoration)] flex h-0 justify-end px-4"
+        className="macro-mind-map-controls pointer-events-none sticky top-0 z-[var(--layer-decoration)] flex h-0 justify-end px-2"
         data-macro-mind-map-controls
       >
-        <div className="macro-mind-map-floating-controls glass-popover pointer-events-auto mt-1 flex h-fit items-center gap-0.5 rounded-md border border-border/45 p-0.5">
+        <div className="macro-mind-map-floating-controls pointer-events-auto mt-2 flex h-fit items-center gap-0.5 rounded-md border border-border/35 p-0.5">
           <Button
             aria-label={t("mindMap.zoomOut")}
             disabled={!instance}

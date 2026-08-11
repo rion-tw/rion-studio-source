@@ -114,7 +114,9 @@ describe("macro mind map UI", () => {
     expect(inlineMap.querySelector(".macro-mind-map-header")).toBeNull();
     expect(controls?.className).toContain("sticky");
     expect(controls?.className).toContain("top-0");
+    expect(controls?.className).toContain("px-2");
     expect(floatingControls).toBeTruthy();
+    expect(floatingControls?.className).toContain("mt-2");
     expect(controls?.nextElementSibling).toBe(canvasSurface);
     expect(inlineMap.textContent).not.toContain("Live preview");
     expect(inlineMap.textContent).toContain("Key");

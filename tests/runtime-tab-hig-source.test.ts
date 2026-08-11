@@ -36,6 +36,9 @@ describe("runtime tab HIG status presentation", () => {
     expect(tabItem).toContain("NSColor.systemOrangeColor");
     expect(tabItem).toContain("NSColor.systemRedColor");
     expect(tabItem).toContain("NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion");
+    expect(tabItem).toContain("BOOL hasEndSlot = !_hideTabCloseButton || !_phaseReady;");
+    expect(tabItem).toContain("BOOL revealClose = !_hideTabCloseButton && _hovered;");
+    expect(tabItem).toContain("self->_phaseAccessory.animator.alphaValue = phaseAlpha;");
     expect(supportViews).toContain("NSColor.windowBackgroundColor.CGColor");
     expect(supportViews).toContain("- (BOOL)wantsUpdateLayer");
     expect(failurePresentation).toContain("RionRuntimeFailureBackdropView");
@@ -51,6 +54,9 @@ describe("runtime tab HIG status presentation", () => {
     ]);
 
     expect(tabStyles).toMatch(/\.phase-accessory \{[\s\S]*?width: 12px;[\s\S]*?height: 12px;/);
+    expect(tabStyles).toMatch(/\.tab-end-accessory \{[\s\S]*?display: grid;[\s\S]*?width: 20px;/);
+    expect(tabStyles).toContain(".tab.tab-closable:hover .phase-accessory");
+    expect(tabStyles).toContain(".tab.tab-closable:focus-visible .close");
     expect(tabStyles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(tabStyles).toMatch(/\.phase-spinner \{[\s\S]*?animation: none;/);
     expect(tabStyles).toContain("@media (prefers-contrast: more)");

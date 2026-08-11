@@ -345,6 +345,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSTimeInterval _lastDragMoveDispatchTime;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
+  BOOL _phaseReady;
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
@@ -384,6 +385,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
   _phaseAccessory = [[NSView alloc] initWithFrame:NSZeroRect];
   _phaseAccessory.accessibilityElement = NO;
+  _phaseAccessory.hidden = YES;
+  _phaseReady = YES;
   _phaseImageView = [[NSImageView alloc] initWithFrame:NSZeroRect];
   _phaseImageView.imageAlignment = NSImageAlignCenter;
   _phaseImageView.imageScaling = NSImageScaleProportionallyDown;
@@ -423,6 +426,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _moreButton.bordered = NO;
   _moreButton.imageScaling = NSImageScaleProportionallyDown;
   _moreButton.contentTintColor = NSColor.secondaryLabelColor;
+  _moreButton.alphaValue = 0.0;
 
   [self addSubview:_iconView];
   [self addSubview:_titleField];
@@ -550,6 +554,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
       [phase isEqualToString:@"attaching"] ||
       [phase isEqualToString:@"loading"];
   BOOL wasHidden = _phaseAccessory.hidden;
+  _phaseReady = ready;
   _phaseAccessory.hidden = ready;
   _phaseImageView.hidden = ready || progressing;
   _phaseProgress.hidden = !progressing;
@@ -579,12 +584,8 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   if (!ready && wasHidden &&
       !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
     _phaseAccessory.alphaValue = 0.0;
-    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
-      context.duration = 0.12;
-      self->_phaseAccessory.animator.alphaValue = 1.0;
-    } completionHandler:nil];
-  } else {
-    _phaseAccessory.alphaValue = ready ? 0.0 : 1.0;
+  } else if (ready) {
+    _phaseAccessory.alphaValue = 0.0;
   }
   NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;
   NSString *audioSymbol = tab.audioMuted ? @"speaker.slash.fill" : @"speaker.wave.2.fill";
@@ -621,30 +622,31 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   x += kRionTabIconSize + kRionTabIconTitleSpacing;
 
   CGFloat trailingX = width - kRionTabTrailingPadding;
-  CGFloat audioX = 0;
-  if (_hideTabCloseButton) {
-    _moreButton.frame = NSZeroRect;
-    audioX = trailingX - kRionTabAudioIconSize;
+  BOOL hasEndSlot = !_hideTabCloseButton || !_phaseReady;
+  CGFloat audioX = trailingX - kRionTabAudioIconSize;
+  if (hasEndSlot) {
+    CGFloat slotX = MAX(x, trailingX - kRionTabMoreButtonWidth);
+    _moreButton.frame = _hideTabCloseButton
+        ? NSZeroRect
+        : NSMakeRect(slotX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
+    if (!_phaseReady) {
+      CGFloat phaseX = slotX + (kRionTabMoreButtonWidth - 12.0) / 2.0;
+      _phaseAccessory.frame = NSMakeRect(
+          phaseX, (kRionTabHeight - 12.0) / 2.0, 12.0, 12.0);
+      _phaseImageView.frame = _phaseAccessory.bounds;
+      _phaseProgress.frame = _phaseAccessory.bounds;
+    } else {
+      _phaseAccessory.frame = NSZeroRect;
+    }
+    audioX = slotX - kRionTabAccessorySpacing - kRionTabAudioIconSize;
   } else {
-    CGFloat moreX = MAX(x, trailingX - kRionTabMoreButtonWidth);
-    _moreButton.frame =
-        NSMakeRect(moreX, 0, kRionTabMoreButtonWidth, kRionTabHeight);
-    audioX = moreX - kRionTabAccessorySpacing - kRionTabAudioIconSize;
+    _moreButton.frame = NSZeroRect;
+    _phaseAccessory.frame = NSZeroRect;
   }
   _audioView.frame =
       NSMakeRect(audioX, (kRionTabHeight - kRionTabAudioIconSize) / 2.0,
                  kRionTabAudioIconSize, kRionTabAudioIconSize);
   CGFloat titleEnd = audioX - kRionTabAccessorySpacing;
-  if (!_phaseAccessory.hidden) {
-    CGFloat phaseX = titleEnd - 12.0;
-    _phaseAccessory.frame = NSMakeRect(
-        phaseX, (kRionTabHeight - 12.0) / 2.0, 12.0, 12.0);
-    _phaseImageView.frame = _phaseAccessory.bounds;
-    _phaseProgress.frame = _phaseAccessory.bounds;
-    titleEnd = phaseX - kRionTabAccessorySpacing;
-  } else {
-    _phaseAccessory.frame = NSZeroRect;
-  }
   _titleField.frame =
       NSMakeRect(x, 0, MAX(1.0, titleEnd - x), kRionTabHeight);
 }
@@ -690,25 +692,26 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                               ? (_windowActive ? NSColor.labelColor
                                                : NSColor.secondaryLabelColor)
                               : NSColor.secondaryLabelColor;
-  CGFloat moreAlpha = _hideTabCloseButton
-                          ? 0.0
-                          : self.activeTab ? 0.46 : _hovered ? 0.76 : 0.0;
+  BOOL revealClose = !_hideTabCloseButton && _hovered;
+  CGFloat moreAlpha = revealClose ? 0.76 : 0.0;
+  CGFloat phaseAlpha = _phaseReady || revealClose ? 0.0 : 1.0;
   BOOL reduceMotion =
       NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
   if (animate && !reduceMotion) {
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
       context.duration = 0.12;
       self->_moreButton.animator.alphaValue = moreAlpha;
+      self->_phaseAccessory.animator.alphaValue = phaseAlpha;
     } completionHandler:nil];
   } else {
     _moreButton.alphaValue = moreAlpha;
+    _phaseAccessory.alphaValue = phaseAlpha;
   }
 }
 
 - (nullable NSView *)hitTest:(NSPoint)point {
   NSView *hit = [super hitTest:point];
-  if (hit == _moreButton && !_hideTabCloseButton &&
-      _moreButton.alphaValue > 0.05) return hit;
+  if (hit == _moreButton && !_hideTabCloseButton && _hovered) return hit;
   return hit ? self : nil;
 }
 

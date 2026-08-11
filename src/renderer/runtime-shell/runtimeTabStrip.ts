@@ -364,6 +364,7 @@ export function createCloseControl(tabId: string, label: string): HTMLSpanElemen
 
 export function syncCloseControlState(button: HTMLButtonElement): void {
   const close = button.querySelector<HTMLElement>(".close");
+  button.classList.toggle("tab-closable", Boolean(close));
   if (!close) return;
   const visible = button.classList.contains("active");
   close.tabIndex = visible ? 0 : -1;

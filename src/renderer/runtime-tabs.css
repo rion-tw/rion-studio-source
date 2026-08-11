@@ -334,6 +334,19 @@ button {
   white-space: nowrap;
 }
 
+.tab-end-accessory {
+  display: grid;
+  width: 20px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+}
+
+.tab-end-accessory > .phase-accessory,
+.tab-end-accessory > .close {
+  grid-area: 1 / 1;
+}
+
 .phase-accessory {
   display: grid;
   width: 12px;
@@ -342,6 +355,7 @@ button {
   place-items: center;
   color: hsl(var(--muted-foreground));
   opacity: 1;
+  pointer-events: none;
   transition: opacity 120ms ease-out;
 }
 
@@ -423,11 +437,20 @@ button {
   width: 20px;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 120ms ease-out;
 }
 
-.tab.active .close {
+.tab.tab-closable:hover .phase-accessory,
+.tab.tab-closable:focus-visible .phase-accessory,
+.tab.tab-closable:has(.close:focus-visible) .phase-accessory {
+  opacity: 0;
+}
+
+.tab.tab-closable:hover .close,
+.tab.tab-closable:focus-visible .close,
+.tab.tab-closable:has(.close:focus-visible) .close {
   visibility: visible;
-  opacity: 0.46;
+  opacity: 0.76;
   pointer-events: auto;
 }
 
@@ -474,6 +497,10 @@ button {
   }
 
   .phase-accessory {
+    transition: none;
+  }
+
+  .close {
     transition: none;
   }
 

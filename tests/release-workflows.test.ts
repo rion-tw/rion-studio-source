@@ -64,7 +64,14 @@ describe("Tauri-only release workflows", () => {
       "name: renderer-assets-${{ github.run_id }}-${{ github.run_attempt }}"
     );
     expect(platformChecks).not.toContain("pnpm run build:renderer");
-    expect(platformChecks).not.toContain("pnpm install --frozen-lockfile");
+    expect(platformChecks).toContain(
+      "- name: Install dependencies for Windows renderer tests\n" +
+      "        if: runner.os == 'Windows'\n" +
+      "        run: pnpm install --frozen-lockfile"
+    );
+    expect(platformChecks.indexOf("pnpm install --frozen-lockfile")).toBeLessThan(
+      platformChecks.indexOf("Test renderer behavior on Windows")
+    );
     expect(platformChecks).toContain("id: target_rust_tests");
     expect(platformChecks).toContain("./scripts/diagnoseWindowsTestLoader.ps1");
     expect(platformChecks).toContain("steps.target_rust_tests.outcome == 'failure'");

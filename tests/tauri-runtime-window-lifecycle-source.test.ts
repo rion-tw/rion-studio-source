@@ -565,6 +565,7 @@ describe("runtime window lifecycle authority", () => {
     expect(restore).not.toContain("authoritative_runtime_tab_for_source(");
     expect(restore).not.toContain('"type": "browserRoleLaunch"');
     expect(restore).toContain("&target");
+    expect(restore).toContain("&saved.name");
     expect(restore).toContain("&saved.tabs");
     expect(restore).toContain("finish_prepared_restored_window_tabs");
     expect(restore).not.toContain("CoreCommand::GameWindowUpdate");
@@ -646,6 +647,26 @@ describe("runtime window lifecycle authority", () => {
     expect(nativeClose).toContain("retiring_native_window_hosts");
     expect(nativeClose).toContain("complete_window_destroyed");
     expect(nativeClose).toContain("self.tab_close_changed.notify_all()");
+    const destroyedStart = nativeClose.indexOf(
+      "pub(crate) fn complete_window_destroyed"
+    );
+    const destroyedEnd = nativeClose.indexOf(
+      "fn finish_window_close_operation",
+      destroyedStart
+    );
+    const destroyed = nativeClose.slice(destroyedStart, destroyedEnd);
+    const retireTopology = destroyed.indexOf("self.presentation.remove(window_id)");
+    const releaseFence = destroyed.indexOf(
+      "state.retiring_native_window_hosts.remove(label)"
+    );
+    const notifyWaiters = destroyed.indexOf(
+      "self.tab_close_changed.notify_all()"
+    );
+    expect(retireTopology).toBeGreaterThan(-1);
+    expect(releaseFence).toBeGreaterThan(retireTopology);
+    expect(notifyWaiters).toBeGreaterThan(releaseFence);
+    expect(destroyed).toContain("host.window_id == *window_id");
+    expect(destroyed).toContain("host.generation == *generation");
     expect(runtimeLayout).toContain("RetiringNativeWindowHost");
     expect(launch).toContain("wait_for_window_close_before_reopen");
     expect(activation).not.toContain("repair_missing_tab_presentation");

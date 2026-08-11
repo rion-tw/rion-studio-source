@@ -227,41 +227,13 @@ fn defer_windows_application_shortcut(
     let task_app = app.clone();
     let scheduling_app = app.clone();
     let scheduling = app.run_on_main_thread(move || {
-        let result = task_app
-            .try_state::<crate::CoreState>()
-            .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
-            .and_then(|state| match target {
-                WindowsApplicationShortcutTarget::MainWindow => {
-                    let main = task_app.get_webview_window("main").ok_or_else(|| {
-                        "The Rion Studio main window is unavailable.".to_owned()
-                    })?;
-                    crate::application_menu::execute_shortcut(
-                        &task_app,
-                        &state,
-                        command,
-                        crate::application_menu::ApplicationShortcutTarget::MainWindow(&main),
-                    )
-                }
-                WindowsApplicationShortcutTarget::RoleWebview(shortcut_label) => {
-                    crate::application_menu::execute_shortcut(
-                        &task_app,
-                        &state,
-                        command,
-                        crate::application_menu::ApplicationShortcutTarget::RoleWebview(
-                            &shortcut_label,
-                        ),
-                    )
-                }
-            });
-        if let Err(message) = result {
-            let _ = task_app.emit(
-                "rion://shell-error",
-                json!({
-                    "code": "TAURI_APPLICATION_SHORTCUT_FAILED",
-                    "message": message
-                }),
-            );
-        }
+        // Preserve ordering with the WebView2 accelerator callback, then leave
+        // the UI thread before waiting for a native-operation receipt. Window
+        // mode operations dispatch back to this thread; waiting here would
+        // prevent their authoritative callback from ever running.
+        tauri::async_runtime::spawn_blocking(move || {
+            execute_deferred_windows_application_shortcut(task_app, target, command);
+        });
     });
     if let Err(error) = scheduling {
         tauri::async_runtime::spawn_blocking(move || {
@@ -273,6 +245,49 @@ fn defer_windows_application_shortcut(
                 }),
             );
         });
+    }
+}
+
+#[cfg(windows)]
+fn execute_deferred_windows_application_shortcut(
+    app: AppHandle,
+    target: WindowsApplicationShortcutTarget,
+    command: crate::application_menu::ApplicationShortcutCommand,
+) {
+    let result = app
+        .try_state::<crate::CoreState>()
+        .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
+        .and_then(|state| match target {
+            WindowsApplicationShortcutTarget::MainWindow => {
+                let main = app.get_webview_window("main").ok_or_else(|| {
+                    "The Rion Studio main window is unavailable.".to_owned()
+                })?;
+                crate::application_menu::execute_shortcut(
+                    &app,
+                    &state,
+                    command,
+                    crate::application_menu::ApplicationShortcutTarget::MainWindow(&main),
+                )
+            }
+            WindowsApplicationShortcutTarget::RoleWebview(shortcut_label) => {
+                crate::application_menu::execute_shortcut(
+                    &app,
+                    &state,
+                    command,
+                    crate::application_menu::ApplicationShortcutTarget::RoleWebview(
+                        &shortcut_label,
+                    ),
+                )
+            }
+        });
+    if let Err(message) = result {
+        let _ = app.emit(
+            "rion://shell-error",
+            json!({
+                "code": "TAURI_APPLICATION_SHORTCUT_FAILED",
+                "message": message
+            }),
+        );
     }
 }
 

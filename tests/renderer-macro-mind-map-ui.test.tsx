@@ -53,7 +53,7 @@ describe("macro mind map UI", () => {
     expect(mindMap?.nextElementSibling).toBeNull();
     expect(help?.parentElement?.tagName).toBe("ASIDE");
     expect(help?.previousElementSibling?.textContent).toContain("Execution roles");
-    expect(mindMap?.textContent).toContain("Steps: 1 · Macro calls: 0");
+    expect(mindMap?.textContent).not.toContain("Steps: 1 · Macro calls: 0");
 
     const mapStep = await waitFor(() => {
       const element = container.querySelector<HTMLElement>(
@@ -102,17 +102,23 @@ describe("macro mind map UI", () => {
     expect(inlineMap.textContent).toContain("Enabled");
   });
 
-  it("renders the refined hierarchy and compact sticky toolbar", () => {
+  it("removes the title and keeps only the blurred compact controls sticky", () => {
     const { container } = renderEditor([macro()]);
     const inlineMap = container.querySelector<HTMLElement>("[data-macro-mind-map='inline']");
     if (!inlineMap) throw new Error("Inline mind map was not rendered.");
-    const toolbar = inlineMap.querySelector<HTMLElement>(".macro-mind-map-toolbar");
+    const controls = inlineMap.querySelector<HTMLElement>("[data-macro-mind-map-controls]");
+    const floatingControls = inlineMap.querySelector<HTMLElement>(".macro-mind-map-floating-controls");
+    const canvasSurface = inlineMap.querySelector<HTMLElement>("[data-macro-mind-map-surface]");
     const step = inlineMap.querySelector<HTMLElement>("[data-macro-mind-map-step-type='key']");
 
-    expect(toolbar?.className).toContain("sticky");
-    expect(inlineMap.textContent).toContain("Live preview");
+    expect(inlineMap.querySelector(".macro-mind-map-header")).toBeNull();
+    expect(controls?.className).toContain("sticky");
+    expect(controls?.className).toContain("top-0");
+    expect(floatingControls).toBeTruthy();
+    expect(controls?.nextElementSibling).toBe(canvasSurface);
+    expect(inlineMap.textContent).not.toContain("Live preview");
     expect(inlineMap.textContent).toContain("Key");
-    expect(step?.querySelector(".macro-mind-map-node-rail")).toBeTruthy();
+    expect(inlineMap.querySelector(".macro-mind-map-node-rail")).toBeNull();
     expect(step?.querySelectorAll(".macro-mind-map-handle")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();

@@ -66,7 +66,6 @@ export const MacroRootNode = memo(function MacroRootNode({ data, selected }: Min
       "macro-mind-map-card macro-mind-map-root glass-panel-strong relative grid w-full content-start gap-3 rounded-lg border border-border/55 p-4 text-foreground",
       selected && "macro-mind-map-card-selected"
     )} data-macro-mind-map-node-kind="macroRoot">
-      <span aria-hidden="true" className="macro-mind-map-node-rail" />
       <NodeHandles hasTarget={!root.isCurrent} />
       <div className="flex min-w-0 items-center justify-between gap-3">
         <span className="text-micro font-bold uppercase tracking-[0.14em] text-muted-foreground">
@@ -75,7 +74,7 @@ export const MacroRootNode = memo(function MacroRootNode({ data, selected }: Min
         <StatusPill label={root.statusLabel} tone={root.enabled ? "enabled" : "disabled"} />
       </div>
       <div className="flex min-w-0 items-start gap-3">
-        <span className="macro-mind-map-root-icon grid size-10 shrink-0 place-items-center rounded-lg text-activity">
+        <span className="macro-mind-map-root-icon grid size-10 shrink-0 place-items-center rounded-lg">
           <Workflow size={19} strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
@@ -107,7 +106,6 @@ export const MacroSettingsNode = memo(function MacroSettingsNode({ data, selecte
       "macro-mind-map-card macro-mind-map-settings glass-control relative grid w-full content-start rounded-lg border border-border/50 text-foreground",
       selected && "macro-mind-map-card-selected"
     )} data-macro-mind-map-node-kind="macroSettings">
-      <span aria-hidden="true" className="macro-mind-map-node-rail" />
       <NodeHandles />
       <div className="flex items-center gap-2.5 border-b border-border/40 px-4 py-3 text-body font-semibold">
         <span className="grid size-7 place-items-center rounded-md bg-muted/45 text-muted-foreground">
@@ -146,7 +144,6 @@ export const MacroStepNode = memo(function MacroStepNode({ data, selected }: Min
       data-macro-mind-map-node-kind="macroStep"
       data-macro-mind-map-step-type={step.stepType}
     >
-      <span aria-hidden="true" className="macro-mind-map-node-rail" />
       <NodeHandles />
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -227,7 +224,6 @@ export const MacroWarningNode = memo(function MacroWarningNode({ data, selected 
         : "border-border/55 text-muted-foreground",
       selected && "macro-mind-map-card-selected"
     )} data-macro-mind-map-node-kind="macroWarning">
-      <span aria-hidden="true" className="macro-mind-map-node-rail" />
       <NodeHandles />
       <div className="flex items-center gap-2.5 text-caption font-semibold">
         <span className="grid size-7 place-items-center rounded-md bg-warning/45">

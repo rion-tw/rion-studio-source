@@ -1,4 +1,4 @@
-import { FoldVertical, Network, Scan, ZoomIn, ZoomOut } from "lucide-react";
+import { FoldVertical, Scan, ZoomIn, ZoomOut } from "lucide-react";
 import {
   type JSX,
   useCallback,
@@ -188,41 +188,17 @@ function MindMapFrame({
   t
 }: MindMapFrameProps): JSX.Element {
   const [instance, setInstance] = useState<ReactFlowInstance<MacroMindMapCanvasNode, BuiltInEdge> | null>(null);
-  const summary = t("mindMap.summary")
-    .replace("{steps}", String(model.stepCount))
-    .replace("{calls}", String(model.callCount));
 
   return (
-    <Surface
+    <section
       className="relative"
       data-macro-mind-map="inline"
-      padding="none"
-      radius="md"
-      variant="inset"
     >
-      <header className="macro-mind-map-toolbar sticky top-0 z-[var(--layer-decoration)] flex flex-wrap items-center gap-3 rounded-t-md border-b border-border/50 px-4 py-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-activity/12 text-activity">
-          <Network size={18} strokeWidth={1.8} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h2 className="text-body font-semibold text-foreground">{t("mindMap.title")}</h2>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-activity/20 bg-activity/10 px-2 py-1 text-micro font-bold leading-none text-activity">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-activity" />
-              {t("mindMap.livePreview")}
-            </span>
-          </div>
-          <p className="sr-only">{summary}</p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-micro font-semibold text-muted-foreground">
-            <span className="rounded-full border border-border/40 bg-background/20 px-2 py-0.5">
-              {t("mindMap.stepCount").replace("{count}", String(model.stepCount))}
-            </span>
-            <span className="rounded-full border border-border/40 bg-background/20 px-2 py-0.5">
-              {t("mindMap.callCount").replace("{count}", String(model.callCount))}
-            </span>
-          </div>
-        </div>
-        <div className="glass-control flex shrink-0 items-center gap-0.5 rounded-md border border-border/45 p-0.5 shadow-sm">
+      <div
+        className="macro-mind-map-controls pointer-events-none sticky top-0 z-[var(--layer-decoration)] flex h-0 justify-end px-4"
+        data-macro-mind-map-controls
+      >
+        <div className="macro-mind-map-floating-controls glass-popover pointer-events-auto mt-1 flex h-fit items-center gap-0.5 rounded-md border border-border/45 p-0.5">
           <Button
             aria-label={t("mindMap.zoomOut")}
             disabled={!instance}
@@ -268,25 +244,32 @@ function MindMapFrame({
             <Scan size={15} />
           </Button>
         </div>
-      </header>
+      </div>
 
-      <MindMapCanvas
-        activeNodeId={activeNodeId}
-        fitRevision={fitRevision}
-        instance={instance}
-        model={model}
-        selectedNodeId={selectedNodeId}
-        selectedStepId={selectedStepId}
-        t={t}
-        onHoverNode={onHoverNode}
-        onInit={setInstance}
-        onNodeHeightsChange={onNodeHeightsChange}
-        onPaneClick={onPaneClick}
-        onSelectNode={onSelectNode}
-        onSelectStep={onSelectStep}
-        onToggleOccurrence={onToggleOccurrence}
-      />
-    </Surface>
+      <Surface
+        data-macro-mind-map-surface
+        padding="none"
+        radius="md"
+        variant="inset"
+      >
+        <MindMapCanvas
+          activeNodeId={activeNodeId}
+          fitRevision={fitRevision}
+          instance={instance}
+          model={model}
+          selectedNodeId={selectedNodeId}
+          selectedStepId={selectedStepId}
+          t={t}
+          onHoverNode={onHoverNode}
+          onInit={setInstance}
+          onNodeHeightsChange={onNodeHeightsChange}
+          onPaneClick={onPaneClick}
+          onSelectNode={onSelectNode}
+          onSelectStep={onSelectStep}
+          onToggleOccurrence={onToggleOccurrence}
+        />
+      </Surface>
+    </section>
   );
 }
 
@@ -477,11 +460,11 @@ function toCanvasEdge(
   const isFocused = focus?.edgeIds.has(edge.id) ?? false;
   const isDimmed = Boolean(focus) && !isFocused;
   const color = isFocused
-    ? "hsl(var(--activity))"
+    ? "hsl(var(--foreground) / 0.9)"
     : edge.kind === "warning"
     ? "hsl(var(--warning-foreground))"
     : edge.kind === "wait" || edge.kind === "trigger"
-      ? "hsl(var(--activity))"
+      ? "hsl(var(--foreground) / 0.62)"
       : "hsl(var(--muted-foreground) / 0.55)";
   return {
     className: cn(

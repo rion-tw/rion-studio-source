@@ -32,18 +32,21 @@
   --xy-controls-button-color-default: hsl(var(--foreground));
   --xy-edge-label-background-color-default: hsl(var(--background) / 0.9);
   --xy-minimap-background-color-default: hsl(var(--background) / 0.78);
-  background: radial-gradient(circle at 50% 5%, hsl(var(--activity) / 0.075), transparent 34%);
+  background: radial-gradient(circle at 50% 5%, hsl(var(--foreground) / 0.035), transparent 34%);
 }
 
 [data-macro-mind-map-canvas] {
   overflow: hidden;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  border-radius: var(--radius-md);
 }
 
-[data-macro-mind-map] .macro-mind-map-toolbar {
+[data-macro-mind-map] .macro-mind-map-floating-controls {
   background: hsl(var(--glass-popover));
-  box-shadow: 0 10px 28px hsl(var(--glass-shadow));
-  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
+  box-shadow:
+    inset 0 1px hsl(var(--glass-highlight-muted)),
+    0 8px 24px hsl(var(--glass-shadow-strong));
 }
 
 [data-macro-mind-map] .react-flow__node {
@@ -52,12 +55,12 @@
 }
 
 [data-macro-mind-map] .react-flow__node:focus-visible {
-  outline: 2px solid hsl(var(--ring) / 0.6);
+  outline: 2px solid hsl(var(--foreground) / 0.48);
   outline-offset: 3px;
 }
 
 [data-macro-mind-map] .macro-mind-map-card {
-  --mind-map-accent-hsl: var(--activity);
+  --mind-map-accent-hsl: var(--muted-foreground);
   box-shadow: 0 8px 24px hsl(var(--glass-shadow)), inset 0 1px hsl(var(--glass-highlight-muted));
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
@@ -65,19 +68,8 @@
 [data-macro-mind-map] .react-flow__node:hover .macro-mind-map-card,
 [data-macro-mind-map] .react-flow__node.macro-mind-map-node-active .macro-mind-map-card,
 [data-macro-mind-map] .macro-mind-map-card-selected {
-  border-color: hsl(var(--activity) / 0.62);
-  box-shadow: 0 12px 32px hsl(var(--glass-shadow-strong)), 0 0 0 2px hsl(var(--activity) / 0.14);
-}
-
-[data-macro-mind-map] .macro-mind-map-node-rail {
-  position: absolute;
-  top: 0.6rem;
-  bottom: 0.6rem;
-  left: 0;
-  width: 3px;
-  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
-  background: hsl(var(--mind-map-accent-hsl));
-  opacity: 0.82;
+  border-color: hsl(var(--foreground) / 0.42);
+  box-shadow: 0 12px 32px hsl(var(--glass-shadow-strong)), 0 0 0 2px hsl(var(--foreground) / 0.08);
 }
 
 [data-macro-mind-map] .macro-mind-map-root-icon,
@@ -92,21 +84,25 @@
   --mind-map-accent-hsl: var(--muted-foreground);
 }
 
+[data-macro-mind-map] .macro-mind-map-root {
+  --mind-map-accent-hsl: var(--foreground);
+}
+
 [data-macro-mind-map] .macro-mind-map-warning {
   --mind-map-accent-hsl: var(--warning-foreground);
   box-shadow: 0 6px 20px hsl(var(--glass-shadow));
 }
 
 [data-macro-mind-map-step-type="key"] {
-  --mind-map-accent-hsl: var(--activity);
+  --mind-map-accent-hsl: var(--foreground);
 }
 
 [data-macro-mind-map-step-type="click"] {
-  --mind-map-accent-hsl: var(--success-foreground);
+  --mind-map-accent-hsl: var(--muted-foreground);
 }
 
 [data-macro-mind-map-step-type="delay"] {
-  --mind-map-accent-hsl: var(--warning-foreground);
+  --mind-map-accent-hsl: var(--foreground);
 }
 
 [data-macro-mind-map-step-type="macro"] {
@@ -119,9 +115,9 @@
 }
 
 [data-macro-mind-map] .macro-mind-map-status-pill[data-tone="enabled"] {
-  border-color: hsl(var(--success-foreground) / 0.22);
-  background: hsl(var(--success) / 0.68);
-  color: hsl(var(--success-foreground));
+  border-color: hsl(var(--foreground) / 0.18);
+  background: hsl(var(--foreground) / 0.06);
+  color: hsl(var(--foreground));
 }
 
 [data-macro-mind-map] .macro-mind-map-status-pill[data-tone="disabled"] {
@@ -147,7 +143,7 @@
 
 [data-macro-mind-map] .react-flow__node.macro-mind-map-node-dimmed {
   opacity: 0.38;
-  filter: saturate(0.58);
+  filter: saturate(0.25);
 }
 
 [data-macro-mind-map] .react-flow__edge {
@@ -160,7 +156,7 @@
 }
 
 [data-macro-mind-map] .react-flow__edge.macro-mind-map-edge-focused .react-flow__edge-path {
-  filter: drop-shadow(0 0 3px hsl(var(--activity) / 0.22));
+  filter: drop-shadow(0 0 3px hsl(var(--foreground) / 0.16));
 }
 
 [data-macro-mind-map] .react-flow__edge.macro-mind-map-edge-dimmed {

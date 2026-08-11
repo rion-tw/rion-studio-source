@@ -103,6 +103,20 @@ enum WindowsTabChromeRevealSignal {
 }
 
 #[cfg(any(windows, test))]
+fn windows_tab_chrome_reveal_signal_for_projection(
+    outcome: TabChromeProjectionWaitOutcome,
+) -> Option<WindowsTabChromeRevealSignal> {
+    match outcome {
+        TabChromeProjectionWaitOutcome::Applied => {
+            Some(WindowsTabChromeRevealSignal::ProjectionApplied)
+        }
+        TabChromeProjectionWaitOutcome::Failed
+        | TabChromeProjectionWaitOutcome::Superseded
+        | TabChromeProjectionWaitOutcome::Timeout => None,
+    }
+}
+
+#[cfg(any(windows, test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WindowsTabChromeRevealState {
     cloaked: bool,
@@ -1123,14 +1137,14 @@ impl SystemRuntimeExecutor {
                         Some("TAB_CHROME_PROJECTION_TIMEOUT"),
                     ),
                 };
-                if matches!(outcome, TabChromeProjectionWaitOutcome::Applied)
-                    && !worker_projection.tab_order.is_empty()
+                if let Some(reveal_signal) =
+                    windows_tab_chrome_reveal_signal_for_projection(outcome)
                     && let Some(runtime) = runtime.as_ref().and_then(|runtime| runtime.upgrade())
                 {
                     runtime.observe_windows_tab_chrome_reveal(
                         &worker_projection.window_id,
                         worker_projection.window_generation,
-                        WindowsTabChromeRevealSignal::ProjectionApplied,
+                        reveal_signal,
                     );
                 }
                 if matches!(

@@ -179,7 +179,15 @@ async fn rion_shell_invoke(
                     shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message)
                 })?;
             match game_window_show_route(live_window_activated, saved.tabs.is_empty()) {
-                GameWindowShowRoute::ActivateLive => Ok(Value::Null),
+                GameWindowShowRoute::ActivateLive => {
+                    if state.runtime.retire_dormant_window(&window_id) {
+                        state
+                            .runtime
+                            .persist_restore_session(false)
+                            .map_err(|message| shell_error("TAURI_RESTORE_PERSIST_FAILED", message))?;
+                    }
+                    Ok(Value::Null)
+                }
                 GameWindowShowRoute::RegisterEmpty => {
                     let target = launch_target_for_game_window(&app, &window_id)?;
                     Arc::clone(&state.core)

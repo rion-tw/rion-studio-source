@@ -278,22 +278,44 @@ async fn restore_saved_game_windows(
         last_focused_window_id.as_deref(),
     );
     let recovery_flow = state.runtime.recovery_required();
-    replace_restore_progress(
-        state,
-        selected.iter().map(|saved| saved.id.clone()).collect(),
-    )?;
-    let restore_progress = RestoreProgressGuard::new(state);
+    let selected_window_ids = selected
+        .iter()
+        .map(|saved| saved.id.clone())
+        .collect::<Vec<_>>();
+    replace_restore_progress(state, selected_window_ids.clone())?;
+    state
+        .runtime
+        .begin_dormant_window_restore(&selected_window_ids);
+    let restore_progress = RestoreProgressGuard::new(state, selected_window_ids);
     let mut restored_ids = Vec::new();
     let mut failures = Vec::new();
+    let mut failed_window_messages = HashMap::new();
     for saved in selected {
         let close_runtime = Arc::clone(&state.runtime);
         let close_window_id = saved.id.clone();
-        if let Err(error) = tauri::async_runtime::spawn_blocking(move || {
+        let close_result = match tauri::async_runtime::spawn_blocking(move || {
             close_runtime.wait_for_window_close_before_reopen(&close_window_id)
         })
         .await
-        .map_err(|error| shell_error("TAURI_RESTORE_WINDOW_FAILED", error.to_string()))?
         {
+            Ok(result) => result,
+            Err(error) => {
+                let message = error.to_string();
+                failed_window_messages
+                    .entry(saved.id.clone())
+                    .or_insert_with(|| message.clone());
+                failures.push(json!({
+                    "windowId": saved.id,
+                    "code": "TAURI_RESTORE_WINDOW_FAILED",
+                    "message": message
+                }));
+                continue;
+            }
+        };
+        if let Err(error) = close_result {
+            failed_window_messages
+                .entry(saved.id.clone())
+                .or_insert_with(|| error.clone());
             failures.push(json!({
                 "windowId": saved.id,
                 "code": "TAURI_RESTORE_WINDOW_CLOSE_PENDING",
@@ -304,6 +326,9 @@ async fn restore_saved_game_windows(
         let target = match launch_target_for_game_window(window.app_handle(), &saved.id) {
             Ok(target) => target,
             Err(error) => {
+                failed_window_messages
+                    .entry(saved.id.clone())
+                    .or_insert_with(|| error.message.clone());
                 failures.push(json!({
                     "windowId": saved.id,
                     "code": error.code,
@@ -320,21 +345,38 @@ async fn restore_saved_game_windows(
                 })
                 .await
         {
+            let message = error.to_string();
+            failed_window_messages
+                .entry(saved.id.clone())
+                .or_insert_with(|| message.clone());
             failures.push(json!({
                 "windowId": saved.id,
                 "code": "TAURI_RESTORE_WINDOW_FAILED",
-                "message": error.to_string()
+                "message": message
             }));
             window_failed = true;
         }
-        state
+        if let Err(error) = state
             .runtime
             .prepare_restored_window_tabs(
                 &target,
                 &saved.tabs,
                 saved.active_tab_id.clone(),
             )
-            .map_err(|error| shell_error("TAURI_RESTORE_TAB_ORDER_FAILED", error))?;
+        {
+            failed_window_messages
+                .entry(saved.id.clone())
+                .or_insert_with(|| error.clone());
+            failures.push(json!({
+                "windowId": saved.id,
+                "code": "TAURI_RESTORE_TAB_ORDER_FAILED",
+                "message": error
+            }));
+            state
+                .runtime
+                .discard_prepared_restored_window_tabs(&saved.id);
+            continue;
+        }
         if focus_window_id.as_deref() == Some(saved.id.as_str()) {
             match state
                 .runtime
@@ -365,6 +407,9 @@ async fn restore_saved_game_windows(
             )
             .await
         {
+            failed_window_messages
+                .entry(saved.id.clone())
+                .or_insert_with(|| error.message.clone());
             failures.push(json!({
                 "windowId": saved.id,
                 "tabId": tab.id,
@@ -378,6 +423,9 @@ async fn restore_saved_game_windows(
             .runtime
             .finish_prepared_restored_window_tabs(&saved.id)
         {
+            failed_window_messages
+                .entry(saved.id.clone())
+                .or_insert_with(|| error.clone());
             failures.push(json!({
                 "windowId": saved.id,
                 "code": "TAURI_RESTORE_TAB_ORDER_FAILED",
@@ -401,11 +449,12 @@ async fn restore_saved_game_windows(
         })
         .map(game_window_restore_record)
         .collect::<Vec<_>>();
-    restore_progress.finish()?;
-    state.runtime.replace_dormant_windows(
+    state.runtime.finish_dormant_window_restore(
         remaining_windows.clone(),
         recovery_flow && !remaining_windows.is_empty(),
+        &failed_window_messages,
     );
+    restore_progress.finish()?;
     state
         .runtime
         .persist_restore_session(false)

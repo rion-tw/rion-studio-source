@@ -72,6 +72,19 @@ impl SystemRuntimeExecutor {
             })
             .collect::<Vec<_>>();
         let recovery_required = !stored_restore_session.clean_exit && !dormant_windows.is_empty();
+        let dormant_window_states = dormant_windows
+            .iter()
+            .map(|window| {
+                (
+                    window.id.clone(),
+                    if recovery_required {
+                        DormantWindowState::AwaitingRecovery
+                    } else {
+                        DormantWindowState::Dormant
+                    },
+                )
+            })
+            .collect();
         let recovery_interrupted_window_ids = if recovery_required {
             stored_restore_session.restore_in_progress_window_ids.clone()
         } else {
@@ -171,6 +184,7 @@ impl SystemRuntimeExecutor {
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),
             state: Mutex::new(RuntimeState {
                 dormant_windows,
+                dormant_window_states,
                 recovery_interrupted_window_ids,
                 recovery_required,
                 recovery_session_generation,

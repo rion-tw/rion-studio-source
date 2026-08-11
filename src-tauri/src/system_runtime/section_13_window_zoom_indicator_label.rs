@@ -225,6 +225,17 @@ impl SystemRuntimeExecutor {
                 .dormant_windows
                 .iter()
                 .map(|window| {
+                    let dormant_state = state
+                        .dormant_window_states
+                        .get(&window.id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            if state.recovery_required {
+                                DormantWindowState::AwaitingRecovery
+                            } else {
+                                DormantWindowState::Dormant
+                            }
+                        });
                     let display_label = window
                         .target_display
                         .fingerprint
@@ -239,7 +250,7 @@ impl SystemRuntimeExecutor {
                         .flat_map(|tab| tab.role_ids.iter())
                         .collect::<HashSet<_>>()
                         .len();
-                    json!({
+                    let mut summary = json!({
                         "id": window.id,
                         "displayId": window.target_display.id,
                         "displayLabel": display_label,
@@ -248,8 +259,12 @@ impl SystemRuntimeExecutor {
                         "tabCount": window.tabs.len(),
                         "roleCount": role_count,
                         "tabNames": window.tabs.iter().map(|tab| tab.name.clone()).collect::<Vec<_>>(),
-                        "state": "saved"
-                    })
+                        "state": dormant_state.as_str()
+                    });
+                    if let Some(message) = dormant_state.failure_message() {
+                        summary["failureMessage"] = json!(message);
+                    }
+                    summary
                 })
                 .collect::<Vec<_>>();
             let recovery = state.recovery_required.then(|| {
@@ -332,13 +347,48 @@ impl SystemRuntimeExecutor {
         recovery_required: bool,
     ) {
         if let Ok(mut state) = self.state.lock() {
-            state.dormant_windows = windows;
-            state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
-            if !state.recovery_required {
-                state.recovery_interrupted_window_ids.clear();
-            }
+            replace_dormant_window_state(&mut state, windows, recovery_required);
         }
         self.publish_projection();
+    }
+
+    pub fn begin_dormant_window_restore(&self, window_ids: &[String]) {
+        let changed = if let Ok(mut state) = self.state.lock() {
+            begin_dormant_window_restore_state(&mut state, window_ids)
+        } else {
+            false
+        };
+        if changed {
+            self.publish_projection();
+        }
+    }
+
+    pub fn finish_dormant_window_restore(
+        &self,
+        windows: Vec<RuntimeRestoreWindowRecord>,
+        recovery_required: bool,
+        failures: &HashMap<String, String>,
+    ) {
+        if let Ok(mut state) = self.state.lock() {
+            finish_dormant_window_restore_state(
+                &mut state,
+                windows,
+                recovery_required,
+                failures,
+            );
+        }
+        self.publish_projection();
+    }
+
+    pub fn fail_dormant_window_restores(&self, window_ids: &[String], message: &str) {
+        let changed = if let Ok(mut state) = self.state.lock() {
+            fail_dormant_window_restore_state(&mut state, window_ids, message)
+        } else {
+            false
+        };
+        if changed {
+            self.publish_projection();
+        }
     }
 
     pub(crate) fn dormant_windows(&self) -> Vec<RuntimeRestoreWindowRecord> {
@@ -348,12 +398,23 @@ impl SystemRuntimeExecutor {
             .unwrap_or_default()
     }
 
-    pub(crate) fn retire_dormant_window(&self, window_id: &str) {
-        if let Ok(mut state) = self.state.lock() {
+    pub(crate) fn retire_dormant_window(&self, window_id: &str) -> bool {
+        let retired = if let Ok(mut state) = self.state.lock() {
+            let previous_len = state.dormant_windows.len();
             state.dormant_windows.retain(|window| window.id != window_id);
+            state.dormant_window_states.remove(window_id);
             state.recovery_required = state.recovery_required && !state.dormant_windows.is_empty();
+            if !state.recovery_required {
+                state.recovery_interrupted_window_ids.clear();
+            }
+            state.dormant_windows.len() != previous_len
+        } else {
+            false
+        };
+        if retired {
+            self.publish_projection();
         }
-        self.publish_projection();
+        retired
     }
 
     pub fn publish_projection(&self) {

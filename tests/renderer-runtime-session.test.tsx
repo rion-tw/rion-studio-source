@@ -36,7 +36,7 @@ describe("Game Window recovery dashboard", () => {
             tabCount: 2,
             roleCount: 2,
             tabNames: ["Role 1", "Role 2"],
-            state: "saved"
+            state: "awaiting-recovery"
           }],
           tabs: [{
             id: "tab-live",

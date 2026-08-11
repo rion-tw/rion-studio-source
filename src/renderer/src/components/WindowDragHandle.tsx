@@ -38,6 +38,10 @@ export function WindowDragHandle({
   className,
   ...props
 }: WindowDragHandleProps): JSX.Element {
+  // WebView2 owns native caption gestures; WKWebView uses the typed bridge below.
+  const usesNativeNonClientRegion =
+    document.documentElement.dataset.platform === "windows";
+
   function handlePointerDown(event: PointerEvent<HTMLElement>): void {
     if (event.isPrimary !== false && acceptsWindowGesture(event)) {
       event.stopPropagation();
@@ -59,11 +63,11 @@ export function WindowDragHandle({
   return (
     <Element
       {...props}
-      className={cn("app-no-drag", className)}
+      className={cn(usesNativeNonClientRegion ? "app-drag" : "app-no-drag", className)}
       data-selection-ignore
       data-window-drag-handle
-      onMouseDown={handleMouseDown}
-      onPointerDown={handlePointerDown}
+      onMouseDown={usesNativeNonClientRegion ? undefined : handleMouseDown}
+      onPointerDown={usesNativeNonClientRegion ? undefined : handlePointerDown}
     >
       {children}
     </Element>

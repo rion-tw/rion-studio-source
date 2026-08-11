@@ -42,6 +42,40 @@ pub(in crate::system_runtime) fn request_platform_window_show(
 }
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_minimize(
+    window: &Window,
+) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_webview_window_minimize(
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_restore(
+    window: &Window,
+) -> Result<(), String> {
+    window.unminimize().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_set_maximized(
+    window: &Window,
+    maximized: bool,
+) -> Result<(), String> {
+    if maximized {
+        window.maximize()
+    } else {
+        window.unmaximize()
+    }
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn request_platform_window_set_fullscreen(
     window: &Window,
     fullscreen: bool,

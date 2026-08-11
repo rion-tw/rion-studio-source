@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 
 describe("main window chrome shell", () => {
   it("keeps minimize and maximize ordered in the focus-neutral actor without custom drag", async () => {
-    const [shell, runtime, windowsLifecycle, nativePresentation] = await Promise.all([
-      readFile("src-tauri/src/lib.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime/section_04_main_window_actor.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime/platform/windows/lifecycle.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime/section_05_is_surface_close_effect.rs", "utf8")
-    ]);
+    const [shell, runtime, windowsLifecycle, nativePresentation, geometry, tabDrag] =
+      await Promise.all([
+        readFile("src-tauri/src/lib.rs", "utf8"),
+        readFile("src-tauri/src/system_runtime/section_04_main_window_actor.rs", "utf8"),
+        readFile("src-tauri/src/system_runtime/platform/windows/lifecycle.rs", "utf8"),
+        readFile("src-tauri/src/system_runtime/section_05_is_surface_close_effect.rs", "utf8"),
+        readFile("src-tauri/src/system_runtime/section_26_geometry_contract.rs", "utf8"),
+        readFile("src-tauri/src/system_runtime/section_10_tab_drag_cursor_lease.rs", "utf8")
+      ]);
     const start = shell.indexOf("async fn rion_shell_invoke(");
     const end = shell.indexOf("\nfn string_argument(", start);
     const shellInvoke = shell.slice(start, end);
@@ -32,7 +35,8 @@ describe("main window chrome shell", () => {
     expect(runtime).toContain("struct MainWindowActor {");
     expect(runtime).toContain("MAIN_WINDOW_ACTOR_CAPACITY");
     expect(runtime).not.toContain("window.start_dragging()");
-    expect(runtime).toContain("window.minimize()");
+    expect(runtime).toContain("request_platform_webview_window_minimize(window)");
+    expect(runtime).not.toContain("MainWindowCommand::Minimize => native_failed |= window.minimize()");
     expect(runtime).toContain("pending_maximize");
     expect(runtime).not.toContain("window.set_focus()");
     expect(runtime).toContain("request_platform_webview_window_toggle_maximized(window)");
@@ -42,6 +46,23 @@ describe("main window chrome shell", () => {
     expect(windowsLifecycle).toContain("PostMessageW");
     expect(windowsLifecycle).toContain("SC_MAXIMIZE");
     expect(windowsLifecycle).toContain("SC_RESTORE");
+    expect(windowsLifecycle).toContain("fn show_standard_minimized(");
+    expect(windowsLifecycle).toContain("SW_MINIMIZE");
+    expect(windowsLifecycle).toContain("SW_SHOWMINNOACTIVE");
+    expect(windowsLifecycle).toContain("IsIconic(hwnd)");
+    expect(windowsLifecycle).toContain("IsWindowVisible(hwnd)");
+    expect(windowsLifecycle).toContain("request_platform_window_set_maximized(");
+    expect(nativePresentation).toContain("request_platform_window_minimize(&window)");
+    expect(nativePresentation).toContain("request_platform_window_restore(&window)");
+    expect(nativePresentation).toContain("request_platform_window_set_maximized(&window, true)");
+    expect(nativePresentation).not.toContain("window.minimize()");
+    expect(nativePresentation).not.toContain("window.unminimize()");
+    expect(nativePresentation).not.toContain("window.maximize()");
+    expect(geometry).toContain("request_platform_window_set_maximized(window, false)");
+    expect(geometry).toContain("request_platform_window_set_maximized(window, true)");
+    expect(geometry).not.toContain("window.unmaximize()");
+    expect(geometry).not.toContain("window.maximize()");
+    expect(tabDrag).toContain("request_platform_window_set_ignore_cursor_events(");
     const fullscreen = windowsLifecycle.slice(
       windowsLifecycle.indexOf("fn request_platform_window_set_fullscreen("),
       windowsLifecycle.indexOf("fn request_platform_window_toggle_fullscreen(")

@@ -62,17 +62,141 @@ pub(in crate::system_runtime) fn request_platform_window_show(window: &Window) -
 }
 
 #[cfg(windows)]
+fn show_standard_minimized(hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsIconic, IsWindow, IsWindowVisible, SW_MINIMIZE, SW_SHOWMINNOACTIVE, ShowWindow,
+    };
+
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 window handle is no longer valid.".to_owned());
+    }
+    // Keep Win32 as the sole owner of this transition. These windows are born
+    // hidden and revealed through the native lifecycle lane, so tao's cached
+    // VISIBLE flag can remain false. Calling Tauri's minimize after that first
+    // performs SW_MINIMIZE and then incorrectly follows it with SW_HIDE.
+    let _ = unsafe { ShowWindow(hwnd, SW_MINIMIZE) };
+    if !unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        // Repair a window that entered through the former hidden-minimized
+        // path while preserving its minimized, non-activating presentation.
+        let _ = unsafe { ShowWindow(hwnd, SW_SHOWMINNOACTIVE) };
+    }
+    if unsafe { IsIconic(hwnd) }.as_bool() && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        Ok(())
+    } else {
+        Err("Windows did not keep the minimized window visible on the taskbar.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_minimize(
+    window: &Window,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    show_standard_minimized(hwnd)
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_webview_window_minimize(
+    window: &WebviewWindow,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    show_standard_minimized(hwnd)
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_restore(
+    window: &Window,
+) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsIconic, IsWindow, IsWindowVisible, SW_RESTORE, SW_SHOWNOACTIVATE, ShowWindow,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 game window handle is no longer valid.".to_owned());
+    }
+    let command = if unsafe { IsIconic(hwnd) }.as_bool() {
+        SW_RESTORE
+    } else {
+        SW_SHOWNOACTIVATE
+    };
+    let _ = unsafe { ShowWindow(hwnd, command) };
+    if !unsafe { IsIconic(hwnd) }.as_bool() && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        Ok(())
+    } else {
+        Err("Windows did not restore the game window as a visible taskbar window.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_set_maximized(
+    window: &Window,
+    maximized: bool,
+) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        IsWindow, IsWindowVisible, IsZoomed, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, ShowWindow,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 game window handle is no longer valid.".to_owned());
+    }
+    let was_visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+    if unsafe { IsZoomed(hwnd) }.as_bool() != maximized {
+        let command = if maximized { SW_MAXIMIZE } else { SW_RESTORE };
+        let _ = unsafe { ShowWindow(hwnd, command) };
+    }
+    if !was_visible {
+        let _ = unsafe { ShowWindow(hwnd, SW_HIDE) };
+    }
+    if unsafe { IsZoomed(hwnd) }.as_bool() == maximized
+        && unsafe { IsWindowVisible(hwnd) }.as_bool() == was_visible
+    {
+        Ok(())
+    } else {
+        Err("Windows did not apply the requested maximized state and visibility.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_set_ignore_cursor_events(
+    window: &Window,
+    ignore: bool,
+) -> Result<(), String> {
+    let was_visible = window.is_visible().map_err(|error| error.to_string())?;
+    window
+        .set_ignore_cursor_events(ignore)
+        .map_err(|error| error.to_string())?;
+    if was_visible {
+        // set_ignore_cursor_events is another tao WindowFlags mutation. Queue a
+        // native reveal after it so tao's stale VISIBLE=false snapshot cannot
+        // turn a live tab-drag host into a hidden window.
+        let callback_window = window.clone();
+        window
+            .run_on_main_thread(move || {
+                let _ = request_platform_window_show(&callback_window);
+            })
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_window_set_fullscreen(
     window: &Window,
     fullscreen: bool,
 ) -> Result<(), String> {
+    let was_visible = window.is_visible().map_err(|error| error.to_string())?;
     window
         .set_fullscreen(fullscreen)
         .map_err(|error| error.to_string())?;
     // WebView2/Tauri can leave a frameless HWND without WS_VISIBLE after the
     // fullscreen style/placement transition. Reassert visibility on the same
     // owning-thread queue without activating a different Rion window.
-    request_platform_window_show(window).map_err(|error| error.message)
+    if was_visible {
+        request_platform_window_show(window).map_err(|error| error.message)?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -134,10 +258,14 @@ pub(in crate::system_runtime) fn request_platform_webview_window_set_fullscreen(
     window: &WebviewWindow,
     fullscreen: bool,
 ) -> Result<(), String> {
+    let was_visible = window.is_visible().map_err(|error| error.to_string())?;
     window
         .set_fullscreen(fullscreen)
         .map_err(|error| error.to_string())?;
-    request_platform_webview_window_show(window)
+    if was_visible {
+        request_platform_webview_window_show(window)?;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]

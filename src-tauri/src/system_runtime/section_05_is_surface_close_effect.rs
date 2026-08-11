@@ -704,9 +704,9 @@ fn apply_native_presentation_batch(
             apply_window_focus && window_focus_still_current(),
             window_was_minimized,
         ) {
-            match window.unminimize() {
+            match request_platform_window_restore(&window) {
                 Ok(()) => window_restore_applied = true,
-                Err(error) => visibility_errors.push(error.to_string()),
+                Err(error) => visibility_errors.push(error),
             }
         }
         let mut window_foreground_show_applied = false;
@@ -754,18 +754,10 @@ fn apply_native_presentation_batch(
                     request_platform_window_set_fullscreen(&window, true)
                 }
                 NativeWindowMode::Maximized => {
-                    if window.is_maximized().unwrap_or(false) {
-                        Ok(())
-                    } else {
-                        window.maximize().map_err(|error| error.to_string())
-                    }
+                    request_platform_window_set_maximized(&window, true)
                 }
                 NativeWindowMode::Minimized => {
-                    if window.is_minimized().unwrap_or(false) {
-                        Ok(())
-                    } else {
-                        window.minimize().map_err(|error| error.to_string())
-                    }
+                    request_platform_window_minimize(&window)
                 }
                 NativeWindowMode::ToggleFullscreen => {
                     request_platform_window_toggle_fullscreen(&window)

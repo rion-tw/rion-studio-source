@@ -35,7 +35,11 @@ fn set_tab_drag_window_interaction(
             false,
         )
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        request_platform_window_set_ignore_cursor_events(window, pointer_passthrough)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         window
             .set_ignore_cursor_events(pointer_passthrough)

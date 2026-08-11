@@ -389,7 +389,7 @@ impl SystemRuntimeExecutor {
                 request_platform_window_set_fullscreen(window, false)?;
             }
             if window.is_maximized().unwrap_or(false) {
-                window.unmaximize().map_err(|error| error.to_string())?;
+                request_platform_window_set_maximized(window, false)?;
             }
         }
         let (physical_x, physical_y) =
@@ -407,7 +407,7 @@ impl SystemRuntimeExecutor {
             self.submit_window_tab_layouts(tab_ids);
             match target.presentation.as_str() {
                 "fullscreen" => request_platform_window_set_fullscreen(window, true)?,
-                "maximized" => window.maximize().map_err(|error| error.to_string())?,
+                "maximized" => request_platform_window_set_maximized(window, true)?,
                 _ => {}
             }
         }
@@ -428,7 +428,7 @@ impl SystemRuntimeExecutor {
             errors.push(format!("exit fullscreen: {error}"));
         }
         if window.is_maximized().unwrap_or(false)
-            && let Err(error) = window.unmaximize()
+            && let Err(error) = request_platform_window_set_maximized(window, false)
         {
             errors.push(format!("unmaximize: {error}"));
         }
@@ -450,7 +450,7 @@ impl SystemRuntimeExecutor {
                     errors.push(format!("fullscreen: {error}"));
                 }
             } else if snapshot.maximized
-                && let Err(error) = window.maximize()
+                && let Err(error) = request_platform_window_set_maximized(window, true)
             {
                 errors.push(format!("maximize: {error}"));
             }

@@ -164,6 +164,7 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
         let before = main_window_semantic_state(true, false, false, false);
         let hidden = main_window_semantic_state(false, false, false, false);
         let minimized = minimized_main_window_semantic_state(true, false, false, false);
+        let hidden_minimized = minimized_main_window_semantic_state(false, false, false, false);
         assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::Minimize,
             &before,
@@ -174,6 +175,12 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
             MainWindowCommand::Minimize,
             &before,
             &hidden,
+            is_windows,
+        ), "{platform}");
+        assert!(!main_window_readback_matches_for_platform(
+            MainWindowCommand::Minimize,
+            &before,
+            &hidden_minimized,
             is_windows,
         ), "{platform}");
         assert!(!main_window_readback_matches_for_platform(

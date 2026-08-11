@@ -765,7 +765,9 @@ fn apply_main_window_command(
     };
     let mut native_failed = false;
     match command {
-        MainWindowCommand::Minimize => native_failed |= window.minimize().is_err(),
+        MainWindowCommand::Minimize => {
+            native_failed |= request_platform_webview_window_minimize(window).is_err();
+        }
         MainWindowCommand::Show { focus: false } => {
             #[cfg(target_os = "macos")]
             {
@@ -845,7 +847,7 @@ fn main_window_readback_matches_for_platform(
     _is_windows: bool,
 ) -> bool {
     match command {
-        MainWindowCommand::Minimize => after.minimized,
+        MainWindowCommand::Minimize => after.minimized && after.visible,
         MainWindowCommand::Show { focus: false } => after.visible,
         MainWindowCommand::Show { focus: true } => {
             unreachable!("focused show is acknowledged only by WindowEvent::Focused")

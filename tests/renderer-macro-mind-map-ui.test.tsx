@@ -62,6 +62,10 @@ describe("macro mind map UI", () => {
       expect(element).toBeTruthy();
       return element as HTMLElement;
     });
+    expect(mapStep.style.height).toBe("");
+    expect(mapStep.className).not.toContain("h-full");
+    expect(mapStep.querySelector(".line-clamp-2")).toBeNull();
+    expect(mapStep.closest<HTMLElement>(".react-flow__node")?.style.height).toBe("");
     fireEvent.click(mapStep);
 
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });

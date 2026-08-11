@@ -25,7 +25,7 @@ describe("macro mind map model", () => {
     });
 
     const model = buildMacroMindMap({
-      expandedOccurrenceIds: new Set(),
+      expandedOccurrenceIds: new Set<string>(),
       form,
       macros: [persisted],
       roles: [role()],
@@ -149,10 +149,10 @@ describe("macro mind map model", () => {
     });
   });
 
-  it("uses compact step sizes and reports bounds for every layouted node", () => {
+  it("uses measured content heights for every layouted node", () => {
     const child = macro({ id: "child", name: "Child" });
-    const model = buildMacroMindMap({
-      expandedOccurrenceIds: new Set(),
+    const options = {
+      expandedOccurrenceIds: new Set<string>(),
       form: formState({
         steps: [
           { id: "key", type: "key", code: "F2" },
@@ -162,12 +162,25 @@ describe("macro mind map model", () => {
       macros: [macro(), child],
       roles: [role()],
       t
+    };
+    const initialModel = buildMacroMindMap(options);
+    const model = buildMacroMindMap({
+      ...options,
+      nodeHeights: new Map([
+        ["root:macro", 148],
+        ["root:settings", 236],
+        ["root:step:key", 137],
+        ["root:step:call", 208]
+      ])
     });
     const normalStep = model.nodes.find((node) => node.id === "root:step:key");
     const callStep = model.nodes.find((node) => node.id === "root:step:call");
 
-    expect(normalStep?.height).toBe(84);
-    expect(callStep?.height).toBe(126);
+    expect(initialModel.nodes.find((node) => node.id === "root:step:key")?.height).toBe(84);
+    expect(normalStep?.height).toBe(137);
+    expect(callStep?.height).toBe(208);
+    expect(model.nodes.find((node) => node.id === "root:macro")?.height).toBe(148);
+    expect(model.nodes.find((node) => node.id === "root:settings")?.height).toBe(236);
     for (const node of model.nodes) {
       expect(node.position.x).toBeGreaterThanOrEqual(model.bounds.x);
       expect(node.position.y).toBeGreaterThanOrEqual(model.bounds.y);

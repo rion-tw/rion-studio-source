@@ -119,22 +119,24 @@ interface BuildMacroMindMapOptions {
   expandedOccurrenceIds: ReadonlySet<string>;
   form: MacroFormState;
   macros: Macro[];
+  nodeHeights?: ReadonlyMap<string, number>;
   roles: Role[];
   t: Translator;
 }
 
-const nodeSizeByKind: Record<MacroMindMapNodeKind, { height: number; width: number }> = {
+const estimatedNodeSizeByKind: Record<MacroMindMapNodeKind, { height: number; width: number }> = {
   macroRoot: { height: 104, width: 252 },
   macroSettings: { height: 164, width: 284 },
   macroStep: { height: 84, width: 276 },
   macroWarning: { height: 84, width: 264 }
 };
-const macroCallNodeSize = { height: 126, width: 276 };
+const estimatedMacroCallNodeSize = { height: 126, width: 276 };
 
 export function buildMacroMindMap({
   expandedOccurrenceIds,
   form,
   macros,
+  nodeHeights = new Map(),
   roles,
   t
 }: BuildMacroMindMapOptions): MacroMindMapModel {
@@ -156,6 +158,7 @@ export function buildMacroMindMap({
     expandableOccurrenceIds,
     macroById,
     macroNameById,
+    nodeHeights,
     nodes,
     edges,
     occurrenceId: "root",
@@ -191,6 +194,7 @@ interface AddMacroOccurrenceOptions {
   expandableOccurrenceIds: string[];
   macroById: ReadonlyMap<string, MacroDefinition>;
   macroNameById: ReadonlyMap<string, string>;
+  nodeHeights: ReadonlyMap<string, number>;
   nodes: MacroMindMapNode[];
   occurrenceId: string;
   roleById: ReadonlyMap<string, Role>;
@@ -206,6 +210,7 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
     expandableOccurrenceIds,
     macroById,
     macroNameById,
+    nodeHeights,
     nodes,
     occurrenceId,
     roleById,
@@ -226,13 +231,13 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
     stepCount: definition.steps.length,
     stepCountLabel: t("mindMap.stepCount").replace("{count}", String(definition.steps.length)),
     warnings
-  }));
+  }, nodeHeights));
   nodes.push(createNode(settingsId, "macroSettings", {
     ariaLabel: `${t("mindMap.settings")}: ${definition.name}`,
     fields: createSettingsFields(definition, roleById, t),
     kind: "macroSettings",
     title: t("mindMap.settings")
-  }));
+  }, nodeHeights));
   edges.push(createEdge(`${rootId}->${settingsId}`, rootId, settingsId, "settings"));
 
   if (definition.steps.length === 0) {
@@ -243,7 +248,7 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
       kind: "macroWarning",
       title: t("mindMap.emptySteps"),
       tone: "neutral"
-    }));
+    }, nodeHeights));
     edges.push(createEdge(`${rootId}->${emptyId}`, rootId, emptyId, "sequence"));
     return;
   }
@@ -273,7 +278,7 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
       index,
       kind: "macroStep",
       stepType: step.type
-    }));
+    }, nodeHeights));
     edges.push(createEdge(`${previousStepId}->${stepId}`, previousStepId, stepId, "sequence"));
     previousStepId = stepId;
 
@@ -286,14 +291,14 @@ function addMacroOccurrence(options: AddMacroOccurrenceOptions): void {
       addCallWarning(nodes, edges, stepId, call?.occurrenceId ?? `${occurrenceId}:missing`, {
         detail: t("mindMap.warning.missingMacro"),
         title: t("mindMap.warning.title")
-      }, t);
+      }, nodeHeights, t);
       return;
     }
     if (visitedMacroIds.has(target.id)) {
       addCallWarning(nodes, edges, stepId, call?.occurrenceId ?? `${occurrenceId}:cycle`, {
         detail: t("mindMap.warning.cycle"),
         title: t("mindMap.warning.title")
-      }, t);
+      }, nodeHeights, t);
       return;
     }
     if (!call?.isExpanded) {
@@ -371,6 +376,7 @@ function addCallWarning(
   sourceId: string,
   occurrenceId: string,
   warning: { detail: string; title: string },
+  nodeHeights: ReadonlyMap<string, number>,
   t: Translator
 ): void {
   const warningId = `${occurrenceId}:warning`;
@@ -380,7 +386,7 @@ function addCallWarning(
     kind: "macroWarning",
     title: warning.title,
     tone: "warning"
-  }));
+  }, nodeHeights));
   edges.push(createEdge(
     `${sourceId}->${warningId}`,
     sourceId,
@@ -425,12 +431,14 @@ function getMacroWarnings(definition: MacroDefinition, t: Translator): string[] 
 function createNode<T extends MacroMindMapNodeData>(
   id: string,
   type: T["kind"],
-  data: T
+  data: T,
+  nodeHeights: ReadonlyMap<string, number>
 ): MacroMindMapNode {
   const size = type === "macroStep" && data.kind === "macroStep" && data.call
-    ? macroCallNodeSize
-    : nodeSizeByKind[type];
-  return { data, height: size.height, id, position: { x: 0, y: 0 }, type, width: size.width };
+    ? estimatedMacroCallNodeSize
+    : estimatedNodeSizeByKind[type];
+  const height = nodeHeights.get(id) ?? size.height;
+  return { data, height, id, position: { x: 0, y: 0 }, type, width: size.width };
 }
 
 function createEdge(

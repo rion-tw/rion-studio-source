@@ -440,14 +440,12 @@ button {
   transition: opacity 120ms ease-out;
 }
 
-.tab.tab-closable:hover .phase-accessory,
-.tab.tab-closable:focus-visible .phase-accessory,
+.tab.tab-closable .tab-end-accessory:hover .phase-accessory,
 .tab.tab-closable:has(.close:focus-visible) .phase-accessory {
   opacity: 0;
 }
 
-.tab.tab-closable:hover .close,
-.tab.tab-closable:focus-visible .close,
+.tab.tab-closable .tab-end-accessory:hover .close,
 .tab.tab-closable:has(.close:focus-visible) .close {
   visibility: visible;
   opacity: 0.76;

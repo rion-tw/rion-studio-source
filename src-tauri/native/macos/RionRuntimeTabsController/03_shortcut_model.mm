@@ -343,6 +343,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _dragPreviewYLocked;
   CGFloat _dragPreviewLockedScreenY;
   NSTimeInterval _lastDragMoveDispatchTime;
+  BOOL _closeSlotHovered;
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   BOOL _phaseReady;
@@ -355,6 +356,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   NSPoint _pointerDownInTab;
   NSPoint _pointerDownLocation;
   BOOL _pointerTracking;
+  NSTrackingArea *_closeSlotTrackingArea;
   NSTrackingArea *_trackingArea;
   NSTextField *_titleField;
   BOOL _windowActive;
@@ -601,6 +603,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _moreButton.toolTip = hideTabCloseButton ? @"" : closeLabel;
   _moreButton.accessibilityLabel = hideTabCloseButton ? @"" : closeLabel;
   _moreButton.accessibilityElement = !hideTabCloseButton;
+  if (hideTabCloseButton) _closeSlotHovered = NO;
   self.toolTip = tab.tooltip.length > 0 ? tab.tooltip : tab.name;
   self.accessibilityLabel = _audioView.hidden
       ? self.toolTip
@@ -653,6 +656,9 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (void)updateTrackingAreas {
   if (_trackingArea) [self removeTrackingArea:_trackingArea];
+  if (_closeSlotTrackingArea) {
+    [_moreButton removeTrackingArea:_closeSlotTrackingArea];
+  }
   _trackingArea = [[NSTrackingArea alloc]
       initWithRect:self.bounds
            options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
@@ -660,17 +666,32 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
              owner:self
           userInfo:nil];
   [self addTrackingArea:_trackingArea];
+  _closeSlotTrackingArea = [[NSTrackingArea alloc]
+      initWithRect:_moreButton.bounds
+           options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
+                   NSTrackingInVisibleRect
+             owner:self
+          userInfo:nil];
+  [_moreButton addTrackingArea:_closeSlotTrackingArea];
   [super updateTrackingAreas];
 }
 
 - (void)mouseEntered:(NSEvent *)event {
-  (void)event;
+  if (event.trackingArea == _closeSlotTrackingArea) {
+    _closeSlotHovered = YES;
+    [self updateVisualStateAnimated:YES];
+    return;
+  }
   _hovered = YES;
   [self updateVisualStateAnimated:YES];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-  (void)event;
+  if (event.trackingArea == _closeSlotTrackingArea) {
+    _closeSlotHovered = NO;
+    [self updateVisualStateAnimated:YES];
+    return;
+  }
   _hovered = NO;
   [self updateVisualStateAnimated:YES];
 }
@@ -692,7 +713,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                               ? (_windowActive ? NSColor.labelColor
                                                : NSColor.secondaryLabelColor)
                               : NSColor.secondaryLabelColor;
-  BOOL revealClose = !_hideTabCloseButton && _hovered;
+  BOOL revealClose = !_hideTabCloseButton && _closeSlotHovered;
   CGFloat moreAlpha = revealClose ? 0.76 : 0.0;
   CGFloat phaseAlpha = _phaseReady || revealClose ? 0.0 : 1.0;
   BOOL reduceMotion =
@@ -711,7 +732,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
 
 - (nullable NSView *)hitTest:(NSPoint)point {
   NSView *hit = [super hitTest:point];
-  if (hit == _moreButton && !_hideTabCloseButton && _hovered) return hit;
+  if (hit == _moreButton && !_hideTabCloseButton && _closeSlotHovered) return hit;
   return hit ? self : nil;
 }
 

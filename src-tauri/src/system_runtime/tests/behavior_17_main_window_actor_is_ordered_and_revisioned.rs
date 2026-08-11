@@ -20,7 +20,8 @@ fn main_window_request_for_test(
             Duration::from_secs(1),
             platform,
         )
-    };
+    }
+    .with_completion_scope(command.completion_scope());
     operation.operation_id = format!("main-window-test-{sequence}");
     MainWindowRequest {
         command,
@@ -216,6 +217,24 @@ fn main_window_readback_guarantees_match_on_macos_and_windows() {
             is_windows,
         ), "{platform}");
         assert!(MainWindowCommand::Show { focus: true }.requests_focus());
+        assert!(!MainWindowCommand::StartDragging.requests_focus());
+        assert!(!MainWindowCommand::StartDragging.awaits_window_state_event());
+        assert!(main_window_readback_matches_for_platform(
+            MainWindowCommand::StartDragging,
+            &before,
+            &before,
+            is_windows,
+        ), "{platform}");
+        let drag = main_window_request_for_test(MainWindowCommand::StartDragging, 299);
+        assert_eq!(
+            drag.operation.completion_policy,
+            OperationCompletionPolicy::DeadlineBound
+        );
+        assert_eq!(
+            drag.operation.completion_scope,
+            SystemRuntimeOperationCompletionScope::NativeSubmission
+        );
+        assert!(drag.focus_lease.is_none());
         assert!(main_window_readback_matches_for_platform(
             MainWindowCommand::ToggleFullscreen,
             &before,

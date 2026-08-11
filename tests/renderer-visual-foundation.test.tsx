@@ -118,6 +118,9 @@ describe("renderer visual foundation", () => {
     expect(styles).toContain(
       ':root[data-window-fullscreen="true"] .app-drag {\n    -webkit-app-region: no-drag;'
     );
+    expect(styles).toContain(
+      ':root[data-window-fullscreen="true"] .app-content-window-drag-region {\n    pointer-events: none;'
+    );
   });
 
   it("fills the Windows caption control group with themed material after page scrolling", () => {

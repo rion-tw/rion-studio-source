@@ -3,6 +3,7 @@ enum MainWindowCommand {
     Hide,
     Minimize,
     Show { focus: bool },
+    StartDragging,
     ToggleFullscreen,
     ToggleMaximized,
 }
@@ -13,7 +14,11 @@ impl MainWindowCommand {
     }
 
     fn completion_scope(self) -> SystemRuntimeOperationCompletionScope {
-        SystemRuntimeOperationCompletionScope::NativeAcknowledgement
+        if matches!(self, Self::StartDragging) {
+            SystemRuntimeOperationCompletionScope::NativeSubmission
+        } else {
+            SystemRuntimeOperationCompletionScope::NativeAcknowledgement
+        }
     }
 
     fn awaits_window_state_event(self) -> bool {
@@ -25,6 +30,7 @@ impl MainWindowCommand {
             Self::Hide => "mainWindowHidden",
             Self::Minimize => "mainWindowMinimized",
             Self::Show { .. } => "mainWindowShown",
+            Self::StartDragging => "mainWindowDragSubmitted",
             Self::ToggleFullscreen => "mainWindowFullscreenToggled",
             Self::ToggleMaximized => "mainWindowMaximizedToggled",
         }
@@ -758,6 +764,20 @@ fn apply_main_window_command(
             MainWindowApplyResult::FocusSubmitted
         };
     }
+    if command == MainWindowCommand::StartDragging {
+        return MainWindowApplyResult::Terminal(match window.start_dragging() {
+            Ok(()) => MainWindowNativeOutcome {
+                failure_code: None,
+                stage: command.success_stage(),
+                status: NativeOperationStatus::Applied,
+            },
+            Err(_) => MainWindowNativeOutcome {
+                failure_code: Some("MAIN_WINDOW_NATIVE_FAILED"),
+                stage: "mainWindowNativeFailed",
+                status: NativeOperationStatus::Failed,
+            },
+        });
+    }
     let before = match MainWindowStateProjection::capture(window) {
         Ok(before) => before,
         Err(_) => {
@@ -794,6 +814,7 @@ fn apply_main_window_command(
             native_failed |= request_platform_webview_window_show(window).is_err();
         }
         MainWindowCommand::Show { focus: true } => unreachable!(),
+        MainWindowCommand::StartDragging => unreachable!(),
         MainWindowCommand::ToggleFullscreen => {
             native_failed |= request_platform_webview_window_set_fullscreen(
                 window,
@@ -874,6 +895,7 @@ fn main_window_readback_matches_for_platform(
         MainWindowCommand::Show { focus: true } => {
             unreachable!("focused show is acknowledged only by WindowEvent::Focused")
         }
+        MainWindowCommand::StartDragging => true,
         MainWindowCommand::ToggleFullscreen => after.fullscreen != before.fullscreen,
         MainWindowCommand::ToggleMaximized => false,
     }
@@ -1066,6 +1088,16 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> RuntimeResult<String> {
         self.submit_main_window_operation(MainWindowCommand::Minimize, trigger)
+    }
+
+    pub(crate) fn start_main_window_drag(
+        &self,
+    ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
+        let operation_id = self.submit_main_window_operation(
+            MainWindowCommand::StartDragging,
+            "renderer-start-dragging",
+        )?;
+        self.wait_main_window_operation(&operation_id)
     }
 
     pub(crate) fn request_main_window_toggle_fullscreen(

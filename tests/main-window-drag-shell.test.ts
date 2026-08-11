@@ -3,7 +3,7 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("main window chrome shell", () => {
-  it("keeps minimize and maximize ordered in the focus-neutral actor without custom drag", async () => {
+  it("keeps drag, minimize, and maximize ordered in the focus-neutral actor", async () => {
     const [shell, runtime, windowsLifecycle, nativePresentation, geometry, tabDrag] =
       await Promise.all([
         readFile("src-tauri/src/lib.rs", "utf8"),
@@ -49,13 +49,16 @@ describe("main window chrome shell", () => {
     expect(osCloseBranch).toContain("api.prevent_close()");
     expect(osCloseBranch).toContain('request_main_window_hide("os-close-requested")');
     expect(osCloseBranch).not.toContain("app_handle.exit(");
-    expect(shellInvoke).not.toContain('"startCurrentWindowDrag"');
-    expect(shellInvoke).not.toContain(".start_main_window_drag()");
+    expect(shellInvoke).toContain('"startCurrentWindowDrag"');
+    expect(shellInvoke).toContain(".start_main_window_drag()");
     expect(shellInvoke).toContain('"toggleCurrentWindowMaximize"');
     expect(shellInvoke).toContain(".toggle_main_window_maximized()");
     expect(runtime).toContain("struct MainWindowActor {");
     expect(runtime).toContain("MAIN_WINDOW_ACTOR_CAPACITY");
-    expect(runtime).not.toContain("window.start_dragging()");
+    expect(runtime).toContain("MainWindowCommand::StartDragging");
+    expect(runtime).toContain("SystemRuntimeOperationCompletionScope::NativeSubmission");
+    expect(runtime).toContain("window.start_dragging()");
+    expect(runtime).toContain('"renderer-start-dragging"');
     expect(runtime).toContain("request_platform_webview_window_minimize(window)");
     expect(runtime).not.toContain("MainWindowCommand::Minimize => native_failed |= window.minimize()");
     expect(runtime).toContain("pending_maximize");

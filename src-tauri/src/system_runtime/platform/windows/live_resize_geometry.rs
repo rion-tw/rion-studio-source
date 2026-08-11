@@ -18,15 +18,6 @@ pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
     let logical_width = (f64::from(physical_width) / scale).round().max(1.0) as i32;
     let logical_height = (f64::from(physical_height) / scale).round().max(1.0) as i32;
     let tab_height = plan.tab_strip_height.round().clamp(1.0, f64::from(logical_height)) as i32;
-    let drag_handle_width = if plan.window_draggable {
-        windows_live_resize_edge(
-            WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL.round() as i32,
-            scale,
-            physical_width.saturating_sub(1) as i32,
-        )
-    } else {
-        0
-    };
     let role_inputs = plan
         .roles
         .iter()
@@ -57,8 +48,8 @@ pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
     let mut bounds = Vec::with_capacity(1 + output.roles.len() + output.dividers.len());
     bounds.push(WindowsLiveResizeBounds {
         height: windows_live_resize_edge(tab_height, scale, physical_height as i32),
-        width: (physical_width as i32 - drag_handle_width).max(1),
-        x: drag_handle_width,
+        width: physical_width.max(1) as i32,
+        x: 0,
         y: 0,
     });
     for role in &plan.roles {
@@ -151,46 +142,32 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
-    windows_live_resize_submit_ordered(
-        surfaces,
-        bounds,
-        |surfaces, bounds| {
-            let mut deferred =
-                unsafe { BeginDeferWindowPos(surfaces.len() as i32) }.map_err(|_| ())?;
-            let flags = windows_live_resize_window_pos_flags();
-            for (surface, bounds) in surfaces.iter().zip(bounds) {
-                deferred = unsafe {
-                    DeferWindowPos(
-                        deferred,
-                        surface.hwnd,
-                        None,
-                        bounds.x,
-                        bounds.y,
-                        bounds.width,
-                        bounds.height,
-                        flags,
-                    )
-                }
-                .map_err(|_| ())?;
+    // ParentWindow is the runtime host HWND, not a per-WebView child HWND.
+    // Keep the host geometry authoritative and place each controller with
+    // Bounds coordinates relative to that shared parent.
+    windows_live_resize_submit_ordered(surfaces, bounds, |surface, bounds| {
+        windows_live_resize_submit_controller_bounds(
+            surface,
+            bounds,
+            |surface, bounds| unsafe {
+                surface
+                    .controller
+                    .SetBounds(windows_live_resize_controller_rect(bounds))
             }
-            unsafe { EndDeferWindowPos(deferred) }.map_err(|_| ())
-        },
-        |surface, bounds| {
-            windows_live_resize_submit_controller_bounds(
-                surface,
-                bounds,
-                |surface, bounds| unsafe {
-                    surface.controller.SetBounds(RECT {
-                        left: 0,
-                        top: 0,
-                        right: bounds.width,
-                        bottom: bounds.height,
-                    })
-                }
-                .map_err(|_| ()),
-            )
-        },
-    )
+            .map_err(|_| ()),
+        )
+    })
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_controller_rect(
+    bounds: &WindowsLiveResizeBounds,
+) -> RECT {
+    RECT {
+        bottom: bounds.y.saturating_add(bounds.height),
+        left: bounds.x,
+        right: bounds.x.saturating_add(bounds.width),
+        top: bounds.y,
+    }
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>(
@@ -201,20 +178,14 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>
     set_bounds(surface, bounds)
 }
 
-pub(in crate::system_runtime) fn windows_live_resize_window_pos_flags() -> windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS {
-    SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOOWNERZORDER | SWP_NOZORDER
-}
-
 pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     surfaces: &[T],
     bounds: &[WindowsLiveResizeBounds],
-    submit_child_batch: impl FnOnce(&[T], &[WindowsLiveResizeBounds]) -> Result<(), ()>,
     mut submit_controller_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
 ) -> Result<(), ()> {
     if surfaces.len() != bounds.len() || surfaces.is_empty() {
         return Err(());
     }
-    submit_child_batch(surfaces, bounds)?;
     for (surface, bounds) in surfaces.iter().zip(bounds) {
         submit_controller_bounds(surface, bounds)?;
     }

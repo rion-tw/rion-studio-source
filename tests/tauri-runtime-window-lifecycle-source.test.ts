@@ -322,7 +322,7 @@ describe("runtime window lifecycle authority", () => {
       visibleClose.indexOf("self.presentation.remove(window_id)")
     );
     expect(visibleClose).toContain(
-      "schedule_retiring_window_tab_cleanup(window_id, &tab_ids)"
+      "schedule_retiring_window_tab_cleanup(operation_id, window_id, &tab_ids)"
     );
     expect(layout).toContain("complete_retiring_window_tab");
     expect(layout).toContain("retiring_window_cleanup_failed");

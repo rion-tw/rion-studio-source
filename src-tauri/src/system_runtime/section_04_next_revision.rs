@@ -640,6 +640,14 @@ struct TabCloseTombstone {
     window_id: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RetiringTabCleanup {
+    expected_kernel_operation_id: Option<String>,
+    parent_operation_id: String,
+    tab_id: String,
+    window_id: String,
+}
+
 pub(crate) struct RuntimeTabCloseIntent {
     pub(crate) source_id: String,
     pub(crate) tab_type: String,

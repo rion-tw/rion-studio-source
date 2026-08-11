@@ -144,6 +144,88 @@ fn failed_native_cleanup_terminalizes_reopen_instead_of_waiting_forever() {
 }
 
 #[test]
+fn native_absent_saved_tabs_retire_their_exact_window_close_tombstones() {
+    for platform in ["macos", "windows"] {
+        let mut state = RuntimeState::default();
+        state
+            .retiring_window_tabs
+            .insert("window-1".to_owned(), HashSet::from(["saved-tab".to_owned()]));
+        state.close_previews.insert(
+            "saved-tab".to_owned(),
+            TabCloseTombstone {
+                kernel_operation_id: "kernel-close-1".to_owned(),
+                parent_operation_id: Some("window-close-1".to_owned()),
+                revision: 11,
+                retirement_revision: None,
+                slot_owners: Vec::new(),
+                source_id: "saved-source".to_owned(),
+                tab_type: "workspace".to_owned(),
+                window_id: "window-1".to_owned(),
+            },
+        );
+        let cleanup = RetiringTabCleanup {
+            expected_kernel_operation_id: Some("kernel-close-1".to_owned()),
+            parent_operation_id: "window-close-1".to_owned(),
+            tab_id: "saved-tab".to_owned(),
+            window_id: "window-1".to_owned(),
+        };
+
+        assert!(window_close_in_progress(&state, "window-1"), "{platform}");
+        let Some(Some(tombstone)) =
+            take_matching_absent_retiring_tab_tombstone(&mut state, &cleanup)
+        else {
+            panic!("{platform}: the exact native-absent tombstone must retire");
+        };
+        assert_eq!(tombstone.kernel_operation_id, "kernel-close-1", "{platform}");
+        assert!(!state.close_previews.contains_key("saved-tab"), "{platform}");
+        state.retiring_window_tabs.remove("window-1");
+        assert!(
+            !window_close_in_progress(&state, "window-1"),
+            "{platform}: reopen must not wait after every authoritative close fence retired"
+        );
+    }
+}
+
+#[test]
+fn stale_native_absent_cleanup_cannot_retire_a_newer_close_tombstone() {
+    for platform in ["macos", "windows"] {
+        let mut state = RuntimeState::default();
+        state.close_previews.insert(
+            "saved-tab".to_owned(),
+            TabCloseTombstone {
+                kernel_operation_id: "kernel-close-new".to_owned(),
+                parent_operation_id: Some("window-close-new".to_owned()),
+                revision: 12,
+                retirement_revision: Some(8),
+                slot_owners: Vec::new(),
+                source_id: "saved-source".to_owned(),
+                tab_type: "workspace".to_owned(),
+                window_id: "window-1".to_owned(),
+            },
+        );
+        let stale = RetiringTabCleanup {
+            expected_kernel_operation_id: Some("kernel-close-old".to_owned()),
+            parent_operation_id: "window-close-old".to_owned(),
+            tab_id: "saved-tab".to_owned(),
+            window_id: "window-1".to_owned(),
+        };
+
+        assert!(
+            take_matching_absent_retiring_tab_tombstone(&mut state, &stale).is_none(),
+            "{platform}"
+        );
+        assert_eq!(
+            state
+                .close_previews
+                .get("saved-tab")
+                .map(|tombstone| tombstone.kernel_operation_id.as_str()),
+            Some("kernel-close-new"),
+            "{platform}"
+        );
+    }
+}
+
+#[test]
 fn destroyed_host_surface_completion_is_window_and_generation_fenced() {
     assert!(destroyed_host_surface_identity_matches(
         "window-1", 7, "window-1", 7

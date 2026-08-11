@@ -231,30 +231,23 @@ impl SystemRuntimeExecutor {
 
         let mut retiring_tab_senders = Vec::with_capacity(CLOSE_EFFECT_SHARD_COUNT);
         for index in 0..CLOSE_EFFECT_SHARD_COUNT {
-            let (sender, receiver) = mpsc::channel::<(String, String)>();
+            let (sender, receiver) = mpsc::channel::<RetiringTabCleanup>();
             retiring_tab_senders.push(sender);
             let runtime = Arc::downgrade(self);
             std::thread::Builder::new()
                 .name(format!("rion-live-tab-close-{index}"))
                 .spawn(move || {
-                    while let Ok((window_id, tab_id)) = receiver.recv() {
+                    while let Ok(cleanup) = receiver.recv() {
                         let Some(runtime) = runtime.upgrade() else {
                             return;
                         };
-                        let runtime_tab_exists = runtime
-                            .state
-                            .lock()
-                            .is_ok_and(|state| state.native_resources.tabs.contains_key(&tab_id));
-                        if !runtime_tab_exists {
-                            runtime.complete_retiring_window_tab(
-                                &window_id,
-                                &tab_id,
-                                false,
-                                None,
-                            );
-                        } else if let Err(error) = runtime.destroy_tab(&tab_id) {
+                        if runtime.resolve_absent_retiring_tab_cleanup(&cleanup) {
+                            continue;
+                        }
+                        if let Err(error) = runtime.destroy_tab(&cleanup.tab_id) {
                             eprintln!(
-                                "Live tab native cleanup was quarantined: tab={tab_id} error={}",
+                                "Live tab native cleanup was quarantined: tab={} error={}",
+                                cleanup.tab_id,
                                 error.message
                             );
                         }

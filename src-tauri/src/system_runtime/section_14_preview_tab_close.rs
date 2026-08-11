@@ -359,6 +359,39 @@ impl SystemRuntimeExecutor {
         self.publish_projection();
     }
 
+    fn resolve_absent_retiring_tab_cleanup(&self, cleanup: &RetiringTabCleanup) -> bool {
+        let tombstone = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            if state.native_resources.tabs.contains_key(&cleanup.tab_id) {
+                return false;
+            }
+            match take_matching_absent_retiring_tab_tombstone(&mut state, cleanup) {
+                Some(tombstone) => tombstone,
+                None => return false,
+            }
+        };
+        self.tab_close_changed.notify_all();
+        if let Some(tombstone) = tombstone.as_ref() {
+            let _ = self.apply_runtime_native_event_for_operation(
+                &tombstone.kernel_operation_id,
+                "closed",
+            );
+            self.record_tab_close_tombstone_resolution(&cleanup.tab_id, tombstone, true);
+        }
+        self.publish_projection();
+        self.complete_retiring_window_tab(
+            &cleanup.window_id,
+            &cleanup.tab_id,
+            false,
+            tombstone
+                .as_ref()
+                .and_then(|tombstone| tombstone.retirement_revision),
+        );
+        true
+    }
+
     fn record_tab_close_tombstone_resolution(
         &self,
         tab_id: &str,
@@ -519,6 +552,25 @@ fn retire_completed_tab_close_fence(
     tab_id: &str,
 ) -> Option<TabCloseTombstone> {
     state.close_previews.remove(tab_id)
+}
+
+fn take_matching_absent_retiring_tab_tombstone(
+    state: &mut RuntimeState,
+    cleanup: &RetiringTabCleanup,
+) -> Option<Option<TabCloseTombstone>> {
+    let current = state.close_previews.get(&cleanup.tab_id);
+    match (cleanup.expected_kernel_operation_id.as_deref(), current) {
+        (None, None) => Some(None),
+        (Some(expected_operation_id), Some(tombstone))
+            if tombstone.kernel_operation_id == expected_operation_id
+                && tombstone.parent_operation_id.as_deref()
+                    == Some(cleanup.parent_operation_id.as_str())
+                && tombstone.window_id == cleanup.window_id =>
+        {
+            Some(state.close_previews.remove(&cleanup.tab_id))
+        }
+        _ => None,
+    }
 }
 
 fn wait_for_tab_close_fence(

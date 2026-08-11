@@ -398,23 +398,51 @@ impl SystemRuntimeExecutor {
         self.presentation.remove(window_id);
         self.cancel_pending_window_activation(window_id);
         self.notify_optional_idle_changed();
-        self.schedule_retiring_window_tab_cleanup(window_id, &tab_ids);
+        self.schedule_retiring_window_tab_cleanup(operation_id, window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
         self.publish_launcher_presence();
         Ok((stop_request, receipt))
     }
 
-    fn schedule_retiring_window_tab_cleanup(&self, window_id: &str, tab_ids: &[String]) {
+    fn schedule_retiring_window_tab_cleanup(
+        &self,
+        operation_id: &str,
+        window_id: &str,
+        tab_ids: &[String],
+    ) {
         let Some(senders) = self.retiring_tab_senders.get() else {
             eprintln!("Live tab close executor was unavailable during window retirement.");
             return;
         };
-        for tab_id in tab_ids {
-            let index = close_effect_shard_index(tab_id, senders.len());
-            if let Err(error) = senders[index].send((window_id.to_owned(), tab_id.clone())) {
-                eprintln!(
-                    "Live tab native cleanup could not be queued: tab={tab_id} error={error}"
-                );
+        let cleanups = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| {
+                tab_ids
+                    .iter()
+                    .map(|tab_id| RetiringTabCleanup {
+                        expected_kernel_operation_id: state
+                            .close_previews
+                            .get(tab_id)
+                            .filter(|tombstone| {
+                                tombstone.window_id == window_id
+                                    && tombstone.parent_operation_id.as_deref()
+                                        == Some(operation_id)
+                            })
+                            .map(|tombstone| tombstone.kernel_operation_id.clone()),
+                        parent_operation_id: operation_id.to_owned(),
+                        tab_id: tab_id.clone(),
+                        window_id: window_id.to_owned(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for cleanup in cleanups {
+            let index = close_effect_shard_index(&cleanup.tab_id, senders.len());
+            let tab_id = cleanup.tab_id.clone();
+            if let Err(error) = senders[index].send(cleanup) {
+                eprintln!("Live tab native cleanup could not be queued: tab={tab_id} error={error}");
             }
         }
     }

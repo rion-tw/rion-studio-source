@@ -46,7 +46,7 @@ pub struct SystemRuntimeExecutor {
     #[cfg(windows)]
     pub(super) tab_chrome_projections: Arc<TabChromeProjectionCoordinator>,
     pub(super) prewarm_state: AtomicU8,
-    pub(super) retiring_tab_senders: OnceLock<Vec<mpsc::Sender<(String, String)>>>,
+    pub(super) retiring_tab_senders: OnceLock<Vec<mpsc::Sender<RetiringTabCleanup>>>,
     pub(super) restore_persist_requested: AtomicU64,
     pub(super) restore_persist_running: AtomicBool,
     pub(super) restore_persist_changed: Condvar,

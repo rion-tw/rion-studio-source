@@ -95,6 +95,23 @@ function phaseLabel(
 
 const PHASE_SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
+function trailingAccessorySlot(
+  button: HTMLButtonElement,
+  create: boolean
+): HTMLSpanElement | undefined {
+  const current = button.querySelector<HTMLSpanElement>(".tab-end-accessory");
+  if (current || !create) return current ?? undefined;
+  const slot = document.createElement("span");
+  slot.className = "tab-end-accessory";
+  button.append(slot);
+  return slot;
+}
+
+function removeEmptyTrailingAccessorySlot(button: HTMLButtonElement): void {
+  const slot = trailingAccessorySlot(button, false);
+  if (slot?.childElementCount === 0) slot.remove();
+}
+
 function createPhaseSymbol(phase: "dormant" | "degraded" | "failed"): SVGSVGElement {
   const svg = document.createElementNS(PHASE_SVG_NAMESPACE, "svg");
   svg.classList.add("phase-symbol");
@@ -129,8 +146,10 @@ function patchPhaseAccessory(
   const current = button.querySelector<HTMLElement>(".phase-accessory");
   if (phase === "ready") {
     current?.remove();
+    removeEmptyTrailingAccessorySlot(button);
     return;
   }
+  const slot = trailingAccessorySlot(button, true)!;
   const accessory = current ?? document.createElement("span");
   accessory.className = "phase-accessory";
   accessory.ariaHidden = "true";
@@ -143,7 +162,9 @@ function patchPhaseAccessory(
   } else {
     accessory.append(createPhaseSymbol(phase as "dormant" | "degraded" | "failed"));
   }
-  if (!current) button.querySelector(".name")?.after(accessory);
+  const close = slot.querySelector(".close");
+  if (close) slot.insertBefore(accessory, close);
+  else if (accessory.parentElement !== slot) slot.append(accessory);
 }
 
 function patchTabButton(
@@ -195,15 +216,21 @@ function patchTabButton(
       labels.playingAudio
     );
     if (audio) audio.replaceWith(replacement);
-    else (button.querySelector(".phase-accessory") ?? name).after(replacement);
+    else {
+      const slot = trailingAccessorySlot(button, false);
+      if (slot) slot.before(replacement);
+      else name.after(replacement);
+    }
     audioSignatureByButton.set(button, audioSignature);
   }
 
   let close = button.querySelector<HTMLElement>(".close");
-  if (state.alwaysHideTabCloseButton) close?.remove();
-  else if (!close) {
+  if (state.alwaysHideTabCloseButton) {
+    close?.remove();
+    removeEmptyTrailingAccessorySlot(button);
+  } else if (!close) {
     close = createCloseControl(tab.id, labels.closeTab);
-    button.append(close);
+    trailingAccessorySlot(button, true)!.append(close);
   }
   if (close) close.ariaLabel = labels.closeTab;
   syncCloseControlState(button);
@@ -521,8 +548,10 @@ export function installRuntimeTabStrip(): void {
       name.textContent = tab.name;
       const audio = createAudioIndicator(false, false, "", "");
       const close = createCloseControl(tab.id, labels.closeTab);
-      button.append(icon, name, audio, close);
+      button.append(icon, name, audio);
       patchPhaseAccessory(button, "activating");
+      trailingAccessorySlot(button, true)!.append(close);
+      syncCloseControlState(button);
       iconSignatureByButton.set(button, `${tab.type}\u0000${tab.workspaceTemplate ?? ""}\u0000`);
       audioSignatureByButton.set(button, "false\u0000false\u0000\u0000");
       root.append(button);
@@ -603,10 +632,12 @@ export function installRuntimeTabStrip(): void {
       `${tab.audioMuted}\u0000${tab.audible}\u0000${tab.mutedLabel}\u0000${tab.playingLabel}`
     );
     let close = button.querySelector<HTMLElement>(".close");
-    if (tab.hideCloseButton) close?.remove();
-    else if (!close) {
+    if (tab.hideCloseButton) {
+      close?.remove();
+      removeEmptyTrailingAccessorySlot(button);
+    } else if (!close) {
       close = createCloseControl(tab.id, tab.closeLabel);
-      button.append(close);
+      trailingAccessorySlot(button, true)!.append(close);
     }
     if (close) close.ariaLabel = tab.closeLabel;
     syncCloseControlState(button);

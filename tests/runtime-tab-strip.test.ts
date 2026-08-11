@@ -1041,6 +1041,14 @@ it("renders semantic dormant, progress, warning, and error accessories", () => {
     expect(document.querySelector("[data-tab-id=\"tab-2\"] .phase-spinner")).not.toBeNull();
     expect(document.querySelector("[data-tab-id=\"tab-3\"] .phase-fill")).not.toBeNull();
     expect(document.querySelector("[data-tab-id=\"tab-4\"] .phase-fill")).not.toBeNull();
+    for (const tab of document.querySelectorAll<HTMLElement>(".tab")) {
+      const accessory = tab.querySelector(".phase-accessory");
+      const close = tab.querySelector(".close");
+      if (accessory && close) {
+        expect(accessory.parentElement).toBe(close.parentElement);
+        expect(accessory.nextElementSibling).toBe(close);
+      }
+    }
     expect(dormant.title).toContain("尚未啟動。選取時啟動此分頁。");
     expect(dormant.ariaLabel).toContain("尚未啟動。選取時啟動此分頁。");
     for (const accessory of document.querySelectorAll<HTMLElement>(".phase-accessory")) {
@@ -1048,7 +1056,7 @@ it("renders semantic dormant, progress, warning, and error accessories", () => {
     }
 });
 
-it("removes the accessory slot entirely when a tab becomes ready", () => {
+it("removes ready status while preserving the shared close slot", () => {
     window.__rionApplyRuntimeTabState?.({
       ...stateWithTabs(0),
       tabPhases: { "tab-1": "loading" }
@@ -1060,4 +1068,22 @@ it("removes the accessory slot entirely when a tab becomes ready", () => {
       tabPhases: { "tab-1": "ready" }
     });
     expect(document.querySelector("[data-tab-id=\"tab-1\"] .phase-accessory")).toBeNull();
+    const slot = document.querySelector("[data-tab-id=\"tab-1\"] .tab-end-accessory");
+    expect(slot).not.toBeNull();
+    expect(slot?.querySelector(".close")).not.toBeNull();
+});
+
+it("keeps status in the end slot when close controls are hidden", () => {
+    window.__rionApplyRuntimeTabState?.({
+      ...stateWithTabs(0),
+      alwaysHideTabCloseButton: true,
+      tabPhases: { "tab-1": "dormant" }
+    });
+
+    const slot = document.querySelector("[data-tab-id=\"tab-1\"] .tab-end-accessory");
+    expect(slot).not.toBeNull();
+    expect(slot?.querySelector(".phase-accessory")).not.toBeNull();
+    expect(slot?.querySelector(".close")).toBeNull();
+    expect(document.querySelector("[data-tab-id=\"tab-1\"]")?.classList)
+      .not.toContain("tab-closable");
 });

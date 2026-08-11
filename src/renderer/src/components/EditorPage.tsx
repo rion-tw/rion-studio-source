@@ -11,6 +11,10 @@ import {
 import { Button } from "./ui/button";
 import { Surface } from "./ui/patterns";
 import { normalizeEditorTitle, syncEditorTitle } from "../app/editorTitle";
+import {
+  registerWindowControlsScrollSource,
+  syncWindowControlsScrollSource
+} from "../app/windowControlsScrollState";
 import { cn } from "../lib/utils";
 
 interface EditorPageProps {
@@ -54,6 +58,12 @@ export function EditorPage({
 }: EditorPageProps): JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
 
+  useLayoutEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    return registerWindowControlsScrollSource(form);
+  }, []);
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       if (isSaving) {
@@ -84,6 +94,7 @@ export function EditorPage({
         ref={formRef}
         id="app-editor-form"
         className="app-page h-full overflow-auto px-6 py-7"
+        onScroll={(event) => syncWindowControlsScrollSource(event.currentTarget)}
         onSubmit={onSubmit}
       >
         <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">

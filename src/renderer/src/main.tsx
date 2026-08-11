@@ -35,6 +35,7 @@ document.documentElement.dataset.platform = detectPlatform();
 document.documentElement.dataset.windowFullscreen = "false";
 document.documentElement.dataset.windowMaximized = "false";
 document.documentElement.dataset.windowFocused = "true";
+document.documentElement.dataset.windowControlsScrolled = "false";
 document.documentElement.dataset.windowsMica = "fallback";
 
 async function bootstrapRenderer(): Promise<void> {

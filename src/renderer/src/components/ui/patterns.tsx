@@ -3,6 +3,10 @@ import { type HTMLAttributes, type MutableRefObject, type ReactNode, forwardRef,
 import { type LucideIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
+import {
+  registerWindowControlsScrollSource,
+  syncWindowControlsScrollSource
+} from "../../app/windowControlsScrollState";
 
 const WINDOW_DRAG_REGION_HEIGHT_PX = 56;
 
@@ -86,9 +90,10 @@ export function PageFrame({
   }, [containerRef]);
 
   useLayoutEffect(() => {
-    if (frameRef.current && scrollPositionRef) {
-      frameRef.current.scrollTop = scrollPositionRef.current;
-    }
+    const frame = frameRef.current;
+    if (!frame) return;
+    if (scrollPositionRef) frame.scrollTop = scrollPositionRef.current;
+    return registerWindowControlsScrollSource(frame);
   }, [scrollPositionRef]);
 
   return (
@@ -97,6 +102,7 @@ export function PageFrame({
       className={cn("app-page relative h-full overflow-auto px-6 py-7", className)}
       data-selection-marquee-inset-top={WINDOW_DRAG_REGION_HEIGHT_PX}
       onScroll={(event) => {
+        syncWindowControlsScrollSource(event.currentTarget);
         if (scrollPositionRef) {
           scrollPositionRef.current = event.currentTarget.scrollTop;
         }

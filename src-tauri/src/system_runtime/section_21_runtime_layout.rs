@@ -375,7 +375,6 @@ impl SystemRuntimeExecutor {
                         .collect(),
                     tab_strip_height: resize_snapshot_tab_strip_height(metrics),
                     tab_strip_label: tab_strip.label().to_owned(),
-                    window_draggable: !window.is_fullscreen().unwrap_or(false),
                 },
             );
         }

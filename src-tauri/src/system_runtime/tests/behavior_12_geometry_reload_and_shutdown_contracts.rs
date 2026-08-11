@@ -1,7 +1,7 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{SIZE_MINIMIZED, SWP_NOCOPYBITS};
+use windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED;
 
 #[cfg(windows)]
 #[test]
@@ -307,63 +307,7 @@ fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
         ],
         tab_strip_height: 44.0,
         tab_strip_label: "tabs".to_owned(),
-        window_draggable: true,
     }
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_native_drag_handle_is_dpi_aware_and_half_open() {
-    for scale in [1.0, 1.25, 1.5, 2.0] {
-        let width = (36.0_f64 * scale).round() as i32;
-        let height = (44.0_f64 * scale).round() as i32;
-        let border = (8.0_f64 * scale).round() as i32;
-        assert!(windows_live_resize_native_drag_handle_contains(
-            border,
-            border,
-            scale,
-            44.0,
-            36.0,
-        ));
-        assert!(!windows_live_resize_native_drag_handle_contains(
-            border - 1,
-            border,
-            scale,
-            44.0,
-            36.0,
-        ));
-        assert!(!windows_live_resize_native_drag_handle_contains(
-            border,
-            border - 1,
-            scale,
-            44.0,
-            36.0,
-        ));
-        assert!(windows_live_resize_native_drag_handle_contains(
-            width - 1,
-            height - 1,
-            scale,
-            44.0,
-            36.0,
-        ));
-        assert!(!windows_live_resize_native_drag_handle_contains(
-            width,
-            height - 1,
-            scale,
-            44.0,
-            36.0,
-        ));
-        assert!(!windows_live_resize_native_drag_handle_contains(
-            width - 1,
-            height,
-            scale,
-            44.0,
-            36.0,
-        ));
-    }
-    assert!(!windows_live_resize_native_drag_handle_contains(
-        0, 0, 0.0, 44.0, 36.0,
-    ));
 }
 
 #[cfg(windows)]
@@ -382,9 +326,8 @@ fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {
         let [tab_strip, left, right, divider] = bounds.as_slice() else {
             panic!("expected tab strip, two roles, and one divider");
         };
-        let expected_drag_handle = (36.0_f64 * scale).round() as i32;
-        assert_eq!(tab_strip.x, expected_drag_handle);
-        assert_eq!(tab_strip.x + tab_strip.width, physical_width as i32);
+        assert_eq!(tab_strip.x, 0);
+        assert_eq!(tab_strip.width, physical_width as i32);
         assert_eq!(tab_strip.y + tab_strip.height, left.y);
         assert_eq!(left.y, right.y);
         assert_eq!(left.height, right.height);
@@ -647,13 +590,11 @@ fn live_resize_counters_keep_resize_and_parent_position_events_distinct() {
 
 #[cfg(windows)]
 #[test]
-fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth() {
+fn live_resize_batch_updates_controller_bounds_without_moving_parent_windows() {
     let surfaces = ["tabs", "left", "right"];
     let events = RefCell::new(Vec::new());
-    let child_batch_complete = std::cell::Cell::new(false);
     let controller_heights = RefCell::new(HashMap::new());
     let submit = |height| {
-        child_batch_complete.set(false);
         let bounds = surfaces
             .iter()
             .enumerate()
@@ -667,15 +608,7 @@ fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth()
         windows_live_resize_submit_ordered(
             &surfaces,
             &bounds,
-            |children, _| {
-                events
-                    .borrow_mut()
-                    .extend(children.iter().map(|label| format!("child:{label}")));
-                child_batch_complete.set(true);
-                Ok(())
-            },
             |label, bounds| {
-                assert!(child_batch_complete.get());
                 events.borrow_mut().push(format!("controller:{label}"));
                 controller_heights.borrow_mut().insert(*label, bounds.height);
                 Ok(())
@@ -685,15 +618,14 @@ fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth()
 
     submit(320).unwrap();
     submit(900).unwrap();
-    assert!(windows_live_resize_window_pos_flags().contains(SWP_NOCOPYBITS));
     assert_eq!(controller_heights.borrow().get("left"), Some(&900));
     assert_eq!(controller_heights.borrow().get("right"), Some(&900));
     assert_eq!(
-        &events.borrow()[..6],
+        events.into_inner(),
         [
-            "child:tabs",
-            "child:left",
-            "child:right",
+            "controller:tabs",
+            "controller:left",
+            "controller:right",
             "controller:tabs",
             "controller:left",
             "controller:right",
@@ -710,24 +642,21 @@ fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
         x: 0,
         y: 0,
     }];
-    let controller_called = std::cell::Cell::new(false);
-    assert!(
-        windows_live_resize_submit_ordered(
-            &["role"],
-            &bounds,
-            |_, _| Err(()),
-            |_, _| {
-                controller_called.set(true);
-                Ok(())
-            },
-        )
-        .is_err()
-    );
-    assert!(!controller_called.get());
-    assert!(
-        windows_live_resize_submit_ordered(&["role"], &bounds, |_, _| Ok(()), |_, _| Err(()))
-            .is_err()
-    );
+    assert!(windows_live_resize_submit_ordered(&["role"], &bounds, |_, _| Err(())).is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_controller_rect_keeps_pane_offsets_relative_to_the_host() {
+    let rect = windows_live_resize_controller_rect(&WindowsLiveResizeBounds {
+        height: 900,
+        width: 600,
+        x: 620,
+        y: 44,
+    });
+
+    assert_eq!((rect.left, rect.top), (620, 44));
+    assert_eq!((rect.right, rect.bottom), (1_220, 944));
 }
 
 #[cfg(windows)]

@@ -7,11 +7,9 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect, GetWindowRect,
-            IsZoomed, PostMessageW, HTCAPTION, SIZE_MAXIMIZED, SIZE_MINIMIZED,
-            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP,
-            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
-            WM_NCDESTROY, WM_NCHITTEST, WM_SIZE,
+            GetClientRect, IsZoomed, PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, WM_APP,
+            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY,
+            WM_SIZE,
         },
     },
 };
@@ -40,16 +38,11 @@ pub(in crate::system_runtime) struct WindowsLiveResizePlan {
     pub(in crate::system_runtime) roles: Vec<WindowsLiveResizeRolePlan>,
     pub(in crate::system_runtime) tab_strip_height: f64,
     pub(in crate::system_runtime) tab_strip_label: String,
-    pub(in crate::system_runtime) window_draggable: bool,
 }
-
-const WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL: f64 = 36.0;
-const WINDOWS_NATIVE_RESIZE_BORDER_LOGICAL: f64 = 8.0;
 
 #[derive(Clone)]
 pub(in crate::system_runtime) struct WindowsLiveResizeSurface {
     pub(in crate::system_runtime) controller: ICoreWebView2Controller,
-    pub(in crate::system_runtime) hwnd: HWND,
     pub(in crate::system_runtime) label: String,
 }
 
@@ -255,7 +248,6 @@ pub(in crate::system_runtime) fn windows_live_resize_register_webview(webview: &
                         label.clone(),
                         WindowsLiveResizeSurface {
                             controller,
-                            hwnd,
                             label: label.clone(),
                         },
                     );
@@ -285,7 +277,6 @@ pub(in crate::system_runtime) fn windows_live_resize_register_controller(
             label.clone(),
             WindowsLiveResizeSurface {
                 controller,
-                hwnd,
                 label: label.clone(),
             },
         );
@@ -386,7 +377,6 @@ pub(in crate::system_runtime) fn windows_live_resize_plans_match(
         && current.gap == next.gap
         && current.tab_strip_height.to_bits() == next.tab_strip_height.to_bits()
         && current.tab_strip_label == next.tab_strip_label
-        && current.window_draggable == next.window_draggable
         && current.roles.len() == next.roles.len()
         && current.roles.iter().zip(&next.roles).all(|(left, right)| {
             left.label == right.label
@@ -657,9 +647,6 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
     subclass_id: usize,
     _generation: usize,
 ) -> LRESULT {
-    if message == WM_NCHITTEST && windows_live_resize_is_native_drag_handle(hwnd, lparam) {
-        return LRESULT(HTCAPTION as isize);
-    }
     let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     match message {
         WM_ENTERSIZEMOVE => windows_live_resize_set_interactive(hwnd, true),
@@ -719,56 +706,6 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
         _ => {}
     }
     result
-}
-
-fn windows_live_resize_is_native_drag_handle(hwnd: HWND, lparam: LPARAM) -> bool {
-    let tab_strip_height = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
-        let registry = registry.borrow();
-        let plan = registry.hosts.get(&windows_hwnd_key(hwnd))?.plan.as_ref()?;
-        plan.window_draggable.then_some(plan.tab_strip_height)
-    });
-    let Some(tab_strip_height) = tab_strip_height else {
-        return false;
-    };
-    let mut window_rect = RECT::default();
-    if unsafe { GetWindowRect(hwnd, &mut window_rect) }.is_err() {
-        return false;
-    }
-    let x = (lparam.0 as u16 as i16) as i32 - window_rect.left;
-    let y = ((lparam.0 >> 16) as u16 as i16) as i32 - window_rect.top;
-    let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(96)) / 96.0;
-    windows_live_resize_native_drag_handle_contains(
-        x,
-        y,
-        scale,
-        tab_strip_height,
-        WINDOWS_NATIVE_DRAG_HANDLE_WIDTH_LOGICAL,
-    )
-}
-
-pub(in crate::system_runtime) fn windows_live_resize_native_drag_handle_contains(
-    x: i32,
-    y: i32,
-    scale: f64,
-    tab_strip_height: f64,
-    handle_width: f64,
-) -> bool {
-    if !scale.is_finite()
-        || scale <= 0.0
-        || !tab_strip_height.is_finite()
-        || tab_strip_height <= 0.0
-        || !handle_width.is_finite()
-        || handle_width <= 0.0
-    {
-        return false;
-    }
-    let physical_height = (tab_strip_height * scale).round() as i32;
-    let physical_width = (handle_width * scale).round() as i32;
-    let physical_border = (WINDOWS_NATIVE_RESIZE_BORDER_LOGICAL * scale).round() as i32;
-    x >= physical_border
-        && x < physical_width
-        && y >= physical_border
-        && y < physical_height
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_notify_parent_position_changed(hwnd: HWND) {

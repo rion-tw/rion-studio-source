@@ -82,7 +82,12 @@ body[data-toolbar-visible="false"] > * {
 }
 
 .window-drag-surface {
+  -webkit-app-region: drag;
   cursor: default;
+}
+
+body[data-window-fullscreen="true"] .window-drag-surface {
+  -webkit-app-region: no-drag;
 }
 
 #window-drag-region {
@@ -97,6 +102,7 @@ body[data-toolbar-visible="false"] > * {
   align-self: stretch;
   flex: none;
   margin-left: auto;
+  -webkit-app-region: no-drag;
 }
 
 .window-control {

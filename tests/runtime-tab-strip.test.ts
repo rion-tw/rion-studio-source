@@ -335,11 +335,15 @@ it("projects the resolved app theme onto an already-open tab document", () => {
     expect(document.documentElement.style.colorScheme).toBe("light");
   });
 
-it("routes intentional Windows titlebar drag and caption controls through the scoped action bridge", async () => {
+it("uses native titlebar regions and routes caption controls through their standard paths", async () => {
     window.__rionApplyRuntimeTabState?.(state);
     invoke.mockClear();
 
     const dragRegion = document.querySelector("#window-drag-region");
+    const identity = document.querySelector("#window-identity");
+    expect(dragRegion?.hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(identity?.hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(document.body.dataset.windowFullscreen).toBe("false");
     dragRegion?.dispatchEvent(new MouseEvent("mousedown", {
       bubbles: true,
       button: 0,
@@ -360,11 +364,22 @@ it("routes intentional Windows titlebar drag and caption controls through the sc
     document.querySelector<HTMLButtonElement>("#window-close")?.click();
     await Promise.resolve();
 
-    expect(invoke.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
-      { action: { type: "startWindowDrag" } },
-      { action: { type: "windowControl", control: "minimize" } },
-      { action: { type: "windowControl", control: "zoom" } },
-      { action: { type: "windowControl", control: "close" } }
+    expect(invoke.mock.calls.map((call) => {
+      const [command, args] = call as unknown as [unknown, unknown?];
+      return { args, command };
+    })).toEqual([
+      {
+        args: { action: { type: "windowControl", control: "minimize" } },
+        command: "rion_runtime_tab_action"
+      },
+      {
+        args: { action: { type: "windowControl", control: "zoom" } },
+        command: "rion_runtime_tab_action"
+      },
+      {
+        args: { action: { type: "windowControl", control: "close" } },
+        command: "rion_runtime_tab_action"
+      }
     ]);
     expect(document.querySelector("#window-name")?.textContent).toBe("主遊戲視窗");
     expect(document.querySelector<HTMLButtonElement>("#window-maximize")?.ariaLabel)
@@ -383,6 +398,7 @@ it("routes intentional Windows titlebar drag and caption controls through the sc
     }));
     document.querySelector<HTMLButtonElement>("#window-maximize")?.click();
 
+    expect(document.body.dataset.windowFullscreen).toBe("true");
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
       action: { type: "windowControl", control: "toggleFullscreen" }
@@ -391,7 +407,7 @@ it("routes intentional Windows titlebar drag and caption controls through the sc
       .toBe("還原視窗");
   });
 
-it("does not start native dragging for a click and maps a titlebar double-click only to zoom", () => {
+it("does not install custom titlebar click, drag, or double-click gesture handlers", () => {
     window.__rionApplyRuntimeTabState?.(state);
     invoke.mockClear();
     const dragRegion = document.querySelector("#window-drag-region");
@@ -407,10 +423,7 @@ it("does not start native dragging for a click and maps a titlebar double-click 
     document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
     dragRegion?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, button: 0 }));
 
-    expect(invoke).toHaveBeenCalledOnce();
-    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
-      action: { type: "windowControl", control: "zoom" }
-    });
+    expect(invoke).not.toHaveBeenCalled();
   });
 
 it("renders workspace detail, audio state, and a stop control", () => {

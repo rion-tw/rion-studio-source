@@ -73,7 +73,7 @@ describe("useAppWindowStateSync", () => {
 
 function WindowStateSync(): JSX.Element {
   useAppWindowStateSync();
-  return <div />;
+  return <div className="app-drag" data-window-drag-handle />;
 }
 
 function windowState(

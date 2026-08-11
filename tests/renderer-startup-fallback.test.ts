@@ -42,6 +42,7 @@ describe("pre-React startup fallback", () => {
     showStartupFailure(unsafeDetail);
 
     const root = document.getElementById("root")!;
+    expect(root.querySelector(".boot-fallback")?.hasAttribute("data-tauri-drag-region")).toBe(false);
     expect(root.querySelector(".boot-fallback-icon")).not.toBeNull();
     expect(root.querySelector(".boot-fallback-error-mark")?.textContent).toBe("!");
     expect(root.querySelector("[data-startup-failure-title]")?.textContent)

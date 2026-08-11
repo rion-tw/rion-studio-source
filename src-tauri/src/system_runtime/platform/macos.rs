@@ -42,6 +42,41 @@ pub(in crate::system_runtime) fn request_platform_window_show(
 }
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_set_fullscreen(
+    window: &Window,
+    fullscreen: bool,
+) -> Result<(), String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_toggle_fullscreen(
+    window: &Window,
+) -> Result<(), String> {
+    let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+    request_platform_window_set_fullscreen(window, !fullscreen)
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_window_toggle_maximized(
+    window: &Window,
+) -> Result<(), String> {
+    window
+        .is_maximized()
+        .map_err(|error| error.to_string())
+        .and_then(|maximized| {
+            if maximized {
+                window.unmaximize()
+            } else {
+                window.maximize()
+            }
+            .map_err(|error| error.to_string())
+        })
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn request_platform_window_show_foreground(
     window: &Window,
 ) -> RuntimeResult<()> {
@@ -61,6 +96,34 @@ pub(in crate::system_runtime) fn request_platform_webview_window_show(
     window: &WebviewWindow,
 ) -> Result<(), String> {
     window.show().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_webview_window_toggle_maximized(
+    window: &WebviewWindow,
+) -> Result<bool, String> {
+    window
+        .is_maximized()
+        .map_err(|error| error.to_string())
+        .and_then(|maximized| {
+            if maximized {
+                window.unmaximize()
+            } else {
+                window.maximize()
+            }
+            .map_err(|error| error.to_string())?;
+            Ok(!maximized)
+        })
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_webview_window_set_fullscreen(
+    window: &WebviewWindow,
+    fullscreen: bool,
+) -> Result<(), String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(target_os = "macos")]

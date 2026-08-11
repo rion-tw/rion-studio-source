@@ -1,8 +1,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MainWindowCommand {
-    Hide,
+    Minimize,
     Show { focus: bool },
-    StartDragging,
     ToggleFullscreen,
     ToggleMaximized,
 }
@@ -13,18 +12,17 @@ impl MainWindowCommand {
     }
 
     fn completion_scope(self) -> SystemRuntimeOperationCompletionScope {
-        if matches!(self, Self::StartDragging) {
-            SystemRuntimeOperationCompletionScope::NativeSubmission
-        } else {
-            SystemRuntimeOperationCompletionScope::NativeAcknowledgement
-        }
+        SystemRuntimeOperationCompletionScope::NativeAcknowledgement
+    }
+
+    fn awaits_window_state_event(self) -> bool {
+        matches!(self, Self::ToggleMaximized)
     }
 
     fn success_stage(self) -> &'static str {
         match self {
-            Self::Hide => "mainWindowHidden",
+            Self::Minimize => "mainWindowMinimized",
             Self::Show { .. } => "mainWindowShown",
-            Self::StartDragging => "mainWindowDragSubmitted",
             Self::ToggleFullscreen => "mainWindowFullscreenToggled",
             Self::ToggleMaximized => "mainWindowMaximizedToggled",
         }
@@ -43,8 +41,15 @@ struct MainWindowActorState {
     active_operation: Option<NativeOperationContext>,
     active_focus_operation: Option<NativeOperationContext>,
     pending_focus: Option<MainWindowRequest>,
+    pending_maximize: Option<PendingMainWindowMaximize>,
     requests: VecDeque<MainWindowRequest>,
     stopped: bool,
+}
+
+#[derive(Clone)]
+struct PendingMainWindowMaximize {
+    expected_maximized: bool,
+    request: MainWindowRequest,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,6 +195,7 @@ struct MainWindowNativeOutcome {
 enum MainWindowApplyResult {
     Terminal(MainWindowNativeOutcome),
     FocusSubmitted,
+    MaximizeSubmitted { expected_maximized: bool },
 }
 
 struct MainWindowActor {
@@ -278,6 +284,14 @@ impl MainWindowActor {
                                 request.clone(),
                             );
                         }
+                        MainWindowApplyResult::MaximizeSubmitted { expected_maximized } => {
+                            Self::install_pending_maximize(
+                                &worker_queue,
+                                &worker_operations,
+                                request.clone(),
+                                expected_maximized,
+                            );
+                        }
                     }
                     Self::clear_active(&worker_queue, &request.operation.operation_id);
                     if let Ok((record, changed)) = worker_projection.refresh(&worker_window)
@@ -364,6 +378,46 @@ impl MainWindowActor {
         }
     }
 
+    fn install_pending_maximize(
+        queue: &Arc<(Mutex<MainWindowActorState>, Condvar)>,
+        operations: &NativeOperationRegistry,
+        request: MainWindowRequest,
+        expected_maximized: bool,
+    ) {
+        let Ok(mut state) = queue.0.lock() else {
+            operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowActorUnavailable",
+                NativeOperationStatus::Failed,
+                Some("MAIN_WINDOW_ACTOR_UNAVAILABLE"),
+            ));
+            return;
+        };
+        if state.stopped {
+            drop(state);
+            operations.complete(NativeOperationReceipt::with_status(
+                request.operation,
+                "mainWindowActorStopped",
+                NativeOperationStatus::Cancelled,
+                Some("MAIN_WINDOW_ACTOR_STOPPED"),
+            ));
+            return;
+        }
+        let replaced = state.pending_maximize.replace(PendingMainWindowMaximize {
+            expected_maximized,
+            request,
+        });
+        drop(state);
+        if let Some(replaced) = replaced {
+            operations.complete(NativeOperationReceipt::with_status(
+                replaced.request.operation,
+                "mainWindowMaximizeSuperseded",
+                NativeOperationStatus::Superseded,
+                None,
+            ));
+        }
+    }
+
     fn generation(&self) -> u64 {
         self.projection.window_generation
     }
@@ -385,7 +439,7 @@ impl MainWindowActor {
                 NativeOperationStatus::Superseded,
                 None,
             ))
-        } else if request.command == MainWindowCommand::Hide {
+        } else if request.command == MainWindowCommand::Minimize {
             self.focus_broker.revoke_window("main", self.generation());
             Some((
                 "mainWindowFocusCancelled",
@@ -446,6 +500,17 @@ impl MainWindowActor {
 
     fn publish_state(&self) -> Result<NativeWindowStateRecord, String> {
         let (record, changed) = self.projection.refresh(&self.window)?;
+        let pending = self.queue.0.lock().ok().and_then(|mut state| {
+            state.pending_maximize.take_if(|pending| {
+                pending.expected_maximized == record.maximized
+            })
+        });
+        if let Some(pending) = pending {
+            self.operations.complete(NativeOperationReceipt::applied(
+                pending.request.operation,
+                "mainWindowMaximizedToggled",
+            ));
+        }
         if changed {
             let _ = self.app.emit("rion://window-state", record.clone());
         }
@@ -459,6 +524,10 @@ impl MainWindowActor {
         self.cancel_focus_continuations(
             "mainWindowFocusLifecycleCancelled",
             "MAIN_WINDOW_FOCUS_LIFECYCLE_CANCELLED",
+        );
+        self.cancel_maximize_continuation(
+            "mainWindowMaximizeLifecycleCancelled",
+            "MAIN_WINDOW_MAXIMIZE_LIFECYCLE_CANCELLED",
         );
     }
 
@@ -515,6 +584,23 @@ impl MainWindowActor {
         }
     }
 
+    fn cancel_maximize_continuation(&self, stage: &'static str, code: &'static str) {
+        let pending = self
+            .queue
+            .0
+            .lock()
+            .ok()
+            .and_then(|mut state| state.pending_maximize.take());
+        if let Some(pending) = pending {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                pending.request.operation,
+                stage,
+                NativeOperationStatus::Cancelled,
+                Some(code),
+            ));
+        }
+    }
+
     fn stop(&self) {
         let (lock, changed) = &*self.queue;
         let Ok(mut state) = lock.lock() else {
@@ -527,6 +613,14 @@ impl MainWindowActor {
         if let Some(request) = state.pending_focus.take() {
             self.operations.complete(NativeOperationReceipt::with_status(
                 request.operation,
+                "mainWindowActorStopped",
+                NativeOperationStatus::Cancelled,
+                Some("MAIN_WINDOW_ACTOR_STOPPED"),
+            ));
+        }
+        if let Some(pending) = state.pending_maximize.take() {
+            self.operations.complete(NativeOperationReceipt::with_status(
+                pending.request.operation,
                 "mainWindowActorStopped",
                 NativeOperationStatus::Cancelled,
                 Some("MAIN_WINDOW_ACTOR_STOPPED"),
@@ -671,16 +765,7 @@ fn apply_main_window_command(
     };
     let mut native_failed = false;
     match command {
-        MainWindowCommand::Hide => {
-            #[cfg(windows)]
-            {
-                native_failed |= window.minimize().is_err();
-            }
-            #[cfg(not(windows))]
-            {
-                native_failed |= window.hide().is_err();
-            }
-        }
+        MainWindowCommand::Minimize => native_failed |= window.minimize().is_err(),
         MainWindowCommand::Show { focus: false } => {
             #[cfg(target_os = "macos")]
             {
@@ -692,15 +777,23 @@ fn apply_main_window_command(
             native_failed |= request_platform_webview_window_show(window).is_err();
         }
         MainWindowCommand::Show { focus: true } => unreachable!(),
-        MainWindowCommand::StartDragging => native_failed |= window.start_dragging().is_err(),
         MainWindowCommand::ToggleFullscreen => {
-            native_failed |= window.set_fullscreen(!before.fullscreen).is_err();
+            native_failed |= request_platform_webview_window_set_fullscreen(
+                window,
+                !before.fullscreen,
+            )
+            .is_err();
         }
         MainWindowCommand::ToggleMaximized => {
-            native_failed |= if before.maximized {
-                window.unmaximize().is_err()
-            } else {
-                window.maximize().is_err()
+            return match request_platform_webview_window_toggle_maximized(window) {
+                Ok(expected_maximized) => {
+                    MainWindowApplyResult::MaximizeSubmitted { expected_maximized }
+                }
+                Err(_) => MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                    failure_code: Some("MAIN_WINDOW_NATIVE_FAILED"),
+                    stage: "mainWindowNativeFailed",
+                    status: NativeOperationStatus::Failed,
+                }),
             };
         }
     }
@@ -749,23 +842,16 @@ fn main_window_readback_matches_for_platform(
     command: MainWindowCommand,
     before: &MainWindowSemanticState,
     after: &MainWindowSemanticState,
-    is_windows: bool,
+    _is_windows: bool,
 ) -> bool {
     match command {
-        MainWindowCommand::Hide => {
-            if is_windows {
-                after.minimized
-            } else {
-                !after.visible
-            }
-        }
+        MainWindowCommand::Minimize => after.minimized,
         MainWindowCommand::Show { focus: false } => after.visible,
         MainWindowCommand::Show { focus: true } => {
             unreachable!("focused show is acknowledged only by WindowEvent::Focused")
         }
-        MainWindowCommand::StartDragging => true,
         MainWindowCommand::ToggleFullscreen => after.fullscreen != before.fullscreen,
-        MainWindowCommand::ToggleMaximized => after.maximized != before.maximized,
+        MainWindowCommand::ToggleMaximized => false,
     }
 }
 
@@ -844,7 +930,7 @@ impl SystemRuntimeExecutor {
             lifecycle_epoch,
             focus_origin,
         );
-        let operation = if command.requests_focus() {
+        let operation = if command.requests_focus() || command.awaits_window_state_event() {
             NativeOperationContext::new_event_bound(
                 NativeOperationSubsystem::Presentation,
                 trigger,
@@ -928,39 +1014,19 @@ impl SystemRuntimeExecutor {
         self.wait_main_window_operation(&operation_id)
     }
 
-    pub(crate) fn hide_main_window(
+    pub(crate) fn minimize_main_window(
         &self,
         trigger: &'static str,
     ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
-        let operation_id = self.request_main_window_hide(trigger)?;
+        let operation_id = self.request_main_window_minimize(trigger)?;
         self.wait_main_window_operation(&operation_id)
     }
 
-    pub(crate) fn request_main_window_hide(
+    pub(crate) fn request_main_window_minimize(
         &self,
         trigger: &'static str,
     ) -> RuntimeResult<String> {
-        self.submit_main_window_operation(MainWindowCommand::Hide, trigger)
-    }
-
-    pub(crate) fn start_main_window_drag(
-        &self,
-    ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
-        let operation_id = self.submit_main_window_operation(
-            MainWindowCommand::StartDragging,
-            "renderer-start-dragging",
-        )?;
-        self.wait_main_window_operation(&operation_id)
-    }
-
-    pub(crate) fn toggle_main_window_maximized(
-        &self,
-    ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
-        let operation_id = self.submit_main_window_operation(
-            MainWindowCommand::ToggleMaximized,
-            "renderer-toggle-maximized",
-        )?;
-        self.wait_main_window_operation(&operation_id)
+        self.submit_main_window_operation(MainWindowCommand::Minimize, trigger)
     }
 
     pub(crate) fn request_main_window_toggle_fullscreen(
@@ -975,6 +1041,16 @@ impl SystemRuntimeExecutor {
         trigger: &'static str,
     ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
         let operation_id = self.request_main_window_toggle_fullscreen(trigger)?;
+        self.wait_main_window_operation(&operation_id)
+    }
+
+    pub(crate) fn toggle_main_window_maximized(
+        &self,
+    ) -> RuntimeResult<SystemRuntimeOperationSummaryRecord> {
+        let operation_id = self.submit_main_window_operation(
+            MainWindowCommand::ToggleMaximized,
+            "renderer-toggle-maximized",
+        )?;
         self.wait_main_window_operation(&operation_id)
     }
 

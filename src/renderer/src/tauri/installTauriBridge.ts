@@ -511,18 +511,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     },
     quitApplication: () => invokeShell("quitApplication"),
     confirmApplicationQuit: () => invokeShell("confirmApplicationQuit"),
-    requestCurrentWindowClose: async () => handleSystemRuntimeReceipt(
-      await invokeShell("requestCurrentWindowClose")
-    ),
+    requestCurrentWindowClose: () => invokeShell("requestCurrentWindowClose"),
     minimizeCurrentWindow: async () => handleSystemRuntimeReceipt(
       await invokeShell("minimizeCurrentWindow")
     ),
-    startCurrentWindowDrag: async () => handleSystemRuntimeReceipt(
-      await invokeShell("startCurrentWindowDrag")
-    ),
-    toggleCurrentWindowMaximize: async () => handleSystemRuntimeReceipt(
-      await invokeShell("toggleCurrentWindowMaximize")
-    ),
+    toggleCurrentWindowMaximize: () => invokeShell("toggleCurrentWindowMaximize"),
     executeApplicationShortcut: (command) =>
       invokeShell("executeApplicationShortcut", [command]),
     getEmbeddedRuntimeState: () => invokeShell("embeddedRuntimeState"),

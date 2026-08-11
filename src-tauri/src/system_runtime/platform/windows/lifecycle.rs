@@ -62,6 +62,85 @@ pub(in crate::system_runtime) fn request_platform_window_show(window: &Window) -
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_set_fullscreen(
+    window: &Window,
+    fullscreen: bool,
+) -> Result<(), String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|error| error.to_string())?;
+    // WebView2/Tauri can leave a frameless HWND without WS_VISIBLE after the
+    // fullscreen style/placement transition. Reassert visibility on the same
+    // owning-thread queue without activating a different Rion window.
+    request_platform_window_show(window).map_err(|error| error.message)
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_toggle_fullscreen(
+    window: &Window,
+) -> Result<(), String> {
+    let fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+    request_platform_window_set_fullscreen(window, !fullscreen)
+}
+
+#[cfg(windows)]
+fn post_standard_toggle_maximized(hwnd: windows::Win32::Foundation::HWND) -> Result<bool, String> {
+    use windows::Win32::{
+        Foundation::{LPARAM, WPARAM},
+        UI::WindowsAndMessaging::{
+            IsWindow, IsZoomed, PostMessageW, SC_MAXIMIZE, SC_RESTORE, WM_SYSCOMMAND,
+        },
+    };
+
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 window handle is no longer valid.".to_owned());
+    }
+    let maximized = unsafe { IsZoomed(hwnd) }.as_bool();
+    let command = if maximized { SC_RESTORE } else { SC_MAXIMIZE };
+    // Match the native caption-button/title-bar path without re-entering the
+    // WebView UI thread from a presentation actor callback. The owning Win32
+    // queue processes the system command, and its resulting size/move/focus
+    // messages remain the only state authority.
+    unsafe {
+        PostMessageW(
+            Some(hwnd),
+            WM_SYSCOMMAND,
+            WPARAM(command as usize),
+            LPARAM(0),
+        )
+    }
+    .map_err(|error| error.to_string())?;
+    Ok(!maximized)
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_window_toggle_maximized(
+    window: &Window,
+) -> Result<(), String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    post_standard_toggle_maximized(hwnd).map(|_| ())
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_webview_window_toggle_maximized(
+    window: &WebviewWindow,
+) -> Result<bool, String> {
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    post_standard_toggle_maximized(hwnd)
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_webview_window_set_fullscreen(
+    window: &WebviewWindow,
+    fullscreen: bool,
+) -> Result<(), String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|error| error.to_string())?;
+    request_platform_webview_window_show(window)
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn prepare_platform_window_foreground(window: &Window) -> RuntimeResult<()> {
     use windows::Win32::UI::WindowsAndMessaging::{
         HWND_TOP, IsWindow, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,

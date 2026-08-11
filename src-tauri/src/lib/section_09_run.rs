@@ -430,9 +430,7 @@ pub fn run() {
                     match event {
                         tauri::WindowEvent::CloseRequested { api, .. } if label == "main" => {
                             api.prevent_close();
-                            let _ = state
-                                .runtime
-                                .request_main_window_hide("os-close-requested");
+                            app_handle.exit(0);
                         }
                         tauri::WindowEvent::CloseRequested { api, .. } if label != "main" => {
                             match state.runtime.begin_window_close_requested(&label) {

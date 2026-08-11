@@ -125,7 +125,6 @@ export function showStartupFailure(error: unknown): void {
   lastFailureMessage = startupFailureMessage(error);
   const shell = document.createElement("div");
   shell.className = "boot-fallback";
-  shell.setAttribute("data-tauri-drag-region", "");
 
   const content = document.createElement("main");
   content.className = "boot-fallback-content";

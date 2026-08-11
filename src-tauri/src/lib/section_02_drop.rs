@@ -1,6 +1,10 @@
 impl Drop for RestoreProgressGuard<'_> {
     fn drop(&mut self) {
         if self.active {
+            self.state.runtime.fail_dormant_window_restores(
+                &self.window_ids,
+                "The saved Game Window restore ended before completion.",
+            );
             let _ = replace_restore_progress(self.state, Vec::new());
         }
     }

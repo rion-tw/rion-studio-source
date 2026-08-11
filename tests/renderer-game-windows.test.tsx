@@ -53,13 +53,97 @@ describe("Game Window management", () => {
 
     const table = screen.getByRole("table", { name: "Game Windows" });
     expect(within(table).getByRole("columnheader", { name: /^Window/ })).toBeTruthy();
-    expect(within(table).getByRole("columnheader", { name: "Status" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Runtime status" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Target display" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Active" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Tabs" })).toBeTruthy();
     expect(within(table).getByRole("columnheader", { name: "Actions" })).toBeTruthy();
     expect(within(table).getByText("Raid window")).toBeTruthy();
     expect(within(table).getByText("Mina")).toBeTruthy();
+  });
+
+  it("separates per-window recovery, visibility, and unopened runtime states", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+    const gameWindowFor = (id: string, name: string): GameWindow => ({ ...gameWindow, id, name });
+    const gameWindows = [
+      gameWindowFor("awaiting", "Awaiting window"),
+      gameWindowFor("restoring", "Restoring window"),
+      gameWindowFor("failed", "Failed window"),
+      gameWindowFor("visible", "Visible window"),
+      gameWindowFor("hidden", "Hidden window"),
+      gameWindowFor("dormant", "Dormant window")
+    ];
+    const runtimeState: EmbeddedRuntimeState = {
+      ...emptyRuntime,
+      recovery: { reason: "unclean-exit", windowCount: 4, tabCount: 4 },
+      savedWindows: [
+        savedWindowSummary("awaiting", "awaiting-recovery"),
+        savedWindowSummary("restoring", "restoring"),
+        savedWindowSummary("failed", "failed"),
+        savedWindowSummary("dormant", "dormant")
+      ],
+      windows: [
+        { ...runtime.windows[0], id: "visible", windowId: "visible", visible: true },
+        { ...runtime.windows[0], id: "hidden", windowId: "hidden", visible: false }
+      ]
+    };
+
+    renderRoute({ gameWindows, runtime: runtimeState });
+
+    expect(windowStatus("Awaiting window").textContent).toBe("Awaiting recovery");
+    expect(windowStatus("Restoring window").textContent).toBe("Restoring");
+    expect(windowStatus("Failed window").textContent).toBe("Restore failed");
+    expect(windowStatus("Visible window").textContent).toBe("Visible");
+    expect(windowStatus("Hidden window").textContent).toBe("Hidden");
+    expect(windowStatus("Dormant window").textContent).toBe("Not open");
+    expect(windowStatus("Awaiting window").className).toContain("bg-warning");
+    expect(windowStatus("Restoring window").className).toContain("bg-activity");
+    expect(windowStatus("Failed window").className).toContain("bg-destructive");
+    expect(windowStatus("Visible window").className).toContain("bg-success");
+
+    const table = screen.getByRole("table", { name: "Game Windows" });
+    fireEvent.click(within(table).getByTitle("Sort by Runtime status"));
+    expect(windowRowIds(table)).toEqual([
+      "awaiting",
+      "hidden",
+      "dormant",
+      "failed",
+      "restoring",
+      "visible"
+    ]);
+  });
+
+  it("locks restoring window actions while keeping failed restores retryable", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+    const restoringWindow = { ...gameWindow, id: "restoring", name: "Restoring window" };
+    const failedWindow = { ...gameWindow, id: "failed", name: "Failed window" };
+
+    renderRoute({
+      gameWindows: [restoringWindow, failedWindow],
+      runtime: {
+        ...emptyRuntime,
+        savedWindows: [
+          savedWindowSummary("restoring", "restoring"),
+          savedWindowSummary("failed", "failed")
+        ]
+      }
+    });
+
+    const restoringRow = screen.getByText("Restoring window").closest("tr");
+    const failedRow = screen.getByText("Failed window").closest("tr");
+    if (!restoringRow || !failedRow) throw new Error("Expected recovery state rows.");
+    expect(within(restoringRow).getByRole("button", { name: "Show" })).toHaveProperty("disabled", true);
+    expect(within(restoringRow).getByRole("button", { name: "Game window actions" }))
+      .toHaveProperty("disabled", true);
+    expect(within(failedRow).getByRole("button", { name: "Show" })).toHaveProperty("disabled", false);
+    expect(within(failedRow).getByRole("button", { name: "Game window actions" }))
+      .toHaveProperty("disabled", false);
   });
 
   it("opens a game window action menu from the row contextmenu event", () => {
@@ -98,7 +182,7 @@ describe("Game Window management", () => {
 
     const table = screen.getByRole("table", { name: "Game Windows" });
     expect(within(table).getByTitle("Sort by Window")).toBeTruthy();
-    expect(within(table).getByTitle("Sort by Status")).toBeTruthy();
+    expect(within(table).getByTitle("Sort by Runtime status")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Target display")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Active")).toBeTruthy();
     expect(within(table).getByTitle("Sort by Tabs")).toBeTruthy();
@@ -180,9 +264,15 @@ describe("Game Window management", () => {
 
     expect(screen.getByText("Raid window")).toBeTruthy();
     expect(screen.getByText("Hidden")).toBeTruthy();
+    expect(screen.getByText("Windowed")).toBeTruthy();
     expect(screen.getByText("1 tabs")).toBeTruthy();
     expect(screen.getByText("Mina")).toBeTruthy();
     expect(screen.getByText("Studio Display · Primary")).toBeTruthy();
+    const row = screen.getByText("Raid window").closest("tr");
+    if (!row) throw new Error("Expected game window row.");
+    const cells = within(row).getAllByRole("cell");
+    expect(within(cells[1]).queryByText("Windowed")).toBeNull();
+    expect(within(cells[2]).getByText("Windowed")).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Target display" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Rename or change display" })).toBeNull();
@@ -442,7 +532,7 @@ describe("Game Window management", () => {
     await waitFor(() => expect(showButton).toHaveProperty("disabled", false));
   });
 
-  it("keeps an empty window as a list-only summary", () => {
+  it("keeps an unopened empty window as a list-only summary", () => {
     Object.defineProperty(window, "rionStudio", {
       configurable: true,
       value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
@@ -450,10 +540,29 @@ describe("Game Window management", () => {
 
     renderRoute({ gameWindows: [emptyGameWindow], runtime: emptyRuntime });
 
-    expect(screen.getByText("Empty")).toBeTruthy();
+    expect(screen.getByText("Not open")).toBeTruthy();
     expect(screen.getByText("0 tabs")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: /Add to/ })).toBeNull();
+  });
+
+  it("reports an empty live window by visibility instead of tab content", () => {
+    Object.defineProperty(window, "rionStudio", {
+      configurable: true,
+      value: { createGameWindow: vi.fn(() => Promise.resolve(gameWindow)) }
+    });
+
+    renderRoute({
+      gameWindows: [emptyGameWindow],
+      runtime: {
+        ...emptyRuntime,
+        windows: [{ ...runtime.windows[0], visible: true, tabCount: 0 }]
+      }
+    });
+
+    expect(screen.getByText("Visible")).toBeTruthy();
+    expect(screen.getByText("0 tabs")).toBeTruthy();
+    expect(screen.queryByText("Empty")).toBeNull();
   });
 });
 
@@ -480,6 +589,30 @@ function windowRowIds(table: HTMLElement): Array<string | null> {
     .getAllByRole("row")
     .slice(1)
     .map((row) => row.getAttribute("data-selection-id"));
+}
+
+function windowStatus(windowName: string): HTMLElement {
+  const row = screen.getByText(windowName).closest("tr");
+  if (!row) throw new Error(`Expected row for ${windowName}.`);
+  return within(within(row).getAllByRole("cell")[1]).getByText(/.+/);
+}
+
+function savedWindowSummary(
+  id: string,
+  state: NonNullable<EmbeddedRuntimeState["savedWindows"]>[number]["state"]
+): NonNullable<EmbeddedRuntimeState["savedWindows"]>[number] {
+  return {
+    id,
+    displayId: display.id,
+    displayLabel: display.label,
+    wasVisible: true,
+    activeSourceId: "role-1",
+    tabCount: 1,
+    roleCount: 1,
+    tabNames: ["Mina"],
+    state,
+    ...(state === "failed" ? { failureMessage: "Restore failed." } : {})
+  };
 }
 
 const display = {

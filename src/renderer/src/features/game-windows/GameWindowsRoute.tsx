@@ -19,7 +19,8 @@ import type {
   DisplayTarget,
   EmbeddedRuntimeState,
   GameWindow,
-  PixelBounds
+  PixelBounds,
+  SavedEmbeddedRuntimeWindowSummary
 } from "../../../../shared/types";
 import { EmptyState } from "../../components/EmptyState";
 import { useConfirmation } from "../../components/confirmation";
@@ -64,6 +65,20 @@ type GameWindowListSortDirection = "asc" | "desc";
 interface GameWindowListSortState {
   direction: GameWindowListSortDirection;
   key: GameWindowListSortKey;
+}
+
+type GameWindowRuntimeStateKind =
+  | "awaitingRecovery"
+  | "restoring"
+  | "restoreFailed"
+  | "visible"
+  | "hidden"
+  | "notOpen";
+
+interface GameWindowRuntimeState {
+  badgeVariant: "activity" | "destructive" | "muted" | "success" | "warning";
+  kind: GameWindowRuntimeStateKind;
+  label: string;
 }
 
 const DEFAULT_GAME_WINDOW_LIST_SORT: GameWindowListSortState = {
@@ -137,16 +152,20 @@ export default function GameWindowsRoute({
     () => new Map(runtime.windows.map((window) => [window.windowId, window])),
     [runtime.windows]
   );
-  const failedWindowIds = useMemo(
-    () => new Set(runtime.savedWindows?.filter((window) => window.state === "failed").map((window) => window.id)),
+  const savedWindowById = useMemo(
+    () => new Map(runtime.savedWindows?.map((window) => [window.id, window]) ?? []),
     [runtime.savedWindows]
   );
-  const stateLabelByWindowId = useMemo(
+  const stateByWindowId = useMemo(
     () => new Map(gameWindows.map((gameWindow) => [
       gameWindow.id,
-      getGameWindowStateLabel(gameWindow, liveWindowById.get(gameWindow.id), failedWindowIds, runtime.recovery, t)
+      getGameWindowRuntimeState(liveWindowById.get(gameWindow.id), savedWindowById.get(gameWindow.id), t)
     ])),
-    [failedWindowIds, gameWindows, liveWindowById, runtime.recovery, t]
+    [gameWindows, liveWindowById, savedWindowById, t]
+  );
+  const stateLabelByWindowId = useMemo(
+    () => new Map(Array.from(stateByWindowId, ([windowId, state]) => [windowId, state.label])),
+    [stateByWindowId]
   );
   const sortedGameWindows = useMemo(
     () => sortGameWindows(gameWindows, sort, displayById, stateLabelByWindowId, t),
@@ -160,7 +179,10 @@ export default function GameWindowsRoute({
   const selectedGameWindows = gameWindows.filter((gameWindow) => selection.selectedIds.has(gameWindow.id));
   const selectedLiveWindows = selectedGameWindows.filter((gameWindow) => liveWindowById.has(gameWindow.id));
   const selectedStoppableWindows = selectedGameWindows.filter((gameWindow) => gameWindow.tabs.length > 0);
-  const isSelectionBusy = selectedGameWindows.some((gameWindow) => busyIds.has(windowBusyKey(gameWindow.id)));
+  const isSelectionBusy = selectedGameWindows.some((gameWindow) =>
+    busyIds.has(windowBusyKey(gameWindow.id))
+      || stateByWindowId.get(gameWindow.id)?.kind === "restoring"
+  );
   const primaryDisplay = displays.find((display) => display.isPrimary) ?? displays[0];
 
   async function run(ids: Iterable<string>, action: () => Promise<unknown>): Promise<boolean> {
@@ -389,12 +411,12 @@ export default function GameWindowsRoute({
                 </thead>
                 <tbody className="divide-y divide-border/45 text-body">
                   {sortedGameWindows.map((gameWindow) => {
-                    const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id));
+                    const state = stateByWindowId.get(gameWindow.id)!;
+                    const windowIsBusy = busyIds.has(windowBusyKey(gameWindow.id)) || state.kind === "restoring";
                     const liveWindow = liveWindowById.get(gameWindow.id);
                     const activeTab = gameWindow.tabs.find((tab) => tab.id === gameWindow.activeTabId);
                     const display = displayById.get(gameWindow.targetDisplay.id);
                     const displayLabel = getGameWindowDisplayLabel(gameWindow, displayById, t);
-                    const stateLabel = stateLabelByWindowId.get(gameWindow.id)!;
                     return (
                       <ContextMenu key={gameWindow.id}>
                         <ContextMenuTrigger asChild>
@@ -429,17 +451,17 @@ export default function GameWindowsRoute({
                           </div>
                         </td>
                         <td className="max-w-[220px] px-4 py-2 align-middle">
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            <Badge variant="secondary">{stateLabel}</Badge>
-                            <span className="truncate text-control text-muted-foreground">
-                              {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
-                            </span>
-                          </div>
+                          <Badge variant={state.badgeVariant}>{state.label}</Badge>
                         </td>
                         <td className="max-w-[260px] px-4 py-2 align-middle">
                           <span className="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" title={displayLabel}>
                             <Monitor aria-hidden="true" className="shrink-0" size={14} />
-                            <span className="truncate">{displayLabel}</span>
+                            <span className="min-w-0">
+                              <span className="block truncate">{displayLabel}</span>
+                              <span className="block truncate text-control">
+                                {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
+                              </span>
+                            </span>
                           </span>
                         </td>
                         <td className="max-w-[240px] px-4 py-2 align-middle text-muted-foreground">
@@ -653,17 +675,51 @@ function clampBounds(bounds: PixelBounds, area: PixelBounds): PixelBounds {
   };
 }
 
-function getGameWindowStateLabel(
-  gameWindow: GameWindow,
+function getGameWindowRuntimeState(
   liveWindow: { visible: boolean } | undefined,
-  failedWindowIds: ReadonlySet<string>,
-  recovery: EmbeddedRuntimeState["recovery"],
+  savedWindow: SavedEmbeddedRuntimeWindowSummary | undefined,
   t: Translator
-): string {
-  if (failedWindowIds.has(gameWindow.id)) return t("gameWindows.state.failed");
-  if (recovery) return t("gameWindows.state.restoring");
-  if (gameWindow.tabs.length === 0) return t("gameWindows.state.empty");
-  return liveWindow?.visible ? t("gameWindows.state.open") : t("gameWindows.state.hidden");
+): GameWindowRuntimeState {
+  if (savedWindow?.state === "awaiting-recovery") {
+    return {
+      badgeVariant: "warning",
+      kind: "awaitingRecovery",
+      label: t("gameWindows.state.awaitingRecovery")
+    };
+  }
+  if (savedWindow?.state === "restoring") {
+    return {
+      badgeVariant: "activity",
+      kind: "restoring",
+      label: t("gameWindows.state.restoring")
+    };
+  }
+  if (savedWindow?.state === "failed") {
+    return {
+      badgeVariant: "destructive",
+      kind: "restoreFailed",
+      label: t("gameWindows.state.restoreFailed")
+    };
+  }
+  if (liveWindow?.visible) {
+    return {
+      badgeVariant: "success",
+      kind: "visible",
+      label: t("gameWindows.state.visible")
+    };
+  }
+  if (liveWindow) {
+    return {
+      badgeVariant: "muted",
+      kind: "hidden",
+      label: t("gameWindows.state.hidden")
+    };
+  }
+  return {
+    badgeVariant: "muted",
+    kind: "notOpen",
+    label: t("gameWindows.state.notOpen")
+  };
 }
 
 function sortGameWindows(

@@ -188,7 +188,11 @@ export interface EmbeddedRuntimeWindowSummary {
   presentation?: GameWindowPresentation;
 }
 
-type SavedGameWindowState = "saved" | "restoring" | "failed";
+export type SavedGameWindowState =
+  | "dormant"
+  | "awaiting-recovery"
+  | "restoring"
+  | "failed";
 
 export interface SavedEmbeddedRuntimeWindowSummary {
   id: string;

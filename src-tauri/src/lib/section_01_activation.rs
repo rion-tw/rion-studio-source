@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{
         Arc, Mutex,
@@ -371,13 +371,15 @@ struct GameWindowTabDragSession {
 struct RestoreProgressGuard<'a> {
     active: bool,
     state: &'a CoreState,
+    window_ids: Vec<String>,
 }
 
 impl<'a> RestoreProgressGuard<'a> {
-    fn new(state: &'a CoreState) -> Self {
+    fn new(state: &'a CoreState, window_ids: Vec<String>) -> Self {
         Self {
             active: true,
             state,
+            window_ids,
         }
     }
 

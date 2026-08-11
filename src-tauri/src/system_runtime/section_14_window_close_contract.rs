@@ -353,10 +353,14 @@ impl SystemRuntimeExecutor {
             if retire_to_dormant
                 && let Some(retired_snapshot) = retired_snapshot
             {
+                let retired_window_id = retired_snapshot.id.clone();
                 state
                     .dormant_windows
-                    .retain(|window| window.id != retired_snapshot.id);
+                    .retain(|window| window.id != retired_window_id);
                 state.dormant_windows.push(retired_snapshot);
+                state
+                    .dormant_window_states
+                    .insert(retired_window_id, DormantWindowState::Dormant);
             }
             let native_window = state.native_resources.display_hosts.get_mut(window_id).map(|host| {
                 let retirement_revision = WINDOW_RETIREMENT_SEQUENCE

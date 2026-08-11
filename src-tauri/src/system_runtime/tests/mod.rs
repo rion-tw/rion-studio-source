@@ -30,3 +30,4 @@ include!("behavior_28_live_topology_store_is_one_way.rs");
 include!("behavior_29_window_activation.rs");
 include!("behavior_30_windows_mica.rs");
 include!("behavior_31_restored_foreground_visibility.rs");
+include!("behavior_32_dormant_window_restore_state.rs");

@@ -406,6 +406,138 @@ impl PresentationRegistry {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DormantWindowState {
+    Dormant,
+    AwaitingRecovery,
+    Restoring,
+    Failed { failure_message: String },
+}
+
+impl DormantWindowState {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Dormant => "dormant",
+            Self::AwaitingRecovery => "awaiting-recovery",
+            Self::Restoring => "restoring",
+            Self::Failed { .. } => "failed",
+        }
+    }
+
+    fn failure_message(&self) -> Option<&str> {
+        match self {
+            Self::Failed { failure_message } => Some(failure_message),
+            _ => None,
+        }
+    }
+}
+
+fn default_dormant_window_state(recovery_required: bool) -> DormantWindowState {
+    if recovery_required {
+        DormantWindowState::AwaitingRecovery
+    } else {
+        DormantWindowState::Dormant
+    }
+}
+
+fn replace_dormant_window_state(
+    state: &mut RuntimeState,
+    windows: Vec<RuntimeRestoreWindowRecord>,
+    recovery_required: bool,
+) {
+    state.dormant_windows = windows;
+    state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
+    let initial_state = default_dormant_window_state(state.recovery_required);
+    state.dormant_window_states = state
+        .dormant_windows
+        .iter()
+        .map(|window| (window.id.clone(), initial_state.clone()))
+        .collect();
+    if !state.recovery_required {
+        state.recovery_interrupted_window_ids.clear();
+    }
+}
+
+fn begin_dormant_window_restore_state(state: &mut RuntimeState, window_ids: &[String]) -> bool {
+    let dormant_ids = state
+        .dormant_windows
+        .iter()
+        .map(|window| window.id.clone())
+        .collect::<HashSet<_>>();
+    let mut changed = false;
+    for window_id in window_ids {
+        if dormant_ids.contains(window_id) {
+            changed |= state
+                .dormant_window_states
+                .insert(window_id.clone(), DormantWindowState::Restoring)
+                != Some(DormantWindowState::Restoring);
+        }
+    }
+    changed
+}
+
+fn finish_dormant_window_restore_state(
+    state: &mut RuntimeState,
+    windows: Vec<RuntimeRestoreWindowRecord>,
+    recovery_required: bool,
+    failures: &HashMap<String, String>,
+) {
+    state.dormant_windows = windows;
+    state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
+    let remaining_ids = state
+        .dormant_windows
+        .iter()
+        .map(|window| window.id.clone())
+        .collect::<HashSet<_>>();
+    state
+        .dormant_window_states
+        .retain(|window_id, _| remaining_ids.contains(window_id));
+    for window_id in remaining_ids {
+        let next_state = if let Some(message) = failures.get(&window_id) {
+            DormantWindowState::Failed {
+                failure_message: message.clone(),
+            }
+        } else {
+            match state.dormant_window_states.get(&window_id) {
+                Some(DormantWindowState::Restoring) => DormantWindowState::Failed {
+                    failure_message: "The saved Game Window restore ended before completion."
+                        .to_owned(),
+                },
+                Some(DormantWindowState::Failed { failure_message }) => {
+                    DormantWindowState::Failed {
+                        failure_message: failure_message.clone(),
+                    }
+                }
+                _ => default_dormant_window_state(state.recovery_required),
+            }
+        };
+        state.dormant_window_states.insert(window_id, next_state);
+    }
+    if !state.recovery_required {
+        state.recovery_interrupted_window_ids.clear();
+    }
+}
+
+fn fail_dormant_window_restore_state(
+    state: &mut RuntimeState,
+    window_ids: &[String],
+    message: &str,
+) -> bool {
+    let mut changed = false;
+    for window_id in window_ids {
+        if state.dormant_window_states.get(window_id) == Some(&DormantWindowState::Restoring) {
+            state.dormant_window_states.insert(
+                window_id.clone(),
+                DormantWindowState::Failed {
+                    failure_message: message.to_owned(),
+                },
+            );
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[derive(Default)]
 struct RuntimeState {
     active_geometry_windows: HashSet<String>,
@@ -417,6 +549,7 @@ struct RuntimeState {
     close_coordinator: CloseCoordinator,
     controlled_navigation_webviews: HashMap<String, u32>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
+    dormant_window_states: HashMap<String, DormantWindowState>,
     launch_attempt_generations: HashMap<String, String>,
     main_frame_navigation_input_fences: HashMap<String, MainFrameNavigationInputFence>,
     role_input_fences: HashMap<String, RoleInputFence>,

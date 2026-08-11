@@ -83,6 +83,7 @@ export interface RionStudioApi {
   confirmApplicationQuit: () => Promise<void>;
   requestCurrentWindowClose: () => Promise<void>;
   minimizeCurrentWindow: () => Promise<SystemRuntimeOperationSummaryRecord>;
+  startCurrentWindowDrag: () => Promise<SystemRuntimeOperationSummaryRecord>;
   toggleCurrentWindowMaximize: () => Promise<void>;
   executeApplicationShortcut: (command: ApplicationShortcutCommand) => Promise<void>;
   getEmbeddedRuntimeState: () => Promise<EmbeddedRuntimeState>;

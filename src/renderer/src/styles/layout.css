@@ -90,6 +90,10 @@
     height: 3.5rem;
   }
 
+  :root[data-window-fullscreen="true"] .app-content-window-drag-region {
+    pointer-events: none;
+  }
+
   :root[data-platform="windows"] .app-content-window-drag-region {
     right: 138px;
   }

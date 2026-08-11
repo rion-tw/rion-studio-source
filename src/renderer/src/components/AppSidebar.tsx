@@ -23,9 +23,9 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
   const navigate = useNavigate();
 
   return (
-    <aside
-      className="app-sidebar app-main-sidebar app-drag flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground"
-      data-window-drag-handle
+    <WindowDragHandle
+      as="aside"
+      className="app-sidebar app-main-sidebar flex w-[248px] shrink-0 flex-col overflow-hidden px-3 pb-3 text-sidebar-foreground"
     >
       <WindowDragHandle
         className="app-sidebar-brand-region -mx-3 px-3 pb-5"
@@ -105,6 +105,6 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
           })}
         />
       </div>
-    </aside>
+    </WindowDragHandle>
   );
 }

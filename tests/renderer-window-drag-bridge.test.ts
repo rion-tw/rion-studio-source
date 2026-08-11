@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("main window chrome bridge", () => {
-  it("routes focus-neutral maximize, minimize, and close through the typed shell", async () => {
+  it("routes focus-neutral drag, maximize, minimize, and close through the typed shell", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}
@@ -29,6 +29,7 @@ describe("main window chrome bridge", () => {
 
     await installTauriBridgeIfNeeded();
     await window.rionStudio.minimizeCurrentWindow();
+    await window.rionStudio.startCurrentWindowDrag();
     await window.rionStudio.toggleCurrentWindowMaximize();
     await window.rionStudio.requestCurrentWindowClose();
 
@@ -37,10 +38,14 @@ describe("main window chrome bridge", () => {
       args: []
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "rion_shell_invoke", {
-      operation: "toggleCurrentWindowMaximize",
+      operation: "startCurrentWindowDrag",
       args: []
     });
     expect(invoke).toHaveBeenNthCalledWith(3, "rion_shell_invoke", {
+      operation: "toggleCurrentWindowMaximize",
+      args: []
+    });
+    expect(invoke).toHaveBeenNthCalledWith(4, "rion_shell_invoke", {
       operation: "requestCurrentWindowClose",
       args: []
     });

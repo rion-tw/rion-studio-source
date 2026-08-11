@@ -564,7 +564,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn complete_window_destroyed(&self, label: &str) {
-        let (transaction, focus_identity, destroyed_window_id, retired_identity) = self
+        let (mut transaction, focus_identity, destroyed_window_id, retired_identity) = self
             .state
             .lock()
             .ok()
@@ -583,20 +583,43 @@ impl SystemRuntimeExecutor {
                     .map(|(window_id, _)| window_id.clone());
                 let retired_focus_identity = state
                     .retiring_native_window_hosts
-                    .remove(label)
-                    .map(|host| (host.window_id, host.generation));
+                    .get(label)
+                    .map(|host| (host.window_id.clone(), host.generation));
                 state.allow_window_close_labels.remove(label);
                 (
-                    state.window_closes.take_destroyed(label),
+                    retired_focus_identity
+                        .is_none()
+                        .then(|| state.window_closes.take_destroyed(label))
+                        .flatten(),
                     live_focus_identity.or(retired_focus_identity.clone()),
                     destroyed_window_id,
                     retired_focus_identity,
                 )
             })
             .unwrap_or_default();
-        self.tab_close_changed.notify_all();
         if let Some((window_id, generation)) = retired_identity.as_ref() {
             self.complete_destroyed_host_surface_continuations(window_id, *generation);
+            // The destroyed event is the final authority for this native host
+            // generation. Re-apply topology retirement here so late placement
+            // callbacks cannot leave an empty Kernel window that keeps an exact,
+            // terminal tab tombstone from being reused by saved-window restore.
+            // Keep the retiring-host marker until this commit finishes; reopen
+            // waiters therefore cannot race a new generation into the same ID.
+            self.presentation.remove(window_id);
+            let retired_transaction = self.state.lock().ok().and_then(|mut state| {
+                let exact_host = state
+                    .retiring_native_window_hosts
+                    .get(label)
+                    .is_some_and(|host| {
+                        host.window_id == *window_id && host.generation == *generation
+                    });
+                if !exact_host {
+                    return None;
+                }
+                state.retiring_native_window_hosts.remove(label);
+                state.window_closes.take_destroyed(label)
+            });
+            transaction = transaction.or(retired_transaction);
             self.record_presentation_event(
                 LogLevel::Debug,
                 "native.window-destroyed",
@@ -608,6 +631,7 @@ impl SystemRuntimeExecutor {
                 0,
             );
         }
+        self.tab_close_changed.notify_all();
         if let Some(window_id) = destroyed_window_id.as_deref() {
             self.cancel_pending_surface_continuations(
                 Some(window_id),

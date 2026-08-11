@@ -563,6 +563,7 @@ async fn hydrate_saved_window_for_launch(
             .runtime
             .prepare_restored_window_tabs_for_launch(
                 target,
+                &saved.name,
                 &hydrated.tabs,
                 hydrated.active_tab_id.clone(),
                 &mut launch_admission,
@@ -575,6 +576,7 @@ async fn hydrate_saved_window_for_launch(
                 .runtime
                 .prepare_restored_window_tabs_with_launch_for_intent(
                     target,
+                    &saved.name,
                     &hydrated.tabs,
                     &intent.source_id,
                     &intent.source_type,

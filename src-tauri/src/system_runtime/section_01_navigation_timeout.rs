@@ -127,6 +127,7 @@ static ROLE_INPUT_WORKER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(not(windows))]
 static WINDOW_RESIZE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_GENERATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(not(windows))]
 static WINDOW_PLACEMENT_OBSERVATION_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 static WINDOW_RETIREMENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 #[cfg(windows)]

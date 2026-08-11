@@ -420,7 +420,8 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(geometryReceiptCommit).not.toContain("host.target.bounds");
     expect(geometryReceiptCommit).not.toContain("persist_game_window_placement");
     expect(runtime).toContain("fn reduce_observed_window_placement(");
-    expect(runtime).toContain("schedule_live_window_state_persistence(&observed.window_id)");
+    expect(runtime).toContain("persist_observed_window_placement(&observed.window_id)");
+    expect(runtime).toContain("self.flush_live_window_state(window_id)");
     const resizeLayoutStart = runtime.indexOf("fn layout_runtime_tab_inner_with_metrics(");
     const resizeLayout = runtime.slice(
       resizeLayoutStart,

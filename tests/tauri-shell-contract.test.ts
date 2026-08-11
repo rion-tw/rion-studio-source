@@ -318,6 +318,13 @@ describe("Tauri shell contract guard", () => {
     expect(tabShortcutDefer).not.toContain(".try_state::<crate::CoreState>()");
     expect(tabShortcutDefer).not.toContain("preview_adjacent_tab_activation(");
     expect(windowsInput).toContain("app.run_on_main_thread(move || {");
+    const applicationShortcutDefer = windowsInput.slice(
+      windowsInput.indexOf("fn defer_windows_application_shortcut("),
+      windowsInput.indexOf("fn execute_deferred_windows_application_shortcut(")
+    );
+    expect(applicationShortcutDefer).toContain("spawn_blocking(move || {");
+    expect(applicationShortcutDefer).not.toContain("execute_shortcut(");
+    expect(windowsInput).toContain("fn execute_deferred_windows_application_shortcut(");
   });
 
   it("routes diagnostics exports through the asynchronous core dispatcher", async () => {

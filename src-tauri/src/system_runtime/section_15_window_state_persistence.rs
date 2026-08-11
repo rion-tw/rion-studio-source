@@ -432,6 +432,26 @@ impl SystemRuntimeExecutor {
         );
     }
 
+    fn persist_observed_window_placement(&self, window_id: &str) {
+        #[cfg(windows)]
+        {
+            // A Win32 terminal geometry receipt is the placement authority. Do
+            // not leave it behind the topology debounce: a close may begin on
+            // the next native message and fence all later placement callbacks.
+            // The close coordinator still owns the final pre-close snapshot.
+            if self.current_window_close_in_progress(window_id) {
+                return;
+            }
+            if let Err(error) = self.flush_live_window_state(window_id) {
+                eprintln!(
+                    "Terminal Windows placement persistence failed: window={window_id} error={error}"
+                );
+            }
+        }
+        #[cfg(not(windows))]
+        self.schedule_live_window_state_persistence(window_id);
+    }
+
     pub(crate) fn flush_live_window_state(&self, window_id: &str) -> Result<(), String> {
         let Some(runtime) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
             return Err("The live window persistence runtime is unavailable.".to_owned());

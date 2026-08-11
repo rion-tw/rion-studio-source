@@ -399,6 +399,7 @@ async fn restore_saved_game_windows(
             .runtime
             .prepare_restored_window_tabs(
                 &target,
+                &saved.name,
                 &saved.tabs,
                 saved.active_tab_id.clone(),
             )

@@ -214,8 +214,13 @@ fn saved_window_restore_candidate_ids(
     scope: &str,
     dormant_window_ids: &HashSet<String>,
     session_recovery_window_ids: &HashSet<String>,
+    startup_restore_window_ids: Option<&HashSet<String>>,
 ) -> HashSet<String> {
-    if scope != "window"
+    if activation == SavedWindowRestoreActivation::Background {
+        startup_restore_window_ids
+            .cloned()
+            .unwrap_or_else(|| dormant_window_ids.clone())
+    } else if scope != "window"
         && activation == SavedWindowRestoreActivation::UserInitiated
         && !session_recovery_window_ids.is_empty()
     {
@@ -276,11 +281,13 @@ async fn restore_saved_game_windows(
         .and_then(|session| session["lastFocusedWindowId"].as_str().map(str::to_owned));
     let dormant_window_ids = state.runtime.dormant_window_ids();
     let session_recovery_window_ids = state.runtime.session_recovery_window_ids();
+    let startup_restore_window_ids = state.runtime.startup_restore_window_ids();
     let restore_candidate_ids = saved_window_restore_candidate_ids(
         activation,
         scope,
         &dormant_window_ids,
         &session_recovery_window_ids,
+        startup_restore_window_ids.as_ref(),
     );
     let eligible_game_windows = game_windows
         .iter()
@@ -288,11 +295,33 @@ async fn restore_saved_game_windows(
         .cloned()
         .collect::<Vec<_>>();
     let selected = if scope == "window" {
-        eligible_game_windows
+        let requested_window_id = input["windowId"]
+            .as_str()
+            .filter(|window_id| !window_id.trim().is_empty())
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_SHELL_INPUT_INVALID",
+                    "Saved Game Window ID is required for window restore scope.",
+                )
+            })?;
+        let saved = game_windows
             .iter()
-            .filter(|saved| Some(saved.id.as_str()) == input["windowId"].as_str())
+            .find(|saved| saved.id == requested_window_id)
             .cloned()
-            .collect::<Vec<_>>()
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_GAME_WINDOW_NOT_FOUND",
+                    "The requested saved Game Window does not exist.",
+                )
+            })?;
+        let runtime_before_restore = browser_runtime_snapshot(state)?;
+        if saved_window_conflicts_with_runtime(&saved, &runtime_before_restore) {
+            return Err(shell_error(
+                "TAURI_RESTORE_SOURCE_CONFLICT",
+                "A saved Game Window source is already owned by another live window.",
+            ));
+        }
+        vec![saved]
     } else {
         let runtime_before_restore = browser_runtime_snapshot(state)?;
         select_auto_restore_saved_windows(
@@ -305,9 +334,15 @@ async fn restore_saved_game_windows(
         .iter()
         .map(|saved| saved.id.clone())
         .collect::<Vec<_>>();
-    let selected_window_ids = state
-        .runtime
-        .begin_dormant_window_restore(&requested_window_ids);
+    let selected_window_ids = if scope == "window"
+        && activation == SavedWindowRestoreActivation::UserInitiated
+    {
+        state.runtime.begin_saved_window_restore(&selected)
+    } else {
+        state
+            .runtime
+            .begin_dormant_window_restore(&requested_window_ids)
+    };
     if selected_window_ids.is_empty() {
         return Ok(json!({
             "restoredWindowIds": [],

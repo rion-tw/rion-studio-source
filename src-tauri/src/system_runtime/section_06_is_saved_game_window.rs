@@ -35,7 +35,6 @@ impl SystemRuntimeExecutor {
         seed_persisted_runtime_windows(&core, &game_windows)?;
         let dormant_windows = game_windows
             .iter()
-            .filter(|window| !window.tabs.is_empty())
             .map(|window| {
                 let active_source_id = window.active_tab_id.as_ref().and_then(|active_tab_id| {
                     window
@@ -47,9 +46,9 @@ impl SystemRuntimeExecutor {
                 RuntimeRestoreWindowRecord {
                     id: window.id.clone(),
                     target_display: window.target_display.clone(),
-                    // Visibility is runtime state and intentionally is not duplicated in
-                    // the lifecycle journal. All persistent windows reopen after a clean
-                    // launch, including windows that were manually hidden.
+                    // The lifecycle journal's live-window cohort decides whether this saved
+                    // definition reopens automatically; the dormant record remains available
+                    // for an explicit user restore when it was closed before shutdown.
                     was_visible: true,
                     active_source_id,
                     tabs: window
@@ -75,6 +74,16 @@ impl SystemRuntimeExecutor {
             .iter()
             .map(|window| window.id.clone())
             .collect::<HashSet<_>>();
+        let startup_restore_window_ids = stored_restore_session
+            .live_window_ids
+            .as_ref()
+            .map(|window_ids| {
+                window_ids
+                    .iter()
+                    .filter(|window_id| dormant_window_ids.contains(*window_id))
+                    .cloned()
+                    .collect::<HashSet<_>>()
+            });
         let session_recovery_window_ids = session_recovery_window_ids_for_startup(
             stored_restore_session.clean_exit,
             stored_restore_session.live_window_ids.as_deref(),
@@ -121,6 +130,7 @@ impl SystemRuntimeExecutor {
         let mut runtime_state = RuntimeState {
             recovery_interrupted_window_ids,
             recovery_session_generation,
+            startup_restore_window_ids,
             ..RuntimeState::default()
         };
         initialize_dormant_window_state(

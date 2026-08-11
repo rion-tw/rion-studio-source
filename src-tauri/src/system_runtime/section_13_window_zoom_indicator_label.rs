@@ -352,6 +352,10 @@ impl SystemRuntimeExecutor {
             || !state.session_recovery_window_ids.is_empty()
             || state.runtime_restart_required
             || state.dormant_windows.is_empty()
+            || state
+                .startup_restore_window_ids
+                .as_ref()
+                .is_some_and(HashSet::is_empty)
         {
             return false;
         }
@@ -379,9 +383,31 @@ impl SystemRuntimeExecutor {
             .unwrap_or_default()
     }
 
+    pub(crate) fn startup_restore_window_ids(&self) -> Option<HashSet<String>> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.startup_restore_window_ids.clone())
+    }
+
     pub fn begin_dormant_window_restore(&self, window_ids: &[String]) -> Vec<String> {
         let started = if let Ok(mut state) = self.state.lock() {
             begin_dormant_window_restore_state(&mut state, window_ids)
+        } else {
+            Vec::new()
+        };
+        if !started.is_empty() {
+            self.publish_projection();
+        }
+        started
+    }
+
+    pub fn begin_saved_window_restore(
+        &self,
+        windows: &[StateGameWindowRecord],
+    ) -> Vec<String> {
+        let started = if let Ok(mut state) = self.state.lock() {
+            begin_saved_window_restore_state(&mut state, windows)
         } else {
             Vec::new()
         };

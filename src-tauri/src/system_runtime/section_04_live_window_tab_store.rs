@@ -59,9 +59,9 @@ impl LiveWindowTabStore {
                 KernelWindowPlacementCommitInput {
                     operation_id: uuid::Uuid::new_v4().to_string(),
                     placement: input.placement,
+                    placement_sequence: input.placement_sequence,
                     source: "command".to_owned(),
                     target_display: input.target_display,
-                    ui_sequence: input.ui_sequence,
                     window_generation: input.window_generation,
                     window_id: input.window_id,
                 },
@@ -545,10 +545,48 @@ impl SystemRuntimeExecutor {
             .unwrap_or_default()
     }
 
+    fn initialize_live_window_context(
+        &self,
+        target: &EmbeddedLaunchTargetRecord,
+        window_generation: u64,
+    ) -> Result<u64, String> {
+        let target_display = self
+            .window_state_persistence
+            .cached_target_display(&target.window_id, target.display_id)
+            .unwrap_or(DisplayTargetRecord {
+                id: target.display_id,
+                fingerprint: None,
+            });
+        let placement = GameWindowPlacementRecord {
+            normal_bounds: target.bounds.clone(),
+            saved_work_area: target.work_area.clone(),
+            presentation: target.presentation.clone(),
+        };
+        let commit = self
+            .presentation
+            .live
+            .apply(RuntimeIntent::InitializeWindowContext(
+                KernelWindowContextInitializeInput {
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                persisted_name: target.persisted_name.clone(),
+                placement,
+                target_display,
+                window_generation,
+                window_id: target.window_id.clone(),
+                },
+            ))
+            .map_err(|error| error.to_string())?;
+        if commit.status == RuntimeCommitStatus::Superseded {
+            return Err("The native window context generation was superseded.".to_owned());
+        }
+        self.presentation
+            .refresh_desired_native_projections(std::slice::from_ref(&target.window_id))?;
+        Ok(commit.revision)
+    }
+
     fn update_live_window_target(
         &self,
         target: &EmbeddedLaunchTargetRecord,
-        advance_revision: bool,
     ) -> Result<u64, String> {
         let target_display = self
             .window_state_persistence
@@ -563,30 +601,15 @@ impl SystemRuntimeExecutor {
             presentation: target.presentation.clone(),
         };
         let live = self.presentation.coordinator(&target.window_id)?;
-        if advance_revision {
-            let (window_generation, ui_sequence) = (
-                live.window_generation,
-                live.ui_sequence.saturating_add(1).max(1),
-            );
-            let receipt = self.presentation.live.commit_placement(
-                LiveWindowPlacementCommitInput {
-                    placement,
-                    target_display,
-                    ui_sequence,
-                    window_generation,
-                    window_id: target.window_id.clone(),
-                },
-            )?;
-            if receipt.status == LiveTopologyCommitStatus::Superseded {
-                return Ok(receipt.revision);
-            }
-            return Ok(receipt.revision);
-        }
-        let mut live = live.record;
-        live.target_display = Some(target_display);
-        live.placement = Some(placement);
         self.presentation
-            .commit_live_window_record("command", &target.window_id, &live)
+            .live
+            .commit_placement(LiveWindowPlacementCommitInput {
+                placement,
+                placement_sequence: live.placement_sequence.saturating_add(1).max(1),
+                target_display,
+                window_generation: live.window_generation,
+                window_id: target.window_id.clone(),
+            })
             .map(|receipt| receipt.revision)
     }
 
@@ -614,8 +637,8 @@ impl SystemRuntimeExecutor {
         let receipt = self.presentation.live.commit_placement(
             LiveWindowPlacementCommitInput {
                 placement,
+                placement_sequence: live.placement_sequence.saturating_add(1).max(1),
                 target_display,
-                ui_sequence: live.ui_sequence.saturating_add(1).max(1),
                 window_generation: expected_generation,
                 window_id: target.window_id.clone(),
             },

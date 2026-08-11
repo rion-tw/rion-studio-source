@@ -595,6 +595,7 @@ impl SystemRuntimeExecutor {
                 host.retirement_revision = WINDOW_RETIREMENT_SEQUENCE
                     .fetch_add(1, Ordering::AcqRel)
                     .saturating_add(1);
+                host.target = target.clone();
                 (host.window.clone(), host.generation)
                 })
         };
@@ -603,15 +604,28 @@ impl SystemRuntimeExecutor {
             // retires its surfaces. Reusing that host must first re-establish the
             // matching live generation so launch and placement intents never see
             // a native-only window.
-            self.presentation
-                .set_window_generation(&target.window_id, generation)
+            self.initialize_live_window_context(target, generation)
                 .map_err(|message| {
                     RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
                 })?;
-            self.update_live_window_target(target, false)
-                .map_err(|message| {
-                    RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-                })?;
+            let window_name = target.persisted_name.as_deref();
+            window
+                .set_title(&native_runtime_window_title(window_name))
+                .map_err(RuntimeError::tauri)?;
+            #[cfg(target_os = "macos")]
+            self.state()?
+                .native_resources
+                .display_hosts
+                .get(&target.window_id)
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "SYSTEM_RUNTIME_WINDOW_NOT_FOUND",
+                        "The reused native window host is unavailable.",
+                    )
+                })?
+                .tabs_controller
+                .set_window_name(window_name)
+                .map_err(|message| RuntimeError::new("MACOS_RUNTIME_TABS_FAILED", message))?;
             self.register_runtime_launcher_window(&target.window_id);
             return Ok((window, false));
         }
@@ -623,10 +637,11 @@ impl SystemRuntimeExecutor {
         let host_id = format!("{}:{host_generation}", target.window_id);
         let window_label = runtime_label("game-display", &host_id);
         let window_app = self.app.clone();
-        let saved_name = self
-            .presentation
-            .existing(&target.window_id)
-            .and_then(|window| window.persisted_name.clone());
+        let saved_name = target.persisted_name.clone().or_else(|| {
+            self.presentation
+                .existing(&target.window_id)
+                .and_then(|window| window.persisted_name.clone())
+        });
         let window_title = native_runtime_window_title(saved_name.as_deref());
         let bounds = target.bounds.clone();
         let physical_position = physical_window_position(bounds.x, bounds.y, target.scale_factor);
@@ -816,19 +831,27 @@ impl SystemRuntimeExecutor {
                 "globalThis.__rionAnnounceRuntimeTabChromeReady?.();",
             );
         }
-        self.presentation
-            .set_window_generation(&target.window_id, window_generation)
+        self.initialize_live_window_context(target, window_generation)
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
-        self.update_live_window_target(target, false)
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
-        self.set_live_window_persisted_name(&target.window_id, saved_name)
-            .map_err(|message| {
-                RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
-            })?;
+        #[cfg(windows)]
+        {
+            let initialized_window = window.clone();
+            window
+                .run_on_main_thread(move || {
+                    if let Ok(hwnd) = initialized_window.hwnd() {
+                        windows_live_resize_queue_current_frame(hwnd, true);
+                    }
+                })
+                .map_err(RuntimeError::tauri)?;
+        }
+        #[cfg(not(windows))]
+        self.observe_native_window_placement(
+            &target.window_id,
+            Self::next_window_placement_observation_sequence(),
+            ObservedWindowPresentation::from_persisted(&target.presentation),
+        );
         self.complete_pending_window_activation(&target.window_id, window_generation);
         self.register_runtime_launcher_window(&target.window_id);
         Ok((window, true))

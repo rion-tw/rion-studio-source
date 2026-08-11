@@ -119,9 +119,9 @@ pub use runtime_kernel::{
     RuntimeNativeSurfaceFence, RuntimeNativeTabProjection, RuntimeOperationPhase,
     RuntimeOperationRecord, RuntimeSnapshot, RuntimeSurfaceGeneration, RuntimeSurfaceLifecycle,
     RuntimeTabActivationRecord, RuntimeTabId, RuntimeTabTombstone, RuntimeTerminalEvent,
-    RuntimeTopologyCommitInput, RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput,
-    RuntimeWindowTopologyCommit, SurfacePort, TabChromePort, WindowPort,
-    apply_runtime_native_projection,
+    RuntimeTopologyCommitInput, RuntimeWindowContextInitializeInput, RuntimeWindowGeneration,
+    RuntimeWindowPlacementCommitInput, RuntimeWindowTopologyCommit, SurfacePort, TabChromePort,
+    WindowPort, apply_runtime_native_projection,
 };
 
 /// Resolves workspace surface geometry without entering [`AppCore`]. Native

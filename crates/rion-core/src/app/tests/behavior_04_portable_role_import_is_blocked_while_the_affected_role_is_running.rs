@@ -197,6 +197,7 @@
         let second_role_id = create_role(&core, &game_id, 2);
         let target = EmbeddedLaunchTargetRecord {
             window_id: uuid::Uuid::new_v4().to_string(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {
@@ -263,6 +264,7 @@
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let target = EmbeddedLaunchTargetRecord {
             window_id: uuid::Uuid::new_v4().to_string(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {

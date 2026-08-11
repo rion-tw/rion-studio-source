@@ -18,6 +18,8 @@ use super::{
     apply_runtime_native_projection,
 };
 
+mod window_context;
+
 fn tab(id: &str, source_id: &str) -> RuntimeLiveTabRecord {
     RuntimeLiveTabRecord {
         audio_muted: false,

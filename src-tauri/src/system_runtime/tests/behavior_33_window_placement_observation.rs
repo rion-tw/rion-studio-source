@@ -24,9 +24,27 @@ fn observed_placement(
     }
 }
 
+#[test]
+fn saved_presentation_maps_to_the_initial_native_observation_hint() {
+    assert_eq!(
+        ObservedWindowPresentation::from_persisted("normal"),
+        Some(ObservedWindowPresentation::Normal)
+    );
+    assert_eq!(
+        ObservedWindowPresentation::from_persisted("maximized"),
+        Some(ObservedWindowPresentation::Maximized)
+    );
+    assert_eq!(
+        ObservedWindowPresentation::from_persisted("fullscreen"),
+        Some(ObservedWindowPresentation::Fullscreen)
+    );
+    assert_eq!(ObservedWindowPresentation::from_persisted("minimized"), None);
+}
+
 fn current_placement_target() -> EmbeddedLaunchTargetRecord {
     EmbeddedLaunchTargetRecord {
         window_id: "window-a".to_owned(),
+        persisted_name: Some("Game Window 6".to_owned()),
         display_id: 7,
         scale_factor: 1.0,
         work_area: StatePixelBoundsRecord {
@@ -59,6 +77,7 @@ fn normal_window_placement_replaces_the_complete_restore_bounds() {
     assert_eq!(target.work_area, observed.work_area);
     assert_eq!(target.scale_factor, 2.0);
     assert_eq!(target.presentation, "normal");
+    assert_eq!(target.persisted_name.as_deref(), Some("Game Window 6"));
 }
 
 #[test]

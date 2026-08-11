@@ -11,8 +11,8 @@ use super::types::{
     RuntimeLogicalSurfaceRecord, RuntimeOperationPhase, RuntimeOperationRecord,
     RuntimeOperationTraceRecord, RuntimeSnapshot, RuntimeSurfaceGeneration,
     RuntimeSurfaceLifecycle, RuntimeTabActivationRecord, RuntimeTabId, RuntimeTabTombstone,
-    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowGeneration,
-    RuntimeWindowPlacementCommitInput,
+    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowContextInitializeInput,
+    RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput,
 };
 
 const RETAINED_OPERATION_IDS: usize = 4_096;
@@ -156,6 +156,7 @@ fn apply_to_candidate(
         RuntimeIntent::BrowserRuntime(command) => apply_browser_runtime(state, command)?,
         RuntimeIntent::CommitTopology(input) => apply_topology(state, input)?,
         RuntimeIntent::CommitPlacement(input) => apply_placement(state, input)?,
+        RuntimeIntent::InitializeWindowContext(input) => apply_window_context(state, input)?,
         RuntimeIntent::EnsureWindow { window_id, .. } => {
             let changed = !state.windows.contains_key(&window_id);
             if changed {
@@ -187,6 +188,7 @@ fn apply_to_candidate(
                 let window = state.windows.entry(window_id.clone()).or_default();
                 window.window_id = window_id.clone();
                 window.window_generation = generation.max(current);
+                window.placement_sequence = 0;
                 window.revision = revision;
                 let next_generation = RuntimeWindowGeneration(window.window_generation);
                 let tab_ids = window
@@ -1172,6 +1174,7 @@ fn apply_topology(
             commit.window_id.clone(),
             RuntimeLiveWindowRecord {
                 hidden_tab_ids: commit.hidden_tab_ids,
+                placement_sequence: previous.placement_sequence,
                 persisted_name: previous.persisted_name,
                 placement: previous.placement,
                 revision: 0,
@@ -1282,7 +1285,7 @@ fn apply_placement(
         .unwrap_or_default();
     if input.window_generation < current.window_generation
         || (input.window_generation == current.window_generation
-            && input.ui_sequence <= current.ui_sequence)
+            && input.placement_sequence <= current.placement_sequence)
     {
         return Ok(RuntimeCommit {
             desired_effects: Vec::new(),
@@ -1298,9 +1301,9 @@ fn apply_placement(
     let revision = next_revision(state);
     let window = state.windows.entry(input.window_id.clone()).or_default();
     window.placement = Some(input.placement);
+    window.placement_sequence = input.placement_sequence;
     window.revision = revision;
     window.target_display = Some(input.target_display);
-    window.ui_sequence = input.ui_sequence;
     window.window_generation = input.window_generation;
     window.window_id = input.window_id.clone();
     Ok(RuntimeCommit {
@@ -1313,6 +1316,86 @@ fn apply_placement(
         window_ids: vec![input.window_id],
         browser_result: None,
     })
+}
+
+fn apply_window_context(
+    state: &mut RuntimeKernelState,
+    input: RuntimeWindowContextInitializeInput,
+) -> CoreResult<RuntimeCommit> {
+    let current = state.windows.get(&input.window_id).cloned();
+    if current
+        .as_ref()
+        .is_some_and(|window| input.window_generation < window.window_generation)
+    {
+        return Ok(superseded_commit(
+            state,
+            Some(input.operation_id),
+            vec![input.window_id],
+        ));
+    }
+
+    let generation_advanced = current
+        .as_ref()
+        .is_some_and(|window| input.window_generation > window.window_generation);
+    let should_seed_placement = generation_advanced
+        || current
+            .as_ref()
+            .is_none_or(|window| window.placement.is_none() || window.target_display.is_none());
+    let next_name = input.persisted_name.or_else(|| {
+        current
+            .as_ref()
+            .and_then(|window| window.persisted_name.clone())
+    });
+    let changed = current.as_ref().is_none_or(|window| {
+        window.persisted_name != next_name
+            || window.window_generation != input.window_generation
+            || (should_seed_placement
+                && (window.placement.as_ref() != Some(&input.placement)
+                    || window.target_display.as_ref() != Some(&input.target_display)))
+    });
+    if !changed {
+        return Ok(basic_commit(state, false, vec![input.window_id]));
+    }
+
+    let revision = next_revision(state);
+    let tab_ids = {
+        let window = state.windows.entry(input.window_id.clone()).or_default();
+        window.window_id.clone_from(&input.window_id);
+        window.persisted_name = next_name;
+        if should_seed_placement {
+            window.placement = Some(input.placement);
+            window.target_display = Some(input.target_display);
+        }
+        if generation_advanced {
+            window.placement_sequence = 0;
+        }
+        window.window_generation = input.window_generation;
+        window.revision = revision;
+        window
+            .tabs
+            .iter()
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let next_generation = RuntimeWindowGeneration(input.window_generation);
+    for tab_id in tab_ids {
+        if let Some(activation) = state.tab_activations.get_mut(&tab_id)
+            && activation.window_generation != next_generation
+        {
+            if matches!(
+                activation.phase,
+                RuntimeTabActivationPhaseRecord::Activating
+                    | RuntimeTabActivationPhaseRecord::Attaching
+                    | RuntimeTabActivationPhaseRecord::Loading
+            ) {
+                activation.phase = RuntimeTabActivationPhaseRecord::Failed;
+            }
+            activation.native_operation_id = None;
+            activation.owner_window_id.clone_from(&input.window_id);
+            activation.window_generation = next_generation;
+        }
+    }
+    Ok(basic_commit(state, false, vec![input.window_id]))
 }
 
 fn basic_commit(

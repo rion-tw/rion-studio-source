@@ -96,7 +96,9 @@ fn prepare_restore_session_for_persist(
     session.clean_exit = clean_exit;
     if clean_exit {
         session.restore_in_progress_window_ids.clear();
-        live_window_ids.clear();
+        if live_window_ids.is_empty() {
+            live_window_ids = session.live_window_ids.clone().unwrap_or_default();
+        }
     }
     live_window_ids.sort();
     live_window_ids.dedup();

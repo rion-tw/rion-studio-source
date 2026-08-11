@@ -294,7 +294,24 @@ impl SystemRuntimeExecutor {
             })?;
             (generation, transaction.context.trigger.to_owned())
         };
-        let retired_snapshot = self.presentation.existing(window_id).and_then(|presentation| {
+        let retiring_presentation = self.presentation.existing(window_id);
+        let permanent_window_name = self
+            .window_state_persistence
+            .cached_persisted_name(window_id);
+        if retire_to_dormant
+            && permanent_window_name.is_some()
+            && retiring_presentation.as_ref().is_none_or(|presentation| {
+                presentation.persisted_name.as_ref() != permanent_window_name.as_ref()
+                    || presentation.placement.is_none()
+                    || presentation.target_display.is_none()
+            })
+        {
+            return Err(RuntimeError::new(
+                "SYSTEM_WINDOW_CONTEXT_INCOMPLETE",
+                "The permanent Game Window context is incomplete and cannot be retired safely.",
+            ));
+        }
+        let retired_snapshot = permanent_window_name.and(retiring_presentation).and_then(|presentation| {
             let target_display = presentation.target_display.clone()?;
             let active_source_id = presentation.selected_tab_id.as_ref().and_then(|tab_id| {
                 presentation

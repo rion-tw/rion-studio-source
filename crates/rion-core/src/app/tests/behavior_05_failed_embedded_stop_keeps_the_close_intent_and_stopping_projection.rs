@@ -264,6 +264,7 @@
                 std::slice::from_ref(&first_role_id),
                 EmbeddedLaunchTargetRecord {
                     window_id: "stale-workspace-window".to_owned(),
+                    persisted_name: None,
                     display_id: 1,
                     scale_factor: 1.0,
                     work_area: StatePixelBoundsRecord {
@@ -531,6 +532,7 @@
                 role_id,
                 target: EmbeddedLaunchTargetRecord {
                     window_id: uuid::Uuid::new_v4().to_string(),
+                    persisted_name: None,
                     display_id: 1,
                     scale_factor: 1.0,
                     work_area: crate::model::StatePixelBoundsRecord {

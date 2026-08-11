@@ -54,6 +54,7 @@ use rion_core::{
     RuntimeNativeProjection, RuntimeOperationPhase, RuntimeSnapshot, RuntimeSurfaceGeneration,
     RuntimeTabActivationPhaseRecord, RuntimeTabId, RuntimeTabStatusIdentityRecord,
     RuntimeTopologyCommitInput as KernelTopologyCommitInput, RuntimeWindowGeneration,
+    RuntimeWindowContextInitializeInput as KernelWindowContextInitializeInput,
     RuntimeWindowPlacementCommitInput as KernelWindowPlacementCommitInput,
     RuntimeWindowTopologyCommit as KernelWindowTopologyCommit, RuntimeWindowPreferencesRecord,
     SystemWebViewRuntimeRegistrationRecord,

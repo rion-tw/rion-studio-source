@@ -263,6 +263,7 @@ fn default_display_launch_target(
     let work_area = monitor.work_area();
     Ok(EmbeddedLaunchTargetRecord {
         window_id: uuid::Uuid::new_v4().to_string(),
+        persisted_name: None,
         display_id: monitor_id(&monitor),
         scale_factor,
         work_area: StatePixelBoundsRecord {
@@ -286,6 +287,7 @@ fn embedded_target_for_monitor(monitor: &tauri::Monitor) -> EmbeddedLaunchTarget
     let work_area = monitor.work_area();
     EmbeddedLaunchTargetRecord {
         window_id: uuid::Uuid::new_v4().to_string(),
+        persisted_name: None,
         display_id: monitor_id(monitor),
         scale_factor,
         work_area: StatePixelBoundsRecord {
@@ -407,6 +409,7 @@ fn resolve_game_window_launch_target_from_inventory(
     let remapped = exact.is_none();
     let mut target = embedded_target_for_monitor(&selected);
     target.window_id = record.id.clone();
+    target.persisted_name = Some(record.name.clone());
     target.presentation = record.placement.presentation.clone();
     let remap = if remapped {
         target.bounds = remap_window_bounds(

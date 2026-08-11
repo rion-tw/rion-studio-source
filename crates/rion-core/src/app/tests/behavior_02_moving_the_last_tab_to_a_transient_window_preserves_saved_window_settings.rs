@@ -59,6 +59,7 @@
             };
             let target = |window_id: &str| EmbeddedLaunchTargetRecord {
                 window_id: window_id.to_owned(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
@@ -321,6 +322,7 @@
             let window_id = "source-window".to_owned();
             let target = EmbeddedLaunchTargetRecord {
                 window_id: window_id.clone(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {

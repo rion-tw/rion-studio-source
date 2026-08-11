@@ -142,7 +142,15 @@ use super::*;
         prepare_restore_session_for_persist(&mut session, true, vec!["window-2".to_owned()]);
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
-        assert_eq!(session.live_window_ids, Some(Vec::new()));
+        assert_eq!(session.live_window_ids, Some(vec!["window-2".to_owned()]));
+
+        prepare_restore_session_for_persist(&mut session, false, vec!["window-3".to_owned()]);
+        prepare_restore_session_for_persist(&mut session, true, Vec::new());
+        assert_eq!(
+            session.live_window_ids,
+            Some(vec!["window-3".to_owned()]),
+            "the clean marker is written after native hosts close and must preserve the pre-shutdown live cohort"
+        );
     }
 
     #[test]

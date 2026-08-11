@@ -58,6 +58,15 @@ impl WindowStatePersistCoordinator {
             .filter(|target| target.id == display_id)
     }
 
+    fn cached_persisted_name(&self, window_id: &str) -> Option<String> {
+        self.snapshots
+            .lock()
+            .ok()?
+            .inputs
+            .get(window_id)
+            .map(|input| input.name.clone())
+    }
+
     fn remember(&self, input: &GameWindowRuntimeSnapshotCommitInputRecord) {
         let Ok(mut snapshots) = self.snapshots.lock() else {
             return;
@@ -472,9 +481,16 @@ impl SystemRuntimeExecutor {
 
     pub(crate) fn flush_all_live_window_states(&self) {
         let window_ids = self
-            .presentation
-            .snapshot_states()
-            .map(|windows| windows.into_keys().collect::<Vec<_>>())
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .native_resources
+                    .display_hosts
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         for window_id in window_ids {
             if let Err(message) = self.flush_live_window_state(&window_id) {

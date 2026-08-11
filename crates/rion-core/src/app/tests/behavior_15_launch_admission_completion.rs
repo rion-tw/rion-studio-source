@@ -5,6 +5,7 @@ fn already_running_role_returns_completed_launch_admission() {
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let target = EmbeddedLaunchTargetRecord {
             window_id: "window-2".to_owned(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {
@@ -62,6 +63,7 @@ fn failed_restored_role_launch_releases_its_operation_lease_for_retry() {
         let tab_id = "11000000-0000-4000-8000-000000000001";
         let target = EmbeddedLaunchTargetRecord {
             window_id: "restore-retry-window".to_owned(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {
@@ -123,6 +125,7 @@ fn overlapping_role_launches_share_one_logical_tab_and_one_native_create() {
         let role_id = create_role(&core, &first_game_id(&core), 1);
         let target = EmbeddedLaunchTargetRecord {
             window_id: "window-overlap".to_owned(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {
@@ -259,6 +262,7 @@ fn overlapping_workspace_launches_share_one_logical_tab_and_one_native_create() 
             .to_owned();
         let target = EmbeddedLaunchTargetRecord {
             window_id: "window-workspace-overlap".to_owned(),
+            persisted_name: None,
             display_id: 1,
             scale_factor: 1.0,
             work_area: StatePixelBoundsRecord {

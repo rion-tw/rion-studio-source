@@ -567,8 +567,8 @@ struct LiveTopologyCommitReceipt {
 
 struct LiveWindowPlacementCommitInput {
     placement: GameWindowPlacementRecord,
+    placement_sequence: u64,
     target_display: DisplayTargetRecord,
-    ui_sequence: u64,
     window_generation: u64,
     window_id: String,
 }

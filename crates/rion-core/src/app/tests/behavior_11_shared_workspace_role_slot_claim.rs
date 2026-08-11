@@ -285,6 +285,7 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
             workspace_id: workspace_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
@@ -349,6 +350,7 @@ fn restored_role_tab_creates_a_blocked_demand_when_workspace_owns_the_role() {
         .to_owned();
     let target = |window_id: &str| EmbeddedLaunchTargetRecord {
         window_id: window_id.to_owned(),
+        persisted_name: None,
         display_id: 1,
         scale_factor: 1.0,
         work_area: StatePixelBoundsRecord {
@@ -461,6 +463,7 @@ fn restored_role_tab_rejects_mismatched_slot_without_native_effects() {
             role_id,
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
@@ -505,6 +508,7 @@ fn restored_available_role_uses_the_saved_slot_geometry_and_zoom() {
             role_id: role_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "restore-window".to_owned(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {
@@ -756,6 +760,7 @@ fn restored_available_role_rebuilds_a_stale_demand_instead_of_completing_empty()
             role_id: role_id.clone(),
             target: EmbeddedLaunchTargetRecord {
                 window_id: "stale-demand-window".to_owned(),
+                persisted_name: None,
                 display_id: 1,
                 scale_factor: 1.0,
                 work_area: StatePixelBoundsRecord {

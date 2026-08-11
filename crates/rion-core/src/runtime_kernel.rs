@@ -15,8 +15,8 @@ pub use types::{
     RuntimeLiveTabRecord, RuntimeLiveWindowRecord, RuntimeLogicalSurfaceRecord,
     RuntimeOperationPhase, RuntimeOperationRecord, RuntimeSnapshot, RuntimeSurfaceGeneration,
     RuntimeSurfaceLifecycle, RuntimeTabActivationRecord, RuntimeTabId, RuntimeTabTombstone,
-    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowGeneration,
-    RuntimeWindowPlacementCommitInput, RuntimeWindowTopologyCommit,
+    RuntimeTerminalEvent, RuntimeTopologyCommitInput, RuntimeWindowContextInitializeInput,
+    RuntimeWindowGeneration, RuntimeWindowPlacementCommitInput, RuntimeWindowTopologyCommit,
 };
 
 #[cfg(test)]

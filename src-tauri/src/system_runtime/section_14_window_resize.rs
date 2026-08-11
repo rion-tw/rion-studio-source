@@ -214,7 +214,7 @@ impl SystemRuntimeExecutor {
         #[cfg(not(target_os = "macos"))]
         if settled
             && let Some(target) = live_target
-            && let Err(error) = self.update_live_window_target(&target, true)
+            && let Err(error) = self.update_live_window_target(&target)
         {
             eprintln!("Live Game Window resize commit failed: window={window_id} error={error}");
         }

@@ -7,16 +7,16 @@ pub(super) fn seed_persisted_runtime_windows(
     game_windows: &[StateGameWindowRecord],
 ) -> Result<(), String> {
     for window in game_windows {
-        core.apply_runtime_intent(RuntimeIntent::EnsureWindow {
-            operation_id: uuid::Uuid::new_v4().to_string(),
-            window_id: window.id.clone(),
-        })
-        .map_err(|error| error.to_string())?;
-        core.apply_runtime_intent(RuntimeIntent::SetPersistedName {
-            name: Some(window.name.clone()),
-            operation_id: uuid::Uuid::new_v4().to_string(),
-            window_id: window.id.clone(),
-        })
+        core.apply_runtime_intent(RuntimeIntent::InitializeWindowContext(
+            KernelWindowContextInitializeInput {
+                persisted_name: Some(window.name.clone()),
+                placement: window.placement.clone(),
+                target_display: window.target_display.clone(),
+                window_generation: 0,
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                window_id: window.id.clone(),
+            },
+        ))
         .map_err(|error| error.to_string())?;
     }
     Ok(())

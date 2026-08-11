@@ -11,6 +11,66 @@ fn dormant_window(id: &str) -> RuntimeRestoreWindowRecord {
     }
 }
 
+fn saved_window(id: &str) -> StateGameWindowRecord {
+    StateGameWindowRecord {
+        id: id.to_owned(),
+        name: "Game Window 1".to_owned(),
+        target_display: DisplayTargetRecord {
+            id: 1,
+            fingerprint: None,
+        },
+        placement: GameWindowPlacementRecord {
+            normal_bounds: StatePixelBoundsRecord {
+                x: 20,
+                y: 30,
+                width: 960,
+                height: 640,
+            },
+            saved_work_area: StatePixelBoundsRecord {
+                x: 0,
+                y: 0,
+                width: 1440,
+                height: 900,
+            },
+            presentation: "normal".to_owned(),
+        },
+        tabs: Vec::new(),
+        active_tab_id: None,
+        created_at: "2026-01-01T00:00:00Z".to_owned(),
+        updated_at: "2026-01-01T00:00:00Z".to_owned(),
+    }
+}
+
+#[test]
+fn explicit_saved_window_restore_reconstructs_missing_dormant_membership() {
+    let mut state = RuntimeState::default();
+    let saved = saved_window("window-1");
+
+    let started = begin_saved_window_restore_state(&mut state, std::slice::from_ref(&saved));
+
+    assert_eq!(started, ["window-1"]);
+    assert_eq!(state.dormant_windows.len(), 1);
+    assert_eq!(state.dormant_windows[0].id, "window-1");
+    assert_eq!(
+        state.dormant_window_states.get("window-1"),
+        Some(&DormantWindowState::Restoring)
+    );
+    finish_dormant_window_restore_state(
+        &mut state,
+        &started,
+        &["window-1".to_owned()],
+        &HashMap::new(),
+    );
+    assert!(state.dormant_windows.is_empty());
+    assert!(!state.dormant_window_states.contains_key("window-1"));
+
+    assert_eq!(
+        begin_saved_window_restore_state(&mut state, &[saved]),
+        ["window-1"],
+        "a later explicit user restore does not depend on stale dormant projection state"
+    );
+}
+
 #[test]
 fn dormant_window_restore_states_cover_wait_start_success_failure_retry_and_discard() {
     let first = dormant_window("first");

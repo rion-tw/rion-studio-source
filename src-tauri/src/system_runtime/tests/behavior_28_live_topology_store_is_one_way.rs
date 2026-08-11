@@ -249,11 +249,11 @@ fn stale_live_placement_is_superseded_without_rewriting_the_latest_geometry() {
     };
     let commit = |sequence, x| LiveWindowPlacementCommitInput {
         placement: placement(x),
+        placement_sequence: sequence,
         target_display: DisplayTargetRecord {
             id: 1,
             fingerprint: None,
         },
-        ui_sequence: sequence,
         window_generation: 3,
         window_id: "window-a".to_owned(),
     };

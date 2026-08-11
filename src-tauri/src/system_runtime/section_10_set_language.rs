@@ -499,7 +499,7 @@ impl SystemRuntimeExecutor {
             });
             let result = target
                 .ok_or_else(|| "Live Game Window drag target was retired.".to_owned())
-                .and_then(|target| self.update_live_window_target(&target, true));
+                .and_then(|target| self.update_live_window_target(&target));
             if let Err(error) = result {
                 eprintln!(
                     "Live Game Window drag placement snapshot could not be queued: window={window_id} error={error}"

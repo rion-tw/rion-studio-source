@@ -245,6 +245,7 @@ fn tab_drag_target_for_screen(
     let bounds = anchored_tab_drag_bounds(&source.bounds, screen_x, screen_y, anchor);
     Ok(EmbeddedLaunchTargetRecord {
         window_id: provisional_window_id.to_owned(),
+        persisted_name: None,
         display_id: monitor_id(&monitor),
         scale_factor: monitor.scale_factor().max(f64::EPSILON),
         work_area,
@@ -314,6 +315,7 @@ pub(crate) async fn move_game_window_tab_to_new_window(
     let window_id = uuid::Uuid::new_v4().to_string();
     let target = EmbeddedLaunchTargetRecord {
         window_id: window_id.clone(),
+        persisted_name: None,
         display_id: monitor_id(&monitor),
         scale_factor: monitor.scale_factor().max(f64::EPSILON),
         work_area: work_area.clone(),

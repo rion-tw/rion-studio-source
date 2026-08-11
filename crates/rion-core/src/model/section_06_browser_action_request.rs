@@ -311,6 +311,9 @@ pub struct OperationCancelResultRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedLaunchTargetRecord {
     pub window_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, rename = "persistedName")]
+    pub persisted_name: Option<String>,
     #[ts(type = "number")]
     pub display_id: i64,
     pub scale_factor: f64,

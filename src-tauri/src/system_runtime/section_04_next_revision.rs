@@ -121,17 +121,6 @@ impl PresentationRegistry {
         ))
     }
 
-    fn set_window_generation(&self, window_id: &str, generation: u64) -> Result<(), String> {
-        self.live.apply(RuntimeIntent::SetWindowGeneration {
-                generation,
-                operation_id: uuid::Uuid::new_v4().to_string(),
-                window_id: window_id.to_owned(),
-            })
-            .map_err(|error| error.to_string())?;
-        self.refresh_desired_native_projections(&[window_id.to_owned()])?;
-        Ok(())
-    }
-
     fn existing(&self, window_id: &str) -> Option<LiveWindowHandle> {
         self.live.kernel.snapshot_window(window_id).ok().flatten().map(
             |record| LiveWindowHandle {
@@ -506,6 +495,60 @@ fn begin_dormant_window_restore_state(
     started
 }
 
+fn begin_saved_window_restore_state(
+    state: &mut RuntimeState,
+    windows: &[StateGameWindowRecord],
+) -> Vec<String> {
+    let mut started = Vec::new();
+    for window in windows {
+        if state.dormant_window_states.get(&window.id) == Some(&DormantWindowState::Restoring) {
+            continue;
+        }
+        let active_source_id = window
+            .active_tab_id
+            .as_ref()
+            .and_then(|active_tab_id| {
+                window
+                    .tabs
+                    .iter()
+                    .find(|tab| &tab.id == active_tab_id && !tab.hidden)
+            })
+            .or_else(|| window.tabs.iter().find(|tab| !tab.hidden))
+            .map(|tab| tab.source_id.clone());
+        let record = RuntimeRestoreWindowRecord {
+            id: window.id.clone(),
+            target_display: window.target_display.clone(),
+            was_visible: true,
+            active_source_id,
+            tabs: window
+                .tabs
+                .iter()
+                .map(|tab| RuntimeRestoreTabRecord {
+                    tab_type: tab.tab_type.clone(),
+                    source_id: tab.source_id.clone(),
+                    name: tab.name.clone(),
+                    role_ids: tab
+                        .role_slots
+                        .iter()
+                        .map(|slot| slot.role_id.clone())
+                        .collect(),
+                    hidden: tab.hidden,
+                    audio_muted: tab.audio_muted,
+                })
+                .collect(),
+        };
+        state
+            .dormant_windows
+            .retain(|candidate| candidate.id != window.id);
+        state.dormant_windows.push(record);
+        state
+            .dormant_window_states
+            .insert(window.id.clone(), DormantWindowState::Restoring);
+        started.push(window.id.clone());
+    }
+    started
+}
+
 fn finish_dormant_window_restore_state(
     state: &mut RuntimeState,
     attempted_window_ids: &[String],
@@ -644,6 +687,7 @@ struct RuntimeState {
     recovery_session_generation: u32,
     runtime_restart_required: bool,
     session_recovery_window_ids: HashSet<String>,
+    startup_restore_window_ids: Option<HashSet<String>>,
     recovery_budgets: HashMap<String, RecoveryBudget>,
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,

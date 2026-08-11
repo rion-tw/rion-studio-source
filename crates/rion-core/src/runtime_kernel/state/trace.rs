@@ -7,6 +7,7 @@ fn intent_trace_identity(intent: &RuntimeIntent) -> (&'static str, &'static str)
         RuntimeIntent::CommitPlacement(input) => {
             ("commitPlacement", normalized_event_source(&input.source))
         }
+        RuntimeIntent::InitializeWindowContext(_) => ("initializeWindowContext", "executor"),
         RuntimeIntent::EnsureWindow { .. } => ("ensureWindow", "executor"),
         RuntimeIntent::SetWindowGeneration { .. } => ("setWindowGeneration", "nativeEvent"),
         RuntimeIntent::SetPersistedName { .. } => ("setPersistedName", "command"),

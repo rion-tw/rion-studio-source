@@ -83,6 +83,7 @@ fn recovery_cohort_only_scopes_user_restore_all() {
             "all",
             &dormant,
             &recovery,
+            None,
         ),
         recovery,
     );
@@ -92,6 +93,7 @@ fn recovery_cohort_only_scopes_user_restore_all() {
             "all",
             &dormant,
             &HashSet::new(),
+            None,
         ),
         dormant,
     );
@@ -101,7 +103,31 @@ fn recovery_cohort_only_scopes_user_restore_all() {
             "window",
             &HashSet::from(["normally-closed".to_owned()]),
             &HashSet::from(["session-window".to_owned()]),
+            None,
         ),
         HashSet::from(["normally-closed".to_owned()]),
+    );
+
+    let clean_exit_visible = HashSet::from(["session-window".to_owned()]);
+    assert_eq!(
+        saved_window_restore_candidate_ids(
+            SavedWindowRestoreActivation::Background,
+            "all",
+            &dormant,
+            &HashSet::new(),
+            Some(&clean_exit_visible),
+        ),
+        clean_exit_visible,
+    );
+    assert!(
+        saved_window_restore_candidate_ids(
+            SavedWindowRestoreActivation::Background,
+            "all",
+            &dormant,
+            &HashSet::new(),
+            Some(&HashSet::new()),
+        )
+        .is_empty(),
+        "a clean exit with no live Game Windows must not reopen dormant windows"
     );
 }

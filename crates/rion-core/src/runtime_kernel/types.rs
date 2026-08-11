@@ -64,6 +64,7 @@ pub struct RuntimeLiveTabRecord {
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeLiveWindowRecord {
     pub hidden_tab_ids: HashSet<String>,
+    pub placement_sequence: u64,
     pub persisted_name: Option<String>,
     pub placement: Option<GameWindowPlacementRecord>,
     pub revision: u64,
@@ -203,9 +204,19 @@ pub struct RuntimeTopologyCommitInput {
 pub struct RuntimeWindowPlacementCommitInput {
     pub operation_id: String,
     pub placement: GameWindowPlacementRecord,
+    pub placement_sequence: u64,
     pub source: String,
     pub target_display: DisplayTargetRecord,
-    pub ui_sequence: u64,
+    pub window_generation: u64,
+    pub window_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct RuntimeWindowContextInitializeInput {
+    pub operation_id: String,
+    pub persisted_name: Option<String>,
+    pub placement: GameWindowPlacementRecord,
+    pub target_display: DisplayTargetRecord,
     pub window_generation: u64,
     pub window_id: String,
 }
@@ -215,6 +226,7 @@ pub enum RuntimeIntent {
     BrowserRuntime(crate::model::BrowserRuntimeCommand),
     CommitTopology(RuntimeTopologyCommitInput),
     CommitPlacement(RuntimeWindowPlacementCommitInput),
+    InitializeWindowContext(RuntimeWindowContextInitializeInput),
     EnsureWindow {
         operation_id: String,
         window_id: String,
@@ -315,6 +327,7 @@ impl RuntimeIntent {
             Self::BrowserRuntime(_) => None,
             Self::CommitTopology(input) => Some(&input.commit_id),
             Self::CommitPlacement(input) => Some(&input.operation_id),
+            Self::InitializeWindowContext(input) => Some(&input.operation_id),
             Self::EnsureWindow { operation_id, .. }
             | Self::SetWindowGeneration { operation_id, .. }
             | Self::SetPersistedName { operation_id, .. }

@@ -7,6 +7,15 @@ enum ObservedWindowPresentation {
 }
 
 impl ObservedWindowPresentation {
+    fn from_persisted(value: &str) -> Option<Self> {
+        match value {
+            "fullscreen" => Some(Self::Fullscreen),
+            "maximized" => Some(Self::Maximized),
+            "normal" => Some(Self::Normal),
+            _ => None,
+        }
+    }
+
     fn persisted(self) -> Option<&'static str> {
         match self {
             Self::Fullscreen => Some("fullscreen"),

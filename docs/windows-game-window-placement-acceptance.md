@@ -1,6 +1,6 @@
 # Windows 遊戲視窗 placement 驗收清單
 
-這份文件用於驗收 `agent/windows-window-placement-acceptance` 分支的遊戲視窗最後狀態修正。實作提交為 `e7455ea1`；Windows 驗收尚未完成，不得以 macOS 或 portable 測試結果取代。
+這份文件用於驗收 `main` 上的遊戲視窗最後狀態、永久身分與關閉／重開修正。Windows 驗收尚未完成，不得以 macOS 或 portable 測試結果取代；接手時請在報告記錄 pull 後的 `main` commit。
 
 ## 驗收範圍
 
@@ -22,17 +22,17 @@
 
 - Windows 10 或 Windows 11，已安裝支援 Tauri 2 的 Visual Studio C++ Build Tools、Rust stable、WebView2 Runtime、Node.js `>=24.10.0` 與 pnpm `11.13.0`。
 - 至少使用一台顯示器並記錄其 scale。若有兩台顯示器，優先使用不同 scale（例如 100% + 150%）完成跨螢幕案例。
-- 從遠端 checkout 本分支，確認沒有夾帶與本修正無關的 macro 提交：
+- 從遠端更新 `main`，確認工作樹乾淨並記錄待驗 commit：
 
 ```powershell
 git fetch origin
-git switch --track origin/agent/windows-window-placement-acceptance
-git pull --ff-only
+git switch main
+git pull --ff-only origin main
 git status --short
-git log --oneline origin/main..HEAD
+git log -5 --oneline
 ```
 
-`git status --short` 預期無輸出。`origin/main..HEAD` 應只包含視窗 placement 實作與本驗收文件。
+`git status --short` 預期無輸出。將 `git rev-parse HEAD` 的結果寫入驗收報告，後續不可在不同 commit 上混用證據。
 
 安裝依賴：
 
@@ -160,9 +160,59 @@ pnpm run dev
 - [ ] 舊 generation 的晚到事件不改變新視窗的 live/saved placement。
 - [ ] 關閉與 app exit 的 final flush 不會漏掉最後狀態。
 
+### W7 — 零分頁永久視窗重複關閉／重開
+
+使用一個沒有任何分頁的永久遊戲視窗（若沿用開發資料，可使用「遊戲視窗 6」）：
+
+1. 第一次開啟，確認原生標題與列表永久名稱完全相同，不是 `Rion Studio`。
+2. 設定易辨識的 placement A，關閉後再開啟；核對標題與 A。
+3. 改成不同的 placement B，關閉後再開啟；核對標題與 B。
+4. 再重複關閉／重開至少一次，之後完全退出並重啟 app。
+5. 以 SQLite 查詢名稱與 placement，確認最後值為 B。
+
+- [ ] 每一個 native generation 都保留精確永久名稱。
+- [ ] 第二次及後續 resize/move 仍會保存，不會固定停在第一次的值。
+- [ ] 每次「顯示」都建立或啟用唯一一個 native host，沒有重複 host。
+- [ ] SQLite 名稱與 placement B 在 app restart 後仍一致。
+- [ ] 零分頁永久視窗不會被當成臨時／孤兒視窗，也不會因名稱 guard 跳過持久化。
+
+### W8 — 三分頁永久視窗與 close-during-launch
+
+使用一個有三個已保存分頁的永久遊戲視窗（若沿用開發資料，可使用「遊戲視窗 1」）：
+
+1. 記錄三個分頁的順序、作用中分頁、隱藏／靜音狀態與原生永久標題。
+2. 開啟視窗，在前景分頁仍顯示啟動／載入狀態時立即關閉。
+3. 等待 authoritative destroyed event 完成，再按「顯示」。
+4. 確認新的 native generation 建立，前景分頁完成 hydration，其餘分頁保持 dormant，順序與狀態不變。
+5. 完整關閉／重開兩次，第二次改變 placement 後再驗證一次。
+
+- [ ] 每次「顯示」都回傳非空 `restoredWindowIds`，且包含精確永久視窗 ID。
+- [ ] 不會卡在 `restoring`，也不會靜默回傳 `restoredWindowIds: []`。
+- [ ] close-during-launch 不會遺留 source ownership；其他視窗擁有相同來源時則回報明確衝突。
+- [ ] 原生標題、分頁順序、作用中分頁、hidden/audio 狀態與新 generation 正確。
+- [ ] 只有作用中分頁立即 hydration，其餘分頁維持 dormant，直到使用者切換。
+- [ ] 第二輪 placement 與 app restart 後的 SQLite 值一致。
+
+### W9 — clean-exit 可見視窗 cohort（A 恢復、B 不恢復）
+
+1. 同時開啟永久視窗 A 與 B；為 A 設定可辨識的位置、內容尺寸與模式，記錄其精確值。
+2. 正常關閉 B，等待舊 generation 的 destroyed event 與列表狀態更新完成。
+3. 保持 A 開啟，從主程式正常退出 Rion Studio。
+4. 使用相同隔離資料目錄再次啟動 app。
+5. 確認 A 自動恢復且位置、內容尺寸、模式與原生永久標題正確；B 不得自動出現。
+6. 從列表手動顯示 B，確認仍可建立新 generation，證明「未自動恢復」不是遺失永久記錄。
+
+- [ ] clean-exit journal 的 `liveWindowIds` 只包含退出前仍開啟的 A。
+- [ ] A 在 app restart 後自動恢復完整 placement 與永久標題。
+- [ ] 已關閉的 B 不會因為是永久視窗而被全量自動恢復。
+- [ ] B 仍保留在列表與 SQLite，手動顯示可正常工作。
+- [ ] A 或 B 為零分頁視窗時仍遵守相同 cohort 語意。
+
+建議追加壓力案例：A 的前景分頁仍在 launch 時退出、重新命名永久視窗後重開，以及 B 關閉完成後立刻退出；這些案例不得出現重複 host、舊標題、空 restore 結果或 source ownership 洩漏。
+
 ## 多螢幕與 DPI 案例
 
-### W7 — 同 scale 跨螢幕
+### W10 — 同 scale 跨螢幕
 
 1. 將視窗化視窗移到第二台顯示器並調整尺寸。
 2. 關閉、重開，再完全重啟 app。
@@ -171,7 +221,7 @@ pnpm run dev
 - [ ] 視窗在正確顯示器還原，且位於可見工作區內。
 - [ ] 最大化／全螢幕後再還原，仍回到第二台顯示器的最後視窗化 bounds。
 
-### W8 — 不同 scale 與 `WM_DPICHANGED`
+### W11 — 不同 scale 與 `WM_DPICHANGED`
 
 僅在兩台顯示器 scale 不同時執行。將視窗由 100% 螢幕移到 125%／150%／200% 螢幕，完成移動後再 resize、最大化與還原。
 
@@ -180,7 +230,7 @@ pnpm run dev
 - [ ] 所保存的 display bounds、work area 與 scale factor 對應目標螢幕。
 - [ ] 最大化／全螢幕期間切換螢幕不會污染 `normalBounds`。
 
-若只有一台顯示器，W7/W8 標為「阻塞：缺少硬體」，並記錄目前解析度與 scale。Windows CI 通過不等於這兩項人工驗收通過。
+若只有一台顯示器，W10/W11 標為「阻塞：缺少硬體」，並記錄目前解析度與 scale。Windows CI 通過不等於這兩項人工驗收通過。
 
 ## SQLite 證據
 
@@ -264,6 +314,9 @@ Manual acceptance:
 - W6:
 - W7:
 - W8:
+- W9:
+- W10:
+- W11:
 
 SQLite before/after evidence:
 Screenshots / recordings:
@@ -272,8 +325,8 @@ Failures or blockers:
 Final verdict: PASS / FAIL / BLOCKED
 ```
 
-只有自動化 gate 全綠、W1–W6 全部通過，且可用硬體上的 W7/W8 通過時，才可回報 Windows 驗收 `PASS`。沒有第二台／混合 DPI 顯示器時，最終結果應清楚標記該硬體覆蓋缺口。
+只有自動化 gate 全綠、W1–W9 全部通過，且可用硬體上的 W10/W11 通過時，才可回報 Windows 驗收 `PASS`。沒有第二台／混合 DPI 顯示器時，最終結果應清楚標記該硬體覆蓋缺口。
 
 ## 已知的非 Windows 證據
 
-macOS 本機已完成模式欄、最大化／全螢幕 live 與 saved fallback、關閉與 app restart 還原、以及 `normalBounds` 不被兩種模式覆寫的 Computer Use 驗收；所有規劃中的 JS/Rust/build 檢查亦已通過。這些結果只作為對照，不算 Windows 原生驗收。
+先前 macOS 本機已完成模式欄、最大化／全螢幕 live 與 saved fallback、關閉與 app restart 還原、以及 `normalBounds` 不被兩種模式覆寫的 Computer Use 驗收。本次永久名稱、零／多分頁重開與第二輪 placement 仍須依當前 `main` commit 重新驗收；任何 macOS 結果都只作為對照，不算 Windows 原生驗收。

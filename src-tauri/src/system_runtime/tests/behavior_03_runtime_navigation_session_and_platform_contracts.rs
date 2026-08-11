@@ -639,6 +639,7 @@ use uuid::Uuid;
     fn role_bounds_are_relative_to_the_host_work_area() {
         let target = EmbeddedLaunchTargetRecord {
             window_id: "window-7".to_owned(),
+            persisted_name: None,
             display_id: 7,
             scale_factor: 2.0,
             work_area: rion_core::StatePixelBoundsRecord {

@@ -23,3 +23,45 @@
     overflow: auto;
   }
 }
+
+[data-macro-mind-map] .react-flow {
+  --xy-background-color: transparent;
+  --xy-controls-button-background-color-default: hsl(var(--glass-control));
+  --xy-controls-button-background-color-hover-default: hsl(var(--glass-control-hover));
+  --xy-controls-button-border-color-default: hsl(var(--border) / 0.55);
+  --xy-controls-button-color-default: hsl(var(--foreground));
+  --xy-edge-label-background-color-default: hsl(var(--background) / 0.9);
+  --xy-minimap-background-color-default: hsl(var(--background) / 0.78);
+  background: transparent;
+}
+
+[data-macro-mind-map] .react-flow__node {
+  border-radius: 0.5rem;
+}
+
+[data-macro-mind-map] .react-flow__node:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.6);
+  outline-offset: 3px;
+}
+
+[data-macro-mind-map] .react-flow__controls,
+[data-macro-mind-map] .react-flow__minimap {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.55);
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px hsl(var(--glass-shadow));
+  backdrop-filter: blur(16px) saturate(125%);
+}
+
+[data-macro-mind-map] .react-flow__controls-button {
+  width: var(--control-min-size);
+  height: var(--control-min-size);
+}
+
+[data-macro-mind-map] .macro-mind-map-edge-trigger path {
+  stroke-dasharray: 6 5;
+}
+
+[data-macro-mind-map] .react-flow__edge {
+  pointer-events: none;
+}

@@ -29,6 +29,7 @@ interface MacroStepEditorProps {
   index: number;
   isDragging: boolean;
   isDropTarget: boolean;
+  isMindMapTarget?: boolean;
   isSaving: boolean;
   macroTargetOptions: MacroTargetOption[];
   onRemove: () => void;
@@ -43,6 +44,7 @@ export function MacroStepEditor({
   index,
   isDragging,
   isDropTarget,
+  isMindMapTarget = false,
   isSaving,
   macroTargetOptions,
   onDuplicate,
@@ -59,7 +61,8 @@ export function MacroStepEditor({
       className={cn(
         "glass-divider flex flex-wrap items-center gap-2 border-b p-2.5 transition-[box-shadow,opacity] duration-200",
         isDragging && "opacity-50",
-        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background"
+        isDropTarget && "ring-2 ring-activity/70 ring-offset-2 ring-offset-background",
+        isMindMapTarget && "relative z-[1] bg-activity/8 ring-2 ring-inset ring-activity/45"
       )}
     >
       <Button

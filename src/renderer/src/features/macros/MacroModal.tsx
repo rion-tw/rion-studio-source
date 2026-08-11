@@ -40,6 +40,8 @@ import { MacroStepEditor, createStep, duplicateStepState } from "./MacroStepEdit
 
 import { MacroCommandImportDialog, MacroHelpSection, MacroIntervalControl, ShortcutRecorder } from "./MacroEditorControls";
 
+import { MacroMindMapPanel } from "./MacroMindMap";
+
 import { MacroRoleCombobox } from "./MacroRoleCombobox";
 
 interface MacroEditorRouteProps {
@@ -263,6 +265,7 @@ function MacroForm({
     { type: "macro", label: t("macroForm.addMacro") }
   ];
   const [isCommandImportOpen, setIsCommandImportOpen] = useState(false);
+  const [mindMapStepId, setMindMapStepId] = useState<string>();
   const stepDrag = usePointerDrag<string>({
     disabled: isSaving,
     getScrollContainer: () => document.querySelector<HTMLElement>("#app-editor-form"),
@@ -319,6 +322,13 @@ function MacroForm({
 
   function removeStep(stepId: string): void {
     update((current) => ({ ...current, steps: current.steps.filter((step) => step.id !== stepId) }));
+  }
+
+  function selectMindMapStep(stepId: string): void {
+    setMindMapStepId(stepId);
+    Array.from(document.querySelectorAll<HTMLElement>("[data-macro-step-id]"))
+      .find((element) => element.dataset.macroStepId === stepId)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   return (
@@ -530,6 +540,34 @@ function MacroForm({
                 )}
               </FormField>
             </Surface>
+
+            <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
+              <HelpPanel data-macro-help="activation">
+                <MacroHelpSection title={t("macroForm.help.activationTitle")}>
+                  <li>{t("macroForm.help.activationRoles")}</li>
+                  <li>{t("macroForm.help.activationShortcutSources")}</li>
+                  <li>{t("macroForm.help.activationModes")}</li>
+                  <li>{t("macroForm.help.activationRepeat")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
+
+              <HelpPanel data-macro-help="calls">
+                <MacroHelpSection title={t("macroForm.help.callsTitle")}>
+                  <li>{t("macroForm.help.callsRequirements")}</li>
+                  <li>{t("macroForm.help.callsWait")}</li>
+                  <li>{t("macroForm.help.callsTrigger")}</li>
+                  <li>{t("macroForm.help.callsDuplicate")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
+
+              <HelpPanel data-macro-help="stop">
+                <MacroHelpSection title={t("macroForm.help.stopTitle")}>
+                  <li>{t("macroForm.help.stopRun")}</li>
+                  <li>{t("macroForm.help.stopChild")}</li>
+                  <li>{t("macroForm.help.stopRole")}</li>
+                </MacroHelpSection>
+              </HelpPanel>
+            </div>
           </aside>
 
           <div className="grid content-start gap-4">
@@ -553,6 +591,7 @@ function MacroForm({
                           index={index}
                           isDragging={stepDrag.activePayload === step.id}
                           isDropTarget={stepDrag.targetId === step.id && stepDrag.activePayload !== step.id}
+                          isMindMapTarget={mindMapStepId === step.id}
                           isSaving={isSaving}
                           macroTargetOptions={macroTargetOptions}
                           step={step}
@@ -593,33 +632,14 @@ function MacroForm({
               </FormField>
             </Surface>
 
-            <div className="editor-layout-macro-help grid gap-4" data-macro-help-list>
-              <HelpPanel data-macro-help="activation">
-                <MacroHelpSection title={t("macroForm.help.activationTitle")}>
-                  <li>{t("macroForm.help.activationRoles")}</li>
-                  <li>{t("macroForm.help.activationShortcutSources")}</li>
-                  <li>{t("macroForm.help.activationModes")}</li>
-                  <li>{t("macroForm.help.activationRepeat")}</li>
-                </MacroHelpSection>
-              </HelpPanel>
-
-              <HelpPanel data-macro-help="calls">
-                <MacroHelpSection title={t("macroForm.help.callsTitle")}>
-                  <li>{t("macroForm.help.callsRequirements")}</li>
-                  <li>{t("macroForm.help.callsWait")}</li>
-                  <li>{t("macroForm.help.callsTrigger")}</li>
-                  <li>{t("macroForm.help.callsDuplicate")}</li>
-                </MacroHelpSection>
-              </HelpPanel>
-
-              <HelpPanel data-macro-help="stop">
-                <MacroHelpSection title={t("macroForm.help.stopTitle")}>
-                  <li>{t("macroForm.help.stopRun")}</li>
-                  <li>{t("macroForm.help.stopChild")}</li>
-                  <li>{t("macroForm.help.stopRole")}</li>
-                </MacroHelpSection>
-              </HelpPanel>
-            </div>
+            <MacroMindMapPanel
+              form={form}
+              macros={macros}
+              roles={roles}
+              selectedStepId={mindMapStepId}
+              t={t}
+              onSelectStep={selectMindMapStep}
+            />
           </div>
 
           <MacroCommandImportDialog

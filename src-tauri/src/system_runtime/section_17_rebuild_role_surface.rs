@@ -126,6 +126,10 @@ impl SystemRuntimeExecutor {
         );
         self.update_surface_recovery_phase(transaction, "rebuilding");
         let navigation = Arc::new(NavigationTracker::default());
+        self.surface_recoveries.attach_navigation(
+            &transaction.context.operation_id,
+            &navigation,
+        );
         let callback_navigation = Arc::clone(&navigation);
         let navigation_app = self.app.clone();
         let navigation_label = format!(
@@ -318,9 +322,13 @@ impl SystemRuntimeExecutor {
                     "SYSTEM_SURFACE_RECOVERY_STALE",
                     "The role began closing before its replacement surface could navigate.",
                 ))
+            } else if navigation.owner_close_cancelled() {
+                Err(RuntimeError::new(
+                    "SYSTEM_SURFACE_RECOVERY_CANCELLED",
+                    "The replacement surface was cancelled because its owner closed.",
+                ))
             } else {
                 self.begin_controlled_navigation(&controlled_label)?;
-                navigation.reset();
                 webview
                     .navigate(current_url.clone())
                     .map_err(RuntimeError::tauri)
@@ -329,7 +337,13 @@ impl SystemRuntimeExecutor {
         let navigation_result = navigation_start.and_then(|()| {
             navigation
                 .wait_while(|| self.application_lifecycle_epoch_matches(lifecycle_epoch))
-                .map_err(|message| RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message))?
+                .map_err(|message| {
+                    if navigation.owner_close_cancelled() {
+                        RuntimeError::new("SYSTEM_SURFACE_RECOVERY_CANCELLED", message)
+                    } else {
+                        RuntimeError::new("SYSTEM_SURFACE_RECOVERY_FAILED", message)
+                    }
+                })?
                 .then_some(())
                 .ok_or_else(|| {
                     RuntimeError::new(

@@ -777,7 +777,7 @@ impl SystemRuntimeExecutor {
                         .retryable_failed_launches
                         .insert(created_tab_id.clone());
                 } else if cleanup_error.is_some() {
-                    state.recovery_required = true;
+                    state.runtime_restart_required = true;
                     state
                         .close_coordinator
                         .quarantined_roles

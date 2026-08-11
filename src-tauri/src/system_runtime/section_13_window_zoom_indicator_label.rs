@@ -230,7 +230,7 @@ impl SystemRuntimeExecutor {
                         .get(&window.id)
                         .cloned()
                         .unwrap_or_else(|| {
-                            if state.recovery_required {
+                            if state.session_recovery_window_ids.contains(&window.id) {
                                 DormantWindowState::AwaitingRecovery
                             } else {
                                 DormantWindowState::Dormant
@@ -267,11 +267,16 @@ impl SystemRuntimeExecutor {
                     summary
                 })
                 .collect::<Vec<_>>();
-            let recovery = state.recovery_required.then(|| {
+            let recovery_windows = state
+                .dormant_windows
+                .iter()
+                .filter(|window| state.session_recovery_window_ids.contains(&window.id))
+                .collect::<Vec<_>>();
+            let recovery = (!recovery_windows.is_empty()).then(|| {
                 json!({
                     "reason": "unclean-exit",
-                    "windowCount": saved_windows.len(),
-                    "tabCount": state.dormant_windows.iter().map(|window| window.tabs.len()).sum::<usize>(),
+                    "windowCount": recovery_windows.len(),
+                    "tabCount": recovery_windows.iter().map(|window| window.tabs.len()).sum::<usize>(),
                     "interruptedWindowIds": state.recovery_interrupted_window_ids,
                     "sessionGeneration": state.recovery_session_generation
                 })
@@ -325,7 +330,8 @@ impl SystemRuntimeExecutor {
             return false;
         };
         if state.auto_restore_attempted
-            || state.recovery_required
+            || !state.session_recovery_window_ids.is_empty()
+            || state.runtime_restart_required
             || state.dormant_windows.is_empty()
         {
             return false;
@@ -334,50 +340,68 @@ impl SystemRuntimeExecutor {
         true
     }
 
-    pub fn recovery_required(&self) -> bool {
+    pub(crate) fn dormant_window_ids(&self) -> HashSet<String> {
         self.state
             .lock()
-            .map(|state| state.recovery_required)
-            .unwrap_or(false)
+            .map(|state| {
+                state
+                    .dormant_windows
+                    .iter()
+                    .map(|window| window.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
-    pub fn replace_dormant_windows(
-        &self,
-        windows: Vec<RuntimeRestoreWindowRecord>,
-        recovery_required: bool,
-    ) {
-        if let Ok(mut state) = self.state.lock() {
-            replace_dormant_window_state(&mut state, windows, recovery_required);
-        }
-        self.publish_projection();
+    pub(crate) fn session_recovery_window_ids(&self) -> HashSet<String> {
+        self.state
+            .lock()
+            .map(|state| state.session_recovery_window_ids.clone())
+            .unwrap_or_default()
     }
 
-    pub fn begin_dormant_window_restore(&self, window_ids: &[String]) {
-        let changed = if let Ok(mut state) = self.state.lock() {
+    pub fn begin_dormant_window_restore(&self, window_ids: &[String]) -> Vec<String> {
+        let started = if let Ok(mut state) = self.state.lock() {
             begin_dormant_window_restore_state(&mut state, window_ids)
         } else {
-            false
+            Vec::new()
         };
-        if changed {
+        if !started.is_empty() {
             self.publish_projection();
         }
+        started
     }
 
     pub fn finish_dormant_window_restore(
         &self,
-        windows: Vec<RuntimeRestoreWindowRecord>,
-        recovery_required: bool,
+        attempted_window_ids: &[String],
+        restored_window_ids: &[String],
         failures: &HashMap<String, String>,
     ) {
         if let Ok(mut state) = self.state.lock() {
             finish_dormant_window_restore_state(
                 &mut state,
-                windows,
-                recovery_required,
+                attempted_window_ids,
+                restored_window_ids,
                 failures,
             );
         }
         self.publish_projection();
+    }
+
+    pub fn discard_dormant_window_recovery(
+        &self,
+        requested_window_ids: Option<&HashSet<String>>,
+    ) -> Vec<String> {
+        let discarded = if let Ok(mut state) = self.state.lock() {
+            discard_dormant_window_recovery_state(&mut state, requested_window_ids)
+        } else {
+            Vec::new()
+        };
+        if !discarded.is_empty() {
+            self.publish_projection();
+        }
+        discarded
     }
 
     pub fn fail_dormant_window_restores(&self, window_ids: &[String], message: &str) {
@@ -403,8 +427,11 @@ impl SystemRuntimeExecutor {
             let previous_len = state.dormant_windows.len();
             state.dormant_windows.retain(|window| window.id != window_id);
             state.dormant_window_states.remove(window_id);
-            state.recovery_required = state.recovery_required && !state.dormant_windows.is_empty();
-            if !state.recovery_required {
+            state.session_recovery_window_ids.remove(window_id);
+            state
+                .recovery_interrupted_window_ids
+                .retain(|candidate| candidate != window_id);
+            if state.session_recovery_window_ids.is_empty() {
                 state.recovery_interrupted_window_ids.clear();
             }
             state.dormant_windows.len() != previous_len

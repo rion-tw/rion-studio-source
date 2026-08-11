@@ -499,6 +499,74 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    fn record_surface_process_failure_event(
+        &self,
+        target: &SurfaceFailureTarget,
+        reason: &str,
+        scope: SurfaceFailureScope,
+    ) {
+        let surface = self.state.lock().ok().and_then(|state| {
+            state
+                .native_resources
+                .surface_registry
+                .values()
+                .find(|surface| match target {
+                    SurfaceFailureTarget::Role {
+                        role_id,
+                        generation,
+                    } => {
+                        surface.role_id.as_deref() == Some(role_id)
+                            && surface.generation == *generation
+                    }
+                    SurfaceFailureTarget::Popup {
+                        label,
+                        role_id,
+                        generation,
+                    } => {
+                        surface.webview.label() == label
+                            && surface.role_id.as_deref() == Some(role_id)
+                            && surface.generation == *generation
+                    }
+                })
+                .cloned()
+        });
+        let Some(surface) = surface else {
+            return;
+        };
+        let core = Arc::clone(&self.core);
+        let context = json!({
+            "failureScope": match scope {
+                SurfaceFailureScope::Renderer => "renderer",
+                #[cfg(any(windows, test))]
+                SurfaceFailureScope::Browser => "browser",
+            },
+            "generation": surface.generation,
+            "instanceId": surface.instance_id,
+            "kind": surface.kind.as_str(),
+            "platform": current_runtime_platform(),
+            "roleId": surface.role_id,
+            "tabId": surface.tab_id,
+            "terminationReason": reason,
+            "webviewLabel": surface.webview.label(),
+            "windowId": surface.window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Warn,
+                        source: LogSource::Browser,
+                        event: "surface.process-failed".to_owned(),
+                        message: "The platform reported that a native web content process stopped."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
     fn record_shortcut_modifier_handoff(
         &self,
         handoff: &RuntimeShortcutModifierHandoff,

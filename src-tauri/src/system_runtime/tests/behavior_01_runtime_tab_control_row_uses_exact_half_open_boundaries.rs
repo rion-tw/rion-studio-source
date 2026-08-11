@@ -119,20 +119,30 @@ use super::*;
             clean_exit: true,
             last_focused_window_id: Some("window-1".to_owned()),
             restore_in_progress_window_ids: vec!["window-1".to_owned()],
+            live_window_ids: None,
             windows: Vec::new(),
         };
 
-        prepare_restore_session_for_persist(&mut session, false);
+        prepare_restore_session_for_persist(
+            &mut session,
+            false,
+            vec!["window-2".to_owned(), "window-1".to_owned()],
+        );
         assert_eq!(session.schema_version, 2);
         assert!(!session.clean_exit);
         assert_eq!(
             session.restore_in_progress_window_ids,
             vec!["window-1".to_owned()]
         );
+        assert_eq!(
+            session.live_window_ids,
+            Some(vec!["window-1".to_owned(), "window-2".to_owned()])
+        );
 
-        prepare_restore_session_for_persist(&mut session, true);
+        prepare_restore_session_for_persist(&mut session, true, vec!["window-2".to_owned()]);
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
+        assert_eq!(session.live_window_ids, Some(Vec::new()));
     }
 
     #[test]

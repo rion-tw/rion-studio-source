@@ -89,13 +89,18 @@ fn should_refresh_macro_overlay(role_ids: &[String], role_id: &str) -> bool {
 fn prepare_restore_session_for_persist(
     session: &mut RuntimeRestoreSessionRecord,
     clean_exit: bool,
+    mut live_window_ids: Vec<String>,
 ) {
     session.schema_version = 2;
     session.updated_at = chrono::Utc::now().to_rfc3339();
     session.clean_exit = clean_exit;
     if clean_exit {
         session.restore_in_progress_window_ids.clear();
+        live_window_ids.clear();
     }
+    live_window_ids.sort();
+    live_window_ids.dedup();
+    session.live_window_ids = Some(live_window_ids);
     session.windows.clear();
 }
 

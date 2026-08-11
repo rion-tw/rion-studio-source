@@ -456,12 +456,7 @@ export default function GameWindowsRoute({
                         <td className="max-w-[260px] px-4 py-2 align-middle">
                           <span className="inline-flex max-w-full items-center gap-1.5 text-muted-foreground" title={displayLabel}>
                             <Monitor aria-hidden="true" className="shrink-0" size={14} />
-                            <span className="min-w-0">
-                              <span className="block truncate">{displayLabel}</span>
-                              <span className="block truncate text-control">
-                                {t(`gameWindows.presentation.${gameWindow.placement.presentation}`)}
-                              </span>
-                            </span>
+                            <span className="min-w-0 truncate">{displayLabel}</span>
                           </span>
                         </td>
                         <td className="max-w-[240px] px-4 py-2 align-middle text-muted-foreground">

@@ -15,6 +15,8 @@ struct SurfaceRecoveryRegistryState {
     active_count: usize,
     by_operation: HashMap<String, SurfaceRecoveryAttemptRecord>,
     by_surface: HashMap<(String, u64), String>,
+    cancelled_operations: HashSet<String>,
+    navigation_by_operation: HashMap<String, Weak<NavigationTracker>>,
     terminal_order: VecDeque<String>,
 }
 
@@ -123,6 +125,69 @@ impl SurfaceRecoveryRegistry {
         Some(record.clone())
     }
 
+    fn attach_navigation(
+        &self,
+        operation_id: &str,
+        navigation: &Arc<NavigationTracker>,
+    ) -> bool {
+        let cancelled = self.state.lock().ok().is_some_and(|mut state| {
+            let Some(record) = state.by_operation.get(operation_id) else {
+                return false;
+            };
+            if record.status != "active" {
+                return false;
+            }
+            let cancelled = state.cancelled_operations.contains(operation_id);
+            state
+                .navigation_by_operation
+                .insert(operation_id.to_owned(), Arc::downgrade(navigation));
+            cancelled
+        });
+        if cancelled {
+            navigation.cancel_for_owner_close();
+        }
+        cancelled
+    }
+
+    fn cancel_active_for_role(&self, role_id: &str) -> usize {
+        let navigations = self
+            .state
+            .lock()
+            .ok()
+            .map(|mut state| {
+                let operation_ids = state
+                    .by_operation
+                    .iter()
+                    .filter(|(_, record)| record.role_id == role_id && record.status == "active")
+                    .map(|(operation_id, _)| operation_id.clone())
+                    .collect::<Vec<_>>();
+                let mut navigations = Vec::new();
+                for operation_id in operation_ids {
+                    state.cancelled_operations.insert(operation_id.clone());
+                    if let Some(navigation) = state
+                        .navigation_by_operation
+                        .get(&operation_id)
+                        .and_then(Weak::upgrade)
+                    {
+                        navigations.push(navigation);
+                    }
+                }
+                navigations
+            })
+            .unwrap_or_default();
+        for navigation in &navigations {
+            navigation.cancel_for_owner_close();
+        }
+        navigations.len()
+    }
+
+    fn operation_was_cancelled(&self, operation_id: &str) -> bool {
+        self.state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.cancelled_operations.contains(operation_id))
+    }
+
     fn complete(
         &self,
         operation_id: &str,
@@ -141,11 +206,14 @@ impl SurfaceRecoveryRegistry {
         record.failure_code = failure_code;
         record.updated_at = chrono::Utc::now().to_rfc3339();
         let completed = record.clone();
+        state.navigation_by_operation.remove(operation_id);
         state.active_count = state.active_count.saturating_sub(1);
         while state.terminal_order.len() >= RECENT_SURFACE_RECOVERY_CAPACITY {
             if let Some(expired_operation_id) = state.terminal_order.pop_front()
                 && let Some(expired) = state.by_operation.remove(&expired_operation_id)
             {
+                state.cancelled_operations.remove(&expired_operation_id);
+                state.navigation_by_operation.remove(&expired_operation_id);
                 let key = (expired.role_id, expired.surface_generation);
                 if state.by_surface.get(&key) == Some(&expired_operation_id) {
                     state.by_surface.remove(&key);
@@ -183,6 +251,11 @@ impl SystemRuntimeExecutor {
         failure_code: Option<&str>,
         restart_required: bool,
     ) -> NativeOperationReceipt {
+        if restart_required
+            && let Ok(mut state) = self.state.lock()
+        {
+            state.runtime_restart_required = true;
+        }
         let receipt = self.operations.complete(NativeOperationReceipt::with_status(
             transaction.context,
             stage,
@@ -248,6 +321,43 @@ impl SystemRuntimeExecutor {
 
 fn surface_recovery_requires_restart(destructive_started: bool) -> bool {
     destructive_started
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceRecoveryFailureOutcome {
+    native_status: NativeOperationStatus,
+    restart_required: bool,
+    stage: &'static str,
+}
+
+fn surface_recovery_failure_outcome(
+    error_code: &str,
+    destructive_started: bool,
+    owner_closed: bool,
+) -> SurfaceRecoveryFailureOutcome {
+    if owner_closed {
+        return SurfaceRecoveryFailureOutcome {
+            native_status: NativeOperationStatus::Cancelled,
+            restart_required: false,
+            stage: "surfaceRecoveryCancelled",
+        };
+    }
+    let restart_required = surface_recovery_requires_restart(destructive_started);
+    SurfaceRecoveryFailureOutcome {
+        native_status: if restart_required {
+            NativeOperationStatus::Indeterminate
+        } else if error_code == "SYSTEM_SURFACE_RECOVERY_STALE" {
+            NativeOperationStatus::Superseded
+        } else {
+            NativeOperationStatus::Failed
+        },
+        restart_required,
+        stage: if restart_required {
+            "surfaceRecoveryIndeterminate"
+        } else {
+            "surfaceRecoveryFailed"
+        },
+    }
 }
 
 fn surface_recovery_target_is_current(

@@ -5,6 +5,7 @@ struct NavigationState {
     failure_code: Option<String>,
     finished: bool,
     native_completion_succeeded: Option<bool>,
+    owner_close_cancelled: bool,
     page_finished: bool,
     requires_native_completion: bool,
     started: bool,
@@ -48,11 +49,36 @@ impl NavigationTracker {
             state.failure_code = None;
             state.finished = false;
             state.native_completion_succeeded = None;
+            state.owner_close_cancelled = false;
             state.page_finished = false;
             state.started = false;
             self.changed.notify_all();
         }
         self.signal_async_changed();
+    }
+
+    fn cancel_for_owner_close(&self) -> bool {
+        let cancelled = self.state.lock().ok().is_some_and(|mut state| {
+            if state.finished {
+                return false;
+            }
+            state.failure_code = Some("SYSTEM_SURFACE_RECOVERY_CANCELLED".to_owned());
+            state.finished = true;
+            state.owner_close_cancelled = true;
+            self.changed.notify_all();
+            true
+        });
+        if cancelled {
+            self.signal_async_changed();
+        }
+        cancelled
+    }
+
+    fn owner_close_cancelled(&self) -> bool {
+        self.state
+            .lock()
+            .ok()
+            .is_some_and(|state| state.owner_close_cancelled)
     }
 
     #[cfg(windows)]

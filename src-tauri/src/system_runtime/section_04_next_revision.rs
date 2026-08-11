@@ -432,90 +432,152 @@ impl DormantWindowState {
     }
 }
 
-fn default_dormant_window_state(recovery_required: bool) -> DormantWindowState {
-    if recovery_required {
-        DormantWindowState::AwaitingRecovery
-    } else {
-        DormantWindowState::Dormant
-    }
-}
-
-fn replace_dormant_window_state(
+fn initialize_dormant_window_state(
     state: &mut RuntimeState,
     windows: Vec<RuntimeRestoreWindowRecord>,
-    recovery_required: bool,
+    session_recovery_window_ids: HashSet<String>,
 ) {
     state.dormant_windows = windows;
-    state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
-    let initial_state = default_dormant_window_state(state.recovery_required);
-    state.dormant_window_states = state
-        .dormant_windows
-        .iter()
-        .map(|window| (window.id.clone(), initial_state.clone()))
-        .collect();
-    if !state.recovery_required {
-        state.recovery_interrupted_window_ids.clear();
-    }
-}
-
-fn begin_dormant_window_restore_state(state: &mut RuntimeState, window_ids: &[String]) -> bool {
     let dormant_ids = state
         .dormant_windows
         .iter()
         .map(|window| window.id.clone())
         .collect::<HashSet<_>>();
-    let mut changed = false;
-    for window_id in window_ids {
-        if dormant_ids.contains(window_id) {
-            changed |= state
-                .dormant_window_states
-                .insert(window_id.clone(), DormantWindowState::Restoring)
-                != Some(DormantWindowState::Restoring);
-        }
+    state.session_recovery_window_ids = session_recovery_window_ids
+        .intersection(&dormant_ids)
+        .cloned()
+        .collect();
+    state.dormant_window_states = state
+        .dormant_windows
+        .iter()
+        .map(|window| {
+            let window_state = if state.session_recovery_window_ids.contains(&window.id) {
+                DormantWindowState::AwaitingRecovery
+            } else {
+                DormantWindowState::Dormant
+            };
+            (window.id.clone(), window_state)
+        })
+        .collect();
+    if state.session_recovery_window_ids.is_empty() {
+        state.recovery_interrupted_window_ids.clear();
     }
-    changed
 }
 
-fn finish_dormant_window_restore_state(
+fn session_recovery_window_ids_for_startup(
+    clean_exit: bool,
+    persisted_live_window_ids: Option<&[String]>,
+    restore_in_progress_window_ids: &[String],
+    dormant_window_ids: &HashSet<String>,
+) -> HashSet<String> {
+    if clean_exit {
+        return HashSet::new();
+    }
+    let mut recovery_window_ids = persisted_live_window_ids
+        .map(|window_ids| window_ids.iter().cloned().collect::<HashSet<_>>())
+        .unwrap_or_else(|| dormant_window_ids.clone());
+    recovery_window_ids.extend(restore_in_progress_window_ids.iter().cloned());
+    recovery_window_ids
+        .intersection(dormant_window_ids)
+        .cloned()
+        .collect()
+}
+
+fn begin_dormant_window_restore_state(
     state: &mut RuntimeState,
-    windows: Vec<RuntimeRestoreWindowRecord>,
-    recovery_required: bool,
-    failures: &HashMap<String, String>,
-) {
-    state.dormant_windows = windows;
-    state.recovery_required = recovery_required && !state.dormant_windows.is_empty();
-    let remaining_ids = state
+    window_ids: &[String],
+) -> Vec<String> {
+    let dormant_ids = state
         .dormant_windows
         .iter()
         .map(|window| window.id.clone())
         .collect::<HashSet<_>>();
+    let mut started = Vec::new();
+    for window_id in window_ids {
+        if dormant_ids.contains(window_id)
+            && state.dormant_window_states.get(window_id) != Some(&DormantWindowState::Restoring)
+        {
+            state
+                .dormant_window_states
+                .insert(window_id.clone(), DormantWindowState::Restoring);
+            started.push(window_id.clone());
+        }
+    }
+    started
+}
+
+fn finish_dormant_window_restore_state(
+    state: &mut RuntimeState,
+    attempted_window_ids: &[String],
+    restored_window_ids: &[String],
+    failures: &HashMap<String, String>,
+) {
+    let restored_ids = restored_window_ids.iter().cloned().collect::<HashSet<_>>();
     state
-        .dormant_window_states
-        .retain(|window_id, _| remaining_ids.contains(window_id));
-    for window_id in remaining_ids {
-        let next_state = if let Some(message) = failures.get(&window_id) {
+        .dormant_windows
+        .retain(|window| !restored_ids.contains(&window.id));
+    for window_id in restored_window_ids {
+        state.dormant_window_states.remove(window_id);
+        state.session_recovery_window_ids.remove(window_id);
+    }
+    for window_id in attempted_window_ids {
+        if restored_ids.contains(window_id) {
+            continue;
+        }
+        let Some(current_state) = state.dormant_window_states.get(window_id) else {
+            continue;
+        };
+        if current_state != &DormantWindowState::Restoring {
+            continue;
+        }
+        let next_state = if let Some(message) = failures.get(window_id) {
             DormantWindowState::Failed {
                 failure_message: message.clone(),
             }
         } else {
-            match state.dormant_window_states.get(&window_id) {
-                Some(DormantWindowState::Restoring) => DormantWindowState::Failed {
-                    failure_message: "The saved Game Window restore ended before completion."
-                        .to_owned(),
-                },
-                Some(DormantWindowState::Failed { failure_message }) => {
-                    DormantWindowState::Failed {
-                        failure_message: failure_message.clone(),
-                    }
-                }
-                _ => default_dormant_window_state(state.recovery_required),
+            DormantWindowState::Failed {
+                failure_message: "The saved Game Window restore ended before completion."
+                    .to_owned(),
             }
         };
-        state.dormant_window_states.insert(window_id, next_state);
+        state
+            .dormant_window_states
+            .insert(window_id.clone(), next_state);
     }
-    if !state.recovery_required {
+    state
+        .recovery_interrupted_window_ids
+        .retain(|window_id| state.session_recovery_window_ids.contains(window_id));
+    if state.session_recovery_window_ids.is_empty() {
         state.recovery_interrupted_window_ids.clear();
     }
+}
+
+fn discard_dormant_window_recovery_state(
+    state: &mut RuntimeState,
+    requested_window_ids: Option<&HashSet<String>>,
+) -> Vec<String> {
+    let discarded = state
+        .session_recovery_window_ids
+        .iter()
+        .filter(|window_id| {
+            requested_window_ids.is_none_or(|requested| requested.contains(*window_id))
+                && state.dormant_window_states.get(*window_id)
+                    != Some(&DormantWindowState::Restoring)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for window_id in &discarded {
+        state.session_recovery_window_ids.remove(window_id);
+        if state.dormant_window_states.contains_key(window_id) {
+            state
+                .dormant_window_states
+                .insert(window_id.clone(), DormantWindowState::Dormant);
+        }
+    }
+    state
+        .recovery_interrupted_window_ids
+        .retain(|window_id| state.session_recovery_window_ids.contains(window_id));
+    discarded
 }
 
 fn fail_dormant_window_restore_state(
@@ -578,9 +640,10 @@ struct RuntimeState {
     role_placeholder_identities: HashMap<String, RuntimeRolePlaceholderIdentity>,
     automatic_launch_retries: HashMap<String, u8>,
     retryable_failed_launches: HashSet<String>,
-    recovery_required: bool,
     recovery_interrupted_window_ids: Vec<String>,
     recovery_session_generation: u32,
+    runtime_restart_required: bool,
+    session_recovery_window_ids: HashSet<String>,
     recovery_budgets: HashMap<String, RecoveryBudget>,
     recovery_generations: HashMap<String, u64>,
     recovering_roles: HashSet<String>,

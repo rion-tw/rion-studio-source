@@ -395,6 +395,7 @@ impl NavigationTracker {
         state.failure_code = None;
         state.finished = false;
         state.native_completion_succeeded = None;
+        state.owner_close_cancelled = false;
         state.page_finished = false;
         state.started = false;
         self.changed.notify_all();

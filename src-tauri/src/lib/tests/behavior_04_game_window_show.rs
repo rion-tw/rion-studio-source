@@ -68,3 +68,40 @@ fn saved_window_restore_focus_is_user_initiated_and_selects_one_initial_target()
         Some("window-a")
     );
 }
+
+#[test]
+fn recovery_cohort_only_scopes_user_restore_all() {
+    let dormant = HashSet::from([
+        "normally-closed".to_owned(),
+        "session-window".to_owned(),
+    ]);
+    let recovery = HashSet::from(["session-window".to_owned()]);
+
+    assert_eq!(
+        saved_window_restore_candidate_ids(
+            SavedWindowRestoreActivation::UserInitiated,
+            "all",
+            &dormant,
+            &recovery,
+        ),
+        recovery,
+    );
+    assert_eq!(
+        saved_window_restore_candidate_ids(
+            SavedWindowRestoreActivation::Background,
+            "all",
+            &dormant,
+            &HashSet::new(),
+        ),
+        dormant,
+    );
+    assert_eq!(
+        saved_window_restore_candidate_ids(
+            SavedWindowRestoreActivation::UserInitiated,
+            "window",
+            &HashSet::from(["normally-closed".to_owned()]),
+            &HashSet::from(["session-window".to_owned()]),
+        ),
+        HashSet::from(["normally-closed".to_owned()]),
+    );
+}

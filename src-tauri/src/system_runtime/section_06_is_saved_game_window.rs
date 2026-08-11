@@ -71,25 +71,22 @@ impl SystemRuntimeExecutor {
                 }
             })
             .collect::<Vec<_>>();
-        let recovery_required = !stored_restore_session.clean_exit && !dormant_windows.is_empty();
-        let dormant_window_states = dormant_windows
+        let dormant_window_ids = dormant_windows
             .iter()
-            .map(|window| {
-                (
-                    window.id.clone(),
-                    if recovery_required {
-                        DormantWindowState::AwaitingRecovery
-                    } else {
-                        DormantWindowState::Dormant
-                    },
-                )
-            })
+            .map(|window| window.id.clone())
+            .collect::<HashSet<_>>();
+        let session_recovery_window_ids = session_recovery_window_ids_for_startup(
+            stored_restore_session.clean_exit,
+            stored_restore_session.live_window_ids.as_deref(),
+            &stored_restore_session.restore_in_progress_window_ids,
+            &dormant_window_ids,
+        );
+        let recovery_interrupted_window_ids = stored_restore_session
+            .restore_in_progress_window_ids
+            .iter()
+            .filter(|window_id| session_recovery_window_ids.contains(*window_id))
+            .cloned()
             .collect();
-        let recovery_interrupted_window_ids = if recovery_required {
-            stored_restore_session.restore_in_progress_window_ids.clone()
-        } else {
-            Vec::new()
-        };
         let recovery_session_generation = stored_restore_session.session_generation;
         let mut unclean_session = stored_restore_session;
         unclean_session.schema_version = 2;
@@ -97,6 +94,7 @@ impl SystemRuntimeExecutor {
         unclean_session.clean_exit = false;
         unclean_session.updated_at = chrono::Utc::now().to_rfc3339();
         unclean_session.restore_in_progress_window_ids.clear();
+        unclean_session.live_window_ids = Some(Vec::new());
         unclean_session.windows.clear();
         core.replace_runtime_restore_session(unclean_session)
         .map_err(|error| error.to_string())?;
@@ -120,6 +118,16 @@ impl SystemRuntimeExecutor {
         )?;
         let window_state_persistence = WindowStatePersistCoordinator::default();
         window_state_persistence.seed(&game_windows);
+        let mut runtime_state = RuntimeState {
+            recovery_interrupted_window_ids,
+            recovery_session_generation,
+            ..RuntimeState::default()
+        };
+        initialize_dormant_window_state(
+            &mut runtime_state,
+            dormant_windows,
+            session_recovery_window_ids,
+        );
         Ok(Self {
             app,
             close_effect_senders: OnceLock::new(),
@@ -182,14 +190,7 @@ impl SystemRuntimeExecutor {
             self_weak: OnceLock::new(),
             shutdown_operation: OnceLock::new(),
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),
-            state: Mutex::new(RuntimeState {
-                dormant_windows,
-                dormant_window_states,
-                recovery_interrupted_window_ids,
-                recovery_required,
-                recovery_session_generation,
-                ..RuntimeState::default()
-            }),
+            state: Mutex::new(runtime_state),
             window_state_persistence,
             user_data_dir,
         })

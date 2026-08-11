@@ -39,11 +39,23 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn persist_restore_session(&self, clean_exit: bool) -> Result<(), String> {
+        let live_window_ids = self
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .native_resources
+                    .display_hosts
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
         let mut session = self
             .core
             .runtime_restore_session()
             .map_err(|error| error.to_string())?;
-        prepare_restore_session_for_persist(&mut session, clean_exit);
+        prepare_restore_session_for_persist(&mut session, clean_exit, live_window_ids);
         self.core
             .replace_runtime_restore_session(session)
             .map(|_| ())
@@ -712,6 +724,7 @@ impl SystemRuntimeExecutor {
             lifecycle.mark_process_terminated();
             return;
         }
+        self.record_surface_process_failure_event(&target, &reason, scope);
         match surface_failure_action(&target, scope) {
             SurfaceFailureAction::RecoverRole => {
                 let (role_id, generation) = match target {

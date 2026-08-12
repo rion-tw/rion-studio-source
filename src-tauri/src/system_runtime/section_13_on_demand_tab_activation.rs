@@ -98,7 +98,7 @@ impl SystemRuntimeExecutor {
             .runtime_kernel()
             .snapshot()
             .map_err(|error| error.to_string())?;
-        let (window_id, window, tab) = snapshot
+        let (window_id, tab) = snapshot
             .windows
             .iter()
             .find_map(|(window_id, window)| {
@@ -106,7 +106,7 @@ impl SystemRuntimeExecutor {
                     .tabs
                     .iter()
                     .find(|tab| tab.id == tab_id)
-                    .map(|tab| (window_id.clone(), window.clone(), tab.clone()))
+                    .map(|tab| (window_id.clone(), tab.clone()))
             })
             .ok_or_else(|| "Runtime tab is no longer available for activation.".to_owned())?;
         let target = self
@@ -120,7 +120,6 @@ impl SystemRuntimeExecutor {
         let attempt_id = OperationId::new(uuid::Uuid::new_v4().to_string())?;
         let commit = self
             .activate_kernel_tab(
-                window.revision,
                 attempt_id.clone(),
                 RuntimeTabId::new(tab_id.to_owned())?,
                 window_id.clone(),

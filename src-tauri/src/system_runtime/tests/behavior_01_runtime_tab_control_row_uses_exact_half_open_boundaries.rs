@@ -143,6 +143,11 @@ use super::*;
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
         assert_eq!(session.live_window_ids, Some(vec!["window-2".to_owned()]));
+        assert_eq!(
+            session.last_focused_window_id.as_deref(),
+            Some("window-2"),
+            "a closed last-focused window must not escape the sole clean-exit cohort"
+        );
 
         prepare_restore_session_for_persist(&mut session, false, vec!["window-3".to_owned()]);
         prepare_restore_session_for_persist(&mut session, true, Vec::new());

@@ -42,10 +42,16 @@ pub(in crate::system_runtime) fn request_platform_window_hide(window: &Window) -
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn nonactivating_native_show_command(
+) -> windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD {
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA;
+
+    SW_SHOWNA
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_window_show(window: &Window) -> RuntimeResult<()> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{IsWindow, ShowWindowAsync};
 
     let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
     if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
@@ -54,10 +60,11 @@ pub(in crate::system_runtime) fn request_platform_window_show(window: &Window) -
             "The Win32 game window handle is no longer valid.",
         ));
     }
-    // Use the same owning-thread queue as retirement hides. An unconditional
-    // later show supersedes a hide that was already posted by the old empty
-    // host generation, even if synchronous visibility readback is stale.
-    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
+    // Use the same owning-thread queue as retirement hides. SW_SHOWNA preserves
+    // the current maximized/fullscreen show state, unlike SW_SHOWNOACTIVATE,
+    // which restores the most recent normal placement when this queued reveal
+    // runs after an absolute presentation command.
+    let _ = unsafe { ShowWindowAsync(hwnd, nonactivating_native_show_command()) };
     Ok(())
 }
 

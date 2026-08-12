@@ -155,16 +155,30 @@ fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> 
 }
 
 #[cfg(windows)]
+fn desktop_e2e_outer_extent_for_client(
+    requested_logical: i32,
+    target_scale: f64,
+    current_outer: i32,
+    current_client: i32,
+    current_scale: f64,
+) -> i32 {
+    let requested_client = (f64::from(requested_logical) * target_scale).round() as i32;
+    let current_non_client = (current_outer - current_client).max(0);
+    let target_non_client =
+        (f64::from(current_non_client) * target_scale / current_scale).round() as i32;
+    requested_client.saturating_add(target_non_client)
+}
+
+#[cfg(windows)]
 fn desktop_e2e_apply_native_window_control(
     window: &Window,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
     use windows::Win32::UI::{
-        HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow},
+        HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
-            GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, SendMessageW, SetWindowPos,
-            SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, WINDOW_EX_STYLE, WINDOW_STYLE,
-            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+            GetClientRect, GetWindowRect, SendMessageW, SetWindowPos, SWP_NOACTIVATE,
+            SWP_NOOWNERZORDER, SWP_NOZORDER, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
         },
     };
     use windows::Win32::Foundation::RECT;
@@ -211,19 +225,27 @@ fn desktop_e2e_apply_native_window_control(
                 Some(_) => return Err("Desktop E2E scale factor must be positive.".to_owned()),
                 None => f64::from(current_dpi) / 96.0,
             };
-            let dpi = (scale * 96.0).round().clamp(48.0, f64::from(u32::MAX)) as u32;
-            let style = WINDOW_STYLE(unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32);
-            let ex_style = WINDOW_EX_STYLE(unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32);
-            let mut frame = RECT {
-                left: 0,
-                top: 0,
-                right: (f64::from(*width) * scale).round() as i32,
-                bottom: (f64::from(*height) * scale).round() as i32,
-            };
-            unsafe { AdjustWindowRectExForDpi(&mut frame, style, false, ex_style, dpi) }
-                .map_err(|error| error.to_string())?;
-            let outer_width = frame.right - frame.left;
-            let outer_height = frame.bottom - frame.top;
+            let current_scale = f64::from(current_dpi) / 96.0;
+            let mut client = RECT::default();
+            let mut outer = RECT::default();
+            unsafe {
+                GetClientRect(hwnd, &mut client).map_err(|error| error.to_string())?;
+                GetWindowRect(hwnd, &mut outer).map_err(|error| error.to_string())?;
+            }
+            let outer_width = desktop_e2e_outer_extent_for_client(
+                *width,
+                scale,
+                outer.right - outer.left,
+                client.right - client.left,
+                current_scale,
+            );
+            let outer_height = desktop_e2e_outer_extent_for_client(
+                *height,
+                scale,
+                outer.bottom - outer.top,
+                client.bottom - client.top,
+                current_scale,
+            );
             unsafe {
                 SendMessageW(hwnd, WM_ENTERSIZEMOVE, None, None);
                 let result = SetWindowPos(

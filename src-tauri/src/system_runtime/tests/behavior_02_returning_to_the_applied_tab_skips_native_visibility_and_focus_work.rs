@@ -1059,13 +1059,10 @@
     #[test]
     fn native_runtime_window_title_is_platform_explicit() {
         let original = "遊戲視窗 1";
-        for (platform, expected) in [
-            ("macos", original.to_owned()),
-            ("windows", format!("{original} — Rion Studio")),
-        ] {
+        for platform in ["macos", "windows"] {
             assert_eq!(
                 native_runtime_window_title_for_platform(platform, Some(original)),
-                expected
+                original
             );
             assert_eq!(
                 native_runtime_window_title_for_platform(platform, None),

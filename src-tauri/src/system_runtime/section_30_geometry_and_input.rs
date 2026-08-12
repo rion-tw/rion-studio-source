@@ -102,6 +102,17 @@ fn prepare_restore_session_for_persist(
     }
     live_window_ids.sort();
     live_window_ids.dedup();
+    if clean_exit
+        && !session
+            .last_focused_window_id
+            .as_ref()
+            .is_some_and(|window_id| live_window_ids.contains(window_id))
+    {
+        session.last_focused_window_id = match live_window_ids.as_slice() {
+            [only_window_id] => Some(only_window_id.clone()),
+            _ => None,
+        };
+    }
     session.live_window_ids = Some(live_window_ids);
     session.windows.clear();
 }

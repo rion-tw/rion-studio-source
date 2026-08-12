@@ -44,7 +44,7 @@ SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/f
 | --- | --- | --- | --- | --- | --- |
 | 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS；fixture/coverage focused 7/7、Rust 580+20+415、production build/isolation、smoke 2/2。完整 Vitest首跑 872/880，8 個既有 5 秒 UI timeout；受影響 69/69 以 single worker 重跑通過。 | `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin` | PUSHED `origin/main` | PENDING |
 | 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`；產品修正 `adb590d89c858033dda5895b862bed61df600436`；adapter 接線 `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS；coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；lint/typecheck/build/isolation 全部 exit 0；三個新增 phase 各 1/1。 | native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`；background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`；multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin` | PUSHED with this checkpoint | PENDING |
-| 3 — tab activation/macro teardown | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 3 — tab activation/macro teardown | `17ab845838d9355eae72904ac389137017856c18`；產品修正 `9ff644ca68994e6579152da4006d53306db5e071`、`e9f46fa6968d5c982a6e88e0a34feed52306d776`、`cc526df64d824d0a698595047c993495c4d71c48`、`35a9af14d37bf89bff3817dddeb8a123db6cb007`；證據／回歸 `34162a75fde02bd95a8bb2b9a765d7554eaaabf4`、`703ae6d1082af978985e0b46702054ae716cfa14`、`ba23f5536c8aebd75c87b6ffeed1ec6e4123f763`、`bc2c391856327b36b1be111422be1fb6b5d35a64`、`b7b623b215f92cf570b8c697f768db2b896adb95`、`137b90af915abf6d7dae9e6a3718ada946edd5a6`、`2e11996aec3c8efb6ad3a35900d02c616b127aa2` | PASS；coverage P0 13/13、P1 9/9；Vitest 882/882；Rust 582+20+417；lint/typecheck/build/isolation 全部 exit 0；兩個新增 phase 各 1/1。 | tabs `.desktop-e2e-artifacts/2026-08-12T11-10-00-496Z-darwin`；cleanup `.desktop-e2e-artifacts/2026-08-12T11-09-04-043Z-darwin` | PUSHED with this checkpoint | PENDING |
 | 4 — role isolation/shared ownership | PENDING | PENDING | PENDING | PENDING | PENDING |
 | 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING | PENDING |
 
@@ -57,6 +57,13 @@ iteration。`adb590d8` 改為自然完成後先可靠發布 final status，再 t
 `events.ndjson` 核對 `iteration=1`、`lastClick.stepId=native-click` 與隨後的空 terminal status。
 `09d7272e` 則補齊 Tauri ACL、camelCase field decoding，以及 AppKit／Win32 UI action terminal
 event；這些能力仍只存在 `desktop-e2e` debug build。
+
+批次 3 透過實際 AppKit target/action 與 Windows tab-strip DOM 路徑操作可見控制，並以
+runtime terminal、native snapshot 與 fixture event 三方核對。恢復中的 dormant selection
+使用 exact revision fence；一般可見操作維持 unfenced，較新的使用者選擇不會被晚到 restore
+覆寫。Dormant permanent window 刪除走 Core state-only transaction，不虛構不存在的 native
+generation。巨集 teardown 則在 exact role/window close admission 記錄 input `stopping`／
+`quiesced`，並在 release 後驗證 fence 已解除且 final flush 沒有晚到輸入或 orphan run。
 
 ## 1. 身份與環境
 

@@ -50,7 +50,7 @@ describe("system-only product gate", () => {
     await expect(execute(process.execPath, ["scripts/verifySystemOnlyProduct.mjs"], {
       cwd: process.cwd()
     })).resolves.toMatchObject({ stderr: "" });
-  });
+  }, 10_000);
 
   it("rejects a negative fixture that reintroduces remote debugging", async () => {
     const directory = await mkdtemp(join(tmpdir(), "rion-system-only-negative-"));

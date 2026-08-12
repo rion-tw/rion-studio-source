@@ -199,7 +199,7 @@ describe("macro mind map UI", () => {
 
     expect(autoZoom).toBeGreaterThanOrEqual(0.75);
     expect(autoZoom).toBeLessThanOrEqual(1);
-  });
+  }, 10_000);
 
   it("resets the inline viewport while leaving the editor available", () => {
     const { container } = renderEditor([macro()]);

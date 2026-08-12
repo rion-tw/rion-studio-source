@@ -1,7 +1,7 @@
 # Windows P1 Desktop E2E 實機驗證
 
 本文件用於在 Windows 實機驗證 P0/P1 desktop journey、自動化 fixture、WebView2／
-Win32 生命週期，以及 `main` 上最新的 restore focus、maximized reveal 與 placement 修正。
+Win32 生命週期、巨集真實輸入、角色隔離與恢復決策，以及 `main` 上最新的 runtime 修正。
 macOS 結果不能替代本文件要求的 Windows 證據。
 
 ## 可直接貼給 Windows Codex 的提示
@@ -25,7 +25,7 @@ pnpm run test:e2e:desktop:extended。
 時才算預期行為。BLOCKED 不得當成 PASS。
 
 完成後建立或更新 .agents/windows-p1-e2e-validation-report.md，依文件模板填入 exact SHA、
-環境、自動 gate exit code、full/extended 每個 phase、8 條 P1 journey verdict、artifact 路徑、
+環境、自動 gate exit code、full/extended 每個 phase、既有與核心八項 journey verdict、artifact 路徑、
 SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/failed。若發現產品缺陷，
 先保存 artifact、定位根因、加入 focused regression，再做最小修正並重跑受影響 gate；
 不可放寬 invariant、skip Windows test、以 sleep/polling 或 timeout-derived success 掩蓋問題。
@@ -34,6 +34,23 @@ SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/f
 或硬體 blocker，以及 Windows 上實際執行與尚未執行的項目。除非使用者明確要求，不要
 自行 push 測試產生的產品修正；驗證報告可以獨立 commit。
 ```
+
+## 0. 分批驗證帳本
+
+每個 checkpoint 由一個程式 commit 與緊接其後的文件 commit 組成。Windows 最終驗證以
+最新 `main` 為準；只有失敗定位時才 checkout 下列程式 SHA。文件 commit 不記錄自己的 SHA。
+
+| Batch | Code SHA | macOS result | macOS artifact | Windows |
+| --- | --- | --- | --- | --- |
+| 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS；fixture/coverage focused 7/7、Rust 580+20+415、production build/isolation、smoke 2/2。完整 Vitest 首跑 872/880，8 個既有 5 秒 UI timeout；受影響 69/69 以單 worker 重跑通過。 | `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin` | PENDING |
+| 2 — native/background/multi-role macros | PENDING | PENDING | PENDING | PENDING |
+| 3 — tab activation/macro teardown | PENDING | PENDING | PENDING | PENDING |
+| 4 — role isolation/shared ownership | PENDING | PENDING | PENDING | PENDING |
+| 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING |
+
+批次 1 新增 debug-only `desktop_e2e_runtime_ui_action`。Windows 必須證明它透過實際
+WebView2 tab-strip button／role placeholder DOM control 提交 UI action，且 production build
+的 `check:desktop-e2e-isolation` 仍通過。
 
 ## 1. 身份與環境
 
@@ -108,7 +125,7 @@ pnpm run test:e2e:desktop:full
 | `force-terminate` | `EXPECTED_FORCE_TERMINATION` | 精確 PID 終止且 SQLite `cleanExit=false` |
 | `crash-restart` | `PASS` | crash 不誤判 clean exit、手動恢復後正常 final flush |
 
-以下 8 條 P1 journey 必須全部有 Windows 證據：
+以下既有 P1 journey 必須全部有 Windows 證據：
 
 - [ ] `APP-FULL-CRUD-001`
 - [ ] `GAME-WINDOWS-TABS-001`
@@ -118,6 +135,17 @@ pnpm run test:e2e:desktop:full
 - [ ] `APP-CRUD-REORDER-002`
 - [ ] `WORKSPACES-RECOVERY-002`
 - [ ] `APP-QUIT-GUARD-002`
+
+核心八項新增 journey 在對應批次合併後同樣必須逐項有 Windows verdict：
+
+- [ ] `MACRO-NATIVE-EFFECT-003`
+- [ ] `MACRO-BACKGROUND-TAB-004`
+- [ ] `MACRO-MULTIROLE-005`
+- [ ] `MACRO-TERMINAL-CLEANUP-006`
+- [ ] `TABS-VISIBLE-ACTIVATION-003`
+- [ ] `ROLE-SESSION-ISOLATION-003`
+- [ ] `WORKSPACE-SHARED-ROLE-003`
+- [ ] `WINDOW-RECOVERY-UI-007`
 
 ### Windows 特別核對
 

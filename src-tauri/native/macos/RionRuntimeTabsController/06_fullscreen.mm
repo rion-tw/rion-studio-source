@@ -466,6 +466,13 @@ NS_ASSUME_NONNULL_BEGIN
   return [item accessibilityPerformPress];
 }
 
+- (BOOL)performAccessibilityCloseForTabIdentifier:(NSString *)tabIdentifier {
+  if (_destroyed || tabIdentifier.length == 0) return NO;
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  if (!item || item.hidden || item.window != _window) return NO;
+  return [item performAccessibilityClose];
+}
+
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
   if (_destroyed) return;
   [self hideFailureStatus];

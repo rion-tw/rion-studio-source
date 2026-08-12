@@ -227,6 +227,18 @@ bool rion_runtime_tabs_accessibility_press(
   }
 }
 
+bool rion_runtime_tabs_accessibility_close(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityCloseForTabIdentifier:tabIdentifier];
+  }
+}
+
 void rion_runtime_tabs_hide_failure_status(void * _Nullable rawController) {
   @autoreleasepool {
     if (!rawController) return;
@@ -771,6 +783,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
              windowActive:(BOOL)windowActive;
 - (void)updateWindowActive:(BOOL)windowActive;
 - (void)updateVisualStateAnimated:(BOOL)animate;
+- (BOOL)performAccessibilityClose;
 - (void)beginDragPreviewSession:(NSDraggingSession *)session
                   lockedScreenY:(CGFloat)screenY;
 - (void)lockDragPreviewToScreenY:(CGFloat)screenY;

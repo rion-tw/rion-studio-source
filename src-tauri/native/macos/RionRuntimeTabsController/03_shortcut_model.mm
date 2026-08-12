@@ -442,6 +442,16 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   return [NSApp sendAction:self.action to:self.target from:self];
 }
 
+- (BOOL)performAccessibilityClose {
+  if (_hideTabCloseButton || _moreButton.hidden || self.hidden || !self.window) {
+    return NO;
+  }
+  _closeSlotHovered = YES;
+  [self updateVisualStateAnimated:NO];
+  if (_moreButton.alphaValue <= 0.0 || NSIsEmptyRect(_moreButton.frame)) return NO;
+  return [NSApp sendAction:_moreButton.action to:_moreButton.target from:_moreButton];
+}
+
 - (BOOL)accessibilityPerformShowMenu {
   if (self.tabIdentifier.length == 0) return NO;
   [self.tabsController performSelector:@selector(showTabMenu:)

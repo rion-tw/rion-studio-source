@@ -9,6 +9,10 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
         tab_id: String,
         window_generation: u64,
     },
+    CloseTab {
+        tab_id: String,
+        window_generation: u64,
+    },
     FocusRole {
         role_id: String,
         tab_id: String,
@@ -52,6 +56,14 @@ impl SystemRuntimeExecutor {
                     .find(|tab| tab.tab_id == *tab_id && !tab.hidden)
                     .ok_or_else(|| "The requested visible runtime tab was not found.".to_owned())?;
                 self.desktop_e2e_press_runtime_tab(window_id, expected_generation, tab_id)?;
+            }
+            DesktopE2eRuntimeUiActionRequest::CloseTab { tab_id, .. } => {
+                projection
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.tab_id == *tab_id && !tab.hidden)
+                    .ok_or_else(|| "The requested visible runtime tab was not found.".to_owned())?;
+                self.desktop_e2e_close_runtime_tab(window_id, expected_generation, tab_id)?;
             }
             DesktopE2eRuntimeUiActionRequest::FocusRole {
                 role_id, tab_id, ..
@@ -128,6 +140,25 @@ impl SystemRuntimeExecutor {
         controller.desktop_e2e_accessibility_press(tab_id)
     }
 
+    #[cfg(target_os = "macos")]
+    fn desktop_e2e_close_runtime_tab(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        let controller = self
+            .state()
+            .map_err(|error| error.message)?
+            .native_resources
+            .display_hosts
+            .get(window_id)
+            .filter(|host| host.generation == window_generation)
+            .map(|host| host.tabs_controller.clone())
+            .ok_or_else(|| "The AppKit tab controller is stale or unavailable.".to_owned())?;
+        controller.desktop_e2e_accessibility_close(tab_id)
+    }
+
     #[cfg(windows)]
     fn desktop_e2e_press_runtime_tab(
         &self,
@@ -152,8 +183,42 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.to_string())
     }
 
+    #[cfg(windows)]
+    fn desktop_e2e_close_runtime_tab(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        let tab_strip = self
+            .state()
+            .map_err(|error| error.message)?
+            .native_resources
+            .display_hosts
+            .get(window_id)
+            .filter(|host| host.generation == window_generation)
+            .map(|host| host.tab_strip.clone())
+            .ok_or_else(|| "The WebView2 tab strip is stale or unavailable.".to_owned())?;
+        let tab_id = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
+        tab_strip
+            .eval(format!(
+                "(() => {{ const id = {tab_id}; const tab = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); const close = tab?.querySelector('.close'); if (!tab || tab.hidden || tab.getClientRects().length === 0 || !close || close.getClientRects().length === 0) throw new Error('runtime tab close control is not visible'); close.click(); }})();"
+            ))
+            .map_err(|error| error.to_string())
+    }
+
     #[cfg(not(any(windows, target_os = "macos")))]
     fn desktop_e2e_press_runtime_tab(
+        &self,
+        _window_id: &str,
+        _window_generation: u64,
+        _tab_id: &str,
+    ) -> Result<(), String> {
+        Err("Desktop E2E runtime UI actions require macOS or Windows.".to_owned())
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    fn desktop_e2e_close_runtime_tab(
         &self,
         _window_id: &str,
         _window_generation: u64,
@@ -166,6 +231,10 @@ impl SystemRuntimeExecutor {
 fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest) -> u64 {
     match request {
         DesktopE2eRuntimeUiActionRequest::ActivateTab {
+            window_generation,
+            ..
+        }
+        | DesktopE2eRuntimeUiActionRequest::CloseTab {
             window_generation,
             ..
         }
@@ -183,6 +252,7 @@ fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest)
 fn desktop_e2e_runtime_ui_action_name(request: &DesktopE2eRuntimeUiActionRequest) -> &'static str {
     match request {
         DesktopE2eRuntimeUiActionRequest::ActivateTab { .. } => "activateTab",
+        DesktopE2eRuntimeUiActionRequest::CloseTab { .. } => "closeTab",
         DesktopE2eRuntimeUiActionRequest::FocusRole { .. } => "focusRole",
         DesktopE2eRuntimeUiActionRequest::PressRoleSlot { .. } => "pressRoleSlot",
     }

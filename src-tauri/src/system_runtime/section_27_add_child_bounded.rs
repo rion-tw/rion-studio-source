@@ -926,7 +926,34 @@ impl SystemRuntimeExecutor {
                 }),
             );
         }
-        result.and(authority_result.map(|_| ()))
+        let terminal_result = result.and(authority_result.map(|_| ()));
+        #[cfg(feature = "desktop-e2e")]
+        {
+            let (status, error_code, error_message) = match &terminal_result {
+                Ok(()) => ("completed", None, None),
+                Err(error) => (
+                    "failed",
+                    Some(error.code),
+                    Some(error.message.as_str()),
+                ),
+            };
+            crate::desktop_e2e::record_event(
+                "runtime-tab-close-terminal",
+                Some(&window_id),
+                None,
+                completed_tombstone
+                    .as_ref()
+                    .map(|tombstone| tombstone.revision),
+                json!({
+                    "error": error_message,
+                    "errorCode": error_code,
+                    "roleIds": role_ids,
+                    "status": status,
+                    "tabId": tab_id,
+                }),
+            );
+        }
+        terminal_result
     }
 
 }

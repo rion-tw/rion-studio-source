@@ -91,6 +91,7 @@ export type WindowControlRequest =
 
 export type RuntimeUiActionRequest =
   | { action: "activateTab"; tabId: string; windowGeneration: number }
+  | { action: "closeTab"; tabId: string; windowGeneration: number }
   | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
   | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number };
 

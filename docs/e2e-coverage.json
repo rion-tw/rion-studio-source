@@ -32,6 +32,8 @@
         "smoke-restart",
         "p0-macro-native-effect",
         "p0-macro-background-tab",
+        "p0-macro-terminal-cleanup",
+        "p0-tabs-visible-activation",
         "p1-macro-multirole",
         "p1-mutations",
         "p1-workspace-recovery",
@@ -46,6 +48,7 @@
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
         "e2e/desktop/specs/macro-runtime.e2e.ts",
+        "e2e/desktop/specs/tab-cleanup.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
@@ -59,6 +62,8 @@
         "smoke-restart",
         "p0-macro-native-effect",
         "p0-macro-background-tab",
+        "p0-macro-terminal-cleanup",
+        "p0-tabs-visible-activation",
         "p1-macro-multirole",
         "p1-mutations",
         "p1-workspace-recovery",
@@ -74,6 +79,7 @@
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
         "e2e/desktop/specs/macro-runtime.e2e.ts",
+        "e2e/desktop/specs/tab-cleanup.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
@@ -215,6 +221,34 @@
       "risk": "native",
       "outcomes": ["success", "failure"],
       "description": "Run one looping macro across two workspace roles and preserve balanced iterations through a visible role focus change."
+    },
+    {
+      "id": "MACRO-TERMINAL-CLEANUP-006",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p0-macro-terminal-cleanup",
+      "spec": "e2e/desktop/specs/tab-cleanup.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Terminalize looping macros through visible Stop, native tab close, native window close, and application shutdown while proving input fences and final-flush cleanup."
+    },
+    {
+      "id": "TABS-VISIBLE-ACTIVATION-003",
+      "feature": "game-windows",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p0-tabs-visible-activation",
+      "spec": "e2e/desktop/specs/tab-cleanup.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Activate three ready tabs through visible native controls and retain one selected, focused, visibility-consistent surface per tab across close and dormant reopen."
     },
     {
       "id": "SETTINGS-PERSIST-001",

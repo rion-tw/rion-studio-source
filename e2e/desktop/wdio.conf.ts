@@ -21,6 +21,8 @@ const specByPhase: Record<string, string> = {
   "force-terminate": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "p0-macro-background-tab": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p0-macro-native-effect": "e2e/desktop/specs/macro-runtime.e2e.ts",
+  "p0-macro-terminal-cleanup": "e2e/desktop/specs/tab-cleanup.e2e.ts",
+  "p0-tabs-visible-activation": "e2e/desktop/specs/tab-cleanup.e2e.ts",
   "p1-final-restart": "e2e/desktop/specs/full-desktop.e2e.ts",
   "p1-guard-cleanup": "e2e/desktop/specs/full-desktop.e2e.ts",
   "p1-mutations": "e2e/desktop/specs/full-desktop.e2e.ts",

@@ -56,6 +56,10 @@ its E2E in the same change. If E2E is genuinely inapplicable, use exactly one of
 lower-layer evidence. A platform that was not executed locally must be called out
 as pending its required CI gate.
 
+Windows 實機執行與回報格式見
+`.agents/windows-p1-e2e-validation.md`；Windows full 與 mixed-DPI extended 的證據必須
+綁定同一個 exact SHA，且 `BLOCKED` 不得當成跨平台完成。
+
 P0 and P1 are fully automated. The full profile performs primary actions through
 visible UI and uses the local runtime fixture only to hold or fail exact navigation
 boundaries. P2 planned entries record expensive native work without inflating

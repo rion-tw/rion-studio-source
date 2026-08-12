@@ -166,6 +166,12 @@ fn windows_macro_key_guard_accepts_only_the_cdp_boolean_terminal() {
     ));
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_macro_key_guard_budget_covers_the_webview2_callback_boundary() {
+    assert_eq!(MACRO_KEY_GUARD_MAX_LIFETIME, Duration::from_secs(2));
+}
+
 #[test]
 fn macro_focus_waits_for_essential_page_readiness() {
     for phase in [None, Some(LaunchPhase::Attaching), Some(LaunchPhase::Navigating)] {

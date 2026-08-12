@@ -1,3 +1,6 @@
+#[cfg(windows)]
+const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(2);
+#[cfg(not(windows))]
 const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(1);
 #[cfg(not(windows))]
 const MACRO_KEY_RELEASE_GUARD_WAIT: Duration = Duration::from_millis(100);

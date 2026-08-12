@@ -136,6 +136,9 @@ fn execute_macro(
         }
         first_error.map_or(Ok(()), Err)
     })();
+    if execution.is_ok() {
+        emit_statuses(shared, true);
+    }
     ancestry.pop();
     if !root && execution.is_ok() {
         remove_macro_statuses(shared, &context.control.id, macro_id);

@@ -29,7 +29,12 @@ const phaseArgument = process.argv.find((argument) => argument.startsWith("--pha
 if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
   throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
 }
-const phases = phaseArgument ? [phaseArgument] : configuredPhases;
+const focusedPhaseDependencies = new Map([
+  ["p1-role-session-isolation", ["p1-role-session-seed"]]
+]);
+const phases = phaseArgument
+  ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
+  : configuredPhases;
 const journeyIdsByPhase = new Map();
 for (const journey of coverageManifest.journeys ?? []) {
   if (!journey.phase || journey.profile !== profile) continue;
@@ -344,6 +349,56 @@ function validateP1RecoverySqliteEvidence(phase, entities) {
   return { ...mutationEvidence, recoveryWindowDeleted: true };
 }
 
+function validateRoleIsolationSqliteEvidence(phase, entities) {
+  const expectedNames = {
+    games: ["E2E P1 Session Isolation Game"],
+    roles: ["E2E P1 Session Role A", "E2E P1 Session Role B"]
+  };
+  if (phase === "p1-role-session-seed") {
+    for (const [collection, names] of Object.entries(expectedNames)) {
+      for (const name of names) {
+        requireEvidence(
+          entities[collection].some((entity) => entity.name === name),
+          `${phase}: missing persisted session entity ${name}`
+        );
+      }
+    }
+    for (const role of entities.roles.filter((candidate) => expectedNames.roles.includes(candidate.name))) {
+      requireEvidence(
+        role.payload?.launchUrl?.includes("mode=observe"),
+        `${phase}: ${role.name} did not persist its observe-only launch URL`
+      );
+    }
+    return { observeRoleCount: expectedNames.roles.length, sessionSeedPersisted: true };
+  }
+  const staleNames = Object.values(expectedNames).flat();
+  requireEvidence(
+    Object.values(entities).every((collection) =>
+      collection.every((entity) => !staleNames.includes(entity.name))
+    ),
+    `${phase}: session isolation entities were not cleaned after observation`
+  );
+  return { sessionEntitiesCleaned: true };
+}
+
+function validateSharedOwnershipSqliteEvidence(phase, entities) {
+  const expectedNames = new Set([
+    "E2E P1 Shared Ownership Game",
+    "E2E P1 Shared Role",
+    "E2E P1 Workspace A Role",
+    "E2E P1 Workspace B Role",
+    "E2E P1 Shared Workspace A",
+    "E2E P1 Shared Workspace B"
+  ]);
+  requireEvidence(
+    Object.values(entities).every((collection) =>
+      collection.every((entity) => !expectedNames.has(entity.name))
+    ),
+    `${phase}: shared ownership entities were not cleaned`
+  );
+  return { sharedOwnershipEntitiesCleaned: true };
+}
+
 async function captureSqlite(phase, blocked, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
@@ -385,6 +440,12 @@ async function captureSqlite(phase, blocked, validateEvidence) {
     }
     if (phase === "p1-mutations") return validateP1MutationSqliteEvidence(phase, entities);
     if (phase === "p1-workspace-recovery") return validateP1RecoverySqliteEvidence(phase, entities);
+    if (["p1-role-session-seed", "p1-role-session-isolation"].includes(phase)) {
+      return validateRoleIsolationSqliteEvidence(phase, entities);
+    }
+    if (phase === "p1-workspace-shared-role") {
+      return validateSharedOwnershipSqliteEvidence(phase, entities);
+    }
     if (["p1-guard-cleanup", "p1-final-restart"].includes(phase)) {
       return validateP1CleanupSqliteEvidence(phase, entities, settings);
     }

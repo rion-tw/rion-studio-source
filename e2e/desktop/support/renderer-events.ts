@@ -65,6 +65,13 @@ interface RuntimeWaitRequest {
   absent?: boolean;
   afterSequence?: number;
   kind: "runtime";
+  roleSlots?: Array<{
+    ownedByTargetTab?: boolean;
+    ownerTabId?: string;
+    roleId: string;
+    state?: "available" | "blocked" | "launching" | "running" | "stopping";
+    tabId?: string;
+  }>;
   roleIds?: string[];
   sourceId?: string;
   windowId?: string;
@@ -229,6 +236,26 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
           if (waitRequest.sourceId && !tab) return undefined;
           if (waitRequest.windowId && !runtimeWindow) return undefined;
           if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
+            return undefined;
+          }
+          if (waitRequest.roleSlots?.some((ownerExpectation) => {
+            const targetTab = ownerExpectation.tabId
+              ? entry.value.tabs.find((candidate) => candidate.id === ownerExpectation.tabId)
+              : tab;
+            const slot = targetTab?.slots.find(
+              (candidate) => candidate.roleId === ownerExpectation.roleId
+            );
+            return !slot
+              || Boolean(ownerExpectation.state && slot.state !== ownerExpectation.state)
+              || Boolean(
+                ownerExpectation.ownerTabId
+                && slot.owner?.tabId !== ownerExpectation.ownerTabId
+              )
+              || Boolean(
+                ownerExpectation.ownedByTargetTab
+                && slot.owner?.tabId !== targetTab?.id
+              );
+          })) {
             return undefined;
           }
           return !waitRequest.roleIds

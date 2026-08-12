@@ -52,6 +52,7 @@ describe("runtime authority fixture launch gates", () => {
     expect(() => new Function(source.slice(start, end))).not.toThrow();
     expect(source).toContain('const sessionMode = "seed"');
     expect(source).toContain('const sessionMarker = "marker-a"');
+    expect(source).toContain("Max-Age=86400; SameSite=Strict");
   });
 
   it("assigns monotonic event sequences and resolves filtered event waits", async () => {

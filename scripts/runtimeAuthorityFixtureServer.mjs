@@ -184,7 +184,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const before = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
     if (sessionMode === "seed") {
       localStorage.setItem(sessionKey, sessionMarker);
-      document.cookie = sessionKey + "=" + encodeURIComponent(sessionMarker) + "; Path=/; SameSite=Strict";
+      document.cookie = sessionKey + "=" + encodeURIComponent(sessionMarker) + "; Path=/; Max-Age=86400; SameSite=Strict";
     }
     const after = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
     record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });

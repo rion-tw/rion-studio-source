@@ -45,7 +45,7 @@ SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/f
 | 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS；fixture/coverage focused 7/7、Rust 580+20+415、production build/isolation、smoke 2/2。完整 Vitest首跑 872/880，8 個既有 5 秒 UI timeout；受影響 69/69 以 single worker 重跑通過。 | `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin` | PUSHED `origin/main` | PENDING |
 | 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`；產品修正 `adb590d89c858033dda5895b862bed61df600436`；adapter 接線 `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS；coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；lint/typecheck/build/isolation 全部 exit 0；三個新增 phase 各 1/1。 | native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`；background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`；multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin` | PUSHED with this checkpoint | PENDING |
 | 3 — tab activation/macro teardown | `17ab845838d9355eae72904ac389137017856c18`；產品修正 `9ff644ca68994e6579152da4006d53306db5e071`、`e9f46fa6968d5c982a6e88e0a34feed52306d776`、`cc526df64d824d0a698595047c993495c4d71c48`、`35a9af14d37bf89bff3817dddeb8a123db6cb007`；證據／回歸 `34162a75fde02bd95a8bb2b9a765d7554eaaabf4`、`703ae6d1082af978985e0b46702054ae716cfa14`、`ba23f5536c8aebd75c87b6ffeed1ec6e4123f763`、`bc2c391856327b36b1be111422be1fb6b5d35a64`、`b7b623b215f92cf570b8c697f768db2b896adb95`、`137b90af915abf6d7dae9e6a3718ada946edd5a6`、`2e11996aec3c8efb6ad3a35900d02c616b127aa2` | PASS；coverage P0 13/13、P1 9/9；Vitest 882/882；Rust 582+20+417；lint/typecheck/build/isolation 全部 exit 0；兩個新增 phase 各 1/1。 | tabs `.desktop-e2e-artifacts/2026-08-12T11-10-00-496Z-darwin`；cleanup `.desktop-e2e-artifacts/2026-08-12T11-09-04-043Z-darwin` | PUSHED with this checkpoint | PENDING |
-| 4 — role isolation/shared ownership | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 4 — role isolation/shared ownership | `93a2dd54e2cb929e9d389473e305c7c5e7804ba1` | PASS；coverage P0 13/13、P1 11/11；Vitest 882/882；fixture focused 5/5；hygiene/typecheck/lint/diff check 全部 exit 0；Session seed→restart→observe 與 shared-role phase 全部通過。 | session `.desktop-e2e-artifacts/2026-08-12T11-35-36-767Z-darwin`；shared `.desktop-e2e-artifacts/2026-08-12T11-35-22-004Z-darwin` | PUSHED with this checkpoint | PENDING |
 | 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING | PENDING |
 
 批次 1 新增 debug-only `desktop_e2e_runtime_ui_action`。Windows 必須證明它透過實際
@@ -64,6 +64,12 @@ runtime terminal、native snapshot 與 fixture event 三方核對。恢復中的
 覆寫。Dormant permanent window 刪除走 Core state-only transaction，不虛構不存在的 native
 generation。巨集 teardown 則在 exact role/window close admission 記錄 input `stopping`／
 `quiesced`，並在 release 後驗證 fence 已解除且 final flush 沒有晚到輸入或 orphan run。
+
+批次 4 的 Session seed URL 先讀後寫持久 Cookie／LocalStorage，observe URL 重啟後只讀，
+並從可見 Roles UI 清除 A，再以實際 role placeholder 重新開啟驗證 A 為空、B 完整保留。
+shared-role journey 從可見 Workspaces UI 啟動兩個 workspace，再按第二個 workspace 的 blocked
+placeholder；所有權 projection 必須只移轉 shared role，兩個 unique role 不得停止或換 owner。
+清理同樣走實際 tab controls，並依最後一個 tab 與否分別核對 `window-destroyed` 或剩餘 snapshot。
 
 ## 1. 身份與環境
 
@@ -131,6 +137,9 @@ pnpm run test:e2e:desktop:full
 | `p0-macro-native-effect` | `PASS` | KeyA down/up、中心 target click、final iteration／lastClick 與 terminal removal |
 | `p0-macro-background-tab` | `PASS` | 可見 tab control terminal event、native selected tab、背景 A 輸入與 B 零輸入 |
 | `p1-macro-multirole` | `PASS` | 兩角色 iteration 平衡、可見 role surface click 後兩者持續輸入 |
+| `p1-role-session-seed` | `PASS` | 同 origin 的 A/B store 分別寫入持久 Cookie／LocalStorage，並保存 observe-only URL |
+| `p1-role-session-isolation` | `PASS` | 重啟只讀驗證 A/B marker；可見 UI 清除 A 後 A 空、B 完整保留 |
+| `p1-workspace-shared-role` | `PASS` | blocked placeholder claim 只移轉 shared role，unique owners 與 tab/window lifecycle 正確 |
 | `p1-mutations` | `PASS` | Role／Workspace／Macro edit、pointer reorder 與 SQLite ordinal |
 | `p1-workspace-recovery` | `PASS` | 雙角色 partial failure、degraded、recovery、取消後零殘留 |
 | `p1-guard-cleanup` | `PASS` | bulk delete cancel／partial result、quit guard 決策、final flush |

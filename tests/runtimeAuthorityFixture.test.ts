@@ -60,4 +60,39 @@ describe("runtime authority fixture launch gates", () => {
     expect((await post(origin, "/api/release", { roleId: "test-role" })).ok).toBe(true);
     expect((await role).status).toBe(200);
   });
+
+  it("fails one navigation and holds recovery until failure injection is released", async () => {
+    const { origin } = await startFixture();
+    expect((await post(origin, "/api/navigation-failure", {
+      enabled: true,
+      roleId: "recovery-role"
+    })).ok).toBe(true);
+
+    const failedNavigation = fetch(`${origin}/role/recovery-role`).then(
+      () => false,
+      () => true
+    );
+    const attempted = await fetch(
+      `${origin}/api/navigation-failures/recovery-role/attempted`
+    );
+    expect(await attempted.json()).toEqual({ failedAttempts: 1, roleId: "recovery-role" });
+    expect(await failedNavigation).toBe(true);
+
+    let recoveryResolved = false;
+    const recoveryNavigation = fetch(`${origin}/role/recovery-role`).then((response) => {
+      recoveryResolved = true;
+      return response;
+    });
+    const waiting = await fetch(
+      `${origin}/api/navigation-failures/recovery-role/recovery-waiting`
+    );
+    expect(await waiting.json()).toEqual({ roleId: "recovery-role", waiterCount: 1 });
+    expect(recoveryResolved).toBe(false);
+
+    expect((await post(origin, "/api/navigation-failure", {
+      enabled: false,
+      roleId: "recovery-role"
+    })).ok).toBe(true);
+    expect((await recoveryNavigation).status).toBe(200);
+  });
 });

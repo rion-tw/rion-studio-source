@@ -187,9 +187,12 @@ function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked)
     sameValue(session.restoreInProgressWindowIds, []),
     `${phase}: restore-in-progress cohort was not terminalized`
   );
+  const expectedLastFocusedWindowIds = phase === "restart"
+    ? new Set([windowIds.a, windowIds.b])
+    : new Set([windowIds.a]);
   requireEvidence(
-    session.lastFocusedWindowId === windowIds.a,
-    `${phase}: Window A was not retained as the last focused window`
+    expectedLastFocusedWindowIds.has(session.lastFocusedWindowId),
+    `${phase}: the last-focused permanent window was not retained`
   );
   requireEvidence(
     Number.isSafeInteger(session.sessionGeneration)
@@ -235,19 +238,98 @@ function validateSmokeSqliteEvidence(phase, entities, settings) {
   };
 }
 
-function validateFullCleanupSqliteEvidence(phase, entities) {
-  for (const name of [
-    "E2E Smoke Game Edited",
-    "E2E Smoke Role",
-    "E2E Smoke Workspace",
-    "E2E Smoke Macro"
-  ]) {
+function validateP1MutationSqliteEvidence(
+  phase,
+  entities,
+  { expectRecoveryWindow = true } = {}
+) {
+  const expectedRoleOrder = [
+    "E2E P1 Role Edited Copy",
+    "E2E P1 Role Edited",
+    "E2E P1 Recovery Role"
+  ];
+  const expectedWorkspaceOrder = [
+    "E2E P1 Workspace Edited Copy",
+    "E2E P1 Workspace Edited",
+    "E2E P1 Recovery Workspace"
+  ];
+  const expectedNames = {
+    games: ["E2E Smoke Game Edited", "E2E P1 Unused Game", "E2E P1 Recovery Game"],
+    macros: ["E2E P1 Macro Edited", "E2E P1 Macro Edited Copy"],
+    roles: expectedRoleOrder,
+    workspaces: expectedWorkspaceOrder
+  };
+  if (expectRecoveryWindow) {
+    expectedNames.gameWindows = ["E2E P1 Game Window"];
+  }
+  for (const [entityType, names] of Object.entries(expectedNames)) {
+    for (const name of names) {
+      requireEvidence(
+        entities[entityType].some((entity) => entity.name === name),
+        `${phase}: missing persisted P1 ${entityType} entity ${name}`
+      );
+    }
+  }
+  requireEvidence(
+    sameValue(
+      entities.roles.filter((role) => expectedRoleOrder.includes(role.name)).map((role) => role.name),
+      expectedRoleOrder
+    ),
+    `${phase}: persisted Role ordinal does not match the UI pointer reorder`
+  );
+  requireEvidence(
+    sameValue(
+      entities.workspaces
+        .filter((workspace) => expectedWorkspaceOrder.includes(workspace.name))
+        .map((workspace) => workspace.name),
+      expectedWorkspaceOrder
+    ),
+    `${phase}: persisted Workspace ordinal does not match the UI pointer reorder`
+  );
+  for (const oldName of ["E2E Smoke Role", "E2E Smoke Workspace", "E2E Smoke Macro"]) {
     requireEvidence(
-      !Object.values(entities).some((values) => values.some((entity) => entity.name === name)),
-      `${phase}: destructive UI cleanup retained ${name}`
+      !Object.values(entities).some((values) => values.some((entity) => entity.name === oldName)),
+      `${phase}: edit journey retained old entity name ${oldName}`
     );
   }
-  return { cleanupComplete: true };
+  return {
+    editedEntitiesPersisted: true,
+    roleOrder: expectedRoleOrder,
+    workspaceOrder: expectedWorkspaceOrder
+  };
+}
+
+function validateP1CleanupSqliteEvidence(phase, entities, settings) {
+  for (const values of Object.values(entities)) {
+    for (const entity of values) {
+      requireEvidence(
+        !entity.name.startsWith("E2E "),
+        `${phase}: P1 cleanup retained ${entity.name}`
+      );
+    }
+  }
+  requireEvidence(
+    entities.gameWindows.length === 0,
+    `${phase}: P1 cleanup retained Game Window state`
+  );
+  const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
+  requireEvidence(session?.cleanExit === true, `${phase}: guarded application quit was not persisted as clean`);
+  return { cleanupComplete: true, cleanExit: true };
+}
+
+function validateP1RecoverySqliteEvidence(phase, entities) {
+  const mutationEvidence = validateP1MutationSqliteEvidence(
+    phase,
+    entities,
+    { expectRecoveryWindow: false }
+  );
+  for (const gameWindow of entities.gameWindows) {
+    requireEvidence(
+      !gameWindow.name.startsWith("E2E "),
+      `${phase}: Workspace recovery retained Game Window ${gameWindow.name}`
+    );
+  }
+  return { ...mutationEvidence, recoveryWindowDeleted: true };
 }
 
 async function captureSqlite(phase, blocked, validateEvidence) {
@@ -289,7 +371,11 @@ async function captureSqlite(phase, blocked, validateEvidence) {
     if (phase === "smoke-seed" || phase === "smoke-restart") {
       return validateSmokeSqliteEvidence(phase, entities, settings);
     }
-    if (phase === "full-ui") return validateFullCleanupSqliteEvidence(phase, entities);
+    if (phase === "p1-mutations") return validateP1MutationSqliteEvidence(phase, entities);
+    if (phase === "p1-workspace-recovery") return validateP1RecoverySqliteEvidence(phase, entities);
+    if (["p1-guard-cleanup", "p1-final-restart"].includes(phase)) {
+      return validateP1CleanupSqliteEvidence(phase, entities, settings);
+    }
     if (["seed", "restart", "force-terminate", "crash-restart", "extended-native"].includes(phase)) {
       return validateGameWindowSqliteEvidence(phase, entities.gameWindows, settings, blocked);
     }

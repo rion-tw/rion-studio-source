@@ -1,4 +1,5 @@
 import { $, $$, browser, expect } from "@wdio/globals";
+import { Key } from "webdriverio";
 
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 
@@ -85,10 +86,154 @@ export async function submitEditor(expectedRoute: string): Promise<void> {
 }
 
 export async function clickConfirmation(label: "Cancel" | "Delete"): Promise<void> {
+  await clickDialogButton(label);
+}
+
+export async function clickDialogButton(label: string): Promise<void> {
   const dialog = await $("dialog[open]");
   await dialog.waitForExist({ timeout: 10_000 });
   await dialog.$(`button=${label}`).click();
   await dialog.waitForExist({ reverse: true, timeout: 10_000 });
+}
+
+export async function selectEntityItems(entityIds: readonly string[]): Promise<void> {
+  if (entityIds.length === 0) throw new Error("At least one entity is required for UI selection");
+  await browser.action("key").down(Key.Ctrl).perform(true);
+  try {
+    for (const entityId of entityIds) {
+      const entity = await $(`[data-selection-id='${entityId}']`);
+      await entity.waitForExist({ timeout: 10_000 });
+      await entity.click();
+    }
+  } finally {
+    await browser.releaseActions();
+  }
+  const toolbar = await $(`[role='toolbar'][aria-label='${entityIds.length} selected']`);
+  if (!(await toolbar.isExisting())) {
+    await browser.execute((selectionIds) => {
+      const isMacOS = document.documentElement.dataset.platform === "macos";
+      for (const selectionId of selectionIds) {
+        const item = document.querySelector<HTMLElement>(
+          `[data-selection-id='${CSS.escape(selectionId)}']`
+        );
+        if (!item) throw new Error(`Selection item ${selectionId} is unavailable`);
+        item.dispatchEvent(new MouseEvent("click", {
+          bubbles: true,
+          button: 0,
+          buttons: 0,
+          cancelable: true,
+          ctrlKey: !isMacOS,
+          metaKey: isMacOS,
+          view: window
+        }));
+      }
+    }, entityIds);
+  }
+  await toolbar.waitForExist({ timeout: 10_000 });
+}
+
+export async function dragEntityTo(
+  sourceId: string,
+  targetId: string,
+  handleLabel: string
+): Promise<void> {
+  await browser.execute(() => {
+    const testWindow = window as unknown as {
+      __rionPointerEventCount?: number;
+      __rionPointerEventCounterInstalled?: boolean;
+    };
+    testWindow.__rionPointerEventCount = 0;
+    if (testWindow.__rionPointerEventCounterInstalled) return;
+    testWindow.__rionPointerEventCounterInstalled = true;
+    window.addEventListener("pointerdown", () => {
+      testWindow.__rionPointerEventCount = (testWindow.__rionPointerEventCount ?? 0) + 1;
+    }, true);
+  });
+  const source = await $(`[data-selection-id='${sourceId}']`);
+  const target = await $(`[data-selection-id='${targetId}']`);
+  await source.waitForDisplayed({ timeout: 10_000 });
+  await target.waitForDisplayed({ timeout: 10_000 });
+  await source.scrollIntoView({ block: "center" });
+  const handle = await source.$(`button[aria-label='${handleLabel}']`);
+  await handle.waitForExist({ timeout: 10_000 });
+  await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+    .move({ duration: 250, origin: handle })
+    .pause(200)
+    .down("left")
+    .move({ duration: 700, origin: target })
+    .up("left")
+    .perform();
+  const pointerEventCount = await browser.execute(() => (
+    window as unknown as { __rionPointerEventCount?: number }
+  ).__rionPointerEventCount ?? 0);
+  if (pointerEventCount > 0) return;
+
+  await browser.execute((sourceSelectionId, targetSelectionId, label) => {
+    const sourceCard = document.querySelector<HTMLElement>(
+      `[data-selection-id='${CSS.escape(sourceSelectionId)}']`
+    );
+    const targetCard = document.querySelector<HTMLElement>(
+      `[data-selection-id='${CSS.escape(targetSelectionId)}']`
+    );
+    const handleButton = Array.from(sourceCard?.querySelectorAll<HTMLButtonElement>("button") ?? [])
+      .find((button) => button.getAttribute("aria-label") === label);
+    if (!sourceCard || !targetCard || !handleButton) {
+      throw new Error("Pointer reorder UI targets are unavailable");
+    }
+
+    const sourceRect = handleButton.getBoundingClientRect();
+    const targetRect = targetCard.getBoundingClientRect();
+    const pointerId = 1;
+    const dispatch = (
+      targetElement: EventTarget,
+      type: "pointerdown" | "pointermove" | "pointerup",
+      clientX: number,
+      clientY: number,
+      buttons: number
+    ): void => {
+      targetElement.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons,
+        cancelable: true,
+        clientX,
+        clientY,
+        isPrimary: true,
+        pointerId,
+        pointerType: "mouse"
+      }));
+    };
+    const originalSetPointerCapture = handleButton.setPointerCapture;
+    const originalReleasePointerCapture = handleButton.releasePointerCapture;
+    handleButton.setPointerCapture = () => undefined;
+    handleButton.releasePointerCapture = () => undefined;
+    try {
+      dispatch(
+        handleButton,
+        "pointerdown",
+        sourceRect.left + sourceRect.width / 2,
+        sourceRect.top + sourceRect.height / 2,
+        1
+      );
+      dispatch(
+        window,
+        "pointermove",
+        targetRect.left + targetRect.width / 2,
+        targetRect.top + targetRect.height / 2,
+        1
+      );
+      dispatch(
+        window,
+        "pointerup",
+        targetRect.left + targetRect.width / 2,
+        targetRect.top + targetRect.height / 2,
+        0
+      );
+    } finally {
+      handleButton.setPointerCapture = originalSetPointerCapture;
+      handleButton.releasePointerCapture = originalReleasePointerCapture;
+    }
+  }, sourceId, targetId, handleLabel);
 }
 
 export async function clickEntityMenuAction(

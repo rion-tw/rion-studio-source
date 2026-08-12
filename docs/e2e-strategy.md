@@ -2,8 +2,8 @@
 
 `docs/e2e-coverage.json` is the versioned source of truth for desktop user-journey
 coverage. Coverage is measured by product journeys, not bridge methods or source
-lines. P0 automation must remain at 100%; P1 automation must remain at or above
-80%. Every product feature listed in the manifest must have an automated UI happy
+lines. P0 and P1 automation must remain at 100%. Every product feature listed in
+the manifest must have an automated UI happy
 path.
 
 ## Profiles and gates
@@ -11,7 +11,7 @@ path.
 | Profile | Gate | Scope |
 | --- | --- | --- |
 | `smoke` | Pull requests on hosted macOS and Windows | Legal/first run, primary navigation, Game/Role/Workspace/Macro creation and launch admission, Game Window lifecycle, and Settings persistence. |
-| `full` | Nightly plus advisory branch soak | All smoke journeys, destructive confirmations, native Game Window/tab persistence and recovery, and system Settings boundaries. |
+| `full` | Nightly plus advisory branch soak | All smoke journeys, edit/reorder/bulk-delete persistence, Workspace partial failure/cancellation, the unsaved-change quit guard, native Game Window/tab persistence and recovery, and system Settings boundaries. |
 | `extended` | Nightly hardware runners and release candidates | The complete full profile plus mixed-DPI, multi-display, fullscreen Spaces, and other native fixtures. |
 
 Run profiles with `pnpm run test:e2e:desktop:smoke`,
@@ -56,11 +56,11 @@ its E2E in the same change. If E2E is genuinely inapplicable, use exactly one of
 lower-layer evidence. A platform that was not executed locally must be called out
 as pending its required CI gate.
 
-The manifest deliberately retains one planned P1 journey for edit/reorder,
-bulk-delete, partial launch failure/cancel, shortcuts, and the unsaved-quit guard;
-this keeps the remaining gap visible while P1 automation stays above its 80%
-gate. P2 planned entries record expensive native work without inflating P0/P1
-coverage. Current planned extended work includes complete portable import/export, Chrome
+P0 and P1 are fully automated. The full profile performs primary actions through
+visible UI and uses the local runtime fixture only to hold or fail exact navigation
+boundaries. P2 planned entries record expensive native work without inflating
+P0/P1 coverage. Current planned extended work includes complete portable import/export, Chrome
 profile import, font installation, diagnostic export, staged updater installation,
-application shortcuts, tray/menu behavior, native window controls, and the
-unsaved-changes quit guard.
+application shortcuts, tray/menu behavior, and native window controls. The P1
+quit-guard journey injects the native request through the debug-only control; P2
+retains responsibility for proving the real OS menu and shortcut entry points.

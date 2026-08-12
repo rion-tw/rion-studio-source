@@ -2,7 +2,7 @@
   "version": 1,
   "targets": {
     "P0": 1,
-    "P1": 0.8
+    "P1": 1
   },
   "features": [
     "app-shell",
@@ -30,7 +30,10 @@
       "phases": [
         "smoke-seed",
         "smoke-restart",
-        "full-ui",
+        "p1-mutations",
+        "p1-workspace-recovery",
+        "p1-guard-cleanup",
+        "p1-final-restart",
         "system-settings",
         "seed",
         "restart",
@@ -40,6 +43,7 @@
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
+        "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
         "e2e/desktop/specs/system-settings.e2e.ts"
       ]
@@ -49,7 +53,10 @@
       "phases": [
         "smoke-seed",
         "smoke-restart",
-        "full-ui",
+        "p1-mutations",
+        "p1-workspace-recovery",
+        "p1-guard-cleanup",
+        "p1-final-restart",
         "system-settings",
         "seed",
         "restart",
@@ -60,6 +67,7 @@
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
+        "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
         "e2e/desktop/specs/system-settings.e2e.ts",
         "e2e/desktop/specs/extended-native.e2e.ts"
@@ -253,14 +261,40 @@
       "id": "APP-CRUD-REORDER-002",
       "feature": "app-shell",
       "priority": "P1",
-      "status": "planned",
+      "status": "automated",
       "profile": "full",
       "spec": "e2e/desktop/specs/full-desktop.e2e.ts",
       "platforms": ["macos", "windows"],
       "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "cancel", "restart"],
+      "description": "Edit Role, Workspace, and Macro definitions, persist Role and Workspace pointer reorder, and exercise cross-domain bulk deletion through visible UI."
+    },
+    {
+      "id": "WORKSPACES-RECOVERY-002",
+      "feature": "workspaces",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/workspace-recovery.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
       "risk": "native",
-      "outcomes": ["cancel", "failure", "restart"],
-      "description": "Complete edit, reorder, bulk-delete, partial workspace launch failure/cancel, shortcut, and unsaved-quit journeys beyond the automated cross-feature create/delete coverage."
+      "outcomes": ["success", "failure", "cancel"],
+      "description": "Launch a two-role Workspace through UI, retain the healthy role through a controlled navigation failure, recover the failed role, and cancel a gated relaunch from Game Windows."
+    },
+    {
+      "id": "APP-QUIT-GUARD-002",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/full-desktop.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["cancel", "restart"],
+      "description": "Inject an application quit request while an editor is dirty, keep editing once, discard through UI, and verify no unsaved entity appears after restart."
     },
     {
       "id": "SETTINGS-TRANSFER-002",
@@ -286,7 +320,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["cancel"],
-      "description": "Drive tray, application menu, native shortcuts, and unsaved-changes quit confirmation through OS automation."
+      "description": "Drive tray, application menu, and native shortcuts through OS automation, including the native entry into the separately covered quit guard."
     }
   ]
 }

@@ -18,7 +18,10 @@ const specByPhase: Record<string, string> = {
   "crash-restart": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "extended-native": "e2e/desktop/specs/extended-native.e2e.ts",
   "force-terminate": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
-  "full-ui": "e2e/desktop/specs/full-desktop.e2e.ts",
+  "p1-final-restart": "e2e/desktop/specs/full-desktop.e2e.ts",
+  "p1-guard-cleanup": "e2e/desktop/specs/full-desktop.e2e.ts",
+  "p1-mutations": "e2e/desktop/specs/full-desktop.e2e.ts",
+  "p1-workspace-recovery": "e2e/desktop/specs/workspace-recovery.e2e.ts",
   restart: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   seed: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "smoke-restart": "e2e/desktop/specs/app-journeys.e2e.ts",
@@ -63,6 +66,9 @@ export const config = {
   waitforTimeout: 10_000,
   mochaOpts: {
     timeout: 8 * 60_000
+  },
+  before: async (): Promise<void> => {
+    await browser.setTimeout({ script: 55_000 });
   },
   afterTest: async (
     test: { title: string },

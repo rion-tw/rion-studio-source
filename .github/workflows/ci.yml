@@ -239,7 +239,7 @@ jobs:
         if: github.event_name != 'pull_request'
         id: desktop_e2e
         continue-on-error: true
-        timeout-minutes: 30
+        timeout-minutes: 45
         run: pnpm run test:e2e:desktop:full
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts

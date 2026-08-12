@@ -10,6 +10,7 @@ let activePort = port;
 
 const counters = new Map();
 const gates = new Map();
+const navigationFailures = new Map();
 
 function roleCounters(roleId) {
   const current = counters.get(roleId) ?? {
@@ -156,6 +157,45 @@ function notifyGateObservers(roleId, gate) {
   gate.observers.clear();
 }
 
+function navigationFailureState(roleId) {
+  const current = navigationFailures.get(roleId) ?? {
+    attemptObservers: new Set(),
+    enabled: false,
+    failedAttempts: 0,
+    recoveryObservers: new Set(),
+    recoveryWaiters: new Set()
+  };
+  navigationFailures.set(roleId, current);
+  return current;
+}
+
+function notifyNavigationFailureAttemptObservers(roleId, failure) {
+  if (failure.failedAttempts === 0) return;
+  for (const response of failure.attemptObservers) {
+    json(response, 200, { failedAttempts: failure.failedAttempts, roleId });
+  }
+  failure.attemptObservers.clear();
+}
+
+function notifyNavigationFailureRecoveryObservers(roleId, failure) {
+  if (failure.recoveryWaiters.size === 0) return;
+  for (const response of failure.recoveryObservers) {
+    json(response, 200, { roleId, waiterCount: failure.recoveryWaiters.size });
+  }
+  failure.recoveryObservers.clear();
+}
+
+function releaseNavigationFailure(roleId) {
+  const failure = navigationFailureState(roleId);
+  failure.enabled = false;
+  for (const response of failure.recoveryWaiters) sendRolePage(response, roleId);
+  failure.recoveryWaiters.clear();
+  for (const response of failure.recoveryObservers) {
+    json(response, 200, { released: true, roleId, waiterCount: 0 });
+  }
+  failure.recoveryObservers.clear();
+}
+
 const server = createServer(async (request, response) => {
   if (!localRequest(request)) {
     json(response, 403, { error: "localhost-only fixture" });
@@ -182,6 +222,18 @@ const server = createServer(async (request, response) => {
       ));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/navigation-failures") {
+      json(response, 200, Object.fromEntries(
+        [...navigationFailures.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([roleId, failure]) => [roleId, {
+            enabled: failure.enabled,
+            failedAttempts: failure.failedAttempts,
+            recoveryWaiterCount: failure.recoveryWaiters.size
+          }])
+      ));
+      return;
+    }
     const waiterMatch = request.method === "GET"
       && url.pathname.match(/^\/api\/gates\/([a-z0-9-]+)\/waiting$/);
     if (waiterMatch) {
@@ -195,10 +247,38 @@ const server = createServer(async (request, response) => {
       response.once("close", () => gate.observers.delete(response));
       return;
     }
+    const failedAttemptMatch = request.method === "GET"
+      && url.pathname.match(/^\/api\/navigation-failures\/([a-z0-9-]+)\/attempted$/);
+    if (failedAttemptMatch) {
+      const roleId = failedAttemptMatch[1];
+      const failure = navigationFailureState(roleId);
+      if (failure.failedAttempts > 0) {
+        json(response, 200, { failedAttempts: failure.failedAttempts, roleId });
+        return;
+      }
+      failure.attemptObservers.add(response);
+      response.once("close", () => failure.attemptObservers.delete(response));
+      return;
+    }
+    const recoveryWaiterMatch = request.method === "GET"
+      && url.pathname.match(/^\/api\/navigation-failures\/([a-z0-9-]+)\/recovery-waiting$/);
+    if (recoveryWaiterMatch) {
+      const roleId = recoveryWaiterMatch[1];
+      const failure = navigationFailureState(roleId);
+      if (failure.recoveryWaiters.size > 0) {
+        json(response, 200, { roleId, waiterCount: failure.recoveryWaiters.size });
+        return;
+      }
+      failure.recoveryObservers.add(response);
+      response.once("close", () => failure.recoveryObservers.delete(response));
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/reset") {
       counters.clear();
       for (const roleId of gates.keys()) releaseGate(roleId);
       gates.clear();
+      for (const roleId of navigationFailures.keys()) releaseNavigationFailure(roleId);
+      navigationFailures.clear();
       json(response, 200, { ok: true });
       return;
     }
@@ -223,6 +303,31 @@ const server = createServer(async (request, response) => {
       json(response, 200, { blocked: false, roleId: body.roleId });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/navigation-failure") {
+      const body = await requestBody(request);
+      if (
+        typeof body.roleId !== "string"
+        || !/^[a-z0-9-]+$/.test(body.roleId)
+        || typeof body.enabled !== "boolean"
+      ) {
+        json(response, 400, { error: "invalid fixture navigation failure" });
+        return;
+      }
+      const failure = navigationFailureState(body.roleId);
+      if (body.enabled) {
+        releaseNavigationFailure(body.roleId);
+        failure.enabled = true;
+        failure.failedAttempts = 0;
+      } else {
+        releaseNavigationFailure(body.roleId);
+      }
+      json(response, 200, {
+        enabled: failure.enabled,
+        failedAttempts: failure.failedAttempts,
+        roleId: body.roleId
+      });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/event") {
       const body = await requestBody(request);
       if (typeof body.roleId !== "string" || typeof body.kind !== "string") {
@@ -238,6 +343,19 @@ const server = createServer(async (request, response) => {
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
     if (roleMatch) {
       const roleId = roleMatch[1];
+      const failure = navigationFailureState(roleId);
+      if (failure.enabled) {
+        if (failure.failedAttempts === 0) {
+          failure.failedAttempts += 1;
+          notifyNavigationFailureAttemptObservers(roleId, failure);
+          response.destroy();
+          return;
+        }
+        failure.recoveryWaiters.add(response);
+        notifyNavigationFailureRecoveryObservers(roleId, failure);
+        response.once("close", () => failure.recoveryWaiters.delete(response));
+        return;
+      }
       const gate = gateState(roleId);
       if (!gate.blocked) {
         sendRolePage(response, roleId);

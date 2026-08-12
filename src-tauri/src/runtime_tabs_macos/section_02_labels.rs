@@ -575,14 +575,26 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
         return;
     }
     if action_type == "activate" {
-        if let Some(tab_id) = tab_id.as_deref()
-            && let Err(error) =
-                crate::activate_runtime_tab_on_demand(&app, &state, tab_id, true).await
-        {
-            crate::reveal_shell_error(
-                &app,
-                crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", error.message),
+        if let Some(tab_id) = tab_id.as_deref() {
+            let result = crate::activate_runtime_tab_on_demand(&app, &state, tab_id, true).await;
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "runtime-tab-activation-terminal",
+                host_window_id.as_deref(),
+                None,
+                None,
+                serde_json::json!({
+                    "error": result.as_ref().err().map(|error| &error.message),
+                    "status": if result.is_ok() { "completed" } else { "failed" },
+                    "tabId": tab_id,
+                }),
             );
+            if let Err(error) = result {
+                crate::reveal_shell_error(
+                    &app,
+                    crate::shell_error("TAURI_RUNTIME_TAB_MENU_FAILED", error.message),
+                );
+            }
         }
         return;
     }

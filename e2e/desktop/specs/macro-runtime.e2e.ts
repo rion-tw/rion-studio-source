@@ -8,6 +8,7 @@ import {
   requireEnvironment,
   runtimeUiAction,
   shutdown,
+  waitEvent,
   windowSnapshot
 } from "../support/control";
 import {
@@ -185,6 +186,28 @@ async function shutdownAndWaitForFlush(): Promise<void> {
   expect((event.details as { complete?: boolean }).complete).toBe(true);
 }
 
+async function activateVisibleRuntimeTab(input: {
+  tabId: string;
+  windowGeneration: number;
+  windowId: string;
+}): Promise<void> {
+  const controlCursor = (await probe()).latestSequence;
+  await runtimeUiAction(input.windowId, {
+    action: "activateTab",
+    tabId: input.tabId,
+    windowGeneration: input.windowGeneration
+  });
+  const terminal = await waitEvent({
+    afterSequence: controlCursor,
+    kind: "runtime-tab-activation-terminal",
+    windowId: input.windowId
+  });
+  const details = terminal.details as { error?: string; status?: string; tabId?: string };
+  expect(details).toMatchObject({ status: "completed", tabId: input.tabId });
+  expect(details.error ?? null).toBeNull();
+  expect((await windowSnapshot(input.windowId)).kernel?.selectedTabId).toBe(input.tabId);
+}
+
 async function nativeEffectPhase(): Promise<void> {
   await bootstrap();
   const scenario = await createScenario({
@@ -233,15 +256,9 @@ async function backgroundTabPhase(): Promise<void> {
   const tabA = await launchRole(scenario.roles[0], "new-window");
   const tabB = await launchRole(scenario.roles[1], { windowId: tabA.windowId });
   const live = await windowSnapshot(tabA.windowId);
-  const activateCursor = await rendererEventCursor();
-  await runtimeUiAction(tabA.windowId, {
-    action: "activateTab",
+  await activateVisibleRuntimeTab({
     tabId: tabA.id,
-    windowGeneration: live.windowGeneration
-  });
-  await waitForRuntimeProjection({
-    activeTabId: tabA.id,
-    afterSequence: activateCursor,
+    windowGeneration: live.windowGeneration,
     windowId: tabA.windowId
   });
   const macroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
@@ -251,15 +268,9 @@ async function backgroundTabPhase(): Promise<void> {
     minimumIteration: 2,
     roleIds: [scenario.roles[0].id]
   });
-  const switchCursor = await rendererEventCursor();
-  await runtimeUiAction(tabA.windowId, {
-    action: "activateTab",
+  await activateVisibleRuntimeTab({
     tabId: tabB.id,
-    windowGeneration: live.windowGeneration
-  });
-  await waitForRuntimeProjection({
-    activeTabId: tabB.id,
-    afterSequence: switchCursor,
+    windowGeneration: live.windowGeneration,
     windowId: tabA.windowId
   });
   const backgroundCursor = await fixtureCursor();

@@ -17,4 +17,19 @@ describe("desktop E2E build isolation", () => {
     expect(control).toContain("#[cfg(not(debug_assertions))]");
     expect(control).toContain("compile_error!");
   });
+
+  it("grants native runtime evidence commands only in the desktop E2E capability", async () => {
+    const config = JSON.parse(await readFile("src-tauri/tauri.e2e.conf.json", "utf8"));
+    const capabilities = config.app.security.capabilities as Array<{
+      identifier?: string;
+      permissions?: string[];
+    }>;
+    const debug = capabilities.find((capability) =>
+      capability.identifier === "desktop-e2e-debug-only"
+    );
+    expect(debug?.permissions).toEqual(expect.arrayContaining([
+      "allow-desktop-e2e-input-diagnostics",
+      "allow-desktop-e2e-runtime-ui-action"
+    ]));
+  });
 });

@@ -1,5 +1,9 @@
 #[derive(Clone, Debug, Deserialize)]
-#[serde(tag = "action", rename_all = "camelCase")]
+#[serde(
+    tag = "action",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub(crate) enum DesktopE2eWindowControlRequest {
     Close,
     Minimize,

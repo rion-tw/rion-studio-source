@@ -4,7 +4,7 @@ import type { RionStudioApi } from "../../../src/shared/api";
 import type { MacroInputDiagnosticsRecord } from "../../../src/shared/generated";
 import {
   detachTerminatedWebDriverSession,
-  type WebDriverSession
+  type WebDriverGlobalRegistry
 } from "./session";
 
 export interface DesktopE2eEvent {
@@ -243,7 +243,10 @@ export async function shutdown(confirm = false): Promise<void> {
 }
 
 export function detachTerminatedApplicationSession(): void {
-  detachTerminatedWebDriverSession(browser as unknown as WebDriverSession);
+  // WebdriverIO stores the real browser object behind the @wdio/globals proxy.
+  const registry = globalThis._wdioGlobals as WebDriverGlobalRegistry | undefined;
+  if (!registry) throw new Error("WDIO global registry is unavailable");
+  detachTerminatedWebDriverSession(registry);
 }
 
 export function requireEnvironment(name: string): string {

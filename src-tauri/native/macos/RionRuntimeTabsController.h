@@ -52,6 +52,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)setRevealLocked:(BOOL)locked;
 - (void)setWindowName:(nullable NSString *)windowName;
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
+- (BOOL)performAccessibilityPressForTabIdentifier:(NSString *)tabIdentifier;
 - (void)hideFailureStatus;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name
@@ -130,6 +131,8 @@ void rion_runtime_tabs_set_window_name(
     void * _Nullable controller, const char * _Nullable windowName);
 void rion_runtime_tabs_set_active(
     void * _Nullable controller, const char * _Nullable tabIdentifier);
+bool rion_runtime_tabs_accessibility_press(
+    void * _Nullable controller, const char *tabIdentifier);
 void rion_runtime_tabs_hide_failure_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(
     void * _Nullable controller, const char *tabIdentifier,

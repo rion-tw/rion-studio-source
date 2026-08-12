@@ -9,8 +9,13 @@ if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))) {
 let activePort = port;
 
 const counters = new Map();
+const eventWaiters = new Set();
+const events = [];
 const gates = new Map();
 const navigationFailures = new Map();
+let nextEventSequence = 1;
+
+const EVENT_CAPACITY = 4_096;
 
 function roleCounters(roleId) {
   const current = counters.get(roleId) ?? {
@@ -19,11 +24,57 @@ function roleCounters(roleId) {
     focus: 0,
     hidden: 0,
     keydown: 0,
+    keyup: 0,
     lastEvent: "boot",
+    lastEventSequence: 0,
     visible: 0
   };
   counters.set(roleId, current);
   return current;
+}
+
+function fixtureEventMatches(event, request) {
+  return event.sequence > request.afterSequence
+    && (!request.roleId || event.roleId === request.roleId)
+    && (!request.kind || event.kind === request.kind);
+}
+
+function finishEventWaiter(waiter, event) {
+  eventWaiters.delete(waiter);
+  json(waiter.response, 200, {
+    event,
+    latestSequence: nextEventSequence - 1
+  });
+}
+
+function notifyEventWaiters(event) {
+  for (const waiter of [...eventWaiters]) {
+    if (fixtureEventMatches(event, waiter)) finishEventWaiter(waiter, event);
+  }
+}
+
+function recordFixtureEvent(input) {
+  const event = {
+    code: typeof input.code === "string" ? input.code : undefined,
+    coordinates: input.coordinates,
+    hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
+    key: typeof input.key === "string" ? input.key : undefined,
+    kind: input.kind,
+    modifiers: input.modifiers,
+    roleId: input.roleId,
+    sequence: nextEventSequence++,
+    session: input.session,
+    targetId: typeof input.targetId === "string" ? input.targetId : undefined,
+    timestamp: new Date().toISOString()
+  };
+  events.push(event);
+  while (events.length > EVENT_CAPACITY) events.shift();
+  const state = roleCounters(input.roleId);
+  if (Object.hasOwn(state, input.kind)) state[input.kind] += 1;
+  state.lastEvent = input.kind;
+  state.lastEventSequence = event.sequence;
+  notifyEventWaiters(event);
+  return { event, state };
 }
 
 function json(response, status, value) {
@@ -52,8 +103,10 @@ async function requestBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
-function rolePage(roleId) {
+function rolePage(roleId, sessionMode, sessionMarker) {
   const safeRoleId = JSON.stringify(roleId).replaceAll("<", "\\u003c");
+  const safeSessionMarker = JSON.stringify(sessionMarker).replaceAll("<", "\\u003c");
+  const safeSessionMode = JSON.stringify(sessionMode).replaceAll("<", "\\u003c");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -90,34 +143,54 @@ function rolePage(roleId) {
   <script>
     const roleId = ${safeRoleId};
     const counts = { click: 0, keydown: 0, focus: 0, visibility: 0 };
+    const sessionKey = "rion-e2e-session";
+    const sessionMarker = ${safeSessionMarker};
+    const sessionMode = ${safeSessionMode};
     document.querySelector("#role-id").textContent = roleId;
     const render = (kind) => {
       for (const [key, value] of Object.entries(counts)) document.querySelector("#" + key).textContent = String(value);
       document.querySelector("#last-event").textContent = kind;
     };
-    const record = (kind) => {
+    const record = (kind, details = {}) => {
       if (kind in counts) counts[kind] += 1;
       render(kind);
       fetch("/api/event", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ roleId, kind }),
+        body: JSON.stringify({ roleId, kind, ...details }),
         keepalive: true
       }).catch(() => {});
     };
-    document.querySelector("#qa-target").addEventListener("click", () => record("click"));
-    addEventListener("keydown", () => record("keydown"), true);
+    document.querySelector("#qa-target").addEventListener("click", (event) => record("click", {
+      coordinates: { x: event.clientX, y: event.clientY },
+      targetId: event.currentTarget.id
+    }));
+    const keyboardDetails = (event) => ({
+      code: event.code,
+      key: event.key,
+      modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey }
+    });
+    addEventListener("keydown", (event) => record("keydown", keyboardDetails(event)), true);
+    addEventListener("keyup", (event) => record("keyup", keyboardDetails(event)), true);
     addEventListener("focus", () => record("focus"));
     addEventListener("blur", () => record("blur"));
-    document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility"));
-    record(document.hidden ? "hidden" : "visibility");
+    document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));
+    const cookieValue = () => document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(sessionKey + "="))?.slice(sessionKey.length + 1) ?? null;
+    const before = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+    if (sessionMode === "seed") {
+      localStorage.setItem(sessionKey, sessionMarker);
+      document.cookie = sessionKey + "=" + encodeURIComponent(sessionMarker) + "; Path=/; SameSite=Strict";
+    }
+    const after = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+    record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
+    record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden });
   </script>
 </body>
 </html>`;
 }
 
-function sendRolePage(response, roleId) {
-  const body = rolePage(roleId);
+function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker = roleId) {
+  const body = rolePage(roleId, sessionMode, sessionMarker);
   response.writeHead(200, {
     "cache-control": "no-store",
     "content-length": Buffer.byteLength(body),
@@ -211,6 +284,32 @@ const server = createServer(async (request, response) => {
       json(response, 200, Object.fromEntries([...counters.entries()].sort()));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/events") {
+      const afterSequence = Number(url.searchParams.get("afterSequence") ?? 0);
+      const kind = url.searchParams.get("kind") ?? undefined;
+      const roleId = url.searchParams.get("roleId") ?? undefined;
+      if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+        json(response, 400, { error: "afterSequence must be a non-negative safe integer" });
+        return;
+      }
+      if (kind && !/^[a-z][a-z-]*$/.test(kind)) {
+        json(response, 400, { error: "invalid fixture event kind" });
+        return;
+      }
+      if (roleId && !/^[a-z0-9-]+$/.test(roleId)) {
+        json(response, 400, { error: "invalid fixture role" });
+        return;
+      }
+      const waitRequest = { afterSequence, kind, response, roleId };
+      const existing = events.find((event) => fixtureEventMatches(event, waitRequest));
+      if (existing) {
+        finishEventWaiter(waitRequest, existing);
+        return;
+      }
+      eventWaiters.add(waitRequest);
+      response.once("close", () => eventWaiters.delete(waitRequest));
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/gates") {
       json(response, 200, Object.fromEntries(
         [...gates.entries()]
@@ -275,6 +374,7 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/reset") {
       counters.clear();
+      events.length = 0;
       for (const roleId of gates.keys()) releaseGate(roleId);
       gates.clear();
       for (const roleId of navigationFailures.keys()) releaseNavigationFailure(roleId);
@@ -330,14 +430,17 @@ const server = createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/event") {
       const body = await requestBody(request);
-      if (typeof body.roleId !== "string" || typeof body.kind !== "string") {
+      if (
+        typeof body.roleId !== "string"
+        || !/^[a-z0-9-]+$/.test(body.roleId)
+        || typeof body.kind !== "string"
+        || !/^[a-z][a-z-]*$/.test(body.kind)
+      ) {
         json(response, 400, { error: "invalid fixture event" });
         return;
       }
-      const state = roleCounters(body.roleId);
-      if (Object.hasOwn(state, body.kind)) state[body.kind] += 1;
-      state.lastEvent = body.kind;
-      json(response, 200, state);
+      const { event, state } = recordFixtureEvent(body);
+      json(response, 200, { event, state });
       return;
     }
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
@@ -358,7 +461,13 @@ const server = createServer(async (request, response) => {
       }
       const gate = gateState(roleId);
       if (!gate.blocked) {
-        sendRolePage(response, roleId);
+        const sessionMode = url.searchParams.get("mode") === "seed" ? "seed" : "observe";
+        const marker = url.searchParams.get("marker") ?? roleId;
+        if (!/^[a-z0-9-]{1,80}$/.test(marker)) {
+          json(response, 400, { error: "invalid fixture session marker" });
+          return;
+        }
+        sendRolePage(response, roleId, sessionMode, marker);
         return;
       }
       gate.waiters.add(response);

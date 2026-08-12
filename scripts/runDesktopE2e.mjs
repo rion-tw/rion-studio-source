@@ -25,6 +25,13 @@ const phases = coverageManifest.profiles?.[profile]?.phases;
 if (!phases) {
   throw new Error(`Unknown desktop E2E profile: ${profile}. Expected smoke, full, or extended.`);
 }
+const journeyIdsByPhase = new Map();
+for (const journey of coverageManifest.journeys ?? []) {
+  if (!journey.phase || journey.profile !== profile) continue;
+  const current = journeyIdsByPhase.get(journey.phase) ?? [];
+  current.push(journey.id);
+  journeyIdsByPhase.set(journey.phase, current);
+}
 const checkoutCommit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8"
@@ -412,6 +419,7 @@ const report = {
   artifactRoot,
   binary,
   commit: checkoutCommit,
+  journeys: [],
   phases: [],
   profile,
   requestedCommit,
@@ -443,6 +451,7 @@ try {
         RION_STUDIO_E2E_APP_BINARY: binary,
         RION_STUDIO_E2E_ARTIFACT_DIR: phaseDir,
         RION_STUDIO_E2E_FIXTURE_ORIGIN: fixture.origin,
+        RION_STUDIO_E2E_JOURNEY_IDS: JSON.stringify(journeyIdsByPhase.get(phase) ?? []),
         RION_STUDIO_E2E_PHASE: phase,
         RION_STUDIO_E2E_SESSION_TOKEN: token,
         RION_STUDIO_USER_DATA_DIR: userDataDir
@@ -458,6 +467,22 @@ try {
       blocked,
       result.code === 0 || Boolean(forcedTermination)
     );
+    const phaseJourneyIds = journeyIdsByPhase.get(phase) ?? [];
+    let journeyVerdict;
+    try {
+      journeyVerdict = JSON.parse(
+        await readFile(resolve(phaseDir, "journey-verdict.json"), "utf8")
+      );
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    for (const journeyId of phaseJourneyIds) {
+      report.journeys.push({
+        id: journeyId,
+        phase,
+        status: blocked ? "BLOCKED" : journeyVerdict?.status ?? (result.code === 0 ? "PASS" : "FAIL")
+      });
+    }
     report.phases.push({
       blockedReason: blocked,
       exitCode: result.code,

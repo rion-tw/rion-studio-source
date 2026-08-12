@@ -81,6 +81,15 @@ export async function validateDesktopE2eCoverage(rootDirectory) {
     if (!profiles[journey.profile]) failures.push(`${label}: unknown profile ${journey.profile}`);
     if (!KNOWN_KINDS.has(journey.kind)) failures.push(`${label}: invalid kind`);
     if (!KNOWN_RISKS.has(journey.risk)) failures.push(`${label}: invalid risk`);
+    if (journey.phase !== undefined) {
+      if (typeof journey.phase !== "string" || !profiles[journey.profile]?.phases?.includes(journey.phase)) {
+        failures.push(`${label}: phase is not included by profile ${journey.profile}`);
+      } else {
+        const hasMapping = wdioConfig.includes(`"${journey.phase}"`)
+          || wdioConfig.includes(`  ${journey.phase}:`);
+        if (!hasMapping) failures.push(`${label}: WDIO does not map phase ${journey.phase}`);
+      }
+    }
     if (!Array.isArray(journey.platforms) || journey.platforms.some((item) => !KNOWN_PLATFORMS.has(item))) {
       failures.push(`${label}: invalid platforms`);
     } else if (new Set(journey.platforms).size !== journey.platforms.length) {

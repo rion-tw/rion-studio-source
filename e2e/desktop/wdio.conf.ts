@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browser } from "@wdio/globals";
 
@@ -14,6 +14,7 @@ const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
 await mkdir(resolve(artifactDir, "screenshots"), { recursive: true });
 
 const phase = required("RION_STUDIO_E2E_PHASE");
+const journeyIds = JSON.parse(process.env.RION_STUDIO_E2E_JOURNEY_IDS ?? "[]") as string[];
 const specByPhase: Record<string, string> = {
   "crash-restart": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "extended-native": "e2e/desktop/specs/extended-native.e2e.ts",
@@ -75,6 +76,14 @@ export const config = {
     _context: unknown,
     result: { passed: boolean }
   ): Promise<void> => {
+    if (journeyIds.length > 0) {
+      await writeFile(resolve(artifactDir, "journey-verdict.json"), `${JSON.stringify({
+        journeyIds,
+        phase,
+        status: result.passed ? "PASS" : "FAIL",
+        testTitle: test.title
+      }, null, 2)}\n`);
+    }
     if (result.passed) return;
     const safeTitle = test.title.replaceAll(/[^a-z0-9]+/giu, "-").replaceAll(/^-|-$/gu, "");
     await browser.saveScreenshot(resolve(artifactDir, "screenshots", `${safeTitle}.png`));

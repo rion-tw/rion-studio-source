@@ -215,6 +215,18 @@ void rion_runtime_tabs_set_active(
   }
 }
 
+bool rion_runtime_tabs_accessibility_press(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityPressForTabIdentifier:tabIdentifier];
+  }
+}
+
 void rion_runtime_tabs_hide_failure_status(void * _Nullable rawController) {
   @autoreleasepool {
     if (!rawController) return;

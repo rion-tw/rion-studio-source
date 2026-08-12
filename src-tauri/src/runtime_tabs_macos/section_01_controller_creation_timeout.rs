@@ -113,6 +113,11 @@ unsafe extern "C" {
         focus_window: bool,
     ) -> bool;
     fn rion_runtime_tabs_set_active(controller: *mut c_void, tab_id: *const c_char);
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_accessibility_press(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+    ) -> bool;
     fn rion_runtime_tabs_hide_failure_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
@@ -461,6 +466,19 @@ impl MacRuntimeTabsController {
             }
         })
         .map_err(|error| error.to_string())
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub fn desktop_e2e_accessibility_press(&self, tab_id: &str) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        run_on_appkit_tracking_main(move || unsafe {
+            rion_runtime_tabs_accessibility_press(inner.raw, tab_id.as_ptr())
+        })?
+        .then_some(())
+        .ok_or_else(|| {
+            "The visible AppKit runtime tab did not accept its accessibility press.".to_owned()
+        })
     }
 
     pub fn hide_failure_status(&self) {

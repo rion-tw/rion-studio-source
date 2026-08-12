@@ -138,6 +138,7 @@ impl SystemRuntimeExecutor {
             self.desktop_e2e_window_snapshot(window_id)
         }
     }
+
 }
 
 fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> &'static str {

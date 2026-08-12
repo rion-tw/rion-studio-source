@@ -42,6 +42,51 @@ afterEach(async () => {
 });
 
 describe("runtime authority fixture launch gates", () => {
+  it("assigns monotonic event sequences and resolves filtered event waits", async () => {
+    const { origin } = await startFixture();
+    const waiting = fetch(
+      `${origin}/api/events?afterSequence=0&roleId=role-b&kind=keyup`
+    );
+    const first = await post(origin, "/api/event", {
+      code: "KeyA",
+      key: "a",
+      kind: "keydown",
+      modifiers: { alt: false, control: false, meta: false, shift: false },
+      roleId: "role-a"
+    });
+    expect((await first.json()).event.sequence).toBe(1);
+    const second = await post(origin, "/api/event", {
+      code: "KeyB",
+      key: "b",
+      kind: "keyup",
+      modifiers: { alt: false, control: true, meta: false, shift: false },
+      roleId: "role-b"
+    });
+    expect((await second.json()).event.sequence).toBe(2);
+    const waited = await (await waiting).json();
+    expect(waited).toMatchObject({
+      event: {
+        code: "KeyB",
+        kind: "keyup",
+        roleId: "role-b",
+        sequence: 2
+      },
+      latestSequence: 2
+    });
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": { keydown: 1, lastEventSequence: 1 },
+      "role-b": { keyup: 1, lastEventSequence: 2 }
+    });
+  });
+
+  it("keeps event sequence monotonic when fixture state is reset", async () => {
+    const { origin } = await startFixture();
+    await post(origin, "/api/event", { kind: "focus", roleId: "role-a" });
+    await post(origin, "/api/reset", {});
+    const recorded = await post(origin, "/api/event", { kind: "blur", roleId: "role-a" });
+    expect((await recorded.json()).event.sequence).toBe(2);
+  });
+
   it("holds navigation until an explicit release event", async () => {
     const { origin } = await startFixture();
     expect(await (await fetch(`${origin}/health`)).json()).toEqual({

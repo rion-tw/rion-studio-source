@@ -338,6 +338,36 @@ pub(crate) fn desktop_e2e_control_window(
 }
 
 #[tauri::command]
+pub(crate) fn desktop_e2e_runtime_ui_action(
+    control: State<'_, Arc<DesktopE2eControl>>,
+    state: State<'_, crate::CoreState>,
+    token: String,
+    window_id: String,
+    request: crate::system_runtime::DesktopE2eRuntimeUiActionRequest,
+) -> Result<Value, String> {
+    control.authenticate(&token)?;
+    state
+        .runtime
+        .desktop_e2e_runtime_ui_action(&window_id, request)
+}
+
+#[tauri::command]
+pub(crate) fn desktop_e2e_input_diagnostics(
+    control: State<'_, Arc<DesktopE2eControl>>,
+    state: State<'_, crate::CoreState>,
+    token: String,
+) -> Result<Value, String> {
+    control.authenticate(&token)?;
+    serde_json::to_value(
+        state
+            .core
+            .macro_input_diagnostics()
+            .map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub(crate) fn desktop_e2e_shutdown(
     app: AppHandle,
     control: State<'_, Arc<DesktopE2eControl>>,

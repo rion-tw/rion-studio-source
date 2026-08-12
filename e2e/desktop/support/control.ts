@@ -1,6 +1,7 @@
 import { browser } from "@wdio/globals";
 import type {} from "@wdio/tauri-service";
 import type { RionStudioApi } from "../../../src/shared/api";
+import type { MacroInputDiagnosticsRecord } from "../../../src/shared/generated";
 
 export interface DesktopE2eEvent {
   details: unknown;
@@ -87,6 +88,11 @@ export type WindowControlRequest =
       y: number;
     }
   | { action: "setPresentation"; presentation: "fullscreen" | "maximized" | "normal" };
+
+export type RuntimeUiActionRequest =
+  | { action: "activateTab"; tabId: string; windowGeneration: number }
+  | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
+  | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number };
 
 interface RendererCallResult {
   error?: string;
@@ -188,6 +194,36 @@ export async function controlWindow(
     request
   );
   return result as unknown as DesktopE2eWindowSnapshot | { submitted: true };
+}
+
+export async function runtimeUiAction(
+  windowId: string,
+  request: RuntimeUiActionRequest
+): Promise<{ action: string; submitted: true; windowGeneration: number; windowId: string }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id, actionRequest) => core.invoke("desktop_e2e_runtime_ui_action", {
+      request: actionRequest,
+      token,
+      windowId: id
+    }),
+    sessionToken(),
+    windowId,
+    request
+  );
+  return result as unknown as {
+    action: string;
+    submitted: true;
+    windowGeneration: number;
+    windowId: string;
+  };
+}
+
+export async function inputDiagnostics(): Promise<MacroInputDiagnosticsRecord> {
+  const result = await browser.tauri.execute(
+    ({ core }, token) => core.invoke("desktop_e2e_input_diagnostics", { token }),
+    sessionToken()
+  );
+  return result as unknown as MacroInputDiagnosticsRecord;
 }
 
 export async function shutdown(confirm = false): Promise<void> {

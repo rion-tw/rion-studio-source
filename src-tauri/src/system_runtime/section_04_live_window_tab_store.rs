@@ -271,7 +271,19 @@ impl PresentationRegistry {
         after.select(tab_id.map(str::to_owned), 0);
         let receipt = self.commit_live_window_record(source, window_id, &after)?;
         if receipt.status == LiveTopologyCommitStatus::Superseded {
-            return Err("The tab selection was superseded by newer live topology.".to_owned());
+            let current = self
+                .existing(window_id)
+                .ok_or_else(|| "The live runtime window is unavailable.".to_owned())?;
+            let request_is_authoritative = current.selected_tab_id.as_deref() == tab_id
+                && tab_id.is_none_or(|tab_id| current.contains_tab(tab_id));
+            if !request_is_authoritative {
+                return Err("The tab selection was superseded by newer live topology.".to_owned());
+            }
+            // The exact superseding membership event already carries this selection.
+            // Complete from that authoritative revision without retrying a mutation
+            // that could overwrite a later visible tab action.
+            let current_revision = current.revision;
+            return Ok((before.record, current.record, current_revision));
         }
         after.revision = receipt.revision;
         after.ui_sequence = before.ui_sequence.saturating_add(1).max(1);

@@ -91,6 +91,21 @@
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn explicit_normal_mode_consumes_minimized_and_restore_to_maximized_states() {
+        use windows::Win32::UI::WindowsAndMessaging::SW_RESTORE;
+
+        let commands =
+            crate::system_runtime::platform::windows::native_maximized_transition_commands(
+                true, false, false,
+            );
+        assert_eq!(
+            commands.iter().map(|command| command.0).collect::<Vec<_>>(),
+            vec![SW_RESTORE.0, SW_RESTORE.0]
+        );
+    }
+
     #[test]
     fn initial_placement_fence_supplies_mode_until_native_truth_matches() {
         for (requested, fence, expected) in [

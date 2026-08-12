@@ -51,18 +51,16 @@ impl SystemRuntimeExecutor {
                     .collect::<Vec<_>>()
             })
             .map_err(|_| "System runtime state lock poisoned.".to_owned())?;
-        let mut session = self
-            .core
-            .runtime_restore_session()
-            .map_err(|error| error.to_string())?;
-        prepare_restore_session_for_persist(
-            &mut session,
-            clean_exit,
-            live_window_ids,
-            self.last_native_focused_live_window_id(),
-        );
+        let observed_last_focused_window_id = self.last_native_focused_live_window_id();
         self.core
-            .replace_runtime_restore_session(session)
+            .update_runtime_restore_session(|session| {
+                prepare_restore_session_for_persist(
+                    session,
+                    clean_exit,
+                    live_window_ids,
+                    observed_last_focused_window_id,
+                );
+            })
             .map(|_| ())
             .map_err(|error| error.to_string())
     }

@@ -33,6 +33,24 @@ impl AppCore {
         Ok(session)
     }
 
+    pub fn update_runtime_restore_session(
+        &self,
+        update: impl FnOnce(&mut crate::model::RuntimeRestoreSessionRecord),
+    ) -> CoreResult<crate::model::RuntimeRestoreSessionRecord> {
+        let _state_guard = self.state_mutation_guard()?;
+        let mut session = self
+            .read_optional_scalar_state::<crate::model::RuntimeRestoreSessionRecord>(
+                "runtimeRestoreSession",
+            )?
+            .map(crate::domain::normalize_runtime_restore_session)
+            .transpose()?
+            .unwrap_or_else(crate::domain::default_runtime_restore_session);
+        update(&mut session);
+        let session = crate::domain::normalize_runtime_restore_session(session)?;
+        self.replace_scalar_state_under_guard("runtimeRestoreSession", session.clone())?;
+        Ok(session)
+    }
+
     pub fn app_snapshot(&self) -> CoreResult<crate::model::CoreAppSnapshotRecord> {
         let _state_guard = self.state_mutation_guard()?;
         let _authority_guard = self

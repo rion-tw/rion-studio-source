@@ -242,6 +242,12 @@ static void RionDispatchKeyEvent(NSResponder *responder, NSEvent *event,
   }
 }
 
+static void RionMarkMacroKeyEvent(NSEvent *event) {
+  objc_setAssociatedObject(
+      event, NSSelectorFromString(@"rionStudioMacroKeyEvent"), @YES,
+      OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 bool rion_wk_dispatch_key(void * _Nullable rawWebView,
                           const char * _Nullable rawCode,
                           bool keyDown, uint64_t rawFlags, bool repeat) {
@@ -279,6 +285,10 @@ bool rion_wk_dispatch_key(void * _Nullable rawWebView,
                                      isARepeat:repeat
                                        keyCode:virtualCode.unsignedShortValue];
     if (!event) return false;
+    // WebKit re-sends an unhandled keyDown through NSApp after the target page
+    // has seen it. Preserve the event identity so the TaoWindow boundary can
+    // consume that fallback instead of delivering it to another active role.
+    RionMarkMacroKeyEvent(event);
     // Send directly to this role's own WebKit responder. Background automation
     // must not become the window first responder or steal subsequent shortcuts
     // from the role the user selected.

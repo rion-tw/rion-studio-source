@@ -156,6 +156,13 @@ static void RionSafeTaoWindowSendEvent(id window, SEL selector,
                                        NSEvent *event) {
   @autoreleasepool {
     if (!window || !event) return;
+    // WebKit re-sends page-unhandled keyDown events through NSApp. Synthetic
+    // macro keys already reached their explicit WKWebView target, so consuming
+    // the marked fallback here prevents it from leaking to the active role.
+    if (objc_getAssociatedObject(
+            event, NSSelectorFromString(@"rionStudioMacroKeyEvent"))) {
+      return;
+    }
     @try {
       if (event.type == NSEventTypeLeftMouseDown &&
           [window isMovableByWindowBackground]) {

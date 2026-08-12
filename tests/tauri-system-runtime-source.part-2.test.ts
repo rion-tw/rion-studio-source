@@ -89,11 +89,15 @@ it("releases ordered launch admission before tracked native execution completes"
 });
 
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
-    const [runtime, shell, macInput, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
+    const [runtime, shell, macInput, runtimeTabs, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(
         new URL("../src-tauri/native/macos/RionWKWebViewInput.m", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/native/macos/RionRuntimeTabsController.mm", import.meta.url),
         "utf8"
       ),
       readFile(
@@ -678,11 +682,13 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(macInput).toContain("window.contentLayoutRect");
     expect(macInput).not.toContain("[window makeFirstResponder:webView]");
     expect(macInput).toContain("RionDispatchKeyEvent(webView, event, type, keyDown)");
+    expect(macInput).toContain("RionMarkMacroKeyEvent(event)");
     expect(macInput).not.toContain("RionWKContentView(");
     expect(macInput).not.toContain("RionKeyResponder(");
     expect(macInput).toContain("RionRestoreFirstResponder(");
     expect(macInput).toContain("(id<RionFirstResponderHost>)window");
     expect(macInput).toContain("rion_wk_background_input_focus_self_test");
+    expect(runtimeTabs).toContain("rionStudioMacroKeyEvent");
     expect(macInput).not.toContain("CGEventPost");
 
     expect(runtime).toContain("MACOS_KEY_DISPATCH_STATE");

@@ -165,9 +165,7 @@ async function cleanup(scenario: Scenario): Promise<void> {
   if (scenario.workspace) {
     await rendererCall("stopLaunchWorkspace", scenario.workspace.id).catch(() => undefined);
   }
-  await Promise.all(scenario.roles.map((role) =>
-    rendererCall("stopRole", role.id).catch(() => undefined)
-  ));
+  for (const role of scenario.roles) await rendererCall("stopRole", role.id);
   await rendererCall("deleteMacro", scenario.macro.id);
   if (scenario.workspace) await rendererCall("deleteLaunchWorkspace", scenario.workspace.id);
   for (const role of scenario.roles) await rendererCall("deleteRole", role.id);

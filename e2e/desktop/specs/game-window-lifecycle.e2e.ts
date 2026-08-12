@@ -83,10 +83,10 @@ async function acceptLegalAndEnableRestore(): Promise<void> {
   expect(checkboxes).toHaveLength(2);
   await checkboxes[0].click();
   await checkboxes[1].click();
-  const continueButton = await $("button=Agree and continue");
+  const continueButton = await $("[data-testid='legal-onboarding-continue']");
   await continueButton.click();
   await continueButton.waitForExist({ reverse: true, timeout: 15_000 });
-  const skip = await $("button=Set up later");
+  const skip = await $("[data-testid='onboarding-skip']");
   if (await skip.isExisting()) await skip.click();
 }
 

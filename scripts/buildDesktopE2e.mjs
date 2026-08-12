@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
+
+import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -8,7 +9,7 @@ const binary = resolve(root, "target", "debug", process.platform === "win32"
   ? "rion-tauri.exe"
   : "rion-tauri");
 
-const child = spawn(pnpm, [
+const child = spawnPlatformCommand(pnpm, [
   "exec",
   "tauri",
   "build",

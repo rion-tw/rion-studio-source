@@ -99,7 +99,14 @@ export function LegalOnboarding({
                 <LogOut size={15} />
                 {t("legal.onboarding.quit")}
               </Button>
-              <Button className="sm:min-w-40" type="button" size="lg" disabled={!canContinue} onClick={() => void onAccept()}>
+              <Button
+                className="sm:min-w-40"
+                data-testid="legal-onboarding-continue"
+                type="button"
+                size="lg"
+                disabled={!canContinue}
+                onClick={() => void onAccept()}
+              >
                 {isAccepting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
                 {t("legal.onboarding.continue")}
               </Button>

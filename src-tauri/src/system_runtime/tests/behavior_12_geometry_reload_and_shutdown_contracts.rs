@@ -312,6 +312,28 @@ fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
 
 #[cfg(windows)]
 #[test]
+fn empty_host_live_resize_plan_materializes_the_tab_strip() {
+    let plan = windows_empty_host_live_resize_plan(7, 11, 44.0, "tabs");
+    let bounds = windows_live_resize_resolve_bounds(&plan, 1_440, 1_080, 2.0).unwrap();
+
+    assert!(plan.roles.is_empty());
+    assert!(plan.dividers.is_empty());
+    assert_eq!(plan.generation, 7);
+    assert_eq!(plan.revision, 11);
+    assert_eq!(plan.tab_strip_label, "tabs");
+    assert_eq!(
+        bounds,
+        vec![WindowsLiveResizeBounds {
+            height: 88,
+            width: 1_440,
+            x: 0,
+            y: 0,
+        }]
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {
     for scale in [1.0, 1.25, 1.5, 2.0] {
         let physical_width = (1_601.0_f64 * scale).round() as u32;

@@ -89,6 +89,24 @@ fn resize_snapshot_tab_strip_height(metrics: WindowContentMetrics) -> f64 {
 }
 
 #[cfg(windows)]
+fn windows_empty_host_live_resize_plan(
+    generation: u64,
+    revision: u64,
+    tab_strip_height: f64,
+    tab_strip_label: &str,
+) -> WindowsLiveResizePlan {
+    WindowsLiveResizePlan {
+        dividers: Vec::new(),
+        gap: 0,
+        generation,
+        revision,
+        roles: Vec::new(),
+        tab_strip_height,
+        tab_strip_label: tab_strip_label.to_owned(),
+    }
+}
+
+#[cfg(windows)]
 fn apply_resize_layout_mutations(
     _window: &Window,
     mutations: Vec<NativeLayoutMutation>,
@@ -827,6 +845,18 @@ impl SystemRuntimeExecutor {
         drop(state);
         #[cfg(windows)]
         {
+            let revision = WINDOWS_LIVE_RESIZE_PLAN_REVISION
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1);
+            windows_live_resize_publish_plan(
+                &window,
+                windows_empty_host_live_resize_plan(
+                    window_generation,
+                    revision,
+                    self.windows_tab_strip_height(&window, false),
+                    tab_strip.label(),
+                ),
+            );
             // A fast WebView2 can finish its document and reject both renderer announcements
             // before the tab-strip label is committed above. The native registration commit is
             // the complementary authoritative event: by this point a finished renderer has the

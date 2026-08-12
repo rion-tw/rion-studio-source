@@ -192,7 +192,16 @@ pub fn run() {
                                 event => {
                                     #[cfg(feature = "desktop-e2e")]
                                     if let CoreEvent::BrowserStatuses { statuses } = &event {
+                                        let input_diagnostics =
+                                            effect_core.macro_input_diagnostics().ok();
                                         for status in statuses {
+                                            let input_diagnostic = input_diagnostics
+                                                .as_ref()
+                                                .and_then(|diagnostics| {
+                                                    diagnostics.roles.iter().find(|role| {
+                                                        role.role_id == status.role_id
+                                                    })
+                                                });
                                             desktop_e2e::record_event(
                                                 &format!(
                                                     "browser-status:{}:{}",
@@ -202,6 +211,7 @@ pub fn run() {
                                                 None,
                                                 None,
                                                 json!({
+                                                    "inputDiagnostic": input_diagnostic,
                                                     "roleId": status.role_id,
                                                     "state": status.state,
                                                 }),

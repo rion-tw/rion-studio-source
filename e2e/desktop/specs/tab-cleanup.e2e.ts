@@ -99,11 +99,22 @@ async function showWindowFromUi(windowId: string, minimumGeneration = 1): Promis
   return windowSnapshot(windowId);
 }
 
-async function stopWindowFromUi(windowId: string): Promise<void> {
+async function expectTeardownQuiesced(afterSequence: number, role: Role): Promise<void> {
+  const stopping = await waitEvent({
+    afterSequence,
+    kind: `browser-status:${role.id}:stopping`
+  });
+  expect(stopping.details).toMatchObject({
+    inputDiagnostic: { quiesced: true, roleId: role.id, stopping: true }
+  });
+}
+
+async function stopWindowFromUi(windowId: string, role?: Role): Promise<void> {
   const cursor = (await probe()).latestSequence;
   await navigate("/game-windows");
   await clickEntityMenuAction(windowId, "Game window actions", "Stop and close window");
   await waitEvent({ afterSequence: cursor, kind: "window-destroyed", windowId });
+  if (role) await expectTeardownQuiesced(cursor, role);
   await expect($(`[data-selection-id='${windowId}']`))
     .toHaveText(expect.stringContaining("Not open"));
 }
@@ -191,7 +202,7 @@ async function activateTab(windowId: string, tabId: string): Promise<void> {
   expect((await windowSnapshot(windowId)).kernel?.selectedTabId).toBe(tabId);
 }
 
-async function closeTab(windowId: string, tabId: string): Promise<void> {
+async function closeTab(windowId: string, tabId: string, role?: Role): Promise<void> {
   await activateTab(windowId, tabId);
   const live = await windowSnapshot(windowId);
   const cursor = (await probe()).latestSequence;
@@ -207,6 +218,7 @@ async function closeTab(windowId: string, tabId: string): Promise<void> {
     windowId
   });
   expect(terminal.details).toMatchObject({ error: null, status: "completed", tabId });
+  if (role) await expectTeardownQuiesced(cursor, role);
 }
 
 function inputCount(state: Record<string, FixtureRoleState>, roleId: string): number {
@@ -251,20 +263,20 @@ async function cleanupPhase(): Promise<void> {
 
   const runningTab = await launchRole(roles[1], CLEANUP_WINDOW_ID);
   const tabCursor = await startMacro(macros[1], roles[1]);
-  await closeTab(CLEANUP_WINDOW_ID, runningTab.id);
+  await closeTab(CLEANUP_WINDOW_ID, runningTab.id, roles[1]);
   await waitForMacroProjection({ afterSequence: tabCursor, absent: true, macroId: macros[1].id });
   const tabTerminalCount = inputCount(await fixtureState(), fixtureIds[1]);
   expect((await inputDiagnostics()).roles.find((item) => item.roleId === roles[1].id))
-    .toMatchObject({ quiesced: true, stopping: false });
+    .toMatchObject({ quiesced: false, stopping: false });
   await showWindowFromUi(CLEANUP_WINDOW_ID);
 
   await launchRole(roles[2], CLEANUP_WINDOW_ID);
   const windowCursor = await startMacro(macros[2], roles[2]);
-  await stopWindowFromUi(CLEANUP_WINDOW_ID);
+  await stopWindowFromUi(CLEANUP_WINDOW_ID, roles[2]);
   await waitForMacroProjection({ afterSequence: windowCursor, absent: true, macroId: macros[2].id });
   const windowTerminalCount = inputCount(await fixtureState(), fixtureIds[2]);
   expect((await inputDiagnostics()).roles.find((item) => item.roleId === roles[2].id))
-    .toMatchObject({ quiesced: true, stopping: false });
+    .toMatchObject({ quiesced: false, stopping: false });
 
   const shutdownCursor = await rendererEventCursor();
   const shutdownFixtureCursor = await fixtureCursor();

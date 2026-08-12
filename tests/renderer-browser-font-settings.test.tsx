@@ -39,6 +39,9 @@ const catalog: BrowserFontCatalogEntry[] = [
   ["kaisei-tokumin", "Kaisei Tokumin", "serif", ["jp", "latin"], "body"],
   ["chocolate-classical-sans", "Chocolate Classical Sans", "sans", ["tc", "latin"], "body"],
   ["zen-kaku-gothic-new", "Zen Kaku Gothic New", "sans", ["jp", "latin"], "body"],
+  ["shippori-antique", "Shippori Antique", "sans", ["jp", "latin"], "body"],
+  ["lato", "Lato", "sans", ["latin"], "body"],
+  ["roboto-mono", "Roboto Mono", "monospace", ["latin"], "technical"],
   ["exo-2", "Exo 2", "sans", ["latin"], "body"],
   ["orbitron", "Orbitron", "display", ["latin"], "accent"],
   ["huninn", "Huninn", "sans", ["tc", "latin"], "body"],
@@ -599,6 +602,52 @@ describe("browser font settings", () => {
               latin: { source: "google", catalogId: "atkinson-hyperlegible-next" },
               numeric: { source: "google", catalogId: "atkinson-hyperlegible-mono" },
               monospace: { source: "google", catalogId: "atkinson-hyperlegible-mono" }
+            })
+          })
+        })
+      );
+    });
+  });
+
+  it("downloads the fresh humanist preset once per distinct pack before applying", async () => {
+    const installBrowserFont = vi.fn(async (catalogId: string) => ({
+      catalogId,
+      installed: true,
+      cachedBytes: 1024
+    }));
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont,
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+    const onGameBrowserSettingsChange = vi.fn(async (settings) => settings);
+
+    renderSettings(onGameBrowserSettingsChange);
+
+    fireEvent.click(screen.getByRole("button", { name: "Customize fonts" }));
+    expect(await screen.findByText("Everyday presets")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Fresh humanist/u }));
+    fireEvent.click(screen.getByRole("button", { name: "Download 4 and apply" }));
+
+    await waitFor(() => expect(installBrowserFont).toHaveBeenCalledTimes(4));
+    expect(installBrowserFont).toHaveBeenCalledWith("chocolate-classical-sans");
+    expect(installBrowserFont).toHaveBeenCalledWith("lato");
+    expect(installBrowserFont).toHaveBeenCalledWith("roboto-mono");
+    expect(installBrowserFont).toHaveBeenCalledWith("noto-sans-math");
+    await waitFor(() => {
+      expect(onGameBrowserSettingsChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fonts: expect.objectContaining({
+            cjkVariant: "auto",
+            mode: "custom",
+            presetId: "fresh-humanist",
+            slots: expect.objectContaining({
+              cjk: { source: "google", catalogId: "chocolate-classical-sans" },
+              latin: { source: "google", catalogId: "lato" },
+              numeric: { source: "google", catalogId: "lato" },
+              monospace: { source: "google", catalogId: "roboto-mono" },
+              math: { source: "google", catalogId: "noto-sans-math" }
             })
           })
         })

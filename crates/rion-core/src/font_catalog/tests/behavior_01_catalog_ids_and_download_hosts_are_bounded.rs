@@ -170,6 +170,14 @@ use super::*;
                 "400",
                 "body",
             ),
+            (
+                "shippori-antique",
+                "sans",
+                "jp,latin",
+                "400",
+                "400",
+                "body",
+            ),
             ("exo-2", "sans", "latin", "400,700", "400,700", "body"),
             (
                 "orbitron", "display", "latin", "400,700", "400,700", "accent",

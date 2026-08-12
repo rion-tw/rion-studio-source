@@ -770,6 +770,8 @@
   "settings.browserFonts.preset.highLegibilityDescription": "Distinct Latin letters and numbers for quick, confident scanning.",
   "settings.browserFonts.preset.compactDashboard": "Compact dashboard",
   "settings.browserFonts.preset.compactDashboardDescription": "Narrower interface text fits dense stats and controls.",
+  "settings.browserFonts.preset.freshHumanist": "Fresh humanist",
+  "settings.browserFonts.preset.freshHumanistDescription": "Traditional CJK character forms with clean, approachable shapes for everyday reading.",
   "settings.browserFonts.preset.naturalHandwriting": "Natural handwriting",
   "settings.browserFonts.preset.naturalHandwritingDescription": "Relaxed handwritten text with clear digits for longer notes.",
   "settings.browserFonts.preset.playfulHandwriting": "Playful notes",

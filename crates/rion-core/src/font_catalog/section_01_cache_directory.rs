@@ -432,6 +432,14 @@ const CATALOG: &[CatalogSpec] = &[
         &[400, 700],
         "body",
     ),
+    cjk_spec(
+        "shippori-antique",
+        "Shippori Antique",
+        "sans",
+        &["jp", "latin"],
+        &[400],
+        "body",
+    ),
     spec("exo-2", "Exo 2", "sans", &["latin"], &[400, 700], "body"),
     spec(
         "orbitron",

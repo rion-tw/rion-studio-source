@@ -27,6 +27,7 @@ export type BrowserFontPresetId =
   | "code-monospace"
   | "high-legibility"
   | "compact-dashboard"
+  | "fresh-humanist"
   | "natural-handwriting"
   | "playful-handwriting"
   | "calligraphic-handwriting"
@@ -104,6 +105,12 @@ export const browserFontPresets: readonly BrowserFontPresetDefinition[] = [
     category: "general",
     cjkCatalog: { tc: "noto-sans-tc", sc: "noto-sans-sc", jp: "noto-sans-jp" },
     slots: { latin: google("roboto-condensed"), numeric: google("roboto-condensed"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
+  },
+  {
+    id: "fresh-humanist",
+    category: "general",
+    cjkCatalog: { tc: "chocolate-classical-sans", sc: "noto-sans-sc", jp: "shippori-antique" },
+    slots: { latin: google("lato"), numeric: google("lato"), monospace: google("roboto-mono"), math: google("noto-sans-math") }
   },
   {
     id: "natural-handwriting",

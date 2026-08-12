@@ -128,8 +128,8 @@ describe("browser font settings normalization", () => {
   });
 
   it("provides language-specific general, handwriting, and personality presets", () => {
-    expect(browserFontPresets).toHaveLength(20);
-    expect(browserFontPresets.filter((preset) => preset.category === "general")).toHaveLength(8);
+    expect(browserFontPresets).toHaveLength(21);
+    expect(browserFontPresets.filter((preset) => preset.category === "general")).toHaveLength(9);
     expect(browserFontPresets.filter((preset) => preset.category === "handwriting")).toHaveLength(6);
     expect(browserFontPresets.filter((preset) => preset.category === "personality")).toHaveLength(6);
     expect(resolveBrowserFontPreset("natural-handwriting", "tc").slots.cjk).toEqual({
@@ -231,6 +231,24 @@ describe("browser font settings normalization", () => {
       latin: { source: "google", catalogId: "roboto-condensed" },
       numeric: { source: "google", catalogId: "roboto-condensed" },
       monospace: { source: "google", catalogId: "roboto-mono" }
+    });
+    expect(resolveBrowserFontPreset("fresh-humanist", "tc").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "chocolate-classical-sans"
+    });
+    expect(resolveBrowserFontPreset("fresh-humanist", "sc").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "noto-sans-sc"
+    });
+    expect(resolveBrowserFontPreset("fresh-humanist", "jp").slots.cjk).toEqual({
+      source: "google",
+      catalogId: "shippori-antique"
+    });
+    expect(resolveBrowserFontPreset("fresh-humanist", "tc").slots).toMatchObject({
+      latin: { source: "google", catalogId: "lato" },
+      numeric: { source: "google", catalogId: "lato" },
+      monospace: { source: "google", catalogId: "roboto-mono" },
+      math: { source: "google", catalogId: "noto-sans-math" }
     });
     expect(resolveBrowserFontPreset("fantasy-chronicle", "tc").slots).toMatchObject({
       latin: { source: "google", catalogId: "cinzel" },

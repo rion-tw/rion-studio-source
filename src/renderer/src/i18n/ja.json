@@ -739,6 +739,8 @@
   "settings.browserFonts.preset.highLegibilityDescription": "ラテン文字と数字の違いが明確で、素早く読み取れます。",
   "settings.browserFonts.preset.compactDashboard": "コンパクト表示",
   "settings.browserFonts.preset.compactDashboardDescription": "幅の狭い文字で、情報量の多いステータスや操作画面を見やすくします。",
+  "settings.browserFonts.preset.freshHumanist": "爽やかなヒューマニスト体",
+  "settings.browserFonts.preset.freshHumanistDescription": "漢字の伝統的な趣と、すっきり親しみやすい現代的な字形を組み合わせました。",
   "settings.browserFonts.preset.naturalHandwriting": "自然な手書き",
   "settings.browserFonts.preset.naturalHandwritingDescription": "力の抜けた自然な手書きに、見やすい数字を組み合わせました。",
   "settings.browserFonts.preset.playfulHandwriting": "楽しいメモ",

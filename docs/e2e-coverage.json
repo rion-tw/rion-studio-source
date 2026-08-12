@@ -242,7 +242,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Verify data, diagnostics, update, font, and legal entry points plus their non-destructive cancel boundaries."
+      "description": "Verify data, diagnostics, update, font preset, and legal entry points plus their non-destructive cancel boundaries."
     },
     {
       "id": "NATIVE-DISPLAY-001",

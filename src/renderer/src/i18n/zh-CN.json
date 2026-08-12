@@ -739,6 +739,8 @@
   "settings.browserFonts.preset.highLegibilityDescription": "拉丁字母与数字差异鲜明，便于快速、清晰地辨读。",
   "settings.browserFonts.preset.compactDashboard": "紧凑仪表板",
   "settings.browserFonts.preset.compactDashboardDescription": "字宽较窄，让密集数值与控件保持清晰层次。",
+  "settings.browserFonts.preset.freshHumanist": "清新人文",
+  "settings.browserFonts.preset.freshHumanistDescription": "保留中文字形韵味，搭配清爽亲切的现代笔形，适合日常阅读。",
   "settings.browserFonts.preset.naturalHandwriting": "自然手写",
   "settings.browserFonts.preset.naturalHandwritingDescription": "轻松自然并搭配清晰数字，适合较长的手写内容。",
   "settings.browserFonts.preset.playfulHandwriting": "活泼笔记",

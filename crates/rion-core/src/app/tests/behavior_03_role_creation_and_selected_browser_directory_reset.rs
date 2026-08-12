@@ -143,6 +143,57 @@
         core.shutdown();
     }
 
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn runtime_aware_role_delete_defers_locked_windows_profile_cleanup_durably() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let role_directory = directory.path().join("roles").join(&role_id);
+        let locked_path = role_directory.join("browser/webview2/locked-session");
+        fs::write(&locked_path, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        core.clone()
+            .invoke_async(CoreCommand::RoleDelete {
+                id: role_id.clone(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            core.invoke(CoreCommand::RolesList)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(role_directory.exists());
+        let journals = core
+            .with_runtime(|runtime| runtime.state.operation_journals())
+            .unwrap();
+        assert_eq!(journals.len(), 1);
+        assert_eq!(journals[0].phase, "committed");
+
+        drop(lock);
+        core.with_runtime(|runtime| {
+            recover_operation_journals(&runtime.state, directory.path())
+        })
+        .unwrap();
+        assert!(!role_directory.exists());
+        assert!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+        core.shutdown();
+    }
+
     #[test]
     fn game_browser_setting_patches_merge_non_font_sections_atomically() {
         let (_directory, core) = core();

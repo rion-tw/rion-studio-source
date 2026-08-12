@@ -592,7 +592,6 @@ pub(crate) struct RuntimeRolePlaceholderIdentity {
 }
 
 struct ReleasedRoleSurface {
-    release_lifecycles: Vec<Arc<SurfaceLifecycleTracker>>,
     role_id: String,
     surface_instance_id: String,
     tab_id: String,
@@ -814,26 +813,21 @@ impl SurfaceLifecycleTracker {
     fn mark_browser_process_exited(&self) -> bool {
         if let Ok(mut release) = self.release.lock() {
             if release.terminal_failure.is_some()
-                || matches!(release.isolation_progress, SurfaceIsolationProgress::Live)
+                || release.isolated
+                || release.native_surface_released
                 || release.browser_process_exited
+                || !matches!(
+                    release.isolation_progress,
+                    SurfaceIsolationProgress::Requested
+                )
             {
                 return false;
             }
             release.browser_process_exited = true;
-            let completed_isolation = !release.isolated
-                && !release.native_surface_released
-                && matches!(
-                    release.isolation_progress,
-                    SurfaceIsolationProgress::Requested
-                );
-            if completed_isolation {
-                release.isolated = true;
-                release.isolation_progress = SurfaceIsolationProgress::Isolated;
-            }
+            release.isolated = true;
+            release.isolation_progress = SurfaceIsolationProgress::Isolated;
             drop(release);
-            if completed_isolation {
-                self.record_native_isolation_event(5);
-            }
+            self.record_native_isolation_event(5);
             self.publish_event();
             return true;
         }
@@ -1005,17 +999,6 @@ impl SurfaceLifecycleTracker {
     async fn wait_for_store_reusable_event(&self, platform: &str) -> RuntimeResult<()> {
         self.wait_for_event(|release| surface_store_reusable(platform, release))
             .await
-    }
-
-    async fn wait_for_role_store_release_event(&self) -> RuntimeResult<()> {
-        #[cfg(windows)]
-        {
-            return self
-                .wait_for_event(|release| release.browser_process_exited)
-                .await;
-        }
-        #[cfg(not(windows))]
-        Ok(())
     }
 
     async fn wait_for_event(

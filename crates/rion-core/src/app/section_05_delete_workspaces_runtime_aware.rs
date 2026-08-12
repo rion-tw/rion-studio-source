@@ -182,28 +182,36 @@ impl AppCore {
             payload: json!({ "roleId": id }),
         };
         self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))?;
-        if let Err(error) =
-            crate::role_browser_data::quarantine(&self.user_data_dir, id, &operation_id)
-        {
-            let _ = self.with_runtime(|runtime| {
-                runtime.state.delete_operation_journal(operation_id.clone())
-            });
-            return Err(error);
-        }
-        journal.phase = "quarantined".to_owned();
-        if let Err(error) =
-            self.with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))
-        {
-            let _ = crate::role_browser_data::restore_quarantine(
-                &self.user_data_dir,
-                id,
-                &operation_id,
-            );
-            let _ = self.with_runtime(|runtime| {
-                runtime.state.delete_operation_journal(operation_id.clone())
-            });
-            return Err(error);
-        }
+        let deferred_cleanup = match crate::role_browser_data::quarantine_for_delete(
+            &self.user_data_dir,
+            id,
+            &operation_id,
+        ) {
+            Ok(crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock) => true,
+            Ok(crate::role_browser_data::DeleteQuarantineOutcome::Quarantined(_)) => {
+                journal.phase = "quarantined".to_owned();
+                if let Err(error) = self
+                    .with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))
+                {
+                    let _ = crate::role_browser_data::restore_quarantine(
+                        &self.user_data_dir,
+                        id,
+                        &operation_id,
+                    );
+                    let _ = self.with_runtime(|runtime| {
+                        runtime.state.delete_operation_journal(operation_id.clone())
+                    });
+                    return Err(error);
+                }
+                false
+            }
+            Err(error) => {
+                let _ = self.with_runtime(|runtime| {
+                    runtime.state.delete_operation_journal(operation_id.clone())
+                });
+                return Err(error);
+            }
+        };
         let deletion = self.mutate_state(StateMutation::RoleDelete {
             id: id.to_owned(),
             operation_id: Some(operation_id.clone()),
@@ -211,11 +219,15 @@ impl AppCore {
         let value = match deletion {
             Ok(value) => value,
             Err(error) => {
-                let restore = crate::role_browser_data::restore_quarantine(
-                    &self.user_data_dir,
-                    id,
-                    &operation_id,
-                );
+                let restore = if deferred_cleanup {
+                    Ok(())
+                } else {
+                    crate::role_browser_data::restore_quarantine(
+                        &self.user_data_dir,
+                        id,
+                        &operation_id,
+                    )
+                };
                 let _ = self.with_runtime(|runtime| {
                     runtime.state.delete_operation_journal(operation_id.clone())
                 });
@@ -223,8 +235,10 @@ impl AppCore {
                 return Err(error);
             }
         };
-        crate::role_browser_data::discard_quarantine(&self.user_data_dir, &operation_id)?;
-        self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
+        if !deferred_cleanup {
+            crate::role_browser_data::discard_quarantine(&self.user_data_dir, &operation_id)?;
+            self.with_runtime(|runtime| runtime.state.delete_operation_journal(operation_id))?;
+        }
         Ok(value)
     }
 
@@ -249,27 +263,40 @@ impl AppCore {
                     rollback_role_delete_journals(self, &journals);
                     return Err(error);
                 }
-                if let Err(error) =
-                    crate::role_browser_data::quarantine(&self.user_data_dir, id, &operation_id)
-                {
-                    let _ = self.with_runtime(|runtime| {
-                        runtime.state.delete_operation_journal(operation_id)
-                    });
-                    rollback_role_delete_journals(self, &journals);
-                    return Err(error);
-                }
-                journal.phase = "quarantined".to_owned();
-                if let Err(error) = self
-                    .with_runtime(|runtime| runtime.state.put_operation_journal(journal.clone()))
-                {
-                    let current = vec![(id.clone(), journal.id.clone())];
-                    rollback_role_delete_journals(self, &current);
-                    rollback_role_delete_journals(self, &journals);
-                    return Err(error);
-                }
-                journals.push((id.clone(), journal.id));
+                let deferred_cleanup = match crate::role_browser_data::quarantine_for_delete(
+                    &self.user_data_dir,
+                    id,
+                    &operation_id,
+                ) {
+                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock) => {
+                        true
+                    }
+                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::Quarantined(_)) => {
+                        journal.phase = "quarantined".to_owned();
+                        if let Err(error) = self.with_runtime(|runtime| {
+                            runtime.state.put_operation_journal(journal.clone())
+                        }) {
+                            let current = vec![(id.clone(), journal.id.clone(), false)];
+                            rollback_role_delete_journals(self, &current);
+                            rollback_role_delete_journals(self, &journals);
+                            return Err(error);
+                        }
+                        false
+                    }
+                    Err(error) => {
+                        let _ = self.with_runtime(|runtime| {
+                            runtime.state.delete_operation_journal(operation_id)
+                        });
+                        rollback_role_delete_journals(self, &journals);
+                        return Err(error);
+                    }
+                };
+                journals.push((id.clone(), journal.id, deferred_cleanup));
             }
-            let operation_ids = journals.iter().cloned().collect();
+            let operation_ids = journals
+                .iter()
+                .map(|(role_id, operation_id, _)| (role_id.clone(), operation_id.clone()))
+                .collect();
             let deletion = self.mutate_state(StateMutation::RolesDelete {
                 ids: ids.clone(),
                 operation_ids,
@@ -281,7 +308,10 @@ impl AppCore {
                     return Err(error);
                 }
             };
-            for (_, operation_id) in &journals {
+            for (_, operation_id, deferred_cleanup) in &journals {
+                if *deferred_cleanup {
+                    continue;
+                }
                 crate::role_browser_data::discard_quarantine(&self.user_data_dir, operation_id)?;
                 self.with_runtime(|runtime| {
                     runtime.state.delete_operation_journal(operation_id.clone())

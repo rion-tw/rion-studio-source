@@ -347,15 +347,6 @@ impl SystemRuntimeExecutor {
             .release_marked_role_surfaces_event_bound(role_id, expected_tab_id)
             .await?;
         self.commit_released_role(&released)?;
-        for lifecycle in &released.release_lifecycles {
-            lifecycle.wait_for_role_store_release_event().await?;
-        }
-        self.record_surface_stage_by_label(
-            LogLevel::Info,
-            "role.store-reusable",
-            "The role store is reusable after the WebView2 browser process exited.",
-            &released.webview_label,
-        );
         if self
             .presentation
             .tab_window(&released.tab_id)
@@ -421,10 +412,10 @@ impl SystemRuntimeExecutor {
 
         self.clear_role_keys(role_id);
         let surface_ids = self.managed_surface_ids_for_role(role_id)?;
-        let release_lifecycles = if surface_ids.is_empty() {
+        let isolation_result = if surface_ids.is_empty() {
             self.close_surface_event_bound(&webview, &lifecycle, role_id)
                 .await?;
-            vec![Arc::clone(&lifecycle)]
+            Ok(())
         } else {
             let group_surfaces = {
                 let state = self.state()?;
@@ -439,10 +430,6 @@ impl SystemRuntimeExecutor {
                     })
                     .collect::<Vec<_>>()
             };
-            let release_lifecycles = group_surfaces
-                .iter()
-                .map(|surface| Arc::clone(&surface.lifecycle))
-                .collect::<Vec<_>>();
             let runtime = self
                 .self_weak
                 .get()
@@ -492,12 +479,9 @@ impl SystemRuntimeExecutor {
                     }
                 }
             }
-            if let Some(error) = first_error {
-                return Err(error);
-            }
-            drop(group_surfaces);
-            release_lifecycles
+            first_error.map_or(Ok(()), Err)
         };
+        isolation_result?;
         // Native isolation is the terminal owner event for this input lane. A
         // late about:blank callback must not leave a navigation fence behind
         // after the exact role surface has been released.
@@ -513,9 +497,7 @@ impl SystemRuntimeExecutor {
             ));
         }
 
-        drop(webview);
         Ok(ReleasedRoleSurface {
-            release_lifecycles,
             role_id: role_id.to_owned(),
             surface_instance_id,
             tab_id,

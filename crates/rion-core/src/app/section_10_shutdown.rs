@@ -459,9 +459,14 @@ fn classify_runtime_bulk_error(id: String, error: &CoreError) -> Value {
     json!({ "id": id, "reason": reason, "relatedNames": [] })
 }
 
-fn rollback_role_delete_journals(core: &AppCore, journals: &[(String, String)]) {
-    for (role_id, operation_id) in journals.iter().rev() {
-        if crate::role_browser_data::restore_quarantine(&core.user_data_dir, role_id, operation_id)
+fn rollback_role_delete_journals(core: &AppCore, journals: &[(String, String, bool)]) {
+    for (role_id, operation_id, deferred_cleanup) in journals.iter().rev() {
+        if *deferred_cleanup
+            || crate::role_browser_data::restore_quarantine(
+                &core.user_data_dir,
+                role_id,
+                operation_id,
+            )
             .is_ok()
         {
             let _ = core.with_runtime(|runtime| {
@@ -566,6 +571,7 @@ fn recover_operation_journals(
                 }
                 "committed" => {
                     crate::role_browser_data::discard_quarantine(user_data_dir, &journal.id)?;
+                    crate::role_browser_data::remove(user_data_dir, role_id)?;
                 }
                 phase => {
                     return Err(CoreError::Migration(format!(

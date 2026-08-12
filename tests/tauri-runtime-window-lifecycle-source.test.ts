@@ -463,10 +463,20 @@ describe("runtime window lifecycle authority", () => {
       activation.indexOf("async fn activate_runtime_tab_on_demand("),
       activation.indexOf("async fn activate_adjacent_runtime_tab_on_demand(")
     );
-    expect(onDemandLaunch).toContain("claim_runtime_tab_activation(tab_id)");
-    expect(onDemandLaunch.indexOf("claim_runtime_tab_activation(tab_id)")).toBeLessThan(
+    expect(onDemandLaunch).toContain(
+      "activate_runtime_tab_on_demand_at_revision(app, state, tab_id, native_style_applied, None)"
+    );
+    expect(onDemandLaunch).toContain(
+      ".claim_runtime_tab_activation(tab_id, expected_revision)"
+    );
+    expect(
+      onDemandLaunch.indexOf(".claim_runtime_tab_activation(tab_id, expected_revision)")
+    ).toBeLessThan(
       onDemandLaunch.indexOf("preview_and_commit_tab_selection_inner(")
     );
+    expect(onDemandLaunch).toContain("expected_revision.is_some() && !claim_applied");
+    expect(onDemandLaunch).toContain("selected_dormant_tab_revision(tab_id)");
+    expect(onDemandLaunch).toContain("Some(expected_revision)");
     expect(onDemandLaunch).toContain("prepare_restored_tab_role_slots");
     expect(onDemandLaunch.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
       onDemandLaunch.indexOf("invoke_runtime_source_launch(")
@@ -561,7 +571,7 @@ describe("runtime window lifecycle authority", () => {
 
     expect(restore).toContain("prepare_restored_window_tabs");
     expect(restore).toContain("let foreground_tab = saved_window_foreground_tab(&saved)");
-    expect(restore).toContain("activate_runtime_tab_on_demand(");
+    expect(restore).toContain("activate_selected_restored_tab_on_demand(");
     expect(restore).not.toContain("authoritative_runtime_tab_for_source(");
     expect(restore).not.toContain('"type": "browserRoleLaunch"');
     expect(restore).toContain("&target");

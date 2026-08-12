@@ -386,10 +386,12 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(restoreSavedWindows).not.toContain("CoreCommand::GameWindowDelete");
     expect(restoreSavedWindows).not.toContain("game_windows.retain");
     expect(restoreSavedWindows).toContain("let foreground_tab = saved_window_foreground_tab(&saved)");
-    expect(restoreSavedWindows).toContain("activate_runtime_tab_on_demand(");
+    expect(restoreSavedWindows).toContain("activate_selected_restored_tab_on_demand(");
     expect(
       restoreSavedWindows.indexOf("activate_live_runtime_window(")
-    ).toBeLessThan(restoreSavedWindows.indexOf("activate_runtime_tab_on_demand("));
+    ).toBeLessThan(
+      restoreSavedWindows.indexOf("activate_selected_restored_tab_on_demand(")
+    );
     const restoreCompletion = restoreSavedWindows.slice(
       restoreSavedWindows.indexOf("restore_progress.finish()?")
     );

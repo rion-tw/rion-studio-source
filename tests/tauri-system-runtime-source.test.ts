@@ -456,7 +456,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(createTab).toContain("role_bounds_for_content(content_metrics, &role.rect)");
     expect(createTab).toContain("take_tab_launch_preview(");
     expect(createTab).toContain("existing.id == created_tab_id");
-    expect(createTab).toContain("selection.insert_tab(presentation_tab, 0, should_select)");
+    expect(createTab).toContain("restored_tab_selection_intent_is_current(");
+    expect(createTab).toContain(
+      "selection.insert_tab(presentation_tab, 0, commit_should_select)"
+    );
     expect(createTab).not.toContain("replace_tab_id");
     expect(createTab).toContain("presentation.bind_surface(");
     expect(createTab).toMatch(
@@ -770,7 +773,15 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
       shell.indexOf("async fn activate_runtime_tab_on_demand("),
       shell.indexOf("async fn activate_adjacent_runtime_tab_on_demand(")
     );
-    expect(onDemandSelection).toContain("claim_runtime_tab_activation(tab_id)");
+    expect(onDemandSelection).toContain(
+      "activate_runtime_tab_on_demand_at_revision(app, state, tab_id, native_style_applied, None)"
+    );
+    expect(onDemandSelection).toContain(
+      ".claim_runtime_tab_activation(tab_id, expected_revision)"
+    );
+    expect(onDemandSelection).toContain("expected_revision.is_some() && !claim_applied");
+    expect(onDemandSelection).toContain("selected_dormant_tab_revision(tab_id)");
+    expect(onDemandSelection).toContain("Some(expected_revision)");
     expect(onDemandSelection).not.toContain("wait_native_operation_summary");
     expect(menu).toContain("crate::execute_tab_stop(app, state, tab_id)");
     const scopedTabAction = menu.slice(

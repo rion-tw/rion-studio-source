@@ -18,6 +18,7 @@ use super::{
     apply_runtime_native_projection,
 };
 
+mod generation_restore;
 mod window_context;
 
 fn tab(id: &str, source_id: &str) -> RuntimeLiveTabRecord {

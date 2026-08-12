@@ -15,11 +15,17 @@ fn seed_dormant_tabs(
             message: "A dormant tab is outside its restored runtime window.".to_owned(),
         });
     }
+    let window_generation = RuntimeWindowGeneration(window.window_generation);
     let mut changed = false;
     for tab_id in tab_ids {
-        if state.logical_surfaces.contains_key(&tab_id) {
+        let current_surface = state
+            .logical_surfaces
+            .get(&tab_id)
+            .is_some_and(|surface| surface.window_generation == window_generation);
+        if current_surface {
             continue;
         }
+        changed |= state.logical_surfaces.remove(&tab_id).is_some();
         let tab_id_value = RuntimeTabId::new(tab_id.clone()).map_err(CoreError::InvalidInput)?;
         let record = RuntimeTabActivationRecord {
             attempt_id: OperationId::new(format!("dormant:{tab_id}"))
@@ -28,7 +34,7 @@ fn seed_dormant_tabs(
             owner_window_id: window_id.to_owned(),
             phase: RuntimeTabActivationPhaseRecord::Dormant,
             tab_id: tab_id_value,
-            window_generation: RuntimeWindowGeneration(window.window_generation),
+            window_generation,
         };
         changed |= state.tab_activations.get(&tab_id) != Some(&record);
         state.tab_activations.insert(tab_id, record);

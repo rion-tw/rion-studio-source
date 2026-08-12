@@ -4,6 +4,7 @@ import type {
   AppSnapshot,
   EmbeddedRuntimeState,
   GameWindow,
+  MacroRunStatus,
   RoleStatus
 } from "../../../src/shared/types";
 import type { SurfaceRecoveryAttemptRecord } from "../../../src/shared/generated";
@@ -39,6 +40,16 @@ interface RecoveryWaitRequest {
   status?: SurfaceRecoveryAttemptRecord["status"];
 }
 
+interface MacroWaitRequest {
+  absent?: boolean;
+  afterSequence?: number;
+  macroId: string;
+  minimumIteration?: number;
+  roleIds?: string[];
+  state?: string;
+  kind: "macro";
+}
+
 interface RoleWaitRequest {
   absent?: boolean;
   afterSequence?: number;
@@ -50,6 +61,7 @@ interface RoleWaitRequest {
 }
 
 interface RuntimeWaitRequest {
+  activeTabId?: string;
   absent?: boolean;
   afterSequence?: number;
   kind: "runtime";
@@ -61,6 +73,7 @@ interface RuntimeWaitRequest {
 type RendererWaitRequest =
   | CollectionWaitRequest
   | GameWindowWaitRequest
+  | MacroWaitRequest
   | RecoveryWaitRequest
   | RoleWaitRequest
   | RuntimeWaitRequest;
@@ -79,6 +92,7 @@ export async function installRendererEventJournal(): Promise<void> {
     }
     interface PageJournal {
       gameWindows: Array<PageEntry<GameWindow[]>>;
+      macroStatuses: Array<PageEntry<MacroRunStatus[]>>;
       nextSequence: number;
       recoveries: Array<PageEntry<SurfaceRecoveryAttemptRecord>>;
       roleStatuses: Array<PageEntry<RoleStatus[]>>;
@@ -91,6 +105,7 @@ export async function installRendererEventJournal(): Promise<void> {
     if (page[key]) return;
     const journal: PageJournal = {
       gameWindows: [],
+      macroStatuses: [],
       nextSequence: 1,
       recoveries: [],
       roleStatuses: [],
@@ -108,11 +123,13 @@ export async function installRendererEventJournal(): Promise<void> {
     const api = window.rionStudio;
     api.onAppSnapshotChanged((value) => record(journal.snapshots, value));
     api.onGameWindowsChanged((value) => record(journal.gameWindows, value));
+    api.onMacroStatusChanged((value) => record(journal.macroStatuses, value));
     api.onRoleStatusChanged((value) => record(journal.roleStatuses, value));
     api.onEmbeddedRuntimeStateChanged((value) => record(journal.runtimeStates, value));
     api.onSurfaceRecoveryAttemptChanged((value) => record(journal.recoveries, value));
     void api.getAppSnapshot().then((value) => record(journal.snapshots, value));
     void api.listGameWindows().then((value) => record(journal.gameWindows, value));
+    void api.listMacroStatuses().then((value) => record(journal.macroStatuses, value));
     void api.listRoleStatuses().then((value) => record(journal.roleStatuses, value));
     void api.getEmbeddedRuntimeState().then((value) => record(journal.runtimeStates, value));
   }, JOURNAL_KEY);
@@ -139,6 +156,7 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
       }
       interface PageJournal {
         gameWindows: Array<PageEntry<GameWindow[]>>;
+        macroStatuses: Array<PageEntry<MacroRunStatus[]>>;
         recoveries: Array<PageEntry<SurfaceRecoveryAttemptRecord>>;
         roleStatuses: Array<PageEntry<RoleStatus[]>>;
         runtimeStates: Array<PageEntry<EmbeddedRuntimeState>>;
@@ -210,6 +228,9 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
           }
           if (waitRequest.sourceId && !tab) return undefined;
           if (waitRequest.windowId && !runtimeWindow) return undefined;
+          if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
+            return undefined;
+          }
           return !waitRequest.roleIds
             || (tab && waitRequest.roleIds.every((roleId) => tab.roleIds.includes(roleId)))
             ? entry.value
@@ -228,6 +249,36 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
             && (waitRequest.tabCount === undefined || gameWindow.tabs.length === waitRequest.tabCount)
             ? entry.value
             : undefined;
+        }
+        if (waitRequest.kind === "macro") {
+          for (let index = journal.macroStatuses.length - 1; index >= 0; index -= 1) {
+            const entry = journal.macroStatuses[index];
+            if (entry.sequence <= afterSequence) continue;
+            const statuses = entry.value.filter((status) => status.macroId === waitRequest.macroId);
+            if (waitRequest.absent) {
+              if (statuses.length === 0) return entry.value;
+              continue;
+            }
+            const roleIds = waitRequest.roleIds ?? [];
+            if (roleIds.some((roleId) => !statuses.some((status) => status.roleId === roleId))) {
+              continue;
+            }
+            const selected = roleIds.length === 0
+              ? statuses
+              : statuses.filter((status) => roleIds.includes(status.roleId));
+            if (selected.length === 0) continue;
+            if (waitRequest.state && selected.some((status) => status.state !== waitRequest.state)) {
+              continue;
+            }
+            if (
+              waitRequest.minimumIteration !== undefined
+              && selected.some((status) => (status.iteration ?? 0) < waitRequest.minimumIteration!)
+            ) {
+              continue;
+            }
+            return entry.value;
+          }
+          return undefined;
         }
         for (let index = journal.recoveries.length - 1; index >= 0; index -= 1) {
           const entry = journal.recoveries[index];
@@ -267,6 +318,12 @@ export function waitForGameWindowProjection(
   request: Omit<GameWindowWaitRequest, "kind">
 ): Promise<GameWindow[]> {
   return waitForRendererProjection({ ...request, kind: "gameWindow" });
+}
+
+export function waitForMacroProjection(
+  request: Omit<MacroWaitRequest, "kind">
+): Promise<MacroRunStatus[]> {
+  return waitForRendererProjection({ ...request, kind: "macro" });
 }
 
 export function waitForRecoveryAttempt(

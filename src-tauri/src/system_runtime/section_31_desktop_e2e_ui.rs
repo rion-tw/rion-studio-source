@@ -64,7 +64,7 @@ impl SystemRuntimeExecutor {
                     .ok_or_else(|| "The requested live role surface was not found.".to_owned())?;
                 webview.set_focus().map_err(|error| error.to_string())?;
                 webview
-                    .eval("globalThis.focus(); document.querySelector('#qa-target')?.focus();")
+                    .eval("globalThis.focus(); const button = document.querySelector('#qa-target'); button?.focus(); button?.click();")
                     .map_err(|error| error.to_string())?;
             }
             DesktopE2eRuntimeUiActionRequest::PressRoleSlot {

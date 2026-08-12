@@ -42,6 +42,18 @@ afterEach(async () => {
 });
 
 describe("runtime authority fixture launch gates", () => {
+  it("serves an executable role event and session script", async () => {
+    const { origin } = await startFixture();
+    const source = await (await fetch(`${origin}/role/test-role?mode=seed&marker=marker-a`)).text();
+    const start = source.indexOf("<script>") + "<script>".length;
+    const end = source.indexOf("</script>");
+    expect(start).toBeGreaterThan("<script>".length - 1);
+    expect(end).toBeGreaterThan(start);
+    expect(() => new Function(source.slice(start, end))).not.toThrow();
+    expect(source).toContain('const sessionMode = "seed"');
+    expect(source).toContain('const sessionMarker = "marker-a"');
+  });
+
   it("assigns monotonic event sequences and resolves filtered event waits", async () => {
     const { origin } = await startFixture();
     const waiting = fetch(

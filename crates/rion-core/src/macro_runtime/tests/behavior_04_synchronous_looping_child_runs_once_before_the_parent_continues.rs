@@ -159,6 +159,58 @@
     }
 
     #[test]
+    fn naturally_finished_once_macro_publishes_its_final_iteration_before_removal() {
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
+        let start = request(vec![MacroStepDefinition::Click {
+            id: "final-click".to_owned(),
+            anchor: Some("center".to_owned()),
+            position: crate::model::MacroClickDefinition::Percent {
+                unit: Some("percent".to_owned()),
+                x_percent: 50.0,
+                y_percent: 50.0,
+            },
+        }]);
+        let _ = start_and_ack_focus(&runtime, &receiver, start);
+        let click = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(click)).unwrap();
+
+        let mut final_status = None;
+        let mut saw_terminal_removal = false;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !saw_terminal_removal {
+            let Ok(batch) = receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            else {
+                break;
+            };
+            for event in batch {
+                let CoreEvent::MacroStatuses { reliable, statuses } = event else {
+                    continue;
+                };
+                if reliable {
+                    saw_terminal_removal |= statuses.is_empty();
+                    final_status = final_status.or_else(|| statuses.into_iter().find(|status| {
+                        status.macro_id == "m1"
+                            && status.iteration == Some(1)
+                            && status.last_click.as_ref().is_some_and(|last_click| {
+                                last_click.sequence == 1 && last_click.step_id == "final-click"
+                            })
+                    }));
+                }
+            }
+        }
+
+        assert!(saw_terminal_removal);
+        let final_status = final_status.expect(
+            "the final reliable status must retain the completed iteration and last input",
+        );
+        assert_eq!(final_status.state, "running");
+        assert!(runtime.statuses().unwrap().is_empty());
+    }
+
+    #[test]
     fn role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles() {
         let runtime = MacroRuntime::new(Arc::new(|_| {}));
         for index in 0..500 {

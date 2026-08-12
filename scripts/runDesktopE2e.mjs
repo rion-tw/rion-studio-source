@@ -21,10 +21,15 @@ const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");
 const profileArgument = process.argv.find((argument) => argument.startsWith("--profile="))?.slice(10);
 const profile = profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full";
 const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
-const phases = coverageManifest.profiles?.[profile]?.phases;
-if (!phases) {
+const configuredPhases = coverageManifest.profiles?.[profile]?.phases;
+if (!configuredPhases) {
   throw new Error(`Unknown desktop E2E profile: ${profile}. Expected smoke, full, or extended.`);
 }
+const phaseArgument = process.argv.find((argument) => argument.startsWith("--phase="))?.slice(8);
+if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
+  throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
+}
+const phases = phaseArgument ? [phaseArgument] : configuredPhases;
 const journeyIdsByPhase = new Map();
 for (const journey of coverageManifest.journeys ?? []) {
   if (!journey.phase || journey.profile !== profile) continue;

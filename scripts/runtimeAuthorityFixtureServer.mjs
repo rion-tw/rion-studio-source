@@ -27,7 +27,7 @@ function roleCounters(roleId) {
     keyup: 0,
     lastEvent: "boot",
     lastEventSequence: 0,
-    visible: 0
+    visibility: 0
   };
   counters.set(roleId, current);
   return current;
@@ -68,6 +68,7 @@ function recordFixtureEvent(input) {
     timestamp: new Date().toISOString()
   };
   events.push(event);
+  process.stderr.write(`fixture-event ${JSON.stringify(event)}\n`);
   while (events.length > EVENT_CAPACITY) events.shift();
   const state = roleCounters(input.roleId);
   if (Object.hasOwn(state, input.kind)) state[input.kind] += 1;
@@ -125,6 +126,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
+    #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
   </style>
 </head>
 <body>
@@ -148,7 +150,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const sessionMode = ${safeSessionMode};
     document.querySelector("#role-id").textContent = roleId;
     const render = (kind) => {
-      for (const [key, value] of Object.entries(counts)) document.querySelector("#" + key).textContent = String(value);
+      for (const [key, value] of Object.entries(counts)) {
+        const element = document.querySelector("#" + key);
+        if (element) element.textContent = String(value);
+      }
       document.querySelector("#last-event").textContent = kind;
     };
     const record = (kind, details = {}) => {

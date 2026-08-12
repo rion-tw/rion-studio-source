@@ -30,6 +30,9 @@
       "phases": [
         "smoke-seed",
         "smoke-restart",
+        "p0-macro-native-effect",
+        "p0-macro-background-tab",
+        "p1-macro-multirole",
         "p1-mutations",
         "p1-workspace-recovery",
         "p1-guard-cleanup",
@@ -42,6 +45,7 @@
       ],
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
+        "e2e/desktop/specs/macro-runtime.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
@@ -53,6 +57,9 @@
       "phases": [
         "smoke-seed",
         "smoke-restart",
+        "p0-macro-native-effect",
+        "p0-macro-background-tab",
+        "p1-macro-multirole",
         "p1-mutations",
         "p1-workspace-recovery",
         "p1-guard-cleanup",
@@ -66,6 +73,7 @@
       ],
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
+        "e2e/desktop/specs/macro-runtime.e2e.ts",
         "e2e/desktop/specs/full-desktop.e2e.ts",
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
@@ -165,6 +173,48 @@
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
       "description": "Create a role-assigned macro, verify disabled launch failure, then start and stop it from the UI."
+    },
+    {
+      "id": "MACRO-NATIVE-EFFECT-003",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p0-macro-native-effect",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Start a visible macro action and prove its exact native key and click effects in the assigned System WebView role."
+    },
+    {
+      "id": "MACRO-BACKGROUND-TAB-004",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p0-macro-background-tab",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Keep a looping macro bound to its background role after a visible native tab activation without leaking input to the selected tab."
+    },
+    {
+      "id": "MACRO-MULTIROLE-005",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-macro-multirole",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Run one looping macro across two workspace roles and preserve balanced iterations through a visible role focus change."
     },
     {
       "id": "SETTINGS-PERSIST-001",

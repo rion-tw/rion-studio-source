@@ -208,6 +208,19 @@ pub fn run() {
                                             );
                                         }
                                     }
+                                    #[cfg(feature = "desktop-e2e")]
+                                    if let CoreEvent::MacroStatuses { reliable, statuses } = &event {
+                                        desktop_e2e::record_event(
+                                            "macro-statuses",
+                                            None,
+                                            None,
+                                            None,
+                                            json!({
+                                                "reliable": reliable,
+                                                "statuses": statuses,
+                                            }),
+                                        );
+                                    }
                                     let refresh_quick_menu =
                                         matches!(&event, CoreEvent::BrowserStatuses { .. })
                                             || matches!(

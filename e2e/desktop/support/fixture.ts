@@ -28,7 +28,7 @@ export interface FixtureRoleState {
   keyup: number;
   lastEvent: string;
   lastEventSequence: number;
-  visible: number;
+  visibility: number;
 }
 
 function fixtureUrl(path: string): string {
@@ -48,6 +48,11 @@ export async function fixtureState(): Promise<Record<string, FixtureRoleState>> 
   const response = await fetch(fixtureUrl("/api/state"));
   if (!response.ok) throw new Error(`Fixture state failed with ${response.status}`);
   return response.json() as Promise<Record<string, FixtureRoleState>>;
+}
+
+export async function fixtureCursor(): Promise<number> {
+  const state = await fixtureState();
+  return Math.max(0, ...Object.values(state).map((role) => role.lastEventSequence));
 }
 
 export async function waitFixtureEvent(input: {

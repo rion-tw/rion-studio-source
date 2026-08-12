@@ -677,8 +677,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(macInput).toContain("rion_wk_window_content_layout_metrics");
     expect(macInput).toContain("window.contentLayoutRect");
     expect(macInput).not.toContain("[window makeFirstResponder:webView]");
-    expect(macInput).toContain("RionWKContentView(webView)");
-    expect(macInput).toContain("RionResponderBelongsToView(candidate, webView)");
+    expect(macInput).toContain("RionDispatchKeyEvent(webView, event, type, keyDown)");
+    expect(macInput).not.toContain("RionWKContentView(");
+    expect(macInput).not.toContain("RionKeyResponder(");
     expect(macInput).toContain("RionRestoreFirstResponder(");
     expect(macInput).toContain("(id<RionFirstResponderHost>)window");
     expect(macInput).toContain("rion_wk_background_input_focus_self_test");

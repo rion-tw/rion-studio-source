@@ -385,6 +385,8 @@ struct RuntimeDisplayHost {
     #[cfg(windows)]
     last_geometry_receipt_revision: u64,
     #[cfg(windows)]
+    initial_placement_fence: Option<ObservedWindowPresentation>,
+    #[cfg(windows)]
     tab_strip: Webview,
     #[cfg(windows)]
     toolbar_revealed: bool,

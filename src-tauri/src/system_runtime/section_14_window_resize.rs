@@ -142,29 +142,41 @@ impl SystemRuntimeExecutor {
         if self.require_runtime_accepting().is_err() {
             return;
         }
-        let eligible = self.state.lock().ok().is_some_and(|state| {
-            state.native_resources.display_hosts.get(window_id).is_some_and(|host| {
-                host.generation == receipt.key.generation
-                    && receipt.key.frame_revision > host.last_geometry_receipt_revision
-            })
-        });
-        if !eligible {
+        let Some((window, initial_placement_fence)) = self.state.lock().ok().and_then(|state| {
+            let host = state.native_resources.display_hosts.get(window_id)?;
+            (host.generation == receipt.key.generation
+                && receipt.key.frame_revision > host.last_geometry_receipt_revision)
+                .then(|| (host.window.clone(), host.initial_placement_fence))
+        }) else {
+            return;
+        };
+        let native_presentation = native_window_presentation(&window).ok();
+        let receipt_presentation = match receipt.key.presentation {
+            WindowsGeometryPresentation::Maximized => ObservedWindowPresentation::Maximized,
+            WindowsGeometryPresentation::Restored
+                if native_presentation == Some(ObservedWindowPresentation::Fullscreen) =>
+            {
+                ObservedWindowPresentation::Fullscreen
+            }
+            WindowsGeometryPresentation::Restored => ObservedWindowPresentation::Normal,
+        };
+        if !initial_window_placement_receipt_is_authoritative(
+            initial_placement_fence,
+            receipt_presentation,
+        ) {
             return;
         }
-        let presentation_hint = Some(match receipt.key.presentation {
-            WindowsGeometryPresentation::Maximized => ObservedWindowPresentation::Maximized,
-            WindowsGeometryPresentation::Restored => ObservedWindowPresentation::Normal,
-        });
         if self.observe_native_window_placement(
             window_id,
             receipt.key.frame_revision,
-            presentation_hint,
+            Some(receipt_presentation),
         ) && let Ok(mut state) = self.state.lock()
             && let Some(host) = state.native_resources.display_hosts.get_mut(window_id)
             && host.generation == receipt.key.generation
             && receipt.key.frame_revision > host.last_geometry_receipt_revision
         {
             host.last_geometry_receipt_revision = receipt.key.frame_revision;
+            host.initial_placement_fence = None;
         }
     }
 

@@ -224,8 +224,15 @@ fn log_error_details(code: &str, message: &str) -> LogErrorDetails {
     }
 }
 
-fn runtime_target_requires_placement_reapply(presentation: &str, fullscreen: bool) -> bool {
-    presentation != "fullscreen" || !fullscreen
+fn runtime_target_requires_placement_reapply(
+    presentation: &str,
+    observed: ObservedWindowPresentation,
+) -> bool {
+    match presentation {
+        "fullscreen" => observed != ObservedWindowPresentation::Fullscreen,
+        "maximized" => observed != ObservedWindowPresentation::Maximized,
+        _ => observed != ObservedWindowPresentation::Normal,
+    }
 }
 
 fn logical_window_position(physical_x: i32, physical_y: i32, scale: f64) -> (i32, i32) {

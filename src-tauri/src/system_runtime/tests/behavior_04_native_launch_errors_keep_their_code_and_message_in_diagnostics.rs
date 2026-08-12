@@ -8,21 +8,102 @@
     }
 
     #[test]
-    fn matching_fullscreen_runtime_targets_preserve_native_window_presentation() {
-        for (platform, fullscreen, presentation, expected) in [
-            ("macos", true, "fullscreen", false),
-            ("windows", true, "fullscreen", false),
-            ("macos", false, "fullscreen", true),
-            ("windows", false, "fullscreen", true),
-            ("macos", true, "normal", true),
-            ("windows", true, "normal", true),
-            ("macos", true, "maximized", true),
-            ("windows", true, "maximized", true),
+    fn runtime_targets_reapply_only_when_native_presentation_differs() {
+        for (presentation, observed, expected) in [
+            ("normal", ObservedWindowPresentation::Normal, false),
+            ("normal", ObservedWindowPresentation::Maximized, true),
+            ("maximized", ObservedWindowPresentation::Normal, true),
+            ("maximized", ObservedWindowPresentation::Maximized, false),
+            ("fullscreen", ObservedWindowPresentation::Normal, true),
+            ("fullscreen", ObservedWindowPresentation::Fullscreen, false),
         ] {
             assert_eq!(
-                runtime_target_requires_placement_reapply(presentation, fullscreen),
+                runtime_target_requires_placement_reapply(presentation, observed),
                 expected,
-                "unexpected placement policy on {platform}: fullscreen={fullscreen}, presentation={presentation}"
+                "unexpected placement policy: presentation={presentation}, observed={observed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn initial_window_placement_receipts_wait_for_the_requested_native_mode() {
+        for (expected, observed, authoritative) in [
+            (None, ObservedWindowPresentation::Normal, true),
+            (
+                Some(ObservedWindowPresentation::Normal),
+                ObservedWindowPresentation::Normal,
+                true,
+            ),
+            (
+                Some(ObservedWindowPresentation::Maximized),
+                ObservedWindowPresentation::Normal,
+                false,
+            ),
+            (
+                Some(ObservedWindowPresentation::Maximized),
+                ObservedWindowPresentation::Maximized,
+                true,
+            ),
+            (
+                Some(ObservedWindowPresentation::Fullscreen),
+                ObservedWindowPresentation::Normal,
+                false,
+            ),
+            (
+                Some(ObservedWindowPresentation::Fullscreen),
+                ObservedWindowPresentation::Fullscreen,
+                true,
+            ),
+        ] {
+            assert_eq!(
+                initial_window_placement_receipt_is_authoritative(expected, observed),
+                authoritative,
+                "unexpected initial placement receipt policy: expected={expected:?}, observed={observed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn persisted_runtime_window_modes_map_only_to_absolute_native_actions() {
+        for (presentation, expected) in [
+            ("normal", None),
+            ("maximized", Some(NativeWindowMode::Maximized)),
+            ("fullscreen", Some(NativeWindowMode::Fullscreen)),
+            ("minimized", None),
+            ("unknown", None),
+        ] {
+            assert_eq!(
+                NativeWindowMode::from_presentation(presentation),
+                expected,
+                "unexpected absolute native mode for {presentation}"
+            );
+        }
+    }
+
+    #[test]
+    fn initial_placement_fence_supplies_mode_until_native_truth_matches() {
+        for (requested, fence, expected) in [
+            (
+                None,
+                Some(ObservedWindowPresentation::Maximized),
+                Some(NativeWindowMode::Maximized),
+            ),
+            (
+                None,
+                Some(ObservedWindowPresentation::Fullscreen),
+                Some(NativeWindowMode::Fullscreen),
+            ),
+            (None, Some(ObservedWindowPresentation::Normal), None),
+            (
+                Some(NativeWindowMode::ToggleMaximized),
+                Some(ObservedWindowPresentation::Fullscreen),
+                Some(NativeWindowMode::ToggleMaximized),
+            ),
+        ] {
+            assert_eq!(
+                native_presentation_mode_for_dispatch(requested, fence),
+                expected,
+                "unexpected dispatch mode: requested={requested:?}, fence={fence:?}"
             );
         }
     }

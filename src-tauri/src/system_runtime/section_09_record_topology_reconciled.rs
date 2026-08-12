@@ -1,3 +1,14 @@
+fn native_presentation_mode_for_dispatch(
+    requested: Option<NativeWindowMode>,
+    initial_placement_fence: Option<ObservedWindowPresentation>,
+) -> Option<NativeWindowMode> {
+    requested.or_else(|| {
+        initial_placement_fence
+            .and_then(ObservedWindowPresentation::persisted)
+            .and_then(NativeWindowMode::from_presentation)
+    })
+}
+
 impl SystemRuntimeExecutor {
     fn apply_native_active_style(
         &self,
@@ -445,12 +456,28 @@ impl SystemRuntimeExecutor {
         window_mode: Option<NativeWindowMode>,
         launch_latency_trace: Option<RuntimeLaunchLatencyTrace>,
     ) -> String {
-        let window_generation = self
+        let (window_generation, initial_placement_fence) = self
             .state
             .lock()
             .ok()
-            .and_then(|state| state.native_resources.display_hosts.get(&window_id).map(|host| host.generation))
+            .and_then(|state| {
+                state.native_resources.display_hosts.get(&window_id).map(|host| {
+                    (
+                        host.generation,
+                        #[cfg(windows)]
+                        {
+                            host.initial_placement_fence
+                        },
+                        #[cfg(not(windows))]
+                        {
+                            None
+                        },
+                    )
+                })
+            })
             .unwrap_or_default();
+        let window_mode =
+            native_presentation_mode_for_dispatch(window_mode, initial_placement_fence);
         let focus_origin = native_focus_intent_origin(trigger);
         let focus = self.focus_broker.admitted_focus(
             focus,

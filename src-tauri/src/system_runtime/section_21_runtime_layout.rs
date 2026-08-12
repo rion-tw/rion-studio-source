@@ -807,6 +807,10 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 last_geometry_receipt_revision: 0,
                 #[cfg(windows)]
+                initial_placement_fence: ObservedWindowPresentation::from_persisted(
+                    &target.presentation,
+                ),
+                #[cfg(windows)]
                 tab_strip: tab_strip.clone(),
                 #[cfg(windows)]
                 toolbar_revealed: false,
@@ -835,6 +839,14 @@ impl SystemRuntimeExecutor {
             .map_err(|message| {
                 RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
             })?;
+        if let Err(error) = self.apply_window_geometry_target(
+            target,
+            GeometryMutationScope::WindowAndLayout,
+            "initializeRuntimePlacement",
+        ) {
+            let _ = window.close();
+            return Err(error);
+        }
         #[cfg(windows)]
         {
             let initialized_window = window.clone();

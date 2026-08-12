@@ -315,12 +315,16 @@ impl SystemRuntimeExecutor {
             })
             .collect::<HashMap<_, _>>();
 
-        if let Some(target) = target.as_ref()
-        {
-            let fullscreen = self
+        if let Some(target) = target.as_ref() {
+            let native_presentation = self
                 .window_for_id(&target.window_id)
-                .is_some_and(|window| window.is_fullscreen().unwrap_or(false));
-            if runtime_target_requires_placement_reapply(&target.presentation, fullscreen) {
+                .map(|window| native_window_presentation(&window))
+                .transpose()?
+                .unwrap_or(ObservedWindowPresentation::Normal);
+            if runtime_target_requires_placement_reapply(
+                &target.presentation,
+                native_presentation,
+            ) {
                 self.apply_window_geometry_target(
                     target,
                     GeometryMutationScope::WindowAndLayout,

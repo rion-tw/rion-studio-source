@@ -26,6 +26,42 @@ impl ObservedWindowPresentation {
     }
 }
 
+fn initial_window_placement_receipt_is_authoritative(
+    expected: Option<ObservedWindowPresentation>,
+    observed: ObservedWindowPresentation,
+) -> bool {
+    expected.is_none_or(|expected| expected == observed)
+}
+
+#[cfg(windows)]
+fn native_window_presentation(window: &Window) -> RuntimeResult<ObservedWindowPresentation> {
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsZoomed};
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        Ok(ObservedWindowPresentation::Minimized)
+    } else if window.is_fullscreen().map_err(RuntimeError::tauri)? {
+        Ok(ObservedWindowPresentation::Fullscreen)
+    } else if unsafe { IsZoomed(hwnd) }.as_bool() {
+        Ok(ObservedWindowPresentation::Maximized)
+    } else {
+        Ok(ObservedWindowPresentation::Normal)
+    }
+}
+
+#[cfg(not(windows))]
+fn native_window_presentation(window: &Window) -> RuntimeResult<ObservedWindowPresentation> {
+    if window.is_minimized().map_err(RuntimeError::tauri)? {
+        Ok(ObservedWindowPresentation::Minimized)
+    } else if window.is_fullscreen().map_err(RuntimeError::tauri)? {
+        Ok(ObservedWindowPresentation::Fullscreen)
+    } else if window.is_maximized().map_err(RuntimeError::tauri)? {
+        Ok(ObservedWindowPresentation::Maximized)
+    } else {
+        Ok(ObservedWindowPresentation::Normal)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct ObservedWindowPlacement {
     display_id: i64,

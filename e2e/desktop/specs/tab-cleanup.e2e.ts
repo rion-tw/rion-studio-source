@@ -345,7 +345,10 @@ async function tabsPhase(): Promise<void> {
   expect(ids.every((id) => state[id].focus > 0 && state[id].visibility > 0)).toBe(true);
 
   await stopWindowFromUi(TABS_WINDOW_ID);
-  await Promise.all(roles.map((role) => waitForRoleProjection({ absent: true, roleId: role.id })));
+  await Promise.all(roles.map((role) => waitForRuntimeProjection({
+    absent: true,
+    sourceId: role.id
+  })));
   const deleteCursor = await rendererEventCursor();
   await clickEntityMenuAction(TABS_WINDOW_ID, "Game window actions", "Delete window");
   await clickConfirmation("Delete");

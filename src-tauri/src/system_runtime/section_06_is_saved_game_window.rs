@@ -558,6 +558,20 @@ impl SystemRuntimeExecutor {
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
         let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
+        let ready_role_id = (changed && phase == LaunchPhase::EssentialReady)
+            .then(|| {
+                self.state
+                    .lock()
+                    .ok()?
+                    .native_resources
+                    .tabs
+                    .get(tab_id)?
+                    .roles
+                    .keys()
+                    .next()
+                    .cloned()
+            })
+            .flatten();
         let activation_phase = match phase {
             LaunchPhase::Attaching => RuntimeTabActivationPhaseRecord::Attaching,
             LaunchPhase::Navigating => RuntimeTabActivationPhaseRecord::Loading,
@@ -601,6 +615,9 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
             self.publish_projection();
+            if let Some(role_id) = ready_role_id {
+                self.report_system_surface_state_async(role_id, None, true);
+            }
             if matches!(
                 activation_phase,
                 RuntimeTabActivationPhaseRecord::Ready

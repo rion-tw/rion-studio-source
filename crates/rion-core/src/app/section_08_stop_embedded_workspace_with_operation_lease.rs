@@ -531,6 +531,14 @@ impl AppCore {
             crate::model::SystemWebViewIssueReason::RuntimeCrashed
         };
         {
+            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
+                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            })?;
+            for role_id in &role_ids {
+                ready_roles.remove(role_id);
+            }
+        }
+        {
             let mut issues = self.system_webview_issues.write().map_err(|_| {
                 CoreError::Internal("system WebView issue lock poisoned".to_owned())
             })?;
@@ -585,6 +593,12 @@ impl AppCore {
             for role_id in &role_ids {
                 issues.remove(role_id);
             }
+        }
+        {
+            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
+                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            })?;
+            ready_roles.extend(role_ids.iter().cloned());
         }
         let statuses = self
             .browser_statuses()?

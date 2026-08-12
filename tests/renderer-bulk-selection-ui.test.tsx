@@ -399,7 +399,10 @@ describe("bulk selection UI", () => {
         roles={[role("role-1", "Main role")]}
         scrollPositionRef={{ current: 0 }}
         sort={DEFAULT_MACRO_LIST_SORT}
-        statusByRole={new Map([["role-1", { roleId: "role-1", state: "running" }]])}
+        statusByRole={new Map([[
+          "role-1",
+          { roleId: "role-1", state: "running", automationState: "ready" }
+        ]])}
         t={t}
         onCopyMacro={vi.fn()}
         onDeleteMacro={vi.fn()}

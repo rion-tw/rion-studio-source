@@ -959,18 +959,29 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
   });
 
   it("keeps macro focus as a fenced readiness check without changing game focus", async () => {
-    const runtime = await readFile(
-      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
-      "utf8"
-    );
+    const [runtime, readiness] = await Promise.all([
+      readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_18_focus_readiness.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
     const start = runtime.indexOf("BrowserAction::Focus => {");
     const focus = runtime.slice(start, runtime.indexOf("BrowserAction::Key {", start));
 
     expect(start).toBeGreaterThan(-1);
-    expect(focus).toContain("role_webview_for_input(&role_id, &context)");
+    expect(focus).toContain("wait_for_role_input_focus(&role_id, &context)");
+    expect(readiness).toContain("role_webview_for_input(role_id, context)");
+    expect(readiness).toContain("focus_launch_readiness(self.presentation.statuses.launch_phase(&tab_id))");
+    expect(readiness).toContain("LaunchPhase::EssentialReady");
     expect(focus).not.toContain("evaluate_webview");
     expect(focus).not.toContain("window.focus");
     expect(focus).not.toContain("set_focus");
+    expect(readiness).not.toContain("window.focus");
+    expect(readiness).not.toContain("set_focus");
   });
 
   it("does not retain the retired role-to-role local storage subsystem", async () => {
@@ -1062,10 +1073,13 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(projection).not.toContain("self.lifecycle_epoch() > 0");
     expect(projection).toContain("tab_intent_source_identity_is_current(");
     expect(projection).toContain('"tab.intent-superseded"');
-    expect(handler).toContain(
-      "state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str())"
+    expect(handler).toMatch(
+      /state\.runtime\.live_tab_window_id\(tab_id\)\.as_deref\(\)\s*!= Some\(window_id\.as_str\(\)\)/
     );
     expect(handler).not.toContain('action_type != "move" && live_window_id != window_id');
+    expect(menu).toContain(
+      "state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str())"
+    );
     expect(menu).not.toContain('action_type != "move" && live_window_id != window_id');
   });
 });

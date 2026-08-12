@@ -196,7 +196,7 @@ function createMacroActionState({
     (roleId) =>
       roleIds.has(roleId) &&
       statusByRole.get(roleId)?.state === "running" &&
-      statusByRole.get(roleId)?.automationState !== "unavailable" &&
+      statusByRole.get(roleId)?.automationState === "ready" &&
       statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
   const isBusy = busyRunKeys.has(macro.id) || busyMacroIds.has(macro.id) || isStopping;

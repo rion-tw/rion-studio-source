@@ -499,6 +499,23 @@
                 .map(|snapshot| snapshot.navigation),
             Some(crate::model::EngineCapabilityStatus::Supported)
         );
+        assert_eq!(statuses[0].automation_state, None);
+        assert!(core.macro_active_role_ids().unwrap().is_empty());
+        let (recovered, recovered_actions) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedSystemSurfaceRecovered {
+                role_id: role_id.clone(),
+            },
+            None,
+        );
+        assert!(recovered_actions.is_empty());
+        let recovered_statuses =
+            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(
+                recovered.unwrap(),
+            )
+            .unwrap();
+        assert_eq!(recovered_statuses[0].automation_state.as_deref(), Some("ready"));
+        assert_eq!(core.macro_active_role_ids().unwrap(), vec![role_id.clone()]);
         let (stopped, _) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedRoleStop { role_id },
@@ -587,6 +604,19 @@
         );
         assert!(launch.is_ok(), "{launch:?}");
 
+        let (ready, ready_actions) = drive_command(
+            Arc::clone(&core),
+            CoreCommand::EmbeddedSystemSurfaceRecovered {
+                role_id: role_id.clone(),
+            },
+            None,
+        );
+        assert!(ready_actions.is_empty());
+        let ready_statuses =
+            serde_json::from_value::<Vec<crate::model::BrowserRoleStatusRecord>>(ready.unwrap())
+                .unwrap();
+        assert_eq!(ready_statuses[0].automation_state.as_deref(), Some("ready"));
+
         let (failed, failed_actions) = drive_command(
             Arc::clone(&core),
             CoreCommand::EmbeddedSystemSurfaceFailed {
@@ -607,6 +637,11 @@
             failed_statuses[0].issue_reason,
             Some(crate::model::SystemWebViewIssueReason::RuntimeCrashed)
         );
+        assert_eq!(
+            failed_statuses[0].automation_state.as_deref(),
+            Some("unavailable")
+        );
+        assert!(core.macro_active_role_ids().unwrap().is_empty());
 
         let (recovered, recovered_actions) = drive_command(
             Arc::clone(&core),
@@ -626,6 +661,11 @@
             Some(crate::model::ResolvedBrowserEngine::Wkwebview)
         );
         assert_eq!(recovered_statuses[0].issue_reason, None);
+        assert_eq!(
+            recovered_statuses[0].automation_state.as_deref(),
+            Some("ready")
+        );
+        assert_eq!(core.macro_active_role_ids().unwrap(), vec![role_id.clone()]);
 
         let (stopped, _) = drive_command(
             Arc::clone(&core),

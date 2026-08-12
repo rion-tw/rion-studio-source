@@ -278,6 +278,10 @@ pub(crate) fn commit_previewed_tab_selection(
         .runtime
         .tab_selection_revision(window_id, tab_id)
         .ok_or_else(|| "The previewed tab selection is no longer current.".to_owned())?;
+    // Live presentation owns selection. Publish that exact revision before the
+    // persistence projection is queued so renderer callers can observe the
+    // visible terminal even when the source already has a stable live tab.
+    state.runtime.publish_projection();
     state
         .runtime
         .schedule_live_window_state_persistence(window_id);

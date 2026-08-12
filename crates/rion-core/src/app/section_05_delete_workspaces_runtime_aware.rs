@@ -360,12 +360,17 @@ impl AppCore {
             let operation_id = operation_id.clone();
             tokio::task::spawn_blocking(move || {
                 core.with_runtime(|runtime| runtime.state.put_operation_journal(journal))?;
-                let had_directory = match crate::role_browser_data::quarantine(
+                let quarantine = match crate::role_browser_data::quarantine_for_clear(
                     &core.user_data_dir,
                     &role_id,
                     &operation_id,
                 ) {
-                    Ok(had_directory) => had_directory,
+                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::Quarantined(
+                        had_directory,
+                    )) => (had_directory, false),
+                    Ok(crate::role_browser_data::DeleteQuarantineOutcome::DeferredByWindowsLock) => {
+                        (true, true)
+                    }
                     Err(error) => {
                         let _ = core.with_runtime(|runtime| {
                             runtime.state.delete_operation_journal(operation_id.clone())
@@ -373,18 +378,25 @@ impl AppCore {
                         return Err(error);
                     }
                 };
+                let (had_directory, deferred_by_windows_lock) = quarantine;
                 if let Err(error) = core.with_runtime(|runtime| {
                     runtime.state.put_operation_journal(OperationJournalRecord {
                         id: operation_id.clone(),
                         kind: "role_browser_data_clear_v1".to_owned(),
-                        phase: "quarantined".to_owned(),
+                        phase: if deferred_by_windows_lock {
+                            "deferred"
+                        } else {
+                            "quarantined"
+                        }
+                        .to_owned(),
                         payload: json!({
                             "roleId": role_id.clone(),
-                            "hadDirectory": had_directory
+                            "hadDirectory": had_directory,
+                            "deferredByWindowsLock": deferred_by_windows_lock
                         }),
                     })
                 }) {
-                    if had_directory {
+                    if had_directory && !deferred_by_windows_lock {
                         let _ = crate::role_browser_data::restore_quarantine(
                             &core.user_data_dir,
                             &role_id,
@@ -396,12 +408,12 @@ impl AppCore {
                     });
                     return Err(error);
                 }
-                Ok::<_, CoreError>(had_directory)
+                Ok::<_, CoreError>((had_directory, deferred_by_windows_lock))
             })
             .await
             .map_err(|error| CoreError::Internal(error.to_string()))?
         };
-        let had_directory = match prepare {
+        let (had_directory, deferred_by_windows_lock) = match prepare {
             Ok(value) => value,
             Err(error) => {
                 let _ = self.browser_operations.abort(&lease.id);
@@ -421,7 +433,13 @@ impl AppCore {
             )
             .await;
         if let Err(error) = effect {
-            let _ = rollback_role_browser_data_clear(self, &role_id, &operation_id, had_directory);
+            let _ = rollback_role_browser_data_clear(
+                self,
+                &role_id,
+                &operation_id,
+                had_directory,
+                deferred_by_windows_lock,
+            );
             let _ = self.browser_operations.abort(&lease.id);
             return Err(error);
         }
@@ -444,6 +462,7 @@ impl AppCore {
                             &role_id,
                             &operation_id,
                             had_directory,
+                            deferred_by_windows_lock,
                         )?;
                         return Err(error);
                     }

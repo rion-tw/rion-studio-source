@@ -236,11 +236,25 @@ async function clearRoleDataFromVisibleUi(role: Role): Promise<void> {
     "Clear saved data"
   );
   await clickDialogButton("Clear data");
-  await waitForRoleProjection({ afterSequence: cursor, absent: true, roleId: role.id });
   const completionNotice = await $("[role='status']");
+  const errorNotice = await $("[role='alert']");
+  await browser.waitUntil(
+    async () => (await completionNotice.isExisting()) || (await errorNotice.isExisting()),
+    {
+      interval: 100,
+      timeout: 40_000,
+      timeoutMsg: `Role browser data clear did not expose a visible terminal for ${role.name}`
+    }
+  );
+  if (await errorNotice.isExisting()) {
+    throw new Error(
+      `Role browser data clear failed for ${role.name}: ${await errorNotice.getText()}`
+    );
+  }
   await expect(completionNotice).toHaveText(
     `Saved browser data for "${role.name}" was cleared.`
   );
+  await waitForRoleProjection({ afterSequence: cursor, absent: true, roleId: role.id });
   await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`)
     .waitForEnabled({ timeout: 20_000 });
 }

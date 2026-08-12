@@ -126,6 +126,7 @@ pub fn retire_local_storage_sync_caches(user_data_dir: &Path) -> Vec<String> {
     warnings
 }
 
+#[cfg(test)]
 pub fn quarantine(user_data_dir: &Path, role_id: &str, operation_id: &str) -> CoreResult<bool> {
     match quarantine_for_delete_inner(user_data_dir, role_id, operation_id, false)? {
         DeleteQuarantineOutcome::Quarantined(had_directory) => Ok(had_directory),
@@ -136,6 +137,14 @@ pub fn quarantine(user_data_dir: &Path, role_id: &str, operation_id: &str) -> Co
 }
 
 pub(crate) fn quarantine_for_delete(
+    user_data_dir: &Path,
+    role_id: &str,
+    operation_id: &str,
+) -> CoreResult<DeleteQuarantineOutcome> {
+    quarantine_for_delete_inner(user_data_dir, role_id, operation_id, true)
+}
+
+pub(crate) fn quarantine_for_clear(
     user_data_dir: &Path,
     role_id: &str,
     operation_id: &str,

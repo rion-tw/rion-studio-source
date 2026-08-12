@@ -481,10 +481,17 @@ fn rollback_role_browser_data_clear(
     role_id: &str,
     operation_id: &str,
     had_directory: bool,
+    deferred_by_windows_lock: bool,
 ) -> CoreResult<()> {
-    crate::role_browser_data::remove(&core.user_data_dir, role_id)?;
-    if had_directory {
-        crate::role_browser_data::restore_quarantine(&core.user_data_dir, role_id, operation_id)?;
+    if !deferred_by_windows_lock {
+        crate::role_browser_data::remove(&core.user_data_dir, role_id)?;
+        if had_directory {
+            crate::role_browser_data::restore_quarantine(
+                &core.user_data_dir,
+                role_id,
+                operation_id,
+            )?;
+        }
     }
     core.with_runtime(|runtime| {
         runtime
@@ -601,6 +608,10 @@ fn recover_operation_journals(
                             &journal.id,
                         )?;
                     }
+                }
+                "deferred" => {
+                    crate::role_browser_data::remove(user_data_dir, role_id)?;
+                    crate::role_browser_data::ensure(user_data_dir, role_id)?;
                 }
                 "committed" => {
                     crate::role_browser_data::discard_quarantine(user_data_dir, &journal.id)?;

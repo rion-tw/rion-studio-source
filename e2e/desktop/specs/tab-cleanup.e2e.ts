@@ -97,6 +97,14 @@ async function showWindowFromUi(windowId: string, minimumGeneration = 1): Promis
     minimumGeneration,
     windowId
   });
+  if (process.platform === "win32") {
+    await waitEvent({
+      afterSequence: cursor,
+      kind: "runtime-tab-chrome-projection-applied",
+      minimumGeneration,
+      windowId
+    });
+  }
   return windowSnapshot(windowId);
 }
 

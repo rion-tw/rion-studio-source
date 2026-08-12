@@ -1147,6 +1147,19 @@ impl SystemRuntimeExecutor {
                         reveal_signal,
                     );
                 }
+                #[cfg(feature = "desktop-e2e")]
+                if outcome == TabChromeProjectionWaitOutcome::Applied {
+                    crate::desktop_e2e::record_event(
+                        "runtime-tab-chrome-projection-applied",
+                        Some(&worker_projection.window_id),
+                        Some(worker_projection.window_generation),
+                        Some(worker_projection.projection_revision),
+                        serde_json::json!({
+                            "rendererInstanceId": worker_renderer_instance_id,
+                            "topologyRevision": worker_projection.topology_revision,
+                        }),
+                    );
+                }
                 if matches!(
                     outcome,
                     TabChromeProjectionWaitOutcome::Failed

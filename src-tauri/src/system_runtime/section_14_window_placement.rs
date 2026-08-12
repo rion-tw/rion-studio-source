@@ -35,6 +35,11 @@ fn initial_window_placement_receipt_is_authoritative(
 }
 
 #[cfg(windows)]
+fn close_placement_observation_sequence(last_sequence: u64) -> u64 {
+    last_sequence.saturating_add(1)
+}
+
+#[cfg(windows)]
 fn native_window_presentation(window: &Window) -> RuntimeResult<ObservedWindowPresentation> {
     use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsZoomed};
 
@@ -207,6 +212,24 @@ impl SystemRuntimeExecutor {
             window_id: window_id.to_owned(),
             work_area,
         })
+    }
+
+    #[cfg(windows)]
+    fn observe_native_window_placement_before_close(&self, window_id: &str) {
+        let sequence = self.state.lock().ok().and_then(|state| {
+            let host = state.native_resources.display_hosts.get(window_id)?;
+            (!window_close_in_progress(&state, window_id)).then(|| {
+                close_placement_observation_sequence(host.last_placement_observation_sequence)
+            })
+        });
+        let Some(sequence) = sequence else {
+            return;
+        };
+        if !self.observe_native_window_placement(window_id, sequence, None) {
+            eprintln!(
+                "Final native Game Window placement readback was unavailable before close: window={window_id}"
+            );
+        }
     }
 
     fn commit_observed_window_placement(&self, observed: ObservedWindowPlacement) -> bool {

@@ -187,6 +187,8 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         trigger: &'static str,
     ) -> RuntimeResult<RuntimeWindowCloseOperation> {
+        #[cfg(windows)]
+        self.observe_native_window_placement_before_close(window_id);
         let mut state = self.state()?;
         let host = state.native_resources.display_hosts.get(window_id).map(|host| {
             (host.window.label().to_owned(), host.generation)

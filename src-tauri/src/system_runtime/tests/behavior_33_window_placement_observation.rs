@@ -122,6 +122,26 @@ fn restoring_to_normal_replaces_the_previous_saved_normal_bounds() {
     assert_eq!(target.bounds, observed.normal_bounds.unwrap());
 }
 
+#[cfg(windows)]
+#[test]
+fn close_readback_advances_past_the_latest_native_placement_receipt() {
+    assert_eq!(close_placement_observation_sequence(28), 29);
+    assert_eq!(close_placement_observation_sequence(u64::MAX), u64::MAX);
+
+    let mut current = current_placement_target();
+    current.presentation = "maximized".to_owned();
+    let observed = observed_placement(
+        ObservedWindowPresentation::Normal,
+        close_placement_observation_sequence(28),
+    );
+    let target = reduce_observed_window_placement(&current, 4, 28, &observed)
+        .and_then(|reduction| reduction.target)
+        .expect("the final pre-close native readback should replace the stale maximized snapshot");
+
+    assert_eq!(target.presentation, "normal");
+    assert_eq!(target.bounds, observed.normal_bounds.unwrap());
+}
+
 #[test]
 fn minimized_observations_advance_the_fence_without_changing_saved_placement() {
     let current = current_placement_target();

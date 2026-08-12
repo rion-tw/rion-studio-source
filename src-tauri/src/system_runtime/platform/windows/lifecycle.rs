@@ -136,12 +136,32 @@ pub(in crate::system_runtime) fn request_platform_window_restore(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn native_maximized_transition_commands(
+    iconic: bool,
+    zoomed: bool,
+    maximized: bool,
+) -> Vec<windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD> {
+    use windows::Win32::UI::WindowsAndMessaging::{SW_MAXIMIZE, SW_RESTORE};
+
+    if maximized {
+        return (!zoomed).then_some(SW_MAXIMIZE).into_iter().collect();
+    }
+    if iconic {
+        // SW_RESTORE first consumes the minimized state. When the window was
+        // minimized from maximized, Win32 restores that maximized state, so a
+        // second SW_RESTORE is required to reach the requested normal mode.
+        return vec![SW_RESTORE, SW_RESTORE];
+    }
+    zoomed.then_some(SW_RESTORE).into_iter().collect()
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_window_set_maximized(
     window: &Window,
     maximized: bool,
 ) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        IsWindow, IsWindowVisible, IsZoomed, SW_HIDE, SW_MAXIMIZE, SW_RESTORE, ShowWindow,
+        IsIconic, IsWindow, IsWindowVisible, IsZoomed, SW_HIDE, ShowWindow,
     };
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
@@ -149,8 +169,12 @@ pub(in crate::system_runtime) fn request_platform_window_set_maximized(
         return Err("The Win32 game window handle is no longer valid.".to_owned());
     }
     let was_visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
-    if unsafe { IsZoomed(hwnd) }.as_bool() != maximized {
-        let command = if maximized { SW_MAXIMIZE } else { SW_RESTORE };
+    let commands = native_maximized_transition_commands(
+        unsafe { IsIconic(hwnd) }.as_bool(),
+        unsafe { IsZoomed(hwnd) }.as_bool(),
+        maximized,
+    );
+    for command in commands {
         let _ = unsafe { ShowWindow(hwnd, command) };
     }
     if !was_visible {

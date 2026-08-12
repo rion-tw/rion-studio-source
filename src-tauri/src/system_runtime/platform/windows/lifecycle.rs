@@ -817,6 +817,23 @@ pub(in crate::system_runtime) fn call_system_input_devtools(
     params: &Value,
     context: &InputDispatchContext,
 ) -> RuntimeResult<String> {
+    call_system_input_devtools_bounded(
+        webview,
+        method,
+        params,
+        context,
+        PLATFORM_CALLBACK_TIMEOUT,
+    )
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn call_system_input_devtools_bounded(
+    webview: &Webview,
+    method: &str,
+    params: &Value,
+    context: &InputDispatchContext,
+    maximum_wait: Duration,
+) -> RuntimeResult<String> {
     use webview2_com::{
         CallDevToolsProtocolMethodCompletedHandler, Microsoft::Web::WebView2::Win32::ICoreWebView2,
     };
@@ -857,7 +874,7 @@ pub(in crate::system_runtime) fn call_system_input_devtools(
             }
         })
         .map_err(RuntimeError::tauri)?;
-    match receiver.recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT)) {
+    match receiver.recv_timeout(context.remaining(maximum_wait)) {
         Ok(Some(result)) => {
             result.map_err(|message| RuntimeError::new("BROWSER_DEBUGGER_FAILED", message))
         }

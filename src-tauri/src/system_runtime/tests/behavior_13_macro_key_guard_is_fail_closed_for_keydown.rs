@@ -149,6 +149,23 @@ fn macro_key_guard_acknowledgement_accepts_only_boolean_true() {
     assert!(!macro_key_guard_acknowledged("not-json"));
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_macro_key_guard_accepts_only_the_cdp_boolean_terminal() {
+    assert!(macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"boolean","value":true}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"boolean","value":false}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"string","value":"true"}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"exceptionDetails":{"text":"failed"}}"#
+    ));
+}
+
 #[test]
 fn macro_focus_waits_for_essential_page_readiness() {
     for phase in [None, Some(LaunchPhase::Attaching), Some(LaunchPhase::Navigating)] {

@@ -100,6 +100,12 @@ pub(crate) struct RuntimeWindowCloseOperation {
     pub(crate) should_execute: bool,
 }
 
+impl RuntimeWindowCloseOperation {
+    pub(crate) const fn is_state_only_delete(&self, delete: bool) -> bool {
+        delete && !self.native_expected
+    }
+}
+
 impl ManagedSurfacePhase {
     const fn as_str(self) -> &'static str {
         match self {

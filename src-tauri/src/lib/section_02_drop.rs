@@ -636,6 +636,29 @@ async fn execute_game_window_close_transaction(
         .runtime
         .begin_window_close_operation(&window_id, trigger)
         .map_err(|error| shell_error(error.code, error.message))?;
+    if operation.should_execute && operation.is_state_only_delete(delete) {
+        if let Err(error) = state
+            .core
+            .invoke_async(CoreCommand::GameWindowDelete {
+                id: window_id.clone(),
+            })
+            .await
+        {
+            let receipt = state.runtime.fail_window_close_operation(
+                &operation.operation_id,
+                "windowDeleteStateCommitFailed",
+                "SYSTEM_WINDOW_DELETE_STATE_COMMIT_FAILED",
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
+            return Err(error_payload(error));
+        }
+        let receipt = state
+            .runtime
+            .complete_window_close_state_commit(&operation.operation_id);
+        let _ = app.emit("rion://window-lifecycle", &receipt);
+        return serde_json::to_value(receipt)
+            .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()));
+    }
     let receipt = if operation.should_execute {
         if let Err(error) = state.runtime.flush_live_window_state(&window_id) {
             eprintln!(

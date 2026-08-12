@@ -84,6 +84,28 @@ fn post_submission_failure_is_indeterminate_only_after_the_exact_generation_is_g
 }
 
 #[test]
+fn dormant_window_delete_bypasses_live_generation_teardown() {
+    for platform in ["macos", "windows"] {
+        let dormant = RuntimeWindowCloseOperation {
+            label: None,
+            native_expected: false,
+            operation_id: format!("{platform}-dormant-delete"),
+            should_execute: true,
+        };
+        assert!(dormant.is_state_only_delete(true), "{platform}");
+        assert!(!dormant.is_state_only_delete(false), "{platform}");
+
+        let live = RuntimeWindowCloseOperation {
+            label: Some(format!("{platform}-runtime-window")),
+            native_expected: true,
+            operation_id: format!("{platform}-live-delete"),
+            should_execute: true,
+        };
+        assert!(!live.is_state_only_delete(true), "{platform}");
+    }
+}
+
+#[test]
 fn retired_native_host_blocks_reopen_until_destroyed() {
     let mut state = RuntimeState::default();
     state

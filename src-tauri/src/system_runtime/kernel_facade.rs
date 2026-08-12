@@ -40,14 +40,16 @@ impl SystemRuntimeExecutor {
 
     pub(super) fn activate_kernel_tab(
         &self,
-        expected_revision: u64,
         operation_id: OperationId,
         tab_id: RuntimeTabId,
         window_id: String,
     ) -> RuntimeResult<rion_core::RuntimeCommit> {
         self.core
             .apply_runtime_intent(RuntimeIntent::ActivateTab {
-                expected_revision: Some(expected_revision),
+                // Tab ownership and visibility are validated atomically by the Kernel.
+                // Placement receipts advance the aggregate revision independently and
+                // must not supersede an otherwise-current on-demand activation.
+                expected_revision: None,
                 operation_id,
                 tab_id,
                 window_id,

@@ -1,4 +1,6 @@
 use super::*;
+use crate::RuntimeWindowPlacementCommitInput;
+use crate::model::{DisplayTargetRecord, GameWindowPlacementRecord, StatePixelBoundsRecord};
 
 fn single_window_topology_at_generation(
     operation_id: &str,
@@ -107,6 +109,79 @@ fn dormant_seed_retires_a_degraded_surface_from_the_previous_window_generation()
         .unwrap();
     assert!(matches!(
         relaunched.desired_effects.as_slice(),
+        [RuntimeDesiredEffect::ActivateTab { tab_id, window_id, .. }]
+            if tab_id.as_str() == "tab-a" && window_id == "window-a"
+    ));
+}
+
+#[test]
+fn unfenced_dormant_activation_survives_an_unrelated_placement_revision() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(single_window_topology_at_generation(
+            "seed-placement-race",
+            1,
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-dormant-placement-race".to_owned(),
+            tab_ids: vec!["tab-a".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let stale_revision = kernel.snapshot().unwrap().windows["window-a"].revision;
+    kernel
+        .apply(RuntimeIntent::CommitPlacement(
+            RuntimeWindowPlacementCommitInput {
+                operation_id: "native-placement-race".to_owned(),
+                placement: GameWindowPlacementRecord {
+                    normal_bounds: StatePixelBoundsRecord {
+                        x: 20,
+                        y: 40,
+                        width: 960,
+                        height: 640,
+                    },
+                    presentation: "normal".to_owned(),
+                    saved_work_area: StatePixelBoundsRecord {
+                        x: 0,
+                        y: 0,
+                        width: 1440,
+                        height: 900,
+                    },
+                },
+                placement_sequence: 1,
+                source: "native".to_owned(),
+                target_display: DisplayTargetRecord {
+                    fingerprint: None,
+                    id: 1,
+                },
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            },
+        ))
+        .unwrap();
+
+    let stale = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(stale_revision),
+            operation_id: id::<OperationId>("stale-placement-activation"),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert_eq!(stale.status, RuntimeCommitStatus::Superseded);
+
+    let current = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: None,
+            operation_id: id::<OperationId>("current-placement-activation"),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert!(matches!(
+        current.desired_effects.as_slice(),
         [RuntimeDesiredEffect::ActivateTab { tab_id, window_id, .. }]
             if tab_id.as_str() == "tab-a" && window_id == "window-a"
     ));

@@ -16,7 +16,7 @@ PowerShell 與 NTFS 工作樹，不可使用 WSL、Linux portable 或 macOS 結�
 先執行 git fetch origin、git switch main、git pull --ff-only origin main，確認工作樹乾淨，
 並記錄 git rev-parse HEAD、Windows build/architecture、WebView2 Runtime、Node、pnpm 與
 Rust toolchain。接著依文件順序執行 required static/Rust gates、
-pnpm run test:e2e:desktop:full；若有兩台 mixed-DPI 實體螢幕，再執行
+pnpm run test:e2e:desktop:smoke 與 pnpm run test:e2e:desktop:full；若有兩台 mixed-DPI 實體螢幕，再執行
 pnpm run test:e2e:desktop:extended。
 
 不得將 product failure 自動重跑成綠燈。只有能證明為基礎設施問題且已保存完整 artifact
@@ -46,7 +46,7 @@ SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/f
 | 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`；產品修正 `adb590d89c858033dda5895b862bed61df600436`；adapter 接線 `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS；coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；lint/typecheck/build/isolation 全部 exit 0；三個新增 phase 各 1/1。 | native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`；background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`；multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin` | PUSHED with this checkpoint | PENDING |
 | 3 — tab activation/macro teardown | `17ab845838d9355eae72904ac389137017856c18`；產品修正 `9ff644ca68994e6579152da4006d53306db5e071`、`e9f46fa6968d5c982a6e88e0a34feed52306d776`、`cc526df64d824d0a698595047c993495c4d71c48`、`35a9af14d37bf89bff3817dddeb8a123db6cb007`；證據／回歸 `34162a75fde02bd95a8bb2b9a765d7554eaaabf4`、`703ae6d1082af978985e0b46702054ae716cfa14`、`ba23f5536c8aebd75c87b6ffeed1ec6e4123f763`、`bc2c391856327b36b1be111422be1fb6b5d35a64`、`b7b623b215f92cf570b8c697f768db2b896adb95`、`137b90af915abf6d7dae9e6a3718ada946edd5a6`、`2e11996aec3c8efb6ad3a35900d02c616b127aa2` | PASS；coverage P0 13/13、P1 9/9；Vitest 882/882；Rust 582+20+417；lint/typecheck/build/isolation 全部 exit 0；兩個新增 phase 各 1/1。 | tabs `.desktop-e2e-artifacts/2026-08-12T11-10-00-496Z-darwin`；cleanup `.desktop-e2e-artifacts/2026-08-12T11-09-04-043Z-darwin` | PUSHED with this checkpoint | PENDING |
 | 4 — role isolation/shared ownership | `93a2dd54e2cb929e9d389473e305c7c5e7804ba1` | PASS；coverage P0 13/13、P1 11/11；Vitest 882/882；fixture focused 5/5；hygiene/typecheck/lint/diff check 全部 exit 0；Session seed→restart→observe 與 shared-role phase 全部通過。 | session `.desktop-e2e-artifacts/2026-08-12T11-35-36-767Z-darwin`；shared `.desktop-e2e-artifacts/2026-08-12T11-35-22-004Z-darwin` | PUSHED with this checkpoint | PENDING |
-| 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 5 — recovery/reporting/final gates | `9f4ce87dc3a841d6827fc0f026b15507ddd736b6`；產品修正 `a65cbaa63d5f282d82beab7110059920606ad5aa`、`3550a889b64e6144abcbf3813d9039f316f509ff`、`09541c6c84370333bc1ff49b7538f382a5e42823`；回歸／harness 修正 `00ecbf153cb5c06da88f60ce2370e333c15504f8`、`f8496635fbddcf349db9306c4e7f4b2199307915`、`7487719ea15307b99e83988f94b8d6784b0b0571`、`634f89df917819d7a594600fbca829f0971794fc` | PASS；coverage P0 13/13、P1 12/12；Vitest 882/882；Rust 582+20+418；所有 final static/Rust/build/isolation gates exit 0；smoke 2/2；full 21 phases 符合預期且核心八項 journey 全 PASS。 | smoke `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`；full `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin` | PUSHED with this checkpoint | PENDING |
 
 批次 1 新增 debug-only `desktop_e2e_runtime_ui_action`。Windows 必須證明它透過實際
 WebView2 tab-strip button／role placeholder DOM control 提交 UI action，且 production build
@@ -70,6 +70,34 @@ generation。巨集 teardown 則在 exact role/window close admission 記錄 inp
 shared-role journey 從可見 Workspaces UI 啟動兩個 workspace，再按第二個 workspace 的 blocked
 placeholder；所有權 projection 必須只移轉 shared role，兩個 unique role 不得停止或換 owner。
 清理同樣走實際 tab controls，並依最後一個 tab 與否分別核對 `window-destroyed` 或剩餘 snapshot。
+
+批次 5 將 restore 與 discard 都改成 Dashboard 可見 UI 決策，並在第二次 crash 後以
+`recovery-final-restart` 證明 discard 後的下一次啟動乾淨。macOS 背景巨集曾揭露 WebKit 將
+未處理的 synthetic key event 回送給目前 active window；修正只標記 desktop macro 的合成
+event，並在既有 AppKit `sendEvent` 邊界攔截該次 page-unhandled fallback，不改一般使用者輸入。
+Runner 依獨立 journey/lifecycle chain 分配 user-data namespace；有資料相依的 smoke/P1 entity
+phases 共享 `app-entity-lifecycle`，其他核心旅程不再吃到前一個 phase 的 preference 或資料殘留。
+
+### Batch 5 macOS checkpoint（latest code SHA `634f89df917819d7a594600fbca829f0971794fc`）
+
+| Command | Exit | Evidence |
+| --- | ---: | --- |
+| `pnpm run check:e2e-coverage` | 0 | P0 13/13 (100%)、P1 12/12 (100%)、P2 0/2。 |
+| `pnpm run check:source-hygiene` | 0 | 1145 tracked files。 |
+| `pnpm run typecheck` | 0 | TypeScript build graph clean。 |
+| `pnpm run lint` | 0 | 0 errors；23 個既有 Fast Refresh warnings。 |
+| `pnpm run test` | 0 | 156 files、882 tests。 |
+| `pnpm run lint:rust` | 0 | `cargo fmt --check` + clippy `-D warnings`。 |
+| `pnpm run test:rust` | 0 | rion-core 582、rion-platform 20、rion-tauri 418。 |
+| `pnpm run build` | 0 | production renderer + native Tauri build。 |
+| `pnpm run check:desktop-e2e-isolation` | 0 | debug-only E2E API 未進 production bundle。 |
+| `pnpm run test:e2e:desktop:smoke` | 0 | 2/2；artifact `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`。 |
+| `pnpm run test:e2e:desktop:full` | 0 | 21 phases；artifact `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin`。 |
+| `git diff --check` | 0 | clean；E2E report 記錄 `worktreeDirty=false`。 |
+
+full report 的 `force-terminate` 與 `crash-restart` 是刻意的
+`EXPECTED_FORCE_TERMINATION`（exit 1）；其餘 19 phases 全為 `PASS`，report 無 `failure`。
+Win32/WebView2 adapter 與 UI control 路徑尚未在 Windows 實機執行，必須維持 PENDING。
 
 ## 1. 身份與環境
 
@@ -124,10 +152,12 @@ debug-feature E2E renderer bundle 當成 production isolation 證據。Lint 可�
 ## 3. Required full profile
 
 ```powershell
+pnpm run test:e2e:desktop:smoke
 pnpm run test:e2e:desktop:full
 ```
 
-保存命令輸出的 `.desktop-e2e-artifacts/<timestamp>-win32`。`report.json` 必須沒有
+smoke 的兩個 phase 必須先通過；保存兩個命令輸出的
+`.desktop-e2e-artifacts/<timestamp>-win32`。full 的 `report.json` 必須沒有
 `failure`，且逐 phase 符合：
 
 | Phase | Required status | 核心證據 |
@@ -136,6 +166,8 @@ pnpm run test:e2e:desktop:full
 | `smoke-restart` | `PASS` | clean restart 與 persisted smoke entities |
 | `p0-macro-native-effect` | `PASS` | KeyA down/up、中心 target click、final iteration／lastClick 與 terminal removal |
 | `p0-macro-background-tab` | `PASS` | 可見 tab control terminal event、native selected tab、背景 A 輸入與 B 零輸入 |
+| `p0-macro-terminal-cleanup` | `PASS` | stop／close tab／close window／shutdown 全部 terminalize，input quiesced 且無 late input |
+| `p0-tabs-visible-activation` | `PASS` | 三個 ready tab 經可見控制切換，selected surface 與 fixture focus/visibility 一致 |
 | `p1-macro-multirole` | `PASS` | 兩角色 iteration 平衡、可見 role surface click 後兩者持續輸入 |
 | `p1-role-session-seed` | `PASS` | 同 origin 的 A/B store 分別寫入持久 Cookie／LocalStorage，並保存 observe-only URL |
 | `p1-role-session-isolation` | `PASS` | 重啟只讀驗證 A/B marker；可見 UI 清除 A 後 A 空、B 完整保留 |
@@ -148,7 +180,9 @@ pnpm run test:e2e:desktop:full
 | `seed` | `PASS` | permanent windows、tabs、placement 與 mode seed |
 | `restart` | `PASS` | clean restore cohort、maximize/minimize/fullscreen transition |
 | `force-terminate` | `EXPECTED_FORCE_TERMINATION` | 精確 PID 終止且 SQLite `cleanExit=false` |
-| `crash-restart` | `PASS` | crash 不誤判 clean exit、手動恢復後正常 final flush |
+| `crash-restart` | `EXPECTED_FORCE_TERMINATION` | Dashboard 可見 Restore 恢復 exact cohort／last-visible，再次精確終止建立 discard 前置狀態 |
+| `crash-discard` | `PASS` | Dashboard 可見 Discard 清除 recovery，所有 saved windows 保持 dormant |
+| `recovery-final-restart` | `PASS` | discard 後乾淨重啟，recovery absent 且無 live runtime windows |
 
 以下既有 P1 journey 必須全部有 Windows 證據：
 
@@ -212,7 +246,7 @@ release／跨平台通過。
 
 - `report.json`
 - `fixture.log`
-- `user-data/desktop-e2e/events.ndjson`
+- `user-data/<phase-namespace>/desktop-e2e/events.ndjson`
 - `phases/*/runner.log`
 - `phases/*/wdio/*`
 - `phases/*/screenshots/*`（若沒有失敗截圖，記錄 N/A）

@@ -2,7 +2,7 @@
 
 - Status: pending
 - Final exact SHA: PENDING WINDOWS `git rev-parse HEAD`
-- Latest validated code SHA: `93a2dd54e2cb929e9d389473e305c7c5e7804ba1`
+- Latest validated code SHA: `634f89df917819d7a594600fbca829f0971794fc`
 - Branch / tracking SHA / remote SHA: `main` / PENDING / PENDING
 - Windows build / architecture: PENDING
 - WebView2 Runtime: PENDING
@@ -18,7 +18,41 @@
 | 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`; fix `adb590d89c858033dda5895b862bed61df600436`; adapter `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS — coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；build/isolation；三個 phase 各 1/1。Artifacts：native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`、background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`、multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin`。 | PENDING |
 | 3 — tab activation/macro teardown | `17ab845838d9355eae72904ac389137017856c18`；fixes `9ff644ca68994e6579152da4006d53306db5e071`、`e9f46fa6968d5c982a6e88e0a34feed52306d776`、`cc526df64d824d0a698595047c993495c4d71c48`、`35a9af14d37bf89bff3817dddeb8a123db6cb007`；evidence/regressions `34162a75fde02bd95a8bb2b9a765d7554eaaabf4`、`703ae6d1082af978985e0b46702054ae716cfa14`、`ba23f5536c8aebd75c87b6ffeed1ec6e4123f763`、`bc2c391856327b36b1be111422be1fb6b5d35a64`、`b7b623b215f92cf570b8c697f768db2b896adb95`、`137b90af915abf6d7dae9e6a3718ada946edd5a6`、`2e11996aec3c8efb6ad3a35900d02c616b127aa2` | PASS — coverage P0 13/13、P1 9/9；Vitest 882/882；Rust 582+20+417；build/isolation；兩個 phase 各 1/1。Artifacts：tabs `.desktop-e2e-artifacts/2026-08-12T11-10-00-496Z-darwin`、cleanup `.desktop-e2e-artifacts/2026-08-12T11-09-04-043Z-darwin`。 | PENDING |
 | 4 — role isolation/shared ownership | `93a2dd54e2cb929e9d389473e305c7c5e7804ba1` | PASS — coverage P0 13/13、P1 11/11；Vitest 882/882；fixture focused 5/5；hygiene/typecheck/lint/diff check exit 0；Session seed→restart→observe 與 shared-role phase 全部通過。Artifacts：session `.desktop-e2e-artifacts/2026-08-12T11-35-36-767Z-darwin`、shared `.desktop-e2e-artifacts/2026-08-12T11-35-22-004Z-darwin`。 | PENDING |
-| 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING |
+| 5 — recovery/reporting/final gates | `9f4ce87dc3a841d6827fc0f026b15507ddd736b6`; fixes `a65cbaa63d5f282d82beab7110059920606ad5aa`、`3550a889b64e6144abcbf3813d9039f316f509ff`、`09541c6c84370333bc1ff49b7538f382a5e42823`; regressions/harness `00ecbf153cb5c06da88f60ce2370e333c15504f8`、`f8496635fbddcf349db9306c4e7f4b2199307915`、`7487719ea15307b99e83988f94b8d6784b0b0571`、`634f89df917819d7a594600fbca829f0971794fc` | PASS — coverage P0 13/13、P1 12/12；Vitest 882/882；Rust 582+20+418；static/Rust/build/isolation 全 exit 0；smoke 2/2；full 21 phases 符合預期、核心八項全 PASS。Artifacts：smoke `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`、full `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin`。 | PENDING |
+
+## Batch 5 macOS final checkpoint
+
+- Exact validated code SHA: `634f89df917819d7a594600fbca829f0971794fc`
+- Starting/final worktree: clean；full `report.json` 記錄 `worktreeDirty=false`
+- Push status: included in the final fast-forward checkpoint push to `origin/main`
+
+| Command | Exit | Counts / artifact |
+| --- | ---: | --- |
+| `pnpm run check:e2e-coverage` | 0 | P0 13/13 (100%)、P1 12/12 (100%)、P2 0/2。 |
+| `pnpm run check:source-hygiene` | 0 | 1145 tracked files。 |
+| `pnpm run typecheck` | 0 | PASS。 |
+| `pnpm run lint` | 0 | 0 errors；23 existing Fast Refresh warnings。 |
+| `pnpm run test` | 0 | 156 files、882 tests。 |
+| `pnpm run lint:rust` | 0 | fmt + clippy `-D warnings`。 |
+| `pnpm run test:rust` | 0 | rion-core 582、rion-platform 20、rion-tauri 418。 |
+| `pnpm run build` | 0 | production renderer + Tauri。 |
+| `pnpm run check:desktop-e2e-isolation` | 0 | PASS。 |
+| `pnpm run test:e2e:desktop:smoke` | 0 | `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`；2/2。 |
+| `pnpm run test:e2e:desktop:full` | 0 | `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin`；19 PASS + 2 expected crash boundaries。 |
+| `git diff --check` | 0 | PASS。 |
+
+macOS final full journey verdicts：
+
+| Journey ID | macOS | Phase |
+| --- | --- | --- |
+| `MACRO-NATIVE-EFFECT-003` | PASS | `p0-macro-native-effect` |
+| `MACRO-BACKGROUND-TAB-004` | PASS | `p0-macro-background-tab` |
+| `MACRO-MULTIROLE-005` | PASS | `p1-macro-multirole` |
+| `MACRO-TERMINAL-CLEANUP-006` | PASS | `p0-macro-terminal-cleanup` |
+| `TABS-VISIBLE-ACTIVATION-003` | PASS | `p0-tabs-visible-activation` |
+| `ROLE-SESSION-ISOLATION-003` | PASS | `p1-role-session-isolation` |
+| `WORKSPACE-SHARED-ROLE-003` | PASS | `p1-workspace-shared-role` |
+| `WINDOW-RECOVERY-UI-007` | PASS | `crash-discard` |
 
 ## Starting worktree
 
@@ -49,7 +83,27 @@ PENDING
 
 | Phase | Status | SQLite / event / log evidence |
 | --- | --- | --- |
-| All manifest full phases | PENDING | |
+| `smoke-seed` | PENDING | |
+| `smoke-restart` | PENDING | |
+| `p0-macro-native-effect` | PENDING | |
+| `p0-macro-background-tab` | PENDING | |
+| `p0-macro-terminal-cleanup` | PENDING | |
+| `p0-tabs-visible-activation` | PENDING | |
+| `p1-macro-multirole` | PENDING | |
+| `p1-role-session-seed` | PENDING | |
+| `p1-role-session-isolation` | PENDING | |
+| `p1-workspace-shared-role` | PENDING | |
+| `p1-mutations` | PENDING | |
+| `p1-workspace-recovery` | PENDING | |
+| `p1-guard-cleanup` | PENDING | |
+| `p1-final-restart` | PENDING | |
+| `system-settings` | PENDING | |
+| `seed` | PENDING | |
+| `restart` | PENDING | |
+| `force-terminate` | PENDING | Must become `EXPECTED_FORCE_TERMINATION`, not generic PASS. |
+| `crash-restart` | PENDING | Must restore via visible UI, then become `EXPECTED_FORCE_TERMINATION` for discard precondition. |
+| `crash-discard` | PENDING | |
+| `recovery-final-restart` | PENDING | |
 
 ## Core eight journeys
 
@@ -123,6 +177,35 @@ macOS batch 4 retained every failed run before the passing checkpoints:
 | `.desktop-e2e-artifacts/2026-08-12T11-32-15-445Z-darwin` | stopped workspace retained a compatibility live-presentation tab record | Harness incorrectly equated stop with close; cleanup now activates and closes the actual tab. |
 | `.desktop-e2e-artifacts/2026-08-12T11-33-00-372Z-darwin` | repeated stop-based cleanup still observed the retained tab | Same lifecycle mismatch; replaced by exact tab-close terminal and native snapshot evidence. |
 | `.desktop-e2e-artifacts/2026-08-12T11-34-46-752Z-darwin` | snapshot queried a window destroyed by closing its sole tab | Evidence branch defect; a last-tab close now requires exact `window-destroyed`, while multi-tab close requires a surviving snapshot without the target. |
+
+macOS batch 5 retained the recovery, macro routing, namespace and readiness failures that led to the
+final clean-SHA run:
+
+| Artifact | First error | Classification / resolution |
+| --- | --- | --- |
+| `.desktop-e2e-artifacts/2026-08-12T11-44-49-128Z-darwin` | native focus changed, but persisted last-visible focus did not | Product persistence race; latest authoritative native focus now wins (`a65cbaa6`). |
+| `.desktop-e2e-artifacts/2026-08-12T11-46-36-255Z-darwin` | focus waiter cursor was captured after the event | Harness ordering defect; cursor now precedes the visible action. |
+| `.desktop-e2e-artifacts/2026-08-12T11-47-45-939Z-darwin` | stale session persist overwrote the newer C→A focus | Product defect covered and fixed by `a65cbaa6`. |
+| `.desktop-e2e-artifacts/2026-08-12T11-50-51-917Z-darwin` | UI restore ended on B because restore order became focus authority | Product focus policy defect; restore preserves explicit last-visible selection. |
+| `.desktop-e2e-artifacts/2026-08-12T11-53-45-175Z-darwin` | SQLite validation treated omitted focus differently from null | Validator contract defect; normalized optional focus evidence. |
+| `.desktop-e2e-artifacts/2026-08-12T11-55-47-058Z-darwin` | recovery evidence passed; clean shutdown session delete returned `ECONNRESET` | Runner teardown handling defect; authoritative final flush remains required. |
+| `.desktop-e2e-artifacts/2026-08-12T11-58-16-686Z-darwin` | final focus wait installed after its event | Harness ordering defect; waiter is armed before visible focus. |
+| `.desktop-e2e-artifacts/2026-08-12T12-06-08-253Z-darwin` | background A macro key leaked into active B | macOS product defect; added page-bound dispatch regression and subsequent containment fix. |
+| `.desktop-e2e-artifacts/2026-08-12T12-08-30-459Z-darwin` | temporary first-responder routing still leaked the event | Rejected implementation experiment; no workaround retained. |
+| `.desktop-e2e-artifacts/2026-08-12T12-11-02-418Z-darwin` | deferred responder restoration blocked teardown | Rejected implementation experiment; no timer-based success retained. |
+| `.desktop-e2e-artifacts/2026-08-12T12-26-26-641Z-darwin` | isolated phase still reproduced active-B key leakage | Confirmed product defect independent of test residue. |
+| `.desktop-e2e-artifacts/2026-08-12T12-29-13-317Z-darwin` | window-number experiment did not prevent WebKit fallback | Rejected implementation experiment. |
+| `.desktop-e2e-artifacts/2026-08-12T12-32-38-410Z-darwin` | leakage stopped, but concurrent cleanup raced two stops in one window | Product routing fixed by `09541c6c`; cleanup changed to ordered event-bound teardown. |
+| `.desktop-e2e-artifacts/2026-08-12T12-22-12-569Z-darwin` | visible close control inherited smoke preference state | Cross-phase namespace contamination; independent chains isolated by `f8496635`. |
+| `.desktop-e2e-artifacts/2026-08-12T12-40-50-024Z-darwin` | `p1-mutations` could not find smoke-seeded entities | Required lifecycle dependency was over-isolated; dependency chain preserved by `7487719e`. |
+| `.desktop-e2e-artifacts/2026-08-12T12-44-46-117Z-darwin` | visible-tab phase waited for a hidden event from a tab that had never become visible | Readiness precondition defect; all three tabs now reach authoritative ready and the third visibility event before activation (`634f89df`). |
+
+Final focused evidence includes recovery `.desktop-e2e-artifacts/2026-08-12T12-01-09-551Z-darwin`,
+background macro `.desktop-e2e-artifacts/2026-08-12T12-36-46-006Z-darwin`, terminal cleanup
+`.desktop-e2e-artifacts/2026-08-12T12-37-03-380Z-darwin`, multi-role
+`.desktop-e2e-artifacts/2026-08-12T12-37-14-647Z-darwin`, lifecycle dependencies
+`.desktop-e2e-artifacts/2026-08-12T12-42-23-189Z-darwin`, and visible tabs
+`.desktop-e2e-artifacts/2026-08-12T12-47-49-636Z-darwin`.
 
 Windows has not rerun any item yet; all Windows verdicts remain PENDING.
 

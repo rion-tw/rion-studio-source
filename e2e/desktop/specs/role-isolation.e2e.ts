@@ -8,6 +8,7 @@ import type {
   Role
 } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -88,6 +89,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 async function launchVisibleRole(role: Role, fixtureId: string): Promise<FixtureEvent> {

@@ -2,6 +2,7 @@ import { $, expect } from "@wdio/globals";
 
 import type { Game, GameWindow, Macro, Role } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   inputDiagnostics,
   probe,
   rendererCall,
@@ -247,6 +248,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect(event.details).toMatchObject({ complete: true });
+  detachTerminatedApplicationSession();
 }
 
 async function cleanupPhase(): Promise<void> {

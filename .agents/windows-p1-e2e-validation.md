@@ -40,17 +40,23 @@ SQLite/event/log 證據與剩餘 blocker。沒有證據的項目保持 pending/f
 每個 checkpoint 由一個程式 commit 與緊接其後的文件 commit 組成。Windows 最終驗證以
 最新 `main` 為準；只有失敗定位時才 checkout 下列程式 SHA。文件 commit 不記錄自己的 SHA。
 
-| Batch | Code SHA | macOS result | macOS artifact | Windows |
-| --- | --- | --- | --- | --- |
-| 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS；fixture/coverage focused 7/7、Rust 580+20+415、production build/isolation、smoke 2/2。完整 Vitest 首跑 872/880，8 個既有 5 秒 UI timeout；受影響 69/69 以單 worker 重跑通過。 | `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin` | PENDING |
-| 2 — native/background/multi-role macros | PENDING | PENDING | PENDING | PENDING |
-| 3 — tab activation/macro teardown | PENDING | PENDING | PENDING | PENDING |
-| 4 — role isolation/shared ownership | PENDING | PENDING | PENDING | PENDING |
-| 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING |
+| Batch | Code SHA | macOS result | macOS artifact | Push | Windows |
+| --- | --- | --- | --- | --- | --- |
+| 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS；fixture/coverage focused 7/7、Rust 580+20+415、production build/isolation、smoke 2/2。完整 Vitest首跑 872/880，8 個既有 5 秒 UI timeout；受影響 69/69 以 single worker 重跑通過。 | `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin` | PUSHED `origin/main` | PENDING |
+| 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`；產品修正 `adb590d89c858033dda5895b862bed61df600436`；adapter 接線 `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS；coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；lint/typecheck/build/isolation 全部 exit 0；三個新增 phase 各 1/1。 | native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`；background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`；multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin` | PUSHED with this checkpoint | PENDING |
+| 3 — tab activation/macro teardown | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 4 — role isolation/shared ownership | PENDING | PENDING | PENDING | PENDING | PENDING |
+| 5 — recovery/reporting/final gates | PENDING | PENDING | PENDING | PENDING | PENDING |
 
 批次 1 新增 debug-only `desktop_e2e_runtime_ui_action`。Windows 必須證明它透過實際
 WebView2 tab-strip button／role placeholder DOM control 提交 UI action，且 production build
 的 `check:desktop-e2e-isolation` 仍通過。
+
+批次 2 的 `once` 巨集 regression 證明 presentation coalescing 曾在狀態移除前漏掉最後
+iteration。`adb590d8` 改為自然完成後先可靠發布 final status，再 teardown；Windows 必須在
+`events.ndjson` 核對 `iteration=1`、`lastClick.stepId=native-click` 與隨後的空 terminal status。
+`09d7272e` 則補齊 Tauri ACL、camelCase field decoding，以及 AppKit／Win32 UI action terminal
+event；這些能力仍只存在 `desktop-e2e` debug build。
 
 ## 1. 身份與環境
 
@@ -115,6 +121,9 @@ pnpm run test:e2e:desktop:full
 | --- | --- | --- |
 | `smoke-seed` | `PASS` | UI 建立與 launch admission、Settings persistence |
 | `smoke-restart` | `PASS` | clean restart 與 persisted smoke entities |
+| `p0-macro-native-effect` | `PASS` | KeyA down/up、中心 target click、final iteration／lastClick 與 terminal removal |
+| `p0-macro-background-tab` | `PASS` | 可見 tab control terminal event、native selected tab、背景 A 輸入與 B 零輸入 |
+| `p1-macro-multirole` | `PASS` | 兩角色 iteration 平衡、可見 role surface click 後兩者持續輸入 |
 | `p1-mutations` | `PASS` | Role／Workspace／Macro edit、pointer reorder 與 SQLite ordinal |
 | `p1-workspace-recovery` | `PASS` | 雙角色 partial failure、degraded、recovery、取消後零殘留 |
 | `p1-guard-cleanup` | `PASS` | bulk delete cancel／partial result、quit guard 決策、final flush |

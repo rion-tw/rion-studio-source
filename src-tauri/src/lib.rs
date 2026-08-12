@@ -20,6 +20,7 @@ mod update_manager;
 mod update_transaction;
 
 include!("lib/section_01_activation.rs");
+include!("lib/section_01_runtime_tab_activation_e2e.rs");
 include!("lib/section_01_on_demand_tab_activation.rs");
 include!("lib/section_01_runtime_operation_receipt.rs");
 include!("lib/section_01_tab_mutation.rs");

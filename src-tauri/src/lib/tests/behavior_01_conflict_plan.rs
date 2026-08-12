@@ -586,6 +586,22 @@ use super::*;
     }
 
     #[test]
+    fn runtime_tab_activation_terminal_evidence_is_platform_neutral() {
+        assert_eq!(
+            runtime_tab_activation_terminal_details("tab-a", None),
+            json!({ "error": null, "status": "completed", "tabId": "tab-a" })
+        );
+        assert_eq!(
+            runtime_tab_activation_terminal_details("tab-b", Some("activation failed")),
+            json!({
+                "error": "activation failed",
+                "status": "failed",
+                "tabId": "tab-b"
+            })
+        );
+    }
+
+    #[test]
     fn startup_window_reveals_only_once_across_page_reloads() {
         let state = StartupWindowState::default();
 

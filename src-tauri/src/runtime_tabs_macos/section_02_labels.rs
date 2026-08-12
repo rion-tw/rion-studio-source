@@ -583,11 +583,10 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
                 host_window_id.as_deref(),
                 None,
                 None,
-                serde_json::json!({
-                    "error": result.as_ref().err().map(|error| &error.message),
-                    "status": if result.is_ok() { "completed" } else { "failed" },
-                    "tabId": tab_id,
-                }),
+                crate::runtime_tab_activation_terminal_details(
+                    tab_id,
+                    result.as_ref().err().map(|error| error.message.as_str()),
+                ),
             );
             if let Err(error) = result {
                 crate::reveal_shell_error(

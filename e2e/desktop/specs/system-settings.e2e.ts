@@ -1,6 +1,6 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 
-import { probe, shutdown } from "../support/control";
+import { detachTerminatedApplicationSession, probe, shutdown } from "../support/control";
 import { waitForTranscriptEvent } from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
 
@@ -15,6 +15,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
     (candidate) => candidate.kind === "application-final-flush-complete" && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 describe("system settings boundaries", () => {

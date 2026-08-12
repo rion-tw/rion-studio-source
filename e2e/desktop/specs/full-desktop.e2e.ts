@@ -1,7 +1,14 @@
 import { $, browser, expect } from "@wdio/globals";
 
 import type { AppSnapshot, Game, LaunchWorkspace, Macro, Role } from "../../../src/shared/types";
-import { probe, rendererCall, requireEnvironment, shutdown, waitEvent } from "../support/control";
+import {
+  detachTerminatedApplicationSession,
+  probe,
+  rendererCall,
+  requireEnvironment,
+  shutdown,
+  waitEvent
+} from "../support/control";
 import {
   installRendererEventJournal,
   rendererEventCursor,
@@ -68,6 +75,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
   const requestedAfter = new Date().toISOString();
   await shutdown().catch(() => undefined);
   await waitForFinalFlush(control.transcriptPath, requestedAfter);
+  detachTerminatedApplicationSession();
 }
 
 async function preparePhase(): Promise<void> {

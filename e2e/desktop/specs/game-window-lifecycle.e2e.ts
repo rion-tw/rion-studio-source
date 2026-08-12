@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import type { DisplayInfo, EmbeddedRuntimeState, GameWindow } from "../../../src/shared/types";
 import {
   controlWindow,
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -320,6 +321,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
     eventTimestamp: event.timestamp,
     requestedAfter
   }, null, 2)}\n`);
+  detachTerminatedApplicationSession();
 }
 
 async function seedPhase(): Promise<void> {
@@ -458,6 +460,7 @@ async function forceTerminateCurrentProcess(): Promise<void> {
     sessionId: control.sessionId
   }, null, 2)}\n`);
   await forceTerminateProcessTree(control.pid);
+  detachTerminatedApplicationSession();
 }
 
 async function forceTerminatePhase(): Promise<void> {

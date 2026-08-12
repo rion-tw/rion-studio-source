@@ -2,6 +2,7 @@ import { $, expect } from "@wdio/globals";
 
 import type { GameWindow, LaunchWorkspace, Role } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -77,6 +78,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 async function stopWindowFromUi(windowId: string): Promise<void> {

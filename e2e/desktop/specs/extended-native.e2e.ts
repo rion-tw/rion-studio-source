@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import {
   controlWindow,
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -46,6 +47,7 @@ async function cleanExit(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 describe("extended native Game Window placement", () => {

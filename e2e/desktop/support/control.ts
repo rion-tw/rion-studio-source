@@ -2,6 +2,10 @@ import { browser } from "@wdio/globals";
 import type {} from "@wdio/tauri-service";
 import type { RionStudioApi } from "../../../src/shared/api";
 import type { MacroInputDiagnosticsRecord } from "../../../src/shared/generated";
+import {
+  detachTerminatedWebDriverSession,
+  type WebDriverSession
+} from "./session";
 
 export interface DesktopE2eEvent {
   details: unknown;
@@ -236,6 +240,10 @@ export async function shutdown(confirm = false): Promise<void> {
     sessionToken(),
     confirm
   );
+}
+
+export function detachTerminatedApplicationSession(): void {
+  detachTerminatedWebDriverSession(browser as unknown as WebDriverSession);
 }
 
 export function requireEnvironment(name: string): string {

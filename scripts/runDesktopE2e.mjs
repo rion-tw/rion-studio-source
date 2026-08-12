@@ -30,6 +30,22 @@ if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
 }
 const focusedPhaseDependencies = new Map([
   ["p1-role-session-isolation", ["p1-role-session-seed"]],
+  ["p1-mutations", ["smoke-seed", "smoke-restart"]],
+  ["p1-workspace-recovery", ["smoke-seed", "smoke-restart", "p1-mutations"]],
+  [
+    "p1-guard-cleanup",
+    ["smoke-seed", "smoke-restart", "p1-mutations", "p1-workspace-recovery"]
+  ],
+  [
+    "p1-final-restart",
+    [
+      "smoke-seed",
+      "smoke-restart",
+      "p1-mutations",
+      "p1-workspace-recovery",
+      "p1-guard-cleanup"
+    ]
+  ],
   ["crash-restart", ["seed", "restart", "force-terminate"]],
   ["crash-discard", ["seed", "restart", "force-terminate", "crash-restart"]],
   [
@@ -41,14 +57,14 @@ const phases = phaseArgument
   ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
   : configuredPhases;
 const phaseNamespaces = new Map([
-  ["smoke-seed", "smoke-lifecycle"],
-  ["smoke-restart", "smoke-lifecycle"],
+  ["smoke-seed", "app-entity-lifecycle"],
+  ["smoke-restart", "app-entity-lifecycle"],
   ["p1-role-session-seed", "role-session-lifecycle"],
   ["p1-role-session-isolation", "role-session-lifecycle"],
-  ["p1-mutations", "p1-entity-lifecycle"],
-  ["p1-workspace-recovery", "p1-entity-lifecycle"],
-  ["p1-guard-cleanup", "p1-entity-lifecycle"],
-  ["p1-final-restart", "p1-entity-lifecycle"],
+  ["p1-mutations", "app-entity-lifecycle"],
+  ["p1-workspace-recovery", "app-entity-lifecycle"],
+  ["p1-guard-cleanup", "app-entity-lifecycle"],
+  ["p1-final-restart", "app-entity-lifecycle"],
   ["seed", "window-recovery-lifecycle"],
   ["restart", "window-recovery-lifecycle"],
   ["force-terminate", "window-recovery-lifecycle"],

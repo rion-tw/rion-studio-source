@@ -159,12 +159,15 @@ fn desktop_e2e_apply_native_window_control(
     window: &Window,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        AdjustWindowRectExForDpi, GWL_EXSTYLE, GWL_STYLE, GetDpiForWindow, GetWindowLongPtrW,
-        SendMessageW, SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
-        WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+    use windows::Win32::UI::{
+        HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow},
+        WindowsAndMessaging::{
+            GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, SendMessageW, SetWindowPos,
+            SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, WINDOW_EX_STYLE, WINDOW_STYLE,
+            WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+        },
     };
-    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
+    use windows::Win32::Foundation::RECT;
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
@@ -209,8 +212,8 @@ fn desktop_e2e_apply_native_window_control(
                 None => f64::from(current_dpi) / 96.0,
             };
             let dpi = (scale * 96.0).round().clamp(48.0, f64::from(u32::MAX)) as u32;
-            let style = unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32;
-            let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+            let style = WINDOW_STYLE(unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32);
+            let ex_style = WINDOW_EX_STYLE(unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32);
             let mut frame = RECT {
                 left: 0,
                 top: 0,
@@ -222,7 +225,7 @@ fn desktop_e2e_apply_native_window_control(
             let outer_width = frame.right - frame.left;
             let outer_height = frame.bottom - frame.top;
             unsafe {
-                SendMessageW(hwnd, WM_ENTERSIZEMOVE, WPARAM(0), LPARAM(0));
+                SendMessageW(hwnd, WM_ENTERSIZEMOVE, None, None);
                 let result = SetWindowPos(
                     hwnd,
                     None,
@@ -232,7 +235,7 @@ fn desktop_e2e_apply_native_window_control(
                     outer_height,
                     SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
                 );
-                SendMessageW(hwnd, WM_EXITSIZEMOVE, WPARAM(0), LPARAM(0));
+                SendMessageW(hwnd, WM_EXITSIZEMOVE, None, None);
                 result.map_err(|error| error.to_string())
             }
         }
@@ -386,12 +389,13 @@ fn desktop_e2e_native_window_snapshot(window: &Window) -> Result<Value, String> 
 fn desktop_e2e_native_window_snapshot(window: &Window) -> Result<Value, String> {
     use windows::Win32::{
         Foundation::{POINT, RECT},
-        Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow},
+        Graphics::Gdi::{
+            ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+            MonitorFromWindow,
+        },
         UI::{
             HiDpi::GetDpiForWindow,
-            WindowsAndMessaging::{
-                ClientToScreen, GetClientRect, GetWindowPlacement, GetWindowRect, WINDOWPLACEMENT,
-            },
+            WindowsAndMessaging::{GetClientRect, GetWindowPlacement, GetWindowRect, WINDOWPLACEMENT},
         },
     };
 
@@ -409,6 +413,7 @@ fn desktop_e2e_native_window_snapshot(window: &Window) -> Result<Value, String> 
     }
     let mut client_origin = POINT::default();
     unsafe { ClientToScreen(hwnd, &mut client_origin) }
+        .ok()
         .map_err(|error| error.to_string())?;
     let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     let mut monitor_info = MONITORINFO {
@@ -416,6 +421,7 @@ fn desktop_e2e_native_window_snapshot(window: &Window) -> Result<Value, String> 
         ..Default::default()
     };
     unsafe { GetMonitorInfoW(monitor, &mut monitor_info) }
+        .ok()
         .map_err(|error| error.to_string())?;
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let scale = f64::from(dpi) / 96.0;
@@ -451,7 +457,7 @@ fn desktop_e2e_native_window_snapshot(window: &Window) -> Result<Value, String> 
             "normal"
         },
         "scaleFactor": scale,
-        "showCommand": placement.showCmd.0,
+        "showCommand": placement.showCmd,
         "title": window.title().unwrap_or_default(),
         "workArea": {
             "height": logical(monitor_info.rcWork.bottom - monitor_info.rcWork.top),

@@ -168,8 +168,8 @@ fn windows_macro_key_guard_accepts_only_the_cdp_boolean_terminal() {
 
 #[cfg(windows)]
 #[test]
-fn windows_macro_key_guard_budget_covers_the_webview2_callback_boundary() {
-    assert_eq!(MACRO_KEY_GUARD_MAX_LIFETIME, Duration::from_secs(2));
+fn windows_macro_key_guard_uses_the_authoritative_action_callback_budget() {
+    assert_eq!(MACRO_KEY_GUARD_MAX_LIFETIME, PLATFORM_CALLBACK_TIMEOUT);
 }
 
 #[test]

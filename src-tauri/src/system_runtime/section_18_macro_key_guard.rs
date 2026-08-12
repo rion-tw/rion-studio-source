@@ -1,5 +1,5 @@
 #[cfg(windows)]
-const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(2);
+const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = PLATFORM_CALLBACK_TIMEOUT;
 #[cfg(not(windows))]
 const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(1);
 #[cfg(not(windows))]

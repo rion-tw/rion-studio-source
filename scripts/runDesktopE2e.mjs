@@ -11,7 +11,6 @@ const artifactRoot = resolve(
   process.env.RION_STUDIO_E2E_ARTIFACT_ROOT ?? resolve(root, ".desktop-e2e-artifacts"),
   `${runId}-${process.platform}`
 );
-const userDataDir = resolve(artifactRoot, "user-data");
 const token = randomBytes(32).toString("hex");
 const binary = resolve(root, "target", "debug", process.platform === "win32"
   ? "rion-tauri.exe"
@@ -41,6 +40,27 @@ const focusedPhaseDependencies = new Map([
 const phases = phaseArgument
   ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
   : configuredPhases;
+const phaseNamespaces = new Map([
+  ["smoke-seed", "smoke-lifecycle"],
+  ["smoke-restart", "smoke-lifecycle"],
+  ["p1-role-session-seed", "role-session-lifecycle"],
+  ["p1-role-session-isolation", "role-session-lifecycle"],
+  ["p1-mutations", "p1-entity-lifecycle"],
+  ["p1-workspace-recovery", "p1-entity-lifecycle"],
+  ["p1-guard-cleanup", "p1-entity-lifecycle"],
+  ["p1-final-restart", "p1-entity-lifecycle"],
+  ["seed", "window-recovery-lifecycle"],
+  ["restart", "window-recovery-lifecycle"],
+  ["force-terminate", "window-recovery-lifecycle"],
+  ["crash-restart", "window-recovery-lifecycle"],
+  ["crash-discard", "window-recovery-lifecycle"],
+  ["recovery-final-restart", "window-recovery-lifecycle"],
+  ["extended-native", "window-recovery-lifecycle"]
+]);
+function userDataDirForPhase(phase) {
+  const namespace = phaseNamespaces.get(phase) ?? phase;
+  return resolve(artifactRoot, "user-data", namespace);
+}
 const journeyIdsByPhase = new Map();
 for (const journey of coverageManifest.journeys ?? []) {
   if (!journey.phase || journey.profile !== profile) continue;
@@ -68,7 +88,6 @@ const windowIds = {
 let seedBounds;
 let previousSessionGeneration = 0;
 
-await mkdir(userDataDir, { recursive: true });
 await mkdir(resolve(artifactRoot, "phases"), { recursive: true });
 
 async function run(command, args, options = {}) {
@@ -415,7 +434,7 @@ function validateSharedOwnershipSqliteEvidence(phase, entities) {
   return { sharedOwnershipEntitiesCleaned: true };
 }
 
-async function captureSqlite(phase, blocked, validateEvidence) {
+async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
   const databasePath = resolve(userDataDir, "rion-studio.sqlite3");
@@ -549,7 +568,9 @@ try {
   fixture = await startFixture();
   for (const phase of phases) {
     const phaseDir = resolve(artifactRoot, "phases", phase);
+    const userDataDir = userDataDirForPhase(phase);
     await mkdir(phaseDir, { recursive: true });
+    await mkdir(userDataDir, { recursive: true });
     const result = await run(node, [wdio, "run", resolve(root, "e2e/desktop/wdio.conf.ts")], {
       env: {
         RION_STUDIO_E2E_APP_BINARY: binary,
@@ -571,6 +592,7 @@ try {
     const blocked = blockedReason(result.output);
     const sqliteEvidence = await captureSqlite(
       phase,
+      userDataDir,
       blocked,
       result.code === 0 || Boolean(forcedTermination) || Boolean(cleanShutdown)
     );

@@ -82,7 +82,7 @@ pnpm run test:e2e:desktop
 - `phases/*/runner.log` 與 `phases/*/wdio`（包含 WDIO、App stdout/stderr 及前端 console）
 - `phases/*/screenshots`
 - `phases/*/sqlite-query.json` 及 SQLite／WAL／SHM snapshot
-- `user-data/desktop-e2e/events.ndjson`
+- `user-data/<phase-namespace>/desktop-e2e/events.ndjson`
 
 幾何契約容許最多 `±1 logical pixel` 的 DPI round-trip；三輪後不得累積漂移。測試等待以 native event、Kernel revision、destroyed terminal event、final flush 或程序退出為準；timeout 只表示失敗，不代表操作完成。
 

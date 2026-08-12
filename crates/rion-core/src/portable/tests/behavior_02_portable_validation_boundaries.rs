@@ -177,6 +177,9 @@
             serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
         );
         browser_settings.performance.macos_high_refresh_rate = true;
+        browser_settings.macro_overlay.show_tool_button = false;
+        browser_settings.macro_overlay.show_running_badges = false;
+        browser_settings.macro_overlay.show_click_markers = false;
         let exported = export(
             state_fixture(),
             Some(PortablePreferencesRecord {
@@ -214,6 +217,9 @@
         );
         assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
         assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
+        assert_eq!(serialized["macroOverlay"]["showToolButton"], false);
+        assert_eq!(serialized["macroOverlay"]["showRunningBadges"], false);
+        assert_eq!(serialized["macroOverlay"]["showClickMarkers"], false);
     }
 
     #[test]

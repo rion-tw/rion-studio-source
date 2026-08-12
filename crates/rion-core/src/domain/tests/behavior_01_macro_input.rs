@@ -337,7 +337,7 @@ use serde_json::json;
             }))
             .unwrap();
             assert_eq!(
-                serde_json::to_value(normalize_game_browser_settings(legacy_default).fonts)
+                serde_json::to_value(normalize_game_browser_settings(legacy_default.clone()).fonts)
                     .unwrap(),
                 serde_json::to_value(&defaults.fonts).unwrap()
             );
@@ -356,6 +356,24 @@ use serde_json::json;
             assert_eq!(defaults.workspace.background, "material");
             assert_eq!(defaults.workspace.gap, 4);
             assert!(!defaults.performance.macos_high_refresh_rate);
+            assert!(defaults.macro_overlay.show_tool_button);
+            assert!(defaults.macro_overlay.show_running_badges);
+            assert!(defaults.macro_overlay.show_click_markers);
+            assert!(legacy_default.macro_overlay.show_tool_button);
+            let invalid_overlay: GameBrowserSettingsRecord = serde_json::from_value(json!({
+                "fonts":{"mode":"default"},
+                "macroBadgePosition":{"horizontalAlign":"center","horizontalMarginPx":8,"topPx":128},
+                "macroOverlay":{
+                    "showToolButton":false,
+                    "showRunningBadges":"false",
+                    "showClickMarkers":null
+                },
+                "workspace":{"background":"material","gap":4}
+            }))
+            .unwrap();
+            assert!(!invalid_overlay.macro_overlay.show_tool_button);
+            assert!(invalid_overlay.macro_overlay.show_running_badges);
+            assert!(invalid_overlay.macro_overlay.show_click_markers);
         };
         {
             let defaults = default_macro_settings();

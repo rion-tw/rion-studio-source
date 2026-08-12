@@ -1,6 +1,10 @@
 fn read_overlay_configuration(
     connection: &Connection,
-) -> CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)> {
+) -> CoreResult<(
+    Vec<MacroDefinition>,
+    MacroBadgePositionRecord,
+    MacroOverlaySettingsRecord,
+)> {
     let (macros, _) = read_macro_configuration(connection)?;
     let settings = connection
         .query_row(
@@ -19,7 +23,11 @@ fn read_overlay_configuration(
         })
         .transpose()?
         .unwrap_or_else(default_game_browser_settings);
-    Ok((macros, settings.macro_badge_position))
+    Ok((
+        macros,
+        settings.macro_badge_position,
+        settings.macro_overlay,
+    ))
 }
 
 fn recover_sqlite_portable_import(

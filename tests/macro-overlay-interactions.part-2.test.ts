@@ -434,7 +434,101 @@ it("opens the app from Ctrl+Shift+M and consumes the shortcut", async () => {
     expect(event.defaultPrevented).toBe(true);
     expect(pageKeyDown).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "open" }));
-  });
+});
+
+it("independently hides overlay visuals while preserving macro shortcuts", async () => {
+    createGameSurface(document);
+    let macroOverlay = {
+      showClickMarkers: true,
+      showRunningBadges: true,
+      showToolButton: true
+    };
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "coordinate-context") {
+        return { appliedPageZoom: 1, surfaceGeneration: 1, topologyRevision: 1 };
+      }
+      return {
+        macroBadgePosition: { horizontalAlign: "center", horizontalMarginPx: 8, topPx: 128 },
+        macroOverlay,
+        macros: [clickMacro],
+        statuses: [runningStatus({ macroId: clickMacro.id })]
+      };
+    });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    const root = getOverlayRoot(document);
+    expect(root.querySelector<HTMLElement>(".trigger")?.hidden).toBe(false);
+    expect(root.querySelector(".active-badge")).not.toBeNull();
+    expect(root.querySelector(".click-marker")).not.toBeNull();
+
+    root.querySelector<HTMLElement>(".trigger")
+      ?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    root.querySelector<HTMLElement>(".action-menu-item")?.click();
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+
+    macroOverlay = {
+      showClickMarkers: true,
+      showRunningBadges: true,
+      showToolButton: false
+    };
+    await controller.refresh();
+
+    expect(root.querySelector<HTMLElement>(".trigger")?.hidden).toBe(true);
+    expect(root.querySelector<HTMLElement>(".action-menu")?.hidden).toBe(true);
+    expect(root.querySelector(".coordinate-picker")).toBeNull();
+    expect(root.querySelector(".active-badge")).not.toBeNull();
+    expect(root.querySelector(".click-marker")).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "KeyM",
+      key: "M",
+      ctrlKey: true,
+      shiftKey: true
+    }));
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "open" }));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "toggle",
+      macroId: clickMacro.id
+    }));
+
+    macroOverlay = {
+      showClickMarkers: true,
+      showRunningBadges: false,
+      showToolButton: true
+    };
+    await controller.refresh();
+    expect(root.querySelector<HTMLElement>(".trigger")?.hidden).toBe(false);
+    expect(root.querySelector(".active-badge")).toBeNull();
+    expect(root.querySelector(".click-marker")).not.toBeNull();
+
+    macroOverlay = {
+      showClickMarkers: false,
+      showRunningBadges: true,
+      showToolButton: true
+    };
+    await controller.refresh();
+    expect(root.querySelector<HTMLElement>(".trigger")?.hidden).toBe(false);
+    expect(root.querySelector(".active-badge")).not.toBeNull();
+    expect(root.querySelector(".click-marker")).toBeNull();
+
+    root.querySelector<HTMLElement>(".trigger")
+      ?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    root.querySelector<HTMLElement>(".action-menu-item")?.click();
+    await vi.waitFor(() => expect(root.querySelector(".coordinate-picker")).not.toBeNull());
+
+    macroOverlay = {
+      showClickMarkers: true,
+      showRunningBadges: true,
+      showToolButton: true
+    };
+    await controller.refresh();
+    expect(root.querySelector(".coordinate-picker")).not.toBeNull();
+    expect(root.querySelector(".click-marker")).not.toBeNull();
+});
 
 it("keeps the trigger node stable across polling refreshes", async () => {
     createGameSurface(document);

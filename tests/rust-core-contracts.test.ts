@@ -42,6 +42,21 @@ describe("generated Rust core contracts", () => {
     expect(contract).toContain("actions: Array<BrowserActionRequest>");
   });
 
+  it("projects independently patchable macro overlay visibility through generated settings", async () => {
+    const [settings, patch, overlay, index] = await Promise.all([
+      readFile("src/shared/generated/GameBrowserSettingsRecord.ts", "utf8"),
+      readFile("src/shared/generated/GameBrowserSettingsPatchRecord.ts", "utf8"),
+      readFile("src/shared/generated/MacroOverlayViewModelRecord.ts", "utf8"),
+      readFile("src/shared/generated/index.ts", "utf8")
+    ]);
+
+    expect(settings).toContain("macroOverlay: MacroOverlaySettingsRecord");
+    expect(patch).toContain("macroOverlay?: MacroOverlaySettingsPatchRecord");
+    expect(overlay).toContain("macroOverlay: MacroOverlaySettingsRecord");
+    expect(index).toContain('export type { MacroOverlaySettingsRecord } from "./MacroOverlaySettingsRecord";');
+    expect(index).toContain('export type { MacroOverlaySettingsPatchRecord } from "./MacroOverlaySettingsPatchRecord";');
+  });
+
   it("keeps launch preview correlation separate from native cleanup generations", async () => {
     const [command, tabEffect] = await Promise.all([
       readFile("src/shared/generated/CoreCommand.ts", "utf8"),

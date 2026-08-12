@@ -5,6 +5,8 @@ pub struct GameBrowserSettingsRecord {
     pub fonts: BrowserFontSettingsRecord,
     pub macro_badge_position: MacroBadgePositionRecord,
     #[serde(default)]
+    pub macro_overlay: MacroOverlaySettingsRecord,
+    #[serde(default)]
     pub performance: BrowserPerformanceSettingsRecord,
     pub workspace: WorkspaceAppearanceSettingsRecord,
 }
@@ -16,6 +18,9 @@ pub struct GameBrowserSettingsPatchRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub macro_badge_position: Option<MacroBadgePositionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub macro_overlay: Option<MacroOverlaySettingsPatchRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub performance: Option<BrowserPerformanceSettingsRecord>,
@@ -135,6 +140,55 @@ pub struct MacroBadgePositionRecord {
     pub horizontal_align: String,
     pub horizontal_margin_px: u32,
     pub top_px: u32,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlaySettingsRecord {
+    pub show_tool_button: bool,
+    pub show_running_badges: bool,
+    pub show_click_markers: bool,
+}
+
+impl<'de> Deserialize<'de> for MacroOverlaySettingsRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let field = |key| value.get(key).and_then(serde_json::Value::as_bool).unwrap_or(true);
+        Ok(Self {
+            show_tool_button: field("showToolButton"),
+            show_running_badges: field("showRunningBadges"),
+            show_click_markers: field("showClickMarkers"),
+        })
+    }
+}
+
+impl Default for MacroOverlaySettingsRecord {
+    fn default() -> Self {
+        Self {
+            show_tool_button: true,
+            show_running_badges: true,
+            show_click_markers: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroOverlaySettingsPatchRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_tool_button: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_running_badges: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub show_click_markers: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]

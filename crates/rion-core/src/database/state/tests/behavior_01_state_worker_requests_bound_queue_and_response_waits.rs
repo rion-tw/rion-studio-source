@@ -296,6 +296,9 @@ use std::fs;
             .unwrap();
             let settings = normalize_game_browser_settings(settings);
             assert!(!settings.performance.macos_high_refresh_rate);
+            assert!(settings.macro_overlay.show_tool_button);
+            assert!(settings.macro_overlay.show_running_badges);
+            assert!(settings.macro_overlay.show_click_markers);
             replace_scalar(
                 &mut connection,
                 "gameBrowserSettings",

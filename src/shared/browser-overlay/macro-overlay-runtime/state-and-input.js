@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-03.3";
+  const scriptVersion = "2026-08-12.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -180,6 +180,11 @@
       horizontalAlign: "center",
       horizontalMarginPx: 8,
       topPx: 128
+    },
+    macroOverlay: {
+      showClickMarkers: true,
+      showRunningBadges: true,
+      showToolButton: true
     },
     macros: [],
     requestVersion: 0,
@@ -576,6 +581,18 @@
     };
   }
 
+  function normalizeMacroOverlay(value, fallback = state.macroOverlay) {
+    const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return {
+      showClickMarkers:
+        typeof input.showClickMarkers === "boolean" ? input.showClickMarkers : fallback.showClickMarkers,
+      showRunningBadges:
+        typeof input.showRunningBadges === "boolean" ? input.showRunningBadges : fallback.showRunningBadges,
+      showToolButton:
+        typeof input.showToolButton === "boolean" ? input.showToolButton : fallback.showToolButton
+    };
+  }
+
   function disposeIfDetached(nextState) {
     if (nextState?.detached !== true) {
       return false;
@@ -588,6 +605,7 @@
   function applyState(nextState) {
     state.language = normalizeOverlayLanguage(nextState?.language) ?? state.language;
     state.macroBadgePosition = normalizeMacroBadgePosition(nextState?.macroBadgePosition);
+    state.macroOverlay = normalizeMacroOverlay(nextState?.macroOverlay);
     state.macros = Array.isArray(nextState?.macros) ? nextState.macros : state.macros;
     if (hasReferencePixelMacroSteps() && !appliedPageZoomKnown) {
       void refreshAppliedPageZoomForMarkers();

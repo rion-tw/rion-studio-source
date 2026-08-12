@@ -217,9 +217,24 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
+  for (const label of [
+    "Show macro tools button",
+    "Show running macro badges",
+    "Show macro click markers"
+  ]) {
+    const control = await $(`button[role='switch'][aria-label='${label}']`);
+    if ((await control.getAttribute("data-state")) === "checked") await control.click();
+  }
   await browser.waitUntil(async () => (await rendererCall("getRuntimeWindowPreferences")).alwaysHideTabCloseButton, {
     timeout: 10_000,
     timeoutMsg: "Runtime Window preferences did not persist"
+  });
+  await browser.waitUntil(async () => {
+    const overlay = (await rendererCall("getGameBrowserSettings")).macroOverlay;
+    return !overlay.showToolButton && !overlay.showRunningBadges && !overlay.showClickMarkers;
+  }, {
+    timeout: 10_000,
+    timeoutMsg: "In-game macro interface preferences did not persist"
   });
 }
 
@@ -291,6 +306,21 @@ async function restartPhase(): Promise<void> {
   expect(macro.roleIds).toContain(role.id);
   expect(await browser.execute(() => document.documentElement.dataset.theme)).toBe("light");
   expect((await rendererCall("getRuntimeWindowPreferences")).alwaysHideTabCloseButton).toBe(true);
+  expect((await rendererCall("getGameBrowserSettings")).macroOverlay).toEqual({
+    showClickMarkers: false,
+    showRunningBadges: false,
+    showToolButton: false
+  });
+
+  await navigate("/settings?section=interface");
+  for (const label of [
+    "Show macro tools button",
+    "Show running macro badges",
+    "Show macro click markers"
+  ]) {
+    expect(await $(`button[role='switch'][aria-label='${label}']`).getAttribute("data-state"))
+      .toBe("unchecked");
+  }
 
   await navigate("/games");
   await $(`[data-selection-id='${game.id}']`).waitForExist({ timeout: 10_000 });

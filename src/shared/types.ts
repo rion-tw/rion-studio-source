@@ -37,6 +37,7 @@ import type {
   LogStorageStatusRecord,
   MacroCreateRequest,
   MacroBadgePositionRecord,
+  MacroOverlaySettingsRecord,
   MacroRepeat as RustMacroRepeat,
   MacroSettingsRecord,
   MacroShortcutSourceScope as RustMacroShortcutSourceScope,
@@ -375,6 +376,8 @@ export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 export type MacroBadgeHorizontalAlign = "left" | "center" | "right";
 
 export type MacroBadgePositionSettings = MacroBadgePositionRecord;
+
+export type MacroOverlaySettings = MacroOverlaySettingsRecord;
 
 export type GameBrowserSettings = GameBrowserSettingsRecord;
 export type GameBrowserSettingsPatch = GameBrowserSettingsPatchRecord;

@@ -67,6 +67,7 @@ describe("browser font settings normalization", () => {
         },
       },
       macroBadgePosition: DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition,
+      macroOverlay: DEFAULT_GAME_BROWSER_SETTINGS.macroOverlay,
       performance: DEFAULT_GAME_BROWSER_SETTINGS.performance,
       workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
     });
@@ -302,6 +303,25 @@ describe("browser font settings normalization", () => {
         }
       }).macroBadgePosition
     ).toEqual(DEFAULT_GAME_BROWSER_SETTINGS.macroBadgePosition);
+  });
+
+  it("defaults macro overlay visibility on and preserves explicit boolean choices", () => {
+    expect(normalizeGameBrowserSettings({}).macroOverlay).toEqual({
+      showClickMarkers: true,
+      showRunningBadges: true,
+      showToolButton: true
+    });
+    expect(normalizeGameBrowserSettings({
+      macroOverlay: {
+        showClickMarkers: false,
+        showRunningBadges: "no",
+        showToolButton: false
+      }
+    }).macroOverlay).toEqual({
+      showClickMarkers: false,
+      showRunningBadges: true,
+      showToolButton: false
+    });
   });
 
   it("defaults workspace appearance and validates backgrounds and fixed gap sizes", () => {

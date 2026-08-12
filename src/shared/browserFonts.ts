@@ -6,6 +6,7 @@ import type {
   BrowserFontSlot,
   BrowserPerformanceSettings,
   GameBrowserSettings,
+  MacroOverlaySettings,
   WorkspaceAppearanceSettings,
   WorkspaceBackgroundStyle,
   WorkspaceGapSize
@@ -211,9 +212,16 @@ export const DEFAULT_WORKSPACE_APPEARANCE_SETTINGS: WorkspaceAppearanceSettings 
   gap: 4
 };
 
+export const DEFAULT_MACRO_OVERLAY_SETTINGS: MacroOverlaySettings = {
+  showClickMarkers: true,
+  showRunningBadges: true,
+  showToolButton: true
+};
+
 export const DEFAULT_GAME_BROWSER_SETTINGS: GameBrowserSettings = {
   fonts: DEFAULT_BROWSER_FONT_SETTINGS,
   macroBadgePosition: DEFAULT_MACRO_BADGE_POSITION,
+  macroOverlay: DEFAULT_MACRO_OVERLAY_SETTINGS,
   performance: DEFAULT_BROWSER_PERFORMANCE_SETTINGS,
   workspace: DEFAULT_WORKSPACE_APPEARANCE_SETTINGS
 };
@@ -230,8 +238,24 @@ export function normalizeGameBrowserSettings(
       input.macroBadgePosition,
       fallback.macroBadgePosition
     ),
+    macroOverlay: normalizeMacroOverlaySettings(input.macroOverlay, fallback.macroOverlay),
     performance: normalizeBrowserPerformanceSettings(input.performance, fallback.performance),
     workspace: normalizeWorkspaceAppearanceSettings(input.workspace, fallback.workspace)
+  };
+}
+
+function normalizeMacroOverlaySettings(
+  value: unknown,
+  fallback: MacroOverlaySettings = DEFAULT_MACRO_OVERLAY_SETTINGS
+): MacroOverlaySettings {
+  const input = isRecord(value) ? value : {};
+  return {
+    showClickMarkers:
+      typeof input.showClickMarkers === "boolean" ? input.showClickMarkers : fallback.showClickMarkers,
+    showRunningBadges:
+      typeof input.showRunningBadges === "boolean" ? input.showRunningBadges : fallback.showRunningBadges,
+    showToolButton:
+      typeof input.showToolButton === "boolean" ? input.showToolButton : fallback.showToolButton
   };
 }
 

@@ -176,6 +176,16 @@
             }
         })))
         .unwrap();
+        core.invoke(command(json!({
+            "type": "gameBrowserSettingsPatch",
+            "patch": { "macroOverlay": { "showToolButton": false } }
+        })))
+        .unwrap();
+        core.invoke(command(json!({
+            "type": "gameBrowserSettingsPatch",
+            "patch": { "macroOverlay": { "showClickMarkers": false } }
+        })))
+        .unwrap();
 
         let settings = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
         assert_eq!(settings["fonts"], initial_fonts);
@@ -185,6 +195,9 @@
         );
         assert_eq!(settings["performance"]["macosHighRefreshRate"], true);
         assert_eq!(settings["macroBadgePosition"]["horizontalAlign"], "right");
+        assert_eq!(settings["macroOverlay"]["showToolButton"], false);
+        assert_eq!(settings["macroOverlay"]["showClickMarkers"], false);
+        assert_eq!(settings["macroOverlay"]["showRunningBadges"], true);
         core.shutdown();
     }
 
@@ -213,6 +226,11 @@
         let mut settings = core.invoke(CoreCommand::GameBrowserSettingsGet).unwrap();
         settings["macroBadgePosition"] =
             json!({"horizontalAlign":"right","horizontalMarginPx":80,"topPx":280});
+        settings["macroOverlay"] = json!({
+            "showToolButton": false,
+            "showRunningBadges": true,
+            "showClickMarkers": false
+        });
         core.invoke(command(json!({
             "type": "gameBrowserSettingsReplace",
             "settings": settings
@@ -239,6 +257,9 @@
         {
             assert_eq!(view["macroBadgePosition"]["horizontalAlign"], "right");
             assert!(view["macroBadgePosition"]["topPx"].is_number());
+            assert_eq!(view["macroOverlay"]["showToolButton"], false);
+            assert_eq!(view["macroOverlay"]["showRunningBadges"], true);
+            assert_eq!(view["macroOverlay"]["showClickMarkers"], false);
         };
         {
             assert_eq!(view["statuses"], json!([]));

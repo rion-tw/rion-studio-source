@@ -161,6 +161,8 @@ fn export_bindings_index() {
                 "export type { MacroInvocationRequest } from \"./MacroInvocationRequest\";\n",
                 "export type { MacroLastClick } from \"./MacroLastClick\";\n",
                 "export type { MacroOverlayRequestRecord } from \"./MacroOverlayRequestRecord\";\n",
+                "export type { MacroOverlaySettingsPatchRecord } from \"./MacroOverlaySettingsPatchRecord\";\n",
+                "export type { MacroOverlaySettingsRecord } from \"./MacroOverlaySettingsRecord\";\n",
                 "export type { MacroOverlayStartSummaryRecord } from \"./MacroOverlayStartSummaryRecord\";\n",
                 "export type { MacroOverlayViewModelRecord } from \"./MacroOverlayViewModelRecord\";\n",
                 "export type { MacroPressInvocationRequest } from \"./MacroPressInvocationRequest\";\n",

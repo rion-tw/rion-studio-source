@@ -40,7 +40,7 @@ import { readSettingsSection, type SettingsSectionId } from "./settingsNavigatio
 
 import { settingsSectionDescriptionKeys, settingsSectionTitleKeys } from "./settingsPresentation";
 
-import { MacroBadgePositionSettingsRows, ReadOnlyValue, createPortableExportAvailability, createPortableImportAvailability } from "./MacroBadgePositionSettingsRows";
+import { MacroOverlaySettingsRows, ReadOnlyValue, createPortableExportAvailability, createPortableImportAvailability } from "./MacroBadgePositionSettingsRows";
 
 import { PortableExportDialog, PortableImportDialog, formatPortableExportResult, formatPortableImportResult, formatUpdateStatus } from "./PortableSettingsDialogs";
 
@@ -165,6 +165,9 @@ function SettingsViewBase({
     return onGameBrowserSettingsChange({
       ...normalizedSettings,
       ...(patch.macroBadgePosition ? { macroBadgePosition: patch.macroBadgePosition } : {}),
+      ...(patch.macroOverlay ? {
+        macroOverlay: { ...normalizedSettings.macroOverlay, ...patch.macroOverlay }
+      } : {}),
       ...(patch.performance ? { performance: patch.performance } : {}),
       ...(patch.workspace ? { workspace: patch.workspace } : {})
     });
@@ -520,8 +523,8 @@ function SettingsViewBase({
               />
             </SettingsSection>
 
-            <SettingsSection title={t("settings.macroBadges")}>
-              <MacroBadgePositionSettingsRows
+            <SettingsSection title={t("settings.macroOverlay")}>
+              <MacroOverlaySettingsRows
                 settings={gameBrowserSettings}
                 t={t}
                 onError={onError}

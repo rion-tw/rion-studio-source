@@ -1,5 +1,15 @@
   function renderClickMarkers() {
     if (!clickMarkerLayerElement) return;
+    if (!state.macroOverlay.showClickMarkers) {
+      if (renderedClickOverlayMarkup !== "") {
+        clickMarkerLayerElement.replaceChildren();
+        renderedClickOverlayMarkup = "";
+      }
+      clickMarkerEvents.clear();
+      clickMarkerFlashStates.clear();
+      clickMarkerLayerElement.hidden = true;
+      return;
+    }
     const viewport = getVisualViewportSize();
     const markersByPosition = new Map();
     const connectorsByEvent = new Map();
@@ -385,6 +395,14 @@
     updateActiveBadgesPosition();
     renderClickMarkers();
     const text = getText();
+    triggerElement.hidden = !state.macroOverlay.showToolButton;
+    if (!state.macroOverlay.showToolButton) {
+      cancelCoordinateMeasureHide();
+      if (actionMenuElement) actionMenuElement.hidden = true;
+      if (coordinateMeasurementController || coordinateMeasurementPending) {
+        destroyCoordinateMeasurement();
+      }
+    }
     triggerElement.title = text.triggerTitle;
     triggerElement.setAttribute("aria-label", text.triggerAria);
     const coordinateAction = actionMenuElement?.querySelector(".action-menu-item");
@@ -396,7 +414,7 @@
     }
     coordinateMeasurementController?.updatePresentation();
 
-    const nextMarkup = getRunningBadgeMacros()
+    const nextMarkup = (state.macroOverlay.showRunningBadges ? getRunningBadgeMacros() : [])
       .map((macro) => {
         const behavior = formatMacroBehavior(macro);
         const { delay, duration, iteration } = getMacroIteration(macro.id);

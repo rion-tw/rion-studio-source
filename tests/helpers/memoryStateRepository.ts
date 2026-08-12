@@ -95,6 +95,9 @@ export class MemoryStateRepository {
     const next = normalizeGameBrowserSettings({
       ...current,
       ...(patch.macroBadgePosition ? { macroBadgePosition: patch.macroBadgePosition } : {}),
+      ...(patch.macroOverlay ? {
+        macroOverlay: { ...current.macroOverlay, ...patch.macroOverlay }
+      } : {}),
       ...(patch.performance ? { performance: patch.performance } : {}),
       ...(patch.workspace ? { workspace: patch.workspace } : {})
     });

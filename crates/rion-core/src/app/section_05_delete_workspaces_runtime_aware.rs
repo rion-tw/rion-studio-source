@@ -623,7 +623,7 @@ impl AppCore {
         language: Option<String>,
         start_summary: Option<MacroOverlayStartSummaryRecord>,
     ) -> CoreResult<MacroOverlayViewModelRecord> {
-        let (macros, macro_badge_position) =
+        let (macros, macro_badge_position, macro_overlay) =
             self.with_runtime(|runtime| runtime.state.overlay_configuration())?;
         let shortcut_macro_ids = crate::overlay::shortcut_macro_ids(&macros, role_id);
         let macros = crate::overlay::available_macros(&macros, role_id);
@@ -656,6 +656,7 @@ impl AppCore {
             detached: false,
             language,
             macro_badge_position,
+            macro_overlay,
             macros,
             shortcut_macro_ids,
             shortcut_statuses,

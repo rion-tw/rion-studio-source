@@ -150,6 +150,8 @@ export type { MacroDefinition } from "./MacroDefinition";
 export type { MacroInvocationRequest } from "./MacroInvocationRequest";
 export type { MacroLastClick } from "./MacroLastClick";
 export type { MacroOverlayRequestRecord } from "./MacroOverlayRequestRecord";
+export type { MacroOverlaySettingsPatchRecord } from "./MacroOverlaySettingsPatchRecord";
+export type { MacroOverlaySettingsRecord } from "./MacroOverlaySettingsRecord";
 export type { MacroOverlayStartSummaryRecord } from "./MacroOverlayStartSummaryRecord";
 export type { MacroOverlayViewModelRecord } from "./MacroOverlayViewModelRecord";
 export type { MacroPressInvocationRequest } from "./MacroPressInvocationRequest";

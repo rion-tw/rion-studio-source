@@ -314,11 +314,23 @@ impl AppCore {
             "game browser settings are missing",
         )?;
         let patch_macro_badge_position = patch.macro_badge_position.is_some();
+        let patch_macro_overlay = patch.macro_overlay.is_some();
         let patch_performance = patch.performance.is_some();
         let patch_workspace = patch.workspace.is_some();
         let mut candidate = settings.clone();
         if let Some(macro_badge_position) = patch.macro_badge_position {
             candidate.macro_badge_position = macro_badge_position;
+        }
+        if let Some(macro_overlay) = patch.macro_overlay {
+            if let Some(show_tool_button) = macro_overlay.show_tool_button {
+                candidate.macro_overlay.show_tool_button = show_tool_button;
+            }
+            if let Some(show_running_badges) = macro_overlay.show_running_badges {
+                candidate.macro_overlay.show_running_badges = show_running_badges;
+            }
+            if let Some(show_click_markers) = macro_overlay.show_click_markers {
+                candidate.macro_overlay.show_click_markers = show_click_markers;
+            }
         }
         if let Some(performance) = patch.performance {
             candidate.performance = performance;
@@ -330,6 +342,9 @@ impl AppCore {
         validate_game_browser_settings(&candidate)?;
         if patch_macro_badge_position {
             settings.macro_badge_position = candidate.macro_badge_position;
+        }
+        if patch_macro_overlay {
+            settings.macro_overlay = candidate.macro_overlay;
         }
         if patch_performance {
             settings.performance = candidate.performance;

@@ -16,6 +16,7 @@ pub struct MacroOverlayViewModelRecord {
     #[ts(optional, type = "\"en\" | \"zh-TW\" | \"zh-CN\" | \"ja\"")]
     pub language: Option<String>,
     pub macro_badge_position: MacroBadgePositionRecord,
+    pub macro_overlay: MacroOverlaySettingsRecord,
     pub macros: Vec<MacroDefinition>,
     pub shortcut_macro_ids: Vec<String>,
     pub shortcut_statuses: Vec<MacroRunStatus>,

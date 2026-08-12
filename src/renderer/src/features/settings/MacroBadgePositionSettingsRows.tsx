@@ -2,6 +2,7 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 
 import { Slider } from "../../components/ui/slider";
+import { Switch } from "../../components/ui/switch";
 
 import { SegmentedControl, SettingsRow } from "../../components/ui/patterns";
 
@@ -11,7 +12,7 @@ import { browserFontPresets, browserFontSlots, normalizeGameBrowserSettings } fr
 
 import { macroBadgeHorizontalMarginsPx, macroBadgeTopPositionsPx } from "../../../../shared/macroOverlay";
 
-import type { BrowserFontCatalogEntry, BrowserFontCjkVariant, BrowserFontSelection, GameBrowserSettings, GameBrowserSettingsPatch, MacroBadgeHorizontalAlign, MacroBadgePositionSettings, PortableImportPreview, SystemFontFamily } from "../../../../shared/types";
+import type { BrowserFontCatalogEntry, BrowserFontCjkVariant, BrowserFontSelection, GameBrowserSettings, GameBrowserSettingsPatch, MacroBadgeHorizontalAlign, MacroBadgePositionSettings, MacroOverlaySettings, PortableImportPreview, SystemFontFamily } from "../../../../shared/types";
 
 import { type PortableDataAvailability } from "./portableSelection";
 
@@ -19,22 +20,35 @@ import { browserFontPresetLabelKeys } from "./settingsPresentation";
 
 import type { PortableDataCounts } from "./SettingsRoute";
 
-interface MacroBadgePositionSettingsRowsProps {
+interface MacroOverlaySettingsRowsProps {
   settings: GameBrowserSettings;
   t: Translator;
   onError: (error: unknown) => void;
   onSave: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
 }
 
-export function MacroBadgePositionSettingsRows({
+type MacroOverlaySavingState = Record<keyof MacroOverlaySettings, boolean>;
+
+const idleMacroOverlaySavingState: MacroOverlaySavingState = {
+  showClickMarkers: false,
+  showRunningBadges: false,
+  showToolButton: false
+};
+
+export function MacroOverlaySettingsRows({
   settings,
   t,
   onError,
   onSave
-}: MacroBadgePositionSettingsRowsProps): JSX.Element {
+}: MacroOverlaySettingsRowsProps): JSX.Element {
   const normalizedSettings = normalizeGameBrowserSettings(settings);
   const [draft, setDraft] = useState<MacroBadgePositionSettings>(normalizedSettings.macroBadgePosition);
+  const [overlayDraft, setOverlayDraft] = useState<MacroOverlaySettings>(normalizedSettings.macroOverlay);
+  const [overlaySaving, setOverlaySaving] = useState<MacroOverlaySavingState>(idleMacroOverlaySavingState);
   const draftRef = useRef(draft);
+  const overlayDraftRef = useRef(overlayDraft);
+  const persistedOverlayRef = useRef(overlayDraft);
+  const overlaySavingRef = useRef<MacroOverlaySavingState>(idleMacroOverlaySavingState);
   const settingsRef = useRef(settings);
   const pendingRef = useRef<MacroBadgePositionSettings | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -42,6 +56,7 @@ export function MacroBadgePositionSettingsRows({
 
   settingsRef.current = settings;
   draftRef.current = draft;
+  overlayDraftRef.current = overlayDraft;
 
   useEffect(() => {
     if (pendingRef.current || saveInFlightRef.current) {
@@ -51,6 +66,19 @@ export function MacroBadgePositionSettingsRows({
     const nextDraft = normalizeGameBrowserSettings(settings).macroBadgePosition;
     draftRef.current = nextDraft;
     setDraft(nextDraft);
+  }, [settings]);
+
+  useEffect(() => {
+    const nextPersisted = normalizeGameBrowserSettings(settings).macroOverlay;
+    const nextDraft = { ...overlayDraftRef.current };
+    for (const key of Object.keys(nextPersisted) as Array<keyof MacroOverlaySettings>) {
+      if (!overlaySavingRef.current[key]) {
+        persistedOverlayRef.current = { ...persistedOverlayRef.current, [key]: nextPersisted[key] };
+        nextDraft[key] = nextPersisted[key];
+      }
+    }
+    overlayDraftRef.current = nextDraft;
+    setOverlayDraft(nextDraft);
   }, [settings]);
 
   useEffect(
@@ -120,6 +148,38 @@ export function MacroBadgePositionSettingsRows({
     scheduleSave();
   }
 
+  async function updateOverlaySetting(
+    key: keyof MacroOverlaySettings,
+    value: boolean
+  ): Promise<void> {
+    if (overlaySavingRef.current[key]) {
+      return;
+    }
+    const nextDraft = { ...overlayDraftRef.current, [key]: value };
+    overlayDraftRef.current = nextDraft;
+    setOverlayDraft(nextDraft);
+    overlaySavingRef.current = { ...overlaySavingRef.current, [key]: true };
+    setOverlaySaving(overlaySavingRef.current);
+    try {
+      const savedSettings = await onSave({ macroOverlay: { [key]: value } });
+      settingsRef.current = savedSettings;
+      const savedValue = normalizeGameBrowserSettings(savedSettings).macroOverlay[key];
+      persistedOverlayRef.current = { ...persistedOverlayRef.current, [key]: savedValue };
+      overlayDraftRef.current = { ...overlayDraftRef.current, [key]: savedValue };
+      setOverlayDraft(overlayDraftRef.current);
+    } catch (error) {
+      overlayDraftRef.current = {
+        ...overlayDraftRef.current,
+        [key]: persistedOverlayRef.current[key]
+      };
+      setOverlayDraft(overlayDraftRef.current);
+      onError(error);
+    } finally {
+      overlaySavingRef.current = { ...overlaySavingRef.current, [key]: false };
+      setOverlaySaving(overlaySavingRef.current);
+    }
+  }
+
   const topMin = macroBadgeTopPositionsPx[0] ?? 0;
   const topMax = macroBadgeTopPositionsPx[macroBadgeTopPositionsPx.length - 1] ?? 320;
   const horizontalMarginMin = macroBadgeHorizontalMarginsPx[0] ?? 0;
@@ -129,11 +189,48 @@ export function MacroBadgePositionSettingsRows({
   return (
     <>
       <SettingsRow
+        title={t("settings.showMacroToolButton")}
+        description={t("settings.showMacroToolButtonDescription")}
+        control={
+          <Switch
+            aria-label={t("settings.showMacroToolButton")}
+            checked={overlayDraft.showToolButton}
+            disabled={overlaySaving.showToolButton}
+            onCheckedChange={(value) => void updateOverlaySetting("showToolButton", value)}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.showRunningMacroBadges")}
+        description={t("settings.showRunningMacroBadgesDescription")}
+        control={
+          <Switch
+            aria-label={t("settings.showRunningMacroBadges")}
+            checked={overlayDraft.showRunningBadges}
+            disabled={overlaySaving.showRunningBadges}
+            onCheckedChange={(value) => void updateOverlaySetting("showRunningBadges", value)}
+          />
+        }
+      />
+      <SettingsRow
+        title={t("settings.showMacroClickMarkers")}
+        description={t("settings.showMacroClickMarkersDescription")}
+        control={
+          <Switch
+            aria-label={t("settings.showMacroClickMarkers")}
+            checked={overlayDraft.showClickMarkers}
+            disabled={overlaySaving.showClickMarkers}
+            onCheckedChange={(value) => void updateOverlaySetting("showClickMarkers", value)}
+          />
+        }
+      />
+      <SettingsRow
         title={t("settings.macroBadgeHorizontalAlign")}
         description={t("settings.macroBadgeHorizontalAlignDescription")}
         control={
           <SegmentedControl<MacroBadgeHorizontalAlign>
             className="settings-menu-control settings-segmented-menu grid-cols-3"
+            disabled={!overlayDraft.showRunningBadges}
             items={[
               { value: "left", label: t("settings.macroBadgeHorizontalAlignLeft") },
               { value: "center", label: t("settings.macroBadgeHorizontalAlignCenter") },
@@ -152,6 +249,7 @@ export function MacroBadgePositionSettingsRows({
             <div className="flex items-center gap-3">
               <Slider
                 aria-label={t("settings.macroBadgeTop")}
+                disabled={!overlayDraft.showRunningBadges}
                 max={topMax}
                 min={topMin}
                 step={8}
@@ -178,6 +276,7 @@ export function MacroBadgePositionSettingsRows({
             <div className="flex items-center gap-3">
               <Slider
                 aria-label={t("settings.macroBadgeHorizontalMargin")}
+                disabled={!overlayDraft.showRunningBadges}
                 max={horizontalMarginMax}
                 min={horizontalMarginMin}
                 step={8}

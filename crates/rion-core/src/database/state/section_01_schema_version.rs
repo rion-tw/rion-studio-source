@@ -31,7 +31,7 @@ use crate::model::{
     GameWindowRuntimeSnapshotCommitInputRecord, GameWindowSaveRuntimeInputRecord,
     GameWindowUpdateInputRecord,
     LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
-    MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
+    MacroOverlaySettingsRecord, MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
     RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
     StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
     StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
@@ -64,7 +64,11 @@ enum Request {
     DomainMutation(Box<StateMutation>, Sender<CoreResult<Value>>),
     Metadata(Sender<CoreResult<Value>>),
     MacroConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroRuntimeSettings)>>),
-    OverlayConfiguration(Sender<CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)>>),
+    OverlayConfiguration(Sender<CoreResult<(
+        Vec<MacroDefinition>,
+        MacroBadgePositionRecord,
+        MacroOverlaySettingsRecord,
+    )>>),
     RecoverPortableImport(PathBuf, Sender<CoreResult<bool>>),
     OperationJournals(Sender<CoreResult<Vec<OperationJournalRecord>>>),
     OperationJournalPut(OperationJournalRecord, Sender<CoreResult<()>>),
@@ -308,7 +312,11 @@ impl StateDatabaseWorker {
 
     pub fn overlay_configuration(
         &self,
-    ) -> CoreResult<(Vec<MacroDefinition>, MacroBadgePositionRecord)> {
+    ) -> CoreResult<(
+        Vec<MacroDefinition>,
+        MacroBadgePositionRecord,
+        MacroOverlaySettingsRecord,
+    )> {
         request(&self.sender, Request::OverlayConfiguration)
     }
 

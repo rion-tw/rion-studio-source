@@ -13,7 +13,7 @@ use crate::{
         GameBrowserSettingsRecord, GameCreateInputRecord, GameUpdateInputRecord,
         GameWindowCreateInputRecord, GameWindowPlacementRecord, GameWindowSaveRuntimeInputRecord,
         GameWindowUpdateInputRecord, LegalAcceptanceRecord, MacroBadgePositionRecord,
-        MacroCreateInputRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
+        MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
         MacroShortcutSourceScope, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
         RoleCreateInputRecord,
         RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeRestoreSessionRecord,
@@ -36,6 +36,7 @@ pub fn default_game_browser_settings() -> GameBrowserSettingsRecord {
             horizontal_margin_px: 8,
             top_px: 128,
         },
+        macro_overlay: MacroOverlaySettingsRecord::default(),
         performance: BrowserPerformanceSettingsRecord::default(),
         workspace: WorkspaceAppearanceSettingsRecord {
             background: "material".to_owned(),

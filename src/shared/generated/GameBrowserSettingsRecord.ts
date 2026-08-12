@@ -2,6 +2,7 @@
 import type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
 import type { BrowserPerformanceSettingsRecord } from "./BrowserPerformanceSettingsRecord";
 import type { MacroBadgePositionRecord } from "./MacroBadgePositionRecord";
+import type { MacroOverlaySettingsRecord } from "./MacroOverlaySettingsRecord";
 import type { WorkspaceAppearanceSettingsRecord } from "./WorkspaceAppearanceSettingsRecord";
 
-export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, macroBadgePosition: MacroBadgePositionRecord, performance: BrowserPerformanceSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };
+export type GameBrowserSettingsRecord = { fonts: BrowserFontSettingsRecord, macroBadgePosition: MacroBadgePositionRecord, macroOverlay: MacroOverlaySettingsRecord, performance: BrowserPerformanceSettingsRecord, workspace: WorkspaceAppearanceSettingsRecord, };

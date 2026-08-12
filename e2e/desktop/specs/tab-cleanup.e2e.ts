@@ -319,7 +319,25 @@ async function tabsPhase(): Promise<void> {
   await createWindow(TABS_WINDOW_ID, "E2E Visible Tabs Window");
   await showWindowFromUi(TABS_WINDOW_ID);
   const tabs: Array<Awaited<ReturnType<typeof launchRole>>> = [];
-  for (const role of roles) tabs.push(await launchRole(role, TABS_WINDOW_ID));
+  for (const [index, role] of roles.entries()) {
+    const launchCursor = (await probe()).latestSequence;
+    const fixtureAfter = await fixtureCursor();
+    const tab = await launchRole(role, TABS_WINDOW_ID);
+    tabs.push(tab);
+    await waitEvent({
+      afterSequence: launchCursor,
+      kind: `tab-launch-phase:${tab.id}:ready`,
+      timeoutMs: 55_000,
+      windowId: TABS_WINDOW_ID
+    });
+    if (index === roles.length - 1) {
+      await waitFixtureEvent({
+        afterSequence: fixtureAfter,
+        kind: "visibility",
+        roleId: ids[index]
+      });
+    }
+  }
   let previousIndex = 2;
 
   for (const [index, tab] of tabs.entries()) {

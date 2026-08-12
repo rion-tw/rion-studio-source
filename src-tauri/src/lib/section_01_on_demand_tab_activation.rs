@@ -4,10 +4,23 @@ async fn activate_runtime_tab_on_demand(
     tab_id: &str,
     native_style_applied: bool,
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
-    let launch = state
+    activate_runtime_tab_on_demand_at_revision(app, state, tab_id, native_style_applied, None).await
+}
+
+async fn activate_runtime_tab_on_demand_at_revision(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+    native_style_applied: bool,
+    expected_revision: Option<u64>,
+) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
+    let (claim_applied, launch) = state
         .runtime
-        .claim_runtime_tab_activation(tab_id)
+        .claim_runtime_tab_activation(tab_id, expected_revision)
         .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+    if expected_revision.is_some() && !claim_applied {
+        return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
+    }
     let presentation = match preview_and_commit_tab_selection_inner(
         app,
         state,
@@ -85,6 +98,24 @@ async fn activate_runtime_tab_on_demand(
     Ok(presentation)
 }
 
+async fn activate_selected_restored_tab_on_demand(
+    app: &AppHandle,
+    state: &CoreState,
+    tab_id: &str,
+) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
+    let Some(expected_revision) = state.runtime.selected_dormant_tab_revision(tab_id) else {
+        return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
+    };
+    activate_runtime_tab_on_demand_at_revision(
+        app,
+        state,
+        tab_id,
+        false,
+        Some(expected_revision),
+    )
+    .await
+}
+
 async fn activate_adjacent_runtime_tab_on_demand(
     app: &AppHandle,
     state: &CoreState,
@@ -118,13 +149,7 @@ async fn activate_selected_runtime_tab_on_demand(
     let Some(tab_id) = selected_tab_id else {
         return;
     };
-    if matches!(
-        state.runtime.authoritative_tab_activation_phase(&tab_id),
-        Some(
-            rion_core::RuntimeTabActivationPhaseRecord::Dormant
-                | rion_core::RuntimeTabActivationPhaseRecord::Failed
-        )
-    ) && let Err(error) = activate_runtime_tab_on_demand(app, state, &tab_id, false).await
+    if let Err(error) = activate_selected_restored_tab_on_demand(app, state, &tab_id).await
     {
         reveal_shell_error(app, error);
     }

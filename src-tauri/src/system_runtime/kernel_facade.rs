@@ -43,13 +43,15 @@ impl SystemRuntimeExecutor {
         operation_id: OperationId,
         tab_id: RuntimeTabId,
         window_id: String,
+        expected_revision: Option<u64>,
     ) -> RuntimeResult<rion_core::RuntimeCommit> {
         self.core
             .apply_runtime_intent(RuntimeIntent::ActivateTab {
                 // Tab ownership and visibility are validated atomically by the Kernel.
-                // Placement receipts advance the aggregate revision independently and
-                // must not supersede an otherwise-current on-demand activation.
-                expected_revision: None,
+                // Visible actions are intentionally unfenced because placement receipts
+                // may advance the revision independently. Automatic restore actions pass
+                // the exact observed window revision so a newer user choice supersedes them.
+                expected_revision,
                 operation_id,
                 tab_id,
                 window_id,

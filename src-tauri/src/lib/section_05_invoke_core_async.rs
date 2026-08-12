@@ -474,11 +474,10 @@ async fn restore_saved_game_windows(
         }
         let foreground_tab = saved_window_foreground_tab(&saved);
         if let Some(tab) = foreground_tab
-            && let Err(error) = activate_runtime_tab_on_demand(
+            && let Err(error) = activate_selected_restored_tab_on_demand(
                 window.app_handle(),
                 state,
                 &tab.id,
-                false,
             )
             .await
         {

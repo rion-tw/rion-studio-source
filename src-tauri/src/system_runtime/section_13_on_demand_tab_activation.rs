@@ -92,7 +92,8 @@ impl SystemRuntimeExecutor {
     pub(crate) fn claim_runtime_tab_activation(
         &self,
         tab_id: &str,
-    ) -> Result<Option<DormantTabActivationRequest>, String> {
+        expected_revision: Option<u64>,
+    ) -> Result<(bool, Option<DormantTabActivationRequest>), String> {
         let snapshot = self
             .core
             .runtime_kernel()
@@ -123,10 +124,11 @@ impl SystemRuntimeExecutor {
                 attempt_id.clone(),
                 RuntimeTabId::new(tab_id.to_owned())?,
                 window_id.clone(),
+                expected_revision,
             )
             .map_err(|error| error.message)?;
         if commit.status != RuntimeCommitStatus::Applied {
-            return Ok(None);
+            return Ok((false, None));
         }
         let requested = commit.desired_effects.iter().any(|effect| {
             matches!(
@@ -141,21 +143,33 @@ impl SystemRuntimeExecutor {
             )
         });
         if !requested {
-            return Ok(None);
+            return Ok((true, None));
         }
         self.presentation.statuses.set_presentation_phase(
             tab_id,
             TabRuntimePhase::Activating,
         );
         self.publish_projection();
-        Ok(Some(DormantTabActivationRequest {
+        Ok((true, Some(DormantTabActivationRequest {
             audio_muted: tab.audio_muted,
             role_slots: tab.role_slots,
             source_id: tab.source_id,
             tab_id: tab.id,
             tab_type: tab.tab_type,
             target,
-        }))
+        })))
+    }
+
+    pub(crate) fn selected_dormant_tab_revision(&self, tab_id: &str) -> Option<u64> {
+        let snapshot = self.core.runtime_kernel().snapshot().ok()?;
+        let window = snapshot.windows.values().find(|window| {
+            window.selected_tab_id.as_deref() == Some(tab_id) && window.contains_tab(tab_id)
+        })?;
+        matches!(
+            snapshot.tab_activations.get(tab_id)?.phase,
+            RuntimeTabActivationPhaseRecord::Dormant | RuntimeTabActivationPhaseRecord::Failed
+        )
+        .then_some(window.revision)
     }
 
     pub(crate) fn set_authoritative_tab_activation_phase(

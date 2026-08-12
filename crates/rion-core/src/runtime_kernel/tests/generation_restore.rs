@@ -186,3 +186,60 @@ fn unfenced_dormant_activation_survives_an_unrelated_placement_revision() {
             if tab_id.as_str() == "tab-a" && window_id == "window-a"
     ));
 }
+
+#[test]
+fn restored_selection_cannot_overwrite_a_newer_visible_tab_choice() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(RuntimeIntent::CommitTopology(RuntimeTopologyCommitInput {
+            commit_id: "seed-restored-selection-race".to_owned(),
+            source: "restore".to_owned(),
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![RuntimeWindowTopologyCommit {
+                active_tab_id: Some("tab-c".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![tab("tab-a", "role-a"), tab("tab-c", "role-c")],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        }))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-restored-dormant-tabs".to_owned(),
+            tab_ids: vec!["tab-a".to_owned(), "tab-c".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let restored_revision = kernel.snapshot().unwrap().windows["window-a"].revision;
+
+    let visible_choice = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: None,
+            operation_id: id::<OperationId>("visible-activate-a"),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert_eq!(visible_choice.status, RuntimeCommitStatus::Applied);
+
+    let stale_restore = kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(restored_revision),
+            operation_id: id::<OperationId>("automatic-restore-c"),
+            tab_id: id::<RuntimeTabId>("tab-c"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    assert_eq!(stale_restore.status, RuntimeCommitStatus::Superseded);
+    let snapshot = kernel.snapshot().unwrap();
+    assert_eq!(
+        snapshot.windows["window-a"].selected_tab_id.as_deref(),
+        Some("tab-a")
+    );
+    assert_eq!(
+        snapshot.tab_activations["tab-c"].phase,
+        RuntimeTabActivationPhaseRecord::Dormant
+    );
+}

@@ -456,26 +456,6 @@ async fn restore_saved_game_windows(
                 .discard_prepared_restored_window_tabs(&saved.id);
             continue;
         }
-        if focus_window_id.as_deref() == Some(saved.id.as_str()) {
-            match state
-                .runtime
-                .activate_live_runtime_window(&saved.id, "saved-window-restore")
-            {
-                Ok(true) => state
-                    .runtime
-                    .mark_prepared_restored_window_visible(&saved.id),
-                Ok(false) => failures.push(json!({
-                    "windowId": saved.id,
-                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
-                    "message": "The restored Game Window was unavailable for its initial activation."
-                })),
-                Err(error) => failures.push(json!({
-                    "windowId": saved.id,
-                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
-                    "message": error
-                })),
-            }
-        }
         let foreground_tab = saved_window_foreground_tab(&saved);
         if let Some(tab) = foreground_tab
             && let Err(error) = activate_selected_restored_tab_on_demand(
@@ -496,6 +476,29 @@ async fn restore_saved_game_windows(
                 "message": error.message
             }));
             window_failed = true;
+        }
+        // Claim the exact restored selection before revealing the new native host. On Win32,
+        // focus and placement receipts can advance the window revision; revealing first could
+        // supersede the dormant activation even though the user had not changed tabs.
+        if focus_window_id.as_deref() == Some(saved.id.as_str()) {
+            match state
+                .runtime
+                .activate_live_runtime_window(&saved.id, "saved-window-restore")
+            {
+                Ok(true) => state
+                    .runtime
+                    .mark_prepared_restored_window_visible(&saved.id),
+                Ok(false) => failures.push(json!({
+                    "windowId": saved.id,
+                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
+                    "message": "The restored Game Window was unavailable for its initial activation."
+                })),
+                Err(error) => failures.push(json!({
+                    "windowId": saved.id,
+                    "code": "TAURI_RESTORE_ACTIVATION_FAILED",
+                    "message": error
+                })),
+            }
         }
         if let Err(error) = state
             .runtime

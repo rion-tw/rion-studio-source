@@ -541,7 +541,6 @@ impl TabRuntimeStatusStore {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "desktop-e2e")]
     fn launch_phase(&self, tab_id: &str) -> Option<LaunchPhase> {
         self.tabs
             .lock()

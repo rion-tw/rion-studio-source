@@ -386,10 +386,10 @@ impl SystemRuntimeExecutor {
             self.with_input_context_lane(&context, || match request.action {
                 BrowserAction::Focus => {
                     // Native key and mouse delivery targets the role WebView directly. Focus is
-                    // therefore a fenced readiness check, not permission to blur the game canvas
-                    // or replace the foreground role's AppKit first responder.
-                    self.role_webview_for_input(&role_id, &context)
-                        .map(|_| None)
+                    // therefore an event-fenced page-readiness check, not permission to blur the
+                    // game canvas or replace the foreground role's AppKit first responder.
+                    self.wait_for_role_input_focus(&role_id, &context)
+                        .map(|()| None)
                 }
                 BrowserAction::Key {
                     phase,

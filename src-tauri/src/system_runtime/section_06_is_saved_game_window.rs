@@ -569,6 +569,7 @@ impl SystemRuntimeExecutor {
         let authority_changed =
             self.set_authoritative_tab_activation_phase(tab_id, activation_phase);
         if changed || authority_changed {
+            self.input_readiness.notify();
             #[cfg(feature = "desktop-e2e")]
             {
                 let window_id = self.presentation.tab_window(tab_id).ok().flatten();

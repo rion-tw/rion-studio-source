@@ -148,3 +148,29 @@ fn macro_key_guard_acknowledgement_accepts_only_boolean_true() {
     assert!(!macro_key_guard_acknowledged("null"));
     assert!(!macro_key_guard_acknowledged("not-json"));
 }
+
+#[test]
+fn macro_focus_waits_for_essential_page_readiness() {
+    for phase in [None, Some(LaunchPhase::Attaching), Some(LaunchPhase::Navigating)] {
+        assert_eq!(
+            focus_launch_readiness(phase),
+            FocusLaunchReadiness::Pending,
+            "{phase:?}"
+        );
+    }
+    for phase in [
+        LaunchPhase::EssentialReady,
+        LaunchPhase::OptionalHydrating,
+        LaunchPhase::Ready,
+    ] {
+        assert_eq!(
+            focus_launch_readiness(Some(phase)),
+            FocusLaunchReadiness::Ready,
+            "{phase:?}"
+        );
+    }
+    assert_eq!(
+        focus_launch_readiness(Some(LaunchPhase::Degraded)),
+        FocusLaunchReadiness::Unavailable
+    );
+}

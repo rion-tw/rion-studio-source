@@ -209,6 +209,13 @@ fn collect_launchable_live_targets<T>(
         .collect()
 }
 
+fn requested_saved_window_uses_empty_runtime_topology(
+    saved_tab_count: usize,
+    runtime_tab_count: Option<usize>,
+) -> bool {
+    saved_tab_count == 0 || runtime_tab_count == Some(0)
+}
+
 fn resolve_runtime_launch_destination(
     app: &AppHandle,
     state: &CoreState,
@@ -343,9 +350,19 @@ fn resolve_requested_game_window_destination(
             )
         })?;
     let target = launch_target_for_game_window(app, &saved.id)?;
-    if saved.tabs.is_empty() {
+    let runtime_tab_count = state
+        .runtime
+        .live_window_tab_ids(&saved.id)
+        .ok()
+        .map(|tabs| tabs.len())
+        .or_else(|| state.runtime.cached_runtime_window_tab_count(&saved.id));
+    if requested_saved_window_uses_empty_runtime_topology(saved.tabs.len(), runtime_tab_count) {
         return Ok(RuntimeLaunchDestination::Live {
-            reason: "requested-empty-saved-game-window",
+            reason: if saved.tabs.is_empty() {
+                "requested-empty-saved-game-window"
+            } else {
+                "requested-authoritative-empty-runtime-window"
+            },
             target,
         });
     }

@@ -224,6 +224,7 @@ async function activateTab(windowId: string, tabId: string): Promise<void> {
 async function closeTab(windowId: string, tabId: string, role?: Role): Promise<void> {
   await activateTab(windowId, tabId);
   const live = await windowSnapshot(windowId);
+  const closesLastTab = live.kernel?.tabs.length === 1;
   const cursor = (await probe()).latestSequence;
   await runtimeUiAction(windowId, {
     action: "closeTab",
@@ -237,6 +238,9 @@ async function closeTab(windowId: string, tabId: string, role?: Role): Promise<v
     windowId
   });
   expect(terminal.details).toMatchObject({ error: null, status: "completed", tabId });
+  if (closesLastTab) {
+    await waitEvent({ afterSequence: cursor, kind: "window-destroyed", windowId });
+  }
   if (role) await expectTeardownQuiesced(cursor, role);
 }
 
@@ -279,7 +283,8 @@ async function cleanupPhase(): Promise<void> {
   const stopDiagnostic = (await inputDiagnostics()).roles.find((item) => item.roleId === roles[0].id);
   expect(stopDiagnostic).toMatchObject({ quiesced: false, stopping: false });
   await closeTab(CLEANUP_WINDOW_ID, stopTab.id);
-  await showWindowFromUi(CLEANUP_WINDOW_ID);
+  const reopenedEmpty = await showWindowFromUi(CLEANUP_WINDOW_ID);
+  expect(reopenedEmpty.kernel?.tabs).toEqual([]);
 
   const runningTab = await launchRole(roles[1], CLEANUP_WINDOW_ID);
   const tabCursor = await startMacro(macros[1], roles[1]);
@@ -290,6 +295,8 @@ async function cleanupPhase(): Promise<void> {
     .toMatchObject({ quiesced: false, stopping: false });
 
   await launchRole(roles[2], CLEANUP_WINDOW_ID);
+  expect((await windowSnapshot(CLEANUP_WINDOW_ID)).kernel?.tabs.map((tab) => tab.sourceId))
+    .toEqual([roles[2].id]);
   const windowCursor = await startMacro(macros[2], roles[2]);
   await stopWindowFromUi(CLEANUP_WINDOW_ID, roles[2]);
   await waitForMacroProjection({ afterSequence: windowCursor, absent: true, macroId: macros[2].id });

@@ -242,11 +242,14 @@ impl SystemRuntimeExecutor {
         }
         self.request_preview_surface_isolation(isolation_surfaces);
         // A window close flushes the complete pre-close LiveWindowRecord before
-        // BrowserWindowStop starts isolating its tabs. Those teardown tombstones
-        // are not user tab mutations and must never overwrite that final snapshot
-        // with one tab, then zero tabs, on the debounced persistence lane.
-        if !self.current_window_close_in_progress(&window_id) {
-            self.schedule_live_window_state_persistence(&window_id);
+        // BrowserWindowStop starts isolating its tabs. Those parent-owned teardown
+        // tombstones must not replace that snapshot. A user tab close remains a
+        // persistence authority even when its last-tab host retirement is fenced.
+        if parent_operation_id.is_none() {
+            self.schedule_tab_close_window_state_persistence(
+                &window_id,
+                next_tab_id.is_none(),
+            );
         }
         Ok(RuntimeTabCloseIntent {
             source_id,

@@ -8,10 +8,11 @@ enum GameWindowShowRoute {
 fn game_window_show_route(
     live_window_activated: bool,
     saved_tabs_empty: bool,
+    runtime_tab_count: Option<usize>,
 ) -> GameWindowShowRoute {
     if live_window_activated {
         GameWindowShowRoute::ActivateLive
-    } else if saved_tabs_empty {
+    } else if saved_tabs_empty || runtime_tab_count == Some(0) {
         GameWindowShowRoute::RegisterEmpty
     } else {
         GameWindowShowRoute::RestoreSaved
@@ -188,7 +189,14 @@ async fn rion_shell_invoke(
                 .map_err(|message| {
                     shell_error("TAURI_RUNTIME_VISIBILITY_FAILED", message)
                 })?;
-            match game_window_show_route(live_window_activated, saved.tabs.is_empty()) {
+            let runtime_tab_count = state
+                .runtime
+                .cached_runtime_window_tab_count(&window_id);
+            match game_window_show_route(
+                live_window_activated,
+                saved.tabs.is_empty(),
+                runtime_tab_count,
+            ) {
                 GameWindowShowRoute::ActivateLive => {
                     if state.runtime.retire_dormant_window(&window_id) {
                         state

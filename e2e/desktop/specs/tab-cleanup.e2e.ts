@@ -268,7 +268,6 @@ async function cleanupPhase(): Promise<void> {
   const tabTerminalCount = inputCount(await fixtureState(), fixtureIds[1]);
   expect((await inputDiagnostics()).roles.find((item) => item.roleId === roles[1].id))
     .toMatchObject({ quiesced: false, stopping: false });
-  await showWindowFromUi(CLEANUP_WINDOW_ID);
 
   await launchRole(roles[2], CLEANUP_WINDOW_ID);
   const windowCursor = await startMacro(macros[2], roles[2]);

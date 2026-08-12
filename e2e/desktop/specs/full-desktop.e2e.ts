@@ -378,6 +378,7 @@ async function exerciseUnsavedQuitGuard(): Promise<void> {
   await dialog.waitForExist({ timeout: 10_000 });
   await dialog.$("button=Discard changes").click().catch(() => undefined);
   await waitForFinalFlush(control.transcriptPath, requestedAfter);
+  detachTerminatedApplicationSession();
 }
 
 async function guardCleanupPhase(): Promise<void> {

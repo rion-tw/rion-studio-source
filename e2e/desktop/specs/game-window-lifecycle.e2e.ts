@@ -478,7 +478,17 @@ async function forceTerminatePhase(): Promise<void> {
   const focusedRoleId = activeC?.roleIds[0];
   if (!activeC || !focusedRoleId) throw new Error("Window C active role surface is unavailable");
   const focusCursor = await fixtureCursor();
-  const liveC = await windowSnapshot(WINDOW_C);
+  let liveC = await windowSnapshot(WINDOW_C);
+  const phase = liveC.kernel?.tabs.find((tab) => tab.tabId === activeC.id)?.launchPhase;
+  if (!phase || phase === "attaching" || phase === "navigating") {
+    await waitEvent({
+      afterSequence: focusCursor,
+      kind: `tab-launch-phase:${activeC.id}:essentialReady`,
+      timeoutMs: 55_000,
+      windowId: WINDOW_C
+    });
+    liveC = await windowSnapshot(WINDOW_C);
+  }
   await runtimeUiAction(WINDOW_C, {
     action: "focusRole",
     roleId: focusedRoleId,

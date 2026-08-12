@@ -18,6 +18,10 @@ import { expectBoundsNear, expectPlacement } from "../support/geometry";
 import { forceTerminateProcessTree } from "../support/process";
 import { waitForTranscriptEvent } from "../support/transcript";
 
+// [journey:GAME-WINDOWS-NATIVE-001]
+// [journey:GAME-WINDOWS-TABS-001]
+// [journey:APP-RECOVERY-001]
+
 const WINDOW_A = "e2e00000-0000-4000-8000-00000000000a";
 const WINDOW_B = "e2e00000-0000-4000-8000-00000000000b";
 const WINDOW_C = "e2e00000-0000-4000-8000-00000000000c";

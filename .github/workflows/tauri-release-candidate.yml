@@ -89,10 +89,17 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+  desktop-e2e:
+    needs: resolve
+    uses: ./.github/workflows/desktop-e2e-extended.yml
+    with:
+      ref: ${{ needs.resolve.outputs.source_ref }}
+
   compatibility:
     needs:
       - resolve
       - build
+      - desktop-e2e
     uses: ./.github/workflows/tauri-release-compatibility.yml
     with:
       source_ref: ${{ needs.resolve.outputs.source_ref }}

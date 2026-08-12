@@ -75,6 +75,22 @@ substantial work, then follow the scoped `AGENTS.md` nearest the files you edit.
 - Do not add platform signing credentials or fail-closed platform-signing gates
   unless the owner explicitly changes this decision and confirms both credential sets.
 
+## E2E and AI Development
+
+- Treat `docs/e2e-coverage.json` as the source of truth for user-journey coverage.
+- Every user-visible behavior change must name the affected journey IDs in the
+  handoff and update the manifest and adjacent desktop E2E when behavior changes.
+- A new user-visible feature requires an automated P0/P1 journey. An E2E omission
+  is allowed only for `internal-only`, `compile-only`, or `lower-layer-covered`
+  work, and the handoff must state that exact reason with the focused test evidence.
+- Primary user actions in desktop E2E must use visible UI. Debug-only controls may
+  establish deterministic preconditions, inject classified failures, or read
+  authoritative evidence, but must not replace the user action under test.
+- Handoffs must list the macOS and Windows E2E profiles that ran and identify any
+  platform still pending CI. Linux is never desktop E2E evidence.
+- Keep P0 automation at 100% and P1 automation at or above 80%. Run
+  `pnpm run check:e2e-coverage` whenever journeys, profiles, or feature routes change.
+
 ## Validation
 
 Run the narrowest relevant checks first, then expand as risk requires:

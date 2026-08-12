@@ -18,8 +18,13 @@ const binary = resolve(root, "target", "debug", process.platform === "win32"
   : "rion-tauri");
 const node = process.execPath;
 const wdio = resolve(root, "node_modules", "@wdio", "cli", "bin", "wdio.js");
-const phases = ["seed", "restart", "force-terminate", "crash-restart"];
-if (process.env.RION_STUDIO_E2E_PROFILE === "extended") phases.push("extended-native");
+const profileArgument = process.argv.find((argument) => argument.startsWith("--profile="))?.slice(10);
+const profile = profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full";
+const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
+const phases = coverageManifest.profiles?.[profile]?.phases;
+if (!phases) {
+  throw new Error(`Unknown desktop E2E profile: ${profile}. Expected smoke, full, or extended.`);
+}
 const checkoutCommit = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8"
@@ -122,7 +127,7 @@ function sameValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function validateSqliteEvidence(phase, gameWindows, settings, blocked) {
+function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked) {
   const byId = new Map(gameWindows.map((window) => [window.id, window]));
   const expectedWindows = [
     [windowIds.a, "E2E Window A", "normal"],
@@ -202,7 +207,50 @@ function validateSqliteEvidence(phase, gameWindows, settings, blocked) {
   };
 }
 
-async function captureSqlite(phase, blocked) {
+function validateSmokeSqliteEvidence(phase, entities, settings) {
+  const expectedNames = {
+    games: "E2E Smoke Game Edited",
+    macros: "E2E Smoke Macro",
+    roles: "E2E Smoke Role",
+    workspaces: "E2E Smoke Workspace"
+  };
+  for (const [entityType, name] of Object.entries(expectedNames)) {
+    requireEvidence(
+      entities[entityType].some((entity) => entity.name === name),
+      `${phase}: missing persisted ${entityType} journey entity ${name}`
+    );
+  }
+  requireEvidence(
+    !entities.games.some((game) => game.name === "E2E Delete Game"),
+    `${phase}: cancelled-and-confirmed delete target was retained`
+  );
+  const preferences = settings.find((setting) => setting.key === "runtimeWindowPreferences")?.payload;
+  requireEvidence(
+    preferences?.alwaysHideTabCloseButton === true,
+    `${phase}: runtime window preferences were not persisted`
+  );
+  return {
+    entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length])),
+    runtimeWindowPreferencesPersisted: true
+  };
+}
+
+function validateFullCleanupSqliteEvidence(phase, entities) {
+  for (const name of [
+    "E2E Smoke Game Edited",
+    "E2E Smoke Role",
+    "E2E Smoke Workspace",
+    "E2E Smoke Macro"
+  ]) {
+    requireEvidence(
+      !Object.values(entities).some((values) => values.some((entity) => entity.name === name)),
+      `${phase}: destructive UI cleanup retained ${name}`
+    );
+  }
+  return { cleanupComplete: true };
+}
+
+async function captureSqlite(phase, blocked, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
   const databasePath = resolve(userDataDir, "rion-studio.sqlite3");
@@ -211,12 +259,16 @@ async function captureSqlite(phase, blocked) {
   await copyIfPresent(`${databasePath}-shm`, resolve(phaseDir, "rion-studio.sqlite3-shm"));
   try {
     const database = new DatabaseSync(databasePath, { readOnly: true });
-    const gameWindows = database.prepare(
-      "SELECT id, name, payload_json AS payloadJson FROM game_windows ORDER BY ordinal"
-    ).all().map((row) => ({
-      ...row,
-      payload: JSON.parse(String(row.payloadJson))
-    }));
+    const readEntities = (table) => database.prepare(
+      `SELECT id, name, payload_json AS payloadJson FROM ${table} ORDER BY ordinal`
+    ).all().map((row) => ({ ...row, payload: JSON.parse(String(row.payloadJson)) }));
+    const entities = {
+      games: readEntities("games"),
+      gameWindows: readEntities("game_windows"),
+      macros: readEntities("macros"),
+      roles: readEntities("roles"),
+      workspaces: readEntities("workspaces")
+    };
     const settings = database.prepare(
       "SELECT key, payload_json AS payloadJson FROM settings ORDER BY key"
     ).all().map((row) => ({
@@ -226,9 +278,24 @@ async function captureSqlite(phase, blocked) {
     database.close();
     await writeFile(
       resolve(phaseDir, "sqlite-query.json"),
-      `${JSON.stringify({ gameWindows, settings }, null, 2)}\n`
+      `${JSON.stringify({ ...entities, settings }, null, 2)}\n`
     );
-    return validateSqliteEvidence(phase, gameWindows, settings, blocked);
+    if (!validateEvidence) {
+      return {
+        entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length])),
+        validationSkipped: "phase-failed"
+      };
+    }
+    if (phase === "smoke-seed" || phase === "smoke-restart") {
+      return validateSmokeSqliteEvidence(phase, entities, settings);
+    }
+    if (phase === "full-ui") return validateFullCleanupSqliteEvidence(phase, entities);
+    if (["seed", "restart", "force-terminate", "crash-restart", "extended-native"].includes(phase)) {
+      return validateGameWindowSqliteEvidence(phase, entities.gameWindows, settings, blocked);
+    }
+    return {
+      entityCounts: Object.fromEntries(Object.entries(entities).map(([key, values]) => [key, values.length]))
+    };
   } catch (error) {
     await writeFile(resolve(phaseDir, "sqlite-query-error.txt"), `${String(error)}\n`);
     throw error;
@@ -260,6 +327,7 @@ const report = {
   binary,
   commit: checkoutCommit,
   phases: [],
+  profile,
   requestedCommit,
   startedAt: new Date().toISOString(),
   worktreeDirty
@@ -299,7 +367,11 @@ try {
       ? await expectedForcedTermination(phaseDir)
       : undefined;
     const blocked = blockedReason(result.output);
-    const sqliteEvidence = await captureSqlite(phase, blocked);
+    const sqliteEvidence = await captureSqlite(
+      phase,
+      blocked,
+      result.code === 0 || Boolean(forcedTermination)
+    );
     report.phases.push({
       blockedReason: blocked,
       exitCode: result.code,
@@ -312,7 +384,7 @@ try {
           ? "EXPECTED_FORCE_TERMINATION"
           : result.code === 0 ? "PASS" : "FAIL"
     });
-    if (result.code !== 0 && !forcedTermination) {
+    if (blocked || (result.code !== 0 && !forcedTermination)) {
       throw new Error(
         blocked ?? `Desktop E2E phase ${phase} failed (${result.code})`
       );

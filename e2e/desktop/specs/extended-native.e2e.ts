@@ -15,6 +15,8 @@ import {
 import { expectBoundsNear } from "../support/geometry";
 import { waitForTranscriptEvent } from "../support/transcript";
 
+// [journey:NATIVE-DISPLAY-001]
+
 const WINDOW_A = "e2e00000-0000-4000-8000-00000000000a";
 
 async function transition(

@@ -1,6 +1,10 @@
 name: CI
 
 on:
+  pull_request:
+    branches:
+      - main
+      - v4
   push:
     branches:
       - main
@@ -223,16 +227,25 @@ jobs:
       - name: Build target-platform Tauri shell
         run: cargo build -p rion-tauri
 
-      - name: Run real desktop Game Window E2E soak
+      - name: Run required desktop UI smoke
+        if: github.event_name == 'pull_request'
+        id: desktop_smoke
+        timeout-minutes: 20
+        run: pnpm run test:e2e:desktop:smoke
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Run advisory full desktop E2E soak
+        if: github.event_name != 'pull_request'
         id: desktop_e2e
         continue-on-error: true
         timeout-minutes: 30
-        run: pnpm run test:e2e:desktop
+        run: pnpm run test:e2e:desktop:full
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
 
       - name: Upload desktop E2E diagnostics
-        if: always() && steps.desktop_e2e.outcome != 'skipped'
+        if: always() && (steps.desktop_smoke.outcome != 'skipped' || steps.desktop_e2e.outcome != 'skipped')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: desktop-e2e-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}

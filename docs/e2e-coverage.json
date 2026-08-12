@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "targets": {
+    "P0": 1,
+    "P1": 0.8
+  },
+  "features": [
+    "app-shell",
+    "dashboard",
+    "games",
+    "roles",
+    "workspaces",
+    "game-windows",
+    "macros",
+    "settings"
+  ],
+  "profiles": {
+    "smoke": {
+      "gate": "pull-request",
+      "phases": [
+        "smoke-seed",
+        "smoke-restart"
+      ],
+      "specs": [
+        "e2e/desktop/specs/app-journeys.e2e.ts"
+      ]
+    },
+    "full": {
+      "gate": "nightly",
+      "phases": [
+        "smoke-seed",
+        "smoke-restart",
+        "full-ui",
+        "system-settings",
+        "seed",
+        "restart",
+        "force-terminate",
+        "crash-restart"
+      ],
+      "specs": [
+        "e2e/desktop/specs/app-journeys.e2e.ts",
+        "e2e/desktop/specs/full-desktop.e2e.ts",
+        "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+        "e2e/desktop/specs/system-settings.e2e.ts"
+      ]
+    },
+    "extended": {
+      "gate": "release-candidate",
+      "phases": [
+        "smoke-seed",
+        "smoke-restart",
+        "full-ui",
+        "system-settings",
+        "seed",
+        "restart",
+        "force-terminate",
+        "crash-restart",
+        "extended-native"
+      ],
+      "specs": [
+        "e2e/desktop/specs/app-journeys.e2e.ts",
+        "e2e/desktop/specs/full-desktop.e2e.ts",
+        "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+        "e2e/desktop/specs/system-settings.e2e.ts",
+        "e2e/desktop/specs/extended-native.e2e.ts"
+      ]
+    }
+  },
+  "journeys": [
+    {
+      "id": "APP-LEGAL-001",
+      "feature": "app-shell",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "restart"],
+      "description": "Accept legal documents, dismiss first-run setup, and reach the application shell."
+    },
+    {
+      "id": "DASHBOARD-NAV-001",
+      "feature": "dashboard",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "standard",
+      "outcomes": ["success"],
+      "description": "Navigate every primary feature from the real application shell."
+    },
+    {
+      "id": "GAMES-UI-001",
+      "feature": "games",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Validate, create, edit, persist, and delete a custom game through the UI."
+    },
+    {
+      "id": "ROLES-UI-001",
+      "feature": "roles",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Create and persist a role, then launch it from the role card against the deterministic fixture."
+    },
+    {
+      "id": "WORKSPACES-UI-001",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Create a role-backed workspace, persist it, and exercise its UI launch admission."
+    },
+    {
+      "id": "GAME-WINDOWS-UI-001",
+      "feature": "game-windows",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Create and open a permanent Game Window from the visible Game Windows route."
+    },
+    {
+      "id": "MACROS-UI-001",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Create a role-assigned macro, verify disabled launch failure, then start and stop it from the UI."
+    },
+    {
+      "id": "SETTINGS-PERSIST-001",
+      "feature": "settings",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "restart"],
+      "description": "Change theme and Game Window preferences through Settings and verify restart persistence."
+    },
+    {
+      "id": "GAME-WINDOWS-NATIVE-001",
+      "feature": "game-windows",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Fence native placement, presentation, persistence, clean restart, and forced termination by generation and revision."
+    },
+    {
+      "id": "APP-FULL-CRUD-001",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/full-desktop.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "cancel"],
+      "description": "Exercise destructive confirmations and reverse-dependency cleanup through the visible UI."
+    },
+    {
+      "id": "GAME-WINDOWS-TABS-001",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Launch three role tabs and preserve active, dormant, ordered topology across native window generations."
+    },
+    {
+      "id": "APP-RECOVERY-001",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["failure", "restart"],
+      "description": "Distinguish clean exit from exact-PID forced termination and recover without corrupting persisted state."
+    },
+    {
+      "id": "SETTINGS-SYSTEM-001",
+      "feature": "settings",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/system-settings.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "external",
+      "outcomes": ["success", "cancel"],
+      "description": "Verify data, diagnostics, update, font, and legal entry points plus their non-destructive cancel boundaries."
+    },
+    {
+      "id": "NATIVE-DISPLAY-001",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "extended",
+      "spec": "e2e/desktop/specs/extended-native.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Cross real mixed-scale displays and preserve logical placement through fullscreen and maximized transitions."
+    },
+    {
+      "id": "APP-CRUD-REORDER-002",
+      "feature": "app-shell",
+      "priority": "P1",
+      "status": "planned",
+      "profile": "full",
+      "spec": "e2e/desktop/specs/full-desktop.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["cancel", "failure", "restart"],
+      "description": "Complete edit, reorder, bulk-delete, partial workspace launch failure/cancel, shortcut, and unsaved-quit journeys beyond the automated cross-feature create/delete coverage."
+    },
+    {
+      "id": "SETTINGS-TRANSFER-002",
+      "feature": "settings",
+      "priority": "P2",
+      "status": "planned",
+      "profile": "extended",
+      "spec": null,
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "external",
+      "outcomes": ["cancel"],
+      "description": "Complete portable round-trip, Chrome transfer, font installation, diagnostics export, and staged updater installation with native dialogs."
+    },
+    {
+      "id": "APP-NATIVE-MENU-002",
+      "feature": "app-shell",
+      "priority": "P2",
+      "status": "planned",
+      "profile": "extended",
+      "spec": null,
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["cancel"],
+      "description": "Drive tray, application menu, native shortcuts, and unsaved-changes quit confirmation through OS automation."
+    }
+  ]
+}

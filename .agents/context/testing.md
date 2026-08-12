@@ -4,6 +4,9 @@
   recovery, macro ordering/cancellation, and platform branches.
 - Vitest covers the typed bridge, renderer behavior, architecture boundaries,
   release tooling, and browser-safe shared runtimes.
+- Desktop E2E coverage is journey-based and versioned in
+  `docs/e2e-coverage.json`; `docs/e2e-strategy.md` defines the smoke, full, and
+  extended profiles plus their PR, nightly, and release-candidate gates.
 - Prefer executable behavior tests. Source scans are reserved for forbidden
   imports/tokens, generated-output integrity, and dependency direction.
 - Hand-written source must satisfy `pnpm run check:source-hygiene`; generated

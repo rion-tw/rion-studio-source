@@ -13,13 +13,24 @@ const userDataDir = required("RION_STUDIO_USER_DATA_DIR");
 const token = required("RION_STUDIO_E2E_SESSION_TOKEN");
 await mkdir(resolve(artifactDir, "screenshots"), { recursive: true });
 
+const phase = required("RION_STUDIO_E2E_PHASE");
+const specByPhase: Record<string, string> = {
+  "crash-restart": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+  "extended-native": "e2e/desktop/specs/extended-native.e2e.ts",
+  "force-terminate": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+  "full-ui": "e2e/desktop/specs/full-desktop.e2e.ts",
+  restart: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+  seed: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+  "smoke-restart": "e2e/desktop/specs/app-journeys.e2e.ts",
+  "smoke-seed": "e2e/desktop/specs/app-journeys.e2e.ts",
+  "system-settings": "e2e/desktop/specs/system-settings.e2e.ts"
+};
+const spec = specByPhase[phase];
+if (!spec) throw new Error(`Unknown desktop E2E phase: ${phase}`);
+
 export const config = {
   runner: "local",
-  specs: [resolve(
-    process.env.RION_STUDIO_E2E_PHASE === "extended-native"
-      ? "e2e/desktop/specs/extended-native.e2e.ts"
-      : "e2e/desktop/specs/game-window-lifecycle.e2e.ts"
-  )],
+  specs: [resolve(spec)],
   maxInstances: 1,
   capabilities: [{
     browserName: "tauri",

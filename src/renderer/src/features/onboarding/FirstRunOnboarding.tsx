@@ -262,7 +262,7 @@ function GameStep({
         <StatusCallout tone="warning"><AlertTriangle size={15} />{t("onboarding.game.unavailable")}</StatusCallout>
       )}
       <div className="flex flex-col-reverse gap-2 border-t border-border/45 pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <Button type="button" variant="ghost" onClick={onSkip}>{t("onboarding.skip")}</Button>
+        <Button data-testid="onboarding-skip" type="button" variant="ghost" onClick={onSkip}>{t("onboarding.skip")}</Button>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           <Button type="button" variant="outline" onClick={onCustomGame}><Plus size={15} />{t("onboarding.game.custom")}</Button>
           <Button type="button" disabled={!selectedGameId} onClick={onNext}>{t("onboarding.next")}<ArrowRight size={15} /></Button>
@@ -315,7 +315,7 @@ function RoleStep({
       </label>
       <p className="text-xs leading-5 text-muted-foreground">{t("onboarding.role.sessionNote")}</p>
       <div className="flex flex-col-reverse gap-2 border-t border-border/45 pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <Button type="button" variant="ghost" disabled={isBusy} onClick={onSkip}>{t("onboarding.skip")}</Button>
+        <Button data-testid="onboarding-skip" type="button" variant="ghost" disabled={isBusy} onClick={onSkip}>{t("onboarding.skip")}</Button>
         <div className="flex gap-2">
           <Button type="button" variant="outline" disabled={isBusy} onClick={onBack}><ArrowLeft size={15} />{t("onboarding.back")}</Button>
           <Button type="submit" disabled={isBusy || !roleName.trim() || !game}>

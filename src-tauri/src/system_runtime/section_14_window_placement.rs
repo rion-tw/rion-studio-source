@@ -26,6 +26,7 @@ impl ObservedWindowPresentation {
     }
 }
 
+#[cfg(any(windows, test))]
 fn initial_window_placement_receipt_is_authoritative(
     expected: Option<ObservedWindowPresentation>,
     observed: ObservedWindowPresentation,

@@ -80,6 +80,17 @@
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn queued_nonactivating_window_reveal_preserves_the_current_show_state() {
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNA;
+
+        assert_eq!(
+            crate::system_runtime::platform::windows::nonactivating_native_show_command().0,
+            SW_SHOWNA.0
+        );
+    }
+
     #[test]
     fn initial_placement_fence_supplies_mode_until_native_truth_matches() {
         for (requested, fence, expected) in [

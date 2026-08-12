@@ -90,7 +90,6 @@ async function stopWindowFromUi(windowId: string): Promise<void> {
     kind: "window-destroyed",
     windowId
   });
-  await expect($(`[data-selection-id='${windowId}']`)).toHaveText(expect.stringContaining("Not open"));
 }
 
 async function verifyPersistedMutations(): Promise<{
@@ -215,6 +214,9 @@ async function exerciseLaunchCancellation(
   await waitForRoleProjection({ absent: true, roleId: primaryRole.id });
   await waitForRoleProjection({ absent: true, roleId: recoveryRole.id });
   await waitForRuntimeProjection({ absent: true, sourceId: workspace.id });
+  await expect($(`[data-selection-id='${windowId}']`)).toHaveText(
+    expect.stringContaining("Not open")
+  );
 }
 
 async function deleteRecoveryWindow(windowId: string, workspaceId: string): Promise<void> {

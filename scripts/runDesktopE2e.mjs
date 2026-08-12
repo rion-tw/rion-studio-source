@@ -224,7 +224,7 @@ function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked)
         ? new Set([windowIds.a, windowIds.b])
         : new Set([windowIds.a]);
   requireEvidence(
-    expectedLastFocusedWindowIds.has(session.lastFocusedWindowId),
+    expectedLastFocusedWindowIds.has(session.lastFocusedWindowId ?? null),
     `${phase}: the last-focused permanent window was not retained`
   );
   requireEvidence(
@@ -500,6 +500,20 @@ async function expectedForcedTermination(phaseDir) {
   throw new Error(`Desktop E2E PID ${marker.pid} survived its forced-termination phase`);
 }
 
+async function acceptedCleanShutdown(phaseDir) {
+  let marker;
+  try {
+    marker = JSON.parse(await readFile(resolve(phaseDir, "clean-shutdown.json"), "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (marker.complete !== true || !Number.isSafeInteger(marker.eventSequence)) {
+    throw new Error("Clean-shutdown marker did not contain authoritative final-flush evidence");
+  }
+  return marker;
+}
+
 function blockedReason(output) {
   const matches = [...output.matchAll(/BLOCKED:[^\r\n]*/gu)];
   return matches.at(-1)?.[0];
@@ -551,11 +565,14 @@ try {
     const forcedTermination = ["force-terminate", "crash-restart"].includes(phase)
       ? await expectedForcedTermination(phaseDir)
       : undefined;
+    const cleanShutdown = result.code !== 0 && !forcedTermination
+      ? await acceptedCleanShutdown(phaseDir)
+      : undefined;
     const blocked = blockedReason(result.output);
     const sqliteEvidence = await captureSqlite(
       phase,
       blocked,
-      result.code === 0 || Boolean(forcedTermination)
+      result.code === 0 || Boolean(forcedTermination) || Boolean(cleanShutdown)
     );
     const phaseJourneyIds = journeyIdsByPhase.get(phase) ?? [];
     let journeyVerdict;
@@ -570,11 +587,14 @@ try {
       report.journeys.push({
         id: journeyId,
         phase,
-        status: blocked ? "BLOCKED" : journeyVerdict?.status ?? (result.code === 0 ? "PASS" : "FAIL")
+        status: blocked
+          ? "BLOCKED"
+          : journeyVerdict?.status ?? (result.code === 0 || cleanShutdown ? "PASS" : "FAIL")
       });
     }
     report.phases.push({
       blockedReason: blocked,
+      acceptedCleanShutdownDisconnect: cleanShutdown ? true : undefined,
       exitCode: result.code,
       expectedForcedTermination: forcedTermination ? true : undefined,
       phase,
@@ -583,9 +603,9 @@ try {
         ? "BLOCKED"
         : forcedTermination
           ? "EXPECTED_FORCE_TERMINATION"
-          : result.code === 0 ? "PASS" : "FAIL"
+          : result.code === 0 || cleanShutdown ? "PASS" : "FAIL"
     });
-    if (blocked || (result.code !== 0 && !forcedTermination)) {
+    if (blocked || (result.code !== 0 && !forcedTermination && !cleanShutdown)) {
       throw new Error(
         blocked ?? `Desktop E2E phase ${phase} failed (${result.code})`
       );

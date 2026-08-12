@@ -90,6 +90,7 @@ fn prepare_restore_session_for_persist(
     session: &mut RuntimeRestoreSessionRecord,
     clean_exit: bool,
     mut live_window_ids: Vec<String>,
+    observed_last_focused_window_id: Option<String>,
 ) {
     session.schema_version = 2;
     session.updated_at = chrono::Utc::now().to_rfc3339();
@@ -102,6 +103,11 @@ fn prepare_restore_session_for_persist(
     }
     live_window_ids.sort();
     live_window_ids.dedup();
+    if let Some(window_id) = observed_last_focused_window_id
+        && live_window_ids.contains(&window_id)
+    {
+        session.last_focused_window_id = Some(window_id);
+    }
     if clean_exit
         && !session
             .last_focused_window_id

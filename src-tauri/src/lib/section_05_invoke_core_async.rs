@@ -359,6 +359,10 @@ async fn restore_saved_game_windows(
         &selected,
         last_focused_window_id.as_deref(),
     );
+    let selected = order_selected_saved_windows_for_restore(
+        selected,
+        focus_window_id.as_deref(),
+    );
     let restore_progress = RestoreProgressGuard::new(state, selected_window_ids.clone());
     replace_restore_progress(state, selected_window_ids.clone())?;
     let mut restored_ids = Vec::new();
@@ -514,6 +518,34 @@ async fn restore_saved_game_windows(
         }
         if !window_failed {
             restored_ids.push(saved.id.clone());
+        }
+    }
+    if let Some(focus_window_id) = focus_window_id.as_deref()
+        && restored_ids.iter().any(|window_id| window_id == focus_window_id)
+    {
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "saved-window-restore-final-focus-started",
+            Some(focus_window_id),
+            None,
+            None,
+            json!({ "activation": "user-initiated" }),
+        );
+        match state
+            .runtime
+            .activate_live_runtime_window(focus_window_id, "saved-window-restore-final-focus")
+        {
+            Ok(true) => {}
+            Ok(false) => failures.push(json!({
+                "windowId": focus_window_id,
+                "code": "TAURI_RESTORE_FINAL_FOCUS_FAILED",
+                "message": "The restored last-visible Game Window was unavailable for final focus."
+            })),
+            Err(error) => failures.push(json!({
+                "windowId": focus_window_id,
+                "code": "TAURI_RESTORE_FINAL_FOCUS_FAILED",
+                "message": error
+            })),
         }
     }
     state.runtime.finish_dormant_window_restore(

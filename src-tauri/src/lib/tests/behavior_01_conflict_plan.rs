@@ -357,6 +357,14 @@ use super::*;
                 .collect::<Vec<_>>(),
             ["window-b", "window-c"]
         );
+        let restore_order = order_selected_saved_windows_for_restore(selected, Some("window-b"));
+        assert_eq!(
+            restore_order
+                .iter()
+                .map(|window| window.id.as_str())
+                .collect::<Vec<_>>(),
+            ["window-c", "window-b"]
+        );
 
         let runtime = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
             "windows": [{

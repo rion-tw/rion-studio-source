@@ -311,6 +311,15 @@ async function shutdownAndWaitForFlush(): Promise<void> {
   );
   const details = event.details as { complete?: boolean };
   expect(details.complete).toBe(true);
+  await writeFile(resolve(
+    requireEnvironment("RION_STUDIO_E2E_ARTIFACT_DIR"),
+    "clean-shutdown.json"
+  ), `${JSON.stringify({
+    complete: true,
+    eventSequence: event.sequence,
+    eventTimestamp: event.timestamp,
+    requestedAfter
+  }, null, 2)}\n`);
 }
 
 async function seedPhase(): Promise<void> {
@@ -501,6 +510,7 @@ async function crashRestartPhase(): Promise<void> {
     expectSavedWindowState(awaiting, windowId, "dormant");
   }
 
+  const restoreEventCursor = (await probe()).latestSequence;
   const cursor = await rendererEventCursor();
   const restore = await $("button=Restore session");
   await restore.waitForDisplayed({ timeout: 10_000 });
@@ -522,6 +532,16 @@ async function crashRestartPhase(): Promise<void> {
   expect(liveA.native.title).toBe("E2E Window A");
   await windowSnapshot(WINDOW_B);
   await windowSnapshot(WINDOW_C);
+  await waitEvent({
+    afterSequence: restoreEventCursor,
+    kind: "saved-window-restore-final-focus-started",
+    windowId: WINDOW_C
+  });
+  await waitEvent({
+    afterSequence: restoreEventCursor,
+    kind: "window-focus-persisted",
+    windowId: WINDOW_C
+  });
   await forceTerminateCurrentProcess();
 }
 

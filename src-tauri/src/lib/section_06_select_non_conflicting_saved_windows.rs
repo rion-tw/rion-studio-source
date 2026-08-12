@@ -68,6 +68,21 @@ fn select_auto_restore_saved_windows(
     select_non_conflicting_saved_windows(&eligible, last_focused_window_id)
 }
 
+fn order_selected_saved_windows_for_restore(
+    mut selected: Vec<StateGameWindowRecord>,
+    focus_window_id: Option<&str>,
+) -> Vec<StateGameWindowRecord> {
+    if let Some(focus_window_id) = focus_window_id
+        && let Some(index) = selected
+            .iter()
+            .position(|window| window.id == focus_window_id)
+    {
+        let focused = selected.remove(index);
+        selected.push(focused);
+    }
+    selected
+}
+
 fn saved_window_foreground_tab(
     window: &StateGameWindowRecord,
 ) -> Option<&GameWindowTabRecord> {

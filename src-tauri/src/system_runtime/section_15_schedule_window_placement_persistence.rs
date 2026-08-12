@@ -55,7 +55,12 @@ impl SystemRuntimeExecutor {
             .core
             .runtime_restore_session()
             .map_err(|error| error.to_string())?;
-        prepare_restore_session_for_persist(&mut session, clean_exit, live_window_ids);
+        prepare_restore_session_for_persist(
+            &mut session,
+            clean_exit,
+            live_window_ids,
+            self.last_native_focused_live_window_id(),
+        );
         self.core
             .replace_runtime_restore_session(session)
             .map(|_| ())

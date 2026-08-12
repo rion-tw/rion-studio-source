@@ -127,6 +127,7 @@ use super::*;
             &mut session,
             false,
             vec!["window-2".to_owned(), "window-1".to_owned()],
+            None,
         );
         assert_eq!(session.schema_version, 2);
         assert!(!session.clean_exit);
@@ -139,7 +140,12 @@ use super::*;
             Some(vec!["window-1".to_owned(), "window-2".to_owned()])
         );
 
-        prepare_restore_session_for_persist(&mut session, true, vec!["window-2".to_owned()]);
+        prepare_restore_session_for_persist(
+            &mut session,
+            true,
+            vec!["window-2".to_owned()],
+            None,
+        );
         assert!(session.clean_exit);
         assert!(session.restore_in_progress_window_ids.is_empty());
         assert_eq!(session.live_window_ids, Some(vec!["window-2".to_owned()]));
@@ -149,12 +155,52 @@ use super::*;
             "a closed last-focused window must not escape the sole clean-exit cohort"
         );
 
-        prepare_restore_session_for_persist(&mut session, false, vec!["window-3".to_owned()]);
-        prepare_restore_session_for_persist(&mut session, true, Vec::new());
+        prepare_restore_session_for_persist(
+            &mut session,
+            false,
+            vec!["window-3".to_owned()],
+            None,
+        );
+        prepare_restore_session_for_persist(&mut session, true, Vec::new(), None);
         assert_eq!(
             session.live_window_ids,
             Some(vec!["window-3".to_owned()]),
             "the clean marker is written after native hosts close and must preserve the pre-shutdown live cohort"
+        );
+    }
+
+    #[test]
+    fn runtime_persistence_uses_the_latest_authoritative_native_focus() {
+        let mut session = RuntimeRestoreSessionRecord {
+            schema_version: 2,
+            session_generation: 7,
+            updated_at: "2026-01-01T00:00:00Z".to_owned(),
+            clean_exit: false,
+            last_focused_window_id: Some("window-a".to_owned()),
+            restore_in_progress_window_ids: Vec::new(),
+            live_window_ids: Some(vec!["window-a".to_owned()]),
+            windows: Vec::new(),
+        };
+
+        prepare_restore_session_for_persist(
+            &mut session,
+            false,
+            vec![
+                "window-a".to_owned(),
+                "window-b".to_owned(),
+                "window-c".to_owned(),
+            ],
+            Some("window-c".to_owned()),
+        );
+
+        assert_eq!(session.last_focused_window_id.as_deref(), Some("window-c"));
+        assert_eq!(
+            session.live_window_ids,
+            Some(vec![
+                "window-a".to_owned(),
+                "window-b".to_owned(),
+                "window-c".to_owned(),
+            ])
         );
     }
 

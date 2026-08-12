@@ -152,7 +152,9 @@ describe("Tauri-only release workflows", () => {
     expect(workflow.match(/timeout-minutes: 120/gu)).toHaveLength(2);
     expect(workflow).toContain("if: always()");
     expect(workflow).not.toContain("continue-on-error: true");
-    expect(runner).toContain("if (blocked || (result.code !== 0 && !forcedTermination))");
+    expect(runner).toContain(
+      "if (blocked || (result.code !== 0 && !forcedTermination && !cleanShutdown))"
+    );
     expect(wdio).toContain("connectionRetryCount: 0");
   });
 

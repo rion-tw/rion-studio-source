@@ -592,6 +592,7 @@ pub(crate) struct RuntimeRolePlaceholderIdentity {
 }
 
 struct ReleasedRoleSurface {
+    release_lifecycles: Vec<Arc<SurfaceLifecycleTracker>>,
     role_id: String,
     surface_instance_id: String,
     tab_id: String,
@@ -813,6 +814,7 @@ impl SurfaceLifecycleTracker {
     fn mark_browser_process_exited(&self) -> bool {
         if let Ok(mut release) = self.release.lock() {
             if release.terminal_failure.is_some()
+                || matches!(release.isolation_progress, SurfaceIsolationProgress::Live)
                 || release.browser_process_exited
             {
                 return false;
@@ -1005,6 +1007,17 @@ impl SurfaceLifecycleTracker {
             .await
     }
 
+    async fn wait_for_role_store_release_event(&self) -> RuntimeResult<()> {
+        #[cfg(windows)]
+        {
+            return self
+                .wait_for_event(|release| release.browser_process_exited)
+                .await;
+        }
+        #[cfg(not(windows))]
+        Ok(())
+    }
+
     async fn wait_for_event(
         &self,
         complete: impl Fn(&SurfaceReleaseState) -> bool,
@@ -1056,11 +1069,7 @@ fn quiesce_platform_surface(
 
 fn surface_store_reusable(platform: &str, release: &SurfaceReleaseState) -> bool {
     match platform {
-        "windows" => {
-            release.browser_process_exited
-                && release.controller_released
-                && release.native_surface_released
-        }
+        "windows" => release.controller_released && release.native_surface_released,
         "macos" => release.controller_released && release.native_surface_released,
         _ => release.controller_released,
     }

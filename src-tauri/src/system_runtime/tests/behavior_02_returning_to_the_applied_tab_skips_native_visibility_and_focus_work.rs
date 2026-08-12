@@ -762,9 +762,8 @@
 
         #[cfg(windows)]
         {
-            assert!(!tracker.store_is_reusable("windows"));
-            assert!(tracker.mark_browser_process_exited());
             assert!(tracker.store_is_reusable("windows"));
+            tracker.mark_browser_process_exited();
         }
     }
 
@@ -786,20 +785,32 @@
         callback.join().unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn role_store_release_waits_for_webview2_process_exit_after_wrapper_release() {
+        let tracker = Arc::new(SurfaceLifecycleTracker::default());
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.mark_isolated(2));
+        tracker.mark_native_surface_released();
+        tracker.mark_controller_released();
+        assert!(tracker.store_is_reusable("windows"));
+
+        let callback_tracker = Arc::clone(&tracker);
+        let callback = std::thread::spawn(move || {
+            assert!(callback_tracker.mark_browser_process_exited());
+        });
+        assert!(tauri::async_runtime::block_on(tracker.wait_for_role_store_release_event()).is_ok());
+        callback.join().unwrap();
+    }
+
     #[test]
     fn parent_window_destroyed_completes_the_exact_surface_release_barrier() {
         for platform in ["macos", "windows"] {
             let tracker = Arc::new(SurfaceLifecycleTracker::default());
             assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
             let callback_tracker = Arc::clone(&tracker);
-            #[cfg(windows)]
-            let requires_process_exit = platform == "windows";
             let callback = std::thread::spawn(move || {
                 assert!(callback_tracker.mark_parent_window_destroyed());
-                #[cfg(windows)]
-                if requires_process_exit {
-                    assert!(callback_tracker.mark_browser_process_exited());
-                }
             });
 
             assert!(tauri::async_runtime::block_on(async {

@@ -202,17 +202,6 @@ static NSString *RionShiftedCharacter(NSString *code, NSString *base) {
   return shifted[code] ?: base;
 }
 
-static NSView * _Nullable RionWKContentView(NSView *root) {
-  for (NSView *subview in root.subviews) {
-    if ([NSStringFromClass(subview.class) containsString:@"WKContentView"]) {
-      return subview;
-    }
-    NSView *nested = RionWKContentView(subview);
-    if (nested) return nested;
-  }
-  return nil;
-}
-
 @protocol RionFirstResponderHost <NSObject>
 - (nullable NSResponder *)firstResponder;
 - (BOOL)makeFirstResponder:(nullable NSResponder *)responder;
@@ -223,16 +212,6 @@ static BOOL RionResponderBelongsToView(
   if (![responder isKindOfClass:NSView.class]) return false;
   NSView *view = (NSView *)responder;
   return view == root || [view isDescendantOf:root];
-}
-
-static NSResponder * _Nullable RionKeyResponder(WKWebView *webView) {
-  NSWindow *window = webView.window;
-  if (!window) return nil;
-  NSResponder *candidate = window.firstResponder;
-  if (RionResponderBelongsToView(candidate, webView)) return candidate;
-  NSView *content = RionWKContentView(webView);
-  if (content) return content;
-  return webView;
 }
 
 static BOOL RionRestoreFirstResponder(
@@ -303,9 +282,7 @@ bool rion_wk_dispatch_key(void * _Nullable rawWebView,
     // Send directly to this role's own WebKit responder. Background automation
     // must not become the window first responder or steal subsequent shortcuts
     // from the role the user selected.
-    NSResponder *responder = RionKeyResponder(webView);
-    if (!responder) return false;
-    RionDispatchKeyEvent(responder, event, type, keyDown);
+    RionDispatchKeyEvent(webView, event, type, keyDown);
     return RionRestoreFirstResponder(
         (id<RionFirstResponderHost>)window, preservedResponder, webView);
   }

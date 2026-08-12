@@ -274,9 +274,14 @@ async function backgroundTabPhase(): Promise<void> {
     windowId: tabA.windowId
   });
   const backgroundCursor = await fixtureCursor();
-  await waitFixtureEvent({
+  const backgroundKeydown = await waitFixtureEvent({
     afterSequence: backgroundCursor,
     kind: "keydown",
+    roleId: "macro-background-a"
+  });
+  await waitFixtureEvent({
+    afterSequence: backgroundKeydown.sequence,
+    kind: "keyup",
     roleId: "macro-background-a"
   });
   const state = await fixtureState();

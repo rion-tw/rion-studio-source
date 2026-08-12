@@ -647,6 +647,14 @@ impl SystemRuntimeExecutor {
                 "window-destroyed",
                 0,
             );
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "window-destroyed",
+                Some(window_id),
+                Some(*generation),
+                None,
+                json!({ "nativeLabel": label }),
+            );
         }
         self.tab_close_changed.notify_all();
         if let Some(window_id) = destroyed_window_id.as_deref() {

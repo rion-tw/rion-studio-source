@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node", "mocha", "@wdio/globals/types"]
+  },
+  "include": [
+    "e2e/desktop/**/*.ts",
+    "src/renderer/src/global.d.ts",
+    "src/shared/**/*.ts"
+  ]
+}

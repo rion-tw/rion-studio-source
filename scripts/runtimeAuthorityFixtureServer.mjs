@@ -3,11 +3,13 @@ import { createServer } from "node:http";
 const DEFAULT_PORT = 41739;
 const portArgument = process.argv.find((value) => value.startsWith("--port="));
 const port = Number(portArgument?.slice("--port=".length) ?? DEFAULT_PORT);
-if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-  throw new Error("Fixture port must be an integer between 1024 and 65535.");
+if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))) {
+  throw new Error("Fixture port must be zero or an integer between 1024 and 65535.");
 }
+let activePort = port;
 
 const counters = new Map();
+const gates = new Map();
 
 function roleCounters(roleId) {
   const current = counters.get(roleId) ?? {
@@ -113,6 +115,47 @@ function rolePage(roleId) {
 </html>`;
 }
 
+function sendRolePage(response, roleId) {
+  const body = rolePage(roleId);
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body),
+    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(body);
+}
+
+function gateState(roleId) {
+  const current = gates.get(roleId) ?? {
+    blocked: false,
+    observers: new Set(),
+    waiters: new Set()
+  };
+  gates.set(roleId, current);
+  return current;
+}
+
+function releaseGate(roleId) {
+  const gate = gateState(roleId);
+  gate.blocked = false;
+  for (const response of gate.waiters) sendRolePage(response, roleId);
+  gate.waiters.clear();
+  for (const response of gate.observers) {
+    json(response, 200, { released: true, roleId, waiterCount: 0 });
+  }
+  gate.observers.clear();
+}
+
+function notifyGateObservers(roleId, gate) {
+  if (gate.waiters.size === 0) return;
+  for (const response of gate.observers) {
+    json(response, 200, { roleId, waiterCount: gate.waiters.size });
+  }
+  gate.observers.clear();
+}
+
 const server = createServer(async (request, response) => {
   if (!localRequest(request)) {
     json(response, 403, { error: "localhost-only fixture" });
@@ -121,16 +164,63 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   try {
     if (request.method === "GET" && url.pathname === "/health") {
-      json(response, 200, { ok: true, port });
+      json(response, 200, { ok: true, port: activePort });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/state") {
       json(response, 200, Object.fromEntries([...counters.entries()].sort()));
       return;
     }
+    if (request.method === "GET" && url.pathname === "/api/gates") {
+      json(response, 200, Object.fromEntries(
+        [...gates.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([roleId, gate]) => [roleId, {
+            blocked: gate.blocked,
+            waiterCount: gate.waiters.size
+          }])
+      ));
+      return;
+    }
+    const waiterMatch = request.method === "GET"
+      && url.pathname.match(/^\/api\/gates\/([a-z0-9-]+)\/waiting$/);
+    if (waiterMatch) {
+      const roleId = waiterMatch[1];
+      const gate = gateState(roleId);
+      if (gate.waiters.size > 0) {
+        json(response, 200, { roleId, waiterCount: gate.waiters.size });
+        return;
+      }
+      gate.observers.add(response);
+      response.once("close", () => gate.observers.delete(response));
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/api/reset") {
       counters.clear();
+      for (const roleId of gates.keys()) releaseGate(roleId);
+      gates.clear();
       json(response, 200, { ok: true });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/gate") {
+      const body = await requestBody(request);
+      if (typeof body.roleId !== "string" || !/^[a-z0-9-]+$/.test(body.roleId)) {
+        json(response, 400, { error: "invalid fixture gate" });
+        return;
+      }
+      const gate = gateState(body.roleId);
+      gate.blocked = true;
+      json(response, 200, { blocked: true, roleId: body.roleId });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/release") {
+      const body = await requestBody(request);
+      if (typeof body.roleId !== "string" || !/^[a-z0-9-]+$/.test(body.roleId)) {
+        json(response, 400, { error: "invalid fixture release" });
+        return;
+      }
+      releaseGate(body.roleId);
+      json(response, 200, { blocked: false, roleId: body.roleId });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/event") {
@@ -147,15 +237,15 @@ const server = createServer(async (request, response) => {
     }
     const roleMatch = request.method === "GET" && url.pathname.match(/^\/role\/([a-z0-9-]+)$/);
     if (roleMatch) {
-      const body = rolePage(roleMatch[1]);
-      response.writeHead(200, {
-        "cache-control": "no-store",
-        "content-length": Buffer.byteLength(body),
-        "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
-        "content-type": "text/html; charset=utf-8",
-        "x-content-type-options": "nosniff"
-      });
-      response.end(body);
+      const roleId = roleMatch[1];
+      const gate = gateState(roleId);
+      if (!gate.blocked) {
+        sendRolePage(response, roleId);
+        return;
+      }
+      gate.waiters.add(response);
+      notifyGateObservers(roleId, gate);
+      response.once("close", () => gate.waiters.delete(response));
       return;
     }
     json(response, 404, { error: "fixture route not found" });
@@ -165,7 +255,9 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`runtime-authority-fixture http://127.0.0.1:${port}\n`);
+  const address = server.address();
+  activePort = typeof address === "object" && address ? address.port : port;
+  process.stdout.write(`runtime-authority-fixture http://127.0.0.1:${activePort}\n`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

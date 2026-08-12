@@ -541,6 +541,15 @@ impl TabRuntimeStatusStore {
             .unwrap_or_default()
     }
 
+    #[cfg(feature = "desktop-e2e")]
+    fn launch_phase(&self, tab_id: &str) -> Option<LaunchPhase> {
+        self.tabs
+            .lock()
+            .ok()?
+            .get(tab_id)
+            .and_then(|status| status.launch_phase)
+    }
+
     fn set_presentation_phase(&self, tab_id: &str, phase: TabRuntimePhase) {
         if let Ok(mut tabs) = self.tabs.lock() {
             tabs.entry(tab_id.to_owned())

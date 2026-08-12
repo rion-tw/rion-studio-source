@@ -115,6 +115,8 @@ NS_ASSUME_NONNULL_BEGIN
     NSWindowDidResizeNotification,
     NSWindowDidMoveNotification,
     NSWindowDidEndLiveResizeNotification,
+    NSWindowDidMiniaturizeNotification,
+    NSWindowDidDeminiaturizeNotification,
     NSWindowDidChangeBackingPropertiesNotification,
     NSWindowDidChangeScreenNotification,
     NSWindowDidBecomeKeyNotification,
@@ -153,6 +155,13 @@ NS_ASSUME_NONNULL_BEGIN
                      isEqualToString:NSWindowDidEndLiveResizeNotification]) {
         if (!strongSelf->_fullscreenTransitionActive) {
           strongSelf->_placementZoomed = strongSelf->_window.isZoomed;
+          [strongSelf emitWindowPlacementObservation];
+        }
+      } else if ([notification.name
+                     isEqualToString:NSWindowDidMiniaturizeNotification] ||
+                 [notification.name
+                     isEqualToString:NSWindowDidDeminiaturizeNotification]) {
+        if (!strongSelf->_fullscreenTransitionActive) {
           [strongSelf emitWindowPlacementObservation];
         }
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||

@@ -58,6 +58,46 @@ git diff --check
 
 Windows 驗收報告必須列出每個命令的 exit code 與測試摘要。`pnpm run test:rust` 和 `pnpm run build` 必須在 Windows 原生主機完成，不能用 Linux portable 結果代替。
 
+### 真實桌面 E2E
+
+在一般單螢幕 Windows 主機執行序列化的真實 Tauri E2E：
+
+```powershell
+pnpm run test:e2e:desktop
+```
+
+此命令會自行建置僅限 debug 的 `desktop-e2e` binary，為本次執行建立獨立資料目錄及隨機 session token，依序啟動／正常關閉／重新啟動同一個 App。測試資料只能經 Core／typed bridge 建立；SQLite 僅作唯讀結果驗證。預設案例自動覆蓋：
+
+- W1 的模式欄、ARIA 與固定語意排序。
+- W2、W3、W4、W5、W6 的 native move／resize、模式轉換、最小化及 `normalBounds` 防污染。
+- W7 的零分頁永久視窗 placement A → 三輪關閉／重開 → placement B → App restart。
+- W8 的三分頁 close-during-launch 與兩輪重開。
+- W9 的 A 保持開啟、B 已關閉後 clean exit；restart 只恢復 A，而 B 仍可手動顯示。
+- supervisor 以精確 PID 強制終止 App；下一階段重新啟動後確認不會把 crash 誤判為 clean exit，再從列表手動顯示 A，核對永久名稱、placement B 與 SQLite 未損壞，最後正常退出。此案例不把「crash 後自動恢復」當成產品契約。
+- 每輪的 native readback、Kernel live projection、SQLite snapshot、generation／revision transcript 與 final-flush terminal event。
+
+成功後記錄輸出中的 artifact 根目錄。失敗時不得只看 WDIO exit code，至少保存：
+
+- `report.json`
+- `phases/*/runner.log` 與 `phases/*/wdio`（包含 WDIO、App stdout/stderr 及前端 console）
+- `phases/*/screenshots`
+- `phases/*/sqlite-query.json` 及 SQLite／WAL／SHM snapshot
+- `user-data/desktop-e2e/events.ndjson`
+
+幾何契約容許最多 `±1 logical pixel` 的 DPI round-trip；三輪後不得累積漂移。測試等待以 native event、Kernel revision、destroyed terminal event、final flush 或程序退出為準；timeout 只表示失敗，不代表操作完成。
+
+若 Windows 有兩台真實且 DPI 不同的顯示器，再執行 extended profile：
+
+```powershell
+$env:RION_STUDIO_E2E_PROFILE = "extended"
+pnpm run test:e2e:desktop
+Remove-Item Env:RION_STUDIO_E2E_PROFILE
+```
+
+extended profile 是 W10／W11 的自動化證據，會核對 PID／HWND、`GetWindowPlacement`、client rect、monitor work area、per-monitor DPI、負座標與最大化／全螢幕還原。缺少兩台實體顯示器或 mixed DPI 時，結果必須標成 `BLOCKED`，不得轉成 `PASS`。
+
+GitHub hosted Windows/macOS E2E 在初期以 non-blocking soak 執行；只有基礎設施 flake 被消除後才升為 required gate。產品行為失敗不得用 rerun 洗掉；只有附明確 infra 分類與證據時，才允許重試一次。夜間／release candidate 的專用 runner 必須驗證同一個 immutable SHA。
+
 ## 建立隔離 dev 環境
 
 在同一個 PowerShell session 建立唯一目錄，再啟動 dev app：
@@ -303,7 +343,13 @@ Automated gates:
 - lint:rust:
 - test:rust:
 - build:
+- test:e2e:desktop:
+- extended desktop E2E (PASS / BLOCKED):
 - git diff --check:
+
+Desktop E2E artifact root:
+Desktop E2E commit recorded in report.json:
+Desktop E2E phase exit codes:
 
 Manual acceptance:
 - W1:

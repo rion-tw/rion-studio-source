@@ -12,6 +12,7 @@ pnpm-debug.log*
 /target/
 /src-tauri/gen/
 /performance-results/
+/.desktop-e2e-artifacts/
 
 # Generated native helper artifacts
 /build/native/

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.rionstudio.launcher.desktop-e2e",
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Rion Studio E2E",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "visible": false,
+        "center": true,
+        "dataDirectory": "desktop-e2e-main"
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "main-local-only",
+        "runtime-native-shell-local-only",
+        "runtime-role-placeholder-local-only",
+        "system-role-overlay-remote",
+        {
+          "identifier": "desktop-e2e-debug-only",
+          "description": "Debug-only WebDriver and native window evidence control plane.",
+          "windows": ["main"],
+          "permissions": [
+            "wdio:default",
+            "wdio-webdriver:default",
+            "allow-desktop-e2e-probe",
+            "allow-desktop-e2e-wait-event",
+            "allow-desktop-e2e-window-snapshot",
+            "allow-desktop-e2e-control-window",
+            "allow-desktop-e2e-shutdown"
+          ]
+        }
+      ]
+    }
+  }
+}

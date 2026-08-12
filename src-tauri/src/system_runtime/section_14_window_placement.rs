@@ -205,20 +205,33 @@ impl SystemRuntimeExecutor {
             return false;
         };
         let Some(target) = reduction.target else {
-            if let Ok(mut state) = self.state.lock()
+            let _observed_minimized = if let Ok(mut state) = self.state.lock()
                 && let Some(host) = state.native_resources.display_hosts.get_mut(&observed.window_id)
                 && host.generation == observed.window_generation
                 && reduction.sequence > host.last_placement_observation_sequence
             {
                 host.last_placement_observation_sequence = reduction.sequence;
+                observed.presentation == ObservedWindowPresentation::Minimized
+            } else {
+                false
+            };
+            #[cfg(feature = "desktop-e2e")]
+            if _observed_minimized {
+                crate::desktop_e2e::record_event(
+                    "window-minimized-observed",
+                    Some(&observed.window_id),
+                    Some(observed.window_generation),
+                    None,
+                    json!({ "observationSequence": observed.sequence }),
+                );
             }
             return false;
         };
-        match self.update_live_window_target_for_generation(
+        let _accepted_revision = match self.update_live_window_target_for_generation(
             &target,
             observed.window_generation,
         ) {
-            Ok(Some(_)) => {}
+            Ok(Some(revision)) => revision,
             Ok(None) => return false,
             Err(error) => {
                 eprintln!(
@@ -227,7 +240,7 @@ impl SystemRuntimeExecutor {
                 );
                 return false;
             }
-        }
+        };
         let applied = self.state.lock().ok().is_some_and(|mut state| {
             let Some(host) = state.native_resources.display_hosts.get_mut(&observed.window_id) else {
                 return false;
@@ -237,7 +250,7 @@ impl SystemRuntimeExecutor {
             {
                 return false;
             }
-            host.target = target;
+            host.target = target.clone();
             host.last_placement_observation_sequence = reduction.sequence;
             true
         });
@@ -255,6 +268,19 @@ impl SystemRuntimeExecutor {
             self.live_topology_revision(),
             "native-placement-event",
             0,
+        );
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "placement-accepted",
+            Some(&observed.window_id),
+            Some(observed.window_generation),
+            Some(_accepted_revision),
+            json!({
+                "normalBounds": target.bounds,
+                "observationSequence": observed.sequence,
+                "presentation": target.presentation,
+                "scaleFactor": target.scale_factor,
+            }),
         );
         true
     }

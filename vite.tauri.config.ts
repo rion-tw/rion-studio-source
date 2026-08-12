@@ -5,6 +5,11 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  define: {
+    __RION_DESKTOP_E2E__: JSON.stringify(
+      process.env.RION_STUDIO_DESKTOP_E2E_BUILD === "1"
+    )
+  },
   root: "src/renderer",
   plugins: [tailwindcss(), react()],
   build: {

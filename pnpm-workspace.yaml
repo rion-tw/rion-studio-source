@@ -1,5 +1,7 @@
 allowBuilds:
+  edgedriver: false
   esbuild: true
+  geckodriver: false
 
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.64.0'

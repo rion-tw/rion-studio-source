@@ -16,6 +16,10 @@ import {
 } from "./tauri/installTauriBridge";
 import "./styles.css";
 
+const desktopE2eReady = __RION_DESKTOP_E2E__
+  ? import("@wdio/tauri-plugin").then(() => undefined)
+  : Promise.resolve();
+
 function detectPlatform(): "linux" | "mac" | "windows" {
   const platform = navigator.platform.toLowerCase();
   const userAgent = navigator.userAgent.toLowerCase();
@@ -40,6 +44,7 @@ document.documentElement.dataset.windowsMica = "fallback";
 
 async function bootstrapRenderer(): Promise<void> {
   try {
+    await desktopE2eReady;
     await installTauriBridgeIfNeeded();
     const startup = await waitForNativeStartup();
     document.documentElement.dataset.windowsMica = startup.windowsMicaEnabled ? "enabled" : "fallback";

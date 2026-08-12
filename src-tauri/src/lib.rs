@@ -4,6 +4,8 @@
 
 mod activation;
 mod application_menu;
+#[cfg(feature = "desktop-e2e")]
+mod desktop_e2e;
 mod native_projection;
 mod native_shell;
 mod power_lifecycle;

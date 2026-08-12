@@ -15,6 +15,7 @@ fn is_full_git_commit(value: &str) -> bool {
 
 fn main() {
     println!("cargo:rerun-if-env-changed=RION_STUDIO_BUILD_COMMIT");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_DESKTOP_E2E");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_PUBLIC_KEY");
     println!("cargo:rerun-if-env-changed=RION_STUDIO_UPDATER_ENDPOINT");
     println!("cargo:rerun-if-changed=windows-app-manifest.xml");
@@ -87,6 +88,16 @@ fn main() {
             .flag("-Werror=nullability")
             .flag("-Werror=nonnull")
             .compile("rion_power_lifecycle");
+        if std::env::var_os("CARGO_FEATURE_DESKTOP_E2E").is_some() {
+            cc::Build::new()
+                .file("native/macos/RionDesktopE2E.m")
+                .flag("-fobjc-arc")
+                .flag("-Werror=nullability-completeness")
+                .flag("-Werror=nullability")
+                .flag("-Werror=nonnull")
+                .compile("rion_desktop_e2e");
+            println!("cargo:rerun-if-changed=native/macos/RionDesktopE2E.m");
+        }
         cc::Build::new()
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
@@ -119,7 +130,7 @@ fn main() {
             println!("cargo:rerun-if-changed={source}");
         }
     }
-    let manifest = tauri_build::AppManifest::new().commands(&[
+    const PRODUCT_COMMANDS: &[&str] = &[
         "rion_core_invoke",
         "rion_browser_font_payload",
         "rion_divider_pointer",
@@ -130,7 +141,30 @@ fn main() {
         "rion_dispatch_core_effect_results",
         "rion_shared_user_data_dir",
         "rion_shell_invoke",
-    ]);
+    ];
+    const DESKTOP_E2E_COMMANDS: &[&str] = &[
+        "rion_core_invoke",
+        "rion_browser_font_payload",
+        "rion_divider_pointer",
+        "rion_overlay_request",
+        "rion_runtime_audio_state",
+        "rion_runtime_role_slot_action",
+        "rion_runtime_tab_action",
+        "rion_dispatch_core_effect_results",
+        "rion_shared_user_data_dir",
+        "rion_shell_invoke",
+        "desktop_e2e_probe",
+        "desktop_e2e_wait_event",
+        "desktop_e2e_window_snapshot",
+        "desktop_e2e_control_window",
+        "desktop_e2e_shutdown",
+    ];
+    let commands = if std::env::var_os("CARGO_FEATURE_DESKTOP_E2E").is_some() {
+        DESKTOP_E2E_COMMANDS
+    } else {
+        PRODUCT_COMMANDS
+    };
+    let manifest = tauri_build::AppManifest::new().commands(commands);
     // The shared resource above supplies the application manifest to binaries and test harnesses.
     // Keep Tauri's generated icon/version resource, but avoid embedding a second manifest in bins.
     let windows = tauri_build::WindowsAttributes::new_without_app_manifest();

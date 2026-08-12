@@ -581,6 +581,17 @@ impl SystemRuntimeExecutor {
         }
         self.presentation
             .refresh_desired_native_projections(std::slice::from_ref(&target.window_id))?;
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "window-context-initialized",
+            Some(&target.window_id),
+            Some(window_generation),
+            Some(commit.revision),
+            json!({
+                "persistedName": target.persisted_name,
+                "presentation": target.presentation,
+            }),
+        );
         Ok(commit.revision)
     }
 

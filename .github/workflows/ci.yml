@@ -106,6 +106,9 @@ jobs:
       - name: Build renderer application
         run: pnpm run build:renderer
 
+      - name: Verify production renderer excludes desktop E2E controls
+        run: pnpm run check:desktop-e2e-isolation
+
       - name: Upload renderer assets for platform checks
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -168,8 +171,7 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install dependencies for Windows renderer tests
-        if: runner.os == 'Windows'
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Resolve pinned Rust toolchain
@@ -220,3 +222,20 @@ jobs:
 
       - name: Build target-platform Tauri shell
         run: cargo build -p rion-tauri
+
+      - name: Run real desktop Game Window E2E soak
+        id: desktop_e2e
+        continue-on-error: true
+        timeout-minutes: 30
+        run: pnpm run test:e2e:desktop
+        env:
+          RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
+
+      - name: Upload desktop E2E diagnostics
+        if: always() && steps.desktop_e2e.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-e2e-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: .desktop-e2e-artifacts

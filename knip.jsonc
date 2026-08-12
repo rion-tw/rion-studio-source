@@ -4,11 +4,14 @@
     "src/renderer/runtime-shell/runtimeDivider.ts",
     "src/renderer/runtime-shell/runtimeTabStrip.ts",
     "src/shared/browser-overlay/*.js",
+    "e2e/desktop/specs/*.e2e.ts",
+    "e2e/desktop/wdio.conf.ts",
     "scripts/*.mjs",
     "tests/**/*.{ts,tsx}"
   ],
   "project": [
     "src/**/*.{ts,tsx,js}",
+    "e2e/**/*.ts",
     "scripts/*.{mjs,mts}",
     "tests/**/*.{ts,tsx}",
     "*.{ts,mjs}"
@@ -23,6 +26,11 @@
   "ignoreDependencies": [
     // Executed through pnpm in the Tauri lifecycle scripts.
     "@tauri-apps/cli",
+    // WDIO loads these CLI/config-selected packages without static imports.
+    "@wdio/cli",
+    "@wdio/local-runner",
+    "@wdio/mocha-framework",
+    "@wdio/spec-reporter",
     // Loaded from CSS through @import, outside Knip's JavaScript dependency graph.
     "tailwindcss"
   ],

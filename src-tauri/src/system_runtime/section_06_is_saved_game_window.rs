@@ -569,6 +569,30 @@ impl SystemRuntimeExecutor {
         let authority_changed =
             self.set_authoritative_tab_activation_phase(tab_id, activation_phase);
         if changed || authority_changed {
+            #[cfg(feature = "desktop-e2e")]
+            {
+                let window_id = self.presentation.tab_window(tab_id).ok().flatten();
+                let generation = window_id.as_deref().and_then(|window_id| {
+                    self.state
+                        .lock()
+                        .ok()?
+                        .native_resources
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.generation)
+                });
+                crate::desktop_e2e::record_event(
+                    &format!("tab-launch-phase:{tab_id}:{}", phase.as_str()),
+                    window_id.as_deref(),
+                    generation,
+                    None,
+                    json!({
+                        "activationPhase": activation_phase,
+                        "phase": phase.as_str(),
+                        "tabId": tab_id,
+                    }),
+                );
+            }
             self.notify_optional_idle_changed();
             self.record_runtime_stage(
                 format!("launch-phase:{tab_id}:{}", phase.as_str()),

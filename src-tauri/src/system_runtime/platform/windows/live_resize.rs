@@ -676,6 +676,17 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
             windows_live_resize_flush(hwnd);
         }
         WM_DPICHANGED => {
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "windows-wm-dpi-changed",
+                None,
+                None,
+                None,
+                json!({
+                    "dpi": unsafe { GetDpiForWindow(hwnd) },
+                    "handle": format!("0x{:x}", hwnd.0 as usize),
+                }),
+            );
             windows_live_resize_queue_current_frame(
                 hwnd,
                 !windows_live_resize_is_interactive(hwnd),

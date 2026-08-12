@@ -65,8 +65,7 @@ describe("Tauri-only release workflows", () => {
     );
     expect(platformChecks).not.toContain("pnpm run build:renderer");
     expect(platformChecks).toContain(
-      "- name: Install dependencies for Windows renderer tests\n" +
-      "        if: runner.os == 'Windows'\n" +
+      "- name: Install dependencies\n" +
       "        run: pnpm install --frozen-lockfile"
     );
     expect(platformChecks.indexOf("pnpm install --frozen-lockfile")).toBeLessThan(
@@ -77,6 +76,10 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("steps.target_rust_tests.outcome == 'failure'");
     expect(platformChecks).toContain("name: windows-rust-test-loader-");
     expect(platformChecks).toContain("path: diagnostics/windows-test-loader");
+    expect(platformChecks).toContain("id: desktop_e2e");
+    expect(platformChecks).toContain("continue-on-error: true");
+    expect(platformChecks).toContain("pnpm run test:e2e:desktop");
+    expect(platformChecks).toContain("path: .desktop-e2e-artifacts");
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");
@@ -125,6 +128,21 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("rust-concurrency-sanitizer:");
     expect(workflow.toLowerCase()).not.toContain("electron");
     expect(workflow).not.toContain("Node-API");
+  });
+
+  it("keeps extended desktop E2E on immutable hardware-runner evidence", async () => {
+    const workflow = await readWorkflow(".github/workflows/desktop-e2e-extended.yml");
+    expect(workflow).toContain("schedule:");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("workflow_call:");
+    expect(workflow).toContain("runs-on: [self-hosted, Windows, X64, rion-desktop-e2e]");
+    expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64, rion-desktop-e2e]");
+    expect(workflow).toContain("Extended E2E ref must be a full immutable Git SHA");
+    expect(workflow).toContain("RION_STUDIO_E2E_PROFILE: extended");
+    expect(workflow).toContain("RION_STUDIO_E2E_COMMIT: ${{ inputs.ref || github.sha }}");
+    expect(workflow).toContain("pnpm run test:e2e:desktop");
+    expect(workflow).toContain("if: always()");
+    expect(workflow).not.toContain("continue-on-error: true");
   });
 
   it("keeps the owner-locked unsigned platform policy while updater artifacts stay verified", async () => {

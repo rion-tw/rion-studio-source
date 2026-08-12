@@ -48,6 +48,14 @@ async fn rion_shell_invoke(
                     runtime_operation_receipt_result(receipt)
                         .map_err(|code| shell_error(&code, "The main window could not be shown."))
                 })?;
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "renderer-ready",
+                None,
+                None,
+                None,
+                json!({ "windowLabel": window.label() }),
+            );
             Ok(Value::Null)
         }
         "appSnapshot" => app_snapshot(&state, &window),

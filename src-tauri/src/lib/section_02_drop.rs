@@ -408,6 +408,17 @@ async fn confirm_game_window_close(
     window: &Window,
     copy: GameWindowCloseCopy,
 ) -> Result<bool, CoreErrorPayload> {
+    #[cfg(feature = "desktop-e2e")]
+    if desktop_e2e::consume_close_confirmation(window.label()) {
+        desktop_e2e::record_event(
+            "window-close-confirmation-accepted",
+            None,
+            None,
+            None,
+            json!({ "nativeLabel": window.label() }),
+        );
+        return Ok(true);
+    }
     let (sender, receiver) = tokio::sync::oneshot::channel();
     app.dialog()
         .message(copy.message)

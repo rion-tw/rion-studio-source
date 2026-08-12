@@ -151,7 +151,16 @@ fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
             persistence_result.is_ok(),
             persistence_result.as_ref().err().map(String::as_str),
         );
-        runtime.wait_for_final_window_state_flush(std::time::Duration::from_secs(2));
+        let _final_flush_complete =
+            runtime.wait_for_final_window_state_flush(std::time::Duration::from_secs(2));
+        #[cfg(feature = "desktop-e2e")]
+        desktop_e2e::record_event(
+            "application-final-flush-complete",
+            None,
+            None,
+            None,
+            json!({ "complete": _final_flush_complete }),
+        );
         core.shutdown();
         if let Some(state) = app.try_state::<CoreState>() {
             state.application_shutdown.mark_ready_to_exit();

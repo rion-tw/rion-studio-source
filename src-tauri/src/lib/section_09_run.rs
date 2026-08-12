@@ -20,6 +20,10 @@ pub fn run() {
                 let _ = webview.eval(format!("window.__rionShowStartupFailure?.({encoded});"));
             }
         });
+    #[cfg(feature = "desktop-e2e")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
     let builder = if update_manager::embedded_updater_public_key().is_some() {
         builder.plugin(tauri_plugin_updater::Builder::new().build())
     } else {
@@ -39,7 +43,7 @@ pub fn run() {
             application_menu::handle_event(app, event.id().as_ref());
         }
     });
-    builder
+    let builder = builder
         .setup(|app| {
             let setup_result = (|| -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(target_os = "macos")]
@@ -56,6 +60,9 @@ pub fn run() {
             }
             let user_data_dir = shared_user_data_dir(app)
                 .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            #[cfg(feature = "desktop-e2e")]
+            let desktop_e2e_control = desktop_e2e::initialize(&user_data_dir)
+                .map_err(std::io::Error::other)?;
             let app_version = app.package_info().version.to_string();
             let core = match AppCore::create_with_startup_backup(
                 AppCoreOptions {
@@ -183,6 +190,24 @@ pub fn run() {
                                     renderer_events.push(CoreEvent::Shutdown);
                                 }
                                 event => {
+                                    #[cfg(feature = "desktop-e2e")]
+                                    if let CoreEvent::BrowserStatuses { statuses } = &event {
+                                        for status in statuses {
+                                            desktop_e2e::record_event(
+                                                &format!(
+                                                    "browser-status:{}:{}",
+                                                    status.role_id, status.state
+                                                ),
+                                                None,
+                                                None,
+                                                None,
+                                                json!({
+                                                    "roleId": status.role_id,
+                                                    "state": status.state,
+                                                }),
+                                            );
+                                        }
+                                    }
                                     let refresh_quick_menu =
                                         matches!(&event, CoreEvent::BrowserStatuses { .. })
                                             || matches!(
@@ -301,6 +326,17 @@ pub fn run() {
                 macos_tab_drag_actions: OnceLock::new(),
                 updates: Arc::clone(&updates),
             });
+            #[cfg(feature = "desktop-e2e")]
+            {
+                app.manage(desktop_e2e_control);
+                desktop_e2e::record_event(
+                    "application-runtime-ready",
+                    None,
+                    None,
+                    None,
+                    json!({ "pid": std::process::id() }),
+                );
+            }
             if let Some(state) = app.try_state::<CoreState>() {
                 let _ = state.quick_menu_refresh.request(
                     app.handle().clone(),
@@ -373,8 +409,9 @@ pub fn run() {
                 }
             }
             Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+        });
+    #[cfg(not(feature = "desktop-e2e"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
             rion_core_invoke,
             rion_browser_font_payload,
             rion_divider_pointer,
@@ -386,7 +423,27 @@ pub fn run() {
             rion_dispatch_core_effect_results,
             rion_shared_user_data_dir,
             rion_shell_invoke
-        ])
+        ]);
+    #[cfg(feature = "desktop-e2e")]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+            rion_core_invoke,
+            rion_browser_font_payload,
+            rion_divider_pointer,
+            rion_overlay_request,
+            rion_overlay_ready,
+            rion_runtime_audio_state,
+            rion_runtime_role_slot_action,
+            rion_runtime_tab_action,
+            rion_dispatch_core_effect_results,
+            rion_shared_user_data_dir,
+            rion_shell_invoke,
+            desktop_e2e::desktop_e2e_probe,
+            desktop_e2e::desktop_e2e_wait_event,
+            desktop_e2e::desktop_e2e_window_snapshot,
+            desktop_e2e::desktop_e2e_control_window,
+            desktop_e2e::desktop_e2e_shutdown
+        ]);
+    builder
         .build(tauri::generate_context!())
         .expect("failed to build Rion Studio")
         .run(|app_handle, event| {

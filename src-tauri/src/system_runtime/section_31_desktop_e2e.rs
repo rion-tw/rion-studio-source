@@ -182,15 +182,28 @@ fn desktop_e2e_apply_native_window_control(
     use windows::Win32::UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
-            GetClientRect, GetWindowRect, SendMessageW, SetWindowPos, SWP_NOACTIVATE,
-            SWP_NOOWNERZORDER, SWP_NOZORDER, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE,
+            GetClientRect, GetWindowRect, PostMessageW, SendMessageW, SetWindowPos,
+            SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_CLOSE, WM_ENTERSIZEMOVE,
+            WM_EXITSIZEMOVE,
         },
     };
-    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Foundation::{LPARAM, RECT, WPARAM};
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
-        DesktopE2eWindowControlRequest::Close => window.close().map_err(|error| error.to_string()),
+        DesktopE2eWindowControlRequest::Close => unsafe {
+            // Exercise the same asynchronous Win32 close request as the native
+            // title-bar button. Tauri's Window::close queues another runtime
+            // user event, which can strand the invoking WebView reply behind a
+            // navigation-time CloseRequested callback.
+            PostMessageW(
+                Some(hwnd),
+                WM_CLOSE,
+                WPARAM::default(),
+                LPARAM::default(),
+            )
+            .map_err(|error| error.to_string())
+        },
         DesktopE2eWindowControlRequest::Minimize => {
             request_platform_window_minimize(window)
         }

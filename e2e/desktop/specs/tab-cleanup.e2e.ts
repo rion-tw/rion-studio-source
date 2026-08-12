@@ -114,7 +114,17 @@ async function stopWindowFromUi(windowId: string, role?: Role): Promise<void> {
   await navigate("/game-windows");
   await clickEntityMenuAction(windowId, "Game window actions", "Stop and close window");
   await waitEvent({ afterSequence: cursor, kind: "window-destroyed", windowId });
-  if (role) await expectTeardownQuiesced(cursor, role);
+  if (role) {
+    const admission = await waitEvent({
+      afterSequence: cursor,
+      kind: "runtime-window-close-admitted",
+      windowId
+    });
+    const details = admission.details as { inputDiagnostics?: unknown };
+    expect(details.inputDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ quiesced: true, roleId: role.id, stopping: true })
+    ]));
+  }
   await expect($(`[data-selection-id='${windowId}']`))
     .toHaveText(expect.stringContaining("Not open"));
 }

@@ -576,6 +576,8 @@ async fn process_game_window_close_requested(
             return;
         }
     };
+    #[cfg(feature = "desktop-e2e")]
+    record_desktop_e2e_window_close_admission(&core, &admitted_request);
 
     let (request, receipt) = match runtime.commit_visible_window_close(
         &operation_id,
@@ -709,6 +711,8 @@ async fn execute_game_window_close_transaction(
                 return Err(error);
             }
         };
+        #[cfg(feature = "desktop-e2e")]
+        record_desktop_e2e_window_close_admission(&state.core, &request);
         let (request, receipt) = match state.runtime.commit_visible_window_close(
             &operation.operation_id,
             &window_id,
@@ -756,6 +760,40 @@ async fn execute_game_window_close_transaction(
     let _ = app.emit("rion://window-lifecycle", &receipt);
     serde_json::to_value(receipt)
         .map_err(|error| shell_error("SYSTEM_WINDOW_CLOSE_SERIALIZE_FAILED", error.to_string()))
+}
+
+#[cfg(feature = "desktop-e2e")]
+fn record_desktop_e2e_window_close_admission(
+    core: &AppCore,
+    request: &RuntimeWindowStopRequestRecord,
+) {
+    let role_ids = request
+        .closing_tabs
+        .iter()
+        .flat_map(|tab| tab.role_ids.iter().cloned())
+        .collect::<HashSet<_>>();
+    let input_diagnostics = core
+        .macro_input_diagnostics()
+        .ok()
+        .map(|diagnostics| {
+            diagnostics
+                .roles
+                .into_iter()
+                .filter(|role| role_ids.contains(&role.role_id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    desktop_e2e::record_event(
+        "runtime-window-close-admitted",
+        Some(&request.window_id),
+        Some(request.window_generation),
+        Some(request.topology_revision),
+        json!({
+            "inputDiagnostics": input_diagnostics,
+            "parentOperationId": request.parent_operation_id,
+            "roleIds": role_ids,
+        }),
+    );
 }
 
 fn same_game_window_record(left: &StateGameWindowRecord, right: &StateGameWindowRecord) -> bool {

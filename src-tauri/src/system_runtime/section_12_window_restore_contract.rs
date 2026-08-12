@@ -29,6 +29,23 @@ fn restored_foreground_visibility_is_current(
         && snapshot.tab_current
 }
 
+fn restored_tab_selection_intent_is_current(
+    should_select: bool,
+    restored_selected_tab_id: Option<&str>,
+    tab_id: &str,
+    current_selected_tab_id: Option<&str>,
+) -> bool {
+    if !should_select {
+        return false;
+    }
+    let Some(restored_selected_tab_id) = restored_selected_tab_id else {
+        return true;
+    };
+    restored_selected_tab_id == tab_id
+        && current_selected_tab_id
+            .is_none_or(|current| current == restored_selected_tab_id)
+}
+
 pub(crate) struct RestoredLaunchAdmission<'a> {
     admission_signal: &'a mut crate::runtime_tab_menu::LaunchAdmissionSignal,
     hydration_operation_id: &'a str,

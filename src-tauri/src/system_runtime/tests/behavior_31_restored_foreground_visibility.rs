@@ -75,6 +75,34 @@ fn duplicate_stale_closed_or_superseded_attachment_never_reveals() {
     ));
 }
 
+#[test]
+fn restored_surface_attachment_never_overwrites_a_newer_visible_selection() {
+    assert!(!restored_tab_selection_intent_is_current(
+        true,
+        Some("tab-restored"),
+        "tab-restored",
+        Some("tab-user-selected"),
+    ));
+    assert!(restored_tab_selection_intent_is_current(
+        true,
+        Some("tab-restored"),
+        "tab-restored",
+        Some("tab-restored"),
+    ));
+    assert!(restored_tab_selection_intent_is_current(
+        true,
+        Some("tab-restored"),
+        "tab-restored",
+        None,
+    ));
+    assert!(restored_tab_selection_intent_is_current(
+        true,
+        None,
+        "tab-command",
+        Some("tab-existing"),
+    ));
+}
+
 #[tokio::test]
 async fn foreground_visibility_signal_replays_the_exact_native_operation_before_followers() {
     let signal = RestoredVisibilitySignal::new();

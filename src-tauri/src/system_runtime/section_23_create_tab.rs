@@ -166,6 +166,18 @@ impl SystemRuntimeExecutor {
         let reservation_revision = {
             let mut selection = presentation.record.clone();
             let previous_tab_id = selection.selected_tab_id.clone();
+            let restored_selected_tab_id = pending_window_restore.as_ref().and_then(|restore| {
+                restore
+                    .active_tab_id
+                    .as_deref()
+                    .or_else(|| restore.ordered_tab_ids.first().map(String::as_str))
+            });
+            let commit_should_select = restored_tab_selection_intent_is_current(
+                should_select,
+                restored_selected_tab_id,
+                &created_tab_id,
+                previous_tab_id.as_deref(),
+            );
             let presentation_tab = LiveTabRecord {
                 audio_muted: false,
                 closable: true,
@@ -192,20 +204,20 @@ impl SystemRuntimeExecutor {
                 {
                     *existing = presentation_tab;
                 } else {
-                    selection.insert_tab(presentation_tab, 0, should_select);
+                    selection.insert_tab(presentation_tab, 0, commit_should_select);
                 }
-                if !should_select
+                if !commit_should_select
                     && selection.selected_tab_id.as_deref() == Some(created_tab_id.as_str())
                 {
                     selection.select(previous_tab_id.clone(), 0);
                 }
             } else {
-                selection.insert_tab(presentation_tab, 0, should_select);
+                selection.insert_tab(presentation_tab, 0, commit_should_select);
             }
             if let Some(restore) = pending_window_restore.as_ref() {
                 selection.reorder_known_tabs(&restore.ordered_tab_ids);
             }
-            if should_select {
+            if commit_should_select {
                 selection.select(Some(created_tab_id.clone()), 0);
             }
             let receipt = self

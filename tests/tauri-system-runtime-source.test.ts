@@ -191,7 +191,7 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(runtime).toContain('"surface.navigation-failed"');
     expect(runtime).toContain('"surface.native-released"');
     expect(runtime).toContain('"surface.wrapper-close-accepted"');
-    expect(runtime).toContain('"role.store-reusable"');
+    expect(runtime).toContain('"surface.wrapper-released"');
     expect(runtime).not.toContain('"surface.blank-retry"');
     expect(runtime).not.toContain("schedule_surface_reclamation");
 

@@ -332,6 +332,19 @@ fn empty_host_live_resize_plan_materializes_the_tab_strip() {
     );
 }
 
+#[cfg(all(windows, feature = "desktop-e2e"))]
+#[test]
+fn desktop_e2e_client_extent_uses_the_actual_custom_chrome_frame() {
+    assert_eq!(
+        desktop_e2e_outer_extent_for_client(600, 2.0, 1_095, 1_080, 2.0),
+        1_215
+    );
+    assert_eq!(
+        desktop_e2e_outer_extent_for_client(600, 1.25, 1_095, 1_080, 2.0),
+        759
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {

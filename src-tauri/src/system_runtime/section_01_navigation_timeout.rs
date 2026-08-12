@@ -475,14 +475,8 @@ fn windows_runtime_tab_initialization_script(
     ))
 }
 
-fn native_runtime_window_title_for_platform(platform: &str, saved_name: Option<&str>) -> String {
-    if platform == "windows"
-        && let Some(saved_name) = saved_name.filter(|name| !name.trim().is_empty())
-    {
-        format!("{saved_name} — {RION_STUDIO_APP_NAME}")
-    } else if platform == "macos"
-        && let Some(saved_name) = saved_name.filter(|name| !name.trim().is_empty())
-    {
+fn native_runtime_window_title_for_platform(_platform: &str, saved_name: Option<&str>) -> String {
+    if let Some(saved_name) = saved_name.filter(|name| !name.trim().is_empty()) {
         saved_name.to_owned()
     } else {
         RION_STUDIO_APP_NAME.to_owned()

@@ -46,7 +46,9 @@
         "seed",
         "restart",
         "force-terminate",
-        "crash-restart"
+        "crash-restart",
+        "crash-discard",
+        "recovery-final-restart"
       ],
       "specs": [
         "e2e/desktop/specs/app-journeys.e2e.ts",
@@ -81,6 +83,8 @@
         "restart",
         "force-terminate",
         "crash-restart",
+        "crash-discard",
+        "recovery-final-restart",
         "extended-native"
       ],
       "specs": [
@@ -350,6 +354,20 @@
       "risk": "native",
       "outcomes": ["failure", "restart"],
       "description": "Distinguish clean exit from exact-PID forced termination and recover without corrupting persisted state."
+    },
+    {
+      "id": "WINDOW-RECOVERY-UI-007",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "crash-discard",
+      "spec": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Force-terminate a multi-window last-visible session, restore it through the Dashboard, force-terminate again, discard through the Dashboard, and retain clean dormant definitions on the next restart."
     },
     {
       "id": "SETTINGS-SYSTEM-001",

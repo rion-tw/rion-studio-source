@@ -2,12 +2,13 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type { DisplayInfo, GameWindow } from "../../../src/shared/types";
+import type { DisplayInfo, EmbeddedRuntimeState, GameWindow } from "../../../src/shared/types";
 import {
   controlWindow,
   probe,
   rendererCall,
   requireEnvironment,
+  runtimeUiAction,
   shutdown,
   waitEvent,
   windowSnapshot,
@@ -15,12 +16,20 @@ import {
   type WindowBounds
 } from "../support/control";
 import { expectBoundsNear, expectPlacement } from "../support/geometry";
+import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
+import {
+  installRendererEventJournal,
+  rendererEventCursor,
+  waitForRuntimeProjection
+} from "../support/renderer-events";
 import { waitForTranscriptEvent } from "../support/transcript";
+import { ensureEnglishUi, navigate } from "../support/ui";
 
 // [journey:GAME-WINDOWS-NATIVE-001]
 // [journey:GAME-WINDOWS-TABS-001]
 // [journey:APP-RECOVERY-001]
+// [journey:WINDOW-RECOVERY-UI-007]
 
 const WINDOW_A = "e2e00000-0000-4000-8000-00000000000a";
 const WINDOW_B = "e2e00000-0000-4000-8000-00000000000b";
@@ -420,8 +429,15 @@ async function verifyRecoveredWindowA(): Promise<void> {
   await expectWindowUnavailable(WINDOW_C);
 }
 
-async function forceTerminatePhase(): Promise<void> {
-  await verifyRecoveredWindowA();
+function expectSavedWindowState(
+  runtime: EmbeddedRuntimeState,
+  windowId: string,
+  state: "awaiting-recovery" | "dormant"
+): void {
+  expect(runtime.savedWindows?.find((candidate) => candidate.id === windowId)?.state).toBe(state);
+}
+
+async function forceTerminateCurrentProcess(): Promise<void> {
   const control = await probe();
   const markerPath = resolve(
     requireEnvironment("RION_STUDIO_E2E_ARTIFACT_DIR"),
@@ -435,14 +451,137 @@ async function forceTerminatePhase(): Promise<void> {
   await forceTerminateProcessTree(control.pid);
 }
 
+async function forceTerminatePhase(): Promise<void> {
+  await verifyRecoveredWindowA();
+  const focusEventCursor = (await probe()).latestSequence;
+  await showAndWait(WINDOW_B);
+  await showAndWait(WINDOW_C);
+  const beforeCrash = await rendererCall("getEmbeddedRuntimeState");
+  expect(beforeCrash.windows.map((window) => window.windowId).sort()).toEqual(
+    [WINDOW_A, WINDOW_B, WINDOW_C].sort()
+  );
+  const tabsC = beforeCrash.tabs.filter((tab) => tab.windowId === WINDOW_C);
+  expect(tabsC).toHaveLength(3);
+  const activeC = tabsC.find((tab) => tab.active);
+  const focusedRoleId = activeC?.roleIds[0];
+  if (!activeC || !focusedRoleId) throw new Error("Window C active role surface is unavailable");
+  const focusCursor = await fixtureCursor();
+  const liveC = await windowSnapshot(WINDOW_C);
+  await runtimeUiAction(WINDOW_C, {
+    action: "focusRole",
+    roleId: focusedRoleId,
+    tabId: activeC.id,
+    windowGeneration: liveC.windowGeneration
+  });
+  await waitFixtureEvent({
+    afterSequence: focusCursor,
+    kind: "click",
+    roleId: "e2e-gamma"
+  });
+  await waitEvent({
+    afterSequence: focusEventCursor,
+    kind: "window-focus-persisted",
+    minimumGeneration: liveC.windowGeneration,
+    windowId: WINDOW_C
+  });
+  await forceTerminateCurrentProcess();
+}
+
 async function crashRestartPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await installRendererEventJournal();
+  await navigate("/dashboard");
+  const awaiting = await rendererCall("getEmbeddedRuntimeState");
+  expect(awaiting.recovery).toMatchObject({ windowCount: 3, tabCount: 3 });
+  for (const windowId of [WINDOW_A, WINDOW_B, WINDOW_C]) {
+    expectSavedWindowState(awaiting, windowId, "awaiting-recovery");
+    await expectWindowUnavailable(windowId);
+  }
+  for (const windowId of [MODE_NORMAL, MODE_MAXIMIZED, MODE_FULLSCREEN]) {
+    expectSavedWindowState(awaiting, windowId, "dormant");
+  }
+
+  const cursor = await rendererEventCursor();
+  const restore = await $("button=Restore session");
+  await restore.waitForDisplayed({ timeout: 10_000 });
+  await restore.click();
+  const restored = await waitForRuntimeProjection({
+    afterSequence: cursor,
+    recoveryAbsent: true,
+    savedWindowStates: [
+      { state: "dormant", windowId: MODE_NORMAL },
+      { state: "dormant", windowId: MODE_MAXIMIZED },
+      { state: "dormant", windowId: MODE_FULLSCREEN }
+    ],
+    windowIds: [WINDOW_A, WINDOW_B, WINDOW_C]
+  });
+  expect(restored.tabs.filter((tab) => tab.windowId === WINDOW_C)).toHaveLength(3);
   const state = await primaryScenario();
-  await expectWindowUnavailable(WINDOW_A);
-  await expectWindowUnavailable(WINDOW_B);
-  await expectWindowUnavailable(WINDOW_C);
-  const liveA = await showAndWait(WINDOW_A);
+  const liveA = await windowSnapshot(WINDOW_A);
   expectPlacement(liveA, state.boundsB, "normal");
   expect(liveA.native.title).toBe("E2E Window A");
+  await windowSnapshot(WINDOW_B);
+  await windowSnapshot(WINDOW_C);
+  await forceTerminateCurrentProcess();
+}
+
+async function crashDiscardPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await installRendererEventJournal();
+  await navigate("/dashboard");
+  const awaiting = await rendererCall("getEmbeddedRuntimeState");
+  expect(awaiting.recovery).toMatchObject({ windowCount: 3, tabCount: 3 });
+  for (const windowId of [WINDOW_A, WINDOW_B, WINDOW_C]) {
+    expectSavedWindowState(awaiting, windowId, "awaiting-recovery");
+    await expectWindowUnavailable(windowId);
+  }
+
+  const cursor = await rendererEventCursor();
+  const discard = await $("button=Discard");
+  await discard.waitForDisplayed({ timeout: 10_000 });
+  await discard.click();
+  const dormant = [
+    WINDOW_A,
+    WINDOW_B,
+    WINDOW_C,
+    MODE_NORMAL,
+    MODE_MAXIMIZED,
+    MODE_FULLSCREEN
+  ].map((windowId) => ({ state: "dormant" as const, windowId }));
+  const discarded = await waitForRuntimeProjection({
+    afterSequence: cursor,
+    exactWindowIds: [],
+    recoveryAbsent: true,
+    savedWindowStates: dormant
+  });
+  expect(discarded.savedWindows).toHaveLength(6);
+  const windowC = (await rendererCall("listGameWindows"))
+    .find((candidate) => candidate.id === WINDOW_C);
+  expect(windowC?.tabs).toHaveLength(3);
+  expect(windowC?.activeTabId).toBe(windowC?.tabs.at(-1)?.id);
+  await shutdownAndWaitForFlush();
+}
+
+async function recoveryFinalRestartPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await installRendererEventJournal();
+  await navigate("/dashboard");
+  const dormant = [
+    WINDOW_A,
+    WINDOW_B,
+    WINDOW_C,
+    MODE_NORMAL,
+    MODE_MAXIMIZED,
+    MODE_FULLSCREEN
+  ].map((windowId) => ({ state: "dormant" as const, windowId }));
+  const runtime = await waitForRuntimeProjection({
+    exactWindowIds: [],
+    recoveryAbsent: true,
+    savedWindowStates: dormant
+  });
+  expect(runtime.savedWindows).toHaveLength(6);
+  expect(await $("button=Restore session").isExisting()).toBe(false);
+  expect(await $("button=Discard").isExisting()).toBe(false);
   await shutdownAndWaitForFlush();
 }
 
@@ -453,6 +592,8 @@ describe("permanent Game Window native lifecycle", () => {
     else if (phase === "restart") await restartPhase();
     else if (phase === "force-terminate") await forceTerminatePhase();
     else if (phase === "crash-restart") await crashRestartPhase();
+    else if (phase === "crash-discard") await crashDiscardPhase();
+    else if (phase === "recovery-final-restart") await recoveryFinalRestartPhase();
     else throw new Error(`Unknown desktop E2E phase: ${phase}`);
   });
 });

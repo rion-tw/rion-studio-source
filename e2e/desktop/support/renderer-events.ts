@@ -64,7 +64,11 @@ interface RuntimeWaitRequest {
   activeTabId?: string;
   absent?: boolean;
   afterSequence?: number;
+  exactWindowIds?: string[];
   kind: "runtime";
+  recoveryAbsent?: boolean;
+  recoveryTabCount?: number;
+  recoveryWindowCount?: number;
   roleSlots?: Array<{
     ownedByTargetTab?: boolean;
     ownerTabId?: string;
@@ -73,8 +77,13 @@ interface RuntimeWaitRequest {
     tabId?: string;
   }>;
   roleIds?: string[];
+  savedWindowStates?: Array<{
+    state: "awaiting-recovery" | "dormant" | "failed" | "restoring";
+    windowId: string;
+  }>;
   sourceId?: string;
   windowId?: string;
+  windowIds?: string[];
 }
 
 type RendererWaitRequest =
@@ -236,6 +245,32 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
           if (waitRequest.sourceId && !tab) return undefined;
           if (waitRequest.windowId && !runtimeWindow) return undefined;
           if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
+            return undefined;
+          }
+          if (waitRequest.windowIds?.some((windowId) =>
+            !entry.value.windows.some((candidate) => candidate.windowId === windowId)
+          )) {
+            return undefined;
+          }
+          if (waitRequest.exactWindowIds) {
+            const actualWindowIds = entry.value.windows.map((candidate) => candidate.windowId).sort();
+            const expectedWindowIds = [...waitRequest.exactWindowIds].sort();
+            if (actualWindowIds.join("\n") !== expectedWindowIds.join("\n")) return undefined;
+          }
+          if (waitRequest.recoveryAbsent && entry.value.recovery) return undefined;
+          if (waitRequest.recoveryWindowCount !== undefined
+            && entry.value.recovery?.windowCount !== waitRequest.recoveryWindowCount) {
+            return undefined;
+          }
+          if (waitRequest.recoveryTabCount !== undefined
+            && entry.value.recovery?.tabCount !== waitRequest.recoveryTabCount) {
+            return undefined;
+          }
+          if (waitRequest.savedWindowStates?.some((expectation) =>
+            !entry.value.savedWindows?.some((candidate) =>
+              candidate.id === expectation.windowId && candidate.state === expectation.state
+            )
+          )) {
             return undefined;
           }
           if (waitRequest.roleSlots?.some((ownerExpectation) => {

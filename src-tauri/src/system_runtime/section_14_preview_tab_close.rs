@@ -784,9 +784,19 @@ impl SystemRuntimeExecutor {
             .name("rion-runtime-focus-journal".to_owned())
             .spawn(move || {
                 if let Ok(mut session) = core.runtime_restore_session() {
-                    session.last_focused_window_id = Some(focused_window_id);
+                    session.last_focused_window_id = Some(focused_window_id.clone());
                     session.updated_at = chrono::Utc::now().to_rfc3339();
-                    let _ = core.replace_runtime_restore_session(session);
+                    let persisted = core.replace_runtime_restore_session(session).is_ok();
+                    #[cfg(feature = "desktop-e2e")]
+                    if persisted {
+                        crate::desktop_e2e::record_event(
+                            "window-focus-persisted",
+                            Some(&focused_window_id),
+                            Some(generation),
+                            None,
+                            json!({ "source": "native-focus-event" }),
+                        );
+                    }
                 }
             });
         self.schedule_window_placement_persistence(label.to_owned());

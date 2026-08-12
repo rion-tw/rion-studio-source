@@ -16,6 +16,7 @@ await mkdir(resolve(artifactDir, "screenshots"), { recursive: true });
 const phase = required("RION_STUDIO_E2E_PHASE");
 const journeyIds = JSON.parse(process.env.RION_STUDIO_E2E_JOURNEY_IDS ?? "[]") as string[];
 const specByPhase: Record<string, string> = {
+  "crash-discard": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "crash-restart": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "extended-native": "e2e/desktop/specs/extended-native.e2e.ts",
   "force-terminate": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
@@ -31,6 +32,7 @@ const specByPhase: Record<string, string> = {
   "p1-role-session-seed": "e2e/desktop/specs/role-isolation.e2e.ts",
   "p1-workspace-shared-role": "e2e/desktop/specs/role-isolation.e2e.ts",
   "p1-workspace-recovery": "e2e/desktop/specs/workspace-recovery.e2e.ts",
+  "recovery-final-restart": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   restart: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   seed: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "smoke-restart": "e2e/desktop/specs/app-journeys.e2e.ts",

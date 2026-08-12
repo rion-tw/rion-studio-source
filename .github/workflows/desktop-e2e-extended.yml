@@ -27,7 +27,7 @@ jobs:
   windows-mixed-dpi:
     name: Windows mixed-DPI multi-monitor
     runs-on: [self-hosted, Windows, X64, rion-desktop-e2e]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -76,7 +76,7 @@ jobs:
   macos-spaces:
     name: macOS multi-display fullscreen Spaces
     runs-on: [self-hosted, macOS, ARM64, rion-desktop-e2e]
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout exact SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

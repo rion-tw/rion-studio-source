@@ -82,6 +82,7 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("if: github.event_name == 'pull_request'");
     expect(platformChecks).toContain("id: desktop_e2e");
     expect(platformChecks).toContain("continue-on-error: true");
+    expect(platformChecks).toContain("timeout-minutes: 75");
     expect(platformChecks).toContain("pnpm run test:e2e:desktop:full");
     expect(platformChecks).toContain("path: .desktop-e2e-artifacts");
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
@@ -148,6 +149,7 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("Extended E2E ref must be a full immutable Git SHA");
     expect(workflow).toContain("RION_STUDIO_E2E_COMMIT: ${{ inputs.ref || github.sha }}");
     expect(workflow).toContain("pnpm run test:e2e:desktop:extended");
+    expect(workflow.match(/timeout-minutes: 120/gu)).toHaveLength(2);
     expect(workflow).toContain("if: always()");
     expect(workflow).not.toContain("continue-on-error: true");
     expect(runner).toContain("if (blocked || (result.code !== 0 && !forcedTermination))");

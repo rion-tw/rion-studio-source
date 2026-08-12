@@ -83,13 +83,18 @@ describe("extended native Game Window placement", () => {
       x: target.workArea.x + 45,
       y: target.workArea.y + 55
     };
-    await waitEvent({
-      afterSequence: 0,
-      kind: "window-context-initialized",
-      timeoutMs: 60_000,
-      windowId: WINDOW_A
-    });
-    let snapshot = await windowSnapshot(WINDOW_A);
+    let snapshot = await windowSnapshot(WINDOW_A).catch(() => undefined);
+    if (!snapshot) {
+      const showCursor = (await probe()).latestSequence;
+      await rendererCall("showGameWindow", WINDOW_A);
+      await waitEvent({
+        afterSequence: showCursor,
+        kind: "window-context-initialized",
+        timeoutMs: 60_000,
+        windowId: WINDOW_A
+      });
+      snapshot = await windowSnapshot(WINDOW_A);
+    }
     const cursor = (await probe()).latestSequence;
     await controlWindow(WINDOW_A, {
       action: "moveResize",

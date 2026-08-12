@@ -30,7 +30,13 @@ if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
   throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
 }
 const focusedPhaseDependencies = new Map([
-  ["p1-role-session-isolation", ["p1-role-session-seed"]]
+  ["p1-role-session-isolation", ["p1-role-session-seed"]],
+  ["crash-restart", ["seed", "restart", "force-terminate"]],
+  ["crash-discard", ["seed", "restart", "force-terminate", "crash-restart"]],
+  [
+    "recovery-final-restart",
+    ["seed", "restart", "force-terminate", "crash-restart", "crash-discard"]
+  ]
 ]);
 const phases = phaseArgument
   ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
@@ -190,23 +196,33 @@ function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked)
 
   const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
   requireEvidence(session, `${phase}: runtime restore session is missing`);
+  const forcedTerminationPhases = new Set(["force-terminate", "crash-restart"]);
   if (!blocked) {
     requireEvidence(
-      session.cleanExit === (phase !== "force-terminate"),
+      session.cleanExit === !forcedTerminationPhases.has(phase),
       `${phase}: runtime restore session has the wrong clean-exit state`
     );
   }
+  const expectedLiveWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
+    ? []
+    : forcedTerminationPhases.has(phase)
+      ? [windowIds.a, windowIds.b, windowIds.c]
+      : [windowIds.a];
   requireEvidence(
-    sameValue(session.liveWindowIds, [windowIds.a]),
-    `${phase}: restart cohort must contain only open Window A`
+    sameValue(session.liveWindowIds, expectedLiveWindowIds),
+    `${phase}: restart cohort did not match the exact live Game Window set`
   );
   requireEvidence(
     sameValue(session.restoreInProgressWindowIds, []),
     `${phase}: restore-in-progress cohort was not terminalized`
   );
-  const expectedLastFocusedWindowIds = phase === "restart"
-    ? new Set([windowIds.a, windowIds.b])
-    : new Set([windowIds.a]);
+  const expectedLastFocusedWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
+    ? new Set([null])
+    : forcedTerminationPhases.has(phase)
+      ? new Set([windowIds.c])
+      : phase === "restart"
+        ? new Set([windowIds.a, windowIds.b])
+        : new Set([windowIds.a]);
   requireEvidence(
     expectedLastFocusedWindowIds.has(session.lastFocusedWindowId),
     `${phase}: the last-focused permanent window was not retained`
@@ -449,7 +465,15 @@ async function captureSqlite(phase, blocked, validateEvidence) {
     if (["p1-guard-cleanup", "p1-final-restart"].includes(phase)) {
       return validateP1CleanupSqliteEvidence(phase, entities, settings);
     }
-    if (["seed", "restart", "force-terminate", "crash-restart", "extended-native"].includes(phase)) {
+    if ([
+      "seed",
+      "restart",
+      "force-terminate",
+      "crash-restart",
+      "crash-discard",
+      "recovery-final-restart",
+      "extended-native"
+    ].includes(phase)) {
       return validateGameWindowSqliteEvidence(phase, entities.gameWindows, settings, blocked);
     }
     return {
@@ -524,7 +548,7 @@ try {
       },
       logPath: resolve(phaseDir, "runner.log")
     });
-    const forcedTermination = phase === "force-terminate"
+    const forcedTermination = ["force-terminate", "crash-restart"].includes(phase)
       ? await expectedForcedTermination(phaseDir)
       : undefined;
     const blocked = blockedReason(result.output);

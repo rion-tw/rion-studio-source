@@ -11,6 +11,7 @@ import {
   requireEnvironment,
   runtimeUiAction,
   shutdown,
+  submitWindowControl,
   waitEvent,
   windowSnapshot,
   type DesktopE2eWindowSnapshot,
@@ -139,10 +140,9 @@ async function showAndWait(windowId: string, minimumGeneration = 1): Promise<Des
 }
 
 async function closeAndWait(snapshot: DesktopE2eWindowSnapshot): Promise<void> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "close" });
+  const submitted = await submitWindowControl(snapshot, { action: "close" });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "window-destroyed",
     minimumGeneration: snapshot.windowGeneration,
     timeoutMs: 45_000,
@@ -154,10 +154,9 @@ async function moveAndWait(
   snapshot: DesktopE2eWindowSnapshot,
   bounds: Required<WindowBounds>
 ): Promise<DesktopE2eWindowSnapshot> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "moveResize", ...bounds });
+  const submitted = await submitWindowControl(snapshot, { action: "moveResize", ...bounds });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     windowId: snapshot.windowId
@@ -377,10 +376,12 @@ async function modeTransition(
   snapshot: DesktopE2eWindowSnapshot,
   presentation: "fullscreen" | "maximized" | "normal"
 ): Promise<DesktopE2eWindowSnapshot> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "setPresentation", presentation });
+  const submitted = await submitWindowControl(snapshot, {
+    action: "setPresentation",
+    presentation
+  });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     presentation,
@@ -408,10 +409,9 @@ async function restartPhase(): Promise<void> {
   liveA = await modeTransition(liveA, "maximized");
   expectPlacement(liveA, normalBounds, "maximized");
   await expectModeCell(WINDOW_A, "maximized");
-  const minimizeCursor = (await probe()).latestSequence;
-  await controlWindow(WINDOW_A, { action: "minimize" });
+  const minimizeSubmitted = await submitWindowControl(liveA, { action: "minimize" });
   await waitEvent({
-    afterSequence: minimizeCursor,
+    afterSequence: minimizeSubmitted.sequence,
     kind: "window-minimized-observed",
     minimumGeneration: liveA.windowGeneration,
     windowId: WINDOW_A

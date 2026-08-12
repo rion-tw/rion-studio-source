@@ -201,6 +201,20 @@ export async function controlWindow(
   return result as unknown as DesktopE2eWindowSnapshot | { submitted: true };
 }
 
+export async function submitWindowControl(
+  snapshot: DesktopE2eWindowSnapshot,
+  request: WindowControlRequest
+): Promise<DesktopE2eEvent> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, request);
+  return waitEvent({
+    afterSequence: cursor,
+    kind: "native-control-submitted",
+    minimumGeneration: snapshot.windowGeneration,
+    windowId: snapshot.windowId
+  });
+}
+
 export async function runtimeUiAction(
   windowId: string,
   request: RuntimeUiActionRequest

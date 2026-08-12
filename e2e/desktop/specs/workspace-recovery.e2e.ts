@@ -214,6 +214,7 @@ async function exerciseLaunchCancellation(
   await waitForRoleProjection({ absent: true, roleId: primaryRole.id });
   await waitForRoleProjection({ absent: true, roleId: recoveryRole.id });
   await waitForRuntimeProjection({ absent: true, sourceId: workspace.id });
+  await waitForRuntimeProjection({ absent: true, windowId });
   await expect($(`[data-selection-id='${windowId}']`)).toHaveText(
     expect.stringContaining("Not open")
   );

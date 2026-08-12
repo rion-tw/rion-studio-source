@@ -429,7 +429,10 @@ impl SystemRuntimeExecutor {
         self.notify_optional_idle_changed();
         self.schedule_retiring_window_tab_cleanup(operation_id, window_id, &tab_ids);
         let receipt = self.complete_window_close_state_commit(operation_id);
-        self.publish_launcher_presence();
+        // The last tab-close projection can publish an empty-but-live window before
+        // the window retirement above reaches the renderer. Publish the committed
+        // removal so saved permanent windows immediately fall back to "not open".
+        self.publish_projection();
         Ok((stop_request, receipt))
     }
 
@@ -625,6 +628,10 @@ impl SystemRuntimeExecutor {
             // Keep the retiring-host marker until this commit finishes; reopen
             // waiters therefore cannot race a new generation into the same ID.
             self.presentation.remove(window_id);
+            // Native destruction is the final authority for this generation. Re-emit
+            // the retired topology in case a late close/placement projection was the
+            // renderer's most recent runtime-state event.
+            self.publish_projection();
             let retired_transaction = self.state.lock().ok().and_then(|mut state| {
                 let exact_host = state
                     .retiring_native_window_hosts

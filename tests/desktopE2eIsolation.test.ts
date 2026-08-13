@@ -33,6 +33,22 @@ describe("desktop E2E build isolation", () => {
     ]));
   });
 
+  it("keeps renderer reload readiness probes retryable", async () => {
+    const source = await readFile("e2e/desktop/support/ui.ts", "utf8");
+
+    expect(source).toContain("const RENDERER_PROBE_TIMEOUT_MS = 5_000;");
+    expect(source).toContain("const RENDERER_READY_TIMEOUT_MS = 30_000;");
+    expect(source).toContain("await browser.getTimeouts()");
+    expect(source).toContain("await browser.setTimeout({ script: RENDERER_PROBE_TIMEOUT_MS })");
+    expect(source).toContain("await browser.setTimeout({ script: previousScriptTimeout })");
+    expect(source).toContain("lastProbeError = error;");
+    expect(source).toContain("return false;");
+    expect(source).toContain('const shouldReload = document.documentElement.lang !== "en";');
+    expect(source).not.toContain(
+      'localStorage.getItem(storageKey) === "en" && document.documentElement.lang === "en"'
+    );
+  });
+
   it("submits Windows close through the native window queue", async () => {
     const source = await readFile(
       "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",

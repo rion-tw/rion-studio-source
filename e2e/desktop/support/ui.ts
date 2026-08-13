@@ -2,24 +2,58 @@ import { $, $$, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
+const RENDERER_PROBE_TIMEOUT_MS = 5_000;
+const RENDERER_READY_TIMEOUT_MS = 30_000;
+
+async function waitForRenderer(
+  condition: () => boolean,
+  timeoutMsg: string
+): Promise<void> {
+  const { script: previousScriptTimeout } = await browser.getTimeouts();
+  let lastProbeError: unknown;
+  await browser.setTimeout({ script: RENDERER_PROBE_TIMEOUT_MS });
+  try {
+    try {
+      await browser.waitUntil(async () => {
+        try {
+          return await browser.execute(condition);
+        } catch (error) {
+          lastProbeError = error;
+          return false;
+        }
+      }, {
+        timeout: RENDERER_READY_TIMEOUT_MS,
+        timeoutMsg
+      });
+    } catch (error) {
+      if (lastProbeError === undefined) throw error;
+      const detail = lastProbeError instanceof Error
+        ? lastProbeError.message
+        : String(lastProbeError);
+      throw new Error(`${timeoutMsg}. Last readiness probe failed: ${detail}`, { cause: error });
+    }
+  } finally {
+    if (typeof previousScriptTimeout === "number") {
+      await browser.setTimeout({ script: previousScriptTimeout });
+    }
+  }
+}
 
 export async function ensureEnglishUi(): Promise<void> {
-  await browser.waitUntil(
-    async () => browser.execute(() => document.readyState === "complete"),
-    { timeout: 30_000, timeoutMsg: "Desktop renderer did not finish loading" }
+  await waitForRenderer(
+    () => document.readyState === "complete",
+    "Desktop renderer did not finish loading"
   );
   const needsReload = await browser.execute((storageKey) => {
-    if (localStorage.getItem(storageKey) === "en" && document.documentElement.lang === "en") {
-      return false;
-    }
+    const shouldReload = document.documentElement.lang !== "en";
     localStorage.setItem(storageKey, "en");
-    return true;
+    return shouldReload;
   }, LANGUAGE_STORAGE_KEY);
   if (needsReload) {
     await browser.execute(() => window.location.reload());
-    await browser.waitUntil(
-      async () => browser.execute(() => document.readyState === "complete" && document.documentElement.lang === "en"),
-      { timeout: 30_000, timeoutMsg: "Desktop renderer did not reload in English" }
+    await waitForRenderer(
+      () => document.readyState === "complete" && document.documentElement.lang === "en",
+      "Desktop renderer did not reload in English"
     );
   }
 }

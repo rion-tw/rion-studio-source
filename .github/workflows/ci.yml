@@ -250,5 +250,6 @@ jobs:
         with:
           name: desktop-e2e-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 14
           path: .desktop-e2e-artifacts

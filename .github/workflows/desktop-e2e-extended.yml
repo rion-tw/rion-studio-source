@@ -70,6 +70,7 @@ jobs:
         with:
           name: desktop-e2e-extended-windows-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
           path: .desktop-e2e-artifacts
 
@@ -121,5 +122,6 @@ jobs:
         with:
           name: desktop-e2e-extended-macos-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
           path: .desktop-e2e-artifacts

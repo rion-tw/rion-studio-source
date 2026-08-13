@@ -71,9 +71,10 @@ impl SystemRuntimeExecutor {
             .snapshot()
             .map_err(|error| error.to_string())?
             .native_projection(window_id);
-        let mut native = desktop_e2e_native_window_snapshot(&window)?;
+        let native = desktop_e2e_native_window_snapshot(&window)?;
         #[cfg(windows)]
-        {
+        let native = {
+            let mut native = native;
             let tab_strip = self
                 .state
                 .lock()
@@ -85,12 +86,13 @@ impl SystemRuntimeExecutor {
                 .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
             let (tab_strip_bounds, tab_strip_host_bounds) =
                 desktop_e2e_windows_tab_strip_geometry(&tab_strip)?;
-            let native = native
+            let native_object = native
                 .as_object_mut()
                 .ok_or_else(|| "The native window snapshot is invalid.".to_owned())?;
-            native.insert("tabStripBounds".to_owned(), tab_strip_bounds);
-            native.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
-        }
+            native_object.insert("tabStripBounds".to_owned(), tab_strip_bounds);
+            native_object.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
+            native
+        };
         let kernel = projection.map(|projection| {
             json!({
                 "persistedName": projection.persisted_name,

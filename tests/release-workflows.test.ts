@@ -84,6 +84,7 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("continue-on-error: true");
     expect(platformChecks).toContain("timeout-minutes: 75");
     expect(platformChecks).toContain("pnpm run test:e2e:desktop:full");
+    expect(platformChecks).toContain("include-hidden-files: true");
     expect(platformChecks).toContain("path: .desktop-e2e-artifacts");
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
@@ -150,6 +151,8 @@ describe("Tauri-only release workflows", () => {
     expect(workflow).toContain("RION_STUDIO_E2E_COMMIT: ${{ inputs.ref || github.sha }}");
     expect(workflow).toContain("pnpm run test:e2e:desktop:extended");
     expect(workflow.match(/timeout-minutes: 120/gu)).toHaveLength(2);
+    expect(workflow.match(/include-hidden-files: true/gu)).toHaveLength(2);
+    expect(workflow.match(/path: \.desktop-e2e-artifacts/gu)).toHaveLength(2);
     expect(workflow).toContain("if: always()");
     expect(workflow).not.toContain("continue-on-error: true");
     expect(runner).toContain(

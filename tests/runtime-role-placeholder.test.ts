@@ -30,6 +30,7 @@ describe("runtime role placeholder", () => {
   beforeEach(() => {
     vi.resetModules();
     invoke.mockReset();
+    invoke.mockResolvedValue(undefined);
     mountPlaceholder();
   });
 
@@ -42,6 +43,7 @@ describe("runtime role placeholder", () => {
     expect(document.querySelector("#role-name")?.textContent).toBe("Knight");
     expect(document.querySelector("#message")?.textContent).toContain("Source party");
     expect(button.textContent).toBe("Stop there and open here");
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_role_slot_ready", { action: identity });
 
     button.click();
     expect(button.disabled).toBe(true);
@@ -90,6 +92,12 @@ describe("runtime role placeholder", () => {
       "The previous game page is still shutting down."
     );
     expect(document.querySelector<HTMLButtonElement>("#claim")?.disabled).toBe(true);
-    expect(invoke).not.toHaveBeenCalled();
+    const unavailableIdentity = { ...identity, unavailable: true };
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_role_slot_ready", {
+      action: unavailableIdentity
+    });
+    expect(invoke).not.toHaveBeenCalledWith("rion_runtime_role_slot_action", {
+      action: unavailableIdentity
+    });
   });
 });

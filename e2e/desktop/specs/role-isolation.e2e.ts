@@ -499,6 +499,11 @@ async function sharedOwnershipPhase(): Promise<void> {
 
   const targetBefore = await windowSnapshot(tabB.windowId);
   expect(targetBefore.kernel?.selectedTabId).toBe(tabB.id);
+  await waitEvent({
+    afterSequence: 0,
+    kind: `role-placeholder-ready:${tabB.id}:${shared.id}`,
+    windowId: tabB.windowId
+  });
   const controlCursor = (await probe()).latestSequence;
   const runtimeCursor = await rendererEventCursor();
   const fixtureAfter = await fixtureCursor();

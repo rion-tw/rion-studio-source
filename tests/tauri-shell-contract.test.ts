@@ -203,6 +203,7 @@ describe("Tauri shell contract guard", () => {
     expect(shell).toContain("rion_runtime_audio_state");
     expect(build).toContain('"rion_runtime_tab_action"');
     expect(build).toContain('"rion_runtime_role_slot_action"');
+    expect(build).toContain('"rion_runtime_role_slot_ready"');
     expect(build).toContain('"rion_divider_pointer"');
     expect(build).toContain('"rion_runtime_audio_state"');
     expect(build).toContain("clang_rt.osx");
@@ -223,7 +224,10 @@ describe("Tauri shell contract guard", () => {
     expect(JSON.parse(placeholderCapability)).toMatchObject({
       local: true,
       webviews: ["role-placeholder-*"],
-      permissions: ["allow-rion-runtime-role-slot-action"]
+      permissions: [
+        "allow-rion-runtime-role-slot-action",
+        "allow-rion-runtime-role-slot-ready"
+      ]
     });
     expect(capability).not.toContain("allow-rion-runtime-role-slot-action");
     expect(JSON.parse(roleCapability)).toMatchObject({

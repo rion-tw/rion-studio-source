@@ -184,6 +184,45 @@ async fn rion_runtime_role_slot_action(
 }
 
 #[tauri::command]
+fn rion_runtime_role_slot_ready(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    action: system_runtime::RuntimeRolePlaceholderIdentity,
+) -> Result<(), CoreErrorPayload> {
+    state
+        .runtime
+        .authorize_role_placeholder_action(webview.label(), &action)
+        .map_err(|error| shell_error(error.code, error.message))?;
+    #[cfg(feature = "desktop-e2e")]
+    {
+        let window_id = state
+            .runtime
+            .live_tab_window_id(&action.tab_id)
+            .ok_or_else(|| {
+                shell_error(
+                    "TAURI_RUNTIME_ROLE_SLOT_READY_STALE",
+                    "The role placeholder no longer belongs to a live window.",
+                )
+            })?;
+        desktop_e2e::record_event(
+            &format!(
+                "role-placeholder-ready:{}:{}",
+                action.tab_id, action.role_id
+            ),
+            Some(&window_id),
+            None,
+            None,
+            json!({
+                "roleId": action.role_id,
+                "slotId": action.slot_id,
+                "tabId": action.tab_id,
+            }),
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn rion_divider_pointer(
     app: AppHandle,
     webview: Webview,

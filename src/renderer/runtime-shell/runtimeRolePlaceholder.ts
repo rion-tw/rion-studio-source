@@ -56,4 +56,5 @@ if (!identity) {
       error.hidden = false;
     }
   });
+  void invoke("rion_runtime_role_slot_ready", { action: identity }).catch(() => undefined);
 }

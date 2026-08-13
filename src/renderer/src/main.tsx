@@ -68,6 +68,9 @@ async function bootstrapRenderer(): Promise<void> {
       errorElement: <AppRouteError />
     }
   ]);
+  if (__RION_DESKTOP_E2E__) {
+    window.__rionStudioDesktopE2eNavigate = (path) => router.navigate(path);
+  }
   const rootElement = document.getElementById("root");
   if (!rootElement) {
     showStartupFailure(new Error("The renderer root element is unavailable."));

@@ -5,6 +5,11 @@ const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 const RENDERER_PROBE_TIMEOUT_MS = 5_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
 
+interface RendererNavigationResult {
+  error?: string;
+  ok: boolean;
+}
+
 async function waitForRenderer(
   condition: () => boolean,
   timeoutMsg: string
@@ -51,7 +56,7 @@ export async function ensureEnglishUi(): Promise<void> {
     return shouldReload;
   }, LANGUAGE_STORAGE_KEY);
   if (needsReload) {
-    await browser.execute(() => window.location.reload());
+    await browser.refresh();
     await waitForRenderer(
       () => document.readyState === "complete" && document.documentElement.lang === "en",
       "Desktop renderer did not reload in English"
@@ -78,9 +83,24 @@ export async function acceptLegalAndSkipFirstRun(): Promise<void> {
 }
 
 export async function navigate(path: string): Promise<void> {
-  await browser.execute((nextPath) => {
-    window.location.hash = `#${nextPath}`;
-  }, path);
+  const result = await browser.executeAsync(
+    (nextPath: string, done: (result: RendererNavigationResult) => void) => {
+      const navigateToRoute = window.__rionStudioDesktopE2eNavigate;
+      if (!navigateToRoute) {
+        done({ error: "Desktop E2E router navigation is unavailable", ok: false });
+        return;
+      }
+      void navigateToRoute(nextPath).then(
+        () => done({ ok: true }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    },
+    path
+  ) as RendererNavigationResult;
+  if (!result.ok) throw new Error(result.error ?? `Desktop renderer rejected navigation to ${path}`);
   await waitForRoute(path);
 }
 

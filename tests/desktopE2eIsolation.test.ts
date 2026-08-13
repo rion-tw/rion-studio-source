@@ -45,6 +45,18 @@ describe("desktop E2E build isolation", () => {
     expect(source).toContain("return false;");
     expect(source).toContain('localStorage.getItem(storageKey) !== "en"');
     expect(source).toContain('document.documentElement.lang !== "en"');
+    expect(source).toContain("await browser.refresh()");
+    expect(source).not.toContain("window.location.reload()");
+  });
+
+  it("keeps router-native test navigation out of production renderer assets", async () => {
+    const renderer = await readFile("src/renderer/src/main.tsx", "utf8");
+    const isolationCheck = await readFile("scripts/verifyDesktopE2eIsolation.mjs", "utf8");
+
+    expect(renderer).toContain("if (__RION_DESKTOP_E2E__)");
+    expect(renderer).toContain("window.__rionStudioDesktopE2eNavigate");
+    expect(renderer).toContain("router.navigate(path)");
+    expect(isolationCheck).toContain("__rionStudioDesktopE2eNavigate");
   });
 
   it("submits Windows close through the native window queue", async () => {

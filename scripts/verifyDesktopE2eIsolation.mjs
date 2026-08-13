@@ -35,7 +35,7 @@ const rendererFiles = await readdir(rendererDir, { recursive: true }).catch(() =
 for (const relativePath of rendererFiles) {
   if (!/\.(?:html|js)$/u.test(relativePath)) continue;
   const source = await readFile(resolve(rendererDir, relativePath), "utf8");
-  if (/wdioTauri|desktop_e2e_|TAURI_WEBDRIVER_PORT/u.test(source)) {
+  if (/wdioTauri|desktop_e2e_|TAURI_WEBDRIVER_PORT|__rionStudioDesktopE2eNavigate/u.test(source)) {
     throw new Error(`Production renderer contains desktop E2E control code: ${relativePath}`);
   }
 }

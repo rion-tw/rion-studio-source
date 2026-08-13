@@ -3,12 +3,16 @@ use rion_core::{
     WebGlExecutionPath,
 };
 
+#[cfg(any(target_os = "macos", test))]
 const WEBKIT_26_5_BUILD: &str = "21624.2.5.11.4";
+#[cfg(any(target_os = "macos", test))]
 const WEBKIT_26_6_BUILD: &str = "21624.4.5.14.1";
+#[cfg(any(target_os = "macos", test))]
 const WEBKIT_STP_249_BUILD: &str = "21626.1.1";
 // Builds enter this production catalog only after the real Flyff A/B meets all
 // acceptance gates. The 2026-08-13 system-direct run did not meet the 15%
 // improvement gate, so no shipping WebKit build is currently certified.
+#[cfg(any(target_os = "macos", test))]
 const CERTIFIED_DIRECT_WEB_GL_BUILDS: &[&str] = &[];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +45,7 @@ impl RoleWebGlConfiguration {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum WebKitFeaturePreference {
     KeepDefault,
@@ -48,7 +53,9 @@ pub(super) enum WebKitFeaturePreference {
     Enable,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl WebKitFeaturePreference {
+    #[cfg(target_os = "macos")]
     pub(super) const fn native_value(self) -> i32 {
         match self {
             Self::KeepDefault => -1,
@@ -58,6 +65,7 @@ impl WebKitFeaturePreference {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct MacWebGlPolicy {
     pub(super) canvas_rendering_preference: WebKitFeaturePreference,
@@ -89,6 +97,7 @@ impl MacWebGlExperimentMode {
         }
     }
 
+    #[cfg(any(target_os = "macos", test))]
     pub(super) const fn uses_dom_rendering_override(self) -> bool {
         matches!(
             self,
@@ -96,10 +105,12 @@ impl MacWebGlExperimentMode {
         )
     }
 
+    #[cfg(any(target_os = "macos", test))]
     pub(super) const fn uses_canvas_rendering_override(self) -> bool {
         matches!(self, Self::StpGpuProcessAllRendering)
     }
 
+    #[cfg(any(target_os = "macos", test))]
     pub(super) const fn uses_gpu_process(self) -> bool {
         matches!(
             self,
@@ -129,6 +140,7 @@ pub(super) fn active_mac_web_gl_experiment() -> Option<MacWebGlExperimentMode> {
     None
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(super) fn mac_web_gl_policy(
     maximum_mode_enabled: bool,
     webkit_runtime_version: Option<&str>,
@@ -224,6 +236,7 @@ pub(super) fn mac_web_gl_policy(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn feature_status(explicitly_enabled: bool) -> MaximumWebGlPerformanceDiagnosticStatus {
     if explicitly_enabled {
         MaximumWebGlPerformanceDiagnosticStatus::Applied
@@ -232,6 +245,7 @@ fn feature_status(explicitly_enabled: bool) -> MaximumWebGlPerformanceDiagnostic
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(super) fn webkit_command_batching_status(
     webkit_runtime_version: Option<&str>,
 ) -> WebGlCommandBatchingStatus {
@@ -243,6 +257,7 @@ pub(super) fn webkit_command_batching_status(
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn certified_direct_web_gl_build(webkit_runtime_version: Option<&str>) -> bool {
     webkit_runtime_version
         .map(str::trim)

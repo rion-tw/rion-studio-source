@@ -462,6 +462,7 @@ impl SystemRuntimeExecutor {
         if let Some(surface) = state.native_resources.surface_registry.get_mut(&replacement_instance_id) {
             surface.kind = ManagedSurfaceKind::Role;
             surface.phase = ManagedSurfacePhase::Live;
+            surface.release_boundary = SurfaceReleaseBoundary::DedicatedStore;
         }
         drop(state);
         self.require_application_lifecycle_epoch(lifecycle_epoch)?;

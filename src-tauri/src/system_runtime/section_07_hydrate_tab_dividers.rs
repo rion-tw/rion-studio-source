@@ -92,7 +92,9 @@ impl SystemRuntimeExecutor {
                     &lifecycle_id,
                 )?;
                 webview.hide().map_err(RuntimeError::tauri)?;
-                let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+                let lifecycle = match self
+                    .install_shared_process_surface_lifecycle_tracker(&webview)
+                {
                     Ok(lifecycle) => lifecycle,
                     Err(error) => {
                         webview.close().map_err(RuntimeError::tauri)?;

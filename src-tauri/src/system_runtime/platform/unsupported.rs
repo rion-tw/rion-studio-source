@@ -227,7 +227,7 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
     _app: AppHandle,
     _target: SurfaceFailureTarget,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
-    let tracker = platform_surface_lifecycle_tracker(webview)?;
+    let tracker = platform_surface_lifecycle_tracker(webview, SurfaceProcessExitTracking::Enabled)?;
     install_platform_security_policy(webview)?;
     Ok(tracker)
 }
@@ -235,6 +235,7 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
 #[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     _webview: &Webview,
+    _process_exit_tracking: SurfaceProcessExitTracking,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
     tracker.mark_native_surface_released();

@@ -59,18 +59,14 @@ impl SystemRuntimeExecutor {
                 .remove(window_label);
             (role_id, released_surfaces, role_closing, active_epoch)
         };
-        let platform = if cfg!(windows) {
-            "windows"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else {
-            "other"
-        };
         for (instance_id, lifecycle) in released_surfaces {
             lifecycle.mark_controller_released();
             #[cfg(windows)]
             lifecycle.mark_native_surface_released();
-            if lifecycle.store_is_reusable(platform) {
+            if lifecycle.release_is_complete(
+                current_runtime_platform(),
+                SurfaceReleaseBoundary::SharedBrowserProcess,
+            ) {
                 let _ = self.remove_managed_surface(&instance_id);
             }
         }

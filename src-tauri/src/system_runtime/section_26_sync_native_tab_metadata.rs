@@ -655,6 +655,7 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
         _role_id: &str,
+        release_boundary: SurfaceReleaseBoundary,
     ) -> RuntimeResult<SurfaceCloseOutcome> {
         let label = webview.label().to_owned();
         {
@@ -757,7 +758,9 @@ impl SystemRuntimeExecutor {
                     );
                 }
             }
-            lifecycle.wait_for_store_reusable_event(platform).await?;
+            lifecycle
+                .wait_for_release_event(platform, release_boundary)
+                .await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
                 "surface.wrapper-released",
@@ -785,10 +788,26 @@ impl SystemRuntimeExecutor {
         lifecycle: &Arc<SurfaceLifecycleTracker>,
         role_id: &str,
     ) -> RuntimeResult<SurfaceCloseOutcome> {
+        self.close_surface_with_boundary_and_wait(
+            webview,
+            lifecycle,
+            role_id,
+            SurfaceReleaseBoundary::DedicatedStore,
+        )
+    }
+
+    fn close_surface_with_boundary_and_wait(
+        &self,
+        webview: &Webview,
+        lifecycle: &Arc<SurfaceLifecycleTracker>,
+        role_id: &str,
+        release_boundary: SurfaceReleaseBoundary,
+    ) -> RuntimeResult<SurfaceCloseOutcome> {
         tauri::async_runtime::block_on(self.close_surface_event_bound(
             webview,
             lifecycle,
             role_id,
+            release_boundary,
         ))
     }
 
@@ -930,7 +949,12 @@ impl SystemRuntimeExecutor {
                 &surface,
             );
             let close_result = self
-                .close_surface_event_bound(&surface.webview, &surface.lifecycle, lifecycle_id)
+                .close_surface_event_bound(
+                    &surface.webview,
+                    &surface.lifecycle,
+                    lifecycle_id,
+                    surface.release_boundary,
+                )
                 .await;
             match close_result {
                 Ok(outcome) => {
@@ -1006,7 +1030,10 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         surface
             .lifecycle
-            .wait_for_store_reusable_event(current_runtime_platform())
+            .wait_for_release_event(
+                current_runtime_platform(),
+                surface.release_boundary,
+            )
             .await
     }
 

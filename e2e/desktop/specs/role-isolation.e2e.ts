@@ -125,6 +125,12 @@ async function reopenStoppedRoleFromVisiblePlaceholder(
   expect(slot.state).toBe("available");
   expect(slot.owner).toBeUndefined();
 
+  await waitEvent({
+    afterSequence: 0,
+    kind: `role-placeholder-ready:${tab.id}:${role.id}`,
+    windowId: tab.windowId
+  });
+
   await navigate("/roles");
   const selectionCursor = await rendererEventCursor();
   await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`).click();

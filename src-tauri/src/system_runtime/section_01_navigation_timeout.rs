@@ -572,6 +572,27 @@ struct SurfaceReleaseState {
     terminal_failure: Option<SurfaceLifecycleFailure>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceReleaseBoundary {
+    DedicatedStore,
+    SharedBrowserProcess,
+}
+
+impl SurfaceReleaseBoundary {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::DedicatedStore => "dedicatedStore",
+            Self::SharedBrowserProcess => "sharedBrowserProcess",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceProcessExitTracking {
+    Enabled,
+    Disabled,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SurfaceLifecycleFailure {
     code: &'static str,
@@ -909,9 +930,13 @@ impl SurfaceLifecycleTracker {
     }
 
     fn store_is_reusable(&self, platform: &str) -> bool {
+        self.release_is_complete(platform, SurfaceReleaseBoundary::DedicatedStore)
+    }
+
+    fn release_is_complete(&self, platform: &str, boundary: SurfaceReleaseBoundary) -> bool {
         self.release
             .lock()
-            .is_ok_and(|release| surface_store_reusable(platform, &release))
+            .is_ok_and(|release| surface_release_complete(platform, boundary, &release))
     }
 
     async fn wait_for_isolation_event(&self) -> RuntimeResult<()> {
@@ -926,8 +951,18 @@ impl SurfaceLifecycleTracker {
             .await
     }
 
+    #[cfg(test)]
     async fn wait_for_store_reusable_event(&self, platform: &str) -> RuntimeResult<()> {
-        self.wait_for_event(|release| surface_store_reusable(platform, release))
+        self.wait_for_release_event(platform, SurfaceReleaseBoundary::DedicatedStore)
+            .await
+    }
+
+    async fn wait_for_release_event(
+        &self,
+        platform: &str,
+        boundary: SurfaceReleaseBoundary,
+    ) -> RuntimeResult<()> {
+        self.wait_for_event(|release| surface_release_complete(platform, boundary, release))
             .await
     }
 
@@ -980,13 +1015,21 @@ fn quiesce_platform_surface(
     }
 }
 
+#[cfg(test)]
 fn surface_store_reusable(platform: &str, release: &SurfaceReleaseState) -> bool {
+    surface_release_complete(platform, SurfaceReleaseBoundary::DedicatedStore, release)
+}
+
+fn surface_release_complete(
+    platform: &str,
+    boundary: SurfaceReleaseBoundary,
+    release: &SurfaceReleaseState,
+) -> bool {
     match platform {
-        "windows" => {
-            release.browser_process_exited
-                && release.controller_released
-                && release.native_surface_released
-        }
+        "windows" => release.controller_released
+            && release.native_surface_released
+            && (boundary == SurfaceReleaseBoundary::SharedBrowserProcess
+                || release.browser_process_exited),
         "macos" => release.controller_released && release.native_surface_released,
         _ => release.controller_released,
     }

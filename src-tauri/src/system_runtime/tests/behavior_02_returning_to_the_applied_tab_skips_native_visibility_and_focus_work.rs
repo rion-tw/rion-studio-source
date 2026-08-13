@@ -880,6 +880,40 @@
     }
 
     #[test]
+    fn windows_shared_process_surface_releases_without_process_exit() {
+        let tracker = SurfaceLifecycleTracker::default();
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.mark_isolated(2));
+        tracker.mark_native_surface_released();
+        tracker.mark_controller_released();
+
+        assert!(tracker.release_is_complete(
+            "windows",
+            SurfaceReleaseBoundary::SharedBrowserProcess
+        ));
+        assert!(!tracker.store_is_reusable("windows"));
+        assert!(tauri::async_runtime::block_on(tracker.wait_for_release_event(
+            "windows",
+            SurfaceReleaseBoundary::SharedBrowserProcess,
+        ))
+        .is_ok());
+        assert_eq!(
+            ManagedSurfaceKind::Role.release_boundary(),
+            SurfaceReleaseBoundary::DedicatedStore
+        );
+        for kind in [
+            ManagedSurfaceKind::Divider,
+            ManagedSurfaceKind::Popup,
+            ManagedSurfaceKind::Recovery,
+        ] {
+            assert_eq!(
+                kind.release_boundary(),
+                SurfaceReleaseBoundary::SharedBrowserProcess
+            );
+        }
+    }
+
+    #[test]
     fn runtime_health_is_diagnostic_and_does_not_own_live_topology() {
         let health = RuntimeHealth::new();
         health.mark_unhealthy();

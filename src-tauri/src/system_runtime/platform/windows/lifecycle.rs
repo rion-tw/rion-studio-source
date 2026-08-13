@@ -426,6 +426,7 @@ pub(in crate::system_runtime) fn request_platform_webview_window_show_foreground
 #[cfg(windows)]
 pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     webview: &Webview,
+    process_exit_tracking: SurfaceProcessExitTracking,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     use webview2_com::{
         take_pwstr, BrowserProcessExitedEventHandler, NavigationCompletedEventHandler,
@@ -457,27 +458,32 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
                     .map_err(|error| {
                         windows_surface_lifecycle_error("lifecycle-process-id", error)
                     })?;
-                let environment: ICoreWebView2Environment5 =
-                    platform_webview.environment().cast().map_err(|error| {
-                        windows_surface_lifecycle_error("lifecycle-environment", error)
-                    })?;
-                let environment_lease = std::rc::Rc::new(std::cell::RefCell::new(Some(
-                    environment.clone(),
-                )));
-                let callback_environment_lease = std::rc::Rc::clone(&environment_lease);
-                let handler = BrowserProcessExitedEventHandler::create(Box::new(
-                    move |_environment, _args| {
-                        let _ = callback_tracker.mark_browser_process_exited();
-                        callback_environment_lease.borrow_mut().take();
-                        Ok(())
-                    },
-                ));
-                let mut token = 0;
-                environment
-                    .add_BrowserProcessExited(&handler, &mut token)
-                    .map_err(|error| {
-                        windows_surface_lifecycle_error("lifecycle-process-exit-handler", error)
-                    })?;
+                if process_exit_tracking == SurfaceProcessExitTracking::Enabled {
+                    let environment: ICoreWebView2Environment5 =
+                        platform_webview.environment().cast().map_err(|error| {
+                            windows_surface_lifecycle_error("lifecycle-environment", error)
+                        })?;
+                    let environment_lease = std::rc::Rc::new(std::cell::RefCell::new(Some(
+                        environment.clone(),
+                    )));
+                    let callback_environment_lease = std::rc::Rc::clone(&environment_lease);
+                    let handler = BrowserProcessExitedEventHandler::create(Box::new(
+                        move |_environment, _args| {
+                            let _ = callback_tracker.mark_browser_process_exited();
+                            callback_environment_lease.borrow_mut().take();
+                            Ok(())
+                        },
+                    ));
+                    let mut token = 0;
+                    environment
+                        .add_BrowserProcessExited(&handler, &mut token)
+                        .map_err(|error| {
+                            windows_surface_lifecycle_error(
+                                "lifecycle-process-exit-handler",
+                                error,
+                            )
+                        })?;
+                }
                 let starting = NavigationStartingEventHandler::create(Box::new(
                     move |_webview, args| {
                         let Some(args) = args else {

@@ -195,7 +195,9 @@ impl SystemRuntimeExecutor {
                             match popup_app.try_state::<crate::CoreState>().map(|state| {
                                 state
                                     .runtime
-                                    .install_surface_lifecycle_tracker(window.as_ref())
+                                    .install_shared_process_surface_lifecycle_tracker(
+                                        window.as_ref(),
+                                    )
                             }) {
                                 Some(Ok(lifecycle)) => lifecycle,
                                 Some(Err(error)) => {

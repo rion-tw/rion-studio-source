@@ -196,7 +196,14 @@ impl SystemRuntimeExecutor {
         &self,
         webview: &Webview,
     ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
-        platform_surface_lifecycle_tracker(webview)
+        platform_surface_lifecycle_tracker(webview, SurfaceProcessExitTracking::Enabled)
+    }
+
+    fn install_shared_process_surface_lifecycle_tracker(
+        &self,
+        webview: &Webview,
+    ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+        platform_surface_lifecycle_tracker(webview, SurfaceProcessExitTracking::Disabled)
     }
 
     fn setup_role_surface(
@@ -297,6 +304,7 @@ impl SystemRuntimeExecutor {
                 lifecycle: Arc::clone(lifecycle),
                 native_lifecycle_lane: Arc::new(Mutex::new(())),
                 phase,
+                release_boundary: kind.release_boundary(),
                 role_id: role_id.map(str::to_owned),
                 tab_id: tab_id.map(str::to_owned),
                 webview: webview.clone(),
@@ -318,7 +326,12 @@ impl SystemRuntimeExecutor {
             };
             if role_fenced {
                 if let Some(role_id) = role_id {
-                    let _ = self.close_surface_and_wait(webview, lifecycle, role_id);
+                    let _ = self.close_surface_with_boundary_and_wait(
+                        webview,
+                        lifecycle,
+                        role_id,
+                        kind.release_boundary(),
+                    );
                 }
                 return Err(RuntimeError::new(
                     "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
@@ -408,6 +421,9 @@ impl SystemRuntimeExecutor {
                 )
             })?;
             surface.phase = phase;
+            if phase == ManagedSurfacePhase::Retired {
+                surface.release_boundary = SurfaceReleaseBoundary::SharedBrowserProcess;
+            }
             surface.clone()
         };
         self.record_surface_event(
@@ -476,6 +492,7 @@ impl SystemRuntimeExecutor {
             "navigationMatched": event == "surface.blank-finished",
             "phase": surface.phase.as_str(),
             "platform": if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "other" },
+            "releaseBoundary": surface.release_boundary.as_str(),
             "roleId": surface.role_id,
             "tabId": surface.tab_id,
             "staleNativeEventCount": surface.lifecycle.stale_native_event_count(),

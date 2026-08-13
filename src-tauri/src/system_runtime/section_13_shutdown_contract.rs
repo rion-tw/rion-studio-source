@@ -82,7 +82,11 @@ impl SystemRuntimeExecutor {
         let platform = current_runtime_platform();
         let unreleased_count = surfaces
             .iter()
-            .filter(|surface| !surface.lifecycle.store_is_reusable(platform))
+            .filter(|surface| {
+                !surface
+                    .lifecycle
+                    .release_is_complete(platform, surface.release_boundary)
+            })
             .count();
         let hosts = match self.take_shutdown_hosts() {
             Ok(snapshot) => snapshot,

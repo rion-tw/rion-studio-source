@@ -59,15 +59,41 @@ impl SystemRuntimeExecutor {
             "role-placeholder",
             &format!("{tab_id}:{}", slot.slot_id),
         );
+        let builder = WebviewBuilder::new(
+            label,
+            WebviewUrl::App("runtime-role-placeholder.html".into()),
+        )
+        .disable_drag_drop_handler()
+        .initialization_script(&initialization_script);
+        #[cfg(feature = "desktop-e2e")]
+        let builder = {
+            let ready_kind = format!("role-placeholder-ready:{tab_id}:{}", slot.role.id);
+            let ready_role_id = slot.role.id.clone();
+            let ready_slot_id = slot.slot_id.clone();
+            let ready_tab_id = tab_id.to_owned();
+            let ready_window_id = window_id.to_owned();
+            builder.on_page_load(move |_webview, payload| {
+                if payload.event() == PageLoadEvent::Finished {
+                    // ES module scripts finish before the document load event, so this is the
+                    // authoritative boundary where the visible claim button owns its handler.
+                    crate::desktop_e2e::record_event(
+                        &ready_kind,
+                        Some(&ready_window_id),
+                        None,
+                        None,
+                        json!({
+                            "roleId": ready_role_id,
+                            "slotId": ready_slot_id,
+                            "tabId": ready_tab_id,
+                        }),
+                    );
+                }
+            })
+        };
         let webview = self.with_native_creation_lane(window_id, || {
             self.add_child_bounded(
                 window,
-                WebviewBuilder::new(
-                    label,
-                    WebviewUrl::App("runtime-role-placeholder.html".into()),
-                )
-                .disable_drag_drop_handler()
-                .initialization_script(&initialization_script),
+                builder,
                 LogicalPosition::new(bounds.x, bounds.y),
                 LogicalSize::new(bounds.width, bounds.height),
                 &format!("{tab_id}:placeholder:{}", slot.slot_id),

@@ -521,8 +521,11 @@ pub(in crate::system_runtime) fn platform_role_surface_setup(
     target: SurfaceFailureTarget,
     navigation: Arc<NavigationTracker>,
 ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
-    let lifecycle =
-        platform_surface_lifecycle_tracker(webview).map_err(|error| RoleSurfaceSetupFailure {
+    let lifecycle = platform_surface_lifecycle_tracker(
+        webview,
+        SurfaceProcessExitTracking::Enabled,
+    )
+    .map_err(|error| RoleSurfaceSetupFailure {
             error: windows_role_lifecycle_setup_error(error),
             lifecycle: None,
         })?;

@@ -413,7 +413,12 @@ impl SystemRuntimeExecutor {
         self.clear_role_keys(role_id);
         let surface_ids = self.managed_surface_ids_for_role(role_id)?;
         let isolation_result = if surface_ids.is_empty() {
-            self.close_surface_event_bound(&webview, &lifecycle, role_id)
+            self.close_surface_event_bound(
+                &webview,
+                &lifecycle,
+                role_id,
+                SurfaceReleaseBoundary::DedicatedStore,
+            )
                 .await?;
             Ok(())
         } else {

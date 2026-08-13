@@ -905,6 +905,7 @@ unsafe extern "C" fn drop_macos_surface_context(context: *mut std::ffi::c_void) 
 #[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     webview: &Webview,
+    _process_exit_tracking: SurfaceProcessExitTracking,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     unsafe extern "C" {
         fn rion_wk_track_surface(

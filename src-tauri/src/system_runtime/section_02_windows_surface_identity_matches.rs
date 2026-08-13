@@ -59,6 +59,15 @@ impl ManagedSurfaceKind {
             Self::Role => "role",
         }
     }
+
+    const fn release_boundary(self) -> SurfaceReleaseBoundary {
+        match self {
+            Self::Role => SurfaceReleaseBoundary::DedicatedStore,
+            Self::Divider | Self::Popup | Self::Recovery => {
+                SurfaceReleaseBoundary::SharedBrowserProcess
+            }
+        }
+    }
 }
 
 const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
@@ -143,6 +152,7 @@ struct ManagedSurface {
     lifecycle: Arc<SurfaceLifecycleTracker>,
     native_lifecycle_lane: Arc<Mutex<()>>,
     phase: ManagedSurfacePhase,
+    release_boundary: SurfaceReleaseBoundary,
     role_id: Option<String>,
     tab_id: Option<String>,
     webview: Webview,

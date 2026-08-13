@@ -883,10 +883,24 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
   });
 
   it("keeps surface close and main focus completion strictly event-bound", async () => {
-    const [surfaceClose, mainWindow, windowsLifecycle, macLifecycle] = await Promise.all([
+    const [surfaceClose, roleSetup, sessionStorage, mainWindow, windowsLifecycle, macLifecycle] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/system_runtime/section_26_sync_native_tab_metadata.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_08_runtime_game_window_save_input.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_29_session_storage.rs",
           import.meta.url
         ),
         "utf8"
@@ -938,6 +952,8 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     }
     expect(surfaceContinuation).toContain("wait_for_isolation_event().await");
     expect(surfaceContinuation).toContain("wait_for_native_release_event().await");
+    expect(surfaceContinuation.indexOf("persist_role_cookie_checkpoint(webview, role_id)"))
+      .toBeLessThan(surfaceContinuation.indexOf("quiesce_platform_surface(webview, lifecycle)"));
     expect(focusContinuation).toContain("MainWindowApplyResult::FocusSubmitted");
     expect(focusContinuation).toContain(".recv()");
     expect(focusContinuation).not.toContain("is_focused");
@@ -946,18 +962,18 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(windowsIsolation).toContain("add_NavigationStarting");
     expect(windowsIsolation).toContain("add_NavigationCompleted");
     expect(windowsIsolation).toContain("windows_surface_navigation_completion");
-    expect(windowsIsolation).toContain("GetCookies(PCWSTR::null(), &checkpoint)");
-    expect(windowsIsolation).toContain("AddOrUpdateCookie(&cookie)");
-    const windowsCheckpoint = windowsIsolation.slice(
-      windowsIsolation.indexOf("let checkpoint = GetCookiesCompletedHandler"),
-      windowsIsolation.indexOf("GetCookies(PCWSTR::null(), &checkpoint)")
-    );
-    expect(windowsCheckpoint.indexOf("AddOrUpdateCookie(&cookie)"))
-      .toBeLessThan(windowsCheckpoint.indexOf("checkpoint_core.Stop()"));
-    expect(windowsCheckpoint.indexOf("checkpoint_core.Stop()"))
-      .toBeLessThan(windowsCheckpoint.indexOf(
-        "Navigate(&windows::core::HSTRING::from(\"about:blank\"))"
+    expect(windowsIsolation).not.toContain("GetCookiesCompletedHandler");
+    expect(windowsIsolation.indexOf("core.Stop()"))
+      .toBeLessThan(windowsIsolation.indexOf(
+        "core.Navigate(&windows::core::HSTRING::from(\"about:blank\"))"
       ));
+    expect(roleSetup.indexOf("platform_role_surface_setup("))
+      .toBeLessThan(roleSetup.indexOf("restore_role_cookie_checkpoint(webview, role_id)"));
+    expect(sessionStorage).toContain("webview.cookies()");
+    expect(sessionStorage).toContain("protect_session_transfer(");
+    expect(sessionStorage).toContain("write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE");
+    expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))
+      .toBeLessThan(sessionStorage.indexOf("verify_cookie_readback(&cookies, &readback)"));
     expect(macLifecycle).not.toContain("addObserver:");
     expect(macLifecycle).not.toContain("webView.loading");
     expect(macLifecycle).not.toContain("webView.URL");

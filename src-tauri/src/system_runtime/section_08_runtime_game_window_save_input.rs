@@ -242,7 +242,15 @@ impl SystemRuntimeExecutor {
                 generation,
             },
             navigation,
-        );
+        )
+        .and_then(|lifecycle| {
+            self.restore_role_cookie_checkpoint(webview, role_id)
+                .map_err(|error| RoleSurfaceSetupFailure {
+                    error,
+                    lifecycle: Some(Arc::clone(&lifecycle)),
+                })?;
+            Ok(lifecycle)
+        });
         let receipt = match result.as_ref() {
             Ok(_) => NativeOperationReceipt::applied(operation, "securityPolicyInstalled"),
             Err(failure) => NativeOperationReceipt::with_status(

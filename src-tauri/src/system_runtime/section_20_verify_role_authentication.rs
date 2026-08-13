@@ -281,6 +281,10 @@ impl SystemRuntimeExecutor {
             let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
             return Err(error);
         }
+        if let Err(error) = self.restore_role_cookie_checkpoint(&webview, role_id) {
+            let _ = self.close_hidden_surface(role_id, window, webview, &lifecycle);
+            return Err(error);
+        }
         Ok((window, webview, navigation, lifecycle))
     }
 
@@ -308,8 +312,13 @@ impl SystemRuntimeExecutor {
         let (window, webview, _, lifecycle) =
             self.create_session_transfer_surface(role_id, paths, None)?;
         let result = restore_url_cookies(&webview, launch, backup);
+        let checkpoint = if result.is_ok() {
+            self.persist_role_cookie_checkpoint(&webview, role_id)
+        } else {
+            Ok(())
+        };
         let cleanup = self.close_hidden_surface(role_id, window, webview, &lifecycle);
-        result.and(cleanup)
+        result.and(checkpoint).and(cleanup)
     }
 
     fn restore_role_local_storage(

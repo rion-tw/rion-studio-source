@@ -292,6 +292,10 @@ impl SystemRuntimeExecutor {
             let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
             return Err(error);
         }
+        if let Err(error) = self.restore_role_cookie_checkpoint(&webview, role_id) {
+            let _ = self.close_managed_surface_and_wait(&replacement_instance_id, role_id);
+            return Err(error);
+        }
 
         self.update_surface_recovery_phase(transaction, "navigating");
         let controlled_label = replacement_label.clone();

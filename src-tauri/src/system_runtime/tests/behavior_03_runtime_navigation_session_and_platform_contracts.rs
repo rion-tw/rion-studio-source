@@ -475,6 +475,51 @@ use uuid::Uuid;
         verify_cookie_readback(&[unspecified], &[native_readback]).unwrap();
     }
 
+    #[test]
+    fn role_cookie_checkpoint_uses_the_role_browser_boundary_and_rejects_expired_entries() {
+        let directory = role_cookie_checkpoint_directory(Path::new("/runtime"), "role-a").unwrap();
+        assert_eq!(
+            directory,
+            Path::new("/runtime/roles/role-a/browser")
+        );
+
+        let mut record = SessionCookieRecord {
+            name: "session".to_owned(),
+            value: "value".to_owned(),
+            domain: Some("game.example.test".to_owned()),
+            path: "/".to_owned(),
+            secure: true,
+            http_only: true,
+            same_site: "strict".to_owned(),
+            expires_unix_ms: Some(2_000),
+        };
+        assert!(role_cookie_checkpoint_entry_is_live(&record, 1_999));
+        assert!(!role_cookie_checkpoint_entry_is_live(&record, 2_000));
+
+        let cookie = role_cookie_from_checkpoint(&record).unwrap();
+        assert_eq!(cookie.domain(), Some("game.example.test"));
+        assert_eq!(cookie.secure(), Some(true));
+        assert_eq!(cookie.http_only(), Some(true));
+
+        record.domain = None;
+        assert_eq!(
+            role_cookie_from_checkpoint(&record).unwrap_err().code,
+            "ROLE_COOKIE_CHECKPOINT_INVALID"
+        );
+    }
+
+    #[test]
+    fn role_cookie_checkpoint_payload_has_an_explicit_format_version() {
+        let checkpoint = PersistedRoleCookieCheckpoint {
+            version: ROLE_COOKIE_CHECKPOINT_VERSION,
+            cookies: Vec::new(),
+        };
+        let serialized = serde_json::to_vec(&checkpoint).unwrap();
+        let decoded: PersistedRoleCookieCheckpoint = serde_json::from_slice(&serialized).unwrap();
+        assert_eq!(decoded.version, 1);
+        assert!(decoded.cookies.is_empty());
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_security_policy_installs_dialogs_and_denies_undefined_media_permissions() {

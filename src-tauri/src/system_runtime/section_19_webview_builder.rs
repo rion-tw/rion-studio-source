@@ -431,7 +431,8 @@ impl SystemRuntimeExecutor {
             .close_surface_and_wait(&webview, &lifecycle, role_id)
             .map(|_| ());
         let _ = window.close();
-        result.and(cleanup)
+        result.and(cleanup)?;
+        self.remove_role_cookie_checkpoint(role_id)
     }
 
     fn apply_role_session_transfer(
@@ -542,6 +543,11 @@ impl SystemRuntimeExecutor {
             }
             Ok((cookie_backup, storage_backup, import_cookies))
         })();
+        let snapshot_checkpoint = if snapshot_result.is_ok() {
+            self.persist_role_cookie_checkpoint(&snapshot_webview, role_id)
+        } else {
+            Ok(())
+        };
         let snapshot_cleanup = self.close_hidden_surface(
             role_id,
             snapshot_window,
@@ -549,9 +555,11 @@ impl SystemRuntimeExecutor {
             &snapshot_lifecycle,
         );
         let (cookie_backup, storage_backup, import_cookies) =
-            match (snapshot_result, snapshot_cleanup) {
-                (Ok(result), Ok(())) => result,
-                (Err(error), _) | (Ok(_), Err(error)) => return Err(error),
+            match (snapshot_result, snapshot_checkpoint, snapshot_cleanup) {
+                (Ok(result), Ok(()), Ok(())) => result,
+                (Err(error), _, _) | (Ok(_), Err(error), _) | (Ok(_), Ok(()), Err(error)) => {
+                    return Err(error);
+                }
             };
 
         let storage_required = replace_existing || !payload.local_storage.is_empty();

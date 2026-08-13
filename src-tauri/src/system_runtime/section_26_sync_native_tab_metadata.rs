@@ -654,7 +654,8 @@ impl SystemRuntimeExecutor {
         &self,
         webview: &Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
-        _role_id: &str,
+        role_id: &str,
+        checkpoint_role_cookies: bool,
         release_boundary: SurfaceReleaseBoundary,
     ) -> RuntimeResult<SurfaceCloseOutcome> {
         let label = webview.label().to_owned();
@@ -673,6 +674,15 @@ impl SystemRuntimeExecutor {
         }
         let result: RuntimeResult<SurfaceCloseOutcome> = async {
             let platform = current_runtime_platform();
+            if checkpoint_role_cookies && !lifecycle.native_surface_is_released() {
+                self.persist_role_cookie_checkpoint(webview, role_id)?;
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.cookies-checkpointed",
+                    "The live role cookies were durably checkpointed before native isolation.",
+                    &label,
+                );
+            }
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.blank-requested",
@@ -807,6 +817,7 @@ impl SystemRuntimeExecutor {
             webview,
             lifecycle,
             role_id,
+            false,
             release_boundary,
         ))
     }
@@ -953,6 +964,7 @@ impl SystemRuntimeExecutor {
                     &surface.webview,
                     &surface.lifecycle,
                     lifecycle_id,
+                    surface.kind == ManagedSurfaceKind::Role,
                     surface.release_boundary,
                 )
                 .await;

@@ -25,6 +25,32 @@ fn role_session_paths(user_data_dir: &Path, role_id: &str) -> RuntimeResult<Sess
     })
 }
 
+#[cfg(any(windows, test))]
+const ROLE_COOKIE_CHECKPOINT_VERSION: u32 = 1;
+#[cfg(windows)]
+const ROLE_COOKIE_CHECKPOINT_FILE: &str = "cookie-checkpoint.enc";
+
+#[cfg(any(windows, test))]
+#[derive(Debug, Deserialize, Serialize)]
+struct PersistedRoleCookieCheckpoint {
+    version: u32,
+    cookies: Vec<SessionCookieRecord>,
+}
+
+#[cfg(any(windows, test))]
+fn role_cookie_checkpoint_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<PathBuf> {
+    role_session_paths(user_data_dir, role_id)?
+        .webview2
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_PATH_INVALID",
+                "The role browser directory is unavailable.",
+            )
+        })
+}
+
 fn checked_web_url(value: &str) -> RuntimeResult<Url> {
     let url = Url::parse(value)
         .map_err(|_| RuntimeError::new("TAURI_URL_INVALID", "Role URL is invalid."))?;
@@ -210,6 +236,13 @@ fn transfer_cookie(record: &SessionCookieRecord, launch: &Url) -> RuntimeResult<
                 "Imported cookie has no valid domain.",
             )
         })?;
+    Ok(session_cookie_from_record(record, domain))
+}
+
+fn session_cookie_from_record(
+    record: &SessionCookieRecord,
+    domain: &str,
+) -> Cookie<'static> {
     let mut builder = Cookie::build((record.name.clone(), record.value.clone()))
         .domain(domain.to_owned())
         .path(record.path.clone());
@@ -233,7 +266,177 @@ fn transfer_cookie(record: &SessionCookieRecord, launch: &Url) -> RuntimeResult<
     {
         builder = builder.expires(expires);
     }
-    Ok(builder.build())
+    builder.build()
+}
+
+#[cfg(any(windows, test))]
+fn role_cookie_from_checkpoint(
+    record: &SessionCookieRecord,
+) -> RuntimeResult<Cookie<'static>> {
+    let domain = record
+        .domain
+        .as_deref()
+        .filter(|domain| !domain.trim().is_empty())
+        .ok_or_else(|| {
+            RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_INVALID",
+                "A role cookie checkpoint entry has no valid domain.",
+            )
+        })?;
+    Ok(session_cookie_from_record(record, domain))
+}
+
+#[cfg(any(windows, test))]
+fn role_cookie_checkpoint_entry_is_live(
+    record: &SessionCookieRecord,
+    now_unix_ms: i64,
+) -> bool {
+    record
+        .expires_unix_ms
+        .is_none_or(|expires_unix_ms| expires_unix_ms > now_unix_ms)
+}
+
+impl SystemRuntimeExecutor {
+    #[cfg(windows)]
+    fn persist_role_cookie_checkpoint(
+        &self,
+        webview: &Webview,
+        role_id: &str,
+    ) -> RuntimeResult<()> {
+        let now_unix_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
+        let cookies = webview.cookies().map_err(|error| {
+            RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_READ_FAILED",
+                format!("System WebView could not read the live role cookies: {error}"),
+            )
+        })?;
+        let records = cookies
+            .iter()
+            .map(native_cookie_record)
+            .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
+            .collect::<Vec<_>>();
+        for record in &records {
+            role_cookie_from_checkpoint(record)?;
+        }
+        let serialized = serde_json::to_vec(&PersistedRoleCookieCheckpoint {
+            version: ROLE_COOKIE_CHECKPOINT_VERSION,
+            cookies: records,
+        })
+        .map_err(|error| {
+            RuntimeError::new("ROLE_COOKIE_CHECKPOINT_WRITE_FAILED", error.to_string())
+        })?;
+        let protected = rion_platform::protect_session_transfer(
+            rion_platform::Platform::Windows,
+            &serialized,
+        )
+        .map_err(|error| {
+            RuntimeError::new("ROLE_COOKIE_CHECKPOINT_WRITE_FAILED", error.to_string())
+        })?;
+        let directory = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)?;
+        write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE, &protected).map_err(|error| {
+            RuntimeError::new("ROLE_COOKIE_CHECKPOINT_WRITE_FAILED", error.message)
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn persist_role_cookie_checkpoint(
+        &self,
+        _webview: &Webview,
+        _role_id: &str,
+    ) -> RuntimeResult<()> {
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn restore_role_cookie_checkpoint(
+        &self,
+        webview: &Webview,
+        role_id: &str,
+    ) -> RuntimeResult<()> {
+        let path = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)?
+            .join(ROLE_COOKIE_CHECKPOINT_FILE);
+        let protected = match fs::read(&path) {
+            Ok(protected) => protected,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(RuntimeError::new(
+                    "ROLE_COOKIE_CHECKPOINT_READ_FAILED",
+                    format!("The encrypted role cookie checkpoint is unavailable: {error}"),
+                ));
+            }
+        };
+        let plaintext = rion_platform::unprotect_session_transfer(
+            rion_platform::Platform::Windows,
+            &protected,
+        )
+        .map_err(|error| {
+            RuntimeError::new("ROLE_COOKIE_CHECKPOINT_INVALID", error.to_string())
+        })?;
+        let checkpoint: PersistedRoleCookieCheckpoint = serde_json::from_slice(&plaintext)
+            .map_err(|error| {
+                RuntimeError::new("ROLE_COOKIE_CHECKPOINT_INVALID", error.to_string())
+            })?;
+        if checkpoint.version != ROLE_COOKIE_CHECKPOINT_VERSION {
+            return Err(RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_INVALID",
+                "The role cookie checkpoint version is unsupported.",
+            ));
+        }
+        let now_unix_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
+        let cookies = checkpoint
+            .cookies
+            .iter()
+            .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
+            .map(role_cookie_from_checkpoint)
+            .collect::<RuntimeResult<Vec<_>>>()?;
+        for cookie in &cookies {
+            webview
+                .set_cookie(cookie.clone())
+                .map_err(|error| {
+                    RuntimeError::new(
+                        "ROLE_COOKIE_CHECKPOINT_RESTORE_FAILED",
+                        format!("System WebView could not restore a role cookie: {error}"),
+                    )
+                })?;
+        }
+        let readback = webview.cookies().map_err(|error| {
+            RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_RESTORE_FAILED",
+                format!("System WebView could not verify restored role cookies: {error}"),
+            )
+        })?;
+        verify_cookie_readback(&cookies, &readback).map_err(|error| {
+            RuntimeError::new("ROLE_COOKIE_CHECKPOINT_RESTORE_FAILED", error.message)
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn restore_role_cookie_checkpoint(
+        &self,
+        _webview: &Webview,
+        _role_id: &str,
+    ) -> RuntimeResult<()> {
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn remove_role_cookie_checkpoint(&self, role_id: &str) -> RuntimeResult<()> {
+        let path = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)?
+            .join(ROLE_COOKIE_CHECKPOINT_FILE);
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_CLEAR_FAILED",
+                format!("The encrypted role cookie checkpoint could not be removed: {error}"),
+            )),
+        }
+    }
+
+    #[cfg(not(windows))]
+    fn remove_role_cookie_checkpoint(&self, _role_id: &str) -> RuntimeResult<()> {
+        Ok(())
+    }
 }
 
 fn verify_cookie_readback(

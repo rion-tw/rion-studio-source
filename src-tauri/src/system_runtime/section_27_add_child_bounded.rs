@@ -417,6 +417,7 @@ impl SystemRuntimeExecutor {
                 &webview,
                 &lifecycle,
                 role_id,
+                true,
                 SurfaceReleaseBoundary::DedicatedStore,
             )
                 .await?;

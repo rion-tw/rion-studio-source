@@ -69,15 +69,29 @@ impl SystemRuntimeExecutor {
                 role_id, tab_id, ..
             } => {
                 desktop_e2e_require_selected_tab(&projection, tab_id, "role surface")?;
-                let webview = self
-                    .state()
-                    .map_err(|error| error.message)?
-                    .native_resources
-                    .tabs
-                    .get(tab_id)
-                    .and_then(|tab| tab.roles.get(role_id))
-                    .map(|surface| surface.webview.clone())
-                    .ok_or_else(|| "The requested live role surface was not found.".to_owned())?;
+                let (window, webview) = {
+                    let state = self.state().map_err(|error| error.message)?;
+                    let window = state
+                        .native_resources
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.window.clone())
+                        .ok_or_else(|| {
+                            "The requested live Game Window was not found.".to_owned()
+                        })?;
+                    let webview = state
+                        .native_resources
+                        .tabs
+                        .get(tab_id)
+                        .and_then(|tab| tab.roles.get(role_id))
+                        .map(|surface| surface.webview.clone())
+                        .ok_or_else(|| {
+                            "The requested live role surface was not found.".to_owned()
+                        })?;
+                    (window, webview)
+                };
+                request_platform_window_show_foreground(&window)
+                    .map_err(|error| error.message)?;
                 webview.set_focus().map_err(|error| error.to_string())?;
                 webview
                     .eval("globalThis.focus(); const button = document.querySelector('#qa-target'); button?.focus(); button?.click();")

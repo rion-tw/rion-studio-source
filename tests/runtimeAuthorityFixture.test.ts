@@ -52,7 +52,18 @@ describe("runtime authority fixture launch gates", () => {
     expect(() => new Function(source.slice(start, end))).not.toThrow();
     expect(source).toContain('const sessionMode = "seed"');
     expect(source).toContain('const sessionMarker = "marker-a"');
-    expect(source).toContain("Max-Age=86400; SameSite=Strict");
+    expect(source).toContain('fetch("/api/session-cookie"');
+    expect(source).toContain('credentials: "same-origin"');
+  });
+
+  it("seeds persistent session cookies through an acknowledged HTTP response", async () => {
+    const { origin } = await startFixture();
+    const response = await post(origin, "/api/session-cookie", { marker: "marker-a" });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("set-cookie")).toBe(
+      "rion-e2e-session=marker-a; Path=/; Max-Age=86400; SameSite=Strict"
+    );
   });
 
   it("assigns monotonic event sequences and resolves filtered event waits", async () => {

@@ -77,4 +77,25 @@ describe("desktop E2E build isolation", () => {
     expect(closeControl).toContain("WM_CLOSE");
     expect(closeControl).not.toContain("window.close()");
   });
+
+  it("focuses the native Game Window before the desktop E2E role surface", async () => {
+    const [controlSource, journeySource] = await Promise.all([
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8"),
+      readFile("e2e/desktop/specs/game-window-lifecycle.e2e.ts", "utf8")
+    ]);
+    const focusRole = controlSource.slice(
+      controlSource.indexOf("DesktopE2eRuntimeUiActionRequest::FocusRole"),
+      controlSource.indexOf("DesktopE2eRuntimeUiActionRequest::PressRoleSlot")
+    );
+    const forceTerminate = journeySource.slice(
+      journeySource.indexOf("async function forceTerminatePhase"),
+      journeySource.indexOf("async function crashRestartPhase")
+    );
+
+    expect(focusRole).toContain("host.window.clone()");
+    expect(focusRole.indexOf("request_platform_window_show_foreground(&window)"))
+      .toBeLessThan(focusRole.indexOf("webview.set_focus()"));
+    expect(forceTerminate.indexOf('kind: "window-focus-persisted"'))
+      .toBeLessThan(forceTerminate.indexOf("await runtimeUiAction(WINDOW_C"));
+  });
 });

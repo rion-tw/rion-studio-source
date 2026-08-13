@@ -211,6 +211,39 @@ fn native_focus_observation_confirms_matching_intent_and_supersedes_other_window
 }
 
 #[test]
+fn native_focus_before_submission_supersedes_the_pending_matching_intent() {
+    let broker = NativeFocusBroker::default();
+    broker.observe_application_foreground();
+    let pending = broker.accept(
+        "window-a",
+        3,
+        9,
+        Some("tab-a".to_owned()),
+        NativePresentationFocus::WindowAndContent,
+    );
+
+    let observed = broker
+        .observe_native_focus("window-a", 3, 9, Some("tab-a".to_owned()))
+        .expect("the native event is authoritative before actor submission");
+
+    assert_ne!(observed.sequence, pending.sequence);
+    assert_eq!(observed.origin, NativeFocusIntentOrigin::NativeObservation);
+    assert!(broker.is_confirmed(&observed));
+    assert!(!broker.is_current(&pending));
+    assert!(!broker.mark_submitted(&pending));
+    assert_eq!(
+        broker
+            .state
+            .lock()
+            .unwrap()
+            .last_observed
+            .as_ref()
+            .map(|lease| lease.window_id.as_str()),
+        Some("window-a")
+    );
+}
+
+#[test]
 fn focus_revocation_is_scoped_to_the_exact_window_generation() {
     let broker = NativeFocusBroker::default();
     broker.observe_application_foreground();

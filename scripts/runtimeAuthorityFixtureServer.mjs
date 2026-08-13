@@ -181,13 +181,22 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     addEventListener("blur", () => record("blur"));
     document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));
     const cookieValue = () => document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(sessionKey + "="))?.slice(sessionKey.length + 1) ?? null;
-    const before = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
-    if (sessionMode === "seed") {
-      localStorage.setItem(sessionKey, sessionMarker);
-      document.cookie = sessionKey + "=" + encodeURIComponent(sessionMarker) + "; Path=/; Max-Age=86400; SameSite=Strict";
-    }
-    const after = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
-    record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
+    const recordSession = async () => {
+      const before = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+      if (sessionMode === "seed") {
+        localStorage.setItem(sessionKey, sessionMarker);
+        const response = await fetch("/api/session-cookie", {
+          body: JSON.stringify({ marker: sessionMarker }),
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          method: "POST"
+        });
+        if (!response.ok) throw new Error("Session cookie seed failed with " + response.status);
+      }
+      const after = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+      record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
+    };
+    void recordSession();
     record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden });
   </script>
 </body>
@@ -431,6 +440,20 @@ const server = createServer(async (request, response) => {
         failedAttempts: failure.failedAttempts,
         roleId: body.roleId
       });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/session-cookie") {
+      const body = await requestBody(request);
+      if (typeof body.marker !== "string" || !/^[a-z0-9-]{1,80}$/.test(body.marker)) {
+        json(response, 400, { error: "invalid fixture session marker" });
+        return;
+      }
+      response.writeHead(204, {
+        "cache-control": "no-store",
+        "content-length": 0,
+        "set-cookie": `rion-e2e-session=${encodeURIComponent(body.marker)}; Path=/; Max-Age=86400; SameSite=Strict`
+      });
+      response.end();
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/event") {

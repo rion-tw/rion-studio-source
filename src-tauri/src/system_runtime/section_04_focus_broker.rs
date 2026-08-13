@@ -228,15 +228,11 @@ impl NativeFocusBroker {
             }
             return Some(current);
         }
-        if self.state.lock().ok().is_some_and(|state| {
-            state.current.as_ref().is_some_and(|lease| {
-                lease.window_id == window_id
-                    && lease.window_generation == window_generation
-                    && lease.lifecycle_epoch == lifecycle_epoch
-            })
-        }) {
-            return None;
-        }
+        // Native focus can arrive while a matching presentation intent is queued but before
+        // its actor marks the lease submitted (for example, when AppKit focuses a newly shown
+        // window during creation). The native event is still authoritative. Replace the
+        // unsubmitted intent with an observation so later restore-session persistence cannot
+        // fall back to an older window.
         let observed = self.accept_with_origin(
             window_id,
             window_generation,

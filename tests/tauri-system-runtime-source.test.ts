@@ -210,7 +210,7 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(nativeClose).toContain("!lifecycle.parent_window_destroyed()");
     expect(nativeClose).toContain('"surface.native-release-requested"');
     expect(nativeClose).not.toContain("SURFACE_ISOLATION_TIMEOUT");
-    expect(nativeClose).toContain("wait_for_store_reusable_event(platform).await");
+    expect(nativeClose).toContain("wait_for_release_event(platform, release_boundary)");
     expect(nativeClose).not.toContain("recv_timeout");
     expect(nativeClose).not.toContain("wait_timeout");
     expect(runtime).toContain("complete_destroyed_host_surface_continuations(window_id, *generation)");

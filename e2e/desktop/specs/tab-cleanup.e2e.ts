@@ -104,6 +104,20 @@ async function showWindowFromUi(windowId: string, minimumGeneration = 1): Promis
       minimumGeneration,
       windowId
     });
+  } else if (process.platform === "darwin") {
+    const restoring = await windowSnapshot(windowId);
+    const selectedTabId = restoring.kernel?.selectedTabId;
+    if (selectedTabId) {
+      // `window-context-initialized` precedes AppKit's restored tab reservation. Navigating is
+      // published only after the selected tab's native control and role surfaces are attached.
+      await waitEvent({
+        afterSequence: cursor,
+        kind: `tab-launch-phase:${selectedTabId}:navigating`,
+        minimumGeneration,
+        timeoutMs: 55_000,
+        windowId
+      });
+    }
   }
   return windowSnapshot(windowId);
 }

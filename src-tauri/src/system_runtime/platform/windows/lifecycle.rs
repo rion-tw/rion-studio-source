@@ -442,7 +442,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> RuntimeResult<(u32, u64)> {
+            let result = (|| -> RuntimeResult<(u32, u64, ICoreWebView2Environment5)> {
                 let controller = platform_webview.controller();
                 windows_live_resize_register_controller(
                     live_resize_label,
@@ -543,7 +543,11 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
                             error,
                         )
                     })?;
-                Ok((browser_process_id, controller.as_raw() as usize as u64))
+                Ok((
+                    browser_process_id,
+                    controller.as_raw() as usize as u64,
+                    environment,
+                ))
             })();
             let _ = sender.send(result);
         })
@@ -554,7 +558,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
             )
             .with_setup_diagnostic("lifecycle-with-webview", None)
         })?;
-    let (browser_process_id, controller_identity) = receiver.recv().map_err(|_| {
+    let (browser_process_id, controller_identity, environment) = receiver.recv().map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_SURFACE_LIFECYCLE_FAILED",
                 "WebView2 surface lifecycle registration was cancelled.",
@@ -567,6 +571,13 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     tracker
         .controller_identity
         .store(controller_identity, Ordering::Release);
+    *tracker.environment.lock().map_err(|_| {
+        RuntimeError::new(
+            "SYSTEM_SURFACE_LIFECYCLE_FAILED",
+            "The WebView2 environment lifecycle lock was poisoned.",
+        )
+        .with_setup_diagnostic("lifecycle-environment-store", None)
+    })? = Some(environment);
     Ok(tracker)
 }
 

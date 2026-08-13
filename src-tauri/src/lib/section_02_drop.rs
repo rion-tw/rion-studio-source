@@ -627,6 +627,71 @@ async fn process_game_window_close_requested(
     });
 }
 
+#[cfg(windows)]
+async fn process_deferred_windows_close_requested(
+    app: AppHandle,
+    label: String,
+    runtime: Arc<SystemRuntimeExecutor>,
+) {
+    let close_label = label.clone();
+    let request = tauri::async_runtime::spawn_blocking(move || {
+        runtime.begin_window_close_requested(&close_label)
+    })
+    .await;
+    match request {
+        Ok(Ok(system_runtime::RuntimeWindowCloseRequest::PassThrough)) => {
+            let Some(window) = app.get_window(&label) else {
+                return;
+            };
+            if let Err(error) = window.destroy() {
+                let _ = app.emit(
+                    "rion://shell-error",
+                    json!({
+                        "code": "SYSTEM_WINDOW_CLOSE_FAILED",
+                        "message": error.to_string(),
+                        "windowLabel": label,
+                    }),
+                );
+            }
+        }
+        Ok(Ok(system_runtime::RuntimeWindowCloseRequest::Pending)) => {}
+        Ok(Ok(system_runtime::RuntimeWindowCloseRequest::Start {
+            operation_id,
+            window_id,
+            window,
+        })) => {
+            process_game_window_close_requested(
+                app,
+                label,
+                operation_id,
+                window_id,
+                *window,
+            )
+            .await;
+        }
+        Ok(Err(error)) => {
+            let _ = app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": error.code,
+                    "message": error.message,
+                    "windowLabel": label,
+                }),
+            );
+        }
+        Err(error) => {
+            let _ = app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "SYSTEM_WINDOW_CLOSE_FAILED",
+                    "message": format!("The deferred window close task failed: {error}"),
+                    "windowLabel": label,
+                }),
+            );
+        }
+    }
+}
+
 async fn execute_game_window_close_transaction(
     app: &AppHandle,
     state: &CoreState,

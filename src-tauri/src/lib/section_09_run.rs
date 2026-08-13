@@ -529,6 +529,26 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::CloseRequested { api, .. } if label != "main" => {
+                            #[cfg(windows)]
+                            {
+                                // A Win32 CloseRequested callback runs on the UI thread. Native
+                                // WebView creation, navigation, or projection work can briefly own
+                                // the runtime-state lock while waiting for that same thread. Defer
+                                // close admission so the callback returns before it waits on any
+                                // runtime owner; the exact destroyed event remains the terminal
+                                // authority for the accepted close generation.
+                                api.prevent_close();
+                                let app = app_handle.clone();
+                                let runtime = Arc::clone(&state.runtime);
+                                tauri::async_runtime::spawn(
+                                    process_deferred_windows_close_requested(
+                                        app,
+                                        label.clone(),
+                                        runtime,
+                                    ),
+                                );
+                            }
+                            #[cfg(not(windows))]
                             match state.runtime.begin_window_close_requested(&label) {
                                 Ok(system_runtime::RuntimeWindowCloseRequest::PassThrough) => {}
                                 Ok(system_runtime::RuntimeWindowCloseRequest::Pending) => {

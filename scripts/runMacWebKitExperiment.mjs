@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -57,17 +57,18 @@ export function parseMacWebKitExperimentArguments(
   if (usesStp && !stpApp) {
     throw new Error("STP experiment modes require --stp-app=/absolute/path/to/Safari Technology Preview.app.");
   }
-  if (stpApp && !isAbsolute(stpApp)) {
+  if (stpApp && !posix.isAbsolute(stpApp)) {
     throw new Error("--stp-app must be an absolute path.");
   }
+  const resolvedStpApp = stpApp ? posix.resolve(stpApp) : undefined;
   return {
     dataDir,
     mode,
     modes,
     sampleMs,
-    stpApp: stpApp ? resolve(stpApp) : undefined,
-    stpFrameworkPath: stpApp
-      ? join(resolve(stpApp), "Contents", "Frameworks")
+    stpApp: resolvedStpApp,
+    stpFrameworkPath: resolvedStpApp
+      ? posix.join(resolvedStpApp, "Contents", "Frameworks")
       : undefined,
     usesStp
   };
@@ -103,10 +104,14 @@ export function macWebKitExperimentExecutableEnvironment(inherited = process.env
   if (!mode?.startsWith("stp-")) return environment;
 
   const stpApp = environment.RION_WEBKIT_EXPERIMENT_STP_APP;
-  if (!stpApp || !isAbsolute(stpApp)) {
+  if (!stpApp || !posix.isAbsolute(stpApp)) {
     throw new Error("An isolated STP experiment requires an absolute RION_WEBKIT_EXPERIMENT_STP_APP path.");
   }
-  environment.DYLD_FRAMEWORK_PATH = join(resolve(stpApp), "Contents", "Frameworks");
+  environment.DYLD_FRAMEWORK_PATH = posix.join(
+    posix.resolve(stpApp),
+    "Contents",
+    "Frameworks"
+  );
   return environment;
 }
 

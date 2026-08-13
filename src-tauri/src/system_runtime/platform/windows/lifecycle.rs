@@ -598,9 +598,12 @@ pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+    use webview2_com::{
+        GetCookiesCompletedHandler,
+        Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2_2},
+    };
 
-    use windows::core::Interface;
+    use windows::core::{Interface, PCWSTR};
 
     let expected_process_id = lifecycle.browser_process_id.load(Ordering::Acquire) as u32;
     let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
@@ -628,11 +631,56 @@ pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
                         "The WebView2 controller or process identity changed before isolation.",
                     ));
                 }
-                core.Stop().map_err(|error| {
-                    windows_surface_lifecycle_error("isolation-stop", error)
-                })?;
-                core.Navigate(&windows::core::HSTRING::from("about:blank"))
-                    .map_err(|error| windows_surface_lifecycle_error("isolation-navigate", error))?;
+                let cookie_manager = core
+                    .cast::<ICoreWebView2_2>()
+                    .and_then(|core| core.CookieManager())
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error("isolation-cookie-manager", error)
+                    })?;
+                let checkpoint_core = core.clone();
+                let checkpoint_cookie_manager = cookie_manager.clone();
+                let checkpoint_lifecycle = Arc::clone(&callback_lifecycle);
+                let checkpoint = GetCookiesCompletedHandler::create(Box::new(
+                    move |error_code, cookies| {
+                        let result = (|| -> windows::core::Result<()> {
+                            error_code?;
+                            if let Some(cookies) = cookies {
+                                let mut count = 0;
+                                cookies.Count(&mut count)?;
+                                for index in 0..count {
+                                    let cookie = cookies.GetValueAtIndex(index)?;
+                                    checkpoint_cookie_manager.AddOrUpdateCookie(&cookie)?;
+                                }
+                            }
+                            checkpoint_core.Stop()?;
+                            checkpoint_core
+                                .Navigate(&windows::core::HSTRING::from("about:blank"))?;
+                            Ok(())
+                        })();
+                        if let Err(error) = result {
+                            checkpoint_lifecycle.fail_isolation(
+                                &windows_surface_lifecycle_error(
+                                    "isolation-cookie-checkpoint",
+                                    error,
+                                ),
+                            );
+                        }
+                        Ok(())
+                    },
+                ));
+                // WebView2 can retain a response cookie in the live network
+                // context when an about:blank navigation starts. The exact
+                // CookieManager completion snapshots that context, and the
+                // profile mutations are submitted before the page is isolated.
+                // NavigationCompleted remains the authoritative quiesce event.
+                cookie_manager
+                    .GetCookies(PCWSTR::null(), &checkpoint)
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error(
+                            "isolation-cookie-checkpoint-submission",
+                            error,
+                        )
+                    })?;
                 Ok(())
             })();
             if let Err(error) = result {

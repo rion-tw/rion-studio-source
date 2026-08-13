@@ -946,6 +946,18 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(windowsIsolation).toContain("add_NavigationStarting");
     expect(windowsIsolation).toContain("add_NavigationCompleted");
     expect(windowsIsolation).toContain("windows_surface_navigation_completion");
+    expect(windowsIsolation).toContain("GetCookies(PCWSTR::null(), &checkpoint)");
+    expect(windowsIsolation).toContain("AddOrUpdateCookie(&cookie)");
+    const windowsCheckpoint = windowsIsolation.slice(
+      windowsIsolation.indexOf("let checkpoint = GetCookiesCompletedHandler"),
+      windowsIsolation.indexOf("GetCookies(PCWSTR::null(), &checkpoint)")
+    );
+    expect(windowsCheckpoint.indexOf("AddOrUpdateCookie(&cookie)"))
+      .toBeLessThan(windowsCheckpoint.indexOf("checkpoint_core.Stop()"));
+    expect(windowsCheckpoint.indexOf("checkpoint_core.Stop()"))
+      .toBeLessThan(windowsCheckpoint.indexOf(
+        "Navigate(&windows::core::HSTRING::from(\"about:blank\"))"
+      ));
     expect(macLifecycle).not.toContain("addObserver:");
     expect(macLifecycle).not.toContain("webView.loading");
     expect(macLifecycle).not.toContain("webView.URL");

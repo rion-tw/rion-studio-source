@@ -244,6 +244,9 @@ impl SystemRuntimeExecutor {
             _window_generation,
         ) = {
             let state = self.state()?;
+            if state.close_coordinator.closing_tabs.contains(tab_id) {
+                return Ok(());
+            }
             let tab = state.native_resources.tabs.get(tab_id).ok_or_else(|| {
                 RuntimeError::new("TAURI_RUNTIME_TAB_NOT_FOUND", "Runtime tab was not found.")
             })?;
@@ -258,6 +261,13 @@ impl SystemRuntimeExecutor {
                 tab.slots
                     .values()
                     .filter_map(|slot| {
+                        if state
+                            .close_coordinator
+                            .closing_roles
+                            .contains(&slot.role.id)
+                        {
+                            return None;
+                        }
                         let (webview, current_zoom, zoom_mode, role_surface) =
                             if let Some(surface) = tab.roles.get(&slot.role.id) {
                                 (
@@ -275,6 +285,13 @@ impl SystemRuntimeExecutor {
                                     false,
                                 )
                             };
+                        if state
+                            .close_coordinator
+                            .closing_webviews
+                            .contains(webview.label())
+                        {
+                            return None;
+                        }
                         Some((
                             slot.role.id.clone(),
                             webview,

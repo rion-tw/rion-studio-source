@@ -671,6 +671,8 @@ impl SystemRuntimeExecutor {
                     "The System WebView surface is already closing.",
                 ));
             }
+            #[cfg(target_os = "macos")]
+            state.ready_surface_viewports.remove(&label);
         }
         let result: RuntimeResult<SurfaceCloseOutcome> = async {
             let platform = current_runtime_platform();

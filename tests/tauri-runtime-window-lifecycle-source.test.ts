@@ -721,6 +721,10 @@ describe("runtime window lifecycle authority", () => {
     expect(viewportRefresh).toContain(
       "surface.webview.label() == surface_label"
     );
+    expect(viewportRefresh).toContain("live_ready_surface_identity");
+    expect(viewportRefresh).toContain("closing_tabs.contains(tab_id)");
+    expect(viewportRefresh).toContain("closing_roles.contains(role_id)");
+    expect(viewportRefresh).toContain("closing_webviews");
     expect(viewportRefresh).toContain("ready_viewport_pair_needs_apply(");
     expect(viewportRefresh).not.toContain("Duration::from_millis(120)");
   });

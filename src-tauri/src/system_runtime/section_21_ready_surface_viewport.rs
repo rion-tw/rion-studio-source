@@ -6,19 +6,56 @@ const READY_SURFACE_VIEWPORT_REFRESH_SCRIPT: &str = r#"
 })();
 "#;
 
+#[cfg(target_os = "macos")]
+fn ready_surface_lifecycle_is_live(
+    tab_closing: bool,
+    role_closing: bool,
+    webview_closing: bool,
+) -> bool {
+    !tab_closing && !role_closing && !webview_closing
+}
+
+#[cfg(target_os = "macos")]
+impl RuntimeState {
+    fn live_ready_surface_identity(
+        &self,
+        surface_label: &str,
+    ) -> Option<(String, String, String, Webview)> {
+        self.native_resources
+            .tabs
+            .iter()
+            .find_map(|(tab_id, tab)| {
+                tab.roles.iter().find_map(|(role_id, surface)| {
+                    (surface.webview.label() == surface_label
+                        && ready_surface_lifecycle_is_live(
+                            self.close_coordinator.closing_tabs.contains(tab_id),
+                            self.close_coordinator.closing_roles.contains(role_id),
+                            self.close_coordinator
+                                .closing_webviews
+                                .contains(surface_label),
+                        ))
+                    .then(|| {
+                        (
+                            tab_id.clone(),
+                            role_id.clone(),
+                            surface.surface_instance_id.clone(),
+                            surface.webview.clone(),
+                        )
+                    })
+                })
+            })
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn schedule_ready_surface_viewport_refresh(&self, webview: &Webview) {
         #[cfg(target_os = "macos")]
         {
             let surface_label = webview.label();
             let identity = self.state.lock().ok().and_then(|state| {
-                state.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
-                    tab.roles.values().find_map(|surface| {
-                        (surface.webview.label() == surface_label).then(|| {
-                            (tab_id.clone(), surface.surface_instance_id.clone())
-                        })
-                    })
-                })
+                state
+                    .live_ready_surface_identity(surface_label)
+                    .map(|(tab_id, _, instance_id, _)| (tab_id, instance_id))
             });
             let Some((tab_id, surface_instance_id)) = identity else {
                 return;
@@ -27,6 +64,15 @@ impl SystemRuntimeExecutor {
                 return;
             };
             let ready = self.state.lock().ok().is_some_and(|mut state| {
+                let identity_is_live = state
+                    .live_ready_surface_identity(surface_label)
+                    .is_some_and(|(current_tab_id, _, current_instance_id, _)| {
+                        current_tab_id == tab_id && current_instance_id == surface_instance_id
+                    });
+                if !identity_is_live {
+                    state.ready_surface_viewports.remove(surface_label);
+                    return false;
+                }
                 let layout_revision = state
                     .content_layout_revisions
                     .get(&window_id)
@@ -109,13 +155,10 @@ impl SystemRuntimeExecutor {
                     if ready.window_id != window_id {
                         continue;
                     }
-                    let current = state.native_resources.tabs.iter().find_map(|(tab_id, tab)| {
-                        tab.roles.values().find_map(|surface| {
-                            (surface.webview.label() == label
-                                && surface.surface_instance_id == ready.instance_id)
-                                .then(|| (tab_id.clone(), surface.webview.clone()))
-                        })
-                    });
+                    let current = state
+                        .live_ready_surface_identity(&label)
+                        .filter(|(_, _, instance_id, _)| instance_id == &ready.instance_id)
+                        .map(|(tab_id, _, _, webview)| (tab_id, webview));
                     let Some((tab_id, webview)) = current else {
                         stale_labels.push(label);
                         continue;
@@ -156,12 +199,9 @@ impl SystemRuntimeExecutor {
     #[cfg(target_os = "macos")]
     fn ready_surface_identity_matches(&self, label: &str, instance_id: &str) -> bool {
         self.state.lock().ok().is_some_and(|state| {
-            state.native_resources.tabs.values().any(|tab| {
-                tab.roles.values().any(|surface| {
-                    surface.webview.label() == label
-                        && surface.surface_instance_id == instance_id
-                })
-            })
+            state
+                .live_ready_surface_identity(label)
+                .is_some_and(|(_, _, current_instance_id, _)| current_instance_id == instance_id)
         })
     }
 }
@@ -190,5 +230,13 @@ mod ready_surface_viewport_tests {
         assert!(!ready_viewport_pair_needs_apply(1, 1, 1, 1));
         assert!(ready_viewport_pair_needs_apply(2, 1, 1, 1));
         assert!(ready_viewport_pair_needs_apply(1, 2, 1, 1));
+    }
+
+    #[test]
+    fn closing_lifecycle_fences_late_ready_surface_callbacks() {
+        assert!(ready_surface_lifecycle_is_live(false, false, false));
+        assert!(!ready_surface_lifecycle_is_live(true, false, false));
+        assert!(!ready_surface_lifecycle_is_live(false, true, false));
+        assert!(!ready_surface_lifecycle_is_live(false, false, true));
     }
 }

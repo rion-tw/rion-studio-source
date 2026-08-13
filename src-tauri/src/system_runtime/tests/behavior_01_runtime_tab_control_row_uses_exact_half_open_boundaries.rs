@@ -256,14 +256,13 @@ use super::*;
             ("macos", true, true, false, true),
             ("windows", false, true, true, false),
             ("windows", true, false, true, false),
-            ("windows", true, true, false, true),
+            ("windows", true, true, false, false),
             ("windows", true, true, true, true),
         ] {
             assert_eq!(
                 surface_store_reusable(
                     platform,
                     &SurfaceReleaseState {
-                        #[cfg(windows)]
                         browser_process_exited,
                         controller_released,
                         parent_window_destroyed: false,

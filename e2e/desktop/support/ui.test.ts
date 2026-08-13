@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findElement: vi.fn(),
@@ -23,9 +23,13 @@ vi.mock("webdriverio", () => ({
   Key: { Ctrl: "Control" }
 }));
 
-import { ensureEnglishUi, navigate } from "./ui";
+import { ensureEnglishUi, navigate, waitForRoute } from "./ui";
 
 describe("desktop E2E renderer readiness", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findElement.mockResolvedValue({
@@ -69,5 +73,12 @@ describe("desktop E2E renderer readiness", () => {
 
     expect(mocks.browser.executeAsync).toHaveBeenCalledOnce();
     expect(mocks.browser.executeAsync.mock.calls[0]?.[1]).toBe("/games/new");
+  });
+
+  it("does not treat an editor child route as its parent list route", async () => {
+    vi.stubGlobal("window", { location: { hash: "#/games/new" } });
+    mocks.browser.execute.mockImplementation(async (condition, expected) => condition(expected));
+
+    await expect(waitForRoute("/games")).rejects.toThrow("readiness condition timed out");
   });
 });

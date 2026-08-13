@@ -134,7 +134,11 @@ async function exercisePrimaryNavigation(): Promise<void> {
 }
 
 async function createAndEditGames(): Promise<Game> {
-  await navigate("/games/new");
+  const sidebar = await $(".app-main-sidebar");
+  await sidebar.$("button*=Games").click();
+  await waitForRoute("/games");
+  await $("button=New game").click();
+  await waitForRoute("/games/new");
   await setEditorTitle(GAME_NAME);
   const launchUrl = await $("#game-launch-url");
   await launchUrl.setValue("not-a-valid-url");
@@ -143,12 +147,14 @@ async function createAndEditGames(): Promise<Game> {
   await submitEditor("/games");
   const game = await findGame(GAME_NAME);
 
-  await navigate(`/games/${game.id}/edit`);
+  await clickEntityMenuAction(game.id, "Game actions", "Edit");
+  await waitForRoute(`/games/${game.id}/edit`);
   await setEditorTitle(GAME_NAME_EDITED);
   await submitEditor("/games");
   const edited = await findGame(GAME_NAME_EDITED);
 
-  await navigate("/games/new");
+  await $("button=New game").click();
+  await waitForRoute("/games/new");
   await setEditorTitle(DELETE_GAME_NAME);
   await $("#game-launch-url").setValue(`${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/delete-target`);
   await submitEditor("/games");
@@ -166,14 +172,19 @@ async function createAndEditGames(): Promise<Game> {
 }
 
 async function createRole(game: Game): Promise<Role> {
-  await navigate(`/roles/new?gameId=${game.id}`);
+  await clickEntityMenuAction(game.id, "Game actions", "Add role");
+  await waitForRoute(`/roles/new?gameId=${game.id}`);
   await setEditorTitle(ROLE_NAME);
   await submitEditor("/roles");
   return findRole(ROLE_NAME);
 }
 
 async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
-  await navigate("/workspaces/new");
+  const sidebar = await $(".app-main-sidebar");
+  await sidebar.$("button*=Workspaces").click();
+  await waitForRoute("/workspaces");
+  await $("button=Create workspace").click();
+  await waitForRoute("/workspaces/new");
   await setEditorTitle(WORKSPACE_NAME);
   await $(`[data-workspace-role-id='${role.id}']`).click();
   await submitEditor("/workspaces");
@@ -181,6 +192,9 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
 }
 
 async function createMacro(role: Role): Promise<Macro> {
+  const sidebar = await $(".app-main-sidebar");
+  await sidebar.$("button*=Macros").click();
+  await waitForRoute("/macros");
   await navigate(`/macros/new?roleId=${role.id}`);
   await setEditorTitle(MACRO_NAME);
   await $("button=Hold until stopped").click();

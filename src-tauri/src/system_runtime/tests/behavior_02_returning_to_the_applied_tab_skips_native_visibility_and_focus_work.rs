@@ -759,12 +759,9 @@
         tracker.mark_native_surface_released();
         tracker.mark_controller_released();
         assert!(tracker.store_is_reusable("macos"));
-
-        #[cfg(windows)]
-        {
-            assert!(tracker.store_is_reusable("windows"));
-            tracker.mark_browser_process_exited();
-        }
+        assert!(!tracker.store_is_reusable("windows"));
+        assert!(tracker.mark_browser_process_exited());
+        assert!(tracker.store_is_reusable("windows"));
     }
 
     #[test]
@@ -791,8 +788,12 @@
             let tracker = Arc::new(SurfaceLifecycleTracker::default());
             assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
             let callback_tracker = Arc::clone(&tracker);
+            let callback_platform = platform;
             let callback = std::thread::spawn(move || {
                 assert!(callback_tracker.mark_parent_window_destroyed());
+                if callback_platform == "windows" {
+                    assert!(callback_tracker.mark_browser_process_exited());
+                }
             });
 
             assert!(tauri::async_runtime::block_on(async {
@@ -855,6 +856,27 @@
         assert!(tracker.mark_process_terminated());
         assert!(tracker.process_termination_completed_close());
         assert_eq!(tracker.native_isolation_event(), 5);
+    }
+
+    #[test]
+    fn windows_store_waits_for_browser_process_exit_after_native_release() {
+        let tracker = Arc::new(SurfaceLifecycleTracker::default());
+        assert_eq!(tracker.claim_isolation().unwrap(), SurfaceIsolationClaim::Owner);
+        assert!(tracker.mark_isolated(2));
+        tracker.mark_native_surface_released();
+        tracker.mark_controller_released();
+        assert!(!tracker.store_is_reusable("windows"));
+
+        let callback_tracker = Arc::clone(&tracker);
+        let callback = std::thread::spawn(move || {
+            assert!(callback_tracker.mark_browser_process_exited());
+        });
+        assert!(tauri::async_runtime::block_on(
+            tracker.wait_for_store_reusable_event("windows")
+        )
+        .is_ok());
+        callback.join().unwrap();
+        assert_eq!(tracker.native_isolation_event(), 2);
     }
 
     #[test]

@@ -106,7 +106,7 @@ export async function navigate(path: string): Promise<void> {
 
 export async function waitForRoute(path: string): Promise<void> {
   await browser.waitUntil(
-    async () => browser.execute((expected) => window.location.hash.startsWith(`#${expected}`), path),
+    async () => browser.execute((expected) => window.location.hash === `#${expected}`, path),
     { timeout: 15_000, timeoutMsg: `Desktop renderer did not navigate to ${path}` }
   );
   const pending = await $("[data-renderer-pending]");

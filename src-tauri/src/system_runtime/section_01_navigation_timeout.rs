@@ -563,7 +563,6 @@ enum SurfaceIsolationClaim {
 
 #[derive(Clone, Default)]
 struct SurfaceReleaseState {
-    #[cfg(windows)]
     browser_process_exited: bool,
     controller_released: bool,
     parent_window_destroyed: bool,
@@ -740,25 +739,25 @@ impl SurfaceLifecycleTracker {
         false
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, test))]
     fn mark_browser_process_exited(&self) -> bool {
         if let Ok(mut release) = self.release.lock() {
             if release.terminal_failure.is_some()
-                || release.isolated
-                || release.native_surface_released
                 || release.browser_process_exited
-                || !matches!(
-                    release.isolation_progress,
-                    SurfaceIsolationProgress::Requested
-                )
+                || matches!(release.isolation_progress, SurfaceIsolationProgress::Live)
             {
                 return false;
             }
+            let completed_isolation = !release.isolated && !release.native_surface_released;
             release.browser_process_exited = true;
-            release.isolated = true;
-            release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            if completed_isolation {
+                release.isolated = true;
+                release.isolation_progress = SurfaceIsolationProgress::Isolated;
+            }
             drop(release);
-            self.record_native_isolation_event(5);
+            if completed_isolation {
+                self.record_native_isolation_event(5);
+            }
             self.publish_event();
             return true;
         }
@@ -983,7 +982,11 @@ fn quiesce_platform_surface(
 
 fn surface_store_reusable(platform: &str, release: &SurfaceReleaseState) -> bool {
     match platform {
-        "windows" => release.controller_released && release.native_surface_released,
+        "windows" => {
+            release.browser_process_exited
+                && release.controller_released
+                && release.native_surface_released
+        }
         "macos" => release.controller_released && release.native_surface_released,
         _ => release.controller_released,
     }

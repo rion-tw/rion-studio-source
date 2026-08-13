@@ -1,7 +1,15 @@
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 
-import type { DesktopE2eEvent } from "./control";
+interface DesktopE2eEvent {
+  details: unknown;
+  generation?: number;
+  kind: string;
+  revision?: number;
+  sequence: number;
+  timestamp: string;
+  windowId?: string;
+}
 
 function parseEvents(source: string): DesktopE2eEvent[] {
   return source
@@ -27,19 +35,45 @@ export async function waitForTranscriptEvent(
   predicate: (event: DesktopE2eEvent) => boolean,
   timeoutMs = 20_000
 ): Promise<DesktopE2eEvent> {
-  const current = await latestMatchingEvent(path, predicate);
-  if (current) return current;
   return new Promise((resolve, reject) => {
-    const watcher = watch(path, async () => {
-      const event = await latestMatchingEvent(path, predicate);
-      if (!event) return;
-      clearTimeout(deadline);
-      watcher.close();
+    let settled = false;
+    let watcher: ReturnType<typeof watch> | undefined;
+    const timing: { deadline?: ReturnType<typeof setTimeout> } = {};
+    const close = () => {
+      if (timing.deadline) clearTimeout(timing.deadline);
+      watcher?.close();
+    };
+    const complete = (event: DesktopE2eEvent) => {
+      if (settled) return;
+      settled = true;
+      close();
       resolve(event);
-    });
-    const deadline = setTimeout(() => {
-      watcher.close();
-      reject(new Error(`Timed out waiting for transcript event in ${path}`));
-    }, timeoutMs);
+    };
+    const fail = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      close();
+      reject(error);
+    };
+    const checkTranscript = async () => {
+      try {
+        const event = await latestMatchingEvent(path, predicate);
+        if (event) complete(event);
+      } catch (error) {
+        fail(error);
+      }
+    };
+
+    try {
+      watcher = watch(path, () => void checkTranscript());
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    timing.deadline = setTimeout(
+      () => fail(new Error(`Timed out waiting for transcript event in ${path}`)),
+      timeoutMs
+    );
+    void checkTranscript();
   });
 }

@@ -5,6 +5,7 @@
     "types": ["node", "vite/client", "vitest"]
   },
   "include": [
+    "e2e/desktop/support/transcript.ts",
     "vitest.config.ts",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",

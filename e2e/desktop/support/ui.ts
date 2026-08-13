@@ -45,7 +45,8 @@ export async function ensureEnglishUi(): Promise<void> {
     "Desktop renderer did not finish loading"
   );
   const needsReload = await browser.execute((storageKey) => {
-    const shouldReload = document.documentElement.lang !== "en";
+    const shouldReload = localStorage.getItem(storageKey) !== "en"
+      || document.documentElement.lang !== "en";
     localStorage.setItem(storageKey, "en");
     return shouldReload;
   }, LANGUAGE_STORAGE_KEY);

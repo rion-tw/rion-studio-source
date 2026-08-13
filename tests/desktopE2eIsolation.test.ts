@@ -43,10 +43,8 @@ describe("desktop E2E build isolation", () => {
     expect(source).toContain("await browser.setTimeout({ script: previousScriptTimeout })");
     expect(source).toContain("lastProbeError = error;");
     expect(source).toContain("return false;");
-    expect(source).toContain('const shouldReload = document.documentElement.lang !== "en";');
-    expect(source).not.toContain(
-      'localStorage.getItem(storageKey) === "en" && document.documentElement.lang === "en"'
-    );
+    expect(source).toContain('localStorage.getItem(storageKey) !== "en"');
+    expect(source).toContain('document.documentElement.lang !== "en"');
   });
 
   it("submits Windows close through the native window queue", async () => {

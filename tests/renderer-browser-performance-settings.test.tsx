@@ -91,14 +91,14 @@ describe("browser performance settings", () => {
   it("shows and persists the experimental high refresh preference on macOS", async () => {
     const onGameBrowserSettingsPatch = vi.fn(async () => ({
       ...DEFAULT_GAME_BROWSER_SETTINGS,
-      performance: { macosHighRefreshRate: true }
+      performance: { maximumWebGlPerformance: true, macosHighRefreshRate: true }
     }));
     renderSettings("mac", onGameBrowserSettingsPatch);
 
     const languageRow = screen.getByRole("combobox", { name: "Language" }).closest(".settings-row");
     const highRefreshSwitch = screen.getByRole("switch", { name: "Experimental high refresh rate" });
     const highRefreshRow = highRefreshSwitch.closest(".settings-row");
-    expect(languageRow?.nextElementSibling).toBe(highRefreshRow);
+    expect(languageRow?.nextElementSibling?.nextElementSibling).toBe(highRefreshRow);
     expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
 
     expect(
@@ -108,7 +108,7 @@ describe("browser performance settings", () => {
 
     await waitFor(() => {
       expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
-        performance: { macosHighRefreshRate: true }
+        performance: { maximumWebGlPerformance: true, macosHighRefreshRate: true }
       });
     });
   });
@@ -119,5 +119,18 @@ describe("browser performance settings", () => {
     expect(
       screen.queryByRole("switch", { name: "Experimental high refresh rate" })
     ).toBeNull();
+    expect(
+      screen.getByRole("switch", { name: "Maximum WebGL performance" }).getAttribute("data-state")
+    ).toBe("checked");
+  });
+
+  it("persists maximum WebGL mode while preserving the platform preference", async () => {
+    const onGameBrowserSettingsPatch = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
+    renderSettings("mac", onGameBrowserSettingsPatch);
+
+    fireEvent.click(screen.getByRole("switch", { name: "Maximum WebGL performance" }));
+    await waitFor(() => expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
+      performance: { maximumWebGlPerformance: false, macosHighRefreshRate: false }
+    }));
   });
 });

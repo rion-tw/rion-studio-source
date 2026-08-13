@@ -145,6 +145,7 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 additional_browser_arguments,
                 document_start_script,
+                maximum_web_gl_performance: settings.performance.maximum_web_gl_performance,
                 macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
                 overlay_document_start_script_template,
             },
@@ -158,6 +159,8 @@ impl SystemRuntimeExecutor {
             language: Mutex::new("en".to_owned()),
             resolved_theme: Mutex::new("light".to_owned()),
             last_performance_diagnostics: Mutex::new(None),
+            performance_diagnostic_operation: Mutex::new(None),
+            performance_diagnostic_sequence: AtomicU64::new(0),
             launch_effect_sender: OnceLock::new(),
             input_effect_sender: OnceLock::new(),
             input_effect_lanes: Mutex::new(HashMap::new()),

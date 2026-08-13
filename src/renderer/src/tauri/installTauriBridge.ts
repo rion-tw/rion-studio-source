@@ -13,6 +13,7 @@ import type {
   CoreCommandResult,
   CoreEvent,
   ApplicationLifecycleStatusRecord,
+  BrowserPerformanceDiagnosticOperationRecord,
   RuntimeTabMoveResultRecord,
   SurfaceRecoveryAttemptRecord,
   SystemRuntimeOperationSummaryRecord
@@ -450,6 +451,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://surface-recovery-attempt",
       ({ payload }) => emit("surfaceRecoveryAttempt", payload)
     ),
+    () => listen<BrowserPerformanceDiagnosticOperationRecord>(
+      "rion://browser-performance-diagnostic",
+      ({ payload }) => emit("browserPerformanceDiagnostic", payload)
+    ),
     () => listen<Parameters<Parameters<RionStudioApi["onMacroPageRequested"]>[0]>[0]>(
       "rion://macro-page-request",
       ({ payload }) => emit("macroPageRequest", payload)
@@ -674,8 +679,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     clearLogs: () =>
       invokeCore({ type: "logsClear" }).then(() => invokeCore({ type: "logsStatus" })),
     revealLogs: () => invokeShell("revealLogs"),
-    collectBrowserPerformanceDiagnostics: () =>
-      invokeShell("collectBrowserPerformanceDiagnostics"),
+    beginBrowserPerformanceDiagnostics: () =>
+      invokeShell("beginBrowserPerformanceDiagnostics"),
+    cancelBrowserPerformanceDiagnostics: (operationId) =>
+      invokeShell("cancelBrowserPerformanceDiagnostics", [operationId]),
     exportDiagnostics: () => invokeShell("exportDiagnostics"),
     reportRendererLog: (event) => {
       // This method is called from the global unhandled-rejection listener. A failed
@@ -722,7 +729,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onShellError: (callback) => on("shellError", callback as Listener),
     onLogEntryAdded: (callback) => on("logEntry", callback as Listener),
     onChromeProfileImportProgress: (callback) =>
-      on("chromeProfileImportProgress", callback as Listener)
+      on("chromeProfileImportProgress", callback as Listener),
+    onBrowserPerformanceDiagnosticsChanged: (callback) =>
+      on("browserPerformanceDiagnostic", callback as Listener)
   };
 
   Object.defineProperty(window, "rionStudio", {

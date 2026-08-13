@@ -1,7 +1,8 @@
 import { Download, ExternalLink, Gauge, RefreshCw, Trash2 } from "lucide-react";
-import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  BrowserPerformanceDiagnosticOperation,
   BrowserPerformanceDiagnostics,
   LogEntry,
   LogLevel,
@@ -42,6 +43,9 @@ export function DiagnosticsSettingsSection({
   );
   const [busy, setBusy] = useState(false);
   const [performanceBusy, setPerformanceBusy] = useState(false);
+  const [performanceOperation, setPerformanceOperation] =
+    useState<BrowserPerformanceDiagnosticOperation | null>(null);
+  const performanceOperationRef = useRef<BrowserPerformanceDiagnosticOperation | null>(null);
   const [performance, setPerformance] = useState<BrowserPerformanceDiagnostics | null>(null);
 
   const query = useMemo(() => ({
@@ -72,6 +76,36 @@ export function DiagnosticsSettingsSection({
     if (search.trim() && !JSON.stringify(entry).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) return;
     setEntries((current) => [entry, ...current].slice(0, 500));
   }), [level, live, search, source]);
+  const applyPerformanceOperation = useCallback((
+    operation: BrowserPerformanceDiagnosticOperation
+  ): void => {
+    const current = performanceOperationRef.current;
+    if (
+      current
+      && current.operationId !== operation.operationId
+      && operation.phase !== "waitingForFocus"
+    ) return;
+    if (
+      current?.operationId === operation.operationId
+      && current.revision >= operation.revision
+    ) return;
+    performanceOperationRef.current = operation;
+    setPerformanceOperation(operation);
+    if (operation.phase === "completed" && operation.diagnostics) {
+      setPerformance(operation.diagnostics);
+      setPerformanceBusy(false);
+    } else if (operation.phase === "failed") {
+      setPerformanceBusy(false);
+      onError(new Error(operation.error ?? "Performance diagnostics failed."));
+    } else if (operation.phase === "cancelled") {
+      setPerformanceBusy(false);
+    } else {
+      setPerformanceBusy(true);
+    }
+  }, [onError]);
+  useEffect(() => window.rionStudio.onBrowserPerformanceDiagnosticsChanged(
+    applyPerformanceOperation
+  ), [applyPerformanceOperation]);
 
   async function run(action: () => Promise<unknown>): Promise<void> {
     setBusy(true);
@@ -115,11 +149,22 @@ export function DiagnosticsSettingsSection({
   async function runPerformanceDiagnostics(): Promise<void> {
     setPerformanceBusy(true);
     try {
-      setPerformance(await window.rionStudio.collectBrowserPerformanceDiagnostics());
+      const operation = await window.rionStudio.beginBrowserPerformanceDiagnostics();
+      applyPerformanceOperation(operation);
     } catch (error) {
       onError(error);
-    } finally {
       setPerformanceBusy(false);
+    }
+  }
+
+  async function cancelPerformanceDiagnostics(): Promise<void> {
+    if (!performanceOperation || !performanceBusy) return;
+    try {
+      await window.rionStudio.cancelBrowserPerformanceDiagnostics(
+        performanceOperation.operationId
+      );
+    } catch (error) {
+      onError(error);
     }
   }
 
@@ -132,15 +177,23 @@ export function DiagnosticsSettingsSection({
               <p className="text-body font-semibold text-foreground">{t("settings.performanceDiagnosticsTitle")}</p>
               <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t("settings.performanceDiagnosticsDescription")}</p>
               <p className="mt-1 text-caption text-warning-foreground">{t("settings.performanceDiagnosticsHint")}</p>
+              {performanceBusy && performanceOperation ? (
+                <p className="mt-1 text-caption text-muted-foreground">
+                  {t(`settings.performanceDiagnosticsPhase.${performanceOperation.phase}`)}
+                </p>
+              ) : null}
             </div>
             <Button
               type="button"
               variant="outline"
-              disabled={performanceBusy}
-              onClick={() => void runPerformanceDiagnostics()}
+              onClick={() => void (performanceBusy
+                ? cancelPerformanceDiagnostics()
+                : runPerformanceDiagnostics())}
             >
               <Gauge className={performanceBusy ? "animate-pulse" : undefined} size={14} />
-              {t(performanceBusy ? "settings.performanceDiagnosticsRunning" : "settings.performanceDiagnosticsRun")}
+              {t(performanceBusy
+                ? "settings.performanceDiagnosticsCancel"
+                : "settings.performanceDiagnosticsRun")}
             </Button>
           </div>
           {performance ? (
@@ -276,7 +329,7 @@ function PerformanceDiagnosticsResult({
                 {surface.origin ? <p className="text-micro text-muted-foreground">{surface.origin}</p> : null}
               </div>
               <p className="font-mono text-lg font-semibold text-foreground">
-                {formatFps(surface.averageFps)} FPS
+                {formatFps(surface.presentationFps)} {t("settings.performanceDiagnosticsPresentationFpsUnit")}
               </p>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-caption sm:grid-cols-4">
@@ -290,14 +343,45 @@ function PerformanceDiagnosticsResult({
               <DiagnosticValue label={t("settings.performanceDiagnosticsLongTasks")} value={formatLongTasks(surface, t)} />
               <DiagnosticValue label="WebGL 2" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgl2}`)} />
               <DiagnosticValue label="WebGPU" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgpu}`)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={t(`settings.performanceDiagnosticsHighRefresh.${surface.highRefreshRateStatus}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={formatHighRefreshStatus(surface.highRefreshRateStatus)} />
+              <DiagnosticValue label="UseGPUProcessForWebGLEnabled" value={formatFeatureStatus(surface.useGpuProcessForWebGlStatus)} />
+              <DiagnosticValue label="UseGPUProcessForDOMRenderingEnabled" value={formatFeatureStatus(surface.useGpuProcessForDomRenderingStatus)} />
+              <DiagnosticValue label="UseGPUProcessForCanvasRenderingEnabled" value={formatFeatureStatus(surface.useGpuProcessForCanvasRenderingStatus)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsMaximumMode")} value={t(`settings.performanceDiagnosticsMaximumMode.${surface.maximumModeStatus}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlPath")} value={formatWebGlExecutionPath(surface.webGlExecutionPath)} />
+              <DiagnosticValue label="WebGL command batching" value={formatCommandBatchingStatus(surface.webGlCommandBatchingStatus)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsTarget")} value={t(`settings.performanceDiagnosticsTarget.${surface.performanceTargetStatus}`)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsCanvas")} value={formatCanvas(surface, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlAttributes")} value={formatWebGlAttributes(surface, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsBrowserProcess")} value={formatBoolean(surface.browserProcessPresent, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsRendererProcess")} value={formatBoolean(surface.rendererProcessPresent, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsGpuProcess")} value={formatBoolean(surface.gpuProcessPresent, t)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsHardwareAcceleration")} value={formatBoolean(surface.hardwareAccelerationEnabled, t)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsFrames")} value={String(surface.frameCount)} />
+              {surface.gameLoopFps !== undefined ? (
+                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoop")} value={`${surface.gameLoopFps.toFixed(1)} FPS`} />
+              ) : null}
+              {surface.gameLoopP10Fps !== undefined ? (
+                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoopP10")} value={`${surface.gameLoopP10Fps.toFixed(1)} FPS`} />
+              ) : null}
+              {surface.gameLoopTimerDriftP95Ms !== undefined ? (
+                <DiagnosticValue label={t("settings.performanceDiagnosticsGameLoopDrift")} value={formatMilliseconds(surface.gameLoopTimerDriftP95Ms, t)} />
+              ) : null}
+              {surface.contextLossCount !== undefined ? (
+                <DiagnosticValue label={t("settings.performanceDiagnosticsContextLoss")} value={String(surface.contextLossCount)} />
+              ) : null}
             </div>
             <p className="mt-3 text-caption text-muted-foreground">
               {performanceFinding(performance, surface, t)}
             </p>
             {surface.graphics.renderer ? (
               <p className="mt-1 break-all text-micro text-muted-foreground">GPU: {surface.graphics.renderer}</p>
+            ) : null}
+            {surface.webviewRuntimeVersion ? (
+              <p className="mt-1 break-all text-micro text-muted-foreground">WebView: {surface.webviewRuntimeVersion}</p>
+            ) : null}
+            {surface.webKitRuntimeVersion ? (
+              <p className="mt-1 break-all text-micro text-muted-foreground">WebKit: {formatWebKitRuntimeVersion(surface.webKitRuntimeVersion)}</p>
             ) : null}
             {surface.error || surface.graphics.error ? (
               <p className="mt-2 break-words text-micro text-destructive">{surface.error ?? surface.graphics.error}</p>
@@ -311,6 +395,46 @@ function PerformanceDiagnosticsResult({
 
 function DiagnosticValue({ label, value }: { label: string; value: string }): JSX.Element {
   return <div><p className="text-muted-foreground">{label}</p><p className="mt-0.5 break-words font-medium text-foreground">{value}</p></div>;
+}
+
+function formatFeatureStatus(
+  status: BrowserPerformanceDiagnostics["surfaces"][number]["maximumModeStatus"]
+): string {
+  return status;
+}
+
+function formatHighRefreshStatus(
+  status: BrowserPerformanceDiagnostics["surfaces"][number]["highRefreshRateStatus"]
+): string {
+  return status;
+}
+
+function formatWebGlExecutionPath(
+  path: BrowserPerformanceDiagnostics["surfaces"][number]["webGlExecutionPath"]
+): string {
+  const labels = {
+    webContentDirect: "WebContent direct",
+    gpuProcess: "GPU process",
+    engineManaged: "engineManaged",
+    unknown: "unknown"
+  } as const;
+  return labels[path];
+}
+
+function formatCommandBatchingStatus(
+  status: BrowserPerformanceDiagnostics["surfaces"][number]["webGlCommandBatchingStatus"]
+): string {
+  const labels = {
+    verifiedAvailable: "VerifiedAvailable",
+    verifiedAbsent: "VerifiedAbsent",
+    unknown: "Unknown",
+    notApplicable: "NotApplicable"
+  } as const;
+  return labels[status];
+}
+
+function formatWebKitRuntimeVersion(version: string): string {
+  return version === "21626.1.1" ? `STP 249／${version}` : version;
 }
 
 function performanceFinding(
@@ -332,6 +456,22 @@ function performanceFinding(
         "{state}",
         t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)
       );
+  }
+  if (
+    performance.maximumWebGlPerformanceRequested
+    && ["unavailable", "failed"].includes(surface.maximumModeStatus)
+  ) {
+    return t("settings.performanceDiagnosticsFindingMaximumModeFailed")
+      .replace(
+        "{status}",
+        t(`settings.performanceDiagnosticsMaximumMode.${surface.maximumModeStatus}`)
+      );
+  }
+  if (surface.performanceTargetStatus === "failed") {
+    return t("settings.performanceDiagnosticsFindingTargetFailed");
+  }
+  if (surface.performanceTargetStatus === "passed") {
+    return t("settings.performanceDiagnosticsFindingTargetPassed");
   }
   if (
     performance.platform === "macos"
@@ -356,12 +496,12 @@ function performanceFinding(
       .replace("{count}", String(surface.longTaskCount))
       .replace("{longest}", (surface.longestTaskMs ?? 0).toFixed(1));
   }
-  if (surface.averageFps === undefined || performance.displayRefreshRateHz === undefined) {
+  if (surface.presentationFps === undefined || performance.displayRefreshRateHz === undefined) {
     return t("settings.performanceDiagnosticsFindingIncomplete");
   }
-  if (surface.averageFps < performance.displayRefreshRateHz * 0.8) {
+  if (surface.presentationFps < performance.displayRefreshRateHz * 0.8) {
     return t("settings.performanceDiagnosticsFindingBelowRefresh")
-      .replace("{fps}", surface.averageFps.toFixed(1))
+      .replace("{fps}", surface.presentationFps.toFixed(1))
       .replace("{hz}", performance.displayRefreshRateHz.toFixed(0));
   }
   if ((surface.missedVsyncCount ?? 0) > 0) {
@@ -385,6 +525,36 @@ function formatMilliseconds(value: number | undefined, t: Translator): string {
 
 function formatCount(value: number | undefined, t: Translator): string {
   return value === undefined ? t("settings.performanceDiagnosticsUnknown") : String(value);
+}
+
+function formatBoolean(value: boolean | undefined, t: Translator): string {
+  if (value === undefined) return t("settings.performanceDiagnosticsUnknown");
+  return t(value
+    ? "settings.performanceDiagnosticsEnabled"
+    : "settings.performanceDiagnosticsDisabled");
+}
+
+function formatCanvas(
+  surface: BrowserPerformanceDiagnostics["surfaces"][number],
+  t: Translator
+): string {
+  const canvas = surface.primaryCanvas;
+  if (!canvas) return t("settings.performanceDiagnosticsUnknown");
+  return `${canvas.pixelWidth} × ${canvas.pixelHeight} (${canvas.megapixels.toFixed(2)} MP)`;
+}
+
+function formatWebGlAttributes(
+  surface: BrowserPerformanceDiagnostics["surfaces"][number],
+  t: Translator
+): string {
+  const attributes = surface.webGlContextAttributes;
+  if (!attributes) return t("settings.performanceDiagnosticsUnknown");
+  return [
+    `AA ${attributes.antialias ? "on" : "off"}`,
+    `alpha ${attributes.alpha ? "on" : "off"}`,
+    `depth ${attributes.depth ? "on" : "off"}`,
+    `stencil ${attributes.stencil ? "on" : "off"}`
+  ].join(" · ");
 }
 
 function formatLongTasks(

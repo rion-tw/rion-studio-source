@@ -270,14 +270,18 @@ describe("browser font settings normalization", () => {
 
   it("defaults and validates the macOS high refresh preference", () => {
     expect(normalizeGameBrowserSettings({}).performance).toEqual({
+      maximumWebGlPerformance: true,
       macosHighRefreshRate: false
     });
     expect(
       normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: true } }).performance
-    ).toEqual({ macosHighRefreshRate: true });
+    ).toEqual({ maximumWebGlPerformance: true, macosHighRefreshRate: true });
     expect(
       normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: "yes" } }).performance
-    ).toEqual({ macosHighRefreshRate: false });
+    ).toEqual({ maximumWebGlPerformance: true, macosHighRefreshRate: false });
+    expect(
+      normalizeGameBrowserSettings({ performance: { maximumWebGlPerformance: false } }).performance
+    ).toEqual({ maximumWebGlPerformance: false, macosHighRefreshRate: false });
   });
 
   it("normalizes macro badge position options and falls back for invalid values", () => {

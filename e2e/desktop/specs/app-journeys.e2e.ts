@@ -217,6 +217,8 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
+  const maximumWebGl = await $("button[role='switch'][aria-label='Maximum WebGL performance']");
+  if ((await maximumWebGl.getAttribute("data-state")) === "checked") await maximumWebGl.click();
   for (const label of [
     "Show macro tools button",
     "Show running macro badges",
@@ -230,8 +232,12 @@ async function updateSettings(): Promise<void> {
     timeoutMsg: "Runtime Window preferences did not persist"
   });
   await browser.waitUntil(async () => {
-    const overlay = (await rendererCall("getGameBrowserSettings")).macroOverlay;
-    return !overlay.showToolButton && !overlay.showRunningBadges && !overlay.showClickMarkers;
+    const settings = await rendererCall("getGameBrowserSettings");
+    const overlay = settings.macroOverlay;
+    return !settings.performance.maximumWebGlPerformance
+      && !overlay.showToolButton
+      && !overlay.showRunningBadges
+      && !overlay.showClickMarkers;
   }, {
     timeout: 10_000,
     timeoutMsg: "In-game macro interface preferences did not persist"
@@ -311,8 +317,12 @@ async function restartPhase(): Promise<void> {
     showRunningBadges: false,
     showToolButton: false
   });
+  expect((await rendererCall("getGameBrowserSettings")).performance.maximumWebGlPerformance)
+    .toBe(false);
 
   await navigate("/settings?section=interface");
+  expect(await $("button[role='switch'][aria-label='Maximum WebGL performance']")
+    .getAttribute("data-state")).toBe("unchecked");
   for (const label of [
     "Show macro tools button",
     "Show running macro badges",

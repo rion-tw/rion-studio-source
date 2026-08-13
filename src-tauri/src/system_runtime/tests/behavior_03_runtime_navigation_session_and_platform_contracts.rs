@@ -495,6 +495,15 @@ use uuid::Uuid;
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn macos_maximum_webgl_mode_finds_only_the_exact_webkit_feature() {
+        unsafe extern "C" {
+            fn rion_wk_maximum_webgl_performance_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_maximum_webgl_performance_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn macos_surface_leases_keep_exact_webviews_isolated() {
         unsafe extern "C" {
             fn rion_wk_surface_lifecycle_self_test() -> bool;
@@ -504,23 +513,193 @@ use uuid::Uuid;
 
     #[test]
     fn performance_diagnostic_probe_is_foreground_scoped_and_privacy_bounded() {
-        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("requestAnimationFrame(tick)"));
-        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("PerformanceObserver"));
-        assert!(PERFORMANCE_DIAGNOSTIC_START_SOURCE.contains("longtask"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("takeRecords"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.visibilityState"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("document.hasFocus()"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("intervals.length * 1000"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("failIfMajorPerformanceCaveat: true"));
-        assert!(PERFORMANCE_DIAGNOSTIC_READ_SOURCE.contains("WEBGL_debug_renderer_info"));
-        for source in [
-            PERFORMANCE_DIAGNOSTIC_START_SOURCE,
-            PERFORMANCE_DIAGNOSTIC_READ_SOURCE,
-        ] {
+        let source = PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE;
+        assert!(source.contains("requestAnimationFrame(tick)"));
+        assert!(source.contains("PerformanceObserver"));
+        assert!(source.contains("longtask"));
+        assert!(source.contains("takeRecords"));
+        assert!(source.contains("document.visibilityState"));
+        assert!(source.contains("document.hasFocus()"));
+        assert!(source.contains("intervals.length * 1000"));
+        assert!(source.contains("globalThis.GLctx"));
+        assert!(!source.contains("getContext("));
+        assert!(source.contains("WEBGL_debug_renderer_info"));
+        assert!(source.contains("querySelectorAll(\"canvas\")"));
+        assert!(source.contains("primaryCanvas"));
+        assert!(source.contains("pagehide"));
+        for source in [source, PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE] {
             assert!(!source.contains("localStorage"));
             assert!(!source.contains("document.cookie"));
             assert!(!source.contains("location.href"));
         }
+        assert!(PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE
+            .contains("MainLoop"));
+        assert!(PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE
+            .contains("webglcontextlost"));
+        assert!(PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE
+            .contains("elapsedSamplePeriods"));
+        let first = performance_diagnostic_source("start", "operation-one", true);
+        let second = performance_diagnostic_source("cancel", "operation-two", false);
+        assert!(first.contains("operation-one"));
+        assert!(first.contains("})();\n/* global"));
+        assert!(!first.contains("operation-two"));
+        assert!(second.contains("operation-two"));
+        assert!(!second.contains("globalThis.MainLoop"));
+    }
+
+    #[test]
+    fn performance_diagnostic_cancellation_wakes_a_deadline_bound_sample() {
+        let cancellation = Arc::new(PerformanceDiagnosticCancellation::default());
+        let worker_cancellation = Arc::clone(&cancellation);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let worker = thread::spawn(move || {
+            worker_barrier.wait();
+            worker_cancellation.wait(Duration::from_secs(60))
+        });
+        barrier.wait();
+        cancellation.cancel();
+        assert!(!worker.join().expect("diagnostic worker joins"));
+    }
+
+    #[test]
+    fn game_loop_target_requires_all_local_fps_and_frame_pacing_gates() {
+        let passing = PerformanceTargetEvidence {
+            context_loss_count: Some(0),
+            display_refresh_rate_hz: Some(60.0),
+            game_loop_fps: Some(112.0),
+            game_loop_p10_fps: Some(104.0),
+            hardware_acceleration_enabled: Some(true),
+            missed_vsync_count: Some(0),
+            presentation_fps: Some(59.5),
+            presentation_sample_count: 90,
+        };
+        assert_eq!(
+            performance_target_status(PerformanceTargetStatus::NotRun, passing),
+            PerformanceTargetStatus::Passed
+        );
+        let failing = PerformanceTargetEvidence {
+            game_loop_p10_fps: Some(90.0),
+            ..passing
+        };
+        assert_eq!(
+            performance_target_status(PerformanceTargetStatus::NotRun, failing),
+            PerformanceTargetStatus::Failed
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn loaded_webkit_framework_reports_its_own_build_version() {
+        let version = macos_webkit_runtime_version().expect("loaded WebKit build version");
+        assert!(version.contains('.'));
+    }
+
+    #[test]
+    fn webview2_gpu_diagnostics_decode_cdp_system_information() {
+        let diagnostics = decode_webview2_gpu_diagnostics(
+            r#"{
+              "gpu": {
+                "devices": [{
+                  "deviceString": "Hardware GPU",
+                  "vendorString": "GPU Vendor"
+                }],
+                "featureStatus": { "webgl": "enabled_on" }
+              }
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(diagnostics.graphics_renderer.as_deref(), Some("Hardware GPU"));
+        assert_eq!(diagnostics.graphics_vendor.as_deref(), Some("GPU Vendor"));
+        assert_eq!(diagnostics.hardware_acceleration_enabled, Some(true));
+    }
+
+    #[test]
+    fn webview2_maximum_mode_requires_complete_hardware_process_evidence() {
+        let managed = MaximumWebGlPerformanceDiagnosticStatus::EngineManaged;
+        assert_eq!(
+            maximum_mode_status_with_evidence(
+                true,
+                managed,
+                Some(true),
+                Some(true),
+                Some(true),
+                Some(true),
+            ),
+            managed
+        );
+        assert_eq!(
+            maximum_mode_status_with_evidence(
+                true,
+                managed,
+                Some(true),
+                Some(true),
+                None,
+                Some(true),
+            ),
+            MaximumWebGlPerformanceDiagnosticStatus::Unavailable
+        );
+        assert_eq!(
+            maximum_mode_status_with_evidence(
+                true,
+                managed,
+                Some(true),
+                Some(true),
+                Some(false),
+                Some(true),
+            ),
+            MaximumWebGlPerformanceDiagnosticStatus::Failed
+        );
+    }
+
+    #[test]
+    fn configured_webgl_path_is_not_inferred_from_maximum_mode_status() {
+        assert_eq!(
+            web_gl_execution_path_with_evidence(
+                WebGlExecutionPath::WebContentDirect,
+                MaximumWebGlPerformanceDiagnosticStatus::Applied,
+            ),
+            WebGlExecutionPath::WebContentDirect
+        );
+        assert_eq!(
+            web_gl_execution_path_with_evidence(
+                WebGlExecutionPath::GpuProcess,
+                MaximumWebGlPerformanceDiagnosticStatus::Failed,
+            ),
+            WebGlExecutionPath::Unknown
+        );
+    }
+
+    #[test]
+    fn performance_diagnostic_phase_order_fences_completion_after_cancel() {
+        let mut operation = PerformanceDiagnosticOperationState {
+            cancellation: Arc::new(PerformanceDiagnosticCancellation::default()),
+            operation_id: "performance-diagnostic-test".to_owned(),
+            phase: BrowserPerformanceDiagnosticOperationPhase::WaitingForFocus,
+            revision: 1,
+        };
+        assert!(transition_performance_diagnostic_phase(
+            &mut operation,
+            &[BrowserPerformanceDiagnosticOperationPhase::WaitingForFocus],
+            BrowserPerformanceDiagnosticOperationPhase::Sampling,
+        ));
+        assert_eq!(operation.revision, 2);
+        assert!(transition_performance_diagnostic_phase(
+            &mut operation,
+            &[BrowserPerformanceDiagnosticOperationPhase::Sampling],
+            BrowserPerformanceDiagnosticOperationPhase::Cancelled,
+        ));
+        assert_eq!(operation.revision, 3);
+        assert!(!transition_performance_diagnostic_phase(
+            &mut operation,
+            &[BrowserPerformanceDiagnosticOperationPhase::Sampling],
+            BrowserPerformanceDiagnosticOperationPhase::Completed,
+        ));
+        assert_eq!(
+            operation.phase,
+            BrowserPerformanceDiagnosticOperationPhase::Cancelled
+        );
+        assert_eq!(operation.revision, 3);
     }
 
     #[test]
@@ -534,7 +713,15 @@ use uuid::Uuid;
             "hardwareConcurrency": 8,
             "frameCount": 188,
             "observedDurationMs": 1500.0,
-            "averageFps": 125.3,
+            "presentationFps": 125.3,
+            "primaryCanvas": {
+                "cssWidth": 1280.0,
+                "cssHeight": 720.0,
+                "pixelWidth": 2560,
+                "pixelHeight": 1440,
+                "devicePixelRatio": 2.0,
+                "megapixels": 3.6864
+            },
             "frameIntervalsMs": [8.0, 8.2, 17.0],
             "p50FrameIntervalMs": 8.0,
             "p95FrameIntervalMs": 8.4,
@@ -556,7 +743,8 @@ use uuid::Uuid;
         assert_eq!(readback.document_visibility_state, "visible");
         assert!(readback.document_has_focus);
         assert_eq!(readback.frame_count, 188);
-        assert_eq!(readback.average_fps, Some(125.3));
+        assert_eq!(readback.presentation_fps, Some(125.3));
+        assert_eq!(readback.primary_canvas.unwrap().pixel_width, 2560);
         assert_eq!(readback.frame_intervals_ms, vec![8.0, 8.2, 17.0]);
         assert_eq!(readback.p99_frame_interval_ms, Some(16.0));
         assert_eq!(readback.long_task_count, Some(1));
@@ -623,6 +811,30 @@ use uuid::Uuid;
             ),
         ] {
             assert_eq!(high_refresh_rate_status_label(status), expected);
+        }
+    }
+
+
+    #[test]
+    fn maximum_webgl_diagnostic_status_labels_are_stable() {
+        for (status, expected) in [
+            (MaximumWebGlPerformanceDiagnosticStatus::Applied, "applied"),
+            (
+                MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
+                "engine-managed",
+            ),
+            (MaximumWebGlPerformanceDiagnosticStatus::Disabled, "disabled"),
+            (
+                MaximumWebGlPerformanceDiagnosticStatus::Unavailable,
+                "unavailable",
+            ),
+            (MaximumWebGlPerformanceDiagnosticStatus::Failed, "failed"),
+            (
+                MaximumWebGlPerformanceDiagnosticStatus::NotApplicable,
+                "not-applicable",
+            ),
+        ] {
+            assert_eq!(maximum_webgl_performance_status_label(status), expected);
         }
     }
 

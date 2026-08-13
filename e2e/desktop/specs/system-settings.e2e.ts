@@ -39,7 +39,12 @@ describe("system settings boundaries", () => {
     await expect($("button*=Check updates")).toBeDisabled();
 
     await navigate("/settings?section=diagnostics");
-    expect((await $$("button")).length).toBeGreaterThan(0);
+    const measure = await $("button=Measure presentation FPS");
+    await measure.click();
+    const cancelMeasurement = await $("button=Cancel measurement");
+    await cancelMeasurement.waitForExist({ timeout: 10_000 });
+    await cancelMeasurement.click();
+    await measure.waitForExist({ timeout: 10_000 });
 
     await navigate("/settings?section=about-legal");
     const legalButtons = await $$("button=Open");

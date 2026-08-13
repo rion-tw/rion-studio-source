@@ -921,6 +921,7 @@ struct RuntimeWebViewConfiguration {
     #[cfg(windows)]
     additional_browser_arguments: String,
     document_start_script: String,
+    maximum_web_gl_performance: bool,
     macos_high_refresh_rate: bool,
     overlay_document_start_script_template: String,
 }
@@ -936,7 +937,11 @@ struct PerformanceDiagnosticReadback {
     hardware_concurrency: u32,
     frame_count: u32,
     observed_duration_ms: f64,
-    average_fps: Option<f64>,
+    presentation_fps: Option<f64>,
+    #[serde(default)]
+    primary_canvas: Option<BrowserCanvasDiagnosticRecord>,
+    #[serde(default)]
+    web_gl_context_attributes: Option<BrowserWebGlContextAttributesRecord>,
     #[serde(default)]
     frame_intervals_ms: Vec<f64>,
     p50_frame_interval_ms: Option<f64>,
@@ -947,10 +952,23 @@ struct PerformanceDiagnosticReadback {
     long_task_total_duration_ms: Option<f64>,
     longest_task_ms: Option<f64>,
     graphics: StateWebGraphicsRecord,
+    #[serde(default)]
+    game_loop_fps: Option<f64>,
+    #[serde(default)]
+    game_loop_p10_fps: Option<f64>,
+    #[serde(default)]
+    game_loop_timing_mode: Option<i32>,
+    #[serde(default)]
+    game_loop_timing_value: Option<f64>,
+    #[serde(default)]
+    game_loop_timer_drift_p95_ms: Option<f64>,
+    #[serde(default)]
+    context_loss_count: Option<u32>,
 }
 
 struct PerformanceDiagnosticSurface {
     high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
+    web_gl_configuration: RoleWebGlConfiguration,
     origin: Option<String>,
     role_id: String,
     webview: Webview,
@@ -966,6 +984,62 @@ struct PerformanceDiagnosticWindow {
 struct PlatformPerformanceEnvironment {
     system_low_power_mode_enabled: Option<bool>,
     system_thermal_state: Option<String>,
+}
+
+#[derive(Default)]
+struct PlatformWebViewDiagnostics {
+    browser_process_present: Option<bool>,
+    graphics_renderer: Option<String>,
+    graphics_vendor: Option<String>,
+    hardware_acceleration_enabled: Option<bool>,
+    runtime_version: Option<String>,
+    renderer_process_present: Option<bool>,
+    gpu_process_present: Option<bool>,
+}
+
+struct PerformanceDiagnosticOperationState {
+    cancellation: Arc<PerformanceDiagnosticCancellation>,
+    operation_id: String,
+    phase: BrowserPerformanceDiagnosticOperationPhase,
+    revision: u64,
+}
+
+#[derive(Default)]
+struct PerformanceDiagnosticCancellation {
+    cancelled: AtomicBool,
+    sampling_thread: Mutex<Option<thread::Thread>>,
+}
+
+impl PerformanceDiagnosticCancellation {
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+        if let Ok(owner) = self.sampling_thread.lock()
+            && let Some(thread) = owner.as_ref()
+        {
+            thread.unpark();
+        }
+    }
+
+    fn wait(&self, duration: Duration) -> bool {
+        if self.cancelled.load(Ordering::Acquire) {
+            return false;
+        }
+        if let Ok(mut owner) = self.sampling_thread.lock() {
+            *owner = Some(thread::current());
+        }
+        let deadline = Instant::now() + duration;
+        while !self.cancelled.load(Ordering::Acquire) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            thread::park_timeout(remaining);
+        }
+        if let Ok(mut owner) = self.sampling_thread.lock() {
+            *owner = None;
+        }
+        !self.cancelled.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone)]

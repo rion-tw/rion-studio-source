@@ -15,6 +15,10 @@ export type { BrowserFontRuntimePayloadRecord } from "./BrowserFontRuntimePayloa
 export type { BrowserFontSelectionRecord } from "./BrowserFontSelectionRecord";
 export type { BrowserFontSettingsRecord } from "./BrowserFontSettingsRecord";
 export type { BrowserPerformanceSettingsRecord } from "./BrowserPerformanceSettingsRecord";
+export type { BrowserCanvasDiagnosticRecord } from "./BrowserCanvasDiagnosticRecord";
+export type { BrowserWebGlContextAttributesRecord } from "./BrowserWebGlContextAttributesRecord";
+export type { BrowserPerformanceDiagnosticOperationPhase } from "./BrowserPerformanceDiagnosticOperationPhase";
+export type { BrowserPerformanceDiagnosticOperationRecord } from "./BrowserPerformanceDiagnosticOperationRecord";
 export type { BrowserPerformanceDiagnosticStatus } from "./BrowserPerformanceDiagnosticStatus";
 export type { BrowserPerformanceDiagnosticsRecord } from "./BrowserPerformanceDiagnosticsRecord";
 export type { BrowserPerformanceSurfaceDiagnosticRecord } from "./BrowserPerformanceSurfaceDiagnosticRecord";
@@ -123,6 +127,10 @@ export type { GameWindowUpdateInputRecord } from "./GameWindowUpdateInputRecord"
 export type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 export type { RuntimeWindowTabSnapshotRecord } from "./RuntimeWindowTabSnapshotRecord";
 export type { HighRefreshRateDiagnosticStatus } from "./HighRefreshRateDiagnosticStatus";
+export type { MaximumWebGlPerformanceDiagnosticStatus } from "./MaximumWebGlPerformanceDiagnosticStatus";
+export type { PerformanceTargetStatus } from "./PerformanceTargetStatus";
+export type { WebGlCommandBatchingStatus } from "./WebGlCommandBatchingStatus";
+export type { WebGlExecutionPath } from "./WebGlExecutionPath";
 export type { LayoutBounds } from "./LayoutBounds";
 export type { LayoutDividerBounds } from "./LayoutDividerBounds";
 export type { LayoutDividerInput } from "./LayoutDividerInput";

@@ -12,7 +12,7 @@ import type {
   BrowserFontInstallResult,
   BrowserFontRuntimePayload,
   BrowserFontSettings,
-  BrowserPerformanceDiagnostics,
+  BrowserPerformanceDiagnosticOperation,
   ChromeProfileImportInput,
   ChromeProfileImportPreview,
   ChromeProfileImportProgress,
@@ -183,7 +183,8 @@ export interface RionStudioApi {
   setLogLevel: (level: LogLevel) => Promise<LogStorageStatus>;
   clearLogs: () => Promise<LogStorageStatus>;
   revealLogs: () => Promise<void>;
-  collectBrowserPerformanceDiagnostics: () => Promise<BrowserPerformanceDiagnostics>;
+  beginBrowserPerformanceDiagnostics: () => Promise<BrowserPerformanceDiagnosticOperation>;
+  cancelBrowserPerformanceDiagnostics: (operationId: string) => Promise<void>;
   exportDiagnostics: () => Promise<DiagnosticExportResult | null>;
   reportRendererLog: (event: RendererLogEvent) => void;
   listSystemFonts: () => Promise<SystemFontFamily[]>;
@@ -223,5 +224,8 @@ export interface RionStudioApi {
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;
   onChromeProfileImportProgress: (
     callback: (progress: ChromeProfileImportProgress) => void
+  ) => () => void;
+  onBrowserPerformanceDiagnosticsChanged: (
+    callback: (operation: BrowserPerformanceDiagnosticOperation) => void
   ) => () => void;
 }

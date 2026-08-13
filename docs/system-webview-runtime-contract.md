@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 12 defines the shared semantics for WKWebView on macOS and
+Contract version 13 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. It does not pretend that the native APIs are identical.
 Rust orchestration owns the contract, while the AppKit/WKWebView and
 Win32/WebView2 adapters implement it. Existing macOS behavior is the observable
@@ -78,6 +78,62 @@ shutdown result.
 | Drag | Visible motion is immediate UI work. Every in-strip order change flows one way from AppKit/HTML into `LiveWindowTabStore`, then into a debounced latest-wins SQLite snapshot; neither gesture adapter waits for Core, SQLite, persistence, native readback, or a receipt | AppKit live window/tab drag adapter / Windows tab-strip pointer adapter |
 | Recovery | One attempt fences generation and input, builds a provisional replacement, retires the old surface at an explicit destructive boundary, and reaches `inputReady` or `restartRequired` | WKWebView process termination / WebView2 process-failure callbacks |
 | Power | Sleep rejects new native work, interrupts old-epoch work, drains input and Core, persists recovery state, and wake restores the same epoch before accepting work | NSWorkspace sleep/wake notifications / `WM_POWERBROADCAST` message-only window |
+
+## WebGL performance policy
+
+`maximumWebGlPerformance` defaults to enabled and never changes DPR, canvas
+backing dimensions, WebGL context attributes, or page content. It is independent
+from the macOS high-refresh presentation preference and takes effect only after
+Rion Studio restarts; changing it does not close a running role surface.
+
+On macOS, enabled selects only a strategy certified for the exact WebKit
+framework build loaded by `WKWebView`. The checked-in capability catalog records
+command batching separately from the preferred process path and never compares
+version strings numerically. A verified legacy build may use the exact private
+feature key `UseGPUProcessForWebGLEnabled` to select direct WebContent-process
+WebGL. A future build is allowed to retain GPU-process WebGL only after the same
+Flyff and fixture gates certify its batched command path. An unknown build, a
+missing feature, or a rejected setter leaves WebKit's default unchanged and
+reports `unavailable` or `failed`; disabled remains compatibility mode. Production
+never writes `UseGPUProcessForDOMRenderingEnabled`.
+
+On Windows, enabled is `engineManaged`: WebView2 retains its supported hardware
+accelerated renderer/GPU-process path. Production arguments never include GPU
+VSync, frame-limit, in-process GPU, ANGLE selection, or sandbox-disabling flags.
+Diagnostics enumerate renderer and GPU processes through
+`ICoreWebView2Environment8::GetProcessInfos`, record the WebView2/Chromium runtime
+version, and summarize `SystemInfo.getInfo` GPU evidence. Command batching is
+`notApplicable` because Chromium owns that engine-managed mechanism. Missing supported
+evidence is reported; it is never compensated by lower resolution or an
+unsupported production flag.
+
+Foreground diagnostics are operation-ID and revision fenced. Begin returns a
+`waitingForFocus` operation, an exact runtime-window focus event starts the
+1.5-second presentation sample, and terminal state is `completed`, `failed`, or
+`cancelled`. Cancellation wakes the DeadlineBound sample and removes only the
+matching operation's page probe. A readback deadline cannot become success. `presentationFps` is rAF
+presentation cadence, not a page's timer/Wasm game-loop FPS counter. The probe
+only reads dimensions and an already-exposed active `GLctx`; it never requests a
+new context from a canvas.
+
+Debug-only WebKit experiments run from an isolated Rion user-data directory.
+They may load an explicitly supplied Safari Technology Preview framework and
+select an exact WebGL/DOM-rendering A/B cell. The `matrix` launcher orders all
+five cells while reusing only that isolated login store. Their overlay reads Emscripten's
+public `MainLoop` counters every approximately 100 ms from the existing rAF
+observer, does not replace timers or WebGL methods, and is removed on read,
+cancel, supersede, or navigation. STP frameworks and experiment environment
+switches are absent from production behavior.
+
+The loopback `/webgl-120` fixture supplies WebGL1 with `antialias:false`, native
+DPR/backing size, a drift-corrected 120 Hz timer loop, a separate rAF loop, five
+10-second samples after a 30-second warmup, and an optional 10-minute soak. The
+acceptance helpers require FPS, presentation-frame pacing, reference-gap,
+context-loss, native-surface, and
+independently captured visual-output parity gates; no run passes merely by
+reducing quality. The `flyff-like` profile reproduces the measured ratio of
+draw, uniform, buffer, texture, and vertex-attribute state calls without adding
+an artificial per-frame `gl.flush()`.
 
 ## Revisioned projections
 
@@ -534,7 +590,7 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 12. The completion policy,
+Additive fields remain compatible within version 13. The completion policy,
 subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
 Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic

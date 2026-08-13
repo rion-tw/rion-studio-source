@@ -36,6 +36,27 @@ use std::fs;
     }
 
     #[test]
+    fn legacy_browser_settings_persist_the_default_maximum_webgl_mode() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        create_schema(&connection, false).unwrap();
+        let mut legacy = serde_json::to_value(default_game_browser_settings()).unwrap();
+        legacy["performance"]
+            .as_object_mut()
+            .unwrap()
+            .remove("maximumWebGlPerformance");
+        legacy["performance"]["macosHighRefreshRate"] = json!(true);
+        replace_scalar(&mut connection, "gameBrowserSettings", legacy).unwrap();
+
+        repair_required_settings(&connection).unwrap();
+
+        let stored = read_scalar(&connection, "gameBrowserSettings")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored["performance"]["maximumWebGlPerformance"], true);
+        assert_eq!(stored["performance"]["macosHighRefreshRate"], true);
+    }
+
+    #[test]
     fn removed_browser_proxy_settings_are_not_created_or_accepted() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
@@ -295,6 +316,7 @@ use std::fs;
             }))
             .unwrap();
             let settings = normalize_game_browser_settings(settings);
+            assert!(settings.performance.maximum_web_gl_performance);
             assert!(!settings.performance.macos_high_refresh_rate);
             assert!(settings.macro_overlay.show_tool_button);
             assert!(settings.macro_overlay.show_running_badges);

@@ -20,6 +20,8 @@ pub struct SystemRuntimeExecutor {
     pub(super) language: Mutex<String>,
     pub(super) resolved_theme: Mutex<String>,
     pub(super) last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
+    pub(super) performance_diagnostic_operation: Mutex<Option<PerformanceDiagnosticOperationState>>,
+    pub(super) performance_diagnostic_sequence: AtomicU64,
     pub(super) launch_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
     pub(super) input_effect_sender: OnceLock<mpsc::SyncSender<ConcurrentRuntimeWork>>,
     pub(super) input_effect_lanes: Mutex<HashMap<String, mpsc::SyncSender<ConcurrentRuntimeWork>>>,

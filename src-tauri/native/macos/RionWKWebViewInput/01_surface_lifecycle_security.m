@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <uuid/uuid.h>
 
@@ -12,6 +13,15 @@ enum {
   RionWKHighRefreshRateApplied = 0,
   RionWKHighRefreshRateUnavailable = 1,
   RionWKHighRefreshRateFailed = 2,
+  RionWKHighRefreshRateDisabled = 3,
+};
+
+enum {
+  RionWKMaximumWebGLPerformanceApplied = 0,
+  RionWKMaximumWebGLPerformanceUnavailable = 1,
+  RionWKMaximumWebGLPerformanceFailed = 2,
+  RionWKMaximumWebGLPerformanceDisabled = 3,
+  RionWKMaximumWebGLPerformanceEngineManaged = 4,
 };
 
 enum {
@@ -553,12 +563,75 @@ static int32_t RionWKConfigureHighRefreshRate(
   return RionWKHighRefreshRateApplied;
 }
 
+static int32_t RionWKConfigureFeatureForPreferences(
+    id preferences, Class preferencesClass, NSString *featureKey,
+    BOOL enabled) {
+  @try {
+    SEL featuresSelector = NSSelectorFromString(@"_features");
+    SEL setEnabledSelector = NSSelectorFromString(@"_setEnabled:forFeature:");
+    if (!preferences || !preferencesClass ||
+        ![(id)preferencesClass respondsToSelector:featuresSelector] ||
+        ![preferences respondsToSelector:setEnabledSelector]) {
+      return RionWKMaximumWebGLPerformanceUnavailable;
+    }
+    id features = ((id (*)(id, SEL))objc_msgSend)(
+        (id)preferencesClass, featuresSelector);
+    if (![features isKindOfClass:NSArray.class]) {
+      return RionWKMaximumWebGLPerformanceUnavailable;
+    }
+    id feature = RionWKFeatureWithKey((NSArray *)features, featureKey);
+    if (!feature) {
+      return RionWKMaximumWebGLPerformanceUnavailable;
+    }
+    ((void (*)(id, SEL, BOOL, id))objc_msgSend)(
+        preferences, setEnabledSelector, enabled, feature);
+    return RionWKMaximumWebGLPerformanceApplied;
+  } @catch (__unused NSException *exception) {
+    // Keep the already-created role configuration and WebKit's default WebGL
+    // process path when the private feature surface changes or rejects the set.
+    return RionWKMaximumWebGLPerformanceFailed;
+  }
+}
+
+static int32_t RionWKConfigureFeature(
+    WKWebViewConfiguration *configuration, NSString *featureKey,
+    int32_t preference) {
+  if (preference < 0) return RionWKMaximumWebGLPerformanceEngineManaged;
+  return RionWKConfigureFeatureForPreferences(
+      configuration.preferences, NSClassFromString(@"WKPreferences"),
+      featureKey, preference != 0);
+}
+
 void *rion_wk_create_role_configuration(
     const uint8_t *dataStoreIdentifierBytes,
-    int32_t *highRefreshRateStatus) {
+    bool highRefreshRateEnabled,
+    int32_t webGLPreference,
+    int32_t domRenderingPreference,
+    int32_t canvasRenderingPreference,
+    int32_t *highRefreshRateStatus,
+    int32_t *maximumWebGLPerformanceStatus,
+    int32_t *domRenderingStatus,
+    int32_t *canvasRenderingStatus) {
   @autoreleasepool {
     if (highRefreshRateStatus) {
-      *highRefreshRateStatus = RionWKHighRefreshRateFailed;
+      *highRefreshRateStatus = highRefreshRateEnabled
+          ? RionWKHighRefreshRateFailed
+          : RionWKHighRefreshRateDisabled;
+    }
+    if (maximumWebGLPerformanceStatus) {
+      *maximumWebGLPerformanceStatus = webGLPreference < 0
+          ? RionWKMaximumWebGLPerformanceEngineManaged
+          : RionWKMaximumWebGLPerformanceFailed;
+    }
+    if (domRenderingStatus) {
+      *domRenderingStatus = domRenderingPreference < 0
+          ? RionWKMaximumWebGLPerformanceEngineManaged
+          : RionWKMaximumWebGLPerformanceFailed;
+    }
+    if (canvasRenderingStatus) {
+      *canvasRenderingStatus = canvasRenderingPreference < 0
+          ? RionWKMaximumWebGLPerformanceEngineManaged
+          : RionWKMaximumWebGLPerformanceFailed;
     }
     if (!dataStoreIdentifierBytes) return NULL;
     @try {
@@ -571,13 +644,48 @@ void *rion_wk_create_role_configuration(
       WKWebViewConfiguration *configuration =
           [[WKWebViewConfiguration alloc] init];
       configuration.websiteDataStore = dataStore;
-      int32_t status = RionWKConfigureHighRefreshRate(configuration);
-      if (highRefreshRateStatus) *highRefreshRateStatus = status;
+      if (highRefreshRateEnabled && highRefreshRateStatus) {
+        *highRefreshRateStatus = RionWKConfigureHighRefreshRate(configuration);
+      }
+      if (maximumWebGLPerformanceStatus) {
+        *maximumWebGLPerformanceStatus =
+            RionWKConfigureFeature(
+                configuration, @"UseGPUProcessForWebGLEnabled",
+                webGLPreference);
+      }
+      if (domRenderingStatus) {
+        *domRenderingStatus = RionWKConfigureFeature(
+            configuration, @"UseGPUProcessForDOMRenderingEnabled",
+            domRenderingPreference);
+      }
+      if (canvasRenderingStatus) {
+        *canvasRenderingStatus = RionWKConfigureFeature(
+            configuration, @"UseGPUProcessForCanvasRenderingEnabled",
+            canvasRenderingPreference);
+      }
       return (__bridge_retained void *)configuration;
     } @catch (__unused NSException *exception) {
       return NULL;
     }
   }
+}
+
+char *rion_wk_copy_runtime_version(void) {
+  @autoreleasepool {
+    @try {
+      NSBundle *bundle = [NSBundle bundleForClass:WKWebView.class];
+      id rawVersion = [bundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+      if (![rawVersion isKindOfClass:NSString.class]) return NULL;
+      const char *version = [(NSString *)rawVersion UTF8String];
+      return version ? strdup(version) : NULL;
+    } @catch (__unused NSException *exception) {
+      return NULL;
+    }
+  }
+}
+
+void rion_wk_free_c_string(char *value) {
+  free(value);
 }
 
 int32_t rion_ns_low_power_mode_enabled(void) {
@@ -626,6 +734,43 @@ int32_t rion_ns_thermal_state(void) {
 @implementation RionWKFeatureFixture
 @end
 
+static NSArray *RionWKRejectingPreferencesFeatures;
+
+@interface RionWKRejectingPreferencesFixture : NSObject
++ (NSArray *)_features;
+- (void)_setEnabled:(BOOL)enabled forFeature:(id)feature;
+@end
+
+@implementation RionWKRejectingPreferencesFixture
++ (NSArray *)_features {
+  return RionWKRejectingPreferencesFeatures;
+}
+- (void)_setEnabled:(BOOL)enabled forFeature:(id)feature {
+  (void)enabled;
+  (void)feature;
+  @throw [NSException exceptionWithName:@"RionWKFeatureRejected"
+                                 reason:@"fixture rejection"
+                               userInfo:nil];
+}
+@end
+
+static NSArray *RionWKRecordingPreferencesFeatures;
+static NSMutableArray *RionWKRecordedFeatureWrites;
+
+@interface RionWKRecordingPreferencesFixture : NSObject
++ (NSArray *)_features;
+- (void)_setEnabled:(BOOL)enabled forFeature:(id)feature;
+@end
+
+@implementation RionWKRecordingPreferencesFixture
++ (NSArray *)_features {
+  return RionWKRecordingPreferencesFeatures;
+}
+- (void)_setEnabled:(BOOL)enabled forFeature:(id)feature {
+  [RionWKRecordedFeatureWrites addObject:@[feature, @(enabled)]];
+}
+@end
+
 bool rion_wk_high_refresh_rate_self_test(void) {
   @autoreleasepool {
     RionWKFeatureFixture *other = [[RionWKFeatureFixture alloc] init];
@@ -637,6 +782,61 @@ bool rion_wk_high_refresh_rate_self_test(void) {
                    features,
                    @"PreferPageRenderingUpdatesNear60FPSEnabled") == target &&
         RionWKFeatureWithKey(features, @"MissingFeature") == nil;
+  }
+}
+
+bool rion_wk_maximum_webgl_performance_self_test(void) {
+  @autoreleasepool {
+    RionWKFeatureFixture *nearMatch = [[RionWKFeatureFixture alloc] init];
+    nearMatch.key = @"UseGPUProcessForWebGL";
+    RionWKFeatureFixture *target = [[RionWKFeatureFixture alloc] init];
+    target.key = @"UseGPUProcessForWebGLEnabled";
+    NSArray *features = @[nearMatch, @42, target];
+    BOOL exactMatch = RionWKFeatureWithKey(
+                   features, @"UseGPUProcessForWebGLEnabled") == target &&
+        RionWKFeatureWithKey(
+            features, @"UseGPUProcessForWebGLEnabledExtra") == nil;
+    RionWKRecordingPreferencesFeatures = features;
+    RionWKRecordedFeatureWrites = [[NSMutableArray alloc] init];
+    int32_t applied = RionWKConfigureFeatureForPreferences(
+        [[RionWKRecordingPreferencesFixture alloc] init],
+        RionWKRecordingPreferencesFixture.class,
+        @"UseGPUProcessForWebGLEnabled", NO);
+    NSArray *write = RionWKRecordedFeatureWrites.count > 0
+        ? RionWKRecordedFeatureWrites[0]
+        : nil;
+    BOOL wroteDisabled = applied == RionWKMaximumWebGLPerformanceApplied &&
+        RionWKRecordedFeatureWrites.count == 1 &&
+        write[0] == target && ![write[1] boolValue];
+    RionWKRecordingPreferencesFeatures = nil;
+    RionWKRecordedFeatureWrites = nil;
+    RionWKRejectingPreferencesFeatures = features;
+    int32_t rejected = RionWKConfigureFeatureForPreferences(
+        [[RionWKRejectingPreferencesFixture alloc] init],
+        RionWKRejectingPreferencesFixture.class,
+        @"UseGPUProcessForWebGLEnabled", YES);
+    RionWKRejectingPreferencesFeatures = @[nearMatch];
+    int32_t missing = RionWKConfigureFeatureForPreferences(
+        [[RionWKRejectingPreferencesFixture alloc] init],
+        RionWKRejectingPreferencesFixture.class,
+        @"UseGPUProcessForWebGLEnabled", YES);
+    RionWKRejectingPreferencesFeatures = nil;
+    RionWKFeatureFixture *domTarget = [[RionWKFeatureFixture alloc] init];
+    domTarget.key = @"UseGPUProcessForDOMRenderingEnabled";
+    BOOL exactDomMatch = RionWKFeatureWithKey(
+        @[domTarget], @"UseGPUProcessForDOMRenderingEnabled") == domTarget &&
+        RionWKFeatureWithKey(
+            @[domTarget], @"UseGPUProcessForDOMRendering") == nil;
+    RionWKFeatureFixture *canvasTarget = [[RionWKFeatureFixture alloc] init];
+    canvasTarget.key = @"UseGPUProcessForCanvasRenderingEnabled";
+    BOOL exactCanvasMatch = RionWKFeatureWithKey(
+        @[canvasTarget], @"UseGPUProcessForCanvasRenderingEnabled") ==
+        canvasTarget &&
+        RionWKFeatureWithKey(
+            @[canvasTarget], @"UseGPUProcessForCanvasEnabled") == nil;
+    return exactMatch && exactDomMatch && exactCanvasMatch && wroteDisabled &&
+        rejected == RionWKMaximumWebGLPerformanceFailed &&
+        missing == RionWKMaximumWebGLPerformanceUnavailable;
   }
 }
 

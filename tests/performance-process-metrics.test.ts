@@ -7,6 +7,32 @@ import {
   processCategoryTotals,
   summarizeProcessCategories
 } from "../scripts/performanceProcessMetrics.mjs";
+import {
+  compareMacWebGlAcceptance,
+  compareWindowsWebGlAcceptance
+} from "../scripts/webGlPerformanceGates.mjs";
+
+function webGlRun(fps: number, p10Fps = fps - 5) {
+  return {
+    fixture: "rion-webgl1-120" as const,
+    sampleMs: 10_000,
+    samples: Array.from({ length: 5 }, () => ({
+      canvas: {
+        cssHeight: 720,
+        cssWidth: 1280,
+        devicePixelRatio: 2,
+        pixelHeight: 1440,
+        pixelWidth: 2560
+      },
+      context: { attributes: { antialias: false }, renderer: "Test GPU" },
+      gameLoop: { fps, p10Fps },
+      presentation: { fps: 60, missedFrameRatio: 0 },
+      workloadProfile: "flyff-like" as const
+    })),
+    soak: { contextLosses: 0, durationMs: 600_000 },
+    warmupMs: 30_000
+  };
+}
 
 describe("performance process metrics", () => {
   it.each([
@@ -60,6 +86,85 @@ describe("performance process metrics", () => {
     expect(fixture).toContain("glyphContext.fillText");
     expect(fixture).toContain("context.font=fixtureFont");
     expect(fixture).toContain("glyphContext.font=glyphFont");
+  });
+
+  it("provides a native-resolution 120 Hz WebGL1 game-loop fixture", async () => {
+    const fixture = await readFile("scripts/performanceFixtureServer.mjs", "utf8");
+    expect(fixture).toContain('"/webgl-120"');
+    expect(fixture).toContain('canvas.getContext("webgl"');
+    expect(fixture).toContain("antialias:false");
+    expect(fixture).toContain("const targetFps=120");
+    expect(fixture).toContain('url.searchParams.get("busyMs")');
+    expect(fixture).toContain('url.searchParams.get("profile")');
+    expect(fixture).toContain('workloadProfile==="flyff-like"');
+    expect(fixture).toContain("gl.uniformMatrix4fv");
+    expect(fixture).toContain("gl.uniform3fv");
+    expect(fixture).toContain("gl.vertexAttribPointer");
+    expect(fixture).toContain("gl.drawElements");
+    expect(fixture).toContain('if(workloadProfile==="draw")gl.flush()');
+    expect(fixture).toContain("const busyUntil=performance.now()+fixedBusyMs");
+    expect(fixture).toContain("setTimeout(gameTick");
+    expect(fixture).toContain("requestAnimationFrame(presentationTick)");
+    expect(fixture).toContain("__rionWebGlPerformanceSnapshot");
+    expect(fixture).toContain("__rionWebGlPerformanceRun");
+    expect(fixture).toContain("options.warmupMs??30000");
+    expect(fixture).toContain("options.sampleCount??5");
+    expect(fixture).toContain("options.sampleMs??10000");
+    expect(fixture).toContain("options.soakMs??600000");
+    expect(fixture).toContain("contextLosses");
+    expect(fixture).toContain("devicePixelRatio");
+  });
+
+  it("enforces the macOS WebGL improvement, parity, quality, and soak gates", () => {
+    const comparison = compareMacWebGlAcceptance({
+      brave: webGlRun(120, 112),
+      compatibility: webGlRun(96, 90),
+      extreme: webGlRun(112, 105),
+      visualOutputMatched: true
+    });
+    expect(comparison.passed).toBe(true);
+    expect(comparison.gates).toMatchObject({
+      nativeSurfaceMatched: true,
+      presentationMissedFrameRatio: 0,
+      visualOutputMatched: true
+    });
+    expect(compareMacWebGlAcceptance({
+      brave: webGlRun(120, 112),
+      compatibility: webGlRun(96, 90),
+      extreme: webGlRun(112, 105),
+      visualOutputMatched: false
+    }).passed).toBe(false);
+    expect(() => compareMacWebGlAcceptance({
+      brave: webGlRun(120, 112),
+      compatibility: webGlRun(96, 90),
+      extreme: {
+        ...webGlRun(112, 105),
+        samples: webGlRun(112, 105).samples.map((sample) => ({
+          ...sample,
+          workloadProfile: "draw" as unknown as "flyff-like"
+        }))
+      },
+      visualOutputMatched: true
+    })).toThrow("Flyff-like");
+  });
+
+  it("rejects Windows WebGL runs without the managed GPU process policy", () => {
+    const passing = {
+      brave: webGlRun(118, 108),
+      edge: webGlRun(120, 110),
+      gpuProcessPresent: true,
+      hardwareAccelerationEnabled: true,
+      maximumModeStatus: "engineManaged",
+      productionGraphicsFlags: [],
+      rion: webGlRun(113, 104),
+      visualOutputMatched: true,
+      webGlExecutionPath: "engineManaged"
+    };
+    expect(compareWindowsWebGlAcceptance(passing).passed).toBe(true);
+    expect(compareWindowsWebGlAcceptance({
+      ...passing,
+      productionGraphicsFlags: ["--disable-gpu-vsync"]
+    }).passed).toBe(false);
   });
 
   it("requires schema version 2 for direct and aggregated comparisons", async () => {

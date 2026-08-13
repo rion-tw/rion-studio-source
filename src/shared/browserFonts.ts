@@ -202,6 +202,7 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
 };
 
 const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
+  maximumWebGlPerformance: true,
   macosHighRefreshRate: false
 };
 
@@ -265,6 +266,10 @@ function normalizeBrowserPerformanceSettings(
 ): BrowserPerformanceSettings {
   const input = isRecord(value) ? value : {};
   return {
+    maximumWebGlPerformance:
+      typeof input.maximumWebGlPerformance === "boolean"
+        ? input.maximumWebGlPerformance
+        : fallback.maximumWebGlPerformance,
     macosHighRefreshRate:
       typeof input.macosHighRefreshRate === "boolean"
         ? input.macosHighRefreshRate

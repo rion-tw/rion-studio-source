@@ -12,6 +12,10 @@ use native_projection::{
     NativeTabProjectionState, NativeTabProjectionStore, SurfacePresentationBinding,
 };
 
+// @source "./system_runtime/webgl_performance.rs"
+mod webgl_performance;
+use webgl_performance::*;
+
 include!("system_runtime/section_01_navigation_timeout.rs");
 include!("system_runtime/section_01_navigation_completion.rs");
 include!("system_runtime/section_02_windows_surface_identity_matches.rs");

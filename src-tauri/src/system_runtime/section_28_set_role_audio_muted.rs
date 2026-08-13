@@ -178,11 +178,38 @@ fn evaluate_system_webview(webview: &Webview, source: &str) -> RuntimeResult<Str
     })
 }
 
+fn performance_diagnostic_operation_record(
+    state: &PerformanceDiagnosticOperationState,
+    diagnostics: Option<BrowserPerformanceDiagnosticsRecord>,
+    error: Option<String>,
+) -> BrowserPerformanceDiagnosticOperationRecord {
+    BrowserPerformanceDiagnosticOperationRecord {
+        operation_id: state.operation_id.clone(),
+        revision: state.revision,
+        phase: state.phase,
+        diagnostics,
+        error: error.and_then(bounded_diagnostic_text),
+    }
+}
+
+fn transition_performance_diagnostic_phase(
+    state: &mut PerformanceDiagnosticOperationState,
+    expected: &[BrowserPerformanceDiagnosticOperationPhase],
+    next: BrowserPerformanceDiagnosticOperationPhase,
+) -> bool {
+    if !expected.contains(&state.phase) {
+        return false;
+    }
+    state.revision = state.revision.saturating_add(1);
+    state.phase = next;
+    true
+}
+
 fn empty_performance_diagnostics(
     captured_at: String,
     platform: String,
     status: BrowserPerformanceDiagnosticStatus,
-    high_refresh_rate_requested: bool,
+    configuration: &RuntimeWebViewConfiguration,
     sample_duration: Duration,
     system_low_power_mode_enabled: Option<bool>,
     system_thermal_state: Option<String>,
@@ -196,7 +223,8 @@ fn empty_performance_diagnostics(
         display_refresh_rate_hz: None,
         system_low_power_mode_enabled,
         system_thermal_state,
-        high_refresh_rate_requested,
+        high_refresh_rate_requested: configuration.macos_high_refresh_rate,
+        maximum_web_gl_performance_requested: configuration.maximum_web_gl_performance,
         sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
         surfaces: Vec::new(),
     }
@@ -234,6 +262,15 @@ fn completed_performance_surface(
     mut readback: PerformanceDiagnosticReadback,
     display_refresh_rate_hz: Option<f64>,
 ) -> BrowserPerformanceSurfaceDiagnosticRecord {
+    let platform = platform_webview_diagnostics(&surface.webview);
+    readback.graphics.renderer = platform
+        .graphics_renderer
+        .clone()
+        .or(readback.graphics.renderer);
+    readback.graphics.vendor = platform
+        .graphics_vendor
+        .clone()
+        .or(readback.graphics.vendor);
     readback.graphics.error = readback.graphics.error.and_then(bounded_diagnostic_text);
     readback.graphics.renderer = readback.graphics.renderer.and_then(bounded_diagnostic_text);
     readback.graphics.vendor = readback.graphics.vendor.and_then(bounded_diagnostic_text);
@@ -242,6 +279,56 @@ fn completed_performance_surface(
     readback.graphics.webgpu = diagnostic_availability(&readback.graphics.webgpu);
     let (slow_frame_count, missed_vsync_count) =
         frame_budget_diagnostics(&readback.frame_intervals_ms, display_refresh_rate_hz);
+    let hardware_acceleration = platform
+        .hardware_acceleration_enabled
+        .or_else(|| hardware_acceleration_enabled(&readback.graphics));
+    let gpu_process_present = platform.gpu_process_present.or(match surface
+        .web_gl_configuration
+        .execution_path
+    {
+        WebGlExecutionPath::WebContentDirect => Some(false),
+        WebGlExecutionPath::GpuProcess | WebGlExecutionPath::EngineManaged => Some(true),
+        WebGlExecutionPath::Unknown => None,
+    });
+    let maximum_mode_status = maximum_mode_status_with_evidence(
+        cfg!(windows),
+        surface.web_gl_configuration.maximum_mode_status,
+        platform.browser_process_present,
+        platform.renderer_process_present,
+        gpu_process_present,
+        hardware_acceleration,
+    );
+    let web_gl_execution_path = web_gl_execution_path_with_evidence(
+        surface.web_gl_configuration.execution_path,
+        maximum_mode_status,
+    );
+    let game_loop_fps = readback
+        .game_loop_fps
+        .and_then(finite_non_negative)
+        .map(|value| value.min(1_000.0));
+    let game_loop_p10_fps = readback
+        .game_loop_p10_fps
+        .and_then(finite_non_negative)
+        .map(|value| value.min(1_000.0));
+    let context_loss_count = readback.context_loss_count.map(|value| value.min(1_024));
+    let performance_target_status = performance_target_status(
+        surface.web_gl_configuration.performance_target_status,
+        PerformanceTargetEvidence {
+            context_loss_count,
+            display_refresh_rate_hz,
+            game_loop_fps,
+            game_loop_p10_fps,
+            hardware_acceleration_enabled: hardware_acceleration,
+            missed_vsync_count,
+            presentation_fps: readback.presentation_fps,
+            presentation_sample_count: readback.frame_intervals_ms.len(),
+        },
+    );
+    let web_kit_runtime_version = if cfg!(target_os = "macos") {
+        platform.runtime_version.clone()
+    } else {
+        None
+    };
     BrowserPerformanceSurfaceDiagnosticRecord {
         role_id: surface.role_id,
         origin: surface.origin,
@@ -256,8 +343,8 @@ fn completed_performance_surface(
         hardware_concurrency: readback.hardware_concurrency.min(1_024),
         frame_count: readback.frame_count,
         observed_duration_ms: finite_non_negative(readback.observed_duration_ms).unwrap_or(0.0),
-        average_fps: readback
-            .average_fps
+        presentation_fps: readback
+            .presentation_fps
             .and_then(finite_non_negative)
             .map(|value| value.min(1_000.0)),
         p50_frame_interval_ms: readback.p50_frame_interval_ms.and_then(finite_non_negative),
@@ -275,6 +362,35 @@ fn completed_performance_surface(
         longest_task_ms: readback.longest_task_ms.and_then(finite_non_negative),
         graphics: readback.graphics,
         high_refresh_rate_status: surface.high_refresh_rate_status,
+        use_gpu_process_for_web_gl_status: surface
+            .web_gl_configuration
+            .web_gl_feature_status,
+        use_gpu_process_for_dom_rendering_status: surface
+            .web_gl_configuration
+            .dom_rendering_feature_status,
+        use_gpu_process_for_canvas_rendering_status: surface
+            .web_gl_configuration
+            .canvas_rendering_feature_status,
+        web_gl_execution_path,
+        maximum_mode_status,
+        web_gl_command_batching_status: surface.web_gl_configuration.command_batching_status,
+        performance_target_status,
+        webview_runtime_version: platform.runtime_version.clone(),
+        web_kit_runtime_version,
+        browser_process_present: platform.browser_process_present,
+        renderer_process_present: platform.renderer_process_present,
+        gpu_process_present,
+        hardware_acceleration_enabled: hardware_acceleration,
+        primary_canvas: readback.primary_canvas,
+        web_gl_context_attributes: readback.web_gl_context_attributes,
+        game_loop_fps,
+        game_loop_p10_fps,
+        game_loop_timing_mode: readback.game_loop_timing_mode,
+        game_loop_timing_value: readback.game_loop_timing_value.and_then(finite_non_negative),
+        game_loop_timer_drift_p95_ms: readback
+            .game_loop_timer_drift_p95_ms
+            .and_then(finite_non_negative),
+        context_loss_count,
         error: None,
     }
 }
@@ -283,6 +399,20 @@ fn failed_performance_surface(
     surface: PerformanceDiagnosticSurface,
     error: String,
 ) -> BrowserPerformanceSurfaceDiagnosticRecord {
+    let platform = platform_webview_diagnostics(&surface.webview);
+    let maximum_mode_status = maximum_mode_status_with_evidence(
+        cfg!(windows),
+        surface.web_gl_configuration.maximum_mode_status,
+        platform.browser_process_present,
+        platform.renderer_process_present,
+        platform.gpu_process_present,
+        platform.hardware_acceleration_enabled,
+    );
+    let web_kit_runtime_version = if cfg!(target_os = "macos") {
+        platform.runtime_version.clone()
+    } else {
+        None
+    };
     BrowserPerformanceSurfaceDiagnosticRecord {
         role_id: surface.role_id,
         origin: surface.origin,
@@ -294,7 +424,7 @@ fn failed_performance_surface(
         hardware_concurrency: 0,
         frame_count: 0,
         observed_duration_ms: 0.0,
-        average_fps: None,
+        presentation_fps: None,
         p50_frame_interval_ms: None,
         p95_frame_interval_ms: None,
         p99_frame_interval_ms: None,
@@ -313,7 +443,139 @@ fn failed_performance_surface(
             webgpu: "unknown".to_owned(),
         },
         high_refresh_rate_status: surface.high_refresh_rate_status,
+        use_gpu_process_for_web_gl_status: surface
+            .web_gl_configuration
+            .web_gl_feature_status,
+        use_gpu_process_for_dom_rendering_status: surface
+            .web_gl_configuration
+            .dom_rendering_feature_status,
+        use_gpu_process_for_canvas_rendering_status: surface
+            .web_gl_configuration
+            .canvas_rendering_feature_status,
+        web_gl_execution_path: web_gl_execution_path_with_evidence(
+            surface.web_gl_configuration.execution_path,
+            maximum_mode_status,
+        ),
+        maximum_mode_status,
+        web_gl_command_batching_status: surface.web_gl_configuration.command_batching_status,
+        performance_target_status: PerformanceTargetStatus::Indeterminate,
+        webview_runtime_version: platform.runtime_version.clone(),
+        web_kit_runtime_version,
+        browser_process_present: platform.browser_process_present,
+        renderer_process_present: platform.renderer_process_present,
+        gpu_process_present: platform.gpu_process_present,
+        hardware_acceleration_enabled: platform.hardware_acceleration_enabled,
+        primary_canvas: None,
+        web_gl_context_attributes: None,
+        game_loop_fps: None,
+        game_loop_p10_fps: None,
+        game_loop_timing_mode: None,
+        game_loop_timing_value: None,
+        game_loop_timer_drift_p95_ms: None,
+        context_loss_count: None,
         error: bounded_diagnostic_text(error),
+    }
+}
+
+fn maximum_mode_status_with_evidence(
+    windows_engine: bool,
+    configured: MaximumWebGlPerformanceDiagnosticStatus,
+    browser_process_present: Option<bool>,
+    renderer_process_present: Option<bool>,
+    gpu_process_present: Option<bool>,
+    hardware_acceleration_enabled: Option<bool>,
+) -> MaximumWebGlPerformanceDiagnosticStatus {
+    if !windows_engine || configured != MaximumWebGlPerformanceDiagnosticStatus::EngineManaged {
+        return configured;
+    }
+    let evidence = [
+        browser_process_present,
+        renderer_process_present,
+        gpu_process_present,
+        hardware_acceleration_enabled,
+    ];
+    if evidence.contains(&Some(false)) {
+        MaximumWebGlPerformanceDiagnosticStatus::Failed
+    } else if evidence.contains(&None) {
+        MaximumWebGlPerformanceDiagnosticStatus::Unavailable
+    } else {
+        configured
+    }
+}
+
+fn web_gl_execution_path_with_evidence(
+    configured: WebGlExecutionPath,
+    status: MaximumWebGlPerformanceDiagnosticStatus,
+) -> WebGlExecutionPath {
+    match status {
+        MaximumWebGlPerformanceDiagnosticStatus::Unavailable
+        | MaximumWebGlPerformanceDiagnosticStatus::Failed
+        | MaximumWebGlPerformanceDiagnosticStatus::NotApplicable => WebGlExecutionPath::Unknown,
+        _ => configured,
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PerformanceTargetEvidence {
+    context_loss_count: Option<u32>,
+    display_refresh_rate_hz: Option<f64>,
+    game_loop_fps: Option<f64>,
+    game_loop_p10_fps: Option<f64>,
+    hardware_acceleration_enabled: Option<bool>,
+    missed_vsync_count: Option<u32>,
+    presentation_fps: Option<f64>,
+    presentation_sample_count: usize,
+}
+
+fn performance_target_status(
+    configured: PerformanceTargetStatus,
+    evidence: PerformanceTargetEvidence,
+) -> PerformanceTargetStatus {
+    if evidence.game_loop_fps.is_none() && evidence.game_loop_p10_fps.is_none() {
+        return configured;
+    }
+    let Some((game_loop_fps, game_loop_p10_fps, presentation_fps, refresh_rate)) = evidence
+        .game_loop_fps
+        .zip(evidence.game_loop_p10_fps)
+        .zip(evidence.presentation_fps)
+        .zip(evidence.display_refresh_rate_hz)
+        .map(|(((game_loop_fps, game_loop_p10_fps), presentation_fps), refresh_rate)| {
+            (game_loop_fps, game_loop_p10_fps, presentation_fps, refresh_rate)
+        })
+    else {
+        return PerformanceTargetStatus::Indeterminate;
+    };
+    let missed_ratio = evidence
+        .missed_vsync_count
+        .map(|count| count as f64 / evidence.presentation_sample_count.max(1) as f64)
+        .unwrap_or(f64::INFINITY);
+    if game_loop_fps >= 110.0
+        && game_loop_p10_fps >= 100.0
+        && presentation_fps >= refresh_rate * 0.95
+        && missed_ratio <= 0.01
+        && evidence.context_loss_count == Some(0)
+        && evidence.hardware_acceleration_enabled == Some(true)
+    {
+        PerformanceTargetStatus::Passed
+    } else {
+        PerformanceTargetStatus::Failed
+    }
+}
+
+fn hardware_acceleration_enabled(graphics: &StateWebGraphicsRecord) -> Option<bool> {
+    match graphics.webgl.as_str() {
+        "available" => {
+            let renderer = graphics
+                .renderer
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            Some(!["software", "swiftshader", "llvmpipe"]
+                .iter()
+                .any(|marker| renderer.contains(marker)))
+        }
+        "unavailable" => Some(false),
+        _ => None,
     }
 }
 

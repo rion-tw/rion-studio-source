@@ -3,6 +3,42 @@
 use super::super::*;
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn platform_webview_diagnostics(
+    _webview: &Webview,
+) -> PlatformWebViewDiagnostics {
+    PlatformWebViewDiagnostics {
+        browser_process_present: None,
+        graphics_renderer: None,
+        graphics_vendor: None,
+        hardware_acceleration_enabled: None,
+        runtime_version: macos_webkit_runtime_version(),
+        renderer_process_present: Some(true),
+        gpu_process_present: None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn macos_webkit_runtime_version() -> Option<String> {
+    use std::ffi::CStr;
+
+    unsafe extern "C" {
+        fn rion_wk_copy_runtime_version() -> *mut std::os::raw::c_char;
+        fn rion_wk_free_c_string(value: *mut std::os::raw::c_char);
+    }
+
+    let raw = unsafe { rion_wk_copy_runtime_version() };
+    if raw.is_null() {
+        return None;
+    }
+    let value = unsafe { CStr::from_ptr(raw) }
+        .to_string_lossy()
+        .trim()
+        .to_owned();
+    unsafe { rion_wk_free_c_string(raw) };
+    (!value.is_empty()).then_some(value)
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {
     unsafe extern "C" {
         fn rion_wk_page_zoom(webview: *mut std::ffi::c_void) -> f64;
@@ -379,54 +415,144 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     app: &AppHandle,
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
-    enabled: bool,
-) -> (WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus) {
-    if !enabled {
-        return (builder, HighRefreshRateDiagnosticStatus::Disabled);
-    }
-
+    high_refresh_rate_enabled: bool,
+    maximum_web_gl_performance_enabled: bool,
+) -> (
+    WebviewBuilder<tauri::Wry>,
+    HighRefreshRateDiagnosticStatus,
+    RoleWebGlConfiguration,
+) {
     unsafe extern "C" {
         fn rion_wk_create_role_configuration(
             data_store_identifier_bytes: *const u8,
+            high_refresh_rate_enabled: bool,
+            web_gl_preference: i32,
+            dom_rendering_preference: i32,
+            canvas_rendering_preference: i32,
             high_refresh_rate_status: *mut i32,
+            maximum_web_gl_performance_status: *mut i32,
+            dom_rendering_status: *mut i32,
+            canvas_rendering_status: *mut i32,
         ) -> *mut std::ffi::c_void;
     }
 
+    let runtime_version = macos_webkit_runtime_version();
+    let experiment = active_mac_web_gl_experiment();
+    let policy = mac_web_gl_policy(
+        maximum_web_gl_performance_enabled,
+        runtime_version.as_deref(),
+        experiment,
+    );
+    let web_gl_preference = policy.web_gl_preference;
+    let dom_rendering_preference = policy.dom_rendering_preference;
+    let canvas_rendering_preference = policy.canvas_rendering_preference;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let scheduling = app.run_on_main_thread(move || {
         let mut raw_status = 2_i32;
+        let mut raw_maximum_status = 2_i32;
+        let mut raw_dom_rendering_status = 2_i32;
+        let mut raw_canvas_rendering_status = 2_i32;
         let raw_configuration = unsafe {
-            rion_wk_create_role_configuration(data_store_identifier.as_ptr(), &mut raw_status)
+            rion_wk_create_role_configuration(
+                data_store_identifier.as_ptr(),
+                high_refresh_rate_enabled,
+                web_gl_preference.native_value(),
+                dom_rendering_preference.native_value(),
+                canvas_rendering_preference.native_value(),
+                &mut raw_status,
+                &mut raw_maximum_status,
+                &mut raw_dom_rendering_status,
+                &mut raw_canvas_rendering_status,
+            )
         };
         let raw_configuration = raw_configuration as usize;
-        if sender.send((raw_configuration, raw_status)).is_err() && raw_configuration != 0 {
+        if sender
+            .send((
+                raw_configuration,
+                raw_status,
+                raw_maximum_status,
+                raw_dom_rendering_status,
+                raw_canvas_rendering_status,
+            ))
+            .is_err()
+            && raw_configuration != 0
+        {
             let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
             drop(unsafe { Retained::from_raw(raw_configuration) });
         }
     });
-    let (builder, outcome) = if scheduling.is_err() {
-        (builder, HighRefreshRateDiagnosticStatus::ScheduleFailed)
+    let outcome = if scheduling.is_err() {
+        (
+            builder,
+            HighRefreshRateDiagnosticStatus::ScheduleFailed,
+            failed_web_gl_configuration(policy.configuration),
+        )
     } else {
         match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
-            Ok((raw_configuration, raw_status)) => {
+            Ok((
+                raw_configuration,
+                raw_status,
+                raw_maximum_status,
+                raw_dom_rendering_status,
+                raw_canvas_rendering_status,
+            )) => {
                 let status = decode_macos_high_refresh_rate_status(raw_status);
+                let web_gl_configuration = applied_mac_web_gl_configuration(
+                    policy,
+                    raw_maximum_status,
+                    raw_dom_rendering_status,
+                    raw_canvas_rendering_status,
+                );
+                if experiment.is_some() {
+                    eprintln!(
+                        "Rion WKWebView experiment feature writes: UseGPUProcessForWebGLEnabled={}, UseGPUProcessForDOMRenderingEnabled={}, UseGPUProcessForCanvasRenderingEnabled={}.",
+                        maximum_webgl_performance_status_label(
+                            decode_macos_maximum_webgl_performance_status(raw_maximum_status)
+                        ),
+                        maximum_webgl_performance_status_label(
+                            decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status)
+                        ),
+                        maximum_webgl_performance_status_label(
+                            decode_macos_maximum_webgl_performance_status(
+                                raw_canvas_rendering_status
+                            )
+                        ),
+                    );
+                }
                 if raw_configuration == 0 {
-                    (builder, HighRefreshRateDiagnosticStatus::Failed)
+                    (
+                        builder,
+                        HighRefreshRateDiagnosticStatus::Failed,
+                        failed_web_gl_configuration(policy.configuration),
+                    )
                 } else {
                     let raw_configuration = raw_configuration as *mut WKWebViewConfiguration;
                     let configuration = unsafe { Retained::from_raw(raw_configuration) }
                         .expect("native WKWebView configuration pointer was non-null");
-                    (builder.with_webview_configuration(configuration), status)
+                    (
+                        builder.with_webview_configuration(configuration),
+                        status,
+                        web_gl_configuration,
+                    )
                 }
             }
-            Err(_) => (builder, HighRefreshRateDiagnosticStatus::Timeout),
+            Err(_) => (
+                builder,
+                HighRefreshRateDiagnosticStatus::Timeout,
+                failed_web_gl_configuration(policy.configuration),
+            ),
         }
     };
     eprintln!(
-        "System WebView macOS high refresh rate: status={}.",
-        high_refresh_rate_status_label(outcome)
+        "System WebView macOS performance configuration: WebKit={}, high-refresh={}, maximum-webgl={}, path={:?}, batching={:?}, experiment={:?}.",
+        runtime_version.as_deref().unwrap_or("unknown"),
+        high_refresh_rate_status_label(outcome.1),
+        maximum_webgl_performance_status_label(outcome.2.maximum_mode_status),
+        outcome.2.execution_path,
+        outcome.2.command_batching_status,
+        experiment,
     );
-    (builder, outcome)
+    outcome
 }
 
 #[cfg(target_os = "macos")]
@@ -436,8 +562,72 @@ pub(in crate::system_runtime) fn decode_macos_high_refresh_rate_status(
     match value {
         0 => HighRefreshRateDiagnosticStatus::Applied,
         1 => HighRefreshRateDiagnosticStatus::Unavailable,
+        3 => HighRefreshRateDiagnosticStatus::Disabled,
         _ => HighRefreshRateDiagnosticStatus::Failed,
     }
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn decode_macos_maximum_webgl_performance_status(
+    value: i32,
+) -> MaximumWebGlPerformanceDiagnosticStatus {
+    match value {
+        0 => MaximumWebGlPerformanceDiagnosticStatus::Applied,
+        1 => MaximumWebGlPerformanceDiagnosticStatus::Unavailable,
+        3 => MaximumWebGlPerformanceDiagnosticStatus::Disabled,
+        4 => MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
+        _ => MaximumWebGlPerformanceDiagnosticStatus::Failed,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn applied_mac_web_gl_configuration(
+    policy: MacWebGlPolicy,
+    raw_web_gl_status: i32,
+    raw_dom_rendering_status: i32,
+    raw_canvas_rendering_status: i32,
+) -> RoleWebGlConfiguration {
+    let mut configuration = policy.configuration;
+    configuration.web_gl_feature_status =
+        decode_macos_maximum_webgl_performance_status(raw_web_gl_status);
+    configuration.dom_rendering_feature_status =
+        decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status);
+    configuration.canvas_rendering_feature_status =
+        decode_macos_maximum_webgl_performance_status(raw_canvas_rendering_status);
+    if policy.web_gl_preference != WebKitFeaturePreference::KeepDefault {
+        let status = decode_macos_maximum_webgl_performance_status(raw_web_gl_status);
+        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
+            configuration.maximum_mode_status = status;
+            configuration.execution_path = WebGlExecutionPath::Unknown;
+        }
+    }
+    if policy.dom_rendering_preference != WebKitFeaturePreference::KeepDefault {
+        let status = decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status);
+        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
+            configuration.maximum_mode_status = status;
+            configuration.execution_path = WebGlExecutionPath::Unknown;
+        }
+    }
+    if policy.canvas_rendering_preference != WebKitFeaturePreference::KeepDefault {
+        let status = decode_macos_maximum_webgl_performance_status(raw_canvas_rendering_status);
+        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
+            configuration.maximum_mode_status = status;
+            configuration.execution_path = WebGlExecutionPath::Unknown;
+        }
+    }
+    configuration
+}
+
+#[cfg(target_os = "macos")]
+fn failed_web_gl_configuration(
+    mut configuration: RoleWebGlConfiguration,
+) -> RoleWebGlConfiguration {
+    configuration.canvas_rendering_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
+    configuration.dom_rendering_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
+    configuration.maximum_mode_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
+    configuration.execution_path = WebGlExecutionPath::Unknown;
+    configuration.web_gl_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
+    configuration
 }
 
 #[cfg(target_os = "macos")]

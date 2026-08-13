@@ -115,7 +115,7 @@ describe("event topology source policy", () => {
 });
 
 describe("event topology architecture contract", () => {
-  it("documents event-bound completion as the default and contract version 12", async () => {
+  it("documents event-bound completion as the default and contract version 13", async () => {
     const [agents, policy, runtimeContract] = await Promise.all([
       readFile(new URL("../AGENTS.md", import.meta.url), "utf8"),
       readFile(new URL("../docs/event-topology.md", import.meta.url), "utf8"),
@@ -125,7 +125,7 @@ describe("event topology architecture contract", () => {
     expect(agents).toContain("Normal correctness is event-bound");
     expect(policy).toContain("`EventBound` is the normal correctness policy");
     expect(policy).toContain("A deadline never means success");
-    expect(runtimeContract).toContain("Contract version 12");
+    expect(runtimeContract).toContain("Contract version 13");
     expect(runtimeContract).toContain("Event-bound work never terminalizes because time elapsed");
   });
 });

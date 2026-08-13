@@ -54,7 +54,8 @@ describe("Tauri development and release commands", () => {
     expect(macRunner).toContain('"Rion Studio Dev.app"');
     expect(macRunner).toContain("com.rionstudio.launcher");
     expect(macRunner).toContain("NSAllowsLocalNetworking");
-    expect(macRunner).toContain("process.execve(bundledExecutable");
+    expect(macRunner).toContain("process.execve(");
+    expect(macRunner).toContain("macWebKitExperimentExecutableEnvironment()");
     expect(launcher).toContain('["exec", "tauri", "dev"]');
     expect(launcher).not.toContain("test:native:system-input");
     expect(launcher).not.toContain("rion-attestation");

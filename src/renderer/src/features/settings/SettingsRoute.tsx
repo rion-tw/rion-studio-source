@@ -26,7 +26,7 @@ import { normalizeGameBrowserSettings, workspaceGapSizes } from "../../../../sha
 
 import { getLegalDocumentVersion, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 
-import type { AppUpdateStatus, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
+import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
 
 import { MacroSettingsSection } from "./MacroSettingsSection";
 
@@ -190,7 +190,9 @@ function SettingsViewBase({
       .finally(() => setIsWorkspaceAppearanceSaving(false));
   }
 
-  function updateBrowserPerformanceSettings(macosHighRefreshRate: boolean): void {
+  function updateBrowserPerformanceSettings(
+    update: Partial<BrowserPerformanceSettings>
+  ): void {
     if (isBrowserPerformanceSaving) {
       return;
     }
@@ -200,7 +202,7 @@ function SettingsViewBase({
     void saveNonFontPatch({
       performance: {
         ...normalizedSettings.performance,
-        macosHighRefreshRate
+        ...update
       }
     })
       .catch(onError)
@@ -370,6 +372,21 @@ function SettingsViewBase({
                   </Select>
                 }
               />
+              <SettingsRow
+                title={t("settings.maximumWebGlPerformance")}
+                description={t(isMacOS
+                  ? "settings.maximumWebGlPerformanceDescriptionMacos"
+                  : "settings.maximumWebGlPerformanceDescriptionWindows")}
+                control={
+                  <Switch
+                    aria-label={t("settings.maximumWebGlPerformance")}
+                    checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.maximumWebGlPerformance}
+                    disabled={isBrowserPerformanceSaving}
+                    onCheckedChange={(maximumWebGlPerformance) =>
+                      updateBrowserPerformanceSettings({ maximumWebGlPerformance })}
+                  />
+                }
+              />
               {isMacOS ? (
                 <SettingsRow
                   title={t("settings.macosHighRefreshRate")}
@@ -379,7 +396,8 @@ function SettingsViewBase({
                       aria-label={t("settings.macosHighRefreshRate")}
                       checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
                       disabled={isBrowserPerformanceSaving}
-                      onCheckedChange={updateBrowserPerformanceSettings}
+                      onCheckedChange={(macosHighRefreshRate) =>
+                        updateBrowserPerformanceSettings({ macosHighRefreshRate })}
                     />
                   }
                 />

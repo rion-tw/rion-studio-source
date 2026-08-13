@@ -8,6 +8,7 @@ import type {
   BrowserFontInstallResultRecord,
   BrowserFontRuntimePayloadRecord,
   BrowserPerformanceDiagnosticsRecord,
+  BrowserPerformanceDiagnosticOperationRecord,
   BrowserPerformanceSettingsRecord,
   ChromeProfileImportPreviewRecord,
   ChromeProfileImportProgressRecord,
@@ -456,3 +457,4 @@ export interface RendererLogEvent {
 export type DiagnosticExportResult = DiagnosticExportResultRecord;
 
 export type BrowserPerformanceDiagnostics = BrowserPerformanceDiagnosticsRecord;
+export type BrowserPerformanceDiagnosticOperation = BrowserPerformanceDiagnosticOperationRecord;

@@ -351,13 +351,18 @@ impl SystemRuntimeExecutor {
         label: String,
         paths: &SessionPaths,
         role_id: &str,
-    ) -> RuntimeResult<(WebviewBuilder<tauri::Wry>, HighRefreshRateDiagnosticStatus)> {
+    ) -> RuntimeResult<(
+        WebviewBuilder<tauri::Wry>,
+        HighRefreshRateDiagnosticStatus,
+        RoleWebGlConfiguration,
+    )> {
         let builder = self.webview_builder(label, paths, Some(role_id))?;
         Ok(prepare_platform_role_webview_builder(
             &self.app,
             builder,
             paths.webkit_identifier,
             self.configuration.macos_high_refresh_rate,
+            self.configuration.maximum_web_gl_performance,
         ))
     }
 

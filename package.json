@@ -35,6 +35,7 @@
     "performance:measure": "node scripts/benchmarkProcessTree.mjs",
     "performance:aggregate": "node scripts/aggregatePerformanceRuns.mjs",
     "performance:fixture": "node scripts/performanceFixtureServer.mjs",
+    "performance:webkit:experiment": "node scripts/runMacWebKitExperiment.mjs",
     "runtime-authority:fixture": "node scripts/runtimeAuthorityFixtureServer.mjs",
     "typecheck": "tsc --build --force",
     "lint": "eslint .",

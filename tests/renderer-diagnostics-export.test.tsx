@@ -31,6 +31,7 @@ function renderDiagnostics(apiOverrides: Partial<RionStudioApi> = {}) {
     getLogStatus,
     queryLogs,
     onLogEntryAdded: () => () => undefined,
+    onBrowserPerformanceDiagnosticsChanged: () => () => undefined,
     exportDiagnostics: async () => ({ filePath: "/exports/diagnostics.zip", logFileCount: 1 }),
     clearLogs: async () => logStatus,
     ...apiOverrides

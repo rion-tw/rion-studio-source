@@ -163,6 +163,7 @@
             );
             assert!(serialized_fonts["slots"].get("monospace").is_none());
             assert!(fonts.font_smoothing_enabled);
+            assert!(browser_settings.performance.maximum_web_gl_performance);
             assert!(browser_settings.performance.macos_high_refresh_rate);
         };
     }
@@ -216,6 +217,7 @@
             json!({"source":"system","family":"Inter"})
         );
         assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
+        assert_eq!(serialized["performance"]["maximumWebGlPerformance"], true);
         assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
         assert_eq!(serialized["macroOverlay"]["showToolButton"], false);
         assert_eq!(serialized["macroOverlay"]["showRunningBadges"], false);

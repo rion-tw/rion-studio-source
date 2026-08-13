@@ -18,8 +18,11 @@ use rion_core::{
     AppCore, ApplicationLifecycleStatusRecord, BrowserAction, BrowserActionRequest,
     BrowserLaunchCompletionRecord, BrowserRuntimeRoleOwnerRecord, BrowserRuntimeRoleRecord,
     BrowserRuntimeTabRecord, BrowserRuntimeWorkspaceRecord,
-    BrowserPerformanceDiagnosticStatus, BrowserPerformanceDiagnosticsRecord,
-    BrowserPerformanceSurfaceDiagnosticRecord, BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
+    BrowserCanvasDiagnosticRecord, BrowserPerformanceDiagnosticOperationPhase,
+    BrowserPerformanceDiagnosticOperationRecord, BrowserPerformanceDiagnosticStatus,
+    BrowserPerformanceDiagnosticsRecord, BrowserPerformanceSurfaceDiagnosticRecord,
+    BrowserWebGlContextAttributesRecord,
+    BrowserRuntimeSnapshot, BrowserRuntimeWindowRecord,
     CoreAppSnapshotRecord, CoreCommand, CoreEffectAction, CoreEffectDispatchReport,
     CoreEffectRequest, CoreEffectResult,
     DisplayTargetRecord,
@@ -34,7 +37,8 @@ use rion_core::{
     HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroCoordinateContextRecord, MacroInputDiagnosticsRecord,
-    OperationCompletionPolicy,
+    MaximumWebGlPerformanceDiagnosticStatus,
+    OperationCompletionPolicy, PerformanceTargetStatus,
     RuntimeTabMutationRequestRecord,
     RuntimeWindowStopRequestRecord,
     ResolvedBrowserEngine, RuntimeRestoreSessionRecord, RuntimeRestoreTabRecord,
@@ -58,8 +62,8 @@ use rion_core::{
     RuntimeWindowPlacementCommitInput as KernelWindowPlacementCommitInput,
     RuntimeWindowTopologyCommit as KernelWindowTopologyCommit, RuntimeWindowPreferencesRecord,
     SystemWebViewRuntimeRegistrationRecord,
-    WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
-    WorkspaceLayoutInput,
+    WebGlExecutionPath, WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor,
+    WorkspaceDividerResizeInput, WorkspaceLayoutInput,
 };
 #[cfg(any(windows, test))]
 use rion_core::{
@@ -268,140 +272,66 @@ const SYSTEM_RUNTIME_INIT_SCRIPT: &str = r#"
   });
 })();
 "#;
-const PERFORMANCE_DIAGNOSTIC_START_SOURCE: &str = r#"(() => {
-  const key = "__rionStudioPerformanceDiagnostics";
-  const previous = globalThis[key];
-  if (previous && typeof previous.rafId === "number") cancelAnimationFrame(previous.rafId);
-  try { previous?.longTaskObserver?.disconnect(); } catch {}
-  const probe = {
-    frameCount: 0,
-    intervals: [],
-    lastFrameAt: undefined,
-    longTaskDurations: [],
-    longTaskObserver: undefined,
-    longTaskObserverSupported: false,
-    rafId: undefined,
-    running: true,
-    startedAt: performance.now(),
-    webgpu: "unavailable",
-    webgpuError: undefined
-  };
-  globalThis[key] = probe;
-  try {
-    const supported = Array.isArray(globalThis.PerformanceObserver?.supportedEntryTypes)
-      && globalThis.PerformanceObserver.supportedEntryTypes.includes("longtask");
-    if (supported) {
-      probe.longTaskObserver = new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-          if (probe.longTaskDurations.length >= 2048) break;
-          if (Number.isFinite(entry.duration) && entry.duration >= 0) {
-            probe.longTaskDurations.push(entry.duration);
-          }
+// @source "../../../src/shared/browser-overlay/performanceDiagnostics.js"
+const PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE: &str =
+    include_str!("../../../src/shared/browser-overlay/performanceDiagnostics.js");
+#[cfg(debug_assertions)]
+// @source "../../../src/shared/browser-overlay/performanceDiagnosticsGameLoopDev.js"
+const PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE: &str =
+    include_str!("../../../src/shared/browser-overlay/performanceDiagnosticsGameLoopDev.js");
+fn performance_diagnostic_source(
+    action: &str,
+    operation_id: &str,
+    include_game_loop_probe: bool,
+) -> String {
+    let include_dev_source = include_game_loop_probe && action == "start";
+    let action = serde_json::to_string(action).expect("static diagnostic action serializes");
+    let operation_id =
+        serde_json::to_string(operation_id).expect("validated diagnostic operation ID serializes");
+    let source = PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE
+        .replace("__RION_PERFORMANCE_ACTION_JSON__", &action)
+        .replace("__RION_PERFORMANCE_OPERATION_ID_JSON__", &operation_id);
+    #[cfg(debug_assertions)]
+    let source = {
+        let mut source = source;
+        if include_dev_source {
+            source = format!(
+                "{};\n{}",
+                source.trim_end(),
+                PERFORMANCE_DIAGNOSTIC_GAME_LOOP_DEV_SOURCE_TEMPLATE
+                    .replace("__RION_PERFORMANCE_OPERATION_ID_JSON__", &operation_id)
+            );
         }
-      });
-      probe.longTaskObserver.observe({ type: "longtask", buffered: false });
-      probe.longTaskObserverSupported = true;
+        source
+    };
+    let _ = include_game_loop_probe;
+    source
+}
+
+fn performance_diagnostic_game_loop_enabled() -> bool {
+    active_mac_web_gl_experiment().is_some()
+}
+
+fn performance_diagnostic_sample_duration() -> Duration {
+    #[cfg(debug_assertions)]
+    if active_mac_web_gl_experiment().is_some() {
+        return std::env::var("RION_WEBKIT_EXPERIMENT_SAMPLE_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| (1_500..=600_000).contains(value))
+            .map(Duration::from_millis)
+            .unwrap_or(Duration::from_secs(10));
     }
-  } catch {
-    try { probe.longTaskObserver?.disconnect(); } catch {}
-    probe.longTaskObserver = undefined;
-    probe.longTaskObserverSupported = false;
-  }
-  if (navigator.gpu && typeof navigator.gpu.requestAdapter === "function") {
-    probe.webgpu = "unknown";
-    Promise.resolve(navigator.gpu.requestAdapter()).then((adapter) => {
-      probe.webgpu = adapter ? "available" : "unavailable";
-    }).catch((error) => {
-      probe.webgpu = "unavailable";
-      probe.webgpuError = error instanceof Error ? error.message : String(error);
-    });
-  }
-  const tick = (now) => {
-    if (!probe.running) return;
-    if (typeof probe.lastFrameAt === "number" && probe.intervals.length < 2048) {
-      probe.intervals.push(now - probe.lastFrameAt);
+    Duration::from_millis(1_500)
+}
+
+fn bounded_performance_diagnostic_duration(requested: Duration) -> Duration {
+    #[cfg(debug_assertions)]
+    if active_mac_web_gl_experiment().is_some() {
+        return requested.clamp(Duration::from_millis(1_500), Duration::from_secs(600));
     }
-    probe.lastFrameAt = now;
-    probe.frameCount += 1;
-    probe.rafId = requestAnimationFrame(tick);
-  };
-  probe.rafId = requestAnimationFrame(tick);
-  return JSON.stringify({ started: true });
-})()"#;
-const PERFORMANCE_DIAGNOSTIC_READ_SOURCE: &str = r#"(() => {
-  const key = "__rionStudioPerformanceDiagnostics";
-  const probe = globalThis[key];
-  if (!probe) return JSON.stringify({ error: "Performance sample was not started." });
-  probe.running = false;
-  if (typeof probe.rafId === "number") cancelAnimationFrame(probe.rafId);
-  try {
-    for (const entry of probe.longTaskObserver?.takeRecords?.() || []) {
-      if (probe.longTaskDurations.length >= 2048) break;
-      if (Number.isFinite(entry.duration) && entry.duration >= 0) {
-        probe.longTaskDurations.push(entry.duration);
-      }
-    }
-    probe.longTaskObserver?.disconnect();
-  } catch {}
-  const duration = Math.max(0, performance.now() - probe.startedAt);
-  const intervals = [...probe.intervals].filter(Number.isFinite).sort((a, b) => a - b);
-  const intervalDuration = intervals.reduce((total, interval) => total + interval, 0);
-  const longTaskDurations = [...probe.longTaskDurations]
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
-  const percentile = (fraction) => intervals.length
-    ? intervals[Math.min(intervals.length - 1, Math.floor((intervals.length - 1) * fraction))]
-    : undefined;
-  const graphics = { webgl: "unavailable", webgl2: "unavailable", webgpu: probe.webgpu || "unknown" };
-  try {
-    const canvas = document.createElement("canvas");
-    const webgl2 = canvas.getContext("webgl2", { failIfMajorPerformanceCaveat: true });
-    const webgl = webgl2 || canvas.getContext("webgl", { failIfMajorPerformanceCaveat: true });
-    graphics.webgl2 = webgl2 ? "available" : "unavailable";
-    graphics.webgl = webgl ? "available" : "unavailable";
-    if (webgl) {
-      const extension = webgl.getExtension("WEBGL_debug_renderer_info");
-      if (extension) {
-        graphics.renderer = String(webgl.getParameter(extension.UNMASKED_RENDERER_WEBGL) || "");
-        graphics.vendor = String(webgl.getParameter(extension.UNMASKED_VENDOR_WEBGL) || "");
-      }
-    }
-  } catch (error) {
-    graphics.error = error instanceof Error ? error.message : String(error);
-  }
-  if (probe.webgpuError) {
-    graphics.error = graphics.error ? `${graphics.error}; ${probe.webgpuError}` : probe.webgpuError;
-  }
-  const visibility = ["visible", "hidden", "prerender"].includes(document.visibilityState)
-    ? document.visibilityState
-    : "unknown";
-  const averageFps = intervalDuration > 0 && intervals.length > 0
-    ? intervals.length * 1000 / intervalDuration
-    : undefined;
-  delete globalThis[key];
-  return JSON.stringify({
-    documentVisibilityState: visibility,
-    documentHasFocus: document.hasFocus(),
-    viewportWidth: Number.isFinite(innerWidth) ? innerWidth : 0,
-    viewportHeight: Number.isFinite(innerHeight) ? innerHeight : 0,
-    devicePixelRatio: Number.isFinite(globalThis.devicePixelRatio) ? globalThis.devicePixelRatio : 1,
-    hardwareConcurrency: Number.isFinite(navigator.hardwareConcurrency) ? navigator.hardwareConcurrency : 0,
-    frameCount: probe.frameCount,
-    observedDurationMs: duration,
-    averageFps,
-    frameIntervalsMs: intervals,
-    p50FrameIntervalMs: percentile(0.5),
-    p95FrameIntervalMs: percentile(0.95),
-    p99FrameIntervalMs: percentile(0.99),
-    longestFrameIntervalMs: intervals.at(-1),
-    ...(probe.longTaskObserverSupported ? {
-      longTaskCount: longTaskDurations.length,
-      longTaskTotalDurationMs: longTaskDurations.reduce((total, value) => total + value, 0),
-      longestTaskMs: longTaskDurations.at(-1) || 0
-    } : {}),
-    graphics
-  });
-})()"#;
+    requested.clamp(Duration::from_millis(500), Duration::from_millis(5_000))
+}
 const RUNTIME_AUDIO_OBSERVER_SCRIPT: &str = r#"
 (() => {
   if (globalThis.__rionSystemAudioObserverInstalled || globalThis.top !== globalThis) return;
@@ -528,6 +458,7 @@ struct RoleSurface {
     current_url: Option<Url>,
     generation: u64,
     high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
+    web_gl_configuration: RoleWebGlConfiguration,
     lifecycle: Arc<SurfaceLifecycleTracker>,
     navigation: Arc<NavigationTracker>,
     rect: rion_core::StateNormalizedRectRecord,

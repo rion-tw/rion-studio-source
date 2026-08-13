@@ -5,6 +5,8 @@ import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { macWebKitExperimentExecutableEnvironment } from "./runMacWebKitExperiment.mjs";
+
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const [requestedExecutable, ...applicationArguments] = process.argv.slice(2);
 
@@ -40,7 +42,11 @@ async function runBundled(sourceExecutable, applicationArguments) {
     throw new Error("The macOS Tauri dev runner requires Node.js process.execve().");
   }
   process.chdir(dirname(sourceExecutable));
-  process.execve(bundledExecutable, [bundledExecutable, ...applicationArguments], process.env);
+  process.execve(
+    bundledExecutable,
+    [bundledExecutable, ...applicationArguments],
+    macWebKitExperimentExecutableEnvironment()
+  );
 }
 
 function infoPlist(executableName) {

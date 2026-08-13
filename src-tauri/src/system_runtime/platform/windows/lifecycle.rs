@@ -442,7 +442,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> RuntimeResult<(u32, u64, ICoreWebView2Environment5)> {
+            let result = (|| -> RuntimeResult<(u32, u64)> {
                 let controller = platform_webview.controller();
                 windows_live_resize_register_controller(
                     live_resize_label,
@@ -461,9 +461,14 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
                     platform_webview.environment().cast().map_err(|error| {
                         windows_surface_lifecycle_error("lifecycle-environment", error)
                     })?;
+                let environment_lease = std::rc::Rc::new(std::cell::RefCell::new(Some(
+                    environment.clone(),
+                )));
+                let callback_environment_lease = std::rc::Rc::clone(&environment_lease);
                 let handler = BrowserProcessExitedEventHandler::create(Box::new(
                     move |_environment, _args| {
                         let _ = callback_tracker.mark_browser_process_exited();
+                        callback_environment_lease.borrow_mut().take();
                         Ok(())
                     },
                 ));
@@ -543,11 +548,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
                             error,
                         )
                     })?;
-                Ok((
-                    browser_process_id,
-                    controller.as_raw() as usize as u64,
-                    environment,
-                ))
+                Ok((browser_process_id, controller.as_raw() as usize as u64))
             })();
             let _ = sender.send(result);
         })
@@ -558,7 +559,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
             )
             .with_setup_diagnostic("lifecycle-with-webview", None)
         })?;
-    let (browser_process_id, controller_identity, environment) = receiver.recv().map_err(|_| {
+    let (browser_process_id, controller_identity) = receiver.recv().map_err(|_| {
             RuntimeError::new(
                 "SYSTEM_SURFACE_LIFECYCLE_FAILED",
                 "WebView2 surface lifecycle registration was cancelled.",
@@ -571,13 +572,6 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
     tracker
         .controller_identity
         .store(controller_identity, Ordering::Release);
-    *tracker.environment.lock().map_err(|_| {
-        RuntimeError::new(
-            "SYSTEM_SURFACE_LIFECYCLE_FAILED",
-            "The WebView2 environment lifecycle lock was poisoned.",
-        )
-        .with_setup_diagnostic("lifecycle-environment-store", None)
-    })? = Some(environment);
     Ok(tracker)
 }
 

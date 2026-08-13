@@ -584,8 +584,6 @@ struct SurfaceLifecycleTracker {
     #[cfg(windows)]
     controller_identity: AtomicU64,
     #[cfg(windows)]
-    environment: Mutex<Option<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment5>>,
-    #[cfg(windows)]
     navigation_id: AtomicU64,
     #[cfg(target_os = "macos")]
     native_token: AtomicU64,
@@ -603,8 +601,6 @@ impl Default for SurfaceLifecycleTracker {
             browser_process_id: AtomicU64::new(0),
             #[cfg(windows)]
             controller_identity: AtomicU64::new(0),
-            #[cfg(windows)]
-            environment: Mutex::new(None),
             #[cfg(windows)]
             navigation_id: AtomicU64::new(0),
             #[cfg(target_os = "macos")]
@@ -759,10 +755,6 @@ impl SurfaceLifecycleTracker {
                 release.isolation_progress = SurfaceIsolationProgress::Isolated;
             }
             drop(release);
-            #[cfg(windows)]
-            if let Ok(mut environment) = self.environment.lock() {
-                environment.take();
-            }
             if completed_isolation {
                 self.record_native_isolation_event(5);
             }

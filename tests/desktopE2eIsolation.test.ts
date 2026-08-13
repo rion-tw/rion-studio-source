@@ -32,4 +32,23 @@ describe("desktop E2E build isolation", () => {
       "allow-desktop-e2e-runtime-ui-action"
     ]));
   });
+
+  it("submits Windows close through the native window queue", async () => {
+    const source = await readFile(
+      "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",
+      "utf8"
+    );
+    const windowsControl = source.slice(
+      source.indexOf("#[cfg(windows)]\nfn desktop_e2e_apply_native_window_control("),
+      source.indexOf("#[cfg(target_os = \"macos\")]\nfn desktop_e2e_apply_native_window_control(")
+    );
+    const closeControl = windowsControl.slice(
+      windowsControl.indexOf("DesktopE2eWindowControlRequest::Close =>"),
+      windowsControl.indexOf("DesktopE2eWindowControlRequest::Minimize =>")
+    );
+
+    expect(closeControl).toContain("PostMessageW(");
+    expect(closeControl).toContain("WM_CLOSE");
+    expect(closeControl).not.toContain("window.close()");
+  });
 });

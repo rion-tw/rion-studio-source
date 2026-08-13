@@ -329,6 +329,7 @@ pub struct AppCore {
     embedded_input: Mutex<crate::embedded_input::EmbeddedInputRuntime>,
     system_webview_issues:
         RwLock<std::collections::HashMap<String, crate::model::SystemWebViewIssueReason>>,
+    system_webview_ready_roles: RwLock<std::collections::HashSet<String>>,
     embedded_closing_tabs: Mutex<std::collections::HashSet<String>>,
     embedded_operations: Mutex<std::collections::HashMap<String, String>>,
     runtime_window_persistence_revisions:
@@ -464,6 +465,7 @@ impl AppCore {
             database_paths,
             embedded_input: Mutex::new(crate::embedded_input::EmbeddedInputRuntime::default()),
             system_webview_issues: RwLock::new(std::collections::HashMap::new()),
+            system_webview_ready_roles: RwLock::new(std::collections::HashSet::new()),
             embedded_closing_tabs: Mutex::new(std::collections::HashSet::new()),
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
             runtime_window_persistence_revisions: Mutex::new(std::collections::HashMap::new()),

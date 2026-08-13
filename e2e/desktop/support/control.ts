@@ -2,6 +2,10 @@ import { browser } from "@wdio/globals";
 import type {} from "@wdio/tauri-service";
 import type { RionStudioApi } from "../../../src/shared/api";
 import type { MacroInputDiagnosticsRecord } from "../../../src/shared/generated";
+import {
+  detachTerminatedWebDriverSession,
+  type WebDriverGlobalRegistry
+} from "./session";
 
 export interface DesktopE2eEvent {
   details: unknown;
@@ -197,6 +201,20 @@ export async function controlWindow(
   return result as unknown as DesktopE2eWindowSnapshot | { submitted: true };
 }
 
+export async function submitWindowControl(
+  snapshot: DesktopE2eWindowSnapshot,
+  request: WindowControlRequest
+): Promise<DesktopE2eEvent> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, request);
+  return waitEvent({
+    afterSequence: cursor,
+    kind: "native-control-submitted",
+    minimumGeneration: snapshot.windowGeneration,
+    windowId: snapshot.windowId
+  });
+}
+
 export async function runtimeUiAction(
   windowId: string,
   request: RuntimeUiActionRequest
@@ -236,6 +254,13 @@ export async function shutdown(confirm = false): Promise<void> {
     sessionToken(),
     confirm
   );
+}
+
+export function detachTerminatedApplicationSession(): void {
+  // WebdriverIO stores the real browser object behind the @wdio/globals proxy.
+  const registry = globalThis._wdioGlobals as WebDriverGlobalRegistry | undefined;
+  if (!registry) throw new Error("WDIO global registry is unavailable");
+  detachTerminatedWebDriverSession(registry);
 }
 
 export function requireEnvironment(name: string): string {

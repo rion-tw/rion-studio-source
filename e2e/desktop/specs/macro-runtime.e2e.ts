@@ -2,6 +2,7 @@ import { $, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   inputDiagnostics,
   probe,
   rendererCall,
@@ -182,6 +183,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 async function activateVisibleRuntimeTab(input: {

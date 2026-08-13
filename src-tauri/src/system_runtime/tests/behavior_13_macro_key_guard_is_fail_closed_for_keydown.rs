@@ -148,3 +148,52 @@ fn macro_key_guard_acknowledgement_accepts_only_boolean_true() {
     assert!(!macro_key_guard_acknowledged("null"));
     assert!(!macro_key_guard_acknowledged("not-json"));
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_macro_key_guard_accepts_only_the_cdp_boolean_terminal() {
+    assert!(macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"boolean","value":true}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"boolean","value":false}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"result":{"type":"string","value":"true"}}"#
+    ));
+    assert!(!macro_key_guard_devtools_acknowledged(
+        r#"{"exceptionDetails":{"text":"failed"}}"#
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_macro_key_guard_uses_the_authoritative_action_callback_budget() {
+    assert_eq!(MACRO_KEY_GUARD_MAX_LIFETIME, PLATFORM_CALLBACK_TIMEOUT);
+}
+
+#[test]
+fn macro_focus_waits_for_essential_page_readiness() {
+    for phase in [None, Some(LaunchPhase::Attaching), Some(LaunchPhase::Navigating)] {
+        assert_eq!(
+            focus_launch_readiness(phase),
+            FocusLaunchReadiness::Pending,
+            "{phase:?}"
+        );
+    }
+    for phase in [
+        LaunchPhase::EssentialReady,
+        LaunchPhase::OptionalHydrating,
+        LaunchPhase::Ready,
+    ] {
+        assert_eq!(
+            focus_launch_readiness(Some(phase)),
+            FocusLaunchReadiness::Ready,
+            "{phase:?}"
+        );
+    }
+    assert_eq!(
+        focus_launch_readiness(Some(LaunchPhase::Degraded)),
+        FocusLaunchReadiness::Unavailable
+    );
+}

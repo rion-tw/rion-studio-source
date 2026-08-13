@@ -33,6 +33,24 @@ impl AppCore {
         Ok(session)
     }
 
+    pub fn update_runtime_restore_session(
+        &self,
+        update: impl FnOnce(&mut crate::model::RuntimeRestoreSessionRecord),
+    ) -> CoreResult<crate::model::RuntimeRestoreSessionRecord> {
+        let _state_guard = self.state_mutation_guard()?;
+        let mut session = self
+            .read_optional_scalar_state::<crate::model::RuntimeRestoreSessionRecord>(
+                "runtimeRestoreSession",
+            )?
+            .map(crate::domain::normalize_runtime_restore_session)
+            .transpose()?
+            .unwrap_or_else(crate::domain::default_runtime_restore_session);
+        update(&mut session);
+        let session = crate::domain::normalize_runtime_restore_session(session)?;
+        self.replace_scalar_state_under_guard("runtimeRestoreSession", session.clone())?;
+        Ok(session)
+    }
+
     pub fn app_snapshot(&self) -> CoreResult<crate::model::CoreAppSnapshotRecord> {
         let _state_guard = self.state_mutation_guard()?;
         let _authority_guard = self
@@ -211,13 +229,21 @@ impl AppCore {
     }
 
     fn macro_active_role_ids(&self) -> CoreResult<Vec<String>> {
+        let ready_roles = self
+            .system_webview_ready_roles
+            .read()
+            .map_err(|_| CoreError::Internal("system WebView readiness lock poisoned".to_owned()))?;
         let mut role_ids = self
             .browser_runtime
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot
             .roles
             .into_iter()
-            .filter(|role| role.runtime == "embedded" && role.state == "running")
+            .filter(|role| {
+                role.runtime == "embedded"
+                    && role.state == "running"
+                    && ready_roles.contains(&role.role_id)
+            })
             .map(|role| role.role_id)
             .collect::<Vec<_>>();
         role_ids.sort();
@@ -326,6 +352,11 @@ impl AppCore {
         let settings = state_snapshot.game_browser_settings.clone().ok_or_else(|| {
             CoreError::StateDatabase("game browser settings are missing".to_owned())
         })?;
+        let ready_roles = self
+            .system_webview_ready_roles
+            .read()
+            .map_err(|_| CoreError::Internal("system WebView readiness lock poisoned".to_owned()))?
+            .clone();
         for status in &mut statuses {
             let Some(role) = roles.get(&status.role_id) else {
                 continue;
@@ -373,6 +404,20 @@ impl AppCore {
                 };
                 status.capability_snapshot = capability_snapshot.clone();
             }
+        }
+        for status in &mut statuses {
+            let macro_input_available = status.capability_snapshot.as_ref().is_some_and(|snapshot| {
+                system_capability_verified(snapshot.trusted_input)
+                    && system_capability_verified(snapshot.background_input)
+                    && system_capability_available(snapshot.frame_evaluation)
+            });
+            status.automation_state = if status.issue_reason.is_some() || !macro_input_available {
+                Some("unavailable".to_owned())
+            } else if ready_roles.contains(&status.role_id) {
+                Some("ready".to_owned())
+            } else {
+                None
+            };
         }
         Ok(statuses)
     }
@@ -431,6 +476,10 @@ impl AppCore {
         self.system_webview_issues
             .write()
             .map_err(|_| CoreError::Internal("system WebView issue lock poisoned".to_owned()))?
+            .clear();
+        self.system_webview_ready_roles
+            .write()
+            .map_err(|_| CoreError::Internal("system WebView readiness lock poisoned".to_owned()))?
             .clear();
         Ok(registration)
     }
@@ -528,6 +577,14 @@ impl AppCore {
     }
 
     fn reset_system_launch_retry_state(&self, roles: &[StateRoleRecord]) -> CoreResult<()> {
+        {
+            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
+                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            })?;
+            for role in roles {
+                ready_roles.remove(&role.id);
+            }
+        }
         let mut issues = self
             .system_webview_issues
             .write()
@@ -548,6 +605,14 @@ impl AppCore {
         role_ids: &[String],
         reason: crate::model::SystemWebViewIssueReason,
     ) -> CoreResult<()> {
+        {
+            let mut ready_roles = self.system_webview_ready_roles.write().map_err(|_| {
+                CoreError::Internal("system WebView readiness lock poisoned".to_owned())
+            })?;
+            role_ids.iter().for_each(|role_id| {
+                ready_roles.remove(role_id);
+            });
+        }
         let mut issues = self
             .system_webview_issues
             .write()

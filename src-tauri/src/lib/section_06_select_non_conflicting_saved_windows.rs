@@ -124,22 +124,15 @@ fn replace_restore_progress(
     state: &CoreState,
     window_ids: Vec<String>,
 ) -> Result<(), CoreErrorPayload> {
-    let mut session = state
-        .core
-        .invoke(CoreCommand::RuntimeRestoreSessionGet)
-        .map_err(error_payload)
-        .and_then(|value| {
-            serde_json::from_value::<rion_core::RuntimeRestoreSessionRecord>(value)
-                .map_err(|error| shell_error("TAURI_RESTORE_INVALID", error.to_string()))
-        })?;
-    session.schema_version = 2;
-    session.updated_at = chrono::Utc::now().to_rfc3339();
-    session.clean_exit = false;
-    session.restore_in_progress_window_ids = window_ids;
-    session.windows.clear();
     state
         .core
-        .invoke(CoreCommand::RuntimeRestoreSessionReplace { session })
+        .update_runtime_restore_session(|session| {
+            session.schema_version = 2;
+            session.updated_at = chrono::Utc::now().to_rfc3339();
+            session.clean_exit = false;
+            session.restore_in_progress_window_ids = window_ids;
+            session.windows.clear();
+        })
         .map(|_| ())
         .map_err(error_payload)
 }

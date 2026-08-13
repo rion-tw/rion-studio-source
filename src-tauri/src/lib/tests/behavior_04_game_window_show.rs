@@ -2,7 +2,7 @@
 fn game_window_show_prefers_live_activation_over_saved_window_work() {
     for saved_tabs_empty in [false, true] {
         assert_eq!(
-            game_window_show_route(true, saved_tabs_empty),
+            game_window_show_route(true, saved_tabs_empty, Some(0)),
             GameWindowShowRoute::ActivateLive,
         );
     }
@@ -11,11 +11,19 @@ fn game_window_show_prefers_live_activation_over_saved_window_work() {
 #[test]
 fn game_window_show_routes_dormant_windows_by_saved_tab_membership() {
     assert_eq!(
-        game_window_show_route(false, false),
+        game_window_show_route(false, false, None),
         GameWindowShowRoute::RestoreSaved,
     );
     assert_eq!(
-        game_window_show_route(false, true),
+        game_window_show_route(false, true, None),
+        GameWindowShowRoute::RegisterEmpty,
+    );
+    assert_eq!(
+        game_window_show_route(false, false, Some(0)),
+        GameWindowShowRoute::RegisterEmpty,
+    );
+    assert_eq!(
+        game_window_show_route(false, true, Some(1)),
         GameWindowShowRoute::RegisterEmpty,
     );
 }

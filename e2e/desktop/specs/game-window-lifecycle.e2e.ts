@@ -5,11 +5,13 @@ import { resolve } from "node:path";
 import type { DisplayInfo, EmbeddedRuntimeState, GameWindow } from "../../../src/shared/types";
 import {
   controlWindow,
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
   runtimeUiAction,
   shutdown,
+  submitWindowControl,
   waitEvent,
   windowSnapshot,
   type DesktopE2eWindowSnapshot,
@@ -138,10 +140,9 @@ async function showAndWait(windowId: string, minimumGeneration = 1): Promise<Des
 }
 
 async function closeAndWait(snapshot: DesktopE2eWindowSnapshot): Promise<void> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "close" });
+  const submitted = await submitWindowControl(snapshot, { action: "close" });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "window-destroyed",
     minimumGeneration: snapshot.windowGeneration,
     timeoutMs: 45_000,
@@ -153,10 +154,9 @@ async function moveAndWait(
   snapshot: DesktopE2eWindowSnapshot,
   bounds: Required<WindowBounds>
 ): Promise<DesktopE2eWindowSnapshot> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "moveResize", ...bounds });
+  const submitted = await submitWindowControl(snapshot, { action: "moveResize", ...bounds });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     windowId: snapshot.windowId
@@ -320,6 +320,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
     eventTimestamp: event.timestamp,
     requestedAfter
   }, null, 2)}\n`);
+  detachTerminatedApplicationSession();
 }
 
 async function seedPhase(): Promise<void> {
@@ -375,10 +376,12 @@ async function modeTransition(
   snapshot: DesktopE2eWindowSnapshot,
   presentation: "fullscreen" | "maximized" | "normal"
 ): Promise<DesktopE2eWindowSnapshot> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(snapshot.windowId, { action: "setPresentation", presentation });
+  const submitted = await submitWindowControl(snapshot, {
+    action: "setPresentation",
+    presentation
+  });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     presentation,
@@ -406,10 +409,9 @@ async function restartPhase(): Promise<void> {
   liveA = await modeTransition(liveA, "maximized");
   expectPlacement(liveA, normalBounds, "maximized");
   await expectModeCell(WINDOW_A, "maximized");
-  const minimizeCursor = (await probe()).latestSequence;
-  await controlWindow(WINDOW_A, { action: "minimize" });
+  const minimizeSubmitted = await submitWindowControl(liveA, { action: "minimize" });
   await waitEvent({
-    afterSequence: minimizeCursor,
+    afterSequence: minimizeSubmitted.sequence,
     kind: "window-minimized-observed",
     minimumGeneration: liveA.windowGeneration,
     windowId: WINDOW_A
@@ -458,6 +460,7 @@ async function forceTerminateCurrentProcess(): Promise<void> {
     sessionId: control.sessionId
   }, null, 2)}\n`);
   await forceTerminateProcessTree(control.pid);
+  detachTerminatedApplicationSession();
 }
 
 async function forceTerminatePhase(): Promise<void> {
@@ -475,7 +478,17 @@ async function forceTerminatePhase(): Promise<void> {
   const focusedRoleId = activeC?.roleIds[0];
   if (!activeC || !focusedRoleId) throw new Error("Window C active role surface is unavailable");
   const focusCursor = await fixtureCursor();
-  const liveC = await windowSnapshot(WINDOW_C);
+  let liveC = await windowSnapshot(WINDOW_C);
+  const phase = liveC.kernel?.tabs.find((tab) => tab.tabId === activeC.id)?.launchPhase;
+  if (!phase || phase === "attaching" || phase === "navigating") {
+    await waitEvent({
+      afterSequence: focusEventCursor,
+      kind: `tab-launch-phase:${activeC.id}:essentialReady`,
+      timeoutMs: 25_000,
+      windowId: WINDOW_C
+    });
+    liveC = await windowSnapshot(WINDOW_C);
+  }
   await runtimeUiAction(WINDOW_C, {
     action: "focusRole",
     roleId: focusedRoleId,

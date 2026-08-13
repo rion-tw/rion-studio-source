@@ -179,7 +179,7 @@ export function createMacroListRunActionState({
   const hasRunnableRole = macro.roleIds.some(
     (roleId) =>
       statusByRole.get(roleId)?.state === "running" &&
-      statusByRole.get(roleId)?.automationState !== "unavailable" &&
+      statusByRole.get(roleId)?.automationState === "ready" &&
       statusByRole.get(roleId)?.pageHealth !== "unresponsive"
   );
   const isBusy = busyMacroIds.has(macro.id) || busyRunKeys.has(macro.id) || isStopping;

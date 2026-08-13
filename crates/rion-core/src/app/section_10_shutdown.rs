@@ -459,9 +459,14 @@ fn classify_runtime_bulk_error(id: String, error: &CoreError) -> Value {
     json!({ "id": id, "reason": reason, "relatedNames": [] })
 }
 
-fn rollback_role_delete_journals(core: &AppCore, journals: &[(String, String)]) {
-    for (role_id, operation_id) in journals.iter().rev() {
-        if crate::role_browser_data::restore_quarantine(&core.user_data_dir, role_id, operation_id)
+fn rollback_role_delete_journals(core: &AppCore, journals: &[(String, String, bool)]) {
+    for (role_id, operation_id, deferred_cleanup) in journals.iter().rev() {
+        if *deferred_cleanup
+            || crate::role_browser_data::restore_quarantine(
+                &core.user_data_dir,
+                role_id,
+                operation_id,
+            )
             .is_ok()
         {
             let _ = core.with_runtime(|runtime| {
@@ -476,10 +481,17 @@ fn rollback_role_browser_data_clear(
     role_id: &str,
     operation_id: &str,
     had_directory: bool,
+    deferred_by_windows_lock: bool,
 ) -> CoreResult<()> {
-    crate::role_browser_data::remove(&core.user_data_dir, role_id)?;
-    if had_directory {
-        crate::role_browser_data::restore_quarantine(&core.user_data_dir, role_id, operation_id)?;
+    if !deferred_by_windows_lock {
+        crate::role_browser_data::remove(&core.user_data_dir, role_id)?;
+        if had_directory {
+            crate::role_browser_data::restore_quarantine(
+                &core.user_data_dir,
+                role_id,
+                operation_id,
+            )?;
+        }
     }
     core.with_runtime(|runtime| {
         runtime
@@ -566,6 +578,7 @@ fn recover_operation_journals(
                 }
                 "committed" => {
                     crate::role_browser_data::discard_quarantine(user_data_dir, &journal.id)?;
+                    crate::role_browser_data::remove(user_data_dir, role_id)?;
                 }
                 phase => {
                     return Err(CoreError::Migration(format!(
@@ -595,6 +608,10 @@ fn recover_operation_journals(
                             &journal.id,
                         )?;
                     }
+                }
+                "deferred" => {
+                    crate::role_browser_data::remove(user_data_dir, role_id)?;
+                    crate::role_browser_data::ensure(user_data_dir, role_id)?;
                 }
                 "committed" => {
                     crate::role_browser_data::discard_quarantine(user_data_dir, &journal.id)?;

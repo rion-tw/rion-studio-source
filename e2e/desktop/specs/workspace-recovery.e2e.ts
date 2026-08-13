@@ -2,6 +2,7 @@ import { $, expect } from "@wdio/globals";
 
 import type { GameWindow, LaunchWorkspace, Role } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -77,6 +78,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 async function stopWindowFromUi(windowId: string): Promise<void> {
@@ -88,7 +90,6 @@ async function stopWindowFromUi(windowId: string): Promise<void> {
     kind: "window-destroyed",
     windowId
   });
-  await expect($(`[data-selection-id='${windowId}']`)).toHaveText(expect.stringContaining("Not open"));
 }
 
 async function verifyPersistedMutations(): Promise<{
@@ -213,6 +214,10 @@ async function exerciseLaunchCancellation(
   await waitForRoleProjection({ absent: true, roleId: primaryRole.id });
   await waitForRoleProjection({ absent: true, roleId: recoveryRole.id });
   await waitForRuntimeProjection({ absent: true, sourceId: workspace.id });
+  await waitForRuntimeProjection({ absent: true, windowId });
+  await expect($(`[data-selection-id='${windowId}']`)).toHaveText(
+    expect.stringContaining("Not open")
+  );
 }
 
 async function deleteRecoveryWindow(windowId: string, workspaceId: string): Promise<void> {

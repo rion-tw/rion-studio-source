@@ -746,6 +746,7 @@ impl SurfaceLifecycleTracker {
             if release.terminal_failure.is_some()
                 || release.isolated
                 || release.native_surface_released
+                || release.browser_process_exited
                 || !matches!(
                     release.isolation_progress,
                     SurfaceIsolationProgress::Requested

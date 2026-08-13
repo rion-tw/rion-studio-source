@@ -87,6 +87,7 @@ use kernel_facade::seed_persisted_runtime_windows;
 include!("system_runtime/section_18_session_contract.rs");
 include!("system_runtime/section_18_macro_key_guard.rs");
 include!("system_runtime/section_18_coordinate_context.rs");
+include!("system_runtime/section_18_focus_readiness.rs");
 include!("system_runtime/section_18_apply.rs");
 include!("system_runtime/section_18_input_diagnostics.rs");
 include!("system_runtime/section_18_runtime_diagnostics.rs");

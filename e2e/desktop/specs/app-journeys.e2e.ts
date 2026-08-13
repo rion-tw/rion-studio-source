@@ -2,6 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 
 import type { Game, GameWindow, LaunchWorkspace, Macro, Role, RoleStatus } from "../../../src/shared/types";
 import {
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
@@ -73,6 +74,7 @@ async function shutdownAndWaitForFlush(): Promise<void> {
     (candidate) => candidate.kind === "application-final-flush-complete" && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 async function findGame(name: string): Promise<Game> {

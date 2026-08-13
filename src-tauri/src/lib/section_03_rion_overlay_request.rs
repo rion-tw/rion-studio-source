@@ -371,14 +371,26 @@ async fn rion_runtime_tab_action(
                     "runtime tab ID is required",
                 )
             })?;
-        if state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str()) {
+        let result = if state.runtime.live_tab_window_id(tab_id).as_deref()
+            != Some(window_id.as_str())
+        {
             state.runtime.publish_projection();
-            let receipt = state.runtime.superseded_tab_activation_summary(tab_id);
-            return serde_json::to_value(receipt).map_err(|error| {
-                shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
-            });
-        }
-        let receipt = activate_runtime_tab_on_demand(&app, &state, tab_id, false).await?;
+            Ok(state.runtime.superseded_tab_activation_summary(tab_id))
+        } else {
+            activate_runtime_tab_on_demand(&app, &state, tab_id, false).await
+        };
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "runtime-tab-activation-terminal",
+            Some(&window_id),
+            None,
+            None,
+            runtime_tab_activation_terminal_details(
+                tab_id,
+                result.as_ref().err().map(|error| error.message.as_str()),
+            ),
+        );
+        let receipt = result?;
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });

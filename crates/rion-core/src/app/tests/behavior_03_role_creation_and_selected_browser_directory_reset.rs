@@ -143,6 +143,57 @@
         core.shutdown();
     }
 
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn runtime_aware_role_delete_defers_locked_windows_profile_cleanup_durably() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let role_directory = directory.path().join("roles").join(&role_id);
+        let locked_path = role_directory.join("browser/webview2/locked-session");
+        fs::write(&locked_path, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        core.clone()
+            .invoke_async(CoreCommand::RoleDelete {
+                id: role_id.clone(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            core.invoke(CoreCommand::RolesList)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(role_directory.exists());
+        let journals = core
+            .with_runtime(|runtime| runtime.state.operation_journals())
+            .unwrap();
+        assert_eq!(journals.len(), 1);
+        assert_eq!(journals[0].phase, "committed");
+
+        drop(lock);
+        core.with_runtime(|runtime| {
+            recover_operation_journals(&runtime.state, directory.path())
+        })
+        .unwrap();
+        assert!(!role_directory.exists());
+        assert!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+        core.shutdown();
+    }
+
     #[test]
     fn game_browser_setting_patches_merge_non_font_sections_atomically() {
         let (_directory, core) = core();
@@ -502,6 +553,90 @@
         core.shutdown();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn role_browser_data_clear_uses_native_clear_when_windows_profile_is_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let locked_path = directory
+            .path()
+            .join("roles")
+            .join(&role_id)
+            .join("browser/webview2/locked-session");
+        fs::write(&locked_path, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        let (result, actions, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::RoleBrowserDataClear {
+                role_id: role_id.clone(),
+            },
+            None,
+        );
+
+        let _: StateRoleRecord = serde_json::from_value(result.unwrap()).unwrap();
+        assert!(locked_path.exists());
+        assert!(actions.iter().any(|action| matches!(
+            action,
+            CoreEffectAction::RoleBrowserDataClearSession {
+                role_id: effect_role_id,
+                ..
+            } if effect_role_id == &role_id
+        )));
+        assert!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+
+        drop(lock);
+        core.shutdown();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn role_browser_data_clear_preserves_a_locked_profile_after_effect_failure() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let (directory, core) = core();
+        let role_id = create_role(&core, &first_game_id(&core), 1);
+        let locked_path = directory
+            .path()
+            .join("roles")
+            .join(&role_id)
+            .join("browser/webview2/locked-session");
+        fs::write(&locked_path, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        let (result, _, _) = drive_async_command(
+            Arc::clone(&core),
+            CoreCommand::RoleBrowserDataClear { role_id },
+            Some("roleBrowserDataClearSession"),
+        );
+
+        assert_eq!(result.unwrap_err().code(), "DESKTOP_EFFECT_FAILED");
+        drop(lock);
+        assert_eq!(fs::read(&locked_path).unwrap(), b"locked");
+        assert!(
+            core.with_runtime(|runtime| runtime.state.operation_journals())
+                .unwrap()
+                .is_empty()
+        );
+        core.shutdown();
+    }
+
     #[test]
     fn startup_recovery_restores_a_quarantined_browser_data_clear() {
         let directory = tempfile::tempdir().unwrap();
@@ -533,6 +668,36 @@
 
         assert_eq!(fs::read(browser.join("session")).unwrap(), b"signed-in");
         assert!(!browser.join("new-session").exists());
+        assert!(state.operation_journals().unwrap().is_empty());
+    }
+
+    #[test]
+    fn startup_recovery_completes_a_deferred_browser_data_clear() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = StateDatabaseWorker::start(directory.path().join("state.sqlite3")).unwrap();
+        let browser = PathBuf::from(
+            crate::role_browser_data::ensure(directory.path(), "recover-role")
+                .unwrap()
+                .browser_user_data_dir,
+        );
+        fs::write(browser.join("session"), b"signed-in").unwrap();
+        state
+            .put_operation_journal(OperationJournalRecord {
+                id: "browser-clear-deferred".to_owned(),
+                kind: "role_browser_data_clear_v1".to_owned(),
+                phase: "deferred".to_owned(),
+                payload: json!({
+                    "roleId": "recover-role",
+                    "hadDirectory": true,
+                    "deferredByWindowsLock": true
+                }),
+            })
+            .unwrap();
+
+        recover_operation_journals(&state, directory.path()).unwrap();
+
+        assert!(browser.is_dir());
+        assert!(!browser.join("session").exists());
         assert!(state.operation_journals().unwrap().is_empty());
     }
 

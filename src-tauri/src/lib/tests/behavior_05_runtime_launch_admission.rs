@@ -1,7 +1,7 @@
 use super::{
     LaunchAdmissionResolution, RuntimeLaunchEventBatch, SavedWindowHydrationStep,
     collect_launchable_live_targets, preferred_automatic_live_window, resolve_launch_admission,
-    saved_window_hydration_plan,
+    requested_saved_window_uses_empty_runtime_topology, saved_window_hydration_plan,
 };
 use crate::system_runtime::LaunchPreviewHandle;
 use rion_core::{
@@ -263,4 +263,12 @@ fn automatic_launch_ignores_stale_presentation_windows() {
         preferred_automatic_live_window(None, None, &live_window_ids),
         Some(("only-live-window", "live".to_owned()))
     );
+}
+
+#[test]
+fn requested_launch_prefers_authoritative_empty_runtime_topology_over_stale_saved_tabs() {
+    assert!(requested_saved_window_uses_empty_runtime_topology(1, Some(0)));
+    assert!(requested_saved_window_uses_empty_runtime_topology(0, None));
+    assert!(!requested_saved_window_uses_empty_runtime_topology(1, None));
+    assert!(!requested_saved_window_uses_empty_runtime_topology(1, Some(1)));
 }

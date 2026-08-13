@@ -1,219 +1,222 @@
 # Windows P1 Desktop E2E Validation Report
 
-- Status: pending
-- Final exact SHA: PENDING WINDOWS `git rev-parse HEAD`
-- Latest validated code SHA: `634f89df917819d7a594600fbca829f0971794fc`
-- Branch / tracking SHA / remote SHA: `main` / PENDING / PENDING
-- Windows build / architecture: PENDING
-- WebView2 Runtime: PENDING
-- Node / pnpm / Rust: PENDING
-- Monitor topology / scale: PENDING
-- Started / finished at: PENDING
-
-## Batch ledger
-
-| Batch | Code SHA | macOS validation | Windows status |
-| --- | --- | --- | --- |
-| 1 — event-bound evidence harness | `63aa7f9028c4846c0bd5faeac2d21d2a48942ed7` | PASS — focused Vitest 7/7; affected UI retry 69/69; Rust 580+20+415; build/isolation; smoke 2/2. Artifact `.desktop-e2e-artifacts/2026-08-12T09-50-46-019Z-darwin`. Full Vitest initial parallel run: 872/880 with 8 pre-existing 5-second load timeouts. | PENDING |
-| 2 — native/background/multi-role macros | `31c80462d3f4176a0a5c2111f9adde008c978905`; fix `adb590d89c858033dda5895b862bed61df600436`; adapter `09d7272eb236a3d37c1ffbbf39da2364dacf4955` | PASS — coverage P0 11/11、P1 9/9；Vitest 882/882；Rust 581+20+415；build/isolation；三個 phase 各 1/1。Artifacts：native `.desktop-e2e-artifacts/2026-08-12T10-20-17-791Z-darwin`、background `.desktop-e2e-artifacts/2026-08-12T10-19-56-688Z-darwin`、multi-role `.desktop-e2e-artifacts/2026-08-12T10-20-08-612Z-darwin`。 | PENDING |
-| 3 — tab activation/macro teardown | `17ab845838d9355eae72904ac389137017856c18`；fixes `9ff644ca68994e6579152da4006d53306db5e071`、`e9f46fa6968d5c982a6e88e0a34feed52306d776`、`cc526df64d824d0a698595047c993495c4d71c48`、`35a9af14d37bf89bff3817dddeb8a123db6cb007`；evidence/regressions `34162a75fde02bd95a8bb2b9a765d7554eaaabf4`、`703ae6d1082af978985e0b46702054ae716cfa14`、`ba23f5536c8aebd75c87b6ffeed1ec6e4123f763`、`bc2c391856327b36b1be111422be1fb6b5d35a64`、`b7b623b215f92cf570b8c697f768db2b896adb95`、`137b90af915abf6d7dae9e6a3718ada946edd5a6`、`2e11996aec3c8efb6ad3a35900d02c616b127aa2` | PASS — coverage P0 13/13、P1 9/9；Vitest 882/882；Rust 582+20+417；build/isolation；兩個 phase 各 1/1。Artifacts：tabs `.desktop-e2e-artifacts/2026-08-12T11-10-00-496Z-darwin`、cleanup `.desktop-e2e-artifacts/2026-08-12T11-09-04-043Z-darwin`。 | PENDING |
-| 4 — role isolation/shared ownership | `93a2dd54e2cb929e9d389473e305c7c5e7804ba1` | PASS — coverage P0 13/13、P1 11/11；Vitest 882/882；fixture focused 5/5；hygiene/typecheck/lint/diff check exit 0；Session seed→restart→observe 與 shared-role phase 全部通過。Artifacts：session `.desktop-e2e-artifacts/2026-08-12T11-35-36-767Z-darwin`、shared `.desktop-e2e-artifacts/2026-08-12T11-35-22-004Z-darwin`。 | PENDING |
-| 5 — recovery/reporting/final gates | `9f4ce87dc3a841d6827fc0f026b15507ddd736b6`; fixes `a65cbaa63d5f282d82beab7110059920606ad5aa`、`3550a889b64e6144abcbf3813d9039f316f509ff`、`09541c6c84370333bc1ff49b7538f382a5e42823`; regressions/harness `00ecbf153cb5c06da88f60ce2370e333c15504f8`、`f8496635fbddcf349db9306c4e7f4b2199307915`、`7487719ea15307b99e83988f94b8d6784b0b0571`、`634f89df917819d7a594600fbca829f0971794fc` | PASS — coverage P0 13/13、P1 12/12；Vitest 882/882；Rust 582+20+418；static/Rust/build/isolation 全 exit 0；smoke 2/2；full 21 phases 符合預期、核心八項全 PASS。Artifacts：smoke `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`、full `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin`。 | PENDING |
-
-## Batch 5 macOS final checkpoint
-
-- Exact validated code SHA: `634f89df917819d7a594600fbca829f0971794fc`
-- Starting/final worktree: clean；full `report.json` 記錄 `worktreeDirty=false`
-- Push status: included in the final fast-forward checkpoint push to `origin/main`
-
-| Command | Exit | Counts / artifact |
-| --- | ---: | --- |
-| `pnpm run check:e2e-coverage` | 0 | P0 13/13 (100%)、P1 12/12 (100%)、P2 0/2。 |
-| `pnpm run check:source-hygiene` | 0 | 1145 tracked files。 |
-| `pnpm run typecheck` | 0 | PASS。 |
-| `pnpm run lint` | 0 | 0 errors；23 existing Fast Refresh warnings。 |
-| `pnpm run test` | 0 | 156 files、882 tests。 |
-| `pnpm run lint:rust` | 0 | fmt + clippy `-D warnings`。 |
-| `pnpm run test:rust` | 0 | rion-core 582、rion-platform 20、rion-tauri 418。 |
-| `pnpm run build` | 0 | production renderer + Tauri。 |
-| `pnpm run check:desktop-e2e-isolation` | 0 | PASS。 |
-| `pnpm run test:e2e:desktop:smoke` | 0 | `.desktop-e2e-artifacts/2026-08-12T12-54-16-421Z-darwin`；2/2。 |
-| `pnpm run test:e2e:desktop:full` | 0 | `.desktop-e2e-artifacts/2026-08-12T12-48-16-258Z-darwin`；19 PASS + 2 expected crash boundaries。 |
-| `git diff --check` | 0 | PASS。 |
-
-macOS final full journey verdicts：
-
-| Journey ID | macOS | Phase |
-| --- | --- | --- |
-| `MACRO-NATIVE-EFFECT-003` | PASS | `p0-macro-native-effect` |
-| `MACRO-BACKGROUND-TAB-004` | PASS | `p0-macro-background-tab` |
-| `MACRO-MULTIROLE-005` | PASS | `p1-macro-multirole` |
-| `MACRO-TERMINAL-CLEANUP-006` | PASS | `p0-macro-terminal-cleanup` |
-| `TABS-VISIBLE-ACTIVATION-003` | PASS | `p0-tabs-visible-activation` |
-| `ROLE-SESSION-ISOLATION-003` | PASS | `p1-role-session-isolation` |
-| `WORKSPACE-SHARED-ROLE-003` | PASS | `p1-workspace-shared-role` |
-| `WINDOW-RECOVERY-UI-007` | PASS | `crash-discard` |
-
-## Starting worktree
-
-PENDING
-
-## Required gates
-
-| Gate | Exit | Counts / exact evidence |
-| --- | ---: | --- |
-| `pnpm install --frozen-lockfile` | PENDING | |
-| `pnpm run check:e2e-coverage` | PENDING | |
-| `pnpm run check:source-hygiene` | PENDING | |
-| `pnpm run typecheck` | PENDING | |
-| `pnpm run lint` | PENDING | |
-| `pnpm run test` | PENDING | |
-| `pnpm run lint:rust` | PENDING | |
-| `pnpm run test:rust` | PENDING | |
-| `cargo check -p rion-tauri --all-targets` | PENDING | |
-| `cargo build -p rion-tauri` | PENDING | |
-| `pnpm run build` | PENDING | |
-| `pnpm run check:desktop-e2e-isolation` | PENDING | |
-| `git diff --check` | PENDING | |
-
-## Full profile
-
-- Artifact root: PENDING
-- `report.json` failure: PENDING
-
-| Phase | Status | SQLite / event / log evidence |
-| --- | --- | --- |
-| `smoke-seed` | PENDING | |
-| `smoke-restart` | PENDING | |
-| `p0-macro-native-effect` | PENDING | |
-| `p0-macro-background-tab` | PENDING | |
-| `p0-macro-terminal-cleanup` | PENDING | |
-| `p0-tabs-visible-activation` | PENDING | |
-| `p1-macro-multirole` | PENDING | |
-| `p1-role-session-seed` | PENDING | |
-| `p1-role-session-isolation` | PENDING | |
-| `p1-workspace-shared-role` | PENDING | |
-| `p1-mutations` | PENDING | |
-| `p1-workspace-recovery` | PENDING | |
-| `p1-guard-cleanup` | PENDING | |
-| `p1-final-restart` | PENDING | |
-| `system-settings` | PENDING | |
-| `seed` | PENDING | |
-| `restart` | PENDING | |
-| `force-terminate` | PENDING | Must become `EXPECTED_FORCE_TERMINATION`, not generic PASS. |
-| `crash-restart` | PENDING | Must restore via visible UI, then become `EXPECTED_FORCE_TERMINATION` for discard precondition. |
-| `crash-discard` | PENDING | |
-| `recovery-final-restart` | PENDING | |
-
-## Core eight journeys
-
-| Journey ID | Status | Windows evidence |
-| --- | --- | --- |
-| `MACRO-NATIVE-EFFECT-003` | PENDING | |
-| `MACRO-BACKGROUND-TAB-004` | PENDING | |
-| `MACRO-MULTIROLE-005` | PENDING | |
-| `MACRO-TERMINAL-CLEANUP-006` | PENDING | |
-| `TABS-VISIBLE-ACTIVATION-003` | PENDING | |
-| `ROLE-SESSION-ISOLATION-003` | PENDING | |
-| `WORKSPACE-SHARED-ROLE-003` | PENDING | |
-| `WINDOW-RECOVERY-UI-007` | PENDING | |
-
-## Existing P1 journeys
-
-| Journey ID | Status | Windows evidence |
-| --- | --- | --- |
-| All existing automated P1 journeys | PENDING | |
-
-## Extended mixed-DPI profile
-
-- Status: pending
-- Artifact root or exact hardware blocker: PENDING
-
-## Failures, infra classification, fixes and reruns
-
-macOS batch 2 retained the following failed runs before the passing checkpoints:
-
-| Artifact | First error | Classification / resolution |
-| --- | --- | --- |
-| `.desktop-e2e-artifacts/2026-08-12T09-59-47-587Z-darwin` | fixture inline script syntax error | Test fixture defect; added script compilation regression and fixed render assignment. |
-| `.desktop-e2e-artifacts/2026-08-12T10-01-51-645Z-darwin` | launch waiter required an unrelated automation-ready projection | Harness assertion defect; session event plus running role state are the authoritative launch evidence. |
-| `.desktop-e2e-artifacts/2026-08-12T10-03-18-111Z-darwin` | final `iteration=1` was not observable before status removal | Product defect; regression in `31c80462`, fixed by `adb590d8`, then native phase PASS. |
-| `.desktop-e2e-artifacts/2026-08-12T10-12-05-186Z-darwin` | `desktop_e2e_runtime_ui_action not allowed` | Debug ACL/build manifest omission; fixed in `09d7272e`. |
-| `.desktop-e2e-artifacts/2026-08-12T10-13-42-763Z-darwin` | camelCase `tabId` decoded as missing `tab_id` | Debug request serialization defect; added `rename_all_fields = camelCase`. |
-| `.desktop-e2e-artifacts/2026-08-12T10-14-35-572Z-darwin` | renderer selection-only projection wait timed out | Evidence-path defect; Core activation had no terminal transcript yet. Added exact native callback terminal event. |
-| `.desktop-e2e-artifacts/2026-08-12T10-18-19-475Z-darwin` | renderer selection-only projection still timed out after Core completed | Harness used a non-authoritative selection-only renderer event. Final test uses required terminal event + native snapshot + fixture evidence and passed. |
-
-macOS batch 3 retained every failed run before the passing checkpoints:
-
-| Artifact | First error | Classification / resolution |
-| --- | --- | --- |
-| `.desktop-e2e-artifacts/2026-08-12T10-34-29-459Z-darwin` | AppKit `accessibilityPerformPress` rejected the tab control | Debug adapter defect; dispatch now uses the real AppKit target/action pair. |
-| `.desktop-e2e-artifacts/2026-08-12T10-35-42-002Z-darwin` | renderer-direct permanent-window delete was rejected | Test action violated the visible-UI requirement; journey now uses the actual Dashboard delete control. |
-| `.desktop-e2e-artifacts/2026-08-12T10-36-37-839Z-darwin` | dormant activation raced native readiness | Evidence ordering defect; added exact essential-ready event wait. |
-| `.desktop-e2e-artifacts/2026-08-12T10-38-23-205Z-darwin` | dormant absence wait observed pending launch topology | Harness expected the wrong lifecycle state; changed to authoritative dormant topology evidence. |
-| `.desktop-e2e-artifacts/2026-08-12T10-39-57-175Z-darwin` | late restored C attachment overwrote the newer visible A selection | Product defect; fixed by `9ff644ca` and covered by a focused regression. |
-| `.desktop-e2e-artifacts/2026-08-12T10-42-47-487Z-darwin` | activation terminal reported superseded although A was already authoritative | Product result-mapping defect; exact authoritative target now counts as success (`e9f46fa6`). |
-| `.desktop-e2e-artifacts/2026-08-12T10-44-32-851Z-darwin` | wait expected dormant tab to disappear from runtime | Harness lifecycle assertion defect; dormant tabs remain in authoritative topology. |
-| `.desktop-e2e-artifacts/2026-08-12T10-46-51-280Z-darwin` | corrected wait still used runtime absence as convergence | Same assertion defect; replaced by exact dormant phase and selected-tab evidence. |
-| `.desktop-e2e-artifacts/2026-08-12T10-48-17-246Z-darwin` | automatic restore selected stale C after a visible A action | Product race; automatic restored activation is now fenced by the selected window revision (`cc526df6`). |
-| `.desktop-e2e-artifacts/2026-08-12T10-54-02-715Z-darwin` | dormant permanent-window delete required a nonexistent live generation | Product lifecycle defect; dormant delete now commits state-only deletion (`35a9af14`). |
-| `.desktop-e2e-artifacts/2026-08-12T11-01-07-792Z-darwin` | cleanup reused a window after closing its sole tab | Test isolation defect; the next case explicitly reopens from visible UI. |
-| `.desktop-e2e-artifacts/2026-08-12T11-02-11-375Z-darwin` | test expected quiesced to remain true after native release | Assertion contradicted input-fence semantics; exact teardown event proves true, post-release proves false/no orphan fence. |
-| `.desktop-e2e-artifacts/2026-08-12T11-04-58-793Z-darwin` | extra Show attempted while the restored window was already live | Harness lifecycle defect; retained the live cleanup window instead. |
-| `.desktop-e2e-artifacts/2026-08-12T11-06-15-495Z-darwin` | window close had no post-admission role status to inspect | Evidence gap; debug transcript now records exact close admission with role input diagnostics (`137b90af`). |
-
-macOS batch 4 retained every failed run before the passing checkpoints:
-
-| Artifact | First error | Classification / resolution |
-| --- | --- | --- |
-| `.desktop-e2e-artifacts/2026-08-12T11-23-12-526Z-darwin` | Cookie marker was absent after application restart | Fixture defect; seed Cookie was session-scoped. Added `Max-Age=86400` and a focused fixture regression. |
-| `.desktop-e2e-artifacts/2026-08-12T11-23-43-462Z-darwin` | clear completion raced the role-absence projection | Evidence-ordering defect; wait now requires the visible completion notice and enabled UI control after role removal. |
-| `.desktop-e2e-artifacts/2026-08-12T11-25-56-307Z-darwin` | Roles Open selected a retained stopped tab but did not start its available slot | Harness lifecycle assumption; the journey now presses the actual visible role placeholder after selecting the stopped tab. |
-| `.desktop-e2e-artifacts/2026-08-12T11-27-51-448Z-darwin` | seed phase accidentally called the stopped-tab reopen helper | Test edit defect; restored the initial visible role launch path. |
-| `.desktop-e2e-artifacts/2026-08-12T11-28-22-973Z-darwin` | initial observe phase accidentally called the stopped-tab reopen helper | Test edit defect; restored the initial visible role launch path. |
-| `.desktop-e2e-artifacts/2026-08-12T11-29-09-548Z-darwin` | shared workspace waiter consumed topology before all required slots existed | Harness predicate defect; added exact multi-slot event-bound matching. |
-| `.desktop-e2e-artifacts/2026-08-12T11-30-05-151Z-darwin` | assertion expected both workspace tabs selected after automatic destination reused one window | Harness topology assumption; selection is now asserted from the authoritative per-window layout. |
-| `.desktop-e2e-artifacts/2026-08-12T11-30-34-247Z-darwin` | cleanup waited for a renderer absence event not emitted by Core stop | Wrong lifecycle action/evidence path; cleanup moved from Core stop to actual visible tab controls. |
-| `.desktop-e2e-artifacts/2026-08-12T11-32-15-445Z-darwin` | stopped workspace retained a compatibility live-presentation tab record | Harness incorrectly equated stop with close; cleanup now activates and closes the actual tab. |
-| `.desktop-e2e-artifacts/2026-08-12T11-33-00-372Z-darwin` | repeated stop-based cleanup still observed the retained tab | Same lifecycle mismatch; replaced by exact tab-close terminal and native snapshot evidence. |
-| `.desktop-e2e-artifacts/2026-08-12T11-34-46-752Z-darwin` | snapshot queried a window destroyed by closing its sole tab | Evidence branch defect; a last-tab close now requires exact `window-destroyed`, while multi-tab close requires a surviving snapshot without the target. |
-
-macOS batch 5 retained the recovery, macro routing, namespace and readiness failures that led to the
-final clean-SHA run:
-
-| Artifact | First error | Classification / resolution |
-| --- | --- | --- |
-| `.desktop-e2e-artifacts/2026-08-12T11-44-49-128Z-darwin` | native focus changed, but persisted last-visible focus did not | Product persistence race; latest authoritative native focus now wins (`a65cbaa6`). |
-| `.desktop-e2e-artifacts/2026-08-12T11-46-36-255Z-darwin` | focus waiter cursor was captured after the event | Harness ordering defect; cursor now precedes the visible action. |
-| `.desktop-e2e-artifacts/2026-08-12T11-47-45-939Z-darwin` | stale session persist overwrote the newer C→A focus | Product defect covered and fixed by `a65cbaa6`. |
-| `.desktop-e2e-artifacts/2026-08-12T11-50-51-917Z-darwin` | UI restore ended on B because restore order became focus authority | Product focus policy defect; restore preserves explicit last-visible selection. |
-| `.desktop-e2e-artifacts/2026-08-12T11-53-45-175Z-darwin` | SQLite validation treated omitted focus differently from null | Validator contract defect; normalized optional focus evidence. |
-| `.desktop-e2e-artifacts/2026-08-12T11-55-47-058Z-darwin` | recovery evidence passed; clean shutdown session delete returned `ECONNRESET` | Runner teardown handling defect; authoritative final flush remains required. |
-| `.desktop-e2e-artifacts/2026-08-12T11-58-16-686Z-darwin` | final focus wait installed after its event | Harness ordering defect; waiter is armed before visible focus. |
-| `.desktop-e2e-artifacts/2026-08-12T12-06-08-253Z-darwin` | background A macro key leaked into active B | macOS product defect; added page-bound dispatch regression and subsequent containment fix. |
-| `.desktop-e2e-artifacts/2026-08-12T12-08-30-459Z-darwin` | temporary first-responder routing still leaked the event | Rejected implementation experiment; no workaround retained. |
-| `.desktop-e2e-artifacts/2026-08-12T12-11-02-418Z-darwin` | deferred responder restoration blocked teardown | Rejected implementation experiment; no timer-based success retained. |
-| `.desktop-e2e-artifacts/2026-08-12T12-26-26-641Z-darwin` | isolated phase still reproduced active-B key leakage | Confirmed product defect independent of test residue. |
-| `.desktop-e2e-artifacts/2026-08-12T12-29-13-317Z-darwin` | window-number experiment did not prevent WebKit fallback | Rejected implementation experiment. |
-| `.desktop-e2e-artifacts/2026-08-12T12-32-38-410Z-darwin` | leakage stopped, but concurrent cleanup raced two stops in one window | Product routing fixed by `09541c6c`; cleanup changed to ordered event-bound teardown. |
-| `.desktop-e2e-artifacts/2026-08-12T12-22-12-569Z-darwin` | visible close control inherited smoke preference state | Cross-phase namespace contamination; independent chains isolated by `f8496635`. |
-| `.desktop-e2e-artifacts/2026-08-12T12-40-50-024Z-darwin` | `p1-mutations` could not find smoke-seeded entities | Required lifecycle dependency was over-isolated; dependency chain preserved by `7487719e`. |
-| `.desktop-e2e-artifacts/2026-08-12T12-44-46-117Z-darwin` | visible-tab phase waited for a hidden event from a tab that had never become visible | Readiness precondition defect; all three tabs now reach authoritative ready and the third visibility event before activation (`634f89df`). |
-
-Final focused evidence includes recovery `.desktop-e2e-artifacts/2026-08-12T12-01-09-551Z-darwin`,
-background macro `.desktop-e2e-artifacts/2026-08-12T12-36-46-006Z-darwin`, terminal cleanup
-`.desktop-e2e-artifacts/2026-08-12T12-37-03-380Z-darwin`, multi-role
-`.desktop-e2e-artifacts/2026-08-12T12-37-14-647Z-darwin`, lifecycle dependencies
-`.desktop-e2e-artifacts/2026-08-12T12-42-23-189Z-darwin`, and visible tabs
-`.desktop-e2e-artifacts/2026-08-12T12-47-49-636Z-darwin`.
-
-Windows has not rerun any item yet; all Windows verdicts remain PENDING.
-
-## Remaining blockers
-
-- Windows Win32/WebView2 native execution is pending real-machine validation.
-- Mixed-DPI extended validation is pending compatible physical display hardware.
-
 ## Final verdict
 
-PENDING
+- Windows single-display validation: **PASS**.
+- `pnpm.cmd run test:e2e:desktop:smoke`: **PASS**, exit `0`.
+- `pnpm.cmd run test:e2e:desktop:full`: **PASS**, exit `0`.
+- Required gates: **17/17 PASS**.
+- Core eight automated journeys: **8/8 PASS**.
+- Coverage manifest: P0 `13/13` (100%), P1 `12/12` (100%), P2 `0/2`.
+- W1-W9 real Tauri/Win32/WebView2 acceptance: **PASS** through visible-UI desktop E2E plus native/SQLite evidence.
+- W10-W11 mixed-DPI / negative-coordinate multi-display acceptance: **BLOCKED** because this VM exposes only one physical display.
+- No product failure was rerun and hidden. Every material first failure and its artifact is retained below.
+
+## Exact source and repository state
+
+- Branch: `main` (no additional branch was created).
+- Exact validated HEAD: `543aff44cf5c6c788e1a542366486d0c659d10fd`.
+- `origin/main`: `fa0252083485cc8d0778cf2236a8b682966c2280`.
+- Validated checkout was clean: both final smoke/full reports record `worktreeDirty=false` and `requestedCommit=commit=543aff44cf5c6c788e1a542366486d0c659d10fd`.
+- The report itself was written only after the clean run, so the final working tree intentionally contains this uncommitted report update.
+- Pushes from this Windows task: none.
+- Local product-fix commits created during validation:
+  - `543aff44` `fix(runtime): serialize restore session journals`
+  - `4a42baef` `fix(runtime): prevent closed tab resurrection`
+  - `c900995b` `fix(macro): honor WebView2 action callback deadline`
+- Earlier macOS checkpoint incorporated from `origin/main`: code `634f89df917819d7a594600fbca829f0971794fc`, ledger `fa0252083485cc8d0778cf2236a8b682966c2280`; macOS smoke `2/2 PASS`, full `19 PASS + 2 expected crash terminations`.
+
+## Environment
+
+| Item | Observed value |
+| --- | --- |
+| Host | Windows 10 Pro, WindowsVersion 2009, build 26200, Parallels VM |
+| Architecture | ARM64 |
+| Memory / CPU | 17,173,250,048 bytes RAM (about 16 GiB), 4 logical CPUs |
+| Node / pnpm | Node `v24.19.0`; pnpm `11.13.0` |
+| Rust | `rustc 1.97.0 (aarch64-pc-windows-msvc)`, LLVM `22.1.6` |
+| WebView2 | Installed runtime `151.0.4129.78` (also `151.0.4129.72` present); WDIO session reported Edge/WebView2 `151.0.0.0` |
+| Display | One `\\.\DISPLAY1`, primary, 2560x1440; work area 2560x1392 |
+| Native scale | DPI `192`, scale factor `2.0` (200%) |
+| Final full interval | `2026-08-12T19:53:46.874Z` to `2026-08-12T20:07:07.503Z` (`2026-08-13 03:53:46` to `04:07:07` Asia/Taipei) |
+
+The requested extended profile was not run: no second physical display and therefore no mixed-DPI or negative-coordinate topology exists. This is **BLOCKED**, not PASS.
+
+## Required gates at exact SHA `543aff44`
+
+All commands were run with `pnpm.cmd` where applicable. Complete stdout/stderr logs and the machine-readable ledger are under `C:\Users\aron\AppData\Local\Temp\rion-windows-543aff44-gates`.
+
+| # | Command | Exit | Result / count |
+| ---: | --- | ---: | --- |
+| 1 | `pnpm.cmd install --frozen-lockfile` | 0 | PASS; frozen lockfile install, 0.6 s |
+| 2 | `pnpm.cmd run check:e2e-coverage` | 0 | PASS; P0 13/13, P1 12/12, P2 0/2 |
+| 3 | `pnpm.cmd run check:source-hygiene` | 0 | PASS; 1151 tracked files, 1.2 s |
+| 4 | `pnpm.cmd run typecheck` | 0 | PASS, 4.0 s |
+| 5 | `pnpm.cmd run lint` | 0 | PASS; 0 errors, 23 existing Fast Refresh warnings, 59.9 s |
+| 6 | `pnpm.cmd run test` | 0 | PASS; Vitest 158 files / 887 tests under the default timeout, 179.2 s |
+| 7 | `pnpm.cmd run lint:rust` | 0 | PASS, 42.4 s |
+| 8 | `pnpm.cmd run test:rust` | 0 | PASS; rion-core 589 + rion-platform 18 + rion-tauri 424, 176.5 s |
+| 9 | `cargo check -p rion-tauri --all-targets` | 0 | PASS, 20.2 s |
+| 10 | `cargo build -p rion-tauri` | 0 | PASS, 12.6 s |
+| 11 | `pnpm.cmd run build` | 0 | PASS, 41.8 s |
+| 12 | `pnpm.cmd run check:desktop-e2e-isolation` | 0 | PASS, 1.8 s |
+| 13 | `git diff --check` | 0 | PASS, 0.1 s |
+| 14 | `pnpm.cmd run check:unused` | 0 | PASS, 14.2 s |
+| 15 | `pnpm.cmd run check:cargo-dependencies` | 0 | PASS, 1.4 s |
+| 16 | `cargo clippy -p rion-tauri --all-targets --features desktop-e2e --no-deps -- -D warnings` | 0 | PASS, 14.6 s |
+| 17 | `cargo test -p rion-tauri --features desktop-e2e desktop_e2e::tests::event_filter_requires_every_requested_fence -- --exact` | 0 | PASS; 1/1, 54.1 s |
+
+The default `pnpm.cmd run test` passed naturally, so the conditional 10-second Vitest fallback was not run. The older five-timeout/default-timeout result remains historical evidence and is not represented as a pass from a rerun.
+
+## Desktop E2E commands
+
+| Command | Exit | Exact result |
+| --- | ---: | --- |
+| `pnpm.cmd run test:e2e:desktop:smoke` with `RION_STUDIO_E2E_COMMIT=543aff44cf5c6c788e1a542366486d0c659d10fd` | 0 | PASS; `smoke-seed`, `smoke-restart` |
+| `pnpm.cmd run test:e2e:desktop:full` with the same exact-SHA guard | 0 | PASS; all 21 phases terminalized as expected |
+| `pnpm.cmd run test:e2e:desktop:extended` | not run | **BLOCKED**: only one physical display; no mixed-DPI topology |
+
+Final smoke artifact: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-51-08-811Z-win32`.
+
+Final full artifact: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-53-46-752Z-win32`.
+
+## Full profile phases
+
+| # | Phase | Status | Exit code | Notes |
+| ---: | --- | --- | ---: | --- |
+| 1 | `smoke-seed` | PASS | 0 | Seed entities and visible UI |
+| 2 | `smoke-restart` | PASS | 0 | Restart persistence |
+| 3 | `p0-macro-native-effect` | PASS | 0 | Native effect evidence |
+| 4 | `p0-macro-background-tab` | PASS | 0 | Background-tab macro |
+| 5 | `p0-macro-terminal-cleanup` | PASS | 0 | Terminal cleanup / no resurrection |
+| 6 | `p0-tabs-visible-activation` | PASS | 0 | Visible tab activation |
+| 7 | `p1-macro-multirole` | PASS | 0 | Multi-role behavior |
+| 8 | `p1-role-session-seed` | PASS | 0 | Role-session seed |
+| 9 | `p1-role-session-isolation` | PASS | 0 | Session isolation |
+| 10 | `p1-workspace-shared-role` | PASS | 0 | Shared ownership |
+| 11 | `p1-mutations` | PASS | 0 | CRUD and order persistence |
+| 12 | `p1-workspace-recovery` | PASS | 0 | Recovery mutation |
+| 13 | `p1-guard-cleanup` | PASS | 0 | Cleanup complete, clean exit |
+| 14 | `p1-final-restart` | PASS | 0 | Clean final restart |
+| 15 | `system-settings` | PASS | 0 | System settings journey |
+| 16 | `seed` | PASS | 0 | Native lifecycle seed |
+| 17 | `restart` | PASS | 0 | A-only restore cohort and window modes |
+| 18 | `force-terminate` | EXPECTED_FORCE_TERMINATION | 0 | `expectedForcedTermination=true`; exact PID termination evidence retained |
+| 19 | `crash-restart` | EXPECTED_FORCE_TERMINATION | 0 | `expectedForcedTermination=true`; exact PID termination evidence retained |
+| 20 | `crash-discard` | PASS | 0 | Recovery discard terminalized |
+| 21 | `recovery-final-restart` | PASS | 0 | Final clean state |
+
+The current runner represents a verified exact-PID force termination with phase `exitCode=0`, status `EXPECTED_FORCE_TERMINATION`, and `expectedForcedTermination=true`. This is the observed current contract; it is not rewritten to match the older exit-1 expectation. Each forced phase contains `forced-termination.json`.
+
+## Core eight P1/P0 journeys
+
+| Journey | Full phase | Verdict |
+| --- | --- | --- |
+| `MACRO-NATIVE-EFFECT-003` | `p0-macro-native-effect` | PASS |
+| `MACRO-BACKGROUND-TAB-004` | `p0-macro-background-tab` | PASS |
+| `MACRO-TERMINAL-CLEANUP-006` | `p0-macro-terminal-cleanup` | PASS |
+| `TABS-VISIBLE-ACTIVATION-003` | `p0-tabs-visible-activation` | PASS |
+| `MACRO-MULTIROLE-005` | `p1-macro-multirole` | PASS |
+| `ROLE-SESSION-ISOLATION-003` | `p1-role-session-isolation` | PASS |
+| `WORKSPACE-SHARED-ROLE-003` | `p1-workspace-shared-role` | PASS |
+| `WINDOW-RECOVERY-UI-007` | `crash-discard` | PASS |
+
+The P1 coverage manifest additionally reports PASS/full coverage for `APP-FULL-CRUD-001`, `GAME-WINDOWS-TABS-001`, `APP-RECOVERY-001`, `SETTINGS-SYSTEM-001`, `APP-CRUD-REORDER-002`, `WORKSPACES-RECOVERY-002`, and `APP-QUIT-GUARD-002`. `NATIVE-DISPLAY-001` is mapped to the extended hardware profile and remains **BLOCKED on this host** despite manifest automation coverage.
+
+## Windows checklist W1-W11
+
+E2E is the primary acceptance mechanism. The full profile drives the real Tauri application through visible UI and couples it to authoritative native, event, and SQLite evidence. Computer Use was therefore not used to duplicate the already automated actions or substitute screen coordinates for assertions.
+
+| Item | Verdict | Automated evidence |
+| --- | --- | --- |
+| W1 mode column / ARIA / localization | PASS | Rendered header must match one of the four shipped localized strings; `aria-sort=ascending`; semantic order normal → maximized → fullscreen. The active locale is rendered one at a time, while the contract matcher contains all four translations. |
+| W2 zero-tab permanent window | PASS | Placement A → close/reopen → placement B → two more close/reopen rounds; permanent name, native title, generation and placement B preserved. |
+| W3 maximize/restore | PASS | Native presentation round trip; normal bounds unchanged. |
+| W4 minimize/restore | PASS | Minimized off-screen native placement does not pollute normal bounds. |
+| W5 fullscreen/restore | PASS | Fullscreen uses 2560x1440; normal bounds restore unchanged. |
+| W6 move/resize and stale placement fencing | PASS | Rapid A/B placement and mode transitions; generation/revision fencing prevents stale placement acceptance. |
+| W7 three-round placement stability | PASS | Window A exact logical bounds stable through all lifecycle generations; no cumulative drift. |
+| W8 three launching tabs | PASS | Close/reopen twice during launching; ordered alpha/beta/gamma, selected active tab, other tabs dormant, no empty restore/stuck restoring/ownership leak. |
+| W9 A/B clean-exit cohort | PASS | A open and B closed before quit; only A auto-restores; B remains manually showable; saved fallback/native title/live projection verified. |
+| W10 mixed-DPI / negative coordinates | BLOCKED | One physical display at DPI 192; required second real differently-scaled display absent. |
+| W11 cross-monitor maximize/fullscreen/WM_DPICHANGED | BLOCKED | No second mixed-DPI physical monitor, so native cross-monitor round trip cannot be truthfully executed. |
+
+## SQLite lifecycle evidence
+
+Each row comes from the phase-local `sqlite-query.json` and SQLite snapshot.
+
+| Phase | cleanExit | Generation | Live cohort | Restore-in-progress | Last focused | Permanent windows |
+| --- | --- | ---: | --- | --- | --- | ---: |
+| `seed` | true | 1 | `[A]` | `[]` | A | 6 |
+| `restart` | true | 2 | `[A]` | `[]` | A | 6 |
+| `force-terminate` | false | 3 | `[A,B,C]` | `[]` | C | 6 |
+| `crash-restart` | false | 4 | `[A,B,C]` | `[]` | C | 6 |
+| `crash-discard` | true | 5 | `[]` | `[]` | null | 6 |
+| `recovery-final-restart` | true | 6 | `[]` | `[]` | null | 6 |
+
+- Window A is exactly `{x:1590,y:662,width:900,height:650}` in all six SQLite snapshots; no accumulated drift.
+- Window C retains exactly three ordered tabs, alpha/beta/gamma, with the same final active tab across all six snapshots.
+- The clean-exit sequence is exactly `true, true, false, false, true, true` for the six lifecycle snapshots above.
+- `p1-guard-cleanup` and `p1-final-restart` both record `cleanupComplete=true` and `cleanExit=true`.
+- Role isolation records `sessionEntitiesCleaned=true`; shared role ownership records `sharedOwnershipEntitiesCleaned=true`; recovery records `recoveryWindowDeleted=true`; mutation order persists.
+
+## Native/event evidence
+
+Authoritative transcript: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-53-46-752Z-win32\user-data\window-recovery-lifecycle\desktop-e2e\events.ndjson`.
+
+- 35 `window-snapshot-read` events.
+- 81 `placement-accepted` events carrying observation sequence, presentation, scale factor, generation, revision, native client/outer bounds, DPI and monitor work area.
+- 9 `window-destroyed` events.
+- 4 `application-final-flush-complete` events.
+- Window A changes HWND across destruction/recreation while retaining title, DPI 192, scale factor 2.0 and exact normal bounds.
+- The restart transcript covers normal, maximized, minimized, normal, fullscreen and normal presentations. Native client bounds change to 2560x1392 for maximized and 2560x1440 for fullscreen, while kernel `normalBounds` remains `{1590,662,900,650}`.
+- Window C contains native HWND/PID, DPI, client rect, outer rect, monitor work area, generation/revision and destruction evidence.
+- Although the event name is not literally `GetWindowPlacement`, `window-snapshot-read` contains the authoritative Win32 placement/readback fields produced by that path.
+
+## Artifact inventory
+
+- Gate ledger: `C:\Users\aron\AppData\Local\Temp\rion-windows-543aff44-gates\summary.csv`.
+- Gate logs: `C:\Users\aron\AppData\Local\Temp\rion-windows-543aff44-gates\*.log`.
+- Final smoke outer log: `C:\Users\aron\AppData\Local\Temp\rion-windows-543aff44-e2e-smoke.log`.
+- Final smoke report: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-51-08-811Z-win32\report.json`.
+- Final full outer log: `C:\Users\aron\AppData\Local\Temp\rion-windows-543aff44-e2e-full.log`.
+- Final full report: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-53-46-752Z-win32\report.json`.
+- Full phase artifacts: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-53-46-752Z-win32\phases\*`.
+- Every full phase directory retains `runner.log`, `wdio` logs, `screenshots`, `sqlite-query.json`, and a SQLite snapshot. Empty screenshot directories mean no failure screenshot was produced.
+- `force-terminate` and `crash-restart` additionally retain SQLite WAL/SHM snapshots and `forced-termination.json`.
+- Full user-data/event root: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-53-46-752Z-win32\user-data`.
+
+## Retained failures and fixes
+
+No product failure was converted to green by an automatic rerun.
+
+1. **Closed-tab resurrection / unavailable launch target**
+   - First clean evidence: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T18-33-32-491Z-win32` at exact `c900995b`, `worktreeDirty=false`.
+   - `p0-macro-terminal-cleanup` failed after the final role-2 tab was destroyed; a later role-3 launch hit `TAURI_RUNTIME_LAUNCH_TARGET_UNAVAILABLE`, and stale tab rows remained in SQLite.
+   - Fix: persist last-tab close through the retirement fence and use cached runtime tab count; add explicit desktop E2E resurrection assertions.
+   - Fix commit: `4a42baef`.
+
+2. **Restore-session journal race after crash restart**
+   - First clean evidence: `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-17-56-242Z-win32` at exact `4a42baef`, `worktreeDirty=false`.
+   - Phases 1-17 passed and force termination was expected. After crash-restart, the spec passed but runner SQLite validation found a resurrected restore-in-progress cohort `[A,B,C]`.
+   - Cause: a native focus journal performed a whole-session read/modify/write concurrently with restore clearing and could overwrite the newer terminal state.
+   - Fix: atomic Core `update_runtime_restore_session` under the state mutation guard plus a deterministic concurrency regression test.
+   - Fix commit: `543aff44`.
+   - Focused dirty diagnostic (not final acceptance): `C:\Users\aron\rion-studio-source\.desktop-e2e-artifacts\2026-08-12T19-35-00-796Z-win32`, exit 0 through seed/restart/force/crash and `restoreInProgress=[]`.
+   - Correct focused concurrency evidence: `C:\Users\aron\AppData\Local\Temp\rion-windows-restore-session-race-fix\07-core-concurrency-test-actual.log`, 1/1 PASS. An earlier malformed `--exact` invocation ran 0 tests and is retained as `02-core-concurrency-test.log`; it is explicitly not counted as evidence.
+
+3. **Source-contract regression while fixing cleanup**
+   - Gate ledger: `C:\Users\aron\AppData\Local\Temp\rion-windows-6416555c-gates`.
+   - 16 gates passed; `pnpm.cmd run test` exited 1 because two source-contract tests still asserted the old implementation text. This was not a timeout and was not reported as green.
+   - The contracts were updated to assert the corrected behavior and folded into `4a42baef`; the final exact-SHA default test now passes 887/887.
+
+4. **Infrastructure history**
+   - `corepack enable` previously failed with `EPERM` under Program Files. Per instruction, all final commands used the already available `pnpm.cmd`; this did not change product results.
+   - Before the VM memory increase, an older SHA's default Vitest run had five 5-second timeouts and its separate 10-second run had 869/869. Both results remain historical evidence. At final SHA, the default timeout passed without fallback.
+   - No OOM occurred after VM memory was increased.
+
+## Remaining blocker and handoff
+
+- Only W10/W11 remain **BLOCKED**. They require two real displays with different DPI scales, including a negative-coordinate topology, to validate `WM_DPICHANGED`, taskbar work area, cross-monitor maximize/fullscreen/restore, HWND and native DPI readback.
+- Do not mark the extended profile PASS on this one-display VM.
+- Windows full acceptance at exact `543aff44cf5c6c788e1a542366486d0c659d10fd` is otherwise terminalized and PASS.

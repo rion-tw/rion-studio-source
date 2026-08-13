@@ -561,6 +561,20 @@ impl SystemRuntimeExecutor {
 
     fn set_launch_phase(&self, tab_id: &str, phase: LaunchPhase) {
         let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
+        let ready_role_id = (changed && phase == LaunchPhase::EssentialReady)
+            .then(|| {
+                self.state
+                    .lock()
+                    .ok()?
+                    .native_resources
+                    .tabs
+                    .get(tab_id)?
+                    .roles
+                    .keys()
+                    .next()
+                    .cloned()
+            })
+            .flatten();
         let activation_phase = match phase {
             LaunchPhase::Attaching => RuntimeTabActivationPhaseRecord::Attaching,
             LaunchPhase::Navigating => RuntimeTabActivationPhaseRecord::Loading,
@@ -572,6 +586,7 @@ impl SystemRuntimeExecutor {
         let authority_changed =
             self.set_authoritative_tab_activation_phase(tab_id, activation_phase);
         if changed || authority_changed {
+            self.input_readiness.notify();
             #[cfg(feature = "desktop-e2e")]
             {
                 let window_id = self.presentation.tab_window(tab_id).ok().flatten();
@@ -603,6 +618,9 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
             self.publish_projection();
+            if let Some(role_id) = ready_role_id {
+                self.report_system_surface_state_async(role_id, None, true);
+            }
             if matches!(
                 activation_phase,
                 RuntimeTabActivationPhaseRecord::Ready

@@ -554,6 +554,17 @@
             None,
         );
         assert!(sibling_launch.is_ok());
+        for ready_role_id in [&role_id, &sibling_role_id] {
+            let (ready, ready_actions) = drive_command(
+                Arc::clone(&core),
+                CoreCommand::EmbeddedSystemSurfaceRecovered {
+                    role_id: ready_role_id.clone(),
+                },
+                None,
+            );
+            assert!(ready.is_ok(), "{ready:?}");
+            assert!(ready_actions.is_empty());
+        }
         let macro_id = core
             .invoke(command(json!({
                 "type": "macroCreate",

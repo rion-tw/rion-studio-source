@@ -135,7 +135,7 @@ describe("runtime window lifecycle authority", () => {
       "utf8"
     );
     const schedule = persistence.slice(
-      persistence.indexOf("pub(crate) fn schedule_live_window_state_persistence"),
+      persistence.indexOf("fn schedule_window_state_persistence"),
       persistence.indexOf("pub(crate) fn flush_live_window_state")
     );
 
@@ -228,8 +228,14 @@ describe("runtime window lifecycle authority", () => {
     ]);
 
     expect(close).toContain("current_window_close_in_progress");
-    expect(tabClose).toContain("if !self.current_window_close_in_progress(&window_id)");
-    expect(persistence).toContain("if self.current_window_close_in_progress(window_id)");
+    expect(tabClose).toContain("if parent_operation_id.is_none()");
+    expect(tabClose).toContain("schedule_tab_close_window_state_persistence(");
+    expect(persistence).toContain(
+      "if !allow_window_retirement && self.current_window_close_in_progress(window_id)"
+    );
+    expect(persistence).toContain(
+      "self.schedule_window_state_persistence(window_id, true, closes_last_tab)"
+    );
     expect(saveInput).toContain("Self::live_game_window_tabs(&live_window)");
     expect(saveInput).toContain("let target_display = live_window");
     expect(saveInput).toContain("let placement = live_window");

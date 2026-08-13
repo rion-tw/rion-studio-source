@@ -67,6 +67,15 @@ impl WindowStatePersistCoordinator {
             .map(|input| input.name.clone())
     }
 
+    fn cached_tab_count(&self, window_id: &str) -> Option<usize> {
+        self.snapshots
+            .lock()
+            .ok()?
+            .inputs
+            .get(window_id)
+            .map(|input| input.snapshot.tabs.len())
+    }
+
     fn remember(&self, input: &GameWindowRuntimeSnapshotCommitInputRecord) {
         let Ok(mut snapshots) = self.snapshots.lock() else {
             return;
@@ -357,6 +366,10 @@ fn window_state_persist_retry_delay(failure_count: u32) -> Duration {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn cached_runtime_window_tab_count(&self, window_id: &str) -> Option<usize> {
+        self.window_state_persistence.cached_tab_count(window_id)
+    }
+
     pub(crate) fn runtime_window_snapshot_commit_input(
         &self,
         window_id: &str,
@@ -401,11 +414,16 @@ impl SystemRuntimeExecutor {
         Ok(Some(input))
     }
 
-    pub(crate) fn schedule_live_window_state_persistence(&self, window_id: &str) {
+    fn schedule_window_state_persistence(
+        &self,
+        window_id: &str,
+        allow_window_retirement: bool,
+        immediate: bool,
+    ) {
         // Window teardown owns the final pre-close live revision. Late close,
         // selection, geometry, and native readback callbacks are projections of
         // teardown and have no authority to replace the saved window definition.
-        if self.current_window_close_in_progress(window_id) {
+        if !allow_window_retirement && self.current_window_close_in_progress(window_id) {
             return;
         }
         // Restore launches are accepted concurrently. Native surfaces can settle after chrome
@@ -436,9 +454,21 @@ impl SystemRuntimeExecutor {
             window_id,
             input.snapshot.window_generation,
             input.snapshot.revision,
-            false,
+            immediate,
             input,
         );
+    }
+
+    pub(crate) fn schedule_live_window_state_persistence(&self, window_id: &str) {
+        self.schedule_window_state_persistence(window_id, false, false);
+    }
+
+    pub(crate) fn schedule_tab_close_window_state_persistence(
+        &self,
+        window_id: &str,
+        closes_last_tab: bool,
+    ) {
+        self.schedule_window_state_persistence(window_id, true, closes_last_tab);
     }
 
     fn persist_observed_window_placement(&self, window_id: &str) {

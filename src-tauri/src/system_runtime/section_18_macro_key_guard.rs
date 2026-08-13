@@ -1,4 +1,8 @@
+#[cfg(windows)]
+const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = PLATFORM_CALLBACK_TIMEOUT;
+#[cfg(not(windows))]
 const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(1);
+#[cfg(not(windows))]
 const MACRO_KEY_RELEASE_GUARD_WAIT: Duration = Duration::from_millis(100);
 
 fn dispatch_guarded_macro_key_effect(
@@ -52,9 +56,25 @@ fn arm_macro_key_event_guard(
         .max(0)
         .saturating_add(lifetime.as_millis().min(i64::MAX as u128) as i64);
     let source = macro_key_guard_arm_script(effect, expires_at_ms)?;
+    #[cfg(windows)]
+    return arm_windows_macro_key_event_guard(webview, &source, context, lifetime);
+    #[cfg(not(windows))]
+    {
+        arm_webview_macro_key_event_guard(webview, &source, effect, context, lifetime)
+    }
+}
+
+#[cfg(not(windows))]
+fn arm_webview_macro_key_event_guard(
+    webview: &Webview,
+    source: &str,
+    effect: &EmbeddedKeyEffectRecord,
+    context: &InputDispatchContext,
+    lifetime: Duration,
+) -> RuntimeResult<()> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
-        .eval_with_callback(&source, move |value| {
+        .eval_with_callback(source, move |value| {
             let _ = sender.send(value);
         })
         .map_err(|error| {
@@ -82,6 +102,57 @@ fn arm_macro_key_event_guard(
             ))
         }
     }
+}
+
+#[cfg(windows)]
+fn arm_windows_macro_key_event_guard(
+    webview: &Webview,
+    source: &str,
+    context: &InputDispatchContext,
+    lifetime: Duration,
+) -> RuntimeResult<()> {
+    let result = call_system_input_devtools_bounded(
+        webview,
+        "Runtime.evaluate",
+        &json!({
+            "expression": source,
+            "returnByValue": true
+        }),
+        context,
+        lifetime,
+    );
+    let raw = match result {
+        Ok(raw) => raw,
+        Err(error)
+            if matches!(
+                error.code,
+                "BROWSER_ACTION_DEADLINE" | "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+            ) =>
+        {
+            context.ensure_current()?;
+            return Err(RuntimeError::new(
+                "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
+                "The macro key guard did not become ready before input dispatch.",
+            ));
+        }
+        Err(error) => return Err(error),
+    };
+    if macro_key_guard_devtools_acknowledged(&raw) {
+        Ok(())
+    } else {
+        Err(RuntimeError::new(
+            "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
+            "The game page did not acknowledge the macro key guard.",
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn macro_key_guard_devtools_acknowledged(raw: &str) -> bool {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|value| value.pointer("/result/value").cloned())
+        .is_some_and(|value| value == Value::Bool(true))
 }
 
 fn release_forwarded_macro_key(
@@ -131,6 +202,7 @@ fn macro_key_guard_release_script(code: &str) -> RuntimeResult<String> {
     ))
 }
 
+#[cfg(any(not(windows), test))]
 fn macro_key_guard_acknowledged(raw: &str) -> bool {
     fn acknowledged(value: &Value) -> bool {
         match value {

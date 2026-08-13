@@ -16,6 +16,12 @@ const REMOVE_RETRY_DELAY: Duration = Duration::from_millis(100);
 const RETIRED_LOCAL_STORAGE_SYNC_CACHE_FILES: [&str; 2] =
     ["local-storage-sync-v1.enc", "local-storage-sync-v2.enc"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DeleteQuarantineOutcome {
+    DeferredByWindowsLock,
+    Quarantined(bool),
+}
+
 pub fn paths(user_data_dir: &Path, role_id: &str) -> CoreResult<RolePathsRecord> {
     validate_role_id(role_id)?;
     let browser_user_data_dir = browser_directory(user_data_dir, role_id);
@@ -120,12 +126,43 @@ pub fn retire_local_storage_sync_caches(user_data_dir: &Path) -> Vec<String> {
     warnings
 }
 
+#[cfg(test)]
 pub fn quarantine(user_data_dir: &Path, role_id: &str, operation_id: &str) -> CoreResult<bool> {
+    match quarantine_for_delete_inner(user_data_dir, role_id, operation_id, false)? {
+        DeleteQuarantineOutcome::Quarantined(had_directory) => Ok(had_directory),
+        DeleteQuarantineOutcome::DeferredByWindowsLock => {
+            unreachable!("strict quarantine defers no locks")
+        }
+    }
+}
+
+pub(crate) fn quarantine_for_delete(
+    user_data_dir: &Path,
+    role_id: &str,
+    operation_id: &str,
+) -> CoreResult<DeleteQuarantineOutcome> {
+    quarantine_for_delete_inner(user_data_dir, role_id, operation_id, true)
+}
+
+pub(crate) fn quarantine_for_clear(
+    user_data_dir: &Path,
+    role_id: &str,
+    operation_id: &str,
+) -> CoreResult<DeleteQuarantineOutcome> {
+    quarantine_for_delete_inner(user_data_dir, role_id, operation_id, true)
+}
+
+fn quarantine_for_delete_inner(
+    user_data_dir: &Path,
+    role_id: &str,
+    operation_id: &str,
+    defer_windows_lock: bool,
+) -> CoreResult<DeleteQuarantineOutcome> {
     validate_role_id(role_id)?;
     validate_operation_id(operation_id)?;
     let source = user_data_dir.join("roles").join(role_id);
     if !source.exists() {
-        return Ok(false);
+        return Ok(DeleteQuarantineOutcome::Quarantined(false));
     }
     let target = quarantine_directory(user_data_dir, operation_id);
     if target.exists() {
@@ -138,8 +175,24 @@ pub fn quarantine(user_data_dir: &Path, role_id: &str, operation_id: &str) -> Co
         .parent()
         .ok_or_else(|| CoreError::Internal("role quarantine has no parent".to_owned()))?;
     fs::create_dir_all(parent).map_err(|error| io_error(parent, error))?;
-    fs::rename(&source, &target).map_err(|error| io_error(&source, error))?;
-    Ok(true)
+    match fs::rename(&source, &target) {
+        Ok(()) => Ok(DeleteQuarantineOutcome::Quarantined(true)),
+        Err(error) if defer_windows_lock && windows_delete_lock(&error) => {
+            Ok(DeleteQuarantineOutcome::DeferredByWindowsLock)
+        }
+        Err(error) => Err(io_error(&source, error)),
+    }
+}
+
+#[cfg(windows)]
+fn windows_delete_lock(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::PermissionDenied
+        || matches!(error.raw_os_error(), Some(5) | Some(32))
+}
+
+#[cfg(not(windows))]
+fn windows_delete_lock(_error: &std::io::Error) -> bool {
+    false
 }
 
 pub fn restore_quarantine(
@@ -299,6 +352,34 @@ mod tests {
         quarantine(directory.path(), "role-1", "operation-2").unwrap();
         discard_quarantine(directory.path(), "operation-2").unwrap();
         assert!(!directory.path().join("roles/role-1").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn delete_quarantine_defers_an_exact_windows_file_lock() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let directory = tempdir().unwrap();
+        let browser = PathBuf::from(
+            ensure(directory.path(), "role-1")
+                .unwrap()
+                .browser_user_data_dir,
+        );
+        let locked_path = browser.join("locked-session");
+        fs::write(&locked_path, b"locked").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        assert_eq!(
+            quarantine_for_delete(directory.path(), "role-1", "operation-locked").unwrap(),
+            DeleteQuarantineOutcome::DeferredByWindowsLock
+        );
+        assert!(directory.path().join("roles/role-1").exists());
+        drop(lock);
     }
 
     #[test]

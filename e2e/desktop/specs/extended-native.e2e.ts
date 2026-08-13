@@ -3,11 +3,12 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
-  controlWindow,
+  detachTerminatedApplicationSession,
   probe,
   rendererCall,
   requireEnvironment,
   shutdown,
+  submitWindowControl,
   waitEvent,
   windowSnapshot,
   type DesktopE2eWindowSnapshot
@@ -23,10 +24,12 @@ async function transition(
   snapshot: DesktopE2eWindowSnapshot,
   presentation: "fullscreen" | "maximized" | "normal"
 ): Promise<DesktopE2eWindowSnapshot> {
-  const cursor = (await probe()).latestSequence;
-  await controlWindow(WINDOW_A, { action: "setPresentation", presentation });
+  const submitted = await submitWindowControl(snapshot, {
+    action: "setPresentation",
+    presentation
+  });
   await waitEvent({
-    afterSequence: cursor,
+    afterSequence: submitted.sequence,
     kind: "placement-accepted",
     minimumGeneration: snapshot.windowGeneration,
     presentation,
@@ -46,6 +49,7 @@ async function cleanExit(): Promise<void> {
       && candidate.timestamp >= requestedAfter
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
+  detachTerminatedApplicationSession();
 }
 
 describe("extended native Game Window placement", () => {
@@ -95,14 +99,13 @@ describe("extended native Game Window placement", () => {
       });
       snapshot = await windowSnapshot(WINDOW_A);
     }
-    const cursor = (await probe()).latestSequence;
-    await controlWindow(WINDOW_A, {
+    const submitted = await submitWindowControl(snapshot, {
       action: "moveResize",
       scaleFactor: target.scaleFactor,
       ...bounds
     });
     await waitEvent({
-      afterSequence: cursor,
+      afterSequence: submitted.sequence,
       kind: "placement-accepted",
       minimumGeneration: snapshot.windowGeneration,
       timeoutMs: 60_000,
@@ -111,7 +114,7 @@ describe("extended native Game Window placement", () => {
     snapshot = await windowSnapshot(WINDOW_A);
     if (process.platform === "win32") {
       const dpiEvent = await waitEvent({
-        afterSequence: cursor,
+        afterSequence: submitted.sequence,
         kind: "windows-wm-dpi-changed",
         timeoutMs: 60_000
       });

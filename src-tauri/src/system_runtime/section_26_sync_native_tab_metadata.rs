@@ -760,8 +760,8 @@ impl SystemRuntimeExecutor {
             lifecycle.wait_for_store_reusable_event(platform).await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
-                "role.store-reusable",
-                "The role store is immediately reusable after exact native release.",
+                "surface.wrapper-released",
+                "The native surface wrapper released after exact native isolation.",
                 &label,
             );
             Ok(SurfaceCloseOutcome {

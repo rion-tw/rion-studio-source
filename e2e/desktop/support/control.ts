@@ -217,6 +217,20 @@ export async function submitWindowControl(
   });
 }
 
+export async function closeWindowAndWait(
+  snapshot: DesktopE2eWindowSnapshot
+): Promise<DesktopE2eEvent> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, { action: "close" });
+  return waitEvent({
+    afterSequence: cursor,
+    kind: "window-destroyed",
+    minimumGeneration: snapshot.windowGeneration,
+    timeoutMs: 45_000,
+    windowId: snapshot.windowId
+  });
+}
+
 export async function runtimeUiAction(
   windowId: string,
   request: RuntimeUiActionRequest

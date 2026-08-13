@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import type { DisplayInfo, EmbeddedRuntimeState, GameWindow } from "../../../src/shared/types";
 import {
+  closeWindowAndWait,
   controlWindow,
   detachTerminatedApplicationSession,
   probe,
@@ -144,14 +145,7 @@ async function showAndWait(windowId: string, minimumGeneration = 1): Promise<Des
 }
 
 async function closeAndWait(snapshot: DesktopE2eWindowSnapshot): Promise<void> {
-  const submitted = await submitWindowControl(snapshot, { action: "close" });
-  await waitEvent({
-    afterSequence: submitted.sequence,
-    kind: "window-destroyed",
-    minimumGeneration: snapshot.windowGeneration,
-    timeoutMs: 45_000,
-    windowId: snapshot.windowId
-  });
+  await closeWindowAndWait(snapshot);
 }
 
 async function moveAndWait(

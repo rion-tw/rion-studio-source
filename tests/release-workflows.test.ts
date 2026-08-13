@@ -81,7 +81,10 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("pnpm run test:e2e:desktop:smoke");
     expect(platformChecks).toContain("if: github.event_name == 'pull_request'");
     expect(platformChecks).toContain("id: desktop_e2e");
-    expect(platformChecks).toContain("continue-on-error: true");
+    expect(platformChecks).toContain("Run hosted full desktop E2E gate");
+    expect(platformChecks).toContain(
+      "continue-on-error: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}"
+    );
     expect(platformChecks).toContain("timeout-minutes: 75");
     expect(platformChecks).toContain("pnpm run test:e2e:desktop:full");
     expect(platformChecks).toContain("include-hidden-files: true");
@@ -144,7 +147,7 @@ describe("Tauri-only release workflows", () => {
     ]);
     expect(workflow).toContain("schedule:");
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("workflow_call:");
+    expect(workflow).not.toContain("workflow_call:");
     expect(workflow).toContain("runs-on: [self-hosted, Windows, X64, rion-desktop-e2e]");
     expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64, rion-desktop-e2e]");
     expect(workflow).toContain("Extended E2E ref must be a full immutable Git SHA");
@@ -284,7 +287,7 @@ describe("Tauri-only release workflows", () => {
     expect(candidateWorkflow).toContain("version: ${{ needs.resolve.outputs.version }}");
     expect(candidateWorkflow).toContain('test "$(git describe --tags --exact-match HEAD)" = "${RELEASE_TAG}"');
     expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
-    expect(candidateWorkflow).toContain("uses: ./.github/workflows/desktop-e2e-extended.yml");
+    expect(candidateWorkflow).not.toContain("desktop-e2e-extended.yml");
     expect(candidateWorkflow).toContain("uses: ./.github/workflows/tauri-release-compatibility.yml");
     expect(candidateWorkflow).toContain(
       "run_quality: ${{ github.event_name == 'workflow_dispatch' }}"
@@ -430,12 +433,12 @@ describe("Tauri-only release workflows", () => {
     expect(preflightWorkflow).toContain("has_release=$(jq -r '.has_release' release-plan.json)");
     expect(preflightWorkflow).toContain("if: needs.plan-release.outputs.has_release == 'true'");
     expect(preflightWorkflow).toContain("uses: ./.github/workflows/tauri-release-build.yml");
-    expect(preflightWorkflow).toContain("uses: ./.github/workflows/desktop-e2e-extended.yml");
+    expect(preflightWorkflow).not.toContain("desktop-e2e-extended.yml");
     expect(preflightWorkflow).toContain("source_ref: ${{ needs.plan-release.outputs.source_ref }}");
     expect(preflightWorkflow).toContain("version: ${{ needs.plan-release.outputs.release_version }}");
     expect(preflightWorkflow).toContain("release-preflight-${{ needs.plan-release.outputs.source_ref }}");
     expect(preflightWorkflow).toContain("build_result");
-    expect(preflightWorkflow).toContain("desktop_e2e_result");
+    expect(preflightWorkflow).not.toContain("desktop_e2e_result");
     expect(preflightWorkflow).toContain("has_release: $has_release");
   });
 

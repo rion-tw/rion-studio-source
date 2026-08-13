@@ -96,18 +96,10 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-  desktop-e2e:
-    needs: plan-release
-    if: needs.plan-release.outputs.has_release == 'true'
-    uses: ./.github/workflows/desktop-e2e-extended.yml
-    with:
-      ref: ${{ needs.plan-release.outputs.source_ref }}
-
   record-preflight:
     needs:
       - plan-release
       - build-tauri-release
-      - desktop-e2e
     if: always() && needs.plan-release.result == 'success'
     runs-on: ubuntu-latest
     steps:
@@ -116,7 +108,6 @@ jobs:
         env:
           ARTIFACT_NAME: ${{ needs.build-tauri-release.outputs.release_artifact_name || '' }}
           BUILD_RESULT: ${{ needs.build-tauri-release.result }}
-          DESKTOP_E2E_RESULT: ${{ needs.desktop-e2e.result }}
           HAS_RELEASE: ${{ needs.plan-release.outputs.has_release }}
           RELEASE_TAG: ${{ needs.plan-release.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.plan-release.outputs.release_version }}
@@ -125,12 +116,10 @@ jobs:
           set -euo pipefail
           if [[ "${HAS_RELEASE}" == true ]]; then
             test "${BUILD_RESULT}" = success
-            test "${DESKTOP_E2E_RESULT}" = success
             test "${ARTIFACT_NAME}" = "tauri-release-assets-${RELEASE_VERSION}"
           else
             test "${HAS_RELEASE}" = false
             test "${BUILD_RESULT}" = skipped
-            test "${DESKTOP_E2E_RESULT}" = skipped
             test -z "${ARTIFACT_NAME}"
             test -z "${RELEASE_TAG}"
             test -z "${RELEASE_VERSION}"
@@ -138,12 +127,11 @@ jobs:
           jq -n \
             --arg artifact_name "${ARTIFACT_NAME}" \
             --arg build_result "${BUILD_RESULT}" \
-            --arg desktop_e2e_result "${DESKTOP_E2E_RESULT}" \
             --argjson has_release "${HAS_RELEASE}" \
             --arg release_tag "${RELEASE_TAG}" \
             --arg release_version "${RELEASE_VERSION}" \
             --arg source_sha "${SOURCE_REF}" \
-            '{artifact_name: $artifact_name, build_result: $build_result, desktop_e2e_result: $desktop_e2e_result, has_release: $has_release, release_tag: $release_tag, release_version: $release_version, source_sha: $source_sha}' \
+            '{artifact_name: $artifact_name, build_result: $build_result, has_release: $has_release, release_tag: $release_tag, release_version: $release_version, source_sha: $source_sha}' \
             > release-preflight.json
 
       - name: Upload release preflight metadata

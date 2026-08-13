@@ -235,10 +235,10 @@ jobs:
         env:
           RION_STUDIO_E2E_ARTIFACT_ROOT: ${{ github.workspace }}/.desktop-e2e-artifacts
 
-      - name: Run advisory full desktop E2E soak
+      - name: Run hosted full desktop E2E gate
         if: github.event_name != 'pull_request'
         id: desktop_e2e
-        continue-on-error: true
+        continue-on-error: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}
         timeout-minutes: 75
         run: pnpm run test:e2e:desktop:full
         env:

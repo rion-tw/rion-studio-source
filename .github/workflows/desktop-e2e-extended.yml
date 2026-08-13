@@ -9,12 +9,6 @@ on:
         description: Immutable release-candidate SHA to validate
         required: false
         type: string
-  workflow_call:
-    inputs:
-      ref:
-        description: Immutable release-candidate SHA to validate
-        required: true
-        type: string
 
 permissions:
   contents: read

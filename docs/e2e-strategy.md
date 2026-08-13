@@ -11,8 +11,8 @@ path.
 | Profile | Gate | Scope |
 | --- | --- | --- |
 | `smoke` | Pull requests on hosted macOS and Windows | Legal/first run, primary navigation, Game/Role/Workspace/Macro creation and launch admission, Game Window lifecycle, and Settings persistence. |
-| `full` | Nightly plus advisory branch soak | All smoke journeys, edit/reorder/bulk-delete persistence, Workspace partial failure/cancellation, the unsaved-change quit guard, native Game Window/tab persistence and recovery, and system Settings boundaries. |
-| `extended` | Nightly hardware runners and release candidates | The complete full profile plus mixed-DPI, multi-display, fullscreen Spaces, and other native fixtures. |
+| `full` | Required hosted macOS and Windows gate on `main` and release/rebuild validation; advisory on non-release branch pushes | All smoke journeys, edit/reorder/bulk-delete persistence, Workspace partial failure/cancellation, the unsaved-change quit guard, native Game Window/tab persistence and recovery, and system Settings boundaries. |
+| `extended` | Scheduled or manually dispatched hardware runners | The complete full profile plus mixed-DPI, multi-display, fullscreen Spaces, and other native fixtures. |
 
 Run profiles with `pnpm run test:e2e:desktop:smoke`,
 `pnpm run test:e2e:desktop:full`, or
@@ -20,12 +20,12 @@ Run profiles with `pnpm run test:e2e:desktop:smoke`,
 manifest, launches the real debug-feature Tauri binary, and rejects unknown
 profiles. Product builds continue to be checked for E2E-control isolation.
 
-PR smoke is a required, non-advisory macOS and Windows check. The full hosted soak
-remains advisory until each platform records 20 consecutive complete runs without
-an infrastructure flake; product failures do not count as infrastructure flakes
-and are never auto-retried. After that promotion threshold, remove its
-`continue-on-error`. Nightly and release-candidate extended runs are fail-closed:
-`BLOCKED` or an incomplete platform is not success.
+PR smoke is a required, non-advisory macOS and Windows check. The full hosted
+profile is required for `main`, release candidates, and manually dispatched
+rebuild validation; non-release branch pushes may keep it advisory. Product
+failures are never auto-retried. Extended runs remain fail-closed when explicitly
+scheduled or dispatched on provisioned hardware: `BLOCKED` or an incomplete
+platform is not success, but unavailable hardware runners do not block release.
 
 ## Journey authoring
 

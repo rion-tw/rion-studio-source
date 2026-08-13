@@ -26,7 +26,7 @@
       ]
     },
     "full": {
-      "gate": "nightly",
+      "gate": "release-candidate",
       "phases": [
         "smoke-seed",
         "smoke-restart",
@@ -62,7 +62,7 @@
       ]
     },
     "extended": {
-      "gate": "release-candidate",
+      "gate": "nightly",
       "phases": [
         "smoke-seed",
         "smoke-restart",

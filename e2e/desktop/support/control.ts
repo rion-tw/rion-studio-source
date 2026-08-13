@@ -54,6 +54,8 @@ export interface DesktopE2eWindowSnapshot {
     outerBounds: WindowBounds;
     presentation: "fullscreen" | "maximized" | "minimized" | "normal";
     scaleFactor: number;
+    tabStripBounds?: WindowBounds;
+    tabStripHostBounds?: WindowBounds;
     title: string;
     workArea: WindowBounds;
   };

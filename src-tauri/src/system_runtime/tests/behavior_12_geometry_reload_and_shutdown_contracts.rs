@@ -1,7 +1,7 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 #[cfg(windows)]
-use windows::Win32::UI::WindowsAndMessaging::{SIZE_MINIMIZED, SWP_NOCOPYBITS};
+use windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED;
 
 #[cfg(windows)]
 #[test]
@@ -625,37 +625,48 @@ fn live_resize_counters_keep_resize_and_parent_position_events_distinct() {
 
 #[cfg(windows)]
 #[test]
-fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth() {
-    let surfaces = ["tabs", "left", "right"];
+fn live_resize_updates_shared_child_host_once_then_complete_controller_rects() {
+    let surfaces = [("tabs", 7_usize), ("left", 7_usize), ("right", 7_usize)];
     let events = RefCell::new(Vec::new());
-    let child_batch_complete = std::cell::Cell::new(false);
     let controller_heights = RefCell::new(HashMap::new());
     let submit = |height| {
-        child_batch_complete.set(false);
-        let bounds = surfaces
-            .iter()
-            .enumerate()
-            .map(|(index, _)| WindowsLiveResizeBounds {
-                height,
-                width: 600,
-                x: (index as i32) * 600,
+        let bounds = [
+            WindowsLiveResizeBounds {
+                height: 44,
+                width: 1_200,
+                x: 0,
                 y: 0,
-            })
-            .collect::<Vec<_>>();
+            },
+            WindowsLiveResizeBounds {
+                height: height - 44,
+                width: 600,
+                x: 0,
+                y: 44,
+            },
+            WindowsLiveResizeBounds {
+                height: height - 44,
+                width: 600,
+                x: 600,
+                y: 44,
+            },
+        ];
         windows_live_resize_submit_ordered(
             &surfaces,
             &bounds,
-            |children, _| {
+            |surface| surface.1,
+            |surface, bounds| {
                 events
                     .borrow_mut()
-                    .extend(children.iter().map(|label| format!("child:{label}")));
-                child_batch_complete.set(true);
+                    .push(format!("host:{}:{}x{}", surface.1, bounds.width, bounds.height));
                 Ok(())
             },
-            |label, bounds| {
-                assert!(child_batch_complete.get());
-                events.borrow_mut().push(format!("controller:{label}"));
-                controller_heights.borrow_mut().insert(*label, bounds.height);
+            |surface, bounds| {
+                events
+                    .borrow_mut()
+                    .push(format!("controller:{}", surface.0));
+                controller_heights
+                    .borrow_mut()
+                    .insert(surface.0, bounds.height);
                 Ok(())
             },
         )
@@ -663,15 +674,16 @@ fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth()
 
     submit(320).unwrap();
     submit(900).unwrap();
-    assert!(windows_live_resize_window_pos_flags().contains(SWP_NOCOPYBITS));
-    assert_eq!(controller_heights.borrow().get("left"), Some(&900));
-    assert_eq!(controller_heights.borrow().get("right"), Some(&900));
+    assert_eq!(controller_heights.borrow().get("left"), Some(&856));
+    assert_eq!(controller_heights.borrow().get("right"), Some(&856));
     assert_eq!(
-        &events.borrow()[..6],
+        events.into_inner(),
         [
-            "child:tabs",
-            "child:left",
-            "child:right",
+            "host:7:1200x320",
+            "controller:tabs",
+            "controller:left",
+            "controller:right",
+            "host:7:1200x900",
             "controller:tabs",
             "controller:left",
             "controller:right",
@@ -682,36 +694,40 @@ fn live_resize_batch_moves_children_before_controllers_and_keeps_latest_growth()
 #[cfg(windows)]
 #[test]
 fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
-    let bounds = [WindowsLiveResizeBounds {
-        height: 600,
-        width: 800,
-        x: 0,
-        y: 0,
-    }];
-    let controller_called = std::cell::Cell::new(false);
-    assert!(windows_live_resize_submit_ordered(
-        &["role"],
+    let surfaces = [("tabs", 7_usize), ("role", 7_usize)];
+    let bounds = [
+        WindowsLiveResizeBounds {
+            height: 44,
+            width: 800,
+            x: 0,
+            y: 0,
+        },
+        WindowsLiveResizeBounds {
+            height: 556,
+            width: 800,
+            x: 0,
+            y: 44,
+        },
+    ];
+    let controllers = RefCell::new(Vec::new());
+    let result = windows_live_resize_submit_ordered(
+        &surfaces,
         &bounds,
+        |surface| surface.1,
         |_, _| Err(()),
-        |_, _| {
-            controller_called.set(true);
+        |surface, _| {
+            controllers.borrow_mut().push(surface.0);
             Ok(())
         },
-    )
-    .is_err());
-    assert!(!controller_called.get());
-    assert!(windows_live_resize_submit_ordered(
-        &["role"],
-        &bounds,
-        |_, _| Ok(()),
-        |_, _| Err(())
-    )
-    .is_err());
+    );
+
+    assert!(result.is_err());
+    assert_eq!(controllers.into_inner(), ["tabs", "role"]);
 }
 
 #[cfg(windows)]
 #[test]
-fn live_resize_controller_rect_fills_its_child_host_from_the_origin() {
+fn live_resize_controller_rect_keeps_surface_offsets_in_the_shared_parent() {
     let rect = windows_live_resize_controller_rect(&WindowsLiveResizeBounds {
         height: 900,
         width: 600,
@@ -719,8 +735,8 @@ fn live_resize_controller_rect_fills_its_child_host_from_the_origin() {
         y: 44,
     });
 
-    assert_eq!((rect.left, rect.top), (0, 0));
-    assert_eq!((rect.right, rect.bottom), (600, 900));
+    assert_eq!((rect.left, rect.top), (620, 44));
+    assert_eq!((rect.right, rect.bottom), (1_220, 944));
 }
 
 #[cfg(windows)]
@@ -769,6 +785,28 @@ fn incomplete_live_resize_plan_uses_fallback_without_native_submission() {
     assert!(windows_live_resize_collect_surfaces(
         &registry,
         &two_column_live_resize_plan()
+    )
+    .is_none());
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_projects_attached_surfaces_while_a_role_controller_restarts() {
+    let plan = two_column_live_resize_plan();
+    let resolved = windows_live_resize_resolve_bounds(&plan, 1_280, 720, 1.0).unwrap();
+    let labels = [
+        plan.tab_strip_label.as_str(),
+        plan.roles[1].label.as_str(),
+    ];
+
+    let projected =
+        windows_live_resize_project_available_bounds(&plan, &labels, &resolved).unwrap();
+
+    assert_eq!(projected, [resolved[0], resolved[2]]);
+    assert!(windows_live_resize_project_available_bounds(
+        &plan,
+        &["detached-surface"],
+        &resolved,
     )
     .is_none());
 }

@@ -17,7 +17,11 @@ import {
   type DesktopE2eWindowSnapshot,
   type WindowBounds
 } from "../support/control";
-import { expectBoundsNear, expectPlacement } from "../support/geometry";
+import {
+  expectBoundsNear,
+  expectPlacement,
+  expectTabStripFitsClient
+} from "../support/geometry";
 import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
 import {
@@ -335,6 +339,7 @@ async function seedPhase(): Promise<void> {
   let liveA = await showAndWait(WINDOW_A);
   liveA = await moveAndWait(liveA, state.boundsA);
   expectPlacement(liveA, state.boundsA, "normal");
+  expectTabStripFitsClient(liveA);
   expect(liveA.native.title).toBe("E2E Window A");
   expect(liveA.kernel?.persistedName).toBe("E2E Window A");
 
@@ -408,6 +413,7 @@ async function restartPhase(): Promise<void> {
   if (!normalBounds) throw new Error("Window A normal bounds are unavailable");
   liveA = await modeTransition(liveA, "maximized");
   expectPlacement(liveA, normalBounds, "maximized");
+  expectTabStripFitsClient(liveA);
   await expectModeCell(WINDOW_A, "maximized");
   const minimizeSubmitted = await submitWindowControl(liveA, { action: "minimize" });
   await waitEvent({

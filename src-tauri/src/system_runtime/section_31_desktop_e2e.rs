@@ -71,7 +71,26 @@ impl SystemRuntimeExecutor {
             .snapshot()
             .map_err(|error| error.to_string())?
             .native_projection(window_id);
-        let native = desktop_e2e_native_window_snapshot(&window)?;
+        let mut native = desktop_e2e_native_window_snapshot(&window)?;
+        #[cfg(windows)]
+        {
+            let tab_strip = self
+                .state
+                .lock()
+                .map_err(|_| "The runtime state is unavailable.".to_owned())?
+                .native_resources
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.tab_strip.clone())
+                .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
+            let (tab_strip_bounds, tab_strip_host_bounds) =
+                desktop_e2e_windows_tab_strip_geometry(&tab_strip)?;
+            let native = native
+                .as_object_mut()
+                .ok_or_else(|| "The native window snapshot is invalid.".to_owned())?;
+            native.insert("tabStripBounds".to_owned(), tab_strip_bounds);
+            native.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
+        }
         let kernel = projection.map(|projection| {
             json!({
                 "persistedName": projection.persisted_name,
@@ -143,6 +162,53 @@ impl SystemRuntimeExecutor {
         }
     }
 
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_tab_strip_geometry(tab_strip: &Webview) -> Result<(Value, Value), String> {
+    use windows::Win32::{
+        Foundation::{HWND, RECT},
+        UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::GetClientRect},
+    };
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    tab_strip
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let mut parent = HWND::default();
+            let mut bounds = RECT::default();
+            let mut host_bounds = RECT::default();
+            let result = (|| -> Result<(Value, Value), String> {
+                controller
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                controller
+                    .Bounds(&mut bounds)
+                    .map_err(|error| error.to_string())?;
+                GetClientRect(parent, &mut host_bounds).map_err(|error| error.to_string())?;
+                let scale = f64::from(GetDpiForWindow(parent).max(96)) / 96.0;
+                let logical = |value: i32| f64::from(value) / scale;
+                Ok((
+                    json!({
+                        "height": logical(bounds.bottom - bounds.top),
+                        "width": logical(bounds.right - bounds.left),
+                        "x": logical(bounds.left),
+                        "y": logical(bounds.top),
+                    }),
+                    json!({
+                        "height": logical(host_bounds.bottom - host_bounds.top),
+                        "width": logical(host_bounds.right - host_bounds.left),
+                        "x": logical(host_bounds.left),
+                        "y": logical(host_bounds.top),
+                    }),
+                ))
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The WebView2 tab-strip bounds readback did not complete.".to_owned())?
 }
 
 fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> &'static str {

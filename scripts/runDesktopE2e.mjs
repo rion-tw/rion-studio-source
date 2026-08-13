@@ -29,6 +29,7 @@ if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
   throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
 }
 const focusedPhaseDependencies = new Map([
+  ["restart", ["seed"]],
   ["p1-role-session-isolation", ["p1-role-session-seed"]],
   ["p1-mutations", ["smoke-seed", "smoke-restart"]],
   ["p1-workspace-recovery", ["smoke-seed", "smoke-restart", "p1-mutations"]],

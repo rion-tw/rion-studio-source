@@ -7,11 +7,10 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            BeginDeferWindowPos, DeferWindowPos, EndDeferWindowPos, GetClientRect, IsZoomed,
-            PostMessageW, SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS,
-            SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE,
-            WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SIZE,
-            WM_WINDOWPOSCHANGED,
+            GetClientRect, IsZoomed, PostMessageW, SetWindowPos, SIZE_MAXIMIZED, SIZE_MINIMIZED,
+            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP,
+            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
+            WM_NCDESTROY, WM_SIZE, WM_WINDOWPOSCHANGED,
         },
     },
 };
@@ -854,7 +853,32 @@ pub(in crate::system_runtime) fn windows_live_resize_prepare_submission(hwnd: HW
         frame.height,
         f64::from(frame.dpi) / 96.0,
     );
-    let Ok(bounds) = bounds else {
+    let Ok(resolved_bounds) = bounds else {
+        let failed = WindowsGeometrySubmission {
+            bounds: Vec::new(),
+            key,
+            last_batch_failed,
+            last_surface_bounds,
+            plan_epoch,
+            surfaces,
+            terminal: frame.terminal,
+        };
+        windows_live_resize_complete_submission(
+            hwnd,
+            &failed,
+            WindowsGeometryStatus::Failed,
+        );
+        return None;
+    };
+    let surface_labels = surfaces
+        .iter()
+        .map(|surface| surface.label.as_str())
+        .collect::<Vec<_>>();
+    let Some(bounds) = windows_live_resize_project_available_bounds(
+        &plan,
+        &surface_labels,
+        &resolved_bounds,
+    ) else {
         let failed = WindowsGeometrySubmission {
             bounds: Vec::new(),
             key,
@@ -964,11 +988,38 @@ pub(in crate::system_runtime) fn windows_live_resize_collect_surfaces(
     registry: &WindowsLiveResizeRegistry,
     plan: &WindowsLiveResizePlan,
 ) -> Option<Vec<WindowsLiveResizeSurface>> {
+    // Controllers detach and reattach independently during navigation recovery.
+    // A missing role must not prevent the still-authoritative tab strip (or any
+    // other attached controller) from accepting the current native frame.
     let labels = std::iter::once(plan.tab_strip_label.as_str())
         .chain(plan.roles.iter().map(|role| role.label.as_str()))
         .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
-    labels
-        .map(|label| registry.surfaces.get(label).cloned())
+    let surfaces = labels
+        .filter_map(|label| registry.surfaces.get(label).cloned())
+        .collect::<Vec<_>>();
+    (!surfaces.is_empty()).then_some(surfaces)
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_project_available_bounds(
+    plan: &WindowsLiveResizePlan,
+    surface_labels: &[&str],
+    resolved_bounds: &[WindowsLiveResizeBounds],
+) -> Option<Vec<WindowsLiveResizeBounds>> {
+    let planned_labels = std::iter::once(plan.tab_strip_label.as_str())
+        .chain(plan.roles.iter().map(|role| role.label.as_str()))
+        .chain(plan.dividers.iter().map(|divider| divider.label.as_str()))
+        .collect::<Vec<_>>();
+    if surface_labels.is_empty() || planned_labels.len() != resolved_bounds.len() {
+        return None;
+    }
+    surface_labels
+        .iter()
+        .map(|surface_label| {
+            planned_labels
+                .iter()
+                .position(|planned_label| planned_label == surface_label)
+                .and_then(|index| resolved_bounds.get(index).copied())
+        })
         .collect()
 }
 

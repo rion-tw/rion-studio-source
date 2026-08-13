@@ -89,7 +89,16 @@ it("releases ordered launch admission before tracked native execution completes"
 });
 
 it("keeps production popup, download, recovery, lifecycle, and platform input native", async () => {
-    const [runtime, shell, macInput, runtimeTabs, platformProbe, powerLifecycle, kernelFacade] = await Promise.all([
+    const [
+      runtime,
+      shell,
+      macInput,
+      runtimeTabs,
+      platformProbe,
+      powerLifecycle,
+      kernelFacade,
+      liveResizeGeometry
+    ] = await Promise.all([
       readFile(new URL("../src-tauri/src/system_runtime.rs", import.meta.url), "utf8"),
       readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8"),
       readFile(
@@ -110,6 +119,13 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
       ),
       readFile(
         new URL("../src-tauri/src/system_runtime/kernel_facade.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/platform/windows/live_resize_geometry.rs",
+          import.meta.url
+        ),
         "utf8"
       )
     ]);
@@ -464,13 +480,18 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("SIZE_MINIMIZED");
     expect(runtime).toContain("WM_RION_GEOMETRY_FLUSH");
     expect(runtime).toContain("PostMessageW");
-    expect(runtime).toContain("BeginDeferWindowPos");
-    expect(runtime).toContain("DeferWindowPos(");
-    expect(runtime).toContain(".SetBounds(windows_live_resize_controller_rect(bounds))");
-    expect(runtime).toContain("surface.hwnd");
+    expect(liveResizeGeometry).not.toContain("BeginDeferWindowPos");
+    expect(liveResizeGeometry).not.toContain("DeferWindowPos(");
+    expect(liveResizeGeometry).toContain(
+      ".SetBounds(windows_live_resize_controller_rect(bounds))"
+    );
+    expect(liveResizeGeometry).toContain("SetWindowPos(");
+    expect(liveResizeGeometry).toContain("surface.hwnd");
+    expect(liveResizeGeometry).toContain("windows_live_resize_host_bounds(bounds)");
+    expect(liveResizeGeometry).toContain("submitted_parents.contains(&key)");
     expect(runtime).not.toContain("windows_live_resize_surface_bounds_match");
     expect(runtime).not.toContain("MapWindowPoints");
-    expect(runtime).not.toContain("controller.Bounds(&mut");
+    expect(liveResizeGeometry).not.toContain("controller.Bounds(&mut");
     expect(runtime).toContain("native_frame_unchanged");
     expect(runtime).toContain("WINDOWS_LIVE_RESIZE_REGISTRY");
     expect(runtime).toContain(

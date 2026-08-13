@@ -142,44 +142,34 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
-    // Wry owns one WS_CHILD host HWND per WebView2 controller. Move those
-    // hosts into the runtime layout first, then fill each host with its
-    // controller. Controller bounds alone are clipped by the host's old size.
+    // WebView2 controllers live under Wry child-host HWNDs. The outer Game
+    // Window can resize without Wry resizing those hosts, so first fill every
+    // distinct host with the participating client extent, then place each
+    // controller relative to it. A host can be shared by multiple controllers,
+    // and moving it once per surface gives it contradictory rects.
     windows_live_resize_submit_ordered(
         surfaces,
         bounds,
-        |surfaces, bounds| {
-            let mut deferred =
-                unsafe { BeginDeferWindowPos(surfaces.len() as i32) }.map_err(|_| ())?;
-            let flags = windows_live_resize_window_pos_flags();
-            for (surface, bounds) in surfaces.iter().zip(bounds) {
-                deferred = unsafe {
-                    DeferWindowPos(
-                        deferred,
-                        surface.hwnd,
-                        None,
-                        bounds.x,
-                        bounds.y,
-                        bounds.width,
-                        bounds.height,
-                        flags,
-                    )
-                }
-                .map_err(|_| ())?;
-            }
-            unsafe { EndDeferWindowPos(deferred) }.map_err(|_| ())
+        |surface| windows_hwnd_key(surface.hwnd),
+        |surface, host_bounds| unsafe {
+            SetWindowPos(
+                surface.hwnd,
+                None,
+                host_bounds.x,
+                host_bounds.y,
+                host_bounds.width,
+                host_bounds.height,
+                windows_live_resize_window_pos_flags(),
+            )
+            .map_err(|_| ())
         },
         |surface, bounds| {
-            windows_live_resize_submit_controller_bounds(
-                surface,
-                bounds,
-                |surface, bounds| unsafe {
-                    surface
-                        .controller
-                        .SetBounds(windows_live_resize_controller_rect(bounds))
-                }
-                .map_err(|_| ()),
-            )
+            windows_live_resize_submit_controller_bounds(surface, bounds, |surface, bounds| unsafe {
+                surface
+                    .controller
+                    .SetBounds(windows_live_resize_controller_rect(bounds))
+            }
+            .map_err(|_| ()))
         },
     )
 }
@@ -188,11 +178,30 @@ pub(in crate::system_runtime) fn windows_live_resize_controller_rect(
     bounds: &WindowsLiveResizeBounds,
 ) -> RECT {
     RECT {
-        bottom: bounds.height,
-        left: 0,
-        right: bounds.width,
-        top: 0,
+        bottom: bounds.y.saturating_add(bounds.height),
+        left: bounds.x,
+        right: bounds.x.saturating_add(bounds.width),
+        top: bounds.y,
     }
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_host_bounds(
+    bounds: &[WindowsLiveResizeBounds],
+) -> Option<WindowsLiveResizeBounds> {
+    let right = bounds
+        .iter()
+        .map(|bounds| bounds.x.saturating_add(bounds.width))
+        .max()?;
+    let bottom = bounds
+        .iter()
+        .map(|bounds| bounds.y.saturating_add(bounds.height))
+        .max()?;
+    (right > 0 && bottom > 0).then_some(WindowsLiveResizeBounds {
+        height: bottom,
+        width: right,
+        x: 0,
+        y: 0,
+    })
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_window_pos_flags(
@@ -211,15 +220,34 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_controller_bounds<T>
 pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     surfaces: &[T],
     bounds: &[WindowsLiveResizeBounds],
-    submit_child_batch: impl FnOnce(&[T], &[WindowsLiveResizeBounds]) -> Result<(), ()>,
+    parent_key: impl Fn(&T) -> usize,
+    mut submit_parent_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
     mut submit_controller_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
 ) -> Result<(), ()> {
     if surfaces.len() != bounds.len() || surfaces.is_empty() {
         return Err(());
     }
-    submit_child_batch(surfaces, bounds)?;
-    for (surface, bounds) in surfaces.iter().zip(bounds) {
-        submit_controller_bounds(surface, bounds)?;
+    let host_bounds = windows_live_resize_host_bounds(bounds).ok_or(())?;
+    let mut submitted_parents = Vec::new();
+    let mut failed = false;
+    for surface in surfaces {
+        let key = parent_key(surface);
+        if submitted_parents.contains(&key) {
+            continue;
+        }
+        submitted_parents.push(key);
+        if submit_parent_bounds(surface, &host_bounds).is_err() {
+            failed = true;
+        }
     }
-    Ok(())
+    for (surface, bounds) in surfaces.iter().zip(bounds) {
+        if submit_controller_bounds(surface, bounds).is_err() {
+            failed = true;
+        }
+    }
+    if failed {
+        Err(())
+    } else {
+        Ok(())
+    }
 }

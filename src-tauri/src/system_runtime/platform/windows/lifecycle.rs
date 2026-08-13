@@ -598,9 +598,12 @@ pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
 ) -> RuntimeResult<()> {
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+    use webview2_com::{
+        GetCookiesCompletedHandler,
+        Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2_2},
+    };
 
-    use windows::core::Interface;
+    use windows::core::{Interface, PCWSTR};
 
     let expected_process_id = lifecycle.browser_process_id.load(Ordering::Acquire) as u32;
     let expected_controller_identity = lifecycle.controller_identity.load(Ordering::Acquire);
@@ -628,12 +631,46 @@ pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
                         "The WebView2 controller or process identity changed before isolation.",
                     ));
                 }
-                core.Stop().map_err(|error| {
-                    windows_surface_lifecycle_error("isolation-stop", error)
-                })?;
-                core.Navigate(&windows::core::HSTRING::from("about:blank"))
+                let cookie_manager = core
+                    .cast::<ICoreWebView2_2>()
+                    .and_then(|core| core.CookieManager())
                     .map_err(|error| {
-                        windows_surface_lifecycle_error("isolation-navigation", error)
+                        windows_surface_lifecycle_error("isolation-cookie-manager", error)
+                    })?;
+                let preflight_core = core.clone();
+                let preflight_lifecycle = Arc::clone(&callback_lifecycle);
+                let preflight = GetCookiesCompletedHandler::create(Box::new(
+                    move |error_code, _cookies| {
+                        let result = (|| -> windows::core::Result<()> {
+                            error_code?;
+                            preflight_core.Stop()?;
+                            preflight_core
+                                .Navigate(&windows::core::HSTRING::from("about:blank"))?;
+                            Ok(())
+                        })();
+                        if let Err(error) = result {
+                            preflight_lifecycle.fail_isolation(
+                                &windows_surface_lifecycle_error(
+                                    "isolation-preflight",
+                                    error,
+                                ),
+                            );
+                        }
+                        Ok(())
+                    },
+                ));
+                // Yield the WebView2 UI-thread callback before Stop/Navigate.
+                // CloseRequested can otherwise re-enter a synchronous Tauri
+                // command reply after rapid native presentation changes. This
+                // completion is only an isolation preflight; the encrypted
+                // app-managed role checkpoint owns cookie durability.
+                cookie_manager
+                    .GetCookies(PCWSTR::null(), &preflight)
+                    .map_err(|error| {
+                        windows_surface_lifecycle_error(
+                            "isolation-preflight-submission",
+                            error,
+                        )
                     })?;
                 Ok(())
             })();

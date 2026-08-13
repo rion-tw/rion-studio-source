@@ -962,10 +962,16 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(windowsIsolation).toContain("add_NavigationStarting");
     expect(windowsIsolation).toContain("add_NavigationCompleted");
     expect(windowsIsolation).toContain("windows_surface_navigation_completion");
-    expect(windowsIsolation).not.toContain("GetCookiesCompletedHandler");
-    expect(windowsIsolation.indexOf("core.Stop()"))
-      .toBeLessThan(windowsIsolation.indexOf(
-        "core.Navigate(&windows::core::HSTRING::from(\"about:blank\"))"
+    expect(windowsIsolation).toContain("GetCookiesCompletedHandler");
+    expect(windowsIsolation).toContain("GetCookies(PCWSTR::null(), &preflight)");
+    expect(windowsIsolation).not.toContain("AddOrUpdateCookie");
+    const windowsPreflight = windowsIsolation.slice(
+      windowsIsolation.indexOf("let preflight = GetCookiesCompletedHandler"),
+      windowsIsolation.indexOf("GetCookies(PCWSTR::null(), &preflight)")
+    );
+    expect(windowsPreflight.indexOf("preflight_core.Stop()"))
+      .toBeLessThan(windowsPreflight.indexOf(
+        "Navigate(&windows::core::HSTRING::from(\"about:blank\"))"
       ));
     expect(roleSetup.indexOf("platform_role_surface_setup("))
       .toBeLessThan(roleSetup.indexOf("restore_role_cookie_checkpoint(webview, role_id)"));

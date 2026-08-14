@@ -24,6 +24,7 @@ import {
   fixtureRequest,
   waitFixtureEvent
 } from "../support/fixture";
+
 import {
   installRendererEventJournal,
   rendererEventCursor,
@@ -43,6 +44,7 @@ import {
 
 // [journey:ROLE-SESSION-ISOLATION-003]
 // [journey:WORKSPACE-SHARED-ROLE-003]
+// [state-combination:WINDOWS-ROLE-CHECKPOINT-COLLISION-002]
 
 const SESSION_GAME_NAME = "E2E P1 Session Isolation Game";
 const SESSION_ROLE_A_NAME = "E2E P1 Session Role A";

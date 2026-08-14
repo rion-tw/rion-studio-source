@@ -22,12 +22,14 @@ export async function validateDesktopE2eCoverage(rootDirectory) {
   const ids = new Set();
   const features = new Set(manifest.features ?? []);
   const profiles = manifest.profiles ?? {};
+  const stateCombinations = manifest.stateCombinations ?? [];
   const journeys = manifest.journeys ?? [];
   const wdioConfig = await readFile(resolve(root, "e2e/desktop/wdio.conf.ts"), "utf8");
 
   if (manifest.version !== 1) failures.push("manifest version must be 1");
   if (features.size !== (manifest.features ?? []).length) failures.push("feature names must be unique");
   if (journeys.length === 0) failures.push("manifest must contain journeys");
+  if (stateCombinations.length === 0) failures.push("manifest must contain state combinations");
   for (const [priority, target] of Object.entries(manifest.targets ?? {})) {
     if (!KNOWN_PRIORITIES.has(priority) || typeof target !== "number" || target < 0 || target > 1) {
       failures.push(`invalid coverage target ${priority}`);
@@ -133,6 +135,61 @@ export async function validateDesktopE2eCoverage(rootDirectory) {
       if (profiles[journey.profile] && !profiles[journey.profile].specs.includes(journey.spec)) {
         failures.push(`${label}: spec is not included by profile ${journey.profile}`);
       }
+    }
+  }
+
+  const combinationIds = new Set();
+  const allProfileSpecs = new Set(
+    Object.values(profiles).flatMap((profile) => profile.specs ?? [])
+  );
+  for (const combination of stateCombinations) {
+    const label = combination.id || "<missing-id>";
+    if (!combination.id || combinationIds.has(combination.id)) {
+      failures.push(`${label}: state combination id must be unique`);
+    }
+    combinationIds.add(combination.id);
+    const profile = profiles[combination.profile];
+    if (!profile) failures.push(`${label}: unknown profile ${combination.profile}`);
+    if (typeof combination.phase !== "string" || !profile?.phases?.includes(combination.phase)) {
+      failures.push(`${label}: phase is not included by profile ${combination.profile}`);
+    }
+    if (typeof combination.spec !== "string") {
+      failures.push(`${label}: state combination must reference a spec`);
+      continue;
+    }
+    if (profile && !profile.specs.includes(combination.spec)) {
+      failures.push(`${label}: spec is not included by profile ${combination.profile}`);
+    }
+    if (!Array.isArray(combination.platforms) || combination.platforms.length === 0 ||
+        combination.platforms.some((item) => !KNOWN_PLATFORMS.has(item))) {
+      failures.push(`${label}: invalid platforms`);
+    } else if (new Set(combination.platforms).size !== combination.platforms.length) {
+      failures.push(`${label}: platforms must be unique`);
+    }
+    const dimensions = combination.dimensions;
+    if (!dimensions || Array.isArray(dimensions) || typeof dimensions !== "object" ||
+        Object.keys(dimensions).length < 2 ||
+        Object.values(dimensions).some((value) => typeof value !== "string" || value.length === 0)) {
+      failures.push(`${label}: state combination must name at least two dimensions`);
+    }
+    if (typeof combination.description !== "string" || combination.description.length === 0) {
+      failures.push(`${label}: state combination needs a description`);
+    }
+    const source = await specSource(combination.spec);
+    if (source === null) {
+      failures.push(`${label}: missing spec ${combination.spec}`);
+      continue;
+    }
+    const marker = `[state-combination:${combination.id}]`;
+    const owningCount = occurrenceCount(source, marker);
+    let totalCount = 0;
+    for (const path of allProfileSpecs) {
+      const candidate = await specSource(path);
+      if (candidate !== null) totalCount += occurrenceCount(candidate, marker);
+    }
+    if (owningCount === 0) failures.push(`${label}: spec is missing its state-combination marker`);
+    if (owningCount > 1 || totalCount > 1) {
+      failures.push(`${label}: state-combination marker must appear exactly once`);
     }
   }
 

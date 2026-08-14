@@ -18,17 +18,40 @@ impl SystemRuntimeExecutor {
         window_id: &str,
     ) -> Option<RuntimeTabFailureStatusProjection> {
         let identity = self.active_failed_tab_status_identity(window_id)?;
-        let tab_name = self
+        let tab = self
             .presentation
-            .tab(window_id, &identity.tab_id)
-            .map(|tab| tab.title)
+            .tab(window_id, &identity.tab_id);
+        let tab_name = tab
+            .as_ref()
+            .map(|tab| tab.title.clone())
             .unwrap_or_else(|| identity.tab_id.clone());
         let language = self
             .language
             .lock()
             .map(|value| value.clone())
             .unwrap_or_else(|_| "en".to_owned());
-        let labels = runtime_tab_failure_labels(&language, &tab_name);
+        let metadata = self.projection_metadata();
+        let role_ids = tab
+            .as_ref()
+            .map(|tab| tab.role_ids.as_slice())
+            .unwrap_or_default();
+        let launch_urls = role_ids
+            .iter()
+            .filter_map(|role_id| {
+                metadata
+                    .roles
+                    .iter()
+                    .find(|role| role.id == *role_id)
+                    .map(|role| role.launch_url.as_str())
+            })
+            .collect::<Vec<_>>();
+        let failure_kind = if launch_urls.len() == role_ids.len() {
+            let failure_code = self.presentation.statuses.failure_code(&identity.tab_id);
+            runtime_tab_failure_kind(failure_code.as_deref(), &launch_urls)
+        } else {
+            RuntimeTabFailureKind::Generic
+        };
+        let labels = runtime_tab_failure_labels(&language, &tab_name, failure_kind);
         let theme = self
             .resolved_theme
             .lock()

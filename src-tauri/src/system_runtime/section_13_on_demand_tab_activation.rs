@@ -194,10 +194,10 @@ impl SystemRuntimeExecutor {
         .is_ok_and(|status| status == rion_core::RuntimeCommitStatus::Applied)
     }
 
-    pub(crate) fn mark_runtime_tab_activation_failed(&self, tab_id: &str) {
+    pub(crate) fn mark_runtime_tab_activation_failed(&self, tab_id: &str, failure_code: &str) {
         self.presentation
             .statuses
-            .set_presentation_phase(tab_id, TabRuntimePhase::Failed);
+            .set_failure(tab_id, failure_code);
         self.set_authoritative_tab_activation_phase(
             tab_id,
             rion_core::RuntimeTabActivationPhaseRecord::Failed,

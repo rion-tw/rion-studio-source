@@ -23,7 +23,7 @@ import {
   expectPlacement,
   expectTabStripFitsClient
 } from "../support/geometry";
-import { fixtureCursor, waitFixtureEvent } from "../support/fixture";
+import { fixtureCursor, waitFixtureEvent, type FixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
 import {
   installRendererEventJournal,
@@ -37,6 +37,7 @@ import { ensureEnglishUi, navigate } from "../support/ui";
 // [journey:GAME-WINDOWS-TABS-001]
 // [journey:APP-RECOVERY-001]
 // [journey:WINDOW-RECOVERY-UI-007]
+// [state-combination:WINDOW-RECOVERY-MULTITAB-SESSION-001]
 
 const WINDOW_A = "e2e00000-0000-4000-8000-00000000000a";
 const WINDOW_B = "e2e00000-0000-4000-8000-00000000000b";
@@ -44,6 +45,38 @@ const WINDOW_C = "e2e00000-0000-4000-8000-00000000000c";
 const MODE_NORMAL = "e2e00000-0000-4000-8000-000000000010";
 const MODE_MAXIMIZED = "e2e00000-0000-4000-8000-000000000011";
 const MODE_FULLSCREEN = "e2e00000-0000-4000-8000-000000000012";
+const RECOVERY_ROLE_NAMES = ["alpha", "beta", "gamma"] as const;
+
+type RecoveryRoleName = typeof RECOVERY_ROLE_NAMES[number];
+
+function recoveryFixtureId(roleName: RecoveryRoleName): string {
+  return `e2e-${roleName}`;
+}
+
+function recoverySessionMarker(roleName: RecoveryRoleName): string {
+  return `recovery-${roleName}`;
+}
+
+function recoveryRoleUrl(roleName: RecoveryRoleName): string {
+  const origin = requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN");
+  return `${origin}/role/${recoveryFixtureId(roleName)}?mode=seed&marker=${recoverySessionMarker(roleName)}`;
+}
+
+function expectRecoverySession(
+  event: FixtureEvent,
+  roleName: RecoveryRoleName,
+  seededBefore: boolean
+): void {
+  const marker = recoverySessionMarker(roleName);
+  expect(event.session).toMatchObject({
+    after: { cookie: marker, localStorage: marker },
+    before: seededBefore
+      ? { cookie: marker, localStorage: marker }
+      : { cookie: null, localStorage: null },
+    marker,
+    mode: "seed"
+  });
+}
 
 const PRESENTATION_LABELS = {
   fullscreen: ["Full screen", "全螢幕", "全屏", "フルスクリーン"],
@@ -264,16 +297,15 @@ async function closeVisibleGameWindow(
 async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   await createWindow(WINDOW_C, "E2E Three Tabs", state);
   const game = await rendererCall("createGame", {
-    defaultLaunchUrl: `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/e2e-alpha`,
+    defaultLaunchUrl: recoveryRoleUrl("alpha"),
     name: "E2E Runtime Fixture"
   });
-  const roleNames = ["alpha", "beta", "gamma"];
   const roles = [];
-  for (const roleName of roleNames) {
-    await fixtureRequest("/api/gate", { roleId: `e2e-${roleName}` });
+  for (const roleName of RECOVERY_ROLE_NAMES) {
+    await fixtureRequest("/api/gate", { roleId: recoveryFixtureId(roleName) });
     roles.push(await rendererCall("createRole", {
       gameId: game.id,
-      launchUrl: `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/e2e-${roleName}`,
+      launchUrl: recoveryRoleUrl(roleName),
       name: `E2E ${roleName}`
     }));
   }
@@ -289,7 +321,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
       kind: `tab-launch-phase:${tab.tabId}:navigating`,
       timeoutMs: 45_000
     });
-    await waitForFixtureNavigation(`e2e-${roleNames[index]}`);
+    await waitForFixtureNavigation(recoveryFixtureId(RECOVERY_ROLE_NAMES[index]));
     const loading = await windowSnapshot(WINDOW_C);
     expect(loading.kernel?.tabs.find((candidate) => candidate.tabId === tab.tabId)
       ?.launchPhase).toBe("navigating");
@@ -326,7 +358,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
     const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
     if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
-    releasedFixtureId = `e2e-${roleNames[activeRoleIndex]}`;
+    releasedFixtureId = recoveryFixtureId(RECOVERY_ROLE_NAMES[activeRoleIndex]);
     live = await dragVisibleGameWindow(live);
     expect(live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.launchPhase)
       .toBe("navigating");
@@ -356,8 +388,8 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   } else {
     await closeAndWait(live);
   }
-  for (const roleName of roleNames) {
-    const fixtureId = `e2e-${roleName}`;
+  for (const roleName of RECOVERY_ROLE_NAMES) {
+    const fixtureId = recoveryFixtureId(roleName);
     if (fixtureId !== releasedFixtureId) {
       await fixtureRequest("/api/release", { roleId: fixtureId });
     }
@@ -548,9 +580,71 @@ async function forceTerminateCurrentProcess(): Promise<void> {
   detachTerminatedApplicationSession();
 }
 
+function requireRecoveryTab(
+  snapshot: DesktopE2eWindowSnapshot,
+  roleName: RecoveryRoleName
+): NonNullable<DesktopE2eWindowSnapshot["kernel"]>["tabs"][number] {
+  const tab = snapshot.kernel?.tabs.find((candidate) => candidate.title === `E2E ${roleName}`);
+  if (!tab) throw new Error(`Recovery tab is unavailable for ${roleName}`);
+  return tab;
+}
+
+async function waitForRecoveryTabReady(
+  tabId: string,
+  afterSequence: number
+): Promise<DesktopE2eWindowSnapshot> {
+  let snapshot = await windowSnapshot(WINDOW_C);
+  const phase = snapshot.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase;
+  if (!phase || phase === "attaching" || phase === "navigating") {
+    await waitEvent({
+      afterSequence,
+      kind: `tab-launch-phase:${tabId}:essentialReady`,
+      timeoutMs: 55_000,
+      windowId: WINDOW_C
+    });
+    snapshot = await windowSnapshot(WINDOW_C);
+  }
+  expect(["essentialReady", "optionalHydrating", "ready"])
+    .toContain(snapshot.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase);
+  return snapshot;
+}
+
+async function activateRecoveryTab(
+  roleName: RecoveryRoleName,
+  seededBefore?: boolean
+): Promise<DesktopE2eWindowSnapshot> {
+  const before = await windowSnapshot(WINDOW_C);
+  const tab = requireRecoveryTab(before, roleName);
+  const controlCursor = (await probe()).latestSequence;
+  const sessionCursor = seededBefore === undefined ? 0 : await fixtureCursor();
+  await runtimeUiAction(WINDOW_C, {
+    action: "activateTab",
+    tabId: tab.tabId,
+    windowGeneration: before.windowGeneration
+  });
+  const terminal = await waitEvent({
+    afterSequence: controlCursor,
+    kind: "runtime-tab-activation-terminal",
+    windowId: WINDOW_C
+  });
+  expect(terminal.details).toMatchObject({ error: null, status: "completed", tabId: tab.tabId });
+  const ready = await waitForRecoveryTabReady(tab.tabId, controlCursor);
+  if (seededBefore !== undefined) {
+    const session = await waitFixtureEvent({
+      afterSequence: sessionCursor,
+      kind: "session",
+      roleId: recoveryFixtureId(roleName)
+    });
+    expectRecoverySession(session, roleName, seededBefore);
+  }
+  expect(ready.kernel?.selectedTabId).toBe(tab.tabId);
+  return ready;
+}
+
 async function forceTerminatePhase(): Promise<void> {
   await verifyRecoveredWindowA();
   const launchEventCursor = (await probe()).latestSequence;
+  const sessionCursor = await fixtureCursor();
   await showAndWait(WINDOW_B);
   await showAndWait(WINDOW_C);
   const beforeCrash = await rendererCall("getEmbeddedRuntimeState");
@@ -571,16 +665,35 @@ async function forceTerminatePhase(): Promise<void> {
       && event.windowId === WINDOW_C
       && (event.generation ?? 0) >= liveC.windowGeneration
   );
-  const phase = liveC.kernel?.tabs.find((tab) => tab.tabId === activeC.id)?.launchPhase;
-  if (!phase || phase === "attaching" || phase === "navigating") {
-    await waitEvent({
-      afterSequence: launchEventCursor,
-      kind: `tab-launch-phase:${activeC.id}:essentialReady`,
-      timeoutMs: 25_000,
-      windowId: WINDOW_C
-    });
-    liveC = await windowSnapshot(WINDOW_C);
-  }
+  liveC = await waitForRecoveryTabReady(activeC.id, launchEventCursor);
+  const restoredGammaSession = await waitFixtureEvent({
+    afterSequence: sessionCursor,
+    kind: "session",
+    roleId: recoveryFixtureId("gamma")
+  });
+  expectRecoverySession(restoredGammaSession, "gamma", false);
+  await activateRecoveryTab("alpha", false);
+  await activateRecoveryTab("beta", false);
+  liveC = await activateRecoveryTab("gamma");
+
+  const durableGeneration = liveC.windowGeneration;
+  await closeAndWait(liveC);
+  const durableLaunchCursor = (await probe()).latestSequence;
+  const durableSessionCursor = await fixtureCursor();
+  await showAndWait(WINDOW_C, durableGeneration + 1);
+  liveC = await windowSnapshot(WINDOW_C);
+  const durableGamma = requireRecoveryTab(liveC, "gamma");
+  liveC = await waitForRecoveryTabReady(durableGamma.tabId, durableLaunchCursor);
+  const durableGammaSession = await waitFixtureEvent({
+    afterSequence: durableSessionCursor,
+    kind: "session",
+    roleId: recoveryFixtureId("gamma")
+  });
+  expectRecoverySession(durableGammaSession, "gamma", true);
+  await activateRecoveryTab("alpha", true);
+  await activateRecoveryTab("beta", true);
+  liveC = await activateRecoveryTab("gamma");
+
   const focusCursor = await fixtureCursor();
   await runtimeUiAction(WINDOW_C, {
     action: "focusRole",
@@ -611,6 +724,7 @@ async function crashRestartPhase(): Promise<void> {
   }
 
   const restoreEventCursor = (await probe()).latestSequence;
+  const restoreSessionCursor = await fixtureCursor();
   const cursor = await rendererEventCursor();
   const restore = await $("button=Restore session");
   await restore.waitForDisplayed({ timeout: 10_000 });
@@ -631,7 +745,7 @@ async function crashRestartPhase(): Promise<void> {
   expectPlacement(liveA, state.boundsB, "normal");
   expect(liveA.native.title).toBe("E2E Window A");
   await windowSnapshot(WINDOW_B);
-  await windowSnapshot(WINDOW_C);
+  let liveC = await windowSnapshot(WINDOW_C);
   await waitEvent({
     afterSequence: restoreEventCursor,
     kind: "saved-window-restore-final-focus-started",
@@ -642,6 +756,21 @@ async function crashRestartPhase(): Promise<void> {
     kind: "window-focus-persisted",
     windowId: WINDOW_C
   });
+  const gamma = requireRecoveryTab(liveC, "gamma");
+  liveC = await waitForRecoveryTabReady(gamma.tabId, restoreEventCursor);
+  const restoredGammaSession = await waitFixtureEvent({
+    afterSequence: restoreSessionCursor,
+    kind: "session",
+    roleId: recoveryFixtureId("gamma")
+  });
+  expectRecoverySession(restoredGammaSession, "gamma", true);
+  await activateRecoveryTab("alpha", true);
+  await activateRecoveryTab("beta", true);
+  liveC = await activateRecoveryTab("gamma");
+  const restoredTabIds = RECOVERY_ROLE_NAMES.map((roleName) =>
+    requireRecoveryTab(liveC, roleName).tabId
+  );
+  expect(new Set(liveC.kernel?.surfaceTabIds)).toEqual(new Set(restoredTabIds));
   await forceTerminateCurrentProcess();
 }
 

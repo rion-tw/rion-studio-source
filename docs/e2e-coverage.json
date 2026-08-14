@@ -100,6 +100,39 @@
       ]
     }
   },
+  "stateCombinations": [
+    {
+      "id": "WINDOW-RECOVERY-MULTITAB-SESSION-001",
+      "profile": "full",
+      "phase": "crash-restart",
+      "spec": "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "termination": "forced-process",
+        "recoveryAction": "visible-restore-session",
+        "windowTopology": "three-windows-three-role-tabs",
+        "tabAdmission": "active-plus-two-dormant",
+        "sessionEvidence": "cookie-and-local-storage",
+        "activation": "visible-native-tab-controls"
+      },
+      "description": "Restore a forced-termination session, visibly activate every dormant role tab, and prove isolated cookie and LocalStorage continuity for all three tabs."
+    },
+    {
+      "id": "WINDOWS-ROLE-CHECKPOINT-COLLISION-002",
+      "profile": "full",
+      "phase": "p1-role-session-isolation",
+      "spec": "e2e/desktop/specs/role-isolation.e2e.ts",
+      "platforms": ["windows"],
+      "dimensions": {
+        "restart": "process-restart",
+        "checkpoint": "duplicate-native-cookie-key",
+        "storage": "encrypted-role-checkpoint",
+        "launchAction": "visible-role-open",
+        "isolation": "distinct-role-runtime-stores"
+      },
+      "description": "Inject a duplicate native cookie checkpoint key before restart and prove visible role launch restores one deterministic isolated session."
+    }
+  ],
   "journeys": [
     {
       "id": "APP-LEGAL-001",
@@ -340,7 +373,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Launch three role tabs and preserve active, dormant, ordered topology across native window generations."
+      "description": "Launch three role tabs, preserve active, dormant, ordered topology across native window generations, and visibly admit each dormant tab during recovery."
     },
     {
       "id": "APP-RECOVERY-001",
@@ -353,7 +386,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["failure", "restart"],
-      "description": "Distinguish clean exit from exact-PID forced termination and recover without corrupting persisted state."
+      "description": "Distinguish clean exit from exact-PID forced termination, recover without corrupting persisted state, and verify isolated cookie and LocalStorage continuity in every restored role tab."
     },
     {
       "id": "WINDOW-RECOVERY-UI-007",
@@ -367,7 +400,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Force-terminate a multi-window last-visible session, restore it through the Dashboard, force-terminate again, discard through the Dashboard, and retain clean dormant definitions on the next restart."
+      "description": "Force-terminate a multi-window last-visible session, restore it through the Dashboard, visibly activate and verify every restored role tab, force-terminate again, discard through the Dashboard, and retain clean dormant definitions on the next restart."
     },
     {
       "id": "SETTINGS-SYSTEM-001",

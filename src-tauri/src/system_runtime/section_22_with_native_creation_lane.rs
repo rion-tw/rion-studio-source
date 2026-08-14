@@ -282,7 +282,7 @@ impl SystemRuntimeExecutor {
         self.remove_empty_display_host(&provisional.window_id, provisional.host_created);
     }
 
-    pub(crate) fn fail_tab_launch_preview(&self, launch_preview_id: &str) {
+    pub(crate) fn fail_tab_launch_preview(&self, launch_preview_id: &str, failure_code: &str) {
         let provisional = self.state.lock().ok().and_then(|mut state| {
             let provisional = state.provisional_launches.get_mut(launch_preview_id)?;
             provisional.failed = true;
@@ -293,7 +293,7 @@ impl SystemRuntimeExecutor {
         };
         self.presentation
             .statuses
-            .set_presentation_phase(&provisional.id, TabRuntimePhase::Failed);
+            .set_failure(&provisional.id, failure_code);
     }
 
     pub(crate) fn resolve_browser_launch_completion(
@@ -468,10 +468,15 @@ impl SystemRuntimeExecutor {
             )
         });
         if let Some((handle, provisional, phase)) = existing {
-            self.presentation.statuses.set_presentation_phase(
-                &provisional.id,
-                phase,
-            );
+            if let Some(error) = completion.error.as_ref().filter(|_| failed) {
+                self.presentation
+                    .statuses
+                    .set_failure(&provisional.id, &error.code);
+            } else {
+                self.presentation
+                    .statuses
+                    .set_presentation_phase(&provisional.id, phase);
+            }
             return Some(handle);
         }
         if completion.launch_preview_id.is_some() {
@@ -521,9 +526,15 @@ impl SystemRuntimeExecutor {
             .presentation
             .commit_live_window_record("command", &completion.window_id, &presentation)
             .ok()?;
-        self.presentation
-            .statuses
-            .set_presentation_phase(&completion.tab_id, phase);
+        if let Some(error) = completion.error.as_ref().filter(|_| failed) {
+            self.presentation
+                .statuses
+                .set_failure(&completion.tab_id, &error.code);
+        } else {
+            self.presentation
+                .statuses
+                .set_presentation_phase(&completion.tab_id, phase);
+        }
         let active_tab_id = presentation.selected_tab_id.clone();
         let revision = receipt.revision;
         let launch_preview_id = uuid::Uuid::new_v4().to_string();
@@ -631,7 +642,10 @@ impl SystemRuntimeExecutor {
                         .automatic_launch_retries
                         .remove(&retry_preview.launch_preview_id);
                 }
-                runtime.fail_tab_launch_preview(&retry_preview.launch_preview_id);
+                runtime.fail_tab_launch_preview(
+                    &retry_preview.launch_preview_id,
+                    &error.code,
+                );
                 runtime.record_presentation_event_with_error(
                     LogLevel::Error,
                     "tab.launch-auto-retry-exhausted",

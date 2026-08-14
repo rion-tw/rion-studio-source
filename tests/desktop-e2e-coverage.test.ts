@@ -9,6 +9,7 @@ import { validateDesktopE2eCoverage } from "../scripts/checkDesktopE2eCoverage.m
 const repositoryRoot = resolve(import.meta.dirname, "..");
 type CoverageManifest = {
   profiles: Record<string, { specs: string[] }>;
+  stateCombinations: Array<{ id: string; spec: string }>;
 };
 
 describe("desktop E2E coverage policy", () => {
@@ -63,5 +64,34 @@ describe("desktop E2E coverage policy", () => {
 
     const result = await validateDesktopE2eCoverage(temporaryRoot);
     expect(result.failures).toContain("APP-LEGAL-001: journey marker must appear exactly once");
+  });
+
+  it("rejects a missing state-combination marker", async () => {
+    const temporaryRoot = await mkdtemp(resolve(tmpdir(), "rion-e2e-coverage-"));
+    const manifest = JSON.parse(
+      await readFile(resolve(repositoryRoot, "docs/e2e-coverage.json"), "utf8")
+    ) as CoverageManifest;
+    const specs = new Set<string>(Object.values(manifest.profiles).flatMap((profile) => profile.specs));
+    await mkdir(resolve(temporaryRoot, "docs"), { recursive: true });
+    await mkdir(resolve(temporaryRoot, "e2e/desktop"), { recursive: true });
+    await writeFile(resolve(temporaryRoot, "docs/e2e-coverage.json"), JSON.stringify(manifest));
+    await copyFile(
+      resolve(repositoryRoot, "e2e/desktop/wdio.conf.ts"),
+      resolve(temporaryRoot, "e2e/desktop/wdio.conf.ts")
+    );
+    for (const spec of specs) {
+      await mkdir(dirname(resolve(temporaryRoot, spec)), { recursive: true });
+      await copyFile(resolve(repositoryRoot, spec), resolve(temporaryRoot, spec));
+    }
+    const combination = manifest.stateCombinations[0];
+    if (!combination) throw new Error("Expected one state combination");
+    const target = resolve(temporaryRoot, combination.spec);
+    const marker = `[state-combination:${combination.id}]`;
+    await writeFile(target, (await readFile(target, "utf8")).replace(marker, "removed-marker"));
+
+    const result = await validateDesktopE2eCoverage(temporaryRoot);
+    expect(result.failures).toContain(
+      `${combination.id}: spec is missing its state-combination marker`
+    );
   });
 });

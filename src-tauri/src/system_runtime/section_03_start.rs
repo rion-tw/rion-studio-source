@@ -448,8 +448,9 @@ fn retain_live_runtime_launcher_tabs(
         .retain(|tab| live_tab_ids.contains(&tab.tab_id));
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct LiveTabRuntimeStatus {
+    failure_code: Option<String>,
     launch_phase: Option<LaunchPhase>,
     presentation_phase: TabRuntimePhase,
 }
@@ -517,7 +518,7 @@ impl TabRuntimeStatusStore {
         self.tabs
             .lock()
             .ok()
-            .and_then(|tabs| tabs.get(tab_id).copied())
+            .and_then(|tabs| tabs.get(tab_id).cloned())
             .map(|status| status.presentation_phase)
             .unwrap_or(TabRuntimePhase::Ready)
     }
@@ -549,13 +550,42 @@ impl TabRuntimeStatusStore {
             .and_then(|status| status.launch_phase)
     }
 
+    fn failure_code(&self, tab_id: &str) -> Option<String> {
+        self.tabs
+            .lock()
+            .ok()?
+            .get(tab_id)
+            .and_then(|status| status.failure_code.clone())
+    }
+
     fn set_presentation_phase(&self, tab_id: &str, phase: TabRuntimePhase) {
         if let Ok(mut tabs) = self.tabs.lock() {
             tabs.entry(tab_id.to_owned())
-                .and_modify(|status| status.presentation_phase = phase)
+                .and_modify(|status| {
+                    status.presentation_phase = phase;
+                    if phase != TabRuntimePhase::Failed {
+                        status.failure_code = None;
+                    }
+                })
                 .or_insert(LiveTabRuntimeStatus {
+                    failure_code: None,
                     launch_phase: None,
                     presentation_phase: phase,
+                });
+        }
+    }
+
+    fn set_failure(&self, tab_id: &str, failure_code: &str) {
+        if let Ok(mut tabs) = self.tabs.lock() {
+            tabs.entry(tab_id.to_owned())
+                .and_modify(|status| {
+                    status.failure_code = Some(failure_code.to_owned());
+                    status.presentation_phase = TabRuntimePhase::Failed;
+                })
+                .or_insert(LiveTabRuntimeStatus {
+                    failure_code: Some(failure_code.to_owned()),
+                    launch_phase: None,
+                    presentation_phase: TabRuntimePhase::Failed,
                 });
         }
     }
@@ -573,6 +603,7 @@ impl TabRuntimeStatusStore {
             let previous = tabs.insert(
                 tab_id.to_owned(),
                 LiveTabRuntimeStatus {
+                    failure_code: None,
                     launch_phase: Some(phase),
                     presentation_phase,
                 },

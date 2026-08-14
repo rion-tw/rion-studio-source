@@ -30,7 +30,9 @@ async fn activate_runtime_tab_on_demand_at_revision(
         Ok(presentation) => presentation,
         Err(message) => {
             if launch.is_some() {
-                state.runtime.mark_runtime_tab_activation_failed(tab_id);
+                state
+                    .runtime
+                    .mark_runtime_tab_activation_failed(tab_id, "TAURI_RUNTIME_TAB_ACTION_FAILED");
             }
             return Err(shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message));
         }
@@ -60,7 +62,7 @@ async fn activate_runtime_tab_on_demand_at_revision(
                 .discard_prepared_tab_role_slots(&launch.tab_id);
             state
                 .runtime
-                .mark_runtime_tab_activation_failed(&launch.tab_id);
+                .mark_runtime_tab_activation_failed(&launch.tab_id, &error.code);
             return Err(error);
         }
     };
@@ -76,7 +78,10 @@ async fn activate_runtime_tab_on_demand_at_revision(
             .discard_prepared_tab_role_slots(&launch.tab_id);
         state
             .runtime
-            .mark_runtime_tab_activation_failed(&launch.tab_id);
+            .mark_runtime_tab_activation_failed(
+                &launch.tab_id,
+                "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
+            );
         return Err(shell_error(
             "TAURI_RUNTIME_LAUNCH_OWNER_DIVERGED",
             "Core completed an on-demand launch without the requested tab owner.",

@@ -490,7 +490,9 @@ describe("runtime window lifecycle authority", () => {
     );
     expect(onDemandLaunch).toContain("Some(launch.tab_id.clone())");
     expect(onDemandLaunch).toContain("Some(launch.role_slots)");
-    expect(onDemandLaunch).toContain("mark_runtime_tab_activation_failed(tab_id)");
+    expect(onDemandLaunch).toContain(
+      'mark_runtime_tab_activation_failed(tab_id, "TAURI_RUNTIME_TAB_ACTION_FAILED")'
+    );
     expect(state).toContain("pending_restore_role_slots");
     expect(create).toContain("apply_prepared_role_slots_to_effect(&mut state, &mut tab)");
     expect(roleSlots).toContain("fn apply_prepared_role_slots_to_effect");

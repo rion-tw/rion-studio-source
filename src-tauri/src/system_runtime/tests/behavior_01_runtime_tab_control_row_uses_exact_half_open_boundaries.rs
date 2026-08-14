@@ -449,6 +449,27 @@ use super::*;
     }
 
     #[test]
+    fn a_new_launch_phase_clears_the_previous_failure_reason() {
+        let statuses = TabRuntimeStatusStore::default();
+        statuses.set_failure("tab-a", "SYSTEM_NAVIGATION_WEBVIEW2_FAILED");
+        assert_eq!(
+            statuses.failure_code("tab-a").as_deref(),
+            Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED")
+        );
+        assert_eq!(
+            statuses.presentation_phase("tab-a"),
+            TabRuntimePhase::Failed
+        );
+
+        statuses.set_launch_phase("tab-a", LaunchPhase::Attaching);
+        assert_eq!(statuses.failure_code("tab-a"), None);
+        assert_eq!(
+            statuses.presentation_phase("tab-a"),
+            TabRuntimePhase::Attaching
+        );
+    }
+
+    #[test]
     fn failed_status_retry_requires_the_complete_runtime_identity() {
         let current = RuntimeTabStatusIdentityRecord {
             attempt_id: "attempt-1".to_owned(),
@@ -497,8 +518,71 @@ use super::*;
                 runtime_tab_phase_label(language, TabRuntimePhase::Dormant),
                 Some(dormant)
             );
-            assert_eq!(runtime_tab_failure_labels(language, "Beta").retry, retry);
+            assert_eq!(
+                runtime_tab_failure_labels(language, "Beta", RuntimeTabFailureKind::Generic).retry,
+                retry
+            );
         }
+    }
+
+    #[test]
+    fn loopback_navigation_failures_explain_that_the_local_service_is_unavailable() {
+        for launch_url in [
+            "http://localhost:41739/role/gamma",
+            "http://qa.localhost:41739/role/gamma",
+            "http://127.0.0.1:41739/role/gamma",
+            "http://[::1]:41739/role/gamma",
+        ] {
+            assert_eq!(
+                runtime_tab_failure_kind(
+                    Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED"),
+                    &[launch_url]
+                ),
+                RuntimeTabFailureKind::LocalServiceUnavailable
+            );
+        }
+        for (language, expected_body) in [
+            (
+                "en",
+                "Rion Studio couldn’t reach the local service for this tab. Start the service, then try again.",
+            ),
+            (
+                "zh-TW",
+                "無法連線至此分頁的本機服務。請先啟動服務，再重試一次。",
+            ),
+            (
+                "zh-CN",
+                "无法连接此标签页的本地服务。请先启动服务，然后重试。",
+            ),
+            (
+                "ja",
+                "このタブのローカルサービスに接続できませんでした。サービスを起動してから、もう一度お試しください。",
+            ),
+        ] {
+            assert_eq!(
+                runtime_tab_failure_labels(
+                    language,
+                    "Gamma",
+                    RuntimeTabFailureKind::LocalServiceUnavailable,
+                )
+                .body,
+                expected_body
+            );
+        }
+        assert_eq!(
+            runtime_tab_failure_kind(
+                Some("SYSTEM_NAVIGATION_WEBVIEW2_FAILED"),
+                &["https://example.com/role/gamma"]
+            ),
+            RuntimeTabFailureKind::Generic
+        );
+        assert_eq!(
+            runtime_tab_failure_kind(
+                Some("TAURI_RUNTIME_TAB_ACTION_FAILED"),
+                &["http://127.0.0.1:41739/role/gamma"]
+            ),
+            RuntimeTabFailureKind::Generic
+        );
     }
 
     #[test]

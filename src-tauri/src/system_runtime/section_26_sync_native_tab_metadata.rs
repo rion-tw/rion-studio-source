@@ -36,25 +36,95 @@ struct RuntimeTabFailureLabels {
     title: String,
 }
 
-fn runtime_tab_failure_labels(language: &str, tab_name: &str) -> RuntimeTabFailureLabels {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RuntimeTabFailureKind {
+    Generic,
+    LocalServiceUnavailable,
+}
+
+fn loopback_runtime_launch_url(value: &str) -> bool {
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let normalized_host = host.trim_start_matches('[').trim_end_matches(']');
+    normalized_host.eq_ignore_ascii_case("localhost")
+        || normalized_host.to_ascii_lowercase().ends_with(".localhost")
+        || normalized_host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn runtime_tab_failure_kind(
+    failure_code: Option<&str>,
+    launch_urls: &[&str],
+) -> RuntimeTabFailureKind {
+    let navigation_failed = matches!(
+        failure_code,
+        Some(
+            "SYSTEM_NAVIGATION_WEBVIEW2_FAILED"
+                | "SYSTEM_NAVIGATION_NATIVE_FAILED"
+                | "SYSTEM_SURFACE_NAVIGATION_FAILED"
+                | "TAURI_NAVIGATION_FAILED"
+        )
+    );
+    if navigation_failed
+        && !launch_urls.is_empty()
+        && launch_urls
+            .iter()
+            .all(|launch_url| loopback_runtime_launch_url(launch_url))
+    {
+        RuntimeTabFailureKind::LocalServiceUnavailable
+    } else {
+        RuntimeTabFailureKind::Generic
+    }
+}
+
+fn runtime_tab_failure_labels(
+    language: &str,
+    tab_name: &str,
+    kind: RuntimeTabFailureKind,
+) -> RuntimeTabFailureLabels {
+    let body = match (language, kind) {
+        ("zh-TW", RuntimeTabFailureKind::LocalServiceUnavailable) => {
+            "無法連線至此分頁的本機服務。請先啟動服務，再重試一次。"
+        }
+        ("zh-CN", RuntimeTabFailureKind::LocalServiceUnavailable) => {
+            "无法连接此标签页的本地服务。请先启动服务，然后重试。"
+        }
+        ("ja", RuntimeTabFailureKind::LocalServiceUnavailable) => {
+            "このタブのローカルサービスに接続できませんでした。サービスを起動してから、もう一度お試しください。"
+        }
+        (_, RuntimeTabFailureKind::LocalServiceUnavailable) => {
+            "Rion Studio couldn’t reach the local service for this tab. Start the service, then try again."
+        }
+        ("zh-TW", RuntimeTabFailureKind::Generic) => "此分頁未能完成啟動，請再試一次。",
+        ("zh-CN", RuntimeTabFailureKind::Generic) => "此标签页未能完成启动，请重试。",
+        ("ja", RuntimeTabFailureKind::Generic) => {
+            "このタブの起動を完了できませんでした。もう一度お試しください。"
+        }
+        (_, RuntimeTabFailureKind::Generic) => "This tab couldn’t finish starting. Try again.",
+    };
     match language {
         "zh-TW" => RuntimeTabFailureLabels {
-            body: "此分頁未能完成啟動，請再試一次。",
+            body,
             retry: "再試一次",
             title: format!("無法開啟「{tab_name}」"),
         },
         "zh-CN" => RuntimeTabFailureLabels {
-            body: "此标签页未能完成启动，请重试。",
+            body,
             retry: "重试",
             title: format!("无法打开“{tab_name}”"),
         },
         "ja" => RuntimeTabFailureLabels {
-            body: "このタブの起動を完了できませんでした。もう一度お試しください。",
+            body,
             retry: "もう一度試す",
             title: format!("「{tab_name}」を開けませんでした"),
         },
         _ => RuntimeTabFailureLabels {
-            body: "This tab couldn’t finish starting. Try again.",
+            body,
             retry: "Try Again",
             title: format!("Couldn’t Open “{tab_name}”"),
         },
@@ -80,6 +150,10 @@ impl SystemRuntimeExecutor {
         let role_names = roles
             .iter()
             .map(|role| (role.id.as_str(), role.name.as_str()))
+            .collect::<HashMap<_, _>>();
+        let role_launch_urls = roles
+            .iter()
+            .map(|role| (role.id.as_str(), role.launch_url.as_str()))
             .collect::<HashMap<_, _>>();
         let games = metadata.games;
         let game_icons = games
@@ -179,8 +253,24 @@ impl SystemRuntimeExecutor {
                                 })
                                 .ok()
                             });
-                        let failure_labels =
-                            runtime_tab_failure_labels(&language, &presented.title);
+                        let launch_urls = role_ids
+                            .iter()
+                            .filter_map(|role_id| {
+                                role_launch_urls.get(role_id.as_str()).copied()
+                            })
+                            .collect::<Vec<_>>();
+                        let failure_kind = if launch_urls.len() == role_ids.len() {
+                            let failure_code =
+                                self.presentation.statuses.failure_code(&presented.id);
+                            runtime_tab_failure_kind(failure_code.as_deref(), &launch_urls)
+                        } else {
+                            RuntimeTabFailureKind::Generic
+                        };
+                        let failure_labels = runtime_tab_failure_labels(
+                            &language,
+                            &presented.title,
+                            failure_kind,
+                        );
                         let icon_data_url = presented.icon_data_url.clone().or_else(|| {
                             role_ids.first().and_then(|role_id| {
                                 role_games

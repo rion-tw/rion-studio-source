@@ -723,9 +723,14 @@ impl SystemRuntimeExecutor {
                     == Some(&attempt_generation)
             });
             if attempt_was_current {
+                let failure_code = result
+                    .as_ref()
+                    .err()
+                    .map(|error| error.code)
+                    .unwrap_or("TAURI_RUNTIME_TAB_CREATION_FAILED");
                 self.presentation
                     .statuses
-                    .set_presentation_phase(&created_tab_id, TabRuntimePhase::Failed);
+                    .set_failure(&created_tab_id, failure_code);
             }
             let controlled_labels = created_surfaces
                 .iter()

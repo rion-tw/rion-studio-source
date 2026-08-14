@@ -626,11 +626,11 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
         tab_id: &str,
-        _failure_code: &str,
+        failure_code: &str,
     ) {
         self.presentation
             .statuses
-            .set_presentation_phase(tab_id, TabRuntimePhase::Failed);
+            .set_failure(tab_id, failure_code);
         let trace = self.pending_window_tab_restore(window_id).and_then(|restore| {
             restore.visibility_fence.and_then(|fence| {
                 fence.launch_trace.map(|trace| {

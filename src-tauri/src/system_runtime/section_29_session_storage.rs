@@ -388,6 +388,89 @@ fn deduplicate_role_cookie_checkpoint_records(
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn checkpoint_window_close_role_sessions(
+        &self,
+        tab_ids: &[String],
+    ) -> RuntimeResult<()> {
+        let surfaces = {
+            let state = self.state()?;
+            let mut surfaces = Vec::new();
+            for tab_id in tab_ids {
+                let Some(tab) = state.native_resources.tabs.get(tab_id) else {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                        "A runtime tab disappeared before its role session could be checkpointed.",
+                    ));
+                };
+                for (role_id, role_surface) in &tab.roles {
+                    let managed = state
+                        .native_resources
+                        .surface_registry
+                        .values()
+                        .find(|surface| {
+                            surface.kind == ManagedSurfaceKind::Role
+                                && surface.phase == ManagedSurfacePhase::Live
+                                && surface.role_id.as_deref() == Some(role_id)
+                                && surface.tab_id.as_deref() == Some(tab_id)
+                                && surface.webview.label() == role_surface.webview.label()
+                        })
+                        .cloned()
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                                "The exact live role surface was unavailable before window close admission.",
+                            )
+                        })?;
+                    surfaces.push(managed);
+                }
+            }
+            surfaces
+        };
+
+        for surface in &surfaces {
+            let role_id = surface.role_id.as_deref().ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                    "A role session checkpoint surface did not retain its role identity.",
+                )
+            })?;
+            self.persist_role_cookie_checkpoint(&surface.webview, role_id)?;
+            self.persist_role_local_storage_checkpoint(&surface.webview, role_id)?;
+        }
+
+        let mut state = self.state()?;
+        let all_current = surfaces.iter().all(|expected| {
+            state
+                .native_resources
+                .surface_registry
+                .get(&expected.instance_id)
+                .is_some_and(|current| {
+                    current.generation == expected.generation
+                        && current.kind == ManagedSurfaceKind::Role
+                        && current.phase == ManagedSurfacePhase::Live
+                        && current.role_id == expected.role_id
+                        && current.tab_id == expected.tab_id
+                        && current.webview.label() == expected.webview.label()
+                })
+        });
+        if !all_current {
+            return Err(RuntimeError::new(
+                "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                "A role surface changed while its close session checkpoint was being persisted.",
+            ));
+        }
+        for expected in surfaces {
+            if let Some(current) = state
+                .native_resources
+                .surface_registry
+                .get_mut(&expected.instance_id)
+            {
+                current.session_checkpointed_for_close = true;
+            }
+        }
+        Ok(())
+    }
+
     fn persist_runtime_tab_role_session_checkpoints(&self, tab_id: &str) -> RuntimeResult<()> {
         let role_surfaces = {
             let state = self.state()?;

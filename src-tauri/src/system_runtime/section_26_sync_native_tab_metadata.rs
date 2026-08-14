@@ -1092,9 +1092,10 @@ impl SystemRuntimeExecutor {
                     &surface.lifecycle,
                     lifecycle_id,
                     SurfaceClosePlan {
-                        checkpoint_role_session: managed_surface_close_checkpoints_role_cookies(
+                        checkpoint_role_session: managed_surface_close_checkpoints_role_session(
                             surface.kind,
                             defer_navigation_to_preflight,
+                            surface.session_checkpointed_for_close,
                         ),
                         defer_navigation_to_preflight,
                         release_boundary,

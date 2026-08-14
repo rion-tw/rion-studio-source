@@ -755,6 +755,18 @@ async fn execute_game_window_close_transaction(
                 return Err(shell_error("SYSTEM_WINDOW_CLOSE_SCOPE_FAILED", message));
             }
         };
+        if let Err(error) = state
+            .runtime
+            .checkpoint_window_close_role_sessions(&request.tab_ids)
+        {
+            let receipt = state.runtime.fail_window_close_operation(
+                &operation.operation_id,
+                "windowSessionCheckpointFailed",
+                error.code,
+            );
+            let _ = app.emit("rion://window-lifecycle", receipt);
+            return Err(shell_error(error.code, error.message));
+        }
         let request: RuntimeWindowStopRequestRecord = match state
             .core
             .invoke_async(CoreCommand::BrowserWindowCloseAdmit { request })

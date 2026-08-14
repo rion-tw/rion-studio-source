@@ -314,6 +314,7 @@ impl SystemRuntimeExecutor {
                 phase,
                 release_boundary: kind.release_boundary(),
                 role_id: role_id.map(str::to_owned),
+                session_checkpointed_for_close: false,
                 tab_id: tab_id.map(str::to_owned),
                 webview: webview.clone(),
                 window_generation,

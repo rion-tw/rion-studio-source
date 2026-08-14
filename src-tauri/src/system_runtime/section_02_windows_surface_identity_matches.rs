@@ -79,15 +79,18 @@ fn managed_surface_requires_page_quiesce(platform: &str, kind: ManagedSurfaceKin
     platform != "windows" || kind != ManagedSurfaceKind::Divider
 }
 
-fn managed_surface_close_checkpoints_role_cookies(
+fn managed_surface_close_checkpoints_role_session(
     kind: ManagedSurfaceKind,
     defer_navigation_to_preflight: bool,
+    session_checkpointed_for_close: bool,
 ) -> bool {
     // A regular role release checkpoints cookies before its deferred isolation preflight. Full
     // application shutdown instead owns the whole persistent native store and must immediately
     // Stop/Navigate every page: a synchronous live-cookie read from several WebView2 controllers
     // can otherwise keep the shutdown operation in flight through its exact deadline.
-    kind == ManagedSurfaceKind::Role && defer_navigation_to_preflight
+    kind == ManagedSurfaceKind::Role
+        && defer_navigation_to_preflight
+        && !session_checkpointed_for_close
 }
 
 const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
@@ -174,6 +177,7 @@ struct ManagedSurface {
     phase: ManagedSurfacePhase,
     release_boundary: SurfaceReleaseBoundary,
     role_id: Option<String>,
+    session_checkpointed_for_close: bool,
     tab_id: Option<String>,
     webview: Webview,
     window_generation: u64,

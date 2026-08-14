@@ -198,16 +198,24 @@ fn full_application_shutdown_uses_the_platform_stop_boundary_without_cookie_pref
         assert!(!windows_surface_quiesce_completes_at_stop(true));
     }
     for platform in ["windows", "macos"] {
-        assert!(managed_surface_close_checkpoints_role_cookies(
+        assert!(managed_surface_close_checkpoints_role_session(
             ManagedSurfaceKind::Role,
             true,
-        ), "{platform}");
-        assert!(!managed_surface_close_checkpoints_role_cookies(
-            ManagedSurfaceKind::Role,
             false,
         ), "{platform}");
-        assert!(!managed_surface_close_checkpoints_role_cookies(
+        assert!(!managed_surface_close_checkpoints_role_session(
+            ManagedSurfaceKind::Role,
+            false,
+            false,
+        ), "{platform}");
+        assert!(!managed_surface_close_checkpoints_role_session(
             ManagedSurfaceKind::Divider,
+            true,
+            false,
+        ), "{platform}");
+        assert!(!managed_surface_close_checkpoints_role_session(
+            ManagedSurfaceKind::Role,
+            true,
             true,
         ), "{platform}");
     }

@@ -969,7 +969,7 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
   });
 
   it("keeps surface close and main focus completion strictly event-bound", async () => {
-    const [surfaceClose, roleSetup, sessionStorage, mainWindow, windowsLifecycle, macLifecycle] = await Promise.all([
+    const [surfaceClose, roleSetup, sessionStorage, mainWindow, windowsLifecycle, macLifecycle, windowClose] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/system_runtime/section_26_sync_native_tab_metadata.rs",
@@ -1011,6 +1011,10 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
           import.meta.url
         ),
         "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url),
+        "utf8"
       )
     ]);
     const surfaceContinuation = surfaceClose.slice(
@@ -1024,6 +1028,12 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     const windowsIsolation = windowsLifecycle.slice(
       windowsLifecycle.indexOf("fn platform_surface_lifecycle_tracker("),
       windowsLifecycle.indexOf("fn install_process_failure_monitor(")
+    );
+    const windowCloseTransaction = windowClose.slice(
+      windowClose.indexOf("async fn execute_game_window_close_transaction("),
+      windowClose.indexOf("fn record_desktop_e2e_window_close_admission", windowClose.indexOf(
+        "async fn execute_game_window_close_transaction("
+      ))
     );
     for (const source of [surfaceContinuation, focusContinuation, windowsIsolation]) {
       for (const forbidden of [
@@ -1071,6 +1081,12 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(sessionStorage).toContain("role_browser_directory(user_data_dir, role_id)?.join(\"system\")");
     expect(sessionStorage).toContain("write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE");
     expect(sessionStorage.match(/deduplicate_role_cookie_checkpoint_records\(/g)).toHaveLength(3);
+    expect(sessionStorage).toContain("checkpoint_window_close_role_sessions(");
+    expect(sessionStorage).toContain("session_checkpointed_for_close = true");
+    expect(windowCloseTransaction.indexOf("checkpoint_window_close_role_sessions"))
+      .toBeLessThan(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
+    expect(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"))
+      .toBeLessThan(windowCloseTransaction.indexOf("commit_visible_window_close"));
     expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))
       .toBeLessThan(sessionStorage.indexOf("verify_cookie_readback(&cookies, &readback)"));
     expect(macLifecycle).not.toContain("addObserver:");

@@ -224,10 +224,10 @@ async function activateTab(windowId: string, tabId: string): Promise<void> {
     windowId
   });
   expect(terminal.details).toMatchObject({ error: null, status: "completed", tabId });
-  if (!phase || phase === "attaching" || phase === "navigating") {
+  if (phase !== "ready") {
     await waitEvent({
       afterSequence: cursor,
-      kind: `tab-launch-phase:${tabId}:essentialReady`,
+      kind: `tab-launch-phase:${tabId}:ready`,
       timeoutMs: 55_000,
       windowId
     });

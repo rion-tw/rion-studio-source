@@ -480,7 +480,7 @@ use uuid::Uuid;
         let directory = role_cookie_checkpoint_directory(Path::new("/runtime"), "role-a").unwrap();
         assert_eq!(
             directory,
-            Path::new("/runtime/roles/role-a/browser")
+            Path::new("/runtime/roles/role-a/browser/system")
         );
 
         let mut record = SessionCookieRecord {
@@ -506,6 +506,92 @@ use uuid::Uuid;
             role_cookie_from_checkpoint(&record).unwrap_err().code,
             "ROLE_COOKIE_CHECKPOINT_INVALID"
         );
+    }
+
+    #[test]
+    fn role_cookie_checkpoint_deduplicates_native_keys_with_last_write_wins() {
+        let record = |name: &str, value: &str, domain: &str| SessionCookieRecord {
+            name: name.to_owned(),
+            value: value.to_owned(),
+            domain: Some(domain.to_owned()),
+            path: "/".to_owned(),
+            secure: true,
+            http_only: false,
+            same_site: "none".to_owned(),
+            expires_unix_ms: Some(2_000),
+        };
+        let records = deduplicate_role_cookie_checkpoint_records(vec![
+            record("analytics", "stale", ".GAME.EXAMPLE.TEST"),
+            record("session", "retained", "game.example.test"),
+            record("analytics", "current", "game.example.test"),
+        ]);
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].name, "session");
+        assert_eq!(records[0].value, "retained");
+        assert_eq!(records[1].name, "analytics");
+        assert_eq!(records[1].value, "current");
+
+        let restored = records
+            .iter()
+            .map(role_cookie_from_checkpoint)
+            .collect::<RuntimeResult<Vec<_>>>()
+            .unwrap();
+        verify_cookie_readback(&restored, &restored).unwrap();
+    }
+
+    #[test]
+    fn role_cookie_checkpoint_read_prefers_system_storage_and_accepts_the_legacy_location() {
+        let directory = tempfile::tempdir().unwrap();
+        let browser = role_browser_directory(directory.path(), "role-a").unwrap();
+        fs::create_dir_all(&browser).unwrap();
+        fs::write(browser.join(ROLE_COOKIE_CHECKPOINT_FILE), b"legacy").unwrap();
+
+        assert_eq!(
+            read_role_cookie_checkpoint_blob(directory.path(), "role-a").unwrap(),
+            Some(b"legacy".to_vec())
+        );
+
+        let system = browser.join("system");
+        fs::create_dir_all(&system).unwrap();
+        fs::write(system.join(ROLE_COOKIE_CHECKPOINT_FILE), b"current").unwrap();
+        assert_eq!(
+            read_role_cookie_checkpoint_blob(directory.path(), "role-a").unwrap(),
+            Some(b"current".to_vec())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn role_cookie_checkpoint_write_does_not_traverse_the_live_webview2_profile() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let paths = role_session_paths(directory.path(), "role-a").unwrap();
+        fs::create_dir_all(&paths.webview2).unwrap();
+        let live_profile_file = paths.webview2.join("locked-session");
+        fs::write(&live_profile_file, b"live").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&live_profile_file)
+            .unwrap();
+
+        let checkpoint_directory =
+            role_cookie_checkpoint_directory(directory.path(), "role-a").unwrap();
+        write_private_file(
+            &checkpoint_directory,
+            ROLE_COOKIE_CHECKPOINT_FILE,
+            b"checkpoint",
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(checkpoint_directory.join(ROLE_COOKIE_CHECKPOINT_FILE)).unwrap(),
+            b"checkpoint"
+        );
+        drop(lock);
     }
 
     #[test]

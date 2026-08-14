@@ -29,6 +29,7 @@ describe("desktop E2E build isolation", () => {
     );
     expect(debug?.permissions).toEqual(expect.arrayContaining([
       "allow-desktop-e2e-input-diagnostics",
+      "allow-desktop-e2e-inject-duplicate-role-cookie-checkpoint",
       "allow-desktop-e2e-runtime-ui-action"
     ]));
   });

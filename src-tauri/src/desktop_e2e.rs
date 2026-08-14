@@ -324,6 +324,19 @@ pub(crate) fn desktop_e2e_window_snapshot(
 }
 
 #[tauri::command]
+pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
+    control: State<'_, Arc<DesktopE2eControl>>,
+    state: State<'_, crate::CoreState>,
+    token: String,
+    role_id: String,
+) -> Result<Value, String> {
+    control.authenticate(&token)?;
+    state
+        .runtime
+        .desktop_e2e_inject_duplicate_role_cookie_checkpoint(&role_id)
+}
+
+#[tauri::command]
 pub(crate) fn desktop_e2e_control_window(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,

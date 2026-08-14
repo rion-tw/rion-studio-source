@@ -979,7 +979,9 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       .toBeLessThan(roleSetup.indexOf("restore_role_cookie_checkpoint(webview, role_id)"));
     expect(sessionStorage).toContain("webview.cookies()");
     expect(sessionStorage).toContain("protect_session_transfer(");
+    expect(sessionStorage).toContain("role_browser_directory(user_data_dir, role_id)?.join(\"system\")");
     expect(sessionStorage).toContain("write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE");
+    expect(sessionStorage.match(/deduplicate_role_cookie_checkpoint_records\(/g)).toHaveLength(3);
     expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))
       .toBeLessThan(sessionStorage.indexOf("verify_cookie_readback(&cookies, &readback)"));
     expect(macLifecycle).not.toContain("addObserver:");

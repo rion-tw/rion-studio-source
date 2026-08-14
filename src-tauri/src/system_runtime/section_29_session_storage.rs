@@ -27,7 +27,7 @@ fn role_session_paths(user_data_dir: &Path, role_id: &str) -> RuntimeResult<Sess
 
 #[cfg(any(windows, test))]
 const ROLE_COOKIE_CHECKPOINT_VERSION: u32 = 1;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const ROLE_COOKIE_CHECKPOINT_FILE: &str = "cookie-checkpoint.enc";
 
 #[cfg(any(windows, test))]
@@ -38,7 +38,7 @@ struct PersistedRoleCookieCheckpoint {
 }
 
 #[cfg(any(windows, test))]
-fn role_cookie_checkpoint_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<PathBuf> {
+fn role_browser_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<PathBuf> {
     role_session_paths(user_data_dir, role_id)?
         .webview2
         .parent()
@@ -49,6 +49,37 @@ fn role_cookie_checkpoint_directory(user_data_dir: &Path, role_id: &str) -> Runt
                 "The role browser directory is unavailable.",
             )
         })
+}
+
+#[cfg(any(windows, test))]
+fn role_cookie_checkpoint_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<PathBuf> {
+    Ok(role_browser_directory(user_data_dir, role_id)?.join("system"))
+}
+
+#[cfg(any(windows, test))]
+fn read_role_cookie_checkpoint_blob(
+    user_data_dir: &Path,
+    role_id: &str,
+) -> RuntimeResult<Option<Vec<u8>>> {
+    let browser_directory = role_browser_directory(user_data_dir, role_id)?;
+    for path in [
+        browser_directory
+            .join("system")
+            .join(ROLE_COOKIE_CHECKPOINT_FILE),
+        browser_directory.join(ROLE_COOKIE_CHECKPOINT_FILE),
+    ] {
+        match fs::read(&path) {
+            Ok(protected) => return Ok(Some(protected)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(RuntimeError::new(
+                    "ROLE_COOKIE_CHECKPOINT_READ_FAILED",
+                    format!("The encrypted role cookie checkpoint is unavailable: {error}"),
+                ));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn checked_web_url(value: &str) -> RuntimeResult<Url> {
@@ -296,6 +327,32 @@ fn role_cookie_checkpoint_entry_is_live(
         .is_none_or(|expires_unix_ms| expires_unix_ms > now_unix_ms)
 }
 
+#[cfg(any(windows, test))]
+fn role_cookie_checkpoint_record_key(
+    record: &SessionCookieRecord,
+) -> (String, String, String) {
+    (
+        normalized_cookie_domain(record.domain.as_deref()),
+        record.path.clone(),
+        record.name.clone(),
+    )
+}
+
+#[cfg(any(windows, test))]
+fn deduplicate_role_cookie_checkpoint_records(
+    records: Vec<SessionCookieRecord>,
+) -> Vec<SessionCookieRecord> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::with_capacity(records.len());
+    for record in records.into_iter().rev() {
+        if seen.insert(role_cookie_checkpoint_record_key(&record)) {
+            unique.push(record);
+        }
+    }
+    unique.reverse();
+    unique
+}
+
 impl SystemRuntimeExecutor {
     #[cfg(windows)]
     fn persist_role_cookie_checkpoint(
@@ -310,11 +367,13 @@ impl SystemRuntimeExecutor {
                 format!("System WebView could not read the live role cookies: {error}"),
             )
         })?;
-        let records = cookies
-            .iter()
-            .map(native_cookie_record)
-            .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
-            .collect::<Vec<_>>();
+        let records = deduplicate_role_cookie_checkpoint_records(
+            cookies
+                .iter()
+                .map(native_cookie_record)
+                .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
+                .collect(),
+        );
         for record in &records {
             role_cookie_from_checkpoint(record)?;
         }
@@ -353,17 +412,8 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         role_id: &str,
     ) -> RuntimeResult<()> {
-        let path = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)?
-            .join(ROLE_COOKIE_CHECKPOINT_FILE);
-        let protected = match fs::read(&path) {
-            Ok(protected) => protected,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => {
-                return Err(RuntimeError::new(
-                    "ROLE_COOKIE_CHECKPOINT_READ_FAILED",
-                    format!("The encrypted role cookie checkpoint is unavailable: {error}"),
-                ));
-            }
+        let Some(protected) = read_role_cookie_checkpoint_blob(&self.user_data_dir, role_id)? else {
+            return Ok(());
         };
         let plaintext = rion_platform::unprotect_session_transfer(
             rion_platform::Platform::Windows,
@@ -383,10 +433,15 @@ impl SystemRuntimeExecutor {
             ));
         }
         let now_unix_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
-        let cookies = checkpoint
-            .cookies
+        let records = deduplicate_role_cookie_checkpoint_records(
+            checkpoint
+                .cookies
+                .into_iter()
+                .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
+                .collect(),
+        );
+        let cookies = records
             .iter()
-            .filter(|record| role_cookie_checkpoint_entry_is_live(record, now_unix_ms))
             .map(role_cookie_from_checkpoint)
             .collect::<RuntimeResult<Vec<_>>>()?;
         for cookie in &cookies {
@@ -421,16 +476,27 @@ impl SystemRuntimeExecutor {
 
     #[cfg(windows)]
     fn remove_role_cookie_checkpoint(&self, role_id: &str) -> RuntimeResult<()> {
-        let path = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)?
-            .join(ROLE_COOKIE_CHECKPOINT_FILE);
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(RuntimeError::new(
-                "ROLE_COOKIE_CHECKPOINT_CLEAR_FAILED",
-                format!("The encrypted role cookie checkpoint could not be removed: {error}"),
-            )),
+        let browser_directory = role_browser_directory(&self.user_data_dir, role_id)?;
+        for path in [
+            browser_directory
+                .join("system")
+                .join(ROLE_COOKIE_CHECKPOINT_FILE),
+            browser_directory.join(ROLE_COOKIE_CHECKPOINT_FILE),
+        ] {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(RuntimeError::new(
+                        "ROLE_COOKIE_CHECKPOINT_CLEAR_FAILED",
+                        format!(
+                            "The encrypted role cookie checkpoint could not be removed: {error}"
+                        ),
+                    ));
+                }
+            }
         }
+        Ok(())
     }
 
     #[cfg(not(windows))]

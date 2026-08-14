@@ -274,7 +274,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Seed distinct same-origin Cookie and LocalStorage markers in two native role stores, observe them after restart, then clear only role A through visible UI while role B remains intact."
+      "description": "Seed distinct same-origin Cookie and LocalStorage markers in two native role stores, inject a Windows checkpoint with two values for one WebView2-native cookie key, observe both roles after restart through visible UI, then clear only role A while role B remains intact."
     },
     {
       "id": "WORKSPACE-SHARED-ROLE-003",

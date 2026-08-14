@@ -9,6 +9,7 @@ import type {
 } from "../../../src/shared/types";
 import {
   detachTerminatedApplicationSession,
+  injectDuplicateRoleCookieCheckpoint,
   probe,
   rendererCall,
   requireEnvironment,
@@ -235,6 +236,12 @@ async function sessionSeedPhase(): Promise<void> {
   });
   await stopRole(roleA);
   await stopRole(roleB);
+  if (process.platform === "win32") {
+    expect(await injectDuplicateRoleCookieCheckpoint(roleA.id)).toMatchObject({
+      duplicateCount: 2,
+      roleId: roleA.id
+    });
+  }
 
   roleA = await editRoleUrl(
     roleA,

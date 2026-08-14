@@ -213,6 +213,24 @@ export async function windowSnapshot(windowId: string): Promise<DesktopE2eWindow
   return result as unknown as DesktopE2eWindowSnapshot;
 }
 
+export async function injectDuplicateRoleCookieCheckpoint(
+  roleId: string
+): Promise<{ duplicateCount: number; roleId: string; totalCookieCount: number }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id) => core.invoke(
+      "desktop_e2e_inject_duplicate_role_cookie_checkpoint",
+      { roleId: id, token }
+    ),
+    sessionToken(),
+    roleId
+  );
+  return result as unknown as {
+    duplicateCount: number;
+    roleId: string;
+    totalCookieCount: number;
+  };
+}
+
 export async function controlWindow(
   windowId: string,
   request: WindowControlRequest

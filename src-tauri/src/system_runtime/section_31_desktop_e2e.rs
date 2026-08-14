@@ -53,6 +53,75 @@ impl DesktopE2eWindowControlRequest {
 }
 
 impl SystemRuntimeExecutor {
+    #[cfg(windows)]
+    pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
+        &self,
+        role_id: &str,
+    ) -> Result<Value, String> {
+        let protected = read_role_cookie_checkpoint_blob(&self.user_data_dir, role_id)
+            .map_err(|error| error.message)?
+            .ok_or_else(|| "The role cookie checkpoint is unavailable.".to_owned())?;
+        let plaintext = rion_platform::unprotect_session_transfer(
+            rion_platform::Platform::Windows,
+            &protected,
+        )
+        .map_err(|error| error.to_string())?;
+        let mut checkpoint: PersistedRoleCookieCheckpoint =
+            serde_json::from_slice(&plaintext).map_err(|error| error.to_string())?;
+        if checkpoint.version != ROLE_COOKIE_CHECKPOINT_VERSION {
+            return Err("The role cookie checkpoint version is unsupported.".to_owned());
+        }
+        let (domain, path, secure) = checkpoint
+            .cookies
+            .iter()
+            .find(|record| record.name == "rion-e2e-session")
+            .map(|record| (record.domain.clone(), record.path.clone(), record.secure))
+            .ok_or_else(|| "The seeded role session cookie is unavailable.".to_owned())?;
+        let collision_name = "rion-e2e-checkpoint-collision";
+        checkpoint.cookies.retain(|record| {
+            record.name != collision_name
+                || normalized_cookie_domain(record.domain.as_deref())
+                    != normalized_cookie_domain(domain.as_deref())
+                || record.path != path
+        });
+        let expires_unix_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000 + 86_400_000;
+        for value in ["stale", "current"] {
+            checkpoint.cookies.push(SessionCookieRecord {
+                name: collision_name.to_owned(),
+                value: value.to_owned(),
+                domain: domain.clone(),
+                path: path.clone(),
+                secure,
+                http_only: false,
+                same_site: "strict".to_owned(),
+                expires_unix_ms: Some(expires_unix_ms),
+            });
+        }
+        let serialized = serde_json::to_vec(&checkpoint).map_err(|error| error.to_string())?;
+        let protected = rion_platform::protect_session_transfer(
+            rion_platform::Platform::Windows,
+            &serialized,
+        )
+        .map_err(|error| error.to_string())?;
+        let directory = role_cookie_checkpoint_directory(&self.user_data_dir, role_id)
+            .map_err(|error| error.message)?;
+        write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE, &protected)
+            .map_err(|error| error.message)?;
+        Ok(json!({
+            "duplicateCount": 2,
+            "roleId": role_id,
+            "totalCookieCount": checkpoint.cookies.len(),
+        }))
+    }
+
+    #[cfg(not(windows))]
+    pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
+        &self,
+        _role_id: &str,
+    ) -> Result<Value, String> {
+        Err("Duplicate role cookie checkpoints are a Windows-only fixture.".to_owned())
+    }
+
     pub(crate) fn desktop_e2e_window_snapshot(&self, window_id: &str) -> Result<Value, String> {
         let (window, target, generation, observation_sequence) = self
             .state

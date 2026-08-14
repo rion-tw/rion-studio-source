@@ -32,6 +32,7 @@
             "allow-desktop-e2e-probe",
             "allow-desktop-e2e-wait-event",
             "allow-desktop-e2e-window-snapshot",
+            "allow-desktop-e2e-inject-duplicate-role-cookie-checkpoint",
             "allow-desktop-e2e-control-window",
             "allow-desktop-e2e-runtime-ui-action",
             "allow-desktop-e2e-input-diagnostics",

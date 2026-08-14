@@ -180,9 +180,14 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     addEventListener("focus", () => record("focus"));
     addEventListener("blur", () => record("blur"));
     document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));
-    const cookieValue = () => document.cookie.split(";").map((value) => value.trim()).find((value) => value.startsWith(sessionKey + "="))?.slice(sessionKey.length + 1) ?? null;
+    const readSessionCookie = async () => {
+      const response = await fetch("/api/session-cookie", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Session cookie read failed with " + response.status);
+      const body = await response.json();
+      return typeof body.cookie === "string" ? body.cookie : null;
+    };
     const recordSession = async () => {
-      const before = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+      const before = { cookie: await readSessionCookie(), localStorage: localStorage.getItem(sessionKey) };
       if (sessionMode === "seed") {
         localStorage.setItem(sessionKey, sessionMarker);
         const response = await fetch("/api/session-cookie", {
@@ -193,10 +198,13 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         });
         if (!response.ok) throw new Error("Session cookie seed failed with " + response.status);
       }
-      const after = { cookie: cookieValue(), localStorage: localStorage.getItem(sessionKey) };
+      const after = {
+        cookie: sessionMode === "seed" ? await readSessionCookie() : before.cookie,
+        localStorage: localStorage.getItem(sessionKey)
+      };
       record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
     };
-    void recordSession();
+    addEventListener("load", () => void recordSession(), { once: true });
     record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden });
   </script>
 </body>
@@ -213,6 +221,21 @@ function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker =
     "x-content-type-options": "nosniff"
   });
   response.end(body);
+}
+
+function sessionCookie(request) {
+  const encoded = request.headers.cookie
+    ?.split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith("rion-e2e-session="))
+    ?.slice("rion-e2e-session=".length);
+  if (encoded === undefined) return null;
+  try {
+    const value = decodeURIComponent(encoded);
+    return /^[a-z0-9-]{1,80}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function gateState(roleId) {
@@ -440,6 +463,10 @@ const server = createServer(async (request, response) => {
         failedAttempts: failure.failedAttempts,
         roleId: body.roleId
       });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/session-cookie") {
+      json(response, 200, { cookie: sessionCookie(request) });
       return;
     }
     if (request.method === "POST" && url.pathname === "/api/session-cookie") {

@@ -923,6 +923,11 @@ async fn rion_core_invoke(
             code: "CORE_INPUT_INVALID".to_owned(),
             message: error.to_string(),
         })?;
+    #[cfg(feature = "desktop-e2e")]
+    let browser_role_stop_id = match &command {
+        CoreCommand::BrowserRoleStop { role_id } => Some(role_id.clone()),
+        _ => None,
+    };
     let runtime_launch = match &command {
         CoreCommand::BrowserRoleLaunch { role_id, .. } => {
             Some((role_id.clone(), false, "renderer-core-role-launch"))
@@ -976,6 +981,21 @@ async fn rion_core_invoke(
             })?
             .map_err(error_payload)
     };
+    #[cfg(feature = "desktop-e2e")]
+    if let Some(role_id) = browser_role_stop_id.as_deref() {
+        crate::desktop_e2e::record_event(
+            &format!("browser-role-stop-terminal:{role_id}"),
+            None,
+            None,
+            None,
+            json!({
+                "errorCode": result.as_ref().err().map(|error| error.code.as_str()),
+                "errorMessage": result.as_ref().err().map(|error| error.message.as_str()),
+                "ok": result.is_ok(),
+                "roleId": role_id,
+            }),
+        );
+    }
     if result
         .as_ref()
         .is_ok_and(|value| value.get("cancelled").and_then(Value::as_bool) == Some(true))

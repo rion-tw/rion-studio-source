@@ -53,10 +53,10 @@ describe("runtime authority fixture launch gates", () => {
     expect(source).toContain('const sessionMode = "seed"');
     expect(source).toContain('const sessionMarker = "marker-a"');
     expect(source).toContain('fetch("/api/session-cookie"');
-    expect(source).toContain('credentials: "same-origin"');
+    expect(source).toContain('addEventListener("load", () => void recordSession(), { once: true })');
   });
 
-  it("seeds persistent session cookies through an acknowledged HTTP response", async () => {
+  it("seeds and reads persistent session cookies through acknowledged HTTP responses", async () => {
     const { origin } = await startFixture();
     const response = await post(origin, "/api/session-cookie", { marker: "marker-a" });
 
@@ -64,6 +64,10 @@ describe("runtime authority fixture launch gates", () => {
     expect(response.headers.get("set-cookie")).toBe(
       "rion-e2e-session=marker-a; Path=/; Max-Age=86400; SameSite=Strict"
     );
+    const confirmation = await fetch(`${origin}/api/session-cookie`, {
+      headers: { cookie: "rion-e2e-session=marker-a" }
+    });
+    expect(await confirmation.json()).toEqual({ cookie: "marker-a" });
   });
 
   it("assigns monotonic event sequences and resolves filtered event waits", async () => {

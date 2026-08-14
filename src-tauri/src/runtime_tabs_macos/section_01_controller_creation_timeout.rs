@@ -34,6 +34,14 @@ where
         .map_err(|_| "The AppKit tracking-loop mutation did not complete in time.".to_owned())
 }
 
+fn submit_on_appkit_tracking_main(task: impl FnOnce() + Send + 'static) {
+    if unsafe { rion_runtime_tabs_is_main_thread() } {
+        task();
+    } else {
+        DispatchQueue::main().exec_async(task);
+    }
+}
+
 pub(crate) fn request_window_hide(window: Window) {
     let label = window.label().to_owned();
     let app = window.app_handle().clone();
@@ -543,7 +551,7 @@ impl MacRuntimeTabsController {
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
         let window_id = c_string(window_id);
-        run_on_appkit_tracking_main(move || unsafe {
+        submit_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_ensure(
                 inner.raw,
                 tab_id.as_ptr(),
@@ -554,7 +562,8 @@ impl MacRuntimeTabsController {
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
                 window_id.as_ptr(),
             );
-        })
+        });
+        Ok(())
     }
 
     pub fn reserve(
@@ -606,7 +615,7 @@ impl MacRuntimeTabsController {
         let inner = Arc::clone(&self.inner);
         let tab_id = c_string(tab_id);
         let active_tab_id = active_tab_id.map(c_string);
-        run_on_appkit_tracking_main(move || unsafe {
+        submit_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_remove(
                 inner.raw,
                 tab_id.as_ptr(),
@@ -614,7 +623,8 @@ impl MacRuntimeTabsController {
                     .as_ref()
                     .map_or(std::ptr::null(), |value| value.as_ptr()),
             );
-        })
+        });
+        Ok(())
     }
 
     pub fn reorder(&self, tab_ids: &[String]) -> Result<(), String> {
@@ -622,9 +632,10 @@ impl MacRuntimeTabsController {
         let tab_ids = serde_json::to_string(tab_ids)
             .map(|value| c_string(&value))
             .map_err(|error| error.to_string())?;
-        run_on_appkit_tracking_main(move || unsafe {
+        submit_on_appkit_tracking_main(move || unsafe {
             rion_runtime_tabs_reorder(inner.raw, tab_ids.as_ptr());
-        })
+        });
+        Ok(())
     }
 
     pub(crate) fn reorder_fenced(

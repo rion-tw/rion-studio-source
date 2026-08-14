@@ -1,4 +1,4 @@
-import { $, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 
 import type {
   EmbeddedRuntimeState,
@@ -109,8 +109,22 @@ async function launchVisibleRole(role: Role, fixtureId: string): Promise<Fixture
 }
 
 async function stopRole(role: Role): Promise<void> {
+  const control = await probe();
   const cursor = await rendererEventCursor();
-  await rendererCall("stopRole", role.id);
+  await browser.execute((roleId) => {
+    void window.rionStudio.stopRole(roleId).catch(() => undefined);
+  }, role.id);
+  const terminal = process.platform === "darwin"
+    ? await waitForTranscriptEvent(
+        control.transcriptPath,
+        (event) => event.kind === `browser-role-stop-terminal:${role.id}`
+          && event.sequence > control.latestSequence
+      )
+    : await waitEvent({
+        afterSequence: control.latestSequence,
+        kind: `browser-role-stop-terminal:${role.id}`
+      });
+  expect(terminal.details).toMatchObject({ errorCode: null, ok: true, roleId: role.id });
   await waitForRoleProjection({ afterSequence: cursor, absent: true, roleId: role.id });
 }
 

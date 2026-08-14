@@ -142,11 +142,10 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
-    // WebView2 controllers live under Wry child-host HWNDs. The outer Game
-    // Window can resize without Wry resizing those hosts, so first fill every
-    // distinct host with the participating client extent, then place each
-    // controller relative to it. A host can be shared by multiple controllers,
-    // and moving it once per surface gives it contradictory rects.
+    // WebView2 controllers live under Wry child-host HWNDs. Wry normally gives
+    // every child WebView its own host, but keep shared hosts supported by
+    // grouping surfaces by their actual parent HWND. Each host occupies only
+    // its group's union and each controller is positioned in host-local space.
     windows_live_resize_submit_ordered(
         surfaces,
         bounds,
@@ -185,9 +184,11 @@ pub(in crate::system_runtime) fn windows_live_resize_controller_rect(
     }
 }
 
-pub(in crate::system_runtime) fn windows_live_resize_host_bounds(
+pub(in crate::system_runtime) fn windows_live_resize_union_bounds(
     bounds: &[WindowsLiveResizeBounds],
 ) -> Option<WindowsLiveResizeBounds> {
+    let left = bounds.iter().map(|bounds| bounds.x).min()?;
+    let top = bounds.iter().map(|bounds| bounds.y).min()?;
     let right = bounds
         .iter()
         .map(|bounds| bounds.x.saturating_add(bounds.width))
@@ -196,12 +197,24 @@ pub(in crate::system_runtime) fn windows_live_resize_host_bounds(
         .iter()
         .map(|bounds| bounds.y.saturating_add(bounds.height))
         .max()?;
-    (right > 0 && bottom > 0).then_some(WindowsLiveResizeBounds {
-        height: bottom,
-        width: right,
-        x: 0,
-        y: 0,
+    (right > left && bottom > top).then_some(WindowsLiveResizeBounds {
+        height: bottom.saturating_sub(top),
+        width: right.saturating_sub(left),
+        x: left,
+        y: top,
     })
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_local_bounds(
+    bounds: &WindowsLiveResizeBounds,
+    host_bounds: &WindowsLiveResizeBounds,
+) -> WindowsLiveResizeBounds {
+    WindowsLiveResizeBounds {
+        height: bounds.height,
+        width: bounds.width,
+        x: bounds.x.saturating_sub(host_bounds.x),
+        y: bounds.y.saturating_sub(host_bounds.y),
+    }
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_window_pos_flags(
@@ -227,21 +240,35 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     if surfaces.len() != bounds.len() || surfaces.is_empty() {
         return Err(());
     }
-    let host_bounds = windows_live_resize_host_bounds(bounds).ok_or(())?;
-    let mut submitted_parents = Vec::new();
-    let mut failed = false;
-    for surface in surfaces {
+    let mut parent_groups = Vec::new();
+    for (index, (surface, surface_bounds)) in surfaces.iter().zip(bounds).enumerate() {
         let key = parent_key(surface);
-        if submitted_parents.contains(&key) {
-            continue;
+        if let Some((_, _, host_bounds)) = parent_groups
+            .iter_mut()
+            .find(|(candidate, _, _)| *candidate == key)
+        {
+            *host_bounds = windows_live_resize_union_bounds(&[*host_bounds, *surface_bounds])
+                .ok_or(())?;
+        } else {
+            parent_groups.push((key, index, *surface_bounds));
         }
-        submitted_parents.push(key);
-        if submit_parent_bounds(surface, &host_bounds).is_err() {
+    }
+
+    let mut failed = false;
+    for (_, representative_index, host_bounds) in &parent_groups {
+        let surface = &surfaces[*representative_index];
+        if submit_parent_bounds(surface, host_bounds).is_err() {
             failed = true;
         }
     }
     for (surface, bounds) in surfaces.iter().zip(bounds) {
-        if submit_controller_bounds(surface, bounds).is_err() {
+        let key = parent_key(surface);
+        let host_bounds = parent_groups
+            .iter()
+            .find_map(|(candidate, _, bounds)| (*candidate == key).then_some(bounds))
+            .ok_or(())?;
+        let local_bounds = windows_live_resize_local_bounds(bounds, host_bounds);
+        if submit_controller_bounds(surface, &local_bounds).is_err() {
             failed = true;
         }
     }

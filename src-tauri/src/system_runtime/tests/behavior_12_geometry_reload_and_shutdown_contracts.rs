@@ -628,7 +628,7 @@ fn live_resize_counters_keep_resize_and_parent_position_events_distinct() {
 fn live_resize_updates_shared_child_host_once_then_complete_controller_rects() {
     let surfaces = [("tabs", 7_usize), ("left", 7_usize), ("right", 7_usize)];
     let events = RefCell::new(Vec::new());
-    let controller_heights = RefCell::new(HashMap::new());
+    let controller_bounds = RefCell::new(HashMap::new());
     let submit = |height| {
         let bounds = [
             WindowsLiveResizeBounds {
@@ -664,9 +664,9 @@ fn live_resize_updates_shared_child_host_once_then_complete_controller_rects() {
                 events
                     .borrow_mut()
                     .push(format!("controller:{}", surface.0));
-                controller_heights
+                controller_bounds
                     .borrow_mut()
-                    .insert(surface.0, bounds.height);
+                    .insert(surface.0, *bounds);
                 Ok(())
             },
         )
@@ -674,8 +674,24 @@ fn live_resize_updates_shared_child_host_once_then_complete_controller_rects() {
 
     submit(320).unwrap();
     submit(900).unwrap();
-    assert_eq!(controller_heights.borrow().get("left"), Some(&856));
-    assert_eq!(controller_heights.borrow().get("right"), Some(&856));
+    assert_eq!(
+        controller_bounds.borrow().get("left"),
+        Some(&WindowsLiveResizeBounds {
+            height: 856,
+            width: 600,
+            x: 0,
+            y: 44,
+        })
+    );
+    assert_eq!(
+        controller_bounds.borrow().get("right"),
+        Some(&WindowsLiveResizeBounds {
+            height: 856,
+            width: 600,
+            x: 600,
+            y: 44,
+        })
+    );
     assert_eq!(
         events.into_inner(),
         [
@@ -687,6 +703,115 @@ fn live_resize_updates_shared_child_host_once_then_complete_controller_rects() {
             "controller:tabs",
             "controller:left",
             "controller:right",
+        ]
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_keeps_independent_wry_hosts_inside_their_own_surfaces() {
+    let surfaces = [
+        ("tabs", 1_usize),
+        ("left", 2_usize),
+        ("right", 3_usize),
+        ("divider", 4_usize),
+    ];
+    let bounds = [
+        WindowsLiveResizeBounds {
+            height: 44,
+            width: 1_200,
+            x: 0,
+            y: 0,
+        },
+        WindowsLiveResizeBounds {
+            height: 856,
+            width: 600,
+            x: 0,
+            y: 44,
+        },
+        WindowsLiveResizeBounds {
+            height: 856,
+            width: 600,
+            x: 600,
+            y: 44,
+        },
+        WindowsLiveResizeBounds {
+            height: 856,
+            width: 10,
+            x: 595,
+            y: 44,
+        },
+    ];
+    let hosts = RefCell::new(Vec::new());
+    let controllers = RefCell::new(Vec::new());
+
+    windows_live_resize_submit_ordered(
+        &surfaces,
+        &bounds,
+        |surface| surface.1,
+        |surface, bounds| {
+            hosts.borrow_mut().push((surface.0, *bounds));
+            Ok(())
+        },
+        |surface, bounds| {
+            controllers.borrow_mut().push((surface.0, *bounds));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(hosts.into_inner(), surfaces.map(|surface| surface.0).into_iter().zip(bounds).collect::<Vec<_>>());
+    assert_eq!(
+        controllers.into_inner(),
+        [
+            ("tabs", WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 }),
+            ("left", WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 0 }),
+            ("right", WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 0 }),
+            ("divider", WindowsLiveResizeBounds { height: 856, width: 10, x: 0, y: 0 }),
+        ]
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_uses_per_parent_unions_for_mixed_host_topologies() {
+    let surfaces = [("tabs", 1_usize), ("left", 2_usize), ("right", 2_usize)];
+    let bounds = [
+        WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 },
+        WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 44 },
+        WindowsLiveResizeBounds { height: 856, width: 600, x: 600, y: 44 },
+    ];
+    let hosts = RefCell::new(Vec::new());
+    let controllers = RefCell::new(Vec::new());
+
+    windows_live_resize_submit_ordered(
+        &surfaces,
+        &bounds,
+        |surface| surface.1,
+        |surface, bounds| {
+            hosts.borrow_mut().push((surface.1, *bounds));
+            Ok(())
+        },
+        |surface, bounds| {
+            controllers.borrow_mut().push((surface.0, *bounds));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        hosts.into_inner(),
+        [
+            (1, WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 }),
+            (2, WindowsLiveResizeBounds { height: 856, width: 1_200, x: 0, y: 44 }),
+        ]
+    );
+    assert_eq!(
+        controllers.into_inner(),
+        [
+            ("tabs", WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 }),
+            ("left", WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 0 }),
+            ("right", WindowsLiveResizeBounds { height: 856, width: 600, x: 600, y: 0 }),
         ]
     );
 }
@@ -727,7 +852,7 @@ fn live_resize_batch_failure_stops_the_native_frame_and_enables_fallback() {
 
 #[cfg(windows)]
 #[test]
-fn live_resize_controller_rect_keeps_surface_offsets_in_the_shared_parent() {
+fn live_resize_controller_rect_keeps_parent_local_surface_offsets() {
     let rect = windows_live_resize_controller_rect(&WindowsLiveResizeBounds {
         height: 900,
         width: 600,

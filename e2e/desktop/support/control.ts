@@ -84,7 +84,10 @@ interface WindowPlacement {
 }
 
 export type WindowControlRequest =
-  | { action: "close" | "minimize" }
+  | {
+      action: "clickVisibleClose" | "close" | "minimize" | "permitCloseConfirmation";
+    }
+  | { action: "dragVisibleChrome"; deltaX: number; deltaY: number }
   | {
       action: "moveResize";
       height: number;

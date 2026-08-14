@@ -67,13 +67,15 @@ export function expectTabStripFitsClient(snapshot: DesktopE2eWindowSnapshot): vo
   expect(hostBounds.y).toBeGreaterThanOrEqual(-LOGICAL_PIXEL_TOLERANCE);
   expect(hostBounds.y).toBeLessThanOrEqual(LOGICAL_PIXEL_TOLERANCE);
   expect(hostBounds.width).toBeGreaterThanOrEqual(
-    snapshot.native.clientBounds.width - LOGICAL_PIXEL_TOLERANCE
+    bounds.width - LOGICAL_PIXEL_TOLERANCE
   );
   expect(hostBounds.width).toBeLessThanOrEqual(
-    snapshot.native.clientBounds.width + LOGICAL_PIXEL_TOLERANCE
+    bounds.width + LOGICAL_PIXEL_TOLERANCE
   );
   expect(hostBounds.height).toBeGreaterThanOrEqual(
-    bounds.y + bounds.height - LOGICAL_PIXEL_TOLERANCE
+    bounds.height - LOGICAL_PIXEL_TOLERANCE
   );
-  expect(hostBounds.height).toBeLessThanOrEqual(snapshot.native.clientBounds.height);
+  expect(hostBounds.height).toBeLessThanOrEqual(
+    bounds.height + LOGICAL_PIXEL_TOLERANCE
+  );
 }

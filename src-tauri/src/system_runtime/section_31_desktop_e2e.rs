@@ -5,8 +5,14 @@
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum DesktopE2eWindowControlRequest {
+    ClickVisibleClose,
     Close,
+    DragVisibleChrome {
+        delta_x: i32,
+        delta_y: i32,
+    },
     Minimize,
+    PermitCloseConfirmation,
     MoveResize {
         height: i32,
         scale_factor: Option<f64>,
@@ -141,6 +147,20 @@ impl SystemRuntimeExecutor {
             .map(|host| (host.window.clone(), host.generation))
             .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
         let action = desktop_e2e_window_control_name(&request);
+        if matches!(
+            request,
+            DesktopE2eWindowControlRequest::PermitCloseConfirmation
+        ) {
+            crate::desktop_e2e::permit_close_confirmation_once(window.label());
+            crate::desktop_e2e::record_event(
+                "close-confirmation-permitted",
+                Some(window_id),
+                Some(generation),
+                None,
+                json!({ "action": action }),
+            );
+            return self.desktop_e2e_window_snapshot(window_id);
+        }
         if matches!(request, DesktopE2eWindowControlRequest::Close) {
             crate::desktop_e2e::permit_close_confirmation_once(window.label());
         }
@@ -152,7 +172,11 @@ impl SystemRuntimeExecutor {
             None,
             json!({ "action": action }),
         );
-        if matches!(request, DesktopE2eWindowControlRequest::Close) {
+        if matches!(
+            request,
+            DesktopE2eWindowControlRequest::Close
+                | DesktopE2eWindowControlRequest::ClickVisibleClose
+        ) {
             Ok(json!({
                 "action": action,
                 "submitted": true,
@@ -215,8 +239,11 @@ fn desktop_e2e_windows_tab_strip_geometry(tab_strip: &Webview) -> Result<(Value,
 
 fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> &'static str {
     match request {
+        DesktopE2eWindowControlRequest::ClickVisibleClose => "clickVisibleClose",
         DesktopE2eWindowControlRequest::Close => "close",
+        DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => "dragVisibleChrome",
         DesktopE2eWindowControlRequest::Minimize => "minimize",
+        DesktopE2eWindowControlRequest::PermitCloseConfirmation => "permitCloseConfirmation",
         DesktopE2eWindowControlRequest::MoveResize { .. } => "moveResize",
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
             "fullscreen" => "fullscreen",
@@ -259,6 +286,9 @@ fn desktop_e2e_apply_native_window_control(
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
+        DesktopE2eWindowControlRequest::ClickVisibleClose => {
+            desktop_e2e_windows_visible_chrome_pointer(window, None)
+        }
         DesktopE2eWindowControlRequest::Close => unsafe {
             // Exercise the same asynchronous Win32 close request as the native
             // title-bar button. Tauri's Window::close queues another runtime
@@ -275,6 +305,10 @@ fn desktop_e2e_apply_native_window_control(
         DesktopE2eWindowControlRequest::Minimize => {
             request_platform_window_minimize(window)
         }
+        DesktopE2eWindowControlRequest::DragVisibleChrome { delta_x, delta_y } => {
+            desktop_e2e_windows_visible_chrome_pointer(window, Some((*delta_x, *delta_y)))
+        }
+        DesktopE2eWindowControlRequest::PermitCloseConfirmation => Ok(()),
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
             "normal" => {
                 request_platform_window_set_fullscreen(window, false)?;
@@ -350,12 +384,132 @@ fn desktop_e2e_apply_native_window_control(
     }
 }
 
+#[cfg(windows)]
+fn desktop_e2e_windows_visible_chrome_pointer(
+    window: &Window,
+    drag_delta: Option<(i32, i32)>,
+) -> Result<(), String> {
+    // A Game Window is a native Window with child WebViews, so Tauri WebDriver
+    // cannot select it as a WebviewWindow handle. Keep the E2E action at the
+    // real Win32 pointer boundary so overlapping child HWNDs fail hit testing.
+    use windows::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::Gdi::ClientToScreen,
+        UI::{
+            HiDpi::GetDpiForWindow,
+            Input::KeyboardAndMouse::{
+                SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE,
+                MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
+                MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MOUSE_EVENT_FLAGS,
+            },
+            WindowsAndMessaging::{
+                GetClientRect, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+                IsChild, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WindowFromPoint,
+            },
+        },
+    };
+
+    window.set_focus().map_err(|error| error.to_string())?;
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    let mut client = RECT::default();
+    let mut origin = POINT::default();
+    unsafe {
+        GetClientRect(hwnd, &mut client).map_err(|error| error.to_string())?;
+        ClientToScreen(hwnd, &mut origin)
+            .ok()
+            .map_err(|error| error.to_string())?;
+    }
+    let scale = f64::from(unsafe { GetDpiForWindow(hwnd) }.max(96)) / 96.0;
+    let client_width = client.right.saturating_sub(client.left);
+    let client_height = client.bottom.saturating_sub(client.top);
+    let logical = |value: f64| (value * scale).round() as i32;
+    let start = if drag_delta.is_some() {
+        // The flexible #window-drag-region ends immediately before the three
+        // 46px window controls and has a 12px minimum width. Aim at its center.
+        POINT {
+            x: origin.x + client_width - logical(150.0),
+            y: origin.y + logical(20.0).min(client_height.saturating_sub(1)),
+        }
+    } else {
+        // The visible close control is 46px wide and 40px high.
+        POINT {
+            x: origin.x + client_width - logical(23.0),
+            y: origin.y + logical(20.0).min(client_height.saturating_sub(1)),
+        }
+    };
+    let hit_window = unsafe { WindowFromPoint(start) };
+    if hit_window != hwnd && !unsafe { IsChild(hwnd, hit_window) }.as_bool() {
+        return Err("The visible Game Window pointer target is obscured.".to_owned());
+    }
+    let virtual_x = unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) };
+    let virtual_y = unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) };
+    let virtual_width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) }.max(2);
+    let virtual_height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) }.max(2);
+    let absolute = |point: POINT, flags: MOUSE_EVENT_FLAGS| INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: point
+                    .x
+                    .saturating_sub(virtual_x)
+                    .saturating_mul(65_535)
+                    / virtual_width.saturating_sub(1),
+                dy: point
+                    .y
+                    .saturating_sub(virtual_y)
+                    .saturating_mul(65_535)
+                    / virtual_height.saturating_sub(1),
+                dwFlags: flags
+                    | MOUSEEVENTF_MOVE
+                    | MOUSEEVENTF_ABSOLUTE
+                    | MOUSEEVENTF_VIRTUALDESK,
+                ..Default::default()
+            },
+        },
+    };
+    let button = |flags: MOUSE_EVENT_FLAGS| INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dwFlags: flags,
+                ..Default::default()
+            },
+        },
+    };
+    let mut inputs = vec![absolute(start, Default::default()), button(MOUSEEVENTF_LEFTDOWN)];
+    if let Some((delta_x, delta_y)) = drag_delta {
+        for step in 1..=4 {
+            inputs.push(absolute(
+                POINT {
+                    x: start.x + logical(f64::from(delta_x)) * step / 4,
+                    y: start.y + logical(f64::from(delta_y)) * step / 4,
+                },
+                Default::default(),
+            ));
+        }
+    }
+    inputs.push(button(MOUSEEVENTF_LEFTUP));
+    let submitted = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    (submitted == inputs.len() as u32)
+        .then_some(())
+        .ok_or_else(|| {
+            format!(
+                "Windows accepted {submitted}/{} desktop E2E pointer inputs.",
+                inputs.len()
+            )
+        })
+}
+
 #[cfg(target_os = "macos")]
 fn desktop_e2e_apply_native_window_control(
     window: &Window,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
     let action = match request {
+        DesktopE2eWindowControlRequest::ClickVisibleClose
+        | DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => {
+            return Err("Visible chrome pointer controls are Windows-only.".to_owned());
+        }
         DesktopE2eWindowControlRequest::MoveResize { .. } => 0,
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
             "normal" => 1,
@@ -364,6 +518,7 @@ fn desktop_e2e_apply_native_window_control(
             _ => return Err("presentation must be normal, maximized, or fullscreen".to_owned()),
         },
         DesktopE2eWindowControlRequest::Minimize => 3,
+        DesktopE2eWindowControlRequest::PermitCloseConfirmation => return Ok(()),
         DesktopE2eWindowControlRequest::Close => 5,
     };
     let (x, y, width, height) = match request {

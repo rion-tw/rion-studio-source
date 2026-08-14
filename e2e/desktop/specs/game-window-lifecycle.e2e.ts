@@ -213,6 +213,54 @@ async function waitForFixtureNavigation(roleId: string): Promise<void> {
   expect(evidence.waiterCount).toBeGreaterThan(0);
 }
 
+async function dragVisibleGameWindow(
+  snapshot: DesktopE2eWindowSnapshot
+): Promise<DesktopE2eWindowSnapshot> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, {
+    action: "dragVisibleChrome",
+    deltaX: 56,
+    deltaY: 36
+  });
+  await waitEvent({
+    afterSequence: cursor,
+    kind: "placement-accepted",
+    minimumGeneration: snapshot.windowGeneration,
+    timeoutMs: 45_000,
+    windowId: snapshot.windowId
+  });
+  const moved = await windowSnapshot(snapshot.windowId);
+  const distance = Math.abs(
+    (moved.native.outerBounds.x ?? 0) - (snapshot.native.outerBounds.x ?? 0)
+  ) + Math.abs(
+    (moved.native.outerBounds.y ?? 0) - (snapshot.native.outerBounds.y ?? 0)
+  );
+  expect(distance).toBeGreaterThan(10);
+  return moved;
+}
+
+async function closeVisibleGameWindow(
+  snapshot: DesktopE2eWindowSnapshot
+): Promise<void> {
+  await controlWindow(snapshot.windowId, { action: "permitCloseConfirmation" });
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, { action: "clickVisibleClose" });
+  await Promise.all([
+    waitEvent({
+      afterSequence: cursor,
+      kind: "runtime-window-close-admitted",
+      minimumGeneration: snapshot.windowGeneration,
+      windowId: snapshot.windowId
+    }),
+    waitEvent({
+      afterSequence: cursor,
+      kind: "window-destroyed",
+      minimumGeneration: snapshot.windowGeneration,
+      windowId: snapshot.windowId
+    })
+  ]);
+}
+
 async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   await createWindow(WINDOW_C, "E2E Three Tabs", state);
   const game = await rendererCall("createGame", {
@@ -273,9 +321,46 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     expect(live.kernel?.tabs.filter((tab) => tab.tabId !== activeTabId)
       .every((tab) => tab.launchPhase === null)).toBe(true);
   }
-  await closeAndWait(live);
+  let releasedFixtureId: string | undefined;
+  if (process.platform === "win32") {
+    const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
+    const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
+    if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
+    releasedFixtureId = `e2e-${roleNames[activeRoleIndex]}`;
+    live = await dragVisibleGameWindow(live);
+    expect(live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.launchPhase)
+      .toBe("navigating");
+
+    const readyCursor = (await probe()).latestSequence;
+    const fixtureAfter = await fixtureCursor();
+    await fixtureRequest("/api/release", { roleId: releasedFixtureId });
+    await Promise.all([
+      waitEvent({
+        afterSequence: readyCursor,
+        kind: `tab-launch-phase:${activeTabId}:ready`,
+        minimumGeneration: live.windowGeneration,
+        timeoutMs: 55_000,
+        windowId: WINDOW_C
+      }),
+      waitFixtureEvent({
+        afterSequence: fixtureAfter,
+        kind: "visibility",
+        roleId: releasedFixtureId
+      })
+    ]);
+    live = await windowSnapshot(WINDOW_C);
+    expectTabStripFitsClient(live);
+    live = await dragVisibleGameWindow(live);
+    expectTabStripFitsClient(live);
+    await closeVisibleGameWindow(live);
+  } else {
+    await closeAndWait(live);
+  }
   for (const roleName of roleNames) {
-    await fixtureRequest("/api/release", { roleId: `e2e-${roleName}` });
+    const fixtureId = `e2e-${roleName}`;
+    if (fixtureId !== releasedFixtureId) {
+      await fixtureRequest("/api/release", { roleId: fixtureId });
+    }
   }
 }
 

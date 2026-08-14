@@ -314,7 +314,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Fence native placement, presentation, tab/control geometry across resize and maximize, persistence, clean restart, and forced termination by generation and revision."
+      "description": "Fence native placement, presentation, tab/control geometry across resize and maximize, verify visible Game Window chrome remains draggable and closable after role content becomes ready, and preserve persistence, clean restart, and forced termination by generation and revision."
     },
     {
       "id": "APP-FULL-CRUD-001",

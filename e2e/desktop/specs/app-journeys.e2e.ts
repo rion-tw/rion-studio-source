@@ -65,6 +65,25 @@ async function waitForRoleStatus(roleId: string, predicate: (status: RoleStatus 
   return matching;
 }
 
+async function waitForSelectedRuntimeTabReady(windowId: string): Promise<void> {
+  const cursor = (await probe()).latestSequence;
+  let snapshot = await windowSnapshot(windowId);
+  const selectedTabId = snapshot.kernel?.selectedTabId;
+  if (!selectedTabId) throw new Error("Restored Game Window has no selected runtime tab");
+  if (snapshot.kernel?.tabs.find((tab) => tab.tabId === selectedTabId)?.launchPhase === "ready") {
+    return;
+  }
+  await waitEvent({
+    afterSequence: cursor,
+    kind: `tab-launch-phase:${selectedTabId}:ready`,
+    timeoutMs: 55_000,
+    windowId
+  });
+  snapshot = await windowSnapshot(windowId);
+  expect(snapshot.kernel?.tabs.find((tab) => tab.tabId === selectedTabId)?.launchPhase)
+    .toBe("ready");
+}
+
 async function shutdownAndWaitForFlush(): Promise<void> {
   const control = await probe();
   const requestedAfter = new Date().toISOString();
@@ -369,6 +388,7 @@ async function restartPhase(): Promise<void> {
       windowId: smokeWindow.id
     });
   }
+  await waitForSelectedRuntimeTabReady(smokeWindow.id);
   const cursor = (await probe()).latestSequence;
   await clickEntityMenuAction(smokeWindow.id, "Game window actions", "Delete window");
   await clickConfirmation("Delete");

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { browser } from "@wdio/globals";
+import { primaryAppWindowHandle } from "./support/window-target";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -84,6 +85,8 @@ export const config = {
   },
   before: async (): Promise<void> => {
     await browser.setTimeout({ script: 55_000 });
+    const handles = await browser.getWindowHandles();
+    await browser.switchToWindow(primaryAppWindowHandle(handles));
   },
   afterTest: async (
     test: { title: string },

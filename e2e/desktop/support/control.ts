@@ -107,6 +107,10 @@ interface RendererCallResult {
   value?: unknown;
 }
 
+interface DesktopE2eTauriCore {
+  invoke(command: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
 function sessionToken(): string {
   const token = process.env.RION_STUDIO_E2E_SESSION_TOKEN;
   if (!token) throw new Error("RION_STUDIO_E2E_SESSION_TOKEN is unavailable");
@@ -163,15 +167,35 @@ export async function waitEvent(input: {
   windowId?: string;
 }): Promise<DesktopE2eEvent> {
   const request = { timeoutMs: 30_000, ...input };
-  const result = await browser.tauri.execute(
-    ({ core }, token, waitRequest) => core.invoke("desktop_e2e_wait_event", {
-      request: waitRequest,
-      token
-    }),
+  const result = await browser.executeAsync(
+    (
+      token: string,
+      waitRequest: typeof request,
+      done: (result: RendererCallResult) => void
+    ) => {
+      const core = (window as typeof window & {
+        __wdio_original_core__?: DesktopE2eTauriCore;
+      }).__wdio_original_core__;
+      if (!core?.invoke) {
+        done({ error: "Desktop E2E Tauri invoke bridge is unavailable", ok: false });
+        return;
+      }
+      void core.invoke("desktop_e2e_wait_event", {
+        request: waitRequest,
+        token
+      }).then(
+        (value: unknown) => done({ ok: true, value }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    },
     sessionToken(),
     request
-  );
-  return result as unknown as DesktopE2eEvent;
+  ) as RendererCallResult;
+  if (!result.ok) throw new Error(result.error ?? "Desktop E2E event wait failed");
+  return result.value as DesktopE2eEvent;
 }
 
 export async function windowSnapshot(windowId: string): Promise<DesktopE2eWindowSnapshot> {

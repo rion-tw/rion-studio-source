@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  execute: vi.fn()
+  execute: vi.fn(),
+  executeAsync: vi.fn()
 }));
 
 vi.mock("@wdio/globals", () => ({
   browser: {
+    executeAsync: mocks.executeAsync,
     tauri: { execute: mocks.execute }
   }
 }));
@@ -37,13 +39,14 @@ describe("desktop E2E native window controls", () => {
     };
     mocks.execute
       .mockResolvedValueOnce({ latestSequence: 10 })
-      .mockResolvedValueOnce({ submitted: true })
-      .mockResolvedValueOnce(destroyed);
+      .mockResolvedValueOnce({ submitted: true });
+    mocks.executeAsync.mockResolvedValueOnce({ ok: true, value: destroyed });
 
     await expect(closeWindowAndWait(snapshot)).resolves.toEqual(destroyed);
 
-    expect(mocks.execute).toHaveBeenCalledTimes(3);
-    expect(mocks.execute.mock.calls[2]?.[2]).toEqual({
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+    expect(mocks.executeAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.executeAsync.mock.calls[0]?.[2]).toEqual({
       afterSequence: 10,
       kind: "window-destroyed",
       minimumGeneration: 3,

@@ -235,12 +235,27 @@ impl SystemRuntimeExecutor {
             crate::desktop_e2e::permit_close_confirmation_once(window.label());
         }
         desktop_e2e_apply_native_window_control(&window, &request)?;
+        let native_readback = (!matches!(
+            request,
+            DesktopE2eWindowControlRequest::Close
+                | DesktopE2eWindowControlRequest::ClickVisibleClose
+        ))
+        .then(|| desktop_e2e_native_window_snapshot(&window).ok())
+        .flatten();
         crate::desktop_e2e::record_event(
             "native-control-submitted",
             Some(window_id),
             Some(generation),
             None,
-            json!({ "action": action }),
+            json!({
+                "action": action,
+                "nativePresentation": native_readback
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.get("presentation")),
+                "nativeShowCommand": native_readback
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.get("showCommand")),
+            }),
         );
         if matches!(request, DesktopE2eWindowControlRequest::Focus) {
             crate::desktop_e2e::record_event(

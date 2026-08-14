@@ -303,6 +303,19 @@ impl TabChromeProjectionCoordinator {
             .and_then(|state| state.renderers.get(window_id).cloned())
     }
 
+    fn retire_renderer(&self, window_id: &str, window_generation: u64) {
+        if let Ok(mut state) = self.state.lock()
+            && state.renderers.get(window_id).is_some_and(|renderer| {
+                renderer.window_generation == window_generation
+            })
+        {
+            state.renderers.remove(window_id);
+            state.deliveries.remove(window_id);
+            state.semantic.remove(window_id);
+            self.changed.notify_all();
+        }
+    }
+
     fn resolve_projection(
         &self,
         mut projection: RuntimeTabChromeProjectionRecord,

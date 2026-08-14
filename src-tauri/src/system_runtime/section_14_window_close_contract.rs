@@ -586,7 +586,13 @@ impl SystemRuntimeExecutor {
     }
 
     pub(crate) fn complete_window_destroyed(&self, label: &str) {
-        let (mut transaction, focus_identity, destroyed_window_id, retired_identity) = self
+        let (
+            mut transaction,
+            focus_identity,
+            destroyed_window_id,
+            retired_identity,
+            live_tab_chrome_identity,
+        ) = self
             .state
             .lock()
             .ok()
@@ -600,6 +606,18 @@ impl SystemRuntimeExecutor {
                     (host.window.label() == label)
                         .then(|| (window_id.clone(), host.generation))
                 });
+                #[cfg(windows)]
+                let live_tab_chrome_identity = state
+                    .native_resources
+                    .display_hosts
+                    .values()
+                    .find_map(|host| {
+                        (host.window.label() == label).then(|| {
+                            (host.tab_strip.label().to_owned(), host.generation)
+                        })
+                    });
+                #[cfg(not(windows))]
+                let live_tab_chrome_identity: Option<(String, u64)> = None;
                 let destroyed_window_id = live_focus_identity
                     .as_ref()
                     .map(|(window_id, _)| window_id.clone());
@@ -616,9 +634,19 @@ impl SystemRuntimeExecutor {
                     live_focus_identity.or(retired_focus_identity.clone()),
                     destroyed_window_id,
                     retired_focus_identity,
+                    live_tab_chrome_identity,
                 )
             })
             .unwrap_or_default();
+        #[cfg(windows)]
+        if let Some((webview_label, generation)) = live_tab_chrome_identity {
+            self.presentation
+                .retire_tab_chrome_acknowledgements(&webview_label, generation);
+            if let Some((window_id, _)) = focus_identity.as_ref() {
+                self.tab_chrome_projections
+                    .retire_renderer(window_id, generation);
+            }
+        }
         if let Some((window_id, generation)) = retired_identity.as_ref() {
             self.complete_destroyed_host_surface_continuations(window_id, *generation);
             // The destroyed event is the final authority for this native host

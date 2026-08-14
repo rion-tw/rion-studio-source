@@ -1006,7 +1006,18 @@ impl SystemRuntimeExecutor {
         if let Some(host) = host {
             let label = host.window.label().to_owned();
             match host.window.close() {
-                Ok(()) => self.unregister_runtime_launcher_window(window_id),
+                Ok(()) => {
+                    #[cfg(windows)]
+                    {
+                        self.presentation.retire_tab_chrome_acknowledgements(
+                            host.tab_strip.label(),
+                            host.generation,
+                        );
+                        self.tab_chrome_projections
+                            .retire_renderer(window_id, host.generation);
+                    }
+                    self.unregister_runtime_launcher_window(window_id);
+                }
                 Err(error) => {
                     if let Ok(mut state) = self.state.lock() {
                         state.allow_window_close_labels.remove(&label);

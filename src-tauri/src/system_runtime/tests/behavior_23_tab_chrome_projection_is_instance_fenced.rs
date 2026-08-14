@@ -550,6 +550,79 @@ fn a_new_renderer_supersedes_the_old_pending_projection() {
         );
     }
 }
+
+#[test]
+fn retiring_the_exact_host_generation_supersedes_its_pending_projection() {
+    let coordinator = TabChromeProjectionCoordinator::default();
+    coordinator
+        .register_renderer("tab-strip-1", &tab_chrome_ready("renderer-1"))
+        .unwrap();
+    let projection = coordinator
+        .resolve_projection(tab_chrome_projection("renderer-1", Some("tab-1")))
+        .unwrap();
+    assert!(coordinator.claim_delivery(&projection));
+
+    coordinator.retire_renderer("window-1", 6);
+    assert_eq!(
+        coordinator.renderer("window-1").map(|renderer| renderer.window_generation),
+        Some(7)
+    );
+    coordinator.retire_renderer("window-1", 7);
+    assert_eq!(
+        coordinator.wait(
+            "window-1",
+            "renderer-1",
+            projection.projection_revision,
+            Duration::from_millis(1),
+        ),
+        TabChromeProjectionWaitOutcome::Superseded
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn retiring_the_exact_host_generation_supersedes_legacy_tab_chrome_ack_waiters() {
+    let registry = PresentationRegistry::default();
+    registry
+        .begin_tab_chrome_acknowledgement("tab-strip-1", 7)
+        .unwrap();
+    registry.retire_tab_chrome_acknowledgements("tab-strip-1", 6);
+    assert_eq!(
+        registry.wait_for_tab_chrome_acknowledgement(
+            "tab-strip-1",
+            7,
+            19,
+            Duration::from_millis(1),
+        ),
+        WindowsTabChromeAcknowledgementWaitOutcome::Timeout
+    );
+
+    registry.retire_tab_chrome_acknowledgements("tab-strip-1", 7);
+    assert_eq!(
+        registry.wait_for_tab_chrome_acknowledgement(
+            "tab-strip-1",
+            7,
+            19,
+            Duration::from_millis(1),
+        ),
+        WindowsTabChromeAcknowledgementWaitOutcome::Superseded
+    );
+
+    registry
+        .begin_tab_chrome_acknowledgement("tab-strip-1", 8)
+        .unwrap();
+    assert!(!registry.acknowledge_tab_chrome("tab-strip-1", 7, 20));
+    assert!(registry.acknowledge_tab_chrome("tab-strip-1", 8, 20));
+    assert_eq!(
+        registry.wait_for_tab_chrome_acknowledgement(
+            "tab-strip-1",
+            8,
+            20,
+            Duration::from_millis(1),
+        ),
+        WindowsTabChromeAcknowledgementWaitOutcome::Applied
+    );
+}
 #[test]
 fn an_idempotent_native_move_still_reconciles_the_visible_target_host() {
     let plan = provisional_move_follower_plan(true, true);

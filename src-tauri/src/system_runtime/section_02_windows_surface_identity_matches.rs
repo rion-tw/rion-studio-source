@@ -620,12 +620,29 @@ struct LiveWindowPlacementCommitReceipt {
     status: LiveTopologyCommitStatus,
 }
 
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WindowsTabChromeAcknowledgementState {
+    applied_revision: u64,
+    retired: bool,
+    window_generation: u64,
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsTabChromeAcknowledgementWaitOutcome {
+    Applied,
+    Superseded,
+    Timeout,
+}
+
 struct PresentationRegistry {
     actors: Mutex<HashMap<String, Arc<NativeWindowActor>>>,
     next_surface_owner_revision: AtomicU64,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,
     #[cfg(windows)]
-    tab_chrome_acknowledgements: Mutex<HashMap<String, u64>>,
+    tab_chrome_acknowledgements:
+        Mutex<HashMap<String, WindowsTabChromeAcknowledgementState>>,
     #[cfg(windows)]
     tab_chrome_changed: Condvar,
     live: LiveWindowTabStore,

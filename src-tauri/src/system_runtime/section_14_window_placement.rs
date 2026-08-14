@@ -278,15 +278,18 @@ impl SystemRuntimeExecutor {
             return false;
         };
         let Some(target) = reduction.target else {
-            let _observed_minimized = if let Ok(mut state) = self.state.lock()
+            let (_observation_accepted, _observed_minimized) = if let Ok(mut state) = self.state.lock()
                 && let Some(host) = state.native_resources.display_hosts.get_mut(&observed.window_id)
                 && host.generation == observed.window_generation
                 && reduction.sequence > host.last_placement_observation_sequence
             {
                 host.last_placement_observation_sequence = reduction.sequence;
-                observed.presentation == ObservedWindowPresentation::Minimized
+                (
+                    true,
+                    observed.presentation == ObservedWindowPresentation::Minimized,
+                )
             } else {
-                false
+                (false, false)
             };
             #[cfg(feature = "desktop-e2e")]
             if _observed_minimized {
@@ -298,7 +301,7 @@ impl SystemRuntimeExecutor {
                     json!({ "observationSequence": observed.sequence }),
                 );
             }
-            return false;
+            return _observation_accepted;
         };
         let _accepted_revision = match self.update_live_window_target_for_generation(
             &target,

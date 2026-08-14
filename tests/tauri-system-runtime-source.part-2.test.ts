@@ -49,6 +49,39 @@ it("uses one synchronous Windows input-queue handoff for exact game-window foreg
   expect(foreground).not.toContain("retry");
 });
 
+it("supersedes stale Windows work and accepts unchanged initial placement receipts", async () => {
+  const [acknowledgement, close, placement, resize] = await Promise.all([
+    readFile("src-tauri/src/system_runtime/section_04_tab_chrome_ack.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/section_21_runtime_layout.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/section_14_window_placement.rs", "utf8"),
+    readFile("src-tauri/src/system_runtime/section_14_window_resize.rs", "utf8")
+  ]);
+  const acceptedClose = close.slice(
+    close.indexOf("match host.window.close()"),
+    close.indexOf("self.publish_launcher_presence()", close.indexOf("match host.window.close()"))
+  );
+  const unchangedPlacement = placement.slice(
+    placement.indexOf("let Some(target) = reduction.target else"),
+    placement.indexOf("let _accepted_revision =", placement.indexOf("let Some(target) = reduction.target else"))
+  );
+  const windowsReceipt = resize.slice(
+    resize.indexOf("fn commit_windows_geometry_receipt("),
+    resize.indexOf("pub fn resize_window(")
+  );
+
+  expect(acknowledgement).toContain("window_generation: u64");
+  expect(acknowledgement).toContain("WindowsTabChromeAcknowledgementWaitOutcome::Superseded");
+  expect(acknowledgement).toContain('Some("WINDOWS_TAB_CHROME_HOST_RETIRED")');
+  expect(acceptedClose).toContain("retire_tab_chrome_acknowledgements(");
+  expect(acceptedClose).toContain("retire_renderer(window_id, host.generation)");
+  expect(acceptedClose.indexOf("Ok(()) =>"))
+    .toBeLessThan(acceptedClose.indexOf("retire_tab_chrome_acknowledgements("));
+  expect(unchangedPlacement).toContain("host.last_placement_observation_sequence = reduction.sequence");
+  expect(unchangedPlacement).toContain("return _observation_accepted;");
+  expect(windowsReceipt.indexOf("observe_native_window_placement("))
+    .toBeLessThan(windowsReceipt.indexOf("host.initial_placement_fence = None"));
+});
+
 it("selects a visible Win32 tab menu from the authoritative popup-start event", async () => {
   const [pointer, journey] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_pointer.rs", "utf8"),

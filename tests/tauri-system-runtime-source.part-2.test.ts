@@ -1035,6 +1035,10 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
         "async fn execute_game_window_close_transaction("
       ))
     );
+    const osWindowCloseTransaction = windowClose.slice(
+      windowClose.indexOf("async fn process_game_window_close_requested("),
+      windowClose.indexOf("async fn process_deferred_windows_close_requested(")
+    );
     for (const source of [surfaceContinuation, focusContinuation, windowsIsolation]) {
       for (const forbidden of [
         "polling",
@@ -1082,9 +1086,13 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(sessionStorage).toContain("write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE");
     expect(sessionStorage.match(/deduplicate_role_cookie_checkpoint_records\(/g)).toHaveLength(3);
     expect(sessionStorage).toContain("checkpoint_window_close_role_sessions(");
+    expect(sessionStorage).toContain("native_absent_tab_can_skip_window_session_checkpoint(");
+    expect(sessionStorage).toContain("surface.session-checkpointed");
     expect(sessionStorage).toContain("session_checkpointed_for_close = true");
     expect(windowCloseTransaction.indexOf("checkpoint_window_close_role_sessions"))
       .toBeLessThan(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
+    expect(osWindowCloseTransaction.indexOf("checkpoint_window_close_role_sessions"))
+      .toBeLessThan(osWindowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
     expect(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"))
       .toBeLessThan(windowCloseTransaction.indexOf("commit_visible_window_close"));
     expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))

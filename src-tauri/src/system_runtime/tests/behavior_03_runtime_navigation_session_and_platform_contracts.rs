@@ -621,6 +621,24 @@ use uuid::Uuid;
         assert!(decoded.cookies.is_empty());
     }
 
+    #[test]
+    fn dormant_tabs_skip_window_session_checkpoint_only_without_native_fences() {
+        for platform in ["macos", "windows"] {
+            assert!(
+                native_absent_tab_can_skip_window_session_checkpoint(false, false),
+                "{platform}: a dormant logical tab has no live session to capture"
+            );
+            assert!(
+                !native_absent_tab_can_skip_window_session_checkpoint(true, false),
+                "{platform}: a registered surface makes native absence stale"
+            );
+            assert!(
+                !native_absent_tab_can_skip_window_session_checkpoint(false, true),
+                "{platform}: an active close fence must remain authoritative"
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_security_policy_installs_dialogs_and_denies_undefined_media_permissions() {

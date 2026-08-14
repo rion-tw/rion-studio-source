@@ -397,9 +397,27 @@ impl SystemRuntimeExecutor {
             let mut surfaces = Vec::new();
             for tab_id in tab_ids {
                 let Some(tab) = state.native_resources.tabs.get(tab_id) else {
+                    let has_registered_surface = state
+                        .native_resources
+                        .surface_registry
+                        .values()
+                        .chain(state.native_resources.retired_surface_registry.values())
+                        .any(|surface| surface.tab_id.as_deref() == Some(tab_id));
+                    let has_close_fence = state.close_previews.contains_key(tab_id)
+                        || state.close_coordinator.closing_tabs.contains(tab_id);
+                    if native_absent_tab_can_skip_window_session_checkpoint(
+                        has_registered_surface,
+                        has_close_fence,
+                    ) {
+                        // Saved windows retain dormant logical tabs that have no native tab or
+                        // page-bearing surface. There is no live session to checkpoint for that
+                        // occurrence; the exact persisted tab still participates in Core close
+                        // admission and retirement below.
+                        continue;
+                    }
                     return Err(RuntimeError::new(
                         "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
-                        "A runtime tab disappeared before its role session could be checkpointed.",
+                        "A native-absent runtime tab retained a live surface or close fence before its role session could be checkpointed.",
                     ));
                 };
                 for (role_id, role_surface) in &tab.roles {
@@ -459,7 +477,7 @@ impl SystemRuntimeExecutor {
                 "A role surface changed while its close session checkpoint was being persisted.",
             ));
         }
-        for expected in surfaces {
+        for expected in &surfaces {
             if let Some(current) = state
                 .native_resources
                 .surface_registry
@@ -467,6 +485,15 @@ impl SystemRuntimeExecutor {
             {
                 current.session_checkpointed_for_close = true;
             }
+        }
+        drop(state);
+        for expected in &surfaces {
+            self.record_surface_stage_by_label(
+                LogLevel::Debug,
+                "surface.session-checkpointed",
+                "The live role Cookie and LocalStorage state was durably checkpointed before window close admission.",
+                expected.webview.label(),
+            );
         }
         Ok(())
     }
@@ -749,6 +776,13 @@ impl SystemRuntimeExecutor {
     fn remove_role_cookie_checkpoint(&self, _role_id: &str) -> RuntimeResult<()> {
         Ok(())
     }
+}
+
+fn native_absent_tab_can_skip_window_session_checkpoint(
+    has_registered_surface: bool,
+    has_close_fence: bool,
+) -> bool {
+    !has_registered_surface && !has_close_fence
 }
 
 fn verify_cookie_readback(

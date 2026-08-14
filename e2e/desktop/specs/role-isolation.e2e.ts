@@ -110,6 +110,7 @@ async function launchVisibleRole(role: Role, fixtureId: string): Promise<Fixture
 
 async function stopRole(role: Role): Promise<void> {
   const control = await probe();
+  const requestedAfter = new Date().toISOString();
   const cursor = await rendererEventCursor();
   await browser.execute((roleId) => {
     void window.rionStudio.stopRole(roleId).catch(() => undefined);
@@ -118,7 +119,7 @@ async function stopRole(role: Role): Promise<void> {
     ? await waitForTranscriptEvent(
         control.transcriptPath,
         (event) => event.kind === `browser-role-stop-terminal:${role.id}`
-          && event.sequence > control.latestSequence
+          && event.timestamp >= requestedAfter
       )
     : await waitEvent({
         afterSequence: control.latestSequence,

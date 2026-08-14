@@ -103,15 +103,20 @@ async fn activate_selected_restored_tab_on_demand(
     state: &CoreState,
     tab_id: &str,
 ) -> Result<SystemRuntimeOperationSummaryRecord, CoreErrorPayload> {
-    let Some(expected_revision) = state.runtime.selected_dormant_tab_revision(tab_id) else {
+    // Native placement and tab-chrome receipts may advance the containing window revision while
+    // restore is creating its host. They do not represent a competing tab selection, so using
+    // that revision as this activation fence can abandon the still-selected dormant tab before
+    // its only launch is admitted. Revalidate the selected dormant tab, then let the Kernel
+    // atomically activate that exact selection without coupling it to native geometry churn.
+    if state.runtime.selected_dormant_tab_revision(tab_id).is_none() {
         return Ok(state.runtime.superseded_tab_activation_summary(tab_id));
-    };
+    }
     activate_runtime_tab_on_demand_at_revision(
         app,
         state,
         tab_id,
         false,
-        Some(expected_revision),
+        None,
     )
     .await
 }

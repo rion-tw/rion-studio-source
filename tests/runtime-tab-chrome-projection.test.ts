@@ -171,6 +171,41 @@ describe("Windows runtime tab chrome projection", () => {
     });
   });
 
+  it("replays mutations queued before hydration across independent revision domains", async () => {
+    const mutation = vi.fn();
+    window.__rionRuntimeTabChromeReady = false;
+    window.__rionPendingRuntimeTabChromeMutations = [{ mutation, revision: 3 }];
+    window.__rionRuntimeTabChromeReady = true;
+
+    window.__rionApplyRuntimeTabChromeProjection?.({
+      rendererInstanceId,
+      windowId: "window-1",
+      windowGeneration: 7,
+      lifecycleEpoch: 3,
+      projectionRevision: 1_000,
+      topologyRevision: 1_000,
+      tabs: [],
+      tabOrder: [],
+      displayId: 11,
+      displays: [],
+      windowName: "Empty Game Window",
+      windowMaximized: false,
+      fullscreen: false,
+      windowFullscreen: false,
+      toolbarVisible: true,
+      alwaysHideTabCloseButton: false,
+      alwaysShowToolbarInFullScreen: false,
+      language: "en",
+      theme: "light"
+    });
+
+    expect(mutation).toHaveBeenCalledOnce();
+    await nextPaint();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_tab_action", {
+      action: { type: "presentationApplied", revision: 3 }
+    });
+  });
+
   it("rejects projections for an obsolete renderer instance without mutating the DOM", () => {
     const before = document.querySelector("#tabs")?.innerHTML;
     window.__rionApplyRuntimeTabChromeProjection?.({

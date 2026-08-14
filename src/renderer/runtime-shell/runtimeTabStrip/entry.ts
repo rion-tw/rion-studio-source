@@ -332,9 +332,11 @@ function applyChromeProjection(projection: RuntimeTabChromeProjectionRecord): vo
   const mutations = window.__rionPendingRuntimeTabChromeMutations ?? [];
   window.__rionPendingRuntimeTabChromeMutations = [];
   for (const pending of mutations) {
-    if (pending.revision > projection.projectionRevision) {
-      window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
-    }
+    // Native tab-chrome mutations and topology projections have independent
+    // revision domains. A fresh WebView2 tab strip may receive a reservation
+    // before its first projection; replay every mutation queued by that exact
+    // renderer once its authoritative projection has hydrated the DOM.
+    window.__rionApplyRuntimeTabChromeMutation?.(pending.revision, pending.mutation);
   }
 
   for (const tab of window.__rionPendingRuntimeTabEnsures ?? []) {

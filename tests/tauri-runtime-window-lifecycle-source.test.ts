@@ -482,7 +482,8 @@ describe("runtime window lifecycle authority", () => {
     );
     expect(onDemandLaunch).toContain("expected_revision.is_some() && !claim_applied");
     expect(onDemandLaunch).toContain("selected_dormant_tab_revision(tab_id)");
-    expect(onDemandLaunch).toContain("Some(expected_revision)");
+    expect(onDemandLaunch).toContain("native geometry churn");
+    expect(onDemandLaunch).toContain("false,\n        None,");
     expect(onDemandLaunch).toContain("prepare_restored_tab_role_slots");
     expect(onDemandLaunch.indexOf("prepare_restored_tab_role_slots")).toBeLessThan(
       onDemandLaunch.indexOf("invoke_runtime_source_launch(")

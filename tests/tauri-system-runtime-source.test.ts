@@ -781,7 +781,8 @@ it("never blocks the native UI thread and cancels provisional tabs through the s
     );
     expect(onDemandSelection).toContain("expected_revision.is_some() && !claim_applied");
     expect(onDemandSelection).toContain("selected_dormant_tab_revision(tab_id)");
-    expect(onDemandSelection).toContain("Some(expected_revision)");
+    expect(onDemandSelection).toContain("native geometry churn");
+    expect(onDemandSelection).toContain("false,\n        None,");
     expect(onDemandSelection).not.toContain("wait_native_operation_summary");
     expect(menu).toContain("crate::execute_tab_stop(app, state, tab_id)");
     const scopedTabAction = menu.slice(

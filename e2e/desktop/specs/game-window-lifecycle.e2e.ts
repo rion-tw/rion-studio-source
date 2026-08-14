@@ -638,6 +638,15 @@ async function activateRecoveryTab(
     expectRecoverySession(session, roleName, seededBefore);
   }
   expect(ready.kernel?.selectedTabId).toBe(tab.tabId);
+  const persisted = await waitEvent({
+    activeTabId: tab.tabId,
+    afterSequence: controlCursor,
+    kind: "window-state-persisted",
+    minimumGeneration: before.windowGeneration,
+    timeoutMs: 55_000,
+    windowId: WINDOW_C
+  });
+  expect(persisted.details).toMatchObject({ activeTabId: tab.tabId, status: "applied" });
   return ready;
 }
 

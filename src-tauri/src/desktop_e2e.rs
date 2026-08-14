@@ -29,6 +29,7 @@ static CONTROL: OnceLock<Arc<DesktopE2eControl>> = OnceLock::new();
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopE2eWaitRequest {
+    pub active_tab_id: Option<String>,
     pub after_sequence: u64,
     pub kind: Option<String>,
     pub minimum_generation: Option<u64>,
@@ -183,6 +184,12 @@ impl DesktopE2eControl {
 
 fn event_matches(event: &DesktopE2eEvent, request: &DesktopE2eWaitRequest) -> bool {
     event.sequence > request.after_sequence
+        && request
+            .active_tab_id
+            .as_deref()
+            .is_none_or(|active_tab_id| {
+                event.details.get("activeTabId").and_then(Value::as_str) == Some(active_tab_id)
+            })
         && request
             .kind
             .as_deref()
@@ -423,6 +430,7 @@ mod tests {
     #[test]
     fn event_filter_requires_every_requested_fence() {
         let request = DesktopE2eWaitRequest {
+            active_tab_id: Some("tab-a".to_owned()),
             after_sequence: 11,
             kind: Some("placement-accepted".to_owned()),
             minimum_generation: Some(3),
@@ -432,13 +440,20 @@ mod tests {
             window_id: Some("window-a".to_owned()),
         };
         let matching = DesktopE2eEvent {
-            details: json!({ "presentation": "normal" }),
+            details: json!({ "activeTabId": "tab-a", "presentation": "normal" }),
             ..event()
         };
         assert!(event_matches(&matching, &request));
         assert!(!event_matches(
             &DesktopE2eEvent {
                 revision: Some(8),
+                ..event()
+            },
+            &request
+        ));
+        assert!(!event_matches(
+            &DesktopE2eEvent {
+                details: json!({ "activeTabId": "tab-b", "presentation": "normal" }),
                 ..event()
             },
             &request

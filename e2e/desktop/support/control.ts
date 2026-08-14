@@ -161,6 +161,7 @@ export async function probe(): Promise<DesktopE2eProbe> {
 }
 
 export async function waitEvent(input: {
+  activeTabId?: string;
   afterSequence: number;
   kind?: string;
   minimumGeneration?: number;

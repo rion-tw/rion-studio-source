@@ -247,31 +247,21 @@ fn run_window_state_persist_worker(runtime: std::sync::Weak<SystemRuntimeExecuto
             });
         match result {
             Ok(batch) => {
-                let receipt_keys = batch
-                    .receipts
-                    .iter()
-                    .filter(|receipt| {
-                        matches!(receipt.status.as_str(), "applied" | "superseded")
-                    })
-                    .map(|receipt| {
-                        (
-                            receipt.window_id.as_str(),
-                            receipt.window_generation,
-                            receipt.revision,
-                        )
-                    })
-                    .collect::<HashSet<_>>();
                 for (window_id, window_generation, revision) in &requested {
-                    if receipt_keys.contains(&(
-                        window_id.as_str(),
-                        *window_generation,
-                        *revision,
-                    )) {
+                    let status = batch.receipts.iter().find_map(|receipt| {
+                        (receipt.window_id == *window_id
+                            && receipt.window_generation == *window_generation
+                            && receipt.revision == *revision
+                            && matches!(receipt.status.as_str(), "applied" | "superseded"))
+                        .then_some(receipt.status.as_str())
+                    });
+                    if let Some(status) = status {
                         retire_window_state_persist_lane(
                             &runtime,
                             window_id,
                             *window_generation,
                             *revision,
+                            status,
                         );
                     } else {
                         record_window_state_persist_failure(
@@ -309,15 +299,36 @@ fn retire_window_state_persist_lane(
     window_id: &str,
     window_generation: u64,
     revision: u64,
+    status: &str,
 ) {
-    if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
+    let retired = if let Ok(mut lanes) = runtime.window_state_persistence.lanes.lock()
         && lanes.get(window_id).is_some_and(|lane| {
             lane.window_generation == window_generation && lane.revision == revision
         })
     {
-        lanes.remove(window_id);
+        let retired = lanes.remove(window_id);
         runtime.window_state_persistence.changed.notify_all();
+        retired
+    } else {
+        None
+    };
+    #[cfg(feature = "desktop-e2e")]
+    if status == "applied"
+        && let Some(lane) = retired
+    {
+        crate::desktop_e2e::record_event(
+            "window-state-persisted",
+            Some(window_id),
+            Some(window_generation),
+            Some(revision),
+            json!({
+                "activeTabId": lane.input.snapshot.active_tab_id,
+                "status": status,
+            }),
+        );
     }
+    #[cfg(not(feature = "desktop-e2e"))]
+    let _ = (retired, status);
 }
 
 fn record_window_state_persist_failure(

@@ -329,8 +329,15 @@ pub(in crate::system_runtime) fn prepare_platform_window_foreground(window: &Win
 
 #[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_window_show_foreground(window: &Window) -> RuntimeResult<()> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsIconic, SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+    use windows::Win32::{
+        System::Threading::AttachThreadInput,
+        UI::{
+            Input::KeyboardAndMouse::{SetActiveWindow, SetFocus},
+            WindowsAndMessaging::{
+                BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
+                SW_RESTORE, SW_SHOW, SetForegroundWindow, ShowWindow,
+            },
+        },
     };
 
     prepare_platform_window_foreground(window)?;
@@ -354,13 +361,35 @@ pub(in crate::system_runtime) fn request_platform_window_show_foreground(window:
     // This stays in the same UI callback and never retries on a timer.
     window.set_focus().map_err(RuntimeError::tauri)?;
     if unsafe { GetForegroundWindow() } == hwnd {
-        Ok(())
-    } else {
-        Err(RuntimeError::new(
-            "SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED",
-            "Windows did not acknowledge the game window as foreground.",
-        ))
+        return Ok(());
     }
+
+    // A continuously active System WebView can leave its input queue holding
+    // the foreground grant while this sibling game window is activated. Join
+    // that exact queue for one synchronous native submission, then detach it
+    // before deciding the outcome from the authoritative HWND readback.
+    let foreground = unsafe { GetForegroundWindow() };
+    let target_thread = unsafe { GetWindowThreadProcessId(hwnd, None) };
+    let foreground_thread = unsafe { GetWindowThreadProcessId(foreground, None) };
+    let attached = target_thread != 0
+        && foreground_thread != 0
+        && target_thread != foreground_thread
+        && unsafe { AttachThreadInput(target_thread, foreground_thread, true) }.as_bool();
+    let _ = unsafe { BringWindowToTop(hwnd) };
+    let _ = unsafe { SetActiveWindow(hwnd) };
+    let _ = unsafe { SetFocus(Some(hwnd)) };
+    let _ = unsafe { SetForegroundWindow(hwnd) };
+    if attached {
+        let _ = unsafe { AttachThreadInput(target_thread, foreground_thread, false) };
+    }
+    if unsafe { GetForegroundWindow() } == hwnd {
+        return Ok(());
+    }
+
+    Err(RuntimeError::new(
+        "SYSTEM_WINDOW_FOREGROUND_SUBMISSION_FAILED",
+        "Windows did not acknowledge the game window as foreground.",
+    ))
 }
 
 #[cfg(windows)]
@@ -594,9 +623,17 @@ pub(in crate::system_runtime) fn windows_surface_lifecycle_error(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn windows_surface_quiesce_completes_at_stop(
+    defer_navigation_to_preflight: bool,
+) -> bool {
+    !defer_navigation_to_preflight
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
+    defer_navigation_to_preflight: bool,
 ) -> RuntimeResult<()> {
     use webview2_com::{
         GetCookiesCompletedHandler,
@@ -630,6 +667,18 @@ pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
                         "SYSTEM_SURFACE_IDENTITY_MISMATCH",
                         "The WebView2 controller or process identity changed before isolation.",
                     ));
+                }
+                if windows_surface_quiesce_completes_at_stop(defer_navigation_to_preflight) {
+                    core.Stop().map_err(|error| {
+                        windows_surface_lifecycle_error("shutdown-isolation-stop", error)
+                    })?;
+                    // Full application shutdown cannot reuse this controller or its store. The
+                    // exact Stop acknowledgement fences page work, and Controller::Close below
+                    // remains the authoritative native-release boundary. Waiting for a blank
+                    // navigation can strand shutdown behind a WebView2 page that is already
+                    // stopping, while adding no in-process isolation guarantee.
+                    let _ = callback_lifecycle.mark_isolated(13);
+                    return Ok(());
                 }
                 let cookie_manager = core
                     .cast::<ICoreWebView2_2>()

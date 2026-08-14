@@ -745,8 +745,7 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         lifecycle: &Arc<SurfaceLifecycleTracker>,
         role_id: &str,
-        checkpoint_role_cookies: bool,
-        release_boundary: SurfaceReleaseBoundary,
+        plan: SurfaceClosePlan,
     ) -> RuntimeResult<SurfaceCloseOutcome> {
         let label = webview.label().to_owned();
         {
@@ -766,12 +765,13 @@ impl SystemRuntimeExecutor {
         }
         let result: RuntimeResult<SurfaceCloseOutcome> = async {
             let platform = current_runtime_platform();
-            if checkpoint_role_cookies && !lifecycle.native_surface_is_released() {
+            if plan.checkpoint_role_session && !lifecycle.native_surface_is_released() {
                 self.persist_role_cookie_checkpoint(webview, role_id)?;
+                self.persist_role_local_storage_checkpoint(webview, role_id)?;
                 self.record_surface_stage_by_label(
                     LogLevel::Debug,
-                    "surface.cookies-checkpointed",
-                    "The live role cookies were durably checkpointed before native isolation.",
+                    "surface.session-checkpointed",
+                    "The live role Cookie and LocalStorage state was durably checkpointed before native isolation.",
                     &label,
                 );
             }
@@ -783,8 +783,14 @@ impl SystemRuntimeExecutor {
             );
             let quiesce_result = if lifecycle.native_surface_is_released() {
                 Ok(SurfaceIsolationRequest::AlreadyIsolated)
+            } else if !plan.requires_page_quiesce {
+                isolate_app_owned_auxiliary_surface(lifecycle)
             } else {
-                quiesce_platform_surface(webview, lifecycle)
+                quiesce_platform_surface(
+                    webview,
+                    lifecycle,
+                    plan.defer_navigation_to_preflight,
+                )
             };
             if let Ok(request) = quiesce_result.as_ref() {
                 self.record_surface_isolation_request(&label, *request);
@@ -861,7 +867,7 @@ impl SystemRuntimeExecutor {
                 }
             }
             lifecycle
-                .wait_for_release_event(platform, release_boundary)
+                .wait_for_release_event(platform, plan.release_boundary)
                 .await?;
             self.record_surface_stage_by_label(
                 LogLevel::Info,
@@ -909,8 +915,12 @@ impl SystemRuntimeExecutor {
             webview,
             lifecycle,
             role_id,
-            false,
-            release_boundary,
+            SurfaceClosePlan {
+                checkpoint_role_session: false,
+                defer_navigation_to_preflight: true,
+                release_boundary,
+                requires_page_quiesce: true,
+            },
         ))
     }
 
@@ -979,7 +989,24 @@ impl SystemRuntimeExecutor {
         instance_id: &str,
         lifecycle_id: &str,
     ) -> RuntimeResult<()> {
+        self.close_managed_surface_with_release_boundary_event_bound(
+            instance_id,
+            lifecycle_id,
+            None,
+            true,
+        )
+        .await
+    }
+
+    async fn close_managed_surface_with_release_boundary_event_bound(
+        &self,
+        instance_id: &str,
+        lifecycle_id: &str,
+        release_boundary: Option<SurfaceReleaseBoundary>,
+        defer_navigation_to_preflight: bool,
+    ) -> RuntimeResult<()> {
         let surface = self.managed_surface(instance_id)?;
+        let release_boundary = release_boundary.unwrap_or(surface.release_boundary);
         let mut operation = NativeOperationContext::new_event_bound(
             NativeOperationSubsystem::SurfaceLifecycle,
             "closeManagedSurface",
@@ -999,7 +1026,13 @@ impl SystemRuntimeExecutor {
                 | ManagedSurfacePhase::Isolating
                 | ManagedSurfacePhase::Isolated
                 => {
-                    return self.wait_for_managed_surface_release(instance_id, &surface).await;
+                    return self
+                        .wait_for_managed_surface_release(
+                            instance_id,
+                            &surface,
+                            release_boundary,
+                        )
+                        .await;
                 }
                 ManagedSurfacePhase::Live
                 | ManagedSurfacePhase::Provisional
@@ -1031,7 +1064,9 @@ impl SystemRuntimeExecutor {
                 (surface.clone(), owns_close)
             };
             if !owns_close {
-                return self.wait_for_managed_surface_release(instance_id, &surface).await;
+                return self
+                    .wait_for_managed_surface_release(instance_id, &surface, release_boundary)
+                    .await;
             }
             if surface.kind == ManagedSurfaceKind::Recovery
                 && let Some(role_id) = surface.role_id.as_deref()
@@ -1056,8 +1091,18 @@ impl SystemRuntimeExecutor {
                     &surface.webview,
                     &surface.lifecycle,
                     lifecycle_id,
-                    surface.kind == ManagedSurfaceKind::Role,
-                    surface.release_boundary,
+                    SurfaceClosePlan {
+                        checkpoint_role_session: managed_surface_close_checkpoints_role_cookies(
+                            surface.kind,
+                            defer_navigation_to_preflight,
+                        ),
+                        defer_navigation_to_preflight,
+                        release_boundary,
+                        requires_page_quiesce: managed_surface_requires_page_quiesce(
+                            current_runtime_platform(),
+                            surface.kind,
+                        ),
+                    },
                 )
                 .await;
             match close_result {
@@ -1127,17 +1172,31 @@ impl SystemRuntimeExecutor {
         )
     }
 
+    fn close_managed_surface_with_release_boundary_and_wait(
+        &self,
+        instance_id: &str,
+        lifecycle_id: &str,
+        release_boundary: SurfaceReleaseBoundary,
+    ) -> RuntimeResult<()> {
+        tauri::async_runtime::block_on(
+            self.close_managed_surface_with_release_boundary_event_bound(
+                instance_id,
+                lifecycle_id,
+                Some(release_boundary),
+                application_shutdown_defers_navigation_to_preflight(),
+            ),
+        )
+    }
+
     async fn wait_for_managed_surface_release(
         &self,
         _instance_id: &str,
         surface: &ManagedSurface,
+        release_boundary: SurfaceReleaseBoundary,
     ) -> RuntimeResult<()> {
         surface
             .lifecycle
-            .wait_for_release_event(
-                current_runtime_platform(),
-                surface.release_boundary,
-            )
+            .wait_for_release_event(current_runtime_platform(), release_boundary)
             .await
     }
 

@@ -693,6 +693,89 @@
     }
 
     #[test]
+    fn continuous_macro_input_does_not_starve_optional_tab_hydration() {
+        let browser_action = CoreEffectAction::BrowserAction {
+            request: Box::new(BrowserActionRequest {
+                request_id: "request-a".to_owned(),
+                role_id: "role-a".to_owned(),
+                origin: "macro".to_owned(),
+                input_epoch: 7,
+                intent: "normal".to_owned(),
+                scheduled_at_ms: 10,
+                deadline_ms: 20,
+                action: BrowserAction::Focus,
+            }),
+        };
+
+        assert!(is_browser_action_effect(&browser_action));
+        assert!(!marks_optional_hydration_critical_activity(
+            &browser_action
+        ));
+        assert!(marks_optional_hydration_critical_activity(
+            &CoreEffectAction::EmbeddedLoadRoles { roles: Vec::new() }
+        ));
+        assert!(marks_optional_hydration_critical_activity(
+            &CoreEffectAction::EmbeddedDestroyRole {
+                role_id: "role-a".to_owned(),
+            }
+        ));
+        assert!(optional_hydration_is_admitted(
+            RuntimeShutdownState::Accepting
+        ));
+        for state in [
+            RuntimeShutdownState::Draining,
+            RuntimeShutdownState::Closed,
+            RuntimeShutdownState::Indeterminate,
+        ] {
+            assert!(!optional_hydration_is_admitted(state));
+        }
+    }
+
+    #[cfg(all(windows, feature = "desktop-e2e"))]
+    #[test]
+    fn windows_native_menu_input_is_armed_for_the_popup_event() {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            VK_DOWN, VK_HOME, VK_RETURN, VK_RIGHT,
+        };
+
+        assert_eq!(
+            desktop_e2e_windows_tab_menu_key_codes("hide", None).unwrap(),
+            vec![
+                VK_DOWN.0,
+                VK_HOME.0,
+                VK_DOWN.0,
+                VK_DOWN.0,
+                VK_DOWN.0,
+                VK_DOWN.0,
+                VK_RETURN.0,
+            ]
+        );
+        assert_eq!(
+            desktop_e2e_windows_tab_menu_key_codes("moveToNewWindow", None).unwrap(),
+            vec![
+                VK_DOWN.0,
+                VK_HOME.0,
+                VK_DOWN.0,
+                VK_DOWN.0,
+                VK_RETURN.0
+            ]
+        );
+        assert_eq!(
+            desktop_e2e_windows_tab_menu_key_codes("move", Some(1)).unwrap(),
+            vec![
+                VK_DOWN.0,
+                VK_HOME.0,
+                VK_DOWN.0,
+                VK_RIGHT.0,
+                VK_DOWN.0,
+                VK_DOWN.0,
+                VK_RETURN.0,
+            ]
+        );
+        assert!(desktop_e2e_windows_tab_menu_key_codes("unknown", None).is_err());
+    }
+
+    #[test]
     fn close_effect_shards_are_stable_for_a_tab_scope() {
         let role_scope = close_effect_scope_key(
             &CoreEffectAction::EmbeddedDestroyRole {

@@ -50,6 +50,20 @@ describe("desktop E2E build isolation", () => {
     expect(source).not.toContain("window.location.reload()");
   });
 
+  it("fences runtime projection waits to exact tab visibility", async () => {
+    const [journal, journey] = await Promise.all([
+      readFile("e2e/desktop/support/renderer-events.ts", "utf8"),
+      readFile("e2e/desktop/specs/cross-domain-runtime.e2e.ts", "utf8")
+    ]);
+
+    expect(journal).toContain("hidden?: boolean;");
+    expect(journal).toContain("tabId?: string;");
+    expect(journal).toContain("candidate.id === waitRequest.tabId");
+    expect(journal).toContain("tab?.hidden !== waitRequest.hidden");
+    expect(journey).toContain("hidden: false");
+    expect(journey).toContain("tabId: tab.id");
+  });
+
   it("keeps router-native test navigation out of production renderer assets", async () => {
     const renderer = await readFile("src/renderer/src/main.tsx", "utf8");
     const isolationCheck = await readFile("scripts/verifyDesktopE2eIsolation.mjs", "utf8");
@@ -79,6 +93,17 @@ describe("desktop E2E build isolation", () => {
     expect(closeControl).not.toContain("window.close()");
   });
 
+  it("records an authoritative foreground precondition on both native hosts", async () => {
+    const source = await readFile(
+      "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",
+      "utf8"
+    );
+
+    expect(source).toContain("DesktopE2eWindowControlRequest::Focus => \"focus\"");
+    expect(source.match(/request_platform_window_show_foreground\(window\)/g)).toHaveLength(2);
+    expect(source).toContain('"window-focus-acknowledged"');
+  });
+
   it("focuses the native Game Window before the desktop E2E role surface", async () => {
     const [controlSource, journeySource] = await Promise.all([
       readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8"),
@@ -98,5 +123,46 @@ describe("desktop E2E build isolation", () => {
       .toBeLessThan(focusRole.indexOf("webview.set_focus()"));
     expect(forceTerminate.indexOf('kind: "window-focus-persisted"'))
       .toBeLessThan(forceTerminate.indexOf("await runtimeUiAction(WINDOW_C"));
+  });
+
+  it("keeps native tab gestures feature-gated and user-input driven", async () => {
+    const [command, windowsPointer, macHeader, macBridge, macPointer, build] =
+      await Promise.all([
+        readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
+        readFile(
+          "src-tauri/src/system_runtime/section_31_desktop_e2e_pointer.rs",
+          "utf8"
+        ),
+        readFile("src-tauri/native/macos/RionRuntimeTabsController.h", "utf8"),
+        readFile(
+          "src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+          "utf8"
+        ),
+        readFile(
+          "src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+          "utf8"
+        ),
+        readFile("src-tauri/build.rs", "utf8")
+      ]);
+
+    expect(command).toContain("pub(crate) async fn desktop_e2e_runtime_ui_action");
+    expect(command).toContain("tauri::async_runtime::spawn_blocking");
+    expect(windowsPointer).toContain("core.ExecuteScript(&script, &handler)");
+    expect(windowsPointer).toContain("WindowFromPoint(start)");
+    expect(windowsPointer).toContain("expected_parent: usize");
+    expect(windowsPointer).toContain("hit_root == parent_root");
+    expect(windowsPointer).toContain("HWND_TOPMOST");
+    expect(windowsPointer).toContain("HWND_NOTOPMOST");
+    expect(windowsPointer).toContain("WS_EX_TRANSPARENT");
+    expect(windowsPointer).toContain("extended_style");
+    expect(windowsPointer).toContain("dispatch_barrier");
+    expect(windowsPointer).toContain("'click', 'contextmenu'");
+    expect(windowsPointer).toContain("The native runtime-tab pointer dispatch was not acknowledged");
+    expect(windowsPointer).toContain("pointer_result.and(restore_result)");
+    expect(windowsPointer).toContain("SendInput(&inputs");
+    expect(macHeader).toContain("#if defined(RION_DESKTOP_E2E)");
+    expect(macBridge).toContain("rion_runtime_tabs_accessibility_show_menu");
+    expect(macPointer).toContain("kCGEventLeftMouseDragged");
+    expect(build).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
   });
 });

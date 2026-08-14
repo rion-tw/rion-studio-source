@@ -110,7 +110,17 @@ fn diagnostic_input_fence_state(
 
 impl SystemRuntimeExecutor {
     fn record_native_operation_receipt(&self, receipt: NativeOperationReceipt) {
-        self.operations.record_untracked(receipt);
+        let _terminal = self.operations.record_untracked(receipt);
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "native-operation-terminal",
+            _terminal.context.window_id.as_deref(),
+            _terminal.context.window_generation,
+            _terminal.context.topology_revision,
+            serde_json::to_value(_terminal.summary()).unwrap_or_else(|error| {
+                serde_json::json!({ "serializationError": error.to_string() })
+            }),
+        );
     }
 
     fn remember_runtime_failure(&self, failure: SystemRuntimeFailureRecord) {

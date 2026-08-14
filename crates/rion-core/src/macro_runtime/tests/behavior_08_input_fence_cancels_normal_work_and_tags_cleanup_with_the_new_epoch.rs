@@ -82,6 +82,54 @@ fn stopping_role_cannot_report_a_successful_input_resume() {
 }
 
 #[test]
+fn navigation_failure_terminalizes_a_transferred_multi_role_run_without_stopping_the_role() {
+    let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+    let runtime = MacroRuntime::new(Arc::new(move |batch| {
+        let _ = events.send(batch);
+    }));
+    let control = new_invocation_control(
+        "test-invocation".to_owned(),
+        "m1".to_owned(),
+        HashSet::from(["r1".to_owned(), "r2".to_owned()]),
+    );
+    runtime
+        .shared
+        .inner
+        .lock()
+        .unwrap()
+        .invocations
+        .insert(control.id.clone(), Arc::clone(&control));
+    runtime.seed_running_status("m1", "r1").unwrap();
+    runtime.seed_running_status("m1", "r2").unwrap();
+    assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
+
+    runtime
+        .terminalize_role_after_navigation_failure("r1")
+        .unwrap();
+
+    assert!(control.cancelled.load(Ordering::Acquire));
+    assert!(runtime.statuses().unwrap().is_empty());
+    let role = runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap();
+    assert!(role.quiesced);
+    assert!(!role.stopping);
+    assert!(runtime.resume_role_input("r1", role.input_epoch).unwrap());
+    let terminal = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(matches!(
+        terminal.as_slice(),
+        [CoreEvent::MacroStatuses {
+            reliable: true,
+            statuses
+        }] if statuses.is_empty()
+    ));
+}
+
+#[test]
 fn authoritative_role_release_terminalizes_stopping_input_without_reusing_its_epoch() {
     let runtime = MacroRuntime::new(Arc::new(|_| {}));
     runtime.request_stop_role("r1").unwrap();
@@ -143,4 +191,105 @@ fn relaunch_advances_the_epoch_so_late_teardown_cleanup_is_stale() {
 
     assert_eq!(relaunched_epoch, teardown_epoch + 1);
     assert!(!runtime.drain_role_input("r1", teardown_epoch).unwrap());
+}
+
+#[test]
+fn ownership_transfer_preserves_and_resumes_the_active_macro_role_identity() {
+    let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+    let runtime = MacroRuntime::new(Arc::new(move |batch| {
+        let _ = events.send(batch);
+    }));
+    let mut start = request(vec![MacroStepDefinition::Key {
+        id: "tap".to_owned(),
+        code: "KeyX".to_owned(),
+        modifiers: None,
+        action: Some("tap".to_owned()),
+        label: None,
+        duration_ms: None,
+    }]);
+    start.macros[0].repeat = MacroRepeat::Loop { interval_ms: 1_000 };
+    let (started, _) = start_and_ack_focus(&runtime, &receiver, start);
+    assert_eq!(started.len(), 1);
+    let hold = next_browser_actions(&receiver);
+    let action_locks = action_role_locks(&runtime.shared, &["r1".to_owned()]).unwrap();
+    assert!(matches!(
+        action_locks[0].try_lock(),
+        Err(std::sync::TryLockError::WouldBlock)
+    ));
+    runtime.dispatch_results(success_results(hold)).unwrap();
+    let release = next_browser_actions(&receiver);
+    runtime.dispatch_results(success_results(release)).unwrap();
+
+    assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
+    assert!(runtime.role_ownership_transfer_active("r1").unwrap());
+    let input_epoch = runtime.fence_role_input("r1").unwrap();
+    assert!(runtime.drain_role_input("r1", input_epoch).unwrap());
+    assert_eq!(runtime.statuses().unwrap().len(), 1);
+    assert!(runtime.resume_role_input("r1", input_epoch).unwrap());
+    assert!(!runtime.role_ownership_transfer_active("r1").unwrap());
+
+    let resumed_hold = next_browser_actions(&receiver);
+    assert!(resumed_hold
+        .iter()
+        .all(|action| action.role_id == "r1" && action.input_epoch == input_epoch));
+    runtime
+        .dispatch_results(success_results(resumed_hold))
+        .unwrap();
+    let resumed_release = next_browser_actions(&receiver);
+    runtime
+        .dispatch_results(success_results(resumed_release))
+        .unwrap();
+    runtime.stop_macro("m1").unwrap();
+    assert!(runtime.statuses().unwrap().is_empty());
+}
+
+#[test]
+fn multi_role_key_sequence_fences_transfer_for_every_target_role() {
+    let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+    let runtime = MacroRuntime::new(Arc::new(move |batch| {
+        let _ = events.send(batch);
+    }));
+    let mut start = request(vec![MacroStepDefinition::Key {
+        id: "tap".to_owned(),
+        code: "KeyX".to_owned(),
+        modifiers: None,
+        action: Some("tap".to_owned()),
+        label: None,
+        duration_ms: None,
+    }]);
+    start.macros[0].role_ids = vec!["r1".to_owned(), "r2".to_owned()];
+    start.active_role_ids = vec!["r1".to_owned(), "r2".to_owned()];
+    let _ = start_and_ack_focus(&runtime, &receiver, start);
+    let holds = [
+        next_browser_actions(&receiver),
+        next_browser_actions(&receiver),
+    ];
+    assert!(holds.iter().all(|batch| batch.len() == 1));
+    assert!(holds
+        .iter()
+        .flat_map(|batch| batch.iter())
+        .map(|action| action.role_id.as_str())
+        .collect::<HashSet<_>>() == HashSet::from(["r1", "r2"]));
+
+    let sequence_locks = input_sequence_role_locks(
+        &runtime.shared,
+        &["r1".to_owned(), "r2".to_owned()],
+    )
+    .unwrap();
+    assert!(sequence_locks.iter().all(|lock| matches!(
+        lock.try_lock(),
+        Err(std::sync::TryLockError::WouldBlock)
+    )));
+
+    for hold in holds {
+        runtime.dispatch_results(success_results(hold)).unwrap();
+    }
+    let releases = [
+        next_browser_actions(&receiver),
+        next_browser_actions(&receiver),
+    ];
+    for release in releases {
+        runtime.dispatch_results(success_results(release)).unwrap();
+    }
+    runtime.stop_macro("m1").unwrap();
 }

@@ -120,6 +120,21 @@ fn saved_window_conflicts_with_runtime(
     })
 }
 
+fn saved_window_duplicates_runtime_tab_source(
+    saved: &StateGameWindowRecord,
+    snapshot: &BrowserRuntimeSnapshot,
+) -> bool {
+    let desired_sources = saved
+        .tabs
+        .iter()
+        .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+        .collect::<HashSet<_>>();
+    snapshot.tabs.iter().any(|tab| {
+        tab.window_id != saved.id
+            && desired_sources.contains(&format!("{}:{}", tab.tab_type, tab.source_id))
+    })
+}
+
 fn replace_restore_progress(
     state: &CoreState,
     window_ids: Vec<String>,

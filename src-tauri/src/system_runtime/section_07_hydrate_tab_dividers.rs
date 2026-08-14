@@ -1,5 +1,10 @@
 impl SystemRuntimeExecutor {
     fn hydrate_tab_dividers(&self, tab_id: &str) -> RuntimeResult<()> {
+        if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        )) {
+            return Ok(());
+        }
         let window_id = match self.presentation.tab_window(tab_id).map_err(|message| {
             RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message)
         })? {
@@ -62,6 +67,9 @@ impl SystemRuntimeExecutor {
                     == Some(window_id.as_str());
                 let state_current = self.state.lock().ok().is_some_and(|state| {
                     optional_divider_hydration_can_continue(
+                        optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                            self.shutdown_state.load(Ordering::Acquire),
+                        )),
                         state.native_resources.tabs.contains_key(tab_id),
                         state
                             .native_resources.tabs
@@ -91,6 +99,12 @@ impl SystemRuntimeExecutor {
                     LogicalSize::new(bounds.width, bounds.height),
                     &lifecycle_id,
                 )?;
+                if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                    self.shutdown_state.load(Ordering::Acquire),
+                )) {
+                    webview.close().map_err(RuntimeError::tauri)?;
+                    break;
+                }
                 webview.hide().map_err(RuntimeError::tauri)?;
                 let lifecycle = match self
                     .install_shared_process_surface_lifecycle_tracker(&webview)
@@ -152,6 +166,9 @@ impl SystemRuntimeExecutor {
                             == Some(window_id.as_str());
                         let superseded = self.state.lock().ok().is_some_and(|state| {
                             !optional_divider_hydration_can_continue(
+                                optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                                    self.shutdown_state.load(Ordering::Acquire),
+                                )),
                                 state.native_resources.tabs.contains_key(tab_id),
                                 state
                                     .native_resources.tabs
@@ -179,6 +196,9 @@ impl SystemRuntimeExecutor {
                 .as_deref()
                 == Some(window_id.as_str());
             let inserted = if let Ok(mut state) = self.state.lock()
+                && optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                    self.shutdown_state.load(Ordering::Acquire),
+                ))
                 && !state.close_coordinator.closing_tabs.contains(tab_id)
                 && !state.tab_close_pending(tab_id)
                 && !state.close_previews.contains_key(tab_id)
@@ -731,11 +751,17 @@ impl SystemRuntimeExecutor {
 }
 
 fn optional_divider_hydration_can_continue(
+    shutdown_accepting: bool,
     tab_exists: bool,
     dividers_empty: bool,
     closing: bool,
     close_projected: bool,
     owner_matches: bool,
 ) -> bool {
-    tab_exists && dividers_empty && !closing && !close_projected && owner_matches
+    shutdown_accepting
+        && tab_exists
+        && dividers_empty
+        && !closing
+        && !close_projected
+        && owner_matches
 }

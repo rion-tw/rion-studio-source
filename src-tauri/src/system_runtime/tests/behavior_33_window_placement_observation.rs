@@ -155,6 +155,27 @@ fn minimized_observations_advance_the_fence_without_changing_saved_placement() {
 }
 
 #[test]
+fn identical_placement_observations_advance_the_fence_without_a_topology_commit() {
+    let current = current_placement_target();
+    let observed = ObservedWindowPlacement {
+        display_id: current.display_id,
+        normal_bounds: Some(current.bounds.clone()),
+        presentation: ObservedWindowPresentation::Normal,
+        scale_factor: current.scale_factor,
+        sequence: 12,
+        window_generation: 4,
+        window_id: current.window_id.clone(),
+        work_area: current.work_area.clone(),
+    };
+
+    let reduction = reduce_observed_window_placement(&current, 4, 11, &observed)
+        .expect("a newer identical observation still advances the native event fence");
+
+    assert_eq!(reduction.sequence, 12);
+    assert!(reduction.target.is_none());
+}
+
+#[test]
 fn stale_duplicate_and_wrong_generation_observations_are_rejected() {
     let current = current_placement_target();
     let observed = observed_placement(ObservedWindowPresentation::Normal, 12);

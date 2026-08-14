@@ -40,6 +40,7 @@ impl SystemRuntimeExecutor {
         {
             return self.shutdown_receipt_or_indeterminate(&operation);
         }
+        self.notify_optional_idle_changed();
         self.operations.mark_in_flight(&operation.operation_id);
         self.main_window_actor.stop();
         self.focus_broker.revoke_all();
@@ -85,7 +86,10 @@ impl SystemRuntimeExecutor {
             .filter(|surface| {
                 !surface
                     .lifecycle
-                    .release_is_complete(platform, surface.release_boundary)
+                    .release_is_complete(
+                        platform,
+                        application_shutdown_release_boundary(surface.release_boundary),
+                    )
             })
             .count();
         let hosts = match self.take_shutdown_hosts() {
@@ -215,12 +219,13 @@ impl SystemRuntimeExecutor {
                         } else if surface.kind == ManagedSurfaceKind::Divider {
                             self.close_managed_divider(&surface.instance_id)
                         } else {
-                            self.close_managed_surface_and_wait(
+                            self.close_managed_surface_with_release_boundary_and_wait(
                                 &surface.instance_id,
                                 surface
                                     .role_id
                                     .as_deref()
                                     .unwrap_or(surface.instance_id.as_str()),
+                                application_shutdown_release_boundary(surface.release_boundary),
                             )
                         };
                         if let Err(error) = result
@@ -318,6 +323,19 @@ impl SystemRuntimeExecutor {
             Some("SYSTEM_SHUTDOWN_DRAIN_INCOMPLETE"),
         ));
     }
+}
+
+fn application_shutdown_release_boundary(
+    boundary: SurfaceReleaseBoundary,
+) -> SurfaceReleaseBoundary {
+    match boundary {
+        SurfaceReleaseBoundary::DedicatedStore => SurfaceReleaseBoundary::SharedBrowserProcess,
+        SurfaceReleaseBoundary::SharedBrowserProcess => boundary,
+    }
+}
+
+fn application_shutdown_defers_navigation_to_preflight() -> bool {
+    false
 }
 
 pub(crate) fn shutdown_receipt_allows_clean_exit(status: &SystemRuntimeOperationStatus) -> bool {

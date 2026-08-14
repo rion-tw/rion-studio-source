@@ -80,6 +80,21 @@ impl SystemRuntimeExecutor {
                 let controlled_label = surface.label().to_owned();
                 self.begin_controlled_navigation(&controlled_label)?;
                 controlled_labels.push(controlled_label);
+                if self
+                    .core
+                    .role_ownership_transfer_active(&role.role_id)
+                    .map_err(RuntimeError::core)?
+                {
+                    // A shared-role takeover advances the native lane once when
+                    // retiring the old surface and once when attaching this one.
+                    // Fence Core to the attached generation and keep the active
+                    // macro quiesced until this exact page is ready.
+                    self.begin_navigation_input_fence(
+                        surface.label(),
+                        &role.role_id,
+                        NavigationInputFenceSource::MainFrame,
+                    )?;
+                }
                 let operation = NativeOperationContext::new(
                     NativeOperationSubsystem::Navigation,
                     "embeddedLoadRoles",

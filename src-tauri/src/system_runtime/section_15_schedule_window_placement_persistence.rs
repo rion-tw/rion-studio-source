@@ -39,6 +39,12 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn persist_restore_session(&self, clean_exit: bool) -> Result<(), String> {
+        let shutdown_state = RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        );
+        if !restore_session_persist_is_admitted(shutdown_state, clean_exit) {
+            return Ok(());
+        }
         let live_window_ids = self
             .state
             .lock()
@@ -794,6 +800,13 @@ impl SystemRuntimeExecutor {
         );
     }
 
+}
+
+fn restore_session_persist_is_admitted(
+    shutdown_state: RuntimeShutdownState,
+    clean_exit: bool,
+) -> bool {
+    clean_exit || shutdown_state == RuntimeShutdownState::Accepting
 }
 
 fn overlay_focus_target_is_selected(

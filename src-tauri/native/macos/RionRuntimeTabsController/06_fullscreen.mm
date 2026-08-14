@@ -473,6 +473,59 @@ NS_ASSUME_NONNULL_BEGIN
   return [item performAccessibilityClose];
 }
 
+#if defined(RION_DESKTOP_E2E)
+- (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier {
+  if (_destroyed || tabIdentifier.length == 0) return NO;
+  RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
+  if (!item || item.hidden || item.window != _window) return NO;
+  return [item accessibilityPerformShowMenu];
+}
+
+- (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
+                             targetController:(RionRuntimeTabsController *)targetController
+                           beforeTabIdentifier:(NSString *)beforeTabIdentifier {
+  if (_destroyed || targetController->_destroyed || tabIdentifier.length == 0 ||
+      beforeTabIdentifier.length == 0) return NO;
+  RionRuntimeTabItemView *sourceItem = _tabItemsByIdentifier[tabIdentifier];
+  RionRuntimeTabItemView *targetItem =
+      targetController->_tabItemsByIdentifier[beforeTabIdentifier];
+  if (!sourceItem || sourceItem.hidden || !sourceItem.window || !targetItem ||
+      targetItem.hidden || !targetItem.window) return NO;
+  NSPoint sourcePoint = [sourceItem.window convertPointToScreen:
+      [sourceItem convertPoint:NSMakePoint(NSMidX(sourceItem.bounds),
+                                           NSMidY(sourceItem.bounds))
+                          toView:nil]];
+  NSPoint targetPoint = [targetItem.window convertPointToScreen:
+      [targetItem convertPoint:NSMakePoint(NSMinX(targetItem.bounds) + 2.0,
+                                           NSMidY(targetItem.bounds))
+                          toView:nil]];
+  sourcePoint = RionTopLeftScreenPoint(sourcePoint);
+  targetPoint = RionTopLeftScreenPoint(targetPoint);
+  CGEventRef down = CGEventCreateMouseEvent(
+      NULL, kCGEventLeftMouseDown, sourcePoint, kCGMouseButtonLeft);
+  if (!down) return NO;
+  CGEventPost(kCGHIDEventTap, down);
+  CFRelease(down);
+  for (NSInteger step = 1; step <= 8; ++step) {
+    CGPoint point = CGPointMake(
+        sourcePoint.x + (targetPoint.x - sourcePoint.x) * step / 8.0,
+        sourcePoint.y + (targetPoint.y - sourcePoint.y) * step / 8.0);
+    CGEventRef drag = CGEventCreateMouseEvent(
+        NULL, kCGEventLeftMouseDragged, point, kCGMouseButtonLeft);
+    if (drag) {
+      CGEventPost(kCGHIDEventTap, drag);
+      CFRelease(drag);
+    }
+  }
+  CGEventRef up = CGEventCreateMouseEvent(
+      NULL, kCGEventLeftMouseUp, targetPoint, kCGMouseButtonLeft);
+  if (!up) return NO;
+  CGEventPost(kCGHIDEventTap, up);
+  CFRelease(up);
+  return YES;
+}
+#endif
+
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
   if (_destroyed) return;
   [self hideFailureStatus];

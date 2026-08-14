@@ -1,3 +1,19 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ProvisionalMoveFollowerPlan {
+    reconcile_target_presentation: bool,
+    reparent_surfaces: bool,
+}
+
+fn provisional_move_follower_plan(
+    native_already_at_target: bool,
+    tab_was_visible: bool,
+) -> ProvisionalMoveFollowerPlan {
+    ProvisionalMoveFollowerPlan {
+        reconcile_target_presentation: tab_was_visible,
+        reparent_surfaces: !native_already_at_target,
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn provisionally_move_tab_with_visibility_inner(
         &self,
@@ -44,13 +60,13 @@ impl SystemRuntimeExecutor {
             surfaces.extend(tab.dividers.iter().map(|divider| divider.webview.clone()));
             (source_window_id, target_window, surfaces)
         };
-        if source_window_id == target_window_id {
-            return Ok(());
-        }
+        let native_already_at_target = source_window_id == target_window_id;
         let selected_tabs_before_move = self.presentation.selected_tabs();
         let tab_was_visible = selected_tabs_before_move
             .get(target_window_id)
             .is_some_and(|active_tab_id| active_tab_id == tab_id);
+        let follower_plan =
+            provisional_move_follower_plan(native_already_at_target, tab_was_visible);
         let target_active_after_move = selected_tabs_before_move.get(target_window_id).cloned();
         let move_revision = self
             .presentation
@@ -61,59 +77,65 @@ impl SystemRuntimeExecutor {
             .is_visible()
             .map_err(|error| error.to_string())?;
 
-        let (_, source_presentation_operation_id) = self
-            .reconcile_window_presentation(&source_window_id, "provisional-move-source")?;
-        let source_receipt =
-            self.wait_native_operation_summary(&source_presentation_operation_id)?;
-        if !matches!(
-            source_receipt.status,
-            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
-        ) {
-            return Err("The source presentation was superseded before reparent.".to_owned());
-        }
-        for surface in &surfaces {
-            #[cfg(target_os = "macos")]
-            let result = crate::runtime_tabs_macos::run_on_appkit_tracking_main({
-                let surface = surface.clone();
-                let target_window = target_window.clone();
-                move || surface.reparent(&target_window)
-            })
-            .and_then(|result| result.map_err(|error| error.to_string()));
-            #[cfg(not(target_os = "macos"))]
-            let result = surface
-                .reparent(&target_window)
-                .map_err(|error| error.to_string());
-            if let Err(error) = result {
-                return Err(error.to_string());
+        let (source_is_empty, moved_surfaces) = if !follower_plan.reparent_surfaces {
+            // A forward projection may win the race after live topology commits. Native
+            // ownership is then already correct, but a newly-created target host remains
+            // intentionally cloaked until the target presentation below is acknowledged.
+            // Do not let the idempotent reparent shortcut skip that reveal boundary.
+            (false, Vec::new())
+        } else {
+            let (_, source_presentation_operation_id) = self
+                .reconcile_window_presentation(&source_window_id, "provisional-move-source")?;
+            let source_receipt =
+                self.wait_native_operation_summary(&source_presentation_operation_id)?;
+            if !matches!(
+                source_receipt.status,
+                SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+            ) {
+                return Err("The source presentation was superseded before reparent.".to_owned());
             }
-        }
-        #[cfg(windows)]
-        match synchronize_windows_reparented_surfaces(&surfaces, &target_window) {
-            Ok(outcome) => self.record_windows_reparent_sync_event(
-                "tab.reparent-synchronized",
-                "WebView2 surfaces synchronized with the target Game Window after reparenting.",
-                tab_id,
-                &source_window_id,
-                target_window_id,
-                "provisional-move",
-                Ok(&outcome),
-                None,
-            ),
-            Err(failure) => {
-                self.record_windows_reparent_sync_event(
-                    "tab.reparent-sync-failed",
-                    "WebView2 surfaces could not synchronize with the target Game Window.",
+            for surface in &surfaces {
+                #[cfg(target_os = "macos")]
+                let result = crate::runtime_tabs_macos::run_on_appkit_tracking_main({
+                    let surface = surface.clone();
+                    let target_window = target_window.clone();
+                    move || surface.reparent(&target_window)
+                })
+                .and_then(|result| result.map_err(|error| error.to_string()));
+                #[cfg(not(target_os = "macos"))]
+                let result = surface
+                    .reparent(&target_window)
+                    .map_err(|error| error.to_string());
+                if let Err(error) = result {
+                    return Err(error.to_string());
+                }
+            }
+            #[cfg(windows)]
+            match synchronize_windows_reparented_surfaces(&surfaces, &target_window) {
+                Ok(outcome) => self.record_windows_reparent_sync_event(
+                    "tab.reparent-synchronized",
+                    "WebView2 surfaces synchronized with the target Game Window after reparenting.",
                     tab_id,
                     &source_window_id,
                     target_window_id,
                     "provisional-move",
-                    Err(&failure),
+                    Ok(&outcome),
                     None,
-                );
-                return Err(failure.message);
+                ),
+                Err(failure) => {
+                    self.record_windows_reparent_sync_event(
+                        "tab.reparent-sync-failed",
+                        "WebView2 surfaces could not synchronize with the target Game Window.",
+                        tab_id,
+                        &source_window_id,
+                        target_window_id,
+                        "provisional-move",
+                        Err(&failure),
+                        None,
+                    );
+                    return Err(failure.message);
+                }
             }
-        }
-        let (source_is_empty, moved_surfaces) = {
             let mut state = match self.state.lock() {
                 Ok(state) => state,
                 Err(_) => {
@@ -172,7 +194,7 @@ impl SystemRuntimeExecutor {
                 self.layout_runtime_tab(tab_id)
                     .map_err(|error| error.message)?;
             }
-            if tab_was_visible {
+            if follower_plan.reconcile_target_presentation {
                 let reveal_window = reveal_hidden_target || target_window_was_visible;
                 // The target actor has never applied this surface when a tab is
                 // reparented into a newly-created hidden host. Re-selecting the

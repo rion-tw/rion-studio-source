@@ -18,13 +18,11 @@ fn seed_dormant_tabs(
     let window_generation = RuntimeWindowGeneration(window.window_generation);
     let mut changed = false;
     for tab_id in tab_ids {
-        let current_surface = state
-            .logical_surfaces
-            .get(&tab_id)
-            .is_some_and(|surface| surface.window_generation == window_generation);
-        if current_surface {
-            continue;
-        }
+        // SeedDormantTabs is submitted only after the native executor has filtered out tabs
+        // with materialized content. A same-generation logical surface can still be left by
+        // crash-recovery admission before a hidden/background tab has any native WebView. The
+        // explicit dormant seed is therefore the authoritative correction, rather than the
+        // logical-surface generation alone being treated as proof of materialization.
         changed |= state.logical_surfaces.remove(&tab_id).is_some();
         let tab_id_value = RuntimeTabId::new(tab_id.clone()).map_err(CoreError::InvalidInput)?;
         let record = RuntimeTabActivationRecord {

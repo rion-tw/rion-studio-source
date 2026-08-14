@@ -70,6 +70,26 @@ impl ManagedSurfaceKind {
     }
 }
 
+fn managed_surface_requires_page_quiesce(platform: &str, kind: ManagedSurfaceKind) -> bool {
+    // A Windows divider is an app-owned local chrome surface with no role session, cookies, or
+    // remote page state. Waiting for WebView2 GetCookies + about:blank can consume the entire
+    // application-shutdown boundary even though Controller::Close is the authoritative release
+    // acknowledgement. WKWebView's lease contract still requires its native blank-navigation
+    // confirmation before release, and every page-bearing surface keeps the full quiesce path.
+    platform != "windows" || kind != ManagedSurfaceKind::Divider
+}
+
+fn managed_surface_close_checkpoints_role_cookies(
+    kind: ManagedSurfaceKind,
+    defer_navigation_to_preflight: bool,
+) -> bool {
+    // A regular role release checkpoints cookies before its deferred isolation preflight. Full
+    // application shutdown instead owns the whole persistent native store and must immediately
+    // Stop/Navigate every page: a synchronous live-cookie read from several WebView2 controllers
+    // can otherwise keep the shutdown operation in flight through its exact deadline.
+    kind == ManagedSurfaceKind::Role && defer_navigation_to_preflight
+}
+
 const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
     match kind {
         ManagedSurfaceKind::Popup => 0,

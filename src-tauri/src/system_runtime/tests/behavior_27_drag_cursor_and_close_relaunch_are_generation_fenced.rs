@@ -50,22 +50,25 @@ fn delayed_host_retirement_is_fenced_by_the_latest_reopen_revision() {
 #[test]
 fn optional_divider_hydration_stops_at_every_close_or_topology_fence() {
     assert!(optional_divider_hydration_can_continue(
-        true, true, false, false, true,
+        true, true, true, false, false, true,
     ));
     assert!(!optional_divider_hydration_can_continue(
-        false, true, false, false, true,
+        false, true, true, false, false, true,
     ));
     assert!(!optional_divider_hydration_can_continue(
-        true, false, false, false, true,
+        true, false, true, false, false, true,
     ));
     assert!(!optional_divider_hydration_can_continue(
-        true, true, true, false, true,
+        true, true, false, false, false, true,
     ));
     assert!(!optional_divider_hydration_can_continue(
-        true, true, false, true, true,
+        true, true, true, true, false, true,
     ));
     assert!(!optional_divider_hydration_can_continue(
-        true, true, false, false, false,
+        true, true, true, false, true, true,
+    ));
+    assert!(!optional_divider_hydration_can_continue(
+        true, true, true, false, false, false,
     ));
 }
 

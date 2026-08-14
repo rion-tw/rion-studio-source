@@ -65,6 +65,7 @@ interface RuntimeWaitRequest {
   absent?: boolean;
   afterSequence?: number;
   exactWindowIds?: string[];
+  hidden?: boolean;
   kind: "runtime";
   recoveryAbsent?: boolean;
   recoveryTabCount?: number;
@@ -82,6 +83,7 @@ interface RuntimeWaitRequest {
     windowId: string;
   }>;
   sourceId?: string;
+  tabId?: string;
   windowId?: string;
   windowIds?: string[];
 }
@@ -232,17 +234,25 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
         if (waitRequest.kind === "runtime") {
           const entry = latestEntry(journal.runtimeStates);
           if (!entry) return undefined;
-          const tab = waitRequest.sourceId
-            ? entry.value.tabs.find((candidate) => candidate.sourceId === waitRequest.sourceId)
+          const tab = waitRequest.tabId
+            ? entry.value.tabs.find((candidate) => candidate.id === waitRequest.tabId)
+            : waitRequest.sourceId
+              ? entry.value.tabs.find((candidate) => candidate.sourceId === waitRequest.sourceId)
             : undefined;
           const runtimeWindow = waitRequest.windowId
             ? entry.value.windows.find((candidate) => candidate.windowId === waitRequest.windowId)
             : undefined;
           if (waitRequest.absent) {
-            const targetAbsent = waitRequest.sourceId ? tab === undefined : runtimeWindow === undefined;
+            const targetAbsent = waitRequest.sourceId || waitRequest.tabId
+              ? tab === undefined
+              : runtimeWindow === undefined;
             return targetAbsent ? entry.value : undefined;
           }
           if (waitRequest.sourceId && !tab) return undefined;
+          if (waitRequest.tabId && !tab) return undefined;
+          if (waitRequest.hidden !== undefined && tab?.hidden !== waitRequest.hidden) {
+            return undefined;
+          }
           if (waitRequest.windowId && !runtimeWindow) return undefined;
           if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
             return undefined;

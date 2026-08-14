@@ -417,8 +417,12 @@ impl SystemRuntimeExecutor {
                 &webview,
                 &lifecycle,
                 role_id,
-                true,
-                SurfaceReleaseBoundary::DedicatedStore,
+                SurfaceClosePlan {
+                    checkpoint_role_session: true,
+                    defer_navigation_to_preflight: true,
+                    release_boundary: SurfaceReleaseBoundary::DedicatedStore,
+                    requires_page_quiesce: true,
+                },
             )
                 .await?;
             Ok(())

@@ -210,7 +210,7 @@ it("commits role and tab removal only after native close acknowledgement", async
     expect(nativeClose).toContain("!lifecycle.parent_window_destroyed()");
     expect(nativeClose).toContain('"surface.native-release-requested"');
     expect(nativeClose).not.toContain("SURFACE_ISOLATION_TIMEOUT");
-    expect(nativeClose).toContain("wait_for_release_event(platform, release_boundary)");
+    expect(nativeClose).toContain("wait_for_release_event(platform, plan.release_boundary)");
     expect(nativeClose).not.toContain("recv_timeout");
     expect(nativeClose).not.toContain("wait_timeout");
     expect(runtime).toContain("complete_destroyed_host_surface_continuations(window_id, *generation)");
@@ -842,6 +842,14 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     expect(move).not.toContain("native_tab_hosts");
     expect(move).toContain("live_tab_ids_for_window(&source_window_id)");
     expect(move).not.toContain("surface.window_id = source_window_id.to_owned()");
+    expect(move).toContain(
+      "provisional_move_follower_plan(native_already_at_target, tab_was_visible)"
+    );
+    expect(move).toContain("if !follower_plan.reparent_surfaces");
+    expect(move).toContain("if follower_plan.reconcile_target_presentation");
+    expect(move).not.toContain(
+      "if source_window_id == target_window_id {\n            return Ok(());"
+    );
     const popup = runtime.slice(
       runtime.indexOf("fn register_popup("),
       runtime.indexOf("fn schedule_surface_recovery(")
@@ -1082,5 +1090,97 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
       "state.runtime.live_tab_window_id(tab_id).as_deref() != Some(window_id.as_str())"
     );
     expect(menu).not.toContain('action_type != "move" && live_window_id != window_id');
+  });
+
+  it("does not route dormant reservations through the stable launcher shortcut", async () => {
+    const [source, dormantSeed] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_10_set_language.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_13_on_demand_tab_activation.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
+    const stableLookup = source.slice(
+      source.indexOf("pub(crate) fn presented_stable_tab_for_launcher_source"),
+      source.indexOf("pub(crate) fn cancel_active_launch_preview_for_source")
+    );
+
+    expect(stableLookup).toContain(".tab_activations");
+    expect(stableLookup).toContain("launcher_tab_is_materialized_stable(");
+    expect(source).toContain(
+      "has_materialized_content && !close_pending && !activation_tracked"
+    );
+    expect(source).toContain("runtime_tab_has_materialized_content(");
+    expect(source).toContain("tab.slots.values().any(|slot| slot.placeholder.is_some())");
+    expect(dormantSeed).toContain("!runtime_tab_has_materialized_content(");
+    expect(dormantSeed).toContain("self.seed_kernel_dormant_tabs(window_id, dormant_tab_ids)");
+  });
+
+  it("reveals and materializes a hidden dormant tab before launcher activation", async () => {
+    const [launch, presentation] = await Promise.all([
+      readFile(
+        new URL("../src-tauri/src/lib/section_04_runtime_launch_intent.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_13_window_zoom_indicator_label.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const existing = launch.slice(
+      launch.indexOf("let activation_tracked ="),
+      launch.indexOf("let receipt = runtime_launch_receipt", launch.indexOf("let activation_tracked ="))
+    );
+    const hidden = presentation.slice(
+      presentation.indexOf("if was_hidden {"),
+      presentation.indexOf("self.layout_runtime_tab(tab_id)")
+    );
+
+    expect(existing).toContain("state.runtime.live_tab_is_hidden(&tab_id)");
+    expect(existing.indexOf("preview_and_schedule_launcher_tab_selection"))
+      .toBeLessThan(existing.indexOf("activate_runtime_tab_on_demand"));
+    expect(hidden).toContain("ensure_native_tab_unhide_projection(");
+    expect(hidden.indexOf("ensure_native_tab_unhide_projection("))
+      .toBeLessThan(presentation.indexOf("self.layout_runtime_tab(tab_id)") - presentation.indexOf("if was_hidden {"));
+    expect(hidden).not.toContain("schedule_native_tab_unhide_projection");
+  });
+
+  it("checkpoints live role session storage before committing hidden topology", async () => {
+    const [hide, session, builder] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_10_live_tab_drag_commit.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_29_session_storage.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/system_runtime/section_19_webview_builder.rs", import.meta.url),
+        "utf8"
+      )
+    ]);
+    const hideIntent = hide.slice(
+      hide.indexOf("fn commit_live_tab_hide_intent"),
+      hide.indexOf("fn schedule_native_tab_hide_projection")
+    );
+
+    expect(hideIntent.indexOf("persist_runtime_tab_role_session_checkpoints(tab_id)"))
+      .toBeLessThan(hideIntent.indexOf("commit_live_window_record"));
+    expect(session).toContain("fn persist_runtime_tab_role_session_checkpoints(");
+    expect(session).toContain("self.persist_role_cookie_checkpoint(&webview, &role_id)?;");
+    expect(session).toContain("self.persist_role_local_storage_checkpoint(&webview, &role_id)?;");
+    expect(session).toContain('"surface.session-checkpointed"');
+    expect(session).toContain("sessionStorage.getItem(markerKey)");
+    expect(builder).toContain("role_local_storage_checkpoint_document_start_script(role_id)");
   });
 });

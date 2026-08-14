@@ -1,3 +1,7 @@
+fn placeholder_attachment_is_role_load_boundary(requested_role_count: usize) -> bool {
+    requested_role_count == 0
+}
+
 impl SystemRuntimeExecutor {
     fn execute_role_load_effect_async(
         self: &Arc<Self>,
@@ -14,6 +18,7 @@ impl SystemRuntimeExecutor {
             CoreEffectAction::EmbeddedLoadRoles { roles } => roles,
             _ => unreachable!("role-load async dispatch only accepts EmbeddedLoadRoles"),
         };
+        let placeholder_only_tab = placeholder_attachment_is_role_load_boundary(roles.len());
         let pending = match self.start_role_loads(roles) {
             Ok(pending) => pending,
             Err(error) => {
@@ -100,6 +105,28 @@ impl SystemRuntimeExecutor {
             );
         }
 
+        // Core deliberately emits an empty load step when every occurrence in a restored tab
+        // is owned by another live tab. Native placeholder attachment is the authoritative
+        // essential-ready boundary in that case; there is no page-load callback that could
+        // advance the tab out of Navigating. Leaving it there blocks optional hydration and
+        // makes mixed role/workspace recovery depend on window restore order.
+        if effect_accepted && placeholder_only_tab {
+            let tab_id = effect.target.handle_id;
+            let tab_is_current = self.state.lock().ok().is_some_and(|state| {
+                state
+                    .native_resources
+                    .tabs
+                    .get(&tab_id)
+                    .is_some_and(|tab| tab.roles.is_empty())
+            });
+            if tab_is_current && self.application_lifecycle_epoch_matches(lifecycle_epoch) {
+                self.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
+                self.schedule_optional_hydration(&tab_id);
+                let _ = self.apply_runtime_native_event_for_operation(&operation_id, "ready");
+            }
+            return;
+        }
+
         let runtime = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
             let mut ready_roles = HashSet::new();
@@ -169,6 +196,11 @@ impl SystemRuntimeExecutor {
                         )
                         .is_ok()
                     {
+                        let readback = read_document_instance(&pending_navigation.surface);
+                        runtime_for_completion.complete_main_frame_navigation_page_finish(
+                            pending_navigation.surface.label(),
+                            readback.as_ref().ok(),
+                        );
                         runtime_for_completion.record_runtime_stage(
                             format!(
                                 "tab.page-ready:{tab_id}:{}",

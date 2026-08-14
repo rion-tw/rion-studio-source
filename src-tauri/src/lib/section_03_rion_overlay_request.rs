@@ -601,6 +601,7 @@ async fn rion_runtime_tab_action(
             before_tab_id,
         )
         .await?;
+        record_runtime_operation_terminal(&receipt);
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });

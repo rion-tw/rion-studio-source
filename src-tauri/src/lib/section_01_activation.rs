@@ -127,6 +127,16 @@ fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
     let app = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let receipt = runtime.close_all();
+        #[cfg(feature = "desktop-e2e")]
+        desktop_e2e::record_event(
+            "application-shutdown-terminal",
+            None,
+            None,
+            None,
+            serde_json::to_value(&receipt).unwrap_or_else(|error| {
+                json!({ "serializationError": error.to_string() })
+            }),
+        );
         let persistence_result =
             if system_runtime::shutdown_receipt_allows_clean_exit(&receipt.status) {
                 runtime.persist_restore_session(true)

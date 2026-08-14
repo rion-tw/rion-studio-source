@@ -288,8 +288,11 @@ impl SystemRuntimeExecutor {
                 for surface in &surfaces {
                     let runtime = runtime.clone();
                     scope.spawn(move || {
-                        if let Ok(request) =
-                            quiesce_platform_surface(&surface.webview, &surface.lifecycle)
+                        if let Ok(request) = quiesce_platform_surface(
+                            &surface.webview,
+                            &surface.lifecycle,
+                            true,
+                        )
                             && let Some(runtime) = runtime
                         {
                             runtime.record_surface_isolation_request(

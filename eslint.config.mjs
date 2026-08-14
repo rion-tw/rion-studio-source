@@ -8,6 +8,7 @@ export default tseslint.config(
   {
     ignores: [
       "coverage",
+      ".desktop-e2e-artifacts",
       "dist",
       "node_modules",
       "out",

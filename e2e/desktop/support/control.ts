@@ -30,7 +30,7 @@ export interface DesktopE2eWindowSnapshot {
     persistedName?: string;
     placement?: WindowPlacement;
     revision: number;
-    selectedTabId?: string;
+    selectedTabId?: string | null;
     surfaceTabIds: string[];
     tabs: Array<{
       audioMuted: boolean;
@@ -85,7 +85,7 @@ interface WindowPlacement {
 
 export type WindowControlRequest =
   | {
-      action: "clickVisibleClose" | "close" | "minimize" | "permitCloseConfirmation";
+      action: "clickVisibleClose" | "close" | "focus" | "minimize" | "permitCloseConfirmation";
     }
   | { action: "dragVisibleChrome"; deltaX: number; deltaY: number }
   | {
@@ -101,8 +101,32 @@ export type WindowControlRequest =
 export type RuntimeUiActionRequest =
   | { action: "activateTab"; tabId: string; windowGeneration: number }
   | { action: "closeTab"; tabId: string; windowGeneration: number }
+  | {
+      action: "dragTab";
+      beforeTabId: string;
+      tabId: string;
+      targetWindowGeneration: number;
+      targetWindowId: string;
+      topologyRevision: number;
+      windowGeneration: number;
+    }
   | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
-  | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number };
+  | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number }
+  | {
+      action: "openTabMenu";
+      tabId: string;
+      topologyRevision: number;
+      windowGeneration: number;
+    }
+  | {
+      action: "selectTabMenuItem";
+      menuAction: "hide" | "move" | "moveToNewWindow";
+      tabId: string;
+      targetWindowGeneration?: number;
+      targetWindowId?: string;
+      topologyRevision: number;
+      windowGeneration: number;
+    };
 
 interface RendererCallResult {
   error?: string;

@@ -926,6 +926,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
 pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
+    _defer_navigation_to_preflight: bool,
 ) -> RuntimeResult<()> {
     unsafe extern "C" {
         fn rion_wk_quiesce_surface(token: u64) -> bool;

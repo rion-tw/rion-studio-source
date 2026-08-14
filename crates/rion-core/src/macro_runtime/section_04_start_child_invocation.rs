@@ -179,6 +179,19 @@ fn input_sequence_role_lock(shared: &Arc<Shared>, role_id: &str) -> Result<Arc<M
     Ok(lock)
 }
 
+fn input_sequence_role_locks(
+    shared: &Arc<Shared>,
+    role_ids: &[String],
+) -> Result<Vec<Arc<Mutex<()>>>, String> {
+    let mut ordered_role_ids = role_ids.to_vec();
+    ordered_role_ids.sort();
+    ordered_role_ids.dedup();
+    ordered_role_ids
+        .iter()
+        .map(|role_id| input_sequence_role_lock(shared, role_id))
+        .collect()
+}
+
 fn action_role_locks(
     shared: &Arc<Shared>,
     role_ids: &[String],
@@ -254,10 +267,24 @@ fn perform_actions_with_control(
         .collect::<Result<Vec<_>, _>>()?;
     let mut pending_actions = Vec::with_capacity(actions.len());
     let action_metadata = {
-        let inner = shared
+        let mut inner = shared
             .inner
             .lock()
             .map_err(|_| "macro runtime lock poisoned".to_owned())?;
+        while !allow_cancelled
+            && !control.cancelled.load(Ordering::Acquire)
+            && role_ids
+                .iter()
+                .any(|role_id| inner.transferring_role_ids.contains(role_id))
+        {
+            inner = shared
+                .role_transfer_changed
+                .wait(inner)
+                .map_err(|_| "macro role transfer lock poisoned".to_owned())?;
+        }
+        if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
+            return Err("macro run cancelled".to_owned());
+        }
         actions
             .iter()
             .map(|(role_id, _)| {

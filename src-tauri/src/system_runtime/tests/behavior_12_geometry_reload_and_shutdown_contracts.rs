@@ -972,3 +972,13 @@ fn disconnected_webview_layout_is_recoverable_not_global_geometry_corruption() {
         "window bounds were rejected"
     ));
 }
+
+#[test]
+fn force_restart_can_defer_the_main_window_projection_until_page_load() {
+    assert!(main_window_initial_projection_can_defer(
+        "runtime error: failed to receive message from webview"
+    ));
+    assert!(!main_window_initial_projection_can_defer(
+        "window bounds were rejected"
+    ));
+}

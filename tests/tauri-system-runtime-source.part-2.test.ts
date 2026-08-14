@@ -3,6 +3,84 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
+it("records HTML and native-menu tab mutation receipts from the shared terminal recorder", async () => {
+  const [receiptSource, overlaySource, menuSource] = await Promise.all([
+    readFile("src-tauri/src/lib/section_01_runtime_operation_receipt.rs", "utf8"),
+    readFile("src-tauri/src/lib/section_03_rion_overlay_request.rs", "utf8"),
+    readFile("src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs", "utf8")
+  ]);
+  const mutationBranch = overlaySource.slice(
+    overlaySource.indexOf('Some("hide" | "move" | "reorder")'),
+    overlaySource.indexOf('Some("windowControl")')
+  );
+
+  expect(receiptSource).toContain("fn record_runtime_operation_terminal(");
+  expect(receiptSource).toContain('"runtime-operation-terminal"');
+  expect(receiptSource).toContain("record_runtime_operation_terminal(&receipt);");
+  expect(mutationBranch).toContain("record_runtime_operation_terminal(&receipt);");
+  expect(mutationBranch.indexOf("record_runtime_operation_terminal(&receipt);"))
+    .toBeLessThan(mutationBranch.lastIndexOf("serde_json::to_value(receipt)"));
+  expect(menuSource).toContain(
+    "Ok(created) => crate::record_runtime_operation_terminal(&created.receipt)"
+  );
+  expect(menuSource.indexOf('"runtime-tab-menu-opened"'))
+    .toBeLessThan(menuSource.indexOf("menu.popup(window)"));
+  expect(menuSource).toContain('"completionScope": "nativeSubmission"');
+});
+
+it("uses one synchronous Windows input-queue handoff for exact game-window foreground", async () => {
+  const lifecycle = await readFile(
+    "src-tauri/src/system_runtime/platform/windows/lifecycle.rs",
+    "utf8"
+  );
+  const foreground = lifecycle.slice(
+    lifecycle.indexOf("fn request_platform_window_show_foreground("),
+    lifecycle.indexOf("fn platform_window_is_focused(")
+  );
+
+  expect(foreground).toContain("AttachThreadInput(target_thread, foreground_thread, true)");
+  expect(foreground).toContain("AttachThreadInput(target_thread, foreground_thread, false)");
+  expect(foreground.indexOf("BringWindowToTop(hwnd)"))
+    .toBeLessThan(foreground.indexOf("if attached {", foreground.indexOf("let attached =")));
+  expect(foreground).toContain("GetForegroundWindow() } == hwnd");
+  expect(foreground.indexOf("AttachThreadInput(target_thread, foreground_thread, false)"))
+    .toBeLessThan(foreground.lastIndexOf("GetForegroundWindow() } == hwnd"));
+  expect(foreground).not.toContain("sleep");
+  expect(foreground).not.toContain("retry");
+});
+
+it("selects a visible Win32 tab menu from the authoritative popup-start event", async () => {
+  const [pointer, journey] = await Promise.all([
+    readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_pointer.rs", "utf8"),
+    readFile("e2e/desktop/specs/cross-domain-runtime.e2e.ts", "utf8")
+  ]);
+  const arm = pointer.slice(pointer.indexOf("fn desktop_e2e_windows_arm_tab_menu_item("));
+  const windowsMenu = journey.slice(
+    journey.indexOf('if (process.platform === "win32")'),
+    journey.indexOf('const receiptCursor = (await probe()).latestSequence;')
+  );
+  const detachedMenuStart = journey.indexOf("await browser.setWindowRect(Math.round(dashboardX)");
+  const detachedMenu = journey.slice(
+    detachedMenuStart,
+    journey.indexOf("\n  await waitForActiveTabsReady();", detachedMenuStart)
+  );
+
+  expect(arm).toContain("SetWinEventHook(");
+  expect(arm).toContain("EVENT_SYSTEM_MENUPOPUPSTART");
+  expect(pointer).toContain('"runtime-tab-menu-input-terminal"');
+  expect(pointer).toContain('"nativeEvent": "EVENT_SYSTEM_MENUPOPUPSTART"');
+  expect(arm).not.toContain("sleep");
+  expect(arm).not.toContain("FindWindow");
+  expect(windowsMenu.indexOf('action: "selectTabMenuItem"'))
+    .toBeLessThan(windowsMenu.indexOf('action: "openTabMenu"'));
+  expect(windowsMenu).toContain('kind: "runtime-tab-menu-input-terminal"');
+  expect(detachedMenu.indexOf("browser.setWindowRect(Math.round(dashboardX)"))
+    .toBeLessThan(detachedMenu.indexOf("await tabMenuAction({"));
+  expect(detachedMenu).toContain("} finally {");
+  expect(detachedMenu.lastIndexOf("await browser.maximizeWindow();"))
+    .toBeGreaterThan(detachedMenu.indexOf("await tabMenuAction({"));
+});
+
 it("funnels terminal AppKit and Win32 placement events through one fenced reducer", async () => {
   const [runtime, macLayout, macCallback, windowsResize] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_14_window_placement.rs", "utf8"),
@@ -568,6 +646,11 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(roleLoading.indexOf("begin_controlled_navigation")).toBeLessThan(
       roleLoading.indexOf("surface.navigate")
     );
+    expect(roleLoading).toContain("role_ownership_transfer_active");
+    expect(roleLoading.indexOf("role_ownership_transfer_active")).toBeLessThan(
+      roleLoading.indexOf("surface.navigate")
+    );
+    expect(roleLoading).toContain("NavigationInputFenceSource::MainFrame");
     expect(roleLoading.indexOf("pending_navigations.push")).toBeGreaterThan(
       roleLoading.indexOf("surface.navigate")
     );
@@ -581,6 +664,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("wait_role_navigation_for_lifecycle");
     expect(runtime).toContain(".wait_operation_async(operation.clone())");
     expect(runtime).toContain("application_lifecycle_epoch_matches");
+    expect(runtime).toContain("complete_main_frame_navigation_page_finish(");
 
     const reloadTab = runtime.slice(
       runtime.indexOf("pub fn reload_tab("),
@@ -843,7 +927,7 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(navigationPolicy).not.toContain("CoreCommand::MacroReleaseRole");
     expect(navigationPolicy).not.toContain("webview.navigate(url)");
     expect(navigationPolicy).not.toContain('"url"');
-    expect(runtime.match(/begin_navigation_input_fence\(/g)).toHaveLength(3);
+    expect(runtime.match(/begin_navigation_input_fence\(/g)).toHaveLength(4);
     expect(runtime).toContain('"operationId": operation_id');
 
     for (const forbiddenDocumentRequestNavigationToken of [
@@ -955,7 +1039,7 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(surfaceContinuation).toContain("wait_for_isolation_event().await");
     expect(surfaceContinuation).toContain("wait_for_native_release_event().await");
     expect(surfaceContinuation.indexOf("persist_role_cookie_checkpoint(webview, role_id)"))
-      .toBeLessThan(surfaceContinuation.indexOf("quiesce_platform_surface(webview, lifecycle)"));
+      .toBeLessThan(surfaceContinuation.indexOf("quiesce_platform_surface("));
     expect(focusContinuation).toContain("MainWindowApplyResult::FocusSubmitted");
     expect(focusContinuation).toContain(".recv()");
     expect(focusContinuation).not.toContain("is_focused");
@@ -966,6 +1050,11 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(windowsIsolation).toContain("windows_surface_navigation_completion");
     expect(windowsIsolation).toContain("GetCookiesCompletedHandler");
     expect(windowsIsolation).toContain("GetCookies(PCWSTR::null(), &preflight)");
+    expect(windowsIsolation).toContain(
+      "windows_surface_quiesce_completes_at_stop(defer_navigation_to_preflight)"
+    );
+    expect(windowsIsolation).toContain("callback_lifecycle.mark_isolated(13)");
+    expect(windowsIsolation).not.toContain("shutdown-isolation-navigation");
     expect(windowsIsolation).not.toContain("AddOrUpdateCookie");
     const windowsPreflight = windowsIsolation.slice(
       windowsIsolation.indexOf("let preflight = GetCookiesCompletedHandler"),
@@ -987,5 +1076,21 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(macLifecycle).not.toContain("addObserver:");
     expect(macLifecycle).not.toContain("webView.loading");
     expect(macLifecycle).not.toContain("webView.URL");
+  });
+
+  it("defers only unavailable main-WebView startup projections", async () => {
+    const actor = await readFile(
+      "src-tauri/src/system_runtime/section_04_main_window_actor.rs",
+      "utf8"
+    );
+    const startup = actor.slice(
+      actor.indexOf("fn main_window_initial_projection_can_defer"),
+      actor.indexOf("let queue = Arc::new")
+    );
+
+    expect(startup).toContain("native_surface_channel_is_unavailable(error)");
+    expect(startup).toContain("if !main_window_initial_projection_can_defer(&error)");
+    expect(startup).toContain("return Err(error)");
+    expect(startup).toContain("initial projection deferred");
   });
 });

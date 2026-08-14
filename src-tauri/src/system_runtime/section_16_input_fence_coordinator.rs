@@ -422,6 +422,17 @@ impl SystemRuntimeExecutor {
         let Some((generation, operation)) = recovery else {
             return;
         };
+        if let Err(error) = self
+            .core
+            .terminalize_macro_runs_after_navigation_failure(role_id)
+        {
+            self.emit_navigation_input_error(
+                "SYSTEM_NAVIGATION_MACRO_TERMINAL_FAILED",
+                &error.to_string(),
+                role_id,
+                "input-fence",
+            );
+        }
         let parent_operation_id = operation
             .as_ref()
             .map(|operation| operation.operation_id.clone());

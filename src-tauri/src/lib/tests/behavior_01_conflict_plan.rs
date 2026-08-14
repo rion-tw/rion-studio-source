@@ -499,6 +499,17 @@ use super::*;
             &workspace_window,
             &live_runtime,
         ));
+        assert!(!saved_window_duplicates_runtime_tab_source(
+            &workspace_window,
+            &live_runtime,
+        ));
+        let mut duplicate_source_runtime = live_runtime.clone();
+        duplicate_source_runtime.tabs[0].source_id = workspace_window.tabs[0].source_id.clone();
+        duplicate_source_runtime.tabs[0].tab_type = workspace_window.tabs[0].tab_type.clone();
+        assert!(saved_window_duplicates_runtime_tab_source(
+            &workspace_window,
+            &duplicate_source_runtime,
+        ));
 
         assert_eq!(
             statuses_for_launch_source(

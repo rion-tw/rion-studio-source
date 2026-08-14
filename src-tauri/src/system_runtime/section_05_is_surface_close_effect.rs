@@ -58,6 +58,14 @@ fn is_browser_action_effect(action: &CoreEffectAction) -> bool {
     matches!(action, CoreEffectAction::BrowserAction { .. })
 }
 
+fn marks_optional_hydration_critical_activity(action: &CoreEffectAction) -> bool {
+    is_surface_close_effect(action) || is_independent_tab_launch_effect(action)
+}
+
+fn optional_hydration_is_admitted(shutdown_state: RuntimeShutdownState) -> bool {
+    shutdown_state == RuntimeShutdownState::Accepting
+}
+
 fn browser_action_deadline_expired(deadline_ms: u64) -> bool {
     chrono::Utc::now().timestamp_millis().max(0) as u64 > deadline_ms
 }

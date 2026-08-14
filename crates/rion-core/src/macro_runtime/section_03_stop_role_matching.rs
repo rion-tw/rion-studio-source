@@ -236,10 +236,15 @@ fn execute_step(
             duration_ms,
             ..
         } => {
-            let input_sequence = input_sequence_role_lock(shared, role_id)?;
-            let _input_sequence_guard = input_sequence
-                .lock()
-                .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
+            let input_sequences = input_sequence_role_locks(shared, roles)?;
+            let _input_sequence_guards = input_sequences
+                .iter()
+                .map(|sequence| {
+                    sequence
+                        .lock()
+                        .map_err(|_| "macro input sequence lock poisoned".to_owned())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let modifiers = modifiers.as_deref().unwrap_or_default();
             let hold_until_stop = action.as_deref() == Some("hold_until_stop");
             let key_hold_ms = if action.as_deref() == Some("hold_for_duration") {
@@ -374,10 +379,15 @@ fn execute_step(
             anchor,
             position,
         } => {
-            let input_sequence = input_sequence_role_lock(shared, role_id)?;
-            let _input_sequence_guard = input_sequence
-                .lock()
-                .map_err(|_| "macro input sequence lock poisoned".to_owned())?;
+            let input_sequences = input_sequence_role_locks(shared, roles)?;
+            let _input_sequence_guards = input_sequences
+                .iter()
+                .map(|sequence| {
+                    sequence
+                        .lock()
+                        .map_err(|_| "macro input sequence lock poisoned".to_owned())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let (unit, x, y) = match position {
                 crate::model::MacroClickDefinition::Percent {
                     x_percent,

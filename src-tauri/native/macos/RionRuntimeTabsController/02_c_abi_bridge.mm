@@ -239,6 +239,69 @@ bool rion_runtime_tabs_accessibility_close(
   }
 }
 
+#if defined(RION_DESKTOP_E2E)
+bool rion_runtime_tabs_accessibility_show_menu(
+    void * _Nullable rawController, const char *rawTabIdentifier) {
+  @autoreleasepool {
+    if (!rawController || !rawTabIdentifier) return false;
+    RionRuntimeTabsController *controller =
+        (__bridge RionRuntimeTabsController *)rawController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    if (tabIdentifier.length == 0) return false;
+    return [controller performAccessibilityShowMenuForTabIdentifier:tabIdentifier];
+  }
+}
+
+bool rion_runtime_tabs_desktop_e2e_drag(
+    void * _Nullable rawSourceController, const char *rawTabIdentifier,
+    void * _Nullable rawTargetController, const char *rawBeforeTabIdentifier) {
+  @autoreleasepool {
+    if (!rawSourceController || !rawTargetController || !rawTabIdentifier ||
+        !rawBeforeTabIdentifier) return false;
+    RionRuntimeTabsController *source =
+        (__bridge RionRuntimeTabsController *)rawSourceController;
+    RionRuntimeTabsController *target =
+        (__bridge RionRuntimeTabsController *)rawTargetController;
+    NSString *tabIdentifier = RionStringFromUTF8(rawTabIdentifier);
+    NSString *beforeTabIdentifier = RionStringFromUTF8(rawBeforeTabIdentifier);
+    return [source performDesktopE2EDragForTabIdentifier:tabIdentifier
+                                       targetController:target
+                             beforeTabIdentifier:beforeTabIdentifier];
+  }
+}
+
+static void RionDesktopE2EPostKey(CGKeyCode keyCode) {
+  CGEventRef down = CGEventCreateKeyboardEvent(NULL, keyCode, true);
+  CGEventRef up = CGEventCreateKeyboardEvent(NULL, keyCode, false);
+  if (down) CGEventPost(kCGHIDEventTap, down);
+  if (up) CGEventPost(kCGHIDEventTap, up);
+  if (down) CFRelease(down);
+  if (up) CFRelease(up);
+}
+
+bool rion_runtime_tabs_desktop_e2e_select_menu_item(
+    int action, unsigned long targetRank) {
+  @autoreleasepool {
+    RionDesktopE2EPostKey(115);  // Home
+    unsigned long downCount = 0;
+    if (action == 0) downCount = 4;       // Hide
+    else if (action == 1) downCount = 2;  // Move to New Window
+    else if (action == 2) {               // Move to Game Window submenu
+      RionDesktopE2EPostKey(125);
+      RionDesktopE2EPostKey(124);
+      downCount = targetRank;
+    } else {
+      return false;
+    }
+    for (unsigned long index = 0; index < downCount; ++index) {
+      RionDesktopE2EPostKey(125);
+    }
+    RionDesktopE2EPostKey(36);  // Return
+    return true;
+  }
+}
+#endif
+
 void rion_runtime_tabs_hide_failure_status(void * _Nullable rawController) {
   @autoreleasepool {
     if (!rawController) return;
@@ -824,5 +887,11 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
+#if defined(RION_DESKTOP_E2E)
+- (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier;
+- (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
+                             targetController:(RionRuntimeTabsController *)targetController
+                           beforeTabIdentifier:(NSString *)beforeTabIdentifier;
+#endif
 
 NS_ASSUME_NONNULL_END

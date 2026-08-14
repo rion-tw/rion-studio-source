@@ -358,7 +358,7 @@ pub(crate) fn desktop_e2e_control_window(
 }
 
 #[tauri::command]
-pub(crate) fn desktop_e2e_runtime_ui_action(
+pub(crate) async fn desktop_e2e_runtime_ui_action(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -366,9 +366,12 @@ pub(crate) fn desktop_e2e_runtime_ui_action(
     request: crate::system_runtime::DesktopE2eRuntimeUiActionRequest,
 ) -> Result<Value, String> {
     control.authenticate(&token)?;
-    state
-        .runtime
-        .desktop_e2e_runtime_ui_action(&window_id, request)
+    let runtime = Arc::clone(&state.runtime);
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.desktop_e2e_runtime_ui_action(&window_id, request)
+    })
+    .await
+    .map_err(|error| format!("Desktop E2E native UI action task failed: {error}"))?
 }
 
 #[tauri::command]

@@ -834,12 +834,17 @@ impl SystemRuntimeExecutor {
             )
         };
         if was_hidden {
-            self.schedule_native_tab_unhide_projection(
-                window_id.clone(),
-                tab_presentation,
-                ordered_tab_ids.clone(),
+            // Hidden restored tabs deliberately have no native tab reservation. Materialize and
+            // order the tab from this visible launcher action before Windows layout or AppKit
+            // presentation can consume it; the native result is part of this event-bound action.
+            self.ensure_native_tab_unhide_projection(
+                &window_id,
+                &tab_presentation,
+                &ordered_tab_ids,
                 revision,
-            );
+                "tab-unhide-selection",
+            )
+            .map_err(|error| error.message)?;
             self.schedule_live_window_state_persistence(&window_id);
         }
         if trigger == "native-pointer" {

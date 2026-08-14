@@ -761,11 +761,20 @@ pub(crate) async fn execute_runtime_launch_intent(
     {
         if let Some(window_id) = state.runtime.live_tab_window_id(&tab_id) {
             admission_signal.complete();
-            if state
+            let activation_tracked = state
                 .runtime
                 .authoritative_tab_activation_phase(&tab_id)
-                .is_some()
-            {
+                .is_some();
+            if activation_tracked && state.runtime.live_tab_is_hidden(&tab_id) {
+                // RuntimeKernel rejects activation while a tab is hidden. The launcher action is
+                // the authority that reveals it, so commit the visible/native tab first and only
+                // then claim the dormant activation attempt. This also guarantees WebView2/AppKit
+                // has a tab reservation before the ordinary selection path performs layout.
+                preview_and_schedule_launcher_tab_selection(app, &state, &tab_id).map_err(
+                    |message| shell_error("TAURI_RUNTIME_TAB_ACTIVATION_FAILED", message),
+                )?;
+            }
+            if activation_tracked {
                 activate_runtime_tab_on_demand(app, &state, &tab_id, false).await?;
             } else {
                 preview_and_schedule_launcher_tab_selection(app, &state, &tab_id).map_err(

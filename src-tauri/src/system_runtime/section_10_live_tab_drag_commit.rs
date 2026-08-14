@@ -138,6 +138,12 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(&window_id)
             .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
+        // Hiding is the final authoritative user boundary before a force-terminated session may
+        // lose recent asynchronous System WebView storage writes. Capture each live role Cookie
+        // and exact-origin LocalStorage set before committing hidden topology; failure leaves the
+        // tab visible and retryable.
+        self.persist_runtime_tab_role_session_checkpoints(tab_id)
+            .map_err(|error| error.message)?;
         let (previous_tab_id, previous_surfaces, next_tab_id, next_surfaces, revision) = {
             let mut live = coordinator.record.clone();
             if live.tab_is_hidden(tab_id) {
@@ -242,62 +248,37 @@ impl SystemRuntimeExecutor {
             });
     }
 
-    fn schedule_native_tab_unhide_projection(
+    fn ensure_native_tab_unhide_projection(
         &self,
-        window_id: String,
-        tab: LiveTabRecord,
-        ordered_tab_ids: Vec<String>,
+        window_id: &str,
+        tab: &LiveTabRecord,
+        ordered_tab_ids: &[String],
         revision: u64,
-    ) {
-        let Some(runtime) = self.self_weak.get().cloned() else {
-            return;
-        };
-        let _ = thread::Builder::new()
-            .name(format!("rion-tab-unhide-{}", tab.id))
-            .spawn(move || {
-                let Some(runtime) = runtime.upgrade() else {
-                    return;
-                };
-                let still_visible = runtime
-                    .presentation
-                    .existing(&window_id)
-                    .map(|live| live.contains_tab(&tab.id) && !live.tab_is_hidden(&tab.id))
-                    .unwrap_or(false);
-                if !still_visible {
-                    return;
-                }
-                #[cfg(any(windows, target_os = "macos"))]
-                let workspace_template = tab.workspace_template.as_deref();
-                #[cfg(not(any(windows, target_os = "macos")))]
-                let workspace_template: Option<&str> = None;
-                let result = runtime
-                    .try_ensure_native_tab(
-                        &window_id,
-                        &tab.id,
-                        &tab.title,
-                        &tab.tab_type,
-                        workspace_template,
-                    )
-                    .and_then(|()| runtime.reorder_native_tabs(&window_id, &ordered_tab_ids));
-                match result {
-                    Ok(()) => {
-                        let active_tab_id = runtime
-                            .presentation
-                            .existing(&window_id)
-                            .and_then(|live| live.selected_tab_id.clone());
-                        runtime.apply_native_active_style(
-                            &window_id,
-                            active_tab_id.as_deref(),
-                            revision,
-                            "tab-unhide-follower",
-                        );
-                    }
-                    Err(error) => eprintln!(
-                        "Unhidden native tab projection failed terminally: tab={} window={window_id} error={}",
-                        tab.id, error.message
-                    ),
-                }
-            });
+        trigger: &'static str,
+    ) -> RuntimeResult<()> {
+        #[cfg(any(windows, target_os = "macos"))]
+        let workspace_template = tab.workspace_template.as_deref();
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let workspace_template: Option<&str> = None;
+        self.try_ensure_native_tab(
+            window_id,
+            &tab.id,
+            &tab.title,
+            &tab.tab_type,
+            workspace_template,
+        )?;
+        self.reorder_native_tabs(window_id, ordered_tab_ids)?;
+        let active_tab_id = self
+            .presentation
+            .existing(window_id)
+            .and_then(|live| live.selected_tab_id.clone());
+        self.apply_native_active_style(
+            window_id,
+            active_tab_id.as_deref(),
+            revision,
+            trigger,
+        );
+        Ok(())
     }
 
     /// Accepts the complete order reported by the visible tab strip. This is the hot-path

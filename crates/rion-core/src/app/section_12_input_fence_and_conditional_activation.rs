@@ -3,6 +3,10 @@ impl AppCore {
         self.macro_runtime.input_diagnostics()
     }
 
+    pub fn role_ownership_transfer_active(&self, role_id: &str) -> CoreResult<bool> {
+        self.macro_runtime.role_ownership_transfer_active(role_id)
+    }
+
     fn release_macro_role(&self, role_id: String) -> CoreResult<Value> {
         self.macro_runtime.release_role(&role_id)?;
         Ok(json!({ "released": true }))
@@ -30,6 +34,14 @@ impl AppCore {
             input_epoch,
             current: true,
         })
+    }
+
+    pub fn terminalize_macro_runs_after_navigation_failure(
+        &self,
+        role_id: &str,
+    ) -> CoreResult<()> {
+        self.macro_runtime
+            .terminalize_role_after_navigation_failure(role_id)
     }
 
     pub fn drain_macro_input(

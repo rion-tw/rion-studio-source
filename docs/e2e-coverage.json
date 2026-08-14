@@ -43,6 +43,10 @@
         "p1-guard-cleanup",
         "p1-final-restart",
         "system-settings",
+        "p1-cross-domain-seed",
+        "p1-cross-domain-topology-force",
+        "p1-cross-domain-recovery",
+        "p1-cross-domain-final-restart",
         "seed",
         "restart",
         "force-terminate",
@@ -58,7 +62,8 @@
         "e2e/desktop/specs/full-desktop.e2e.ts",
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
-        "e2e/desktop/specs/system-settings.e2e.ts"
+        "e2e/desktop/specs/system-settings.e2e.ts",
+        "e2e/desktop/specs/cross-domain-runtime.e2e.ts"
       ]
     },
     "extended": {
@@ -79,6 +84,10 @@
         "p1-guard-cleanup",
         "p1-final-restart",
         "system-settings",
+        "p1-cross-domain-seed",
+        "p1-cross-domain-topology-force",
+        "p1-cross-domain-recovery",
+        "p1-cross-domain-final-restart",
         "seed",
         "restart",
         "force-terminate",
@@ -96,6 +105,7 @@
         "e2e/desktop/specs/workspace-recovery.e2e.ts",
         "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
         "e2e/desktop/specs/system-settings.e2e.ts",
+        "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
         "e2e/desktop/specs/extended-native.e2e.ts"
       ]
     }
@@ -131,6 +141,62 @@
         "isolation": "distinct-role-runtime-stores"
       },
       "description": "Inject a duplicate native cookie checkpoint key before restart and prove visible role launch restores one deterministic isolated session."
+    },
+    {
+      "id": "ROLE-WORKSPACE-DESTINATION-MATRIX-003",
+      "profile": "full",
+      "phase": "p1-cross-domain-seed",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "roles": "four-isolated",
+        "workspaces": "two-overlapping",
+        "destinations": "temporary-live-dormant",
+        "deduplication": "source-owner-tab-surface"
+      },
+      "description": "Launch Roles and overlapping Workspaces through visible destination menus into a temporary window, a live permanent window, and a dormant saved window without duplicating source ownership."
+    },
+    {
+      "id": "MIXED-TAB-MUTATION-MACRO-004",
+      "profile": "full",
+      "phase": "p1-cross-domain-topology-force",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "tabMutation": "reorder-move-detach-hide-show",
+        "ownership": "shared-role-transfer",
+        "macro": "identity-bound",
+        "termination": "exact-pid-force"
+      },
+      "description": "Mutate a mixed Role and Workspace native tab topology while a macro is active, then persist its fenced state before exact-PID forced termination."
+    },
+    {
+      "id": "SHARED-ROLE-CLAIM-FAILURE-005",
+      "profile": "full",
+      "phase": "p1-cross-domain-recovery",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "claim": "shared-role",
+        "failure": "injected-navigation",
+        "placeholder": "visible-retry",
+        "inputFence": "no-late-input"
+      },
+      "description": "Fail a shared Role ownership claim, retain retryable placeholders for every occurrence, terminalize its multi-role macro, and visibly retry without disturbing unique Roles."
+    },
+    {
+      "id": "MIXED-TOPOLOGY-CRASH-RECOVERY-006",
+      "profile": "full",
+      "phase": "p1-cross-domain-recovery",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "topology": "role-workspace-mixed",
+        "recoveryAction": "visible-dashboard-restore",
+        "state": "active-hidden-order-owner-generation",
+        "sessionEvidence": "cookie-and-local-storage"
+      },
+      "description": "Restore a mixed Role and Workspace topology with exact active, hidden, order, ownership, and isolated session state while keeping pre-crash macros terminal."
     }
   ],
   "journeys": [
@@ -348,6 +414,62 @@
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
       "description": "Fence native placement, presentation, tab/control geometry across resize and maximize, verify visible Game Window chrome remains draggable and closable after role content becomes ready, and preserve persistence, clean restart, and forced termination by generation and revision."
+    },
+    {
+      "id": "RUNTIME-LAUNCH-DESTINATIONS-008",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-cross-domain-seed",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Open isolated Roles and overlapping Workspaces through visible destination menus into new, live, and dormant Game Windows, then focus rather than duplicate repeated sources."
+    },
+    {
+      "id": "RUNTIME-TAB-TOPOLOGY-009",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-cross-domain-topology-force",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Use real native tab drag and visible context-menu actions to reorder, move, detach, hide, and reveal Role and Workspace tabs before crash recovery."
+    },
+    {
+      "id": "MACRO-OWNERSHIP-TRANSFER-010",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-cross-domain-topology-force",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Keep a macro attached to shared Role identity through successful ownership transfer while blocking input to non-target and placeholder occurrences."
+    },
+    {
+      "id": "RUNTIME-MIXED-RECOVERY-011",
+      "feature": "game-windows",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-cross-domain-recovery",
+      "spec": "e2e/desktop/specs/cross-domain-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "persistence",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Restore mixed Role and Workspace topology and isolated sessions, keep crashed macros terminal, and recover a failed shared ownership claim through visible placeholders without late input."
     },
     {
       "id": "APP-FULL-CRUD-001",

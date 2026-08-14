@@ -550,3 +550,25 @@ fn a_new_renderer_supersedes_the_old_pending_projection() {
         );
     }
 }
+#[test]
+fn an_idempotent_native_move_still_reconciles_the_visible_target_host() {
+    let plan = provisional_move_follower_plan(true, true);
+
+    assert!(!plan.reparent_surfaces);
+    assert!(plan.reconcile_target_presentation);
+    assert_eq!(
+        provisional_move_follower_plan(true, false),
+        ProvisionalMoveFollowerPlan {
+            reconcile_target_presentation: false,
+            reparent_surfaces: false,
+        }
+    );
+}
+
+#[test]
+fn a_dormant_native_tab_reservation_is_not_a_stable_launcher_destination() {
+    assert!(!launcher_tab_is_materialized_stable(true, false, true));
+    assert!(!launcher_tab_is_materialized_stable(true, true, false));
+    assert!(!launcher_tab_is_materialized_stable(false, false, false));
+    assert!(launcher_tab_is_materialized_stable(true, false, false));
+}

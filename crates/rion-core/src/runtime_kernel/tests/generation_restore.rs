@@ -115,6 +115,66 @@ fn dormant_seed_retires_a_degraded_surface_from_the_previous_window_generation()
 }
 
 #[test]
+fn explicit_dormant_seed_retires_a_same_generation_logical_surface_without_native_content() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(single_window_topology_at_generation(
+            "seed-same-generation",
+            1,
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-initial-dormant".to_owned(),
+            tab_ids: vec!["tab-a".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let dormant = kernel.snapshot().unwrap();
+    let activation_attempt = id::<OperationId>("activate-before-recovery-seed");
+    kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(dormant.windows["window-a"].revision),
+            operation_id: activation_attempt,
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::BeginOperation(operation(
+            "same-generation-logical",
+            "same-generation-attempt",
+            "tab-a",
+        )))
+        .unwrap();
+    assert!(
+        kernel
+            .snapshot()
+            .unwrap()
+            .logical_surfaces
+            .contains_key("tab-a")
+    );
+
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-recovered-dormant".to_owned(),
+            tab_ids: vec!["tab-a".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let reseeded = kernel.snapshot().unwrap();
+    assert!(!reseeded.logical_surfaces.contains_key("tab-a"));
+    assert_eq!(
+        reseeded.tab_activations["tab-a"].phase,
+        RuntimeTabActivationPhaseRecord::Dormant
+    );
+    assert_eq!(
+        reseeded.tab_activations["tab-a"].window_generation,
+        RuntimeWindowGeneration(1)
+    );
+}
+
+#[test]
 fn unfenced_dormant_activation_survives_an_unrelated_placement_revision() {
     let kernel = RuntimeKernel::default();
     kernel

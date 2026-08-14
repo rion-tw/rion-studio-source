@@ -25,11 +25,14 @@ use std::sync::mpsc;
 
     #[test]
     fn role_stop_request_sets_a_cancellation_fence_without_waiting_for_worker_cleanup() {
-        let runtime = MacroRuntime::new(Arc::new(|_| {}));
+        let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        let runtime = MacroRuntime::new(Arc::new(move |batch| {
+            let _ = events.send(batch);
+        }));
         let control = new_invocation_control(
-            "hung-invocation".to_owned(),
+            "test-invocation".to_owned(),
             "m1".to_owned(),
-            HashSet::from(["r1".to_owned()]),
+            HashSet::from(["r1".to_owned(), "r2".to_owned()]),
         );
         runtime
             .shared
@@ -38,6 +41,8 @@ use std::sync::mpsc;
             .unwrap()
             .invocations
             .insert(control.id.clone(), Arc::clone(&control));
+        runtime.seed_running_status("m1", "r1").unwrap();
+        runtime.seed_running_status("m1", "r2").unwrap();
 
         let started = Instant::now();
         runtime.request_stop_role("r1").unwrap();
@@ -45,6 +50,15 @@ use std::sync::mpsc;
         assert!(started.elapsed() < Duration::from_millis(100));
         assert!(control.cancelled.load(Ordering::Acquire));
         assert!(!*control.finished.0.lock().unwrap());
+        assert!(runtime.statuses().unwrap().is_empty());
+        let terminal = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            terminal.as_slice(),
+            [CoreEvent::MacroStatuses {
+                reliable: true,
+                statuses
+            }] if statuses.is_empty()
+        ));
         let error = runtime.start(request(Vec::new())).unwrap_err();
         assert_eq!(error.code(), "MACRO_ROLE_STOPPING");
 

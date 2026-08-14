@@ -21,6 +21,11 @@ const profileArgument = process.argv.find((argument) => argument.startsWith("--p
 const profile = profileArgument ?? process.env.RION_STUDIO_E2E_PROFILE ?? "full";
 const coverageManifest = JSON.parse(await readFile(resolve(root, "docs/e2e-coverage.json"), "utf8"));
 const configuredPhases = coverageManifest.profiles?.[profile]?.phases;
+const expectedForcedTerminationPhases = new Set([
+  "force-terminate",
+  "crash-restart",
+  "p1-cross-domain-topology-force"
+]);
 if (!configuredPhases) {
   throw new Error(`Unknown desktop E2E profile: ${profile}. Expected smoke, full, or extended.`);
 }
@@ -33,6 +38,19 @@ const focusedPhaseDependencies = new Map([
   ["p1-role-session-isolation", ["p1-role-session-seed"]],
   ["p1-mutations", ["smoke-seed", "smoke-restart"]],
   ["p1-workspace-recovery", ["smoke-seed", "smoke-restart", "p1-mutations"]],
+  ["p1-cross-domain-topology-force", ["p1-cross-domain-seed"]],
+  [
+    "p1-cross-domain-recovery",
+    ["p1-cross-domain-seed", "p1-cross-domain-topology-force"]
+  ],
+  [
+    "p1-cross-domain-final-restart",
+    [
+      "p1-cross-domain-seed",
+      "p1-cross-domain-topology-force",
+      "p1-cross-domain-recovery"
+    ]
+  ],
   [
     "p1-guard-cleanup",
     ["smoke-seed", "smoke-restart", "p1-mutations", "p1-workspace-recovery"]
@@ -66,6 +84,10 @@ const phaseNamespaces = new Map([
   ["p1-workspace-recovery", "app-entity-lifecycle"],
   ["p1-guard-cleanup", "app-entity-lifecycle"],
   ["p1-final-restart", "app-entity-lifecycle"],
+  ["p1-cross-domain-seed", "cross-domain-lifecycle"],
+  ["p1-cross-domain-topology-force", "cross-domain-lifecycle"],
+  ["p1-cross-domain-recovery", "cross-domain-lifecycle"],
+  ["p1-cross-domain-final-restart", "cross-domain-lifecycle"],
   ["seed", "window-recovery-lifecycle"],
   ["restart", "window-recovery-lifecycle"],
   ["force-terminate", "window-recovery-lifecycle"],
@@ -232,16 +254,15 @@ function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked)
 
   const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
   requireEvidence(session, `${phase}: runtime restore session is missing`);
-  const forcedTerminationPhases = new Set(["force-terminate", "crash-restart"]);
   if (!blocked) {
     requireEvidence(
-      session.cleanExit === !forcedTerminationPhases.has(phase),
+      session.cleanExit === !expectedForcedTerminationPhases.has(phase),
       `${phase}: runtime restore session has the wrong clean-exit state`
     );
   }
   const expectedLiveWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
     ? []
-    : forcedTerminationPhases.has(phase)
+    : expectedForcedTerminationPhases.has(phase)
       ? [windowIds.a, windowIds.b, windowIds.c]
       : [windowIds.a];
   requireEvidence(
@@ -254,7 +275,7 @@ function validateGameWindowSqliteEvidence(phase, gameWindows, settings, blocked)
   );
   const expectedLastFocusedWindowIds = ["crash-discard", "recovery-final-restart"].includes(phase)
     ? new Set([null])
-    : forcedTerminationPhases.has(phase)
+    : expectedForcedTerminationPhases.has(phase)
       ? new Set([windowIds.c])
       : phase === "restart"
         ? new Set([windowIds.a, windowIds.b])
@@ -451,6 +472,75 @@ function validateSharedOwnershipSqliteEvidence(phase, entities) {
   return { sharedOwnershipEntitiesCleaned: true };
 }
 
+function validateCrossDomainSqliteEvidence(phase, entities, settings) {
+  const prefix = "E2E Cross Domain";
+  const crossDomain = Object.fromEntries(Object.entries(entities).map(([key, values]) => [
+    key,
+    values.filter((entity) => entity.name.startsWith(prefix))
+  ]));
+  const session = settings.find((setting) => setting.key === "runtimeRestoreSession")?.payload;
+  requireEvidence(session, `${phase}: runtime restore session is missing`);
+
+  if (["p1-cross-domain-recovery", "p1-cross-domain-final-restart"].includes(phase)) {
+    requireEvidence(
+      Object.values(crossDomain).every((values) => values.length === 0),
+      `${phase}: cross-domain fixture entities were not cleaned`
+    );
+    requireEvidence(session.cleanExit === true, `${phase}: cleanup was not persisted as a clean exit`);
+    requireEvidence(
+      sameValue(session.liveWindowIds, [])
+        && sameValue(session.restoreInProgressWindowIds, []),
+      `${phase}: runtime recovery session retained live or restoring windows`
+    );
+    return { cleanExit: true, cleanupComplete: true };
+  }
+
+  const expectedCounts = {
+    gameWindows: 2,
+    macros: 2,
+    roles: 4,
+    workspaces: 2
+  };
+  for (const [collection, count] of Object.entries(expectedCounts)) {
+    requireEvidence(
+      crossDomain[collection].length === count,
+      `${phase}: expected ${count} ${collection}, found ${crossDomain[collection].length}`
+    );
+  }
+  requireEvidence(
+    crossDomain.workspaces.every((workspace) => workspace.payload?.slots?.length >= 2),
+    `${phase}: overlapping Workspaces did not retain multi-role topology`
+  );
+  requireEvidence(
+    crossDomain.macros.some((macro) => macro.payload?.roleIds?.length === 1)
+      && crossDomain.macros.some((macro) => macro.payload?.roleIds?.length > 1),
+    `${phase}: single-role and multi-role Macro assignments were not retained`
+  );
+  const forced = phase === "p1-cross-domain-topology-force";
+  requireEvidence(
+    session.cleanExit === !forced,
+    `${phase}: runtime restore session has the wrong clean-exit state`
+  );
+  if (forced) {
+    requireEvidence(
+      session.liveWindowIds?.length >= 2,
+      `${phase}: mixed topology did not retain at least two live windows`
+    );
+    requireEvidence(
+      crossDomain.gameWindows.some((window) =>
+        window.payload?.tabs?.some((tab) => tab.hidden === true)),
+      `${phase}: hidden tab state was not persisted`
+    );
+  }
+  return {
+    cleanExit: session.cleanExit,
+    entityCounts: Object.fromEntries(
+      Object.entries(crossDomain).map(([key, values]) => [key, values.length])
+    ),
+    liveWindowCount: session.liveWindowIds?.length ?? 0
+  };
+}
+
 async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
   const phaseDir = resolve(artifactRoot, "phases", phase);
   await mkdir(phaseDir, { recursive: true });
@@ -498,6 +588,9 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
     if (phase === "p1-workspace-shared-role") {
       return validateSharedOwnershipSqliteEvidence(phase, entities);
     }
+    if (phase.startsWith("p1-cross-domain-")) {
+      return validateCrossDomainSqliteEvidence(phase, entities, settings);
+    }
     if (["p1-guard-cleanup", "p1-final-restart"].includes(phase)) {
       return validateP1CleanupSqliteEvidence(phase, entities, settings);
     }
@@ -523,7 +616,13 @@ async function captureSqlite(phase, userDataDir, blocked, validateEvidence) {
 
 async function expectedForcedTermination(phaseDir) {
   const markerPath = resolve(phaseDir, "forced-termination.json");
-  const marker = JSON.parse(await readFile(markerPath, "utf8"));
+  let marker;
+  try {
+    marker = JSON.parse(await readFile(markerPath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
   if (!Number.isSafeInteger(marker.pid) || marker.pid <= 0) {
     throw new Error("Forced-termination marker did not contain a valid PID");
   }
@@ -600,7 +699,7 @@ try {
       },
       logPath: resolve(phaseDir, "runner.log")
     });
-    const forcedTermination = ["force-terminate", "crash-restart"].includes(phase)
+    const forcedTermination = expectedForcedTerminationPhases.has(phase)
       ? await expectedForcedTermination(phaseDir)
       : undefined;
     const cleanShutdown = result.code !== 0 && !forcedTermination
@@ -628,7 +727,9 @@ try {
         phase,
         status: blocked
           ? "BLOCKED"
-          : journeyVerdict?.status ?? (result.code === 0 || cleanShutdown ? "PASS" : "FAIL")
+          : forcedTermination
+            ? "PASS"
+            : journeyVerdict?.status ?? (result.code === 0 || cleanShutdown ? "PASS" : "FAIL")
       });
     }
     report.phases.push({

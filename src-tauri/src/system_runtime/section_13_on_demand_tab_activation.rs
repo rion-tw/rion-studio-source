@@ -80,10 +80,24 @@ impl SystemRuntimeExecutor {
         window_id: &str,
         tab_ids: Vec<String>,
     ) -> Result<(), String> {
-        if tab_ids.is_empty() {
+        let dormant_tab_ids = {
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "The runtime state is unavailable while dormant tabs are seeded.".to_owned())?;
+            tab_ids
+                .into_iter()
+                .filter(|tab_id| {
+                    !runtime_tab_has_materialized_content(
+                        state.native_resources.tabs.get(tab_id),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        if dormant_tab_ids.is_empty() {
             return Ok(());
         }
-        self.seed_kernel_dormant_tabs(window_id, tab_ids)
+        self.seed_kernel_dormant_tabs(window_id, dormant_tab_ids)
             .map_err(|error| error.message)?;
         self.publish_projection();
         Ok(())

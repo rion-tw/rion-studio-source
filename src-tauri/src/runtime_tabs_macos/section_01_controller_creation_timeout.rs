@@ -131,6 +131,23 @@ unsafe extern "C" {
         controller: *mut c_void,
         tab_id: *const c_char,
     ) -> bool;
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_accessibility_show_menu(
+        controller: *mut c_void,
+        tab_id: *const c_char,
+    ) -> bool;
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_desktop_e2e_drag(
+        source_controller: *mut c_void,
+        tab_id: *const c_char,
+        target_controller: *mut c_void,
+        before_tab_id: *const c_char,
+    ) -> bool;
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_desktop_e2e_select_menu_item(
+        action: i32,
+        target_rank: usize,
+    ) -> bool;
     fn rion_runtime_tabs_hide_failure_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
@@ -506,6 +523,57 @@ impl MacRuntimeTabsController {
             "The visible AppKit runtime tab close control did not accept its accessibility press."
                 .to_owned()
         })
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub fn desktop_e2e_accessibility_show_menu(&self, tab_id: &str) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let tab_id = c_string(tab_id);
+        run_on_appkit_tracking_main(move || unsafe {
+            rion_runtime_tabs_accessibility_show_menu(inner.raw, tab_id.as_ptr())
+        })?
+        .then_some(())
+        .ok_or_else(|| {
+            "The visible AppKit runtime tab did not expose its context menu.".to_owned()
+        })
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub fn desktop_e2e_native_drag(
+        &self,
+        tab_id: &str,
+        target: &Self,
+        before_tab_id: &str,
+    ) -> Result<(), String> {
+        let source = Arc::clone(&self.inner);
+        let target = Arc::clone(&target.inner);
+        let tab_id = c_string(tab_id);
+        let before_tab_id = c_string(before_tab_id);
+        run_on_appkit_tracking_main(move || unsafe {
+            rion_runtime_tabs_desktop_e2e_drag(
+                source.raw,
+                tab_id.as_ptr(),
+                target.raw,
+                before_tab_id.as_ptr(),
+            )
+        })?
+        .then_some(())
+        .ok_or_else(|| "The AppKit runtime-tab drag was rejected.".to_owned())
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub fn desktop_e2e_select_menu_item(action: &str, target_rank: usize) -> Result<(), String> {
+        let action = match action {
+            "hide" => 0,
+            "moveToNewWindow" => 1,
+            "move" => 2,
+            _ => return Err("The runtime tab menu action is invalid.".to_owned()),
+        };
+        run_on_appkit_tracking_main(move || unsafe {
+            rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank)
+        })?
+        .then_some(())
+        .ok_or_else(|| "The AppKit runtime-tab menu action was rejected.".to_owned())
     }
 
     pub fn hide_failure_status(&self) {

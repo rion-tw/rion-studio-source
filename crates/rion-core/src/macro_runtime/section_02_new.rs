@@ -24,6 +24,7 @@ impl MacroRuntime {
                 macro_run_locks: Mutex::new(HashMap::new()),
                 shutting_down: AtomicBool::new(false),
                 input_sequence_role_locks: Mutex::new(HashMap::new()),
+                role_transfer_changed: Condvar::new(),
                 waiter,
             }),
         }
@@ -278,6 +279,7 @@ impl MacroRuntime {
                 .inner
                 .lock()
                 .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            inner.transferring_role_ids.remove(role_id);
             inner.stopping_role_ids.insert(role_id.to_owned());
             inner.quiesced_role_ids.insert(role_id.to_owned());
             let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
@@ -289,21 +291,117 @@ impl MacroRuntime {
                 .cloned()
                 .collect::<Vec<_>>()
         };
+        self.shared.role_transfer_changed.notify_all();
+        self.terminalize_controls(&controls)
+    }
+
+    pub fn terminalize_role_after_navigation_failure(&self, role_id: &str) -> CoreResult<()> {
+        let controls = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            inner.transferring_role_ids.remove(role_id);
+            inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        self.shared.role_transfer_changed.notify_all();
+        self.terminalize_controls(&controls)
+    }
+
+    fn terminalize_controls(&self, controls: &[Arc<InvocationControl>]) -> CoreResult<()> {
         controls.iter().for_each(|control| cancel_control(control));
+        if !controls.is_empty() {
+            let invocation_ids = controls
+                .iter()
+                .map(|control| control.id.as_str())
+                .collect::<HashSet<_>>();
+            self.shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
+                .statuses
+                .retain(|key, _| {
+                    key.split_once('|')
+                        .is_none_or(|(invocation_id, _)| !invocation_ids.contains(invocation_id))
+                });
+            self.emit_statuses();
+        }
         Ok(())
+    }
+
+    pub fn begin_role_ownership_transfer(&self, role_id: &str) -> CoreResult<bool> {
+        let input_sequence_locks = input_sequence_role_locks(
+            &self.shared,
+            &[role_id.to_owned()],
+        )
+        .map_err(CoreError::Internal)?;
+        let input_sequence_guards = input_sequence_locks
+            .iter()
+            .map(|lock| {
+                lock.lock().map_err(|_| {
+                    CoreError::Internal("macro input sequence lock poisoned".to_owned())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let role_locks = action_role_locks(&self.shared, &[role_id.to_owned()])
+            .map_err(CoreError::Internal)?;
+        let role_guards = role_locks
+            .iter()
+            .map(|lock| {
+                lock.lock()
+                    .map_err(|_| CoreError::Internal("macro role action lock poisoned".to_owned()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        if inner.held_keys.values().any(|held| held.role_id == role_id) {
+            drop(inner);
+            drop(role_guards);
+            drop(input_sequence_guards);
+            self.request_stop_role(role_id)?;
+            return Ok(false);
+        }
+        inner.transferring_role_ids.insert(role_id.to_owned());
+        inner.quiesced_role_ids.insert(role_id.to_owned());
+        let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+        *epoch = epoch.saturating_add(1);
+        drop(inner);
+        drop(role_guards);
+        drop(input_sequence_guards);
+        self.shared.role_transfer_changed.notify_all();
+        Ok(true)
+    }
+
+    pub fn role_ownership_transfer_active(&self, role_id: &str) -> CoreResult<bool> {
+        self.shared
+            .inner
+            .lock()
+            .map(|inner| inner.transferring_role_ids.contains(role_id))
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))
     }
 
     pub fn allow_role_after_launch(&self, role_id: &str) {
         if let Ok(mut inner) = self.shared.inner.lock() {
             inner.stopping_role_ids.remove(role_id);
+            inner.transferring_role_ids.remove(role_id);
             inner.quiesced_role_ids.remove(role_id);
             let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
             *epoch = epoch.saturating_add(1);
         }
+        self.shared.role_transfer_changed.notify_all();
     }
 
     pub fn fence_role_input(&self, role_id: &str) -> CoreResult<u64> {
-        let (epoch, controls) = {
+        let (epoch, controls, preserving_transfer) = {
             let mut inner = self
                 .shared
                 .inner
@@ -313,20 +411,23 @@ impl MacroRuntime {
             let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
             *epoch = epoch.saturating_add(1);
             let current = *epoch;
+            let preserving_transfer = inner.transferring_role_ids.contains(role_id);
             let controls = inner
                 .invocations
                 .values()
                 .filter(|control| control.role_ids.contains(role_id))
                 .cloned()
                 .collect::<Vec<_>>();
-            (current, controls)
+            (current, controls, preserving_transfer)
         };
-        controls.iter().for_each(|control| cancel_control(control));
+        if !preserving_transfer {
+            controls.iter().for_each(|control| cancel_control(control));
+        }
         Ok(epoch)
     }
 
     pub fn drain_role_input(&self, role_id: &str, input_epoch: u64) -> CoreResult<bool> {
-        let controls = {
+        let (controls, preserving_transfer) = {
             let inner = self
                 .shared
                 .inner
@@ -335,14 +436,17 @@ impl MacroRuntime {
             if inner.input_epochs.get(role_id).copied().unwrap_or_default() != input_epoch {
                 return Ok(false);
             }
-            inner
+            let controls = inner
                 .invocations
                 .values()
                 .filter(|control| control.role_ids.contains(role_id))
                 .cloned()
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            (controls, inner.transferring_role_ids.contains(role_id))
         };
-        cancel_and_wait_all(&controls)?;
+        if !preserving_transfer {
+            cancel_and_wait_all(&controls)?;
+        }
         Ok(self.shared.inner.lock().is_ok_and(|inner| {
             inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch
         }))
@@ -355,9 +459,17 @@ impl MacroRuntime {
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
         let current = inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch;
-        Ok(current
+        let resumed = current
             && !inner.stopping_role_ids.contains(role_id)
-            && inner.quiesced_role_ids.remove(role_id))
+            && inner.quiesced_role_ids.remove(role_id);
+        if resumed {
+            inner.transferring_role_ids.remove(role_id);
+        }
+        drop(inner);
+        if resumed {
+            self.shared.role_transfer_changed.notify_all();
+        }
+        Ok(resumed)
     }
 
     pub fn input_diagnostics(&self) -> CoreResult<MacroInputDiagnosticsRecord> {
@@ -421,11 +533,14 @@ impl MacroRuntime {
             .lock()
             .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
         inner.stopping_role_ids.remove(role_id);
+        inner.transferring_role_ids.remove(role_id);
         inner.quiesced_role_ids.remove(role_id);
         // Preserve a monotonic epoch so late cleanup from the released native
         // generation can never match a subsequently relaunched role.
         let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
         *epoch = epoch.saturating_add(1);
+        drop(inner);
+        self.shared.role_transfer_changed.notify_all();
         Ok(())
     }
 
@@ -579,8 +694,10 @@ impl MacroRuntime {
             inner.input_epochs.clear();
             inner.quiesced_role_ids.clear();
             inner.stopping_role_ids.clear();
+            inner.transferring_role_ids.clear();
             inner.statuses.clear();
         }
+        self.shared.role_transfer_changed.notify_all();
         if let Ok(mut pending) = self.shared.pending.lock() {
             pending.clear();
         }

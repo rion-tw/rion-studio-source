@@ -480,7 +480,14 @@ impl SystemRuntimeExecutor {
             || is_browser_action_effect(&effect.action)
         {
             let input_effect = is_browser_action_effect(&effect.action);
-            self.mark_critical_activity();
+            // Trusted input is independently generation-fenced and serialized by the input
+            // dispatcher. Counting every macro key/click as native surface activity can starve
+            // optional hydration forever while a macro is running, leaving an otherwise ready
+            // tab stuck at EssentialReady. Only topology/surface lifecycle work owns this idle
+            // boundary.
+            if marks_optional_hydration_critical_activity(&effect.action) {
+                self.mark_critical_activity();
+            }
             let effect_id = effect.effect_id.clone();
             let operation_id = effect.operation_id.clone();
             let sender = if is_surface_close_effect(&effect.action) {
@@ -742,6 +749,11 @@ impl SystemRuntimeExecutor {
             return;
         };
         loop {
+            if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                self.shutdown_state.load(Ordering::Acquire),
+            )) {
+                return;
+            }
             let launch_busy = self
                 .presentation
                 .statuses
@@ -775,6 +787,11 @@ impl SystemRuntimeExecutor {
     }
 
     fn schedule_optional_hydration(&self, tab_id: &str) {
+        if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        )) {
+            return;
+        }
         if let Some(sender) = self.optional_hydration_sender.get() {
             let _ = sender.try_send(OptionalHydrationWork {
                 tab_id: tab_id.to_owned(),
@@ -783,6 +800,11 @@ impl SystemRuntimeExecutor {
     }
 
     fn hydrate_tab_optional(&self, tab_id: &str) {
+        if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        )) {
+            return;
+        }
         let tab_accepts_optional_hydration = self.state.lock().ok().is_some_and(|state| {
             state.native_resources.tabs.contains_key(tab_id)
                 && !state.close_coordinator.closing_tabs.contains(tab_id)
@@ -811,6 +833,11 @@ impl SystemRuntimeExecutor {
             .unwrap_or_default();
         for (role_id, generation, webview) in surfaces {
             self.wait_for_optional_idle();
+            if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+                self.shutdown_state.load(Ordering::Acquire),
+            )) {
+                return;
+            }
             let current = self.state.lock().ok().is_some_and(|state| {
                 !state.close_coordinator.closing_tabs.contains(tab_id)
                     && !state.close_coordinator.closing_roles.contains(&role_id)
@@ -840,6 +867,11 @@ impl SystemRuntimeExecutor {
             );
         }
         self.wait_for_optional_idle();
+        if !optional_hydration_is_admitted(RuntimeShutdownState::from_raw(
+            self.shutdown_state.load(Ordering::Acquire),
+        )) {
+            return;
+        }
         if let Err(error) = self.hydrate_tab_dividers(tab_id) {
             degraded = true;
             self.record_runtime_stage(

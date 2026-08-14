@@ -644,6 +644,24 @@ fn surface_host_initialization_requires_visible_parent(platform: &str) -> bool {
 }
 
 #[cfg(windows)]
+fn windows_runtime_window_cloaked_status(window: &Window) -> RuntimeResult<u32> {
+    use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DwmGetWindowAttribute};
+
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let mut value = 0_u32;
+    unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            std::ptr::from_mut(&mut value).cast(),
+            std::mem::size_of::<u32>() as u32,
+        )
+    }
+    .map_err(RuntimeError::tauri)?;
+    Ok(value)
+}
+
+#[cfg(windows)]
 fn set_windows_runtime_window_cloaked(window: &Window, cloaked: bool) -> RuntimeResult<()> {
     use windows::{
         Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute},
@@ -660,7 +678,18 @@ fn set_windows_runtime_window_cloaked(window: &Window, cloaked: bool) -> Runtime
             std::mem::size_of::<BOOL>() as u32,
         )
     }
-    .map_err(RuntimeError::tauri)
+    .map_err(RuntimeError::tauri)?;
+
+    let observed = windows_runtime_window_cloaked_status(window)?;
+    if (observed != 0) != cloaked {
+        return Err(RuntimeError::new(
+            "WINDOWS_RUNTIME_WINDOW_CLOAK_STATE_MISMATCH",
+            format!(
+                "DWM did not apply the requested runtime window cloak state (requested={cloaked}, observedMask=0x{observed:x})."
+            ),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(windows)]

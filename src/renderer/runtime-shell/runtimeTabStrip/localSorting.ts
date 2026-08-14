@@ -31,6 +31,7 @@ type RuntimeTabSortCallbacks = {
 type RuntimeTabSortGesture = {
   originActiveTabId?: string;
   originOrder: string[];
+  releaseClientX?: number;
   releasedInside?: boolean;
   sessionId: string;
   tabId: string;
@@ -90,6 +91,28 @@ export function installRuntimeTabSorting(
       && event.clientX <= bounds.right
       && event.clientY >= bounds.top
       && event.clientY <= bounds.bottom;
+    gesture.releaseClientX = event.clientX;
+  };
+
+  const orderAtClientX = (
+    originOrder: string[],
+    tabId: string,
+    clientX: number
+  ): string[] => {
+    const remainingTabIds = originOrder.filter((candidate) => candidate !== tabId);
+    const candidates = Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
+    const beforeTabId = remainingTabIds.find((candidateId) => {
+      const candidate = candidates.find((button) => button.dataset.tabId === candidateId);
+      if (!candidate) return false;
+      const bounds = candidate.getBoundingClientRect();
+      return clientX < bounds.left + bounds.width / 2;
+    });
+    const insertionIndex = beforeTabId
+      ? remainingTabIds.indexOf(beforeTabId)
+      : remainingTabIds.length;
+    const finalOrder = [...remainingTabIds];
+    finalOrder.splice(insertionIndex, 0, tabId);
+    return finalOrder;
   };
 
   const commitCompletedOrder = (
@@ -142,7 +165,19 @@ export function installRuntimeTabSorting(
       return;
     }
 
-    commitCompletedOrder(completed, callbacks.tabIds());
+    let finalOrder = callbacks.tabIds();
+    if (ordersEqual(finalOrder, completed.originOrder)
+      && completed.releaseClientX !== undefined) {
+      finalOrder = orderAtClientX(
+        completed.originOrder,
+        completed.tabId,
+        completed.releaseClientX
+      );
+      if (!ordersEqual(finalOrder, completed.originOrder)) {
+        callbacks.applyOrder(finalOrder, true);
+      }
+    }
+    commitCompletedOrder(completed, finalOrder);
 
     void event;
   };
@@ -209,17 +244,7 @@ export function installRuntimeTabSorting(
     ) >= 4;
     if (!releasedInside || !moved) return;
 
-    const remainingTabIds = pending.originOrder.filter((tabId) => tabId !== pending.tabId);
-    const candidates = Array.from(root.querySelectorAll<HTMLButtonElement>("button.tab"));
-    const beforeTabId = remainingTabIds.find((tabId) => {
-      const candidate = candidates.find((button) => button.dataset.tabId === tabId);
-      if (!candidate) return false;
-      const candidateBounds = candidate.getBoundingClientRect();
-      return event.clientX < candidateBounds.left + candidateBounds.width / 2;
-    });
-    const insertionIndex = beforeTabId ? remainingTabIds.indexOf(beforeTabId) : remainingTabIds.length;
-    const finalOrder = [...remainingTabIds];
-    finalOrder.splice(insertionIndex, 0, pending.tabId);
+    const finalOrder = orderAtClientX(pending.originOrder, pending.tabId, event.clientX);
     if (ordersEqual(finalOrder, pending.originOrder)) return;
 
     event.preventDefault();

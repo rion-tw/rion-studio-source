@@ -108,6 +108,15 @@ impl SystemRuntimeExecutor {
         self.live_tab_window_id(&tab_id)
     }
 
+    pub(crate) fn live_tab_is_hidden(&self, tab_id: &str) -> bool {
+        self.presentation
+            .tab_window(tab_id)
+            .ok()
+            .flatten()
+            .and_then(|window_id| self.presentation.existing(&window_id))
+            .is_some_and(|window| window.tab_is_hidden(tab_id))
+    }
+
     pub(crate) fn presented_stable_tab_for_launcher_source(
         &self,
         source_id: &str,
@@ -127,9 +136,22 @@ impl SystemRuntimeExecutor {
             self.presentation
                 .tabs_for_launcher_source(source_id, tab_type),
         );
+        let activation_tracked_tab_ids = self
+            .core
+            .runtime_kernel()
+            .snapshot()
+            .ok()?
+            .tab_activations
+            .keys()
+            .cloned()
+            .collect::<HashSet<_>>();
         let state = self.state.lock().ok()?;
         candidates.into_iter().find(|tab_id| {
-            state.native_resources.tabs.contains_key(tab_id) && !state.tab_close_pending(tab_id)
+            launcher_tab_is_materialized_stable(
+                runtime_tab_has_materialized_content(state.native_resources.tabs.get(tab_id)),
+                state.tab_close_pending(tab_id),
+                activation_tracked_tab_ids.contains(tab_id),
+            )
         })
     }
 
@@ -765,4 +787,20 @@ impl SystemRuntimeExecutor {
         self.provisionally_move_tab_with_visibility(tab_id, target_window_id, false, true)
     }
 
+}
+
+fn launcher_tab_is_materialized_stable(
+    has_materialized_content: bool,
+    close_pending: bool,
+    activation_tracked: bool,
+) -> bool {
+    has_materialized_content && !close_pending && !activation_tracked
+}
+
+fn runtime_tab_has_materialized_content(tab: Option<&RuntimeTab>) -> bool {
+    tab.is_some_and(|tab| {
+        !tab.roles.is_empty()
+            || !tab.dividers.is_empty()
+            || tab.slots.values().any(|slot| slot.placeholder.is_some())
+    })
 }

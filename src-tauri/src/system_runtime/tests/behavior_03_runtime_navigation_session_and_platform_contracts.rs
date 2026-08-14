@@ -376,6 +376,21 @@ use uuid::Uuid;
         .unwrap();
         assert!(restore.contains("localStorage.clear()"));
         assert!(restore.contains("__rionSessionRestoreState"));
+
+        let checkpoint = PersistedRoleLocalStorageCheckpoint {
+            checkpoint_id: "checkpoint-1".to_owned(),
+            entries,
+            origin: "https://game.example.test".to_owned(),
+            version: ROLE_LOCAL_STORAGE_CHECKPOINT_VERSION,
+        };
+        let checkpoint_script =
+            role_local_storage_checkpoint_document_start_script(&checkpoint).unwrap();
+        assert!(checkpoint_script.contains("globalThis.top !== globalThis"));
+        assert!(checkpoint_script.contains("location.origin !== \"https://game.example.test\""));
+        assert!(checkpoint_script.contains("sessionStorage.getItem(markerKey)"));
+        assert!(checkpoint_script.contains("sessionStorage.setItem(markerKey, checkpointId)"));
+        assert!(checkpoint_script.contains("localStorage.clear()"));
+        assert!(checkpoint_script.contains("__rionRoleLocalStorageCheckpointState"));
         assert!(validate_transaction_id("../escape").is_err());
         assert!(validate_transaction_id("transaction-1").is_ok());
     }

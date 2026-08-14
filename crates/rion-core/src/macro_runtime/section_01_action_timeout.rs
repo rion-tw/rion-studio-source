@@ -55,6 +55,7 @@ struct Shared {
     macro_run_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     shutting_down: AtomicBool,
     input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
+    role_transfer_changed: Condvar,
     waiter: Waiter,
 }
 
@@ -74,6 +75,7 @@ struct Inner {
     input_epochs: HashMap<String, u64>,
     quiesced_role_ids: HashSet<String>,
     stopping_role_ids: HashSet<String>,
+    transferring_role_ids: HashSet<String>,
     statuses: HashMap<String, MacroRunStatus>,
 }
 

@@ -86,6 +86,19 @@ struct ObservedWindowPlacementReduction {
     target: Option<EmbeddedLaunchTargetRecord>,
 }
 
+fn launch_targets_have_identical_placement(
+    current: &EmbeddedLaunchTargetRecord,
+    next: &EmbeddedLaunchTargetRecord,
+) -> bool {
+    current.window_id == next.window_id
+        && current.persisted_name == next.persisted_name
+        && current.display_id == next.display_id
+        && current.scale_factor == next.scale_factor
+        && current.work_area == next.work_area
+        && current.bounds == next.bounds
+        && current.presentation == next.presentation
+}
+
 fn reduce_observed_window_placement(
     current: &EmbeddedLaunchTargetRecord,
     current_generation: u64,
@@ -122,7 +135,7 @@ fn reduce_observed_window_placement(
     }
     Some(ObservedWindowPlacementReduction {
         sequence: observed.sequence,
-        target: Some(target),
+        target: (!launch_targets_have_identical_placement(current, &target)).then_some(target),
     })
 }
 

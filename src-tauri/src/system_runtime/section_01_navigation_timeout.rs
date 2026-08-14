@@ -578,6 +578,14 @@ enum SurfaceReleaseBoundary {
     SharedBrowserProcess,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceClosePlan {
+    checkpoint_role_session: bool,
+    defer_navigation_to_preflight: bool,
+    release_boundary: SurfaceReleaseBoundary,
+    requires_page_quiesce: bool,
+}
+
 impl SurfaceReleaseBoundary {
     const fn as_str(self) -> &'static str {
         match self {
@@ -1001,17 +1009,40 @@ impl SurfaceLifecycleTracker {
 fn quiesce_platform_surface(
     webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
+    defer_navigation_to_preflight: bool,
 ) -> RuntimeResult<SurfaceIsolationRequest> {
     match lifecycle.claim_isolation()? {
         SurfaceIsolationClaim::Joined => Ok(SurfaceIsolationRequest::Joined),
         SurfaceIsolationClaim::AlreadyIsolated => Ok(SurfaceIsolationRequest::AlreadyIsolated),
-        SurfaceIsolationClaim::Owner => match perform_platform_surface_quiesce(webview, lifecycle) {
+        SurfaceIsolationClaim::Owner => match perform_platform_surface_quiesce(
+            webview,
+            lifecycle,
+            defer_navigation_to_preflight,
+        ) {
             Ok(()) => Ok(SurfaceIsolationRequest::Started),
             Err(error) => {
                 lifecycle.fail_isolation(&error);
                 Err(error)
             }
         },
+    }
+}
+
+fn isolate_app_owned_auxiliary_surface(
+    lifecycle: &Arc<SurfaceLifecycleTracker>,
+) -> RuntimeResult<SurfaceIsolationRequest> {
+    match lifecycle.claim_isolation()? {
+        SurfaceIsolationClaim::Joined => Ok(SurfaceIsolationRequest::Joined),
+        SurfaceIsolationClaim::AlreadyIsolated => Ok(SurfaceIsolationRequest::AlreadyIsolated),
+        SurfaceIsolationClaim::Owner => lifecycle
+            .mark_isolated(12)
+            .then_some(SurfaceIsolationRequest::Started)
+            .ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_SURFACE_RELEASE_UNVERIFIED",
+                    "The app-owned auxiliary surface changed before native release began.",
+                )
+            }),
     }
 }
 

@@ -215,6 +215,10 @@ struct MainWindowActor {
     window: WebviewWindow,
 }
 
+fn main_window_initial_projection_can_defer(error: &str) -> bool {
+    native_surface_channel_is_unavailable(error)
+}
+
 impl MainWindowActor {
     fn start(
         app: AppHandle,
@@ -226,7 +230,18 @@ impl MainWindowActor {
             .fetch_add(1, Ordering::AcqRel)
             .saturating_add(1);
         let projection = Arc::new(MainWindowStateProjection::new(generation));
-        projection.refresh(&window)?;
+        if let Err(error) = projection.refresh(&window) {
+            if !main_window_initial_projection_can_defer(&error) {
+                return Err(error);
+            }
+            // WebView2 may not have connected its window channel while Tauri setup is
+            // still running after a forced process restart. Keep the projection empty;
+            // page-load or the next native window event supplies the first authoritative
+            // observation instead of turning an unavailable channel into startup failure.
+            eprintln!(
+                "Main-window initial projection deferred until the WebView channel is ready: {error}"
+            );
+        }
         let queue = Arc::new((
             Mutex::new(MainWindowActorState::default()),
             Condvar::new(),

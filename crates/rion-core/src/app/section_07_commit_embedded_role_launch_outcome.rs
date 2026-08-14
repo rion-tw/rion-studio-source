@@ -541,6 +541,7 @@ impl AppCore {
             role_ids: vec![role_id.clone()],
             kind: "normal".to_owned(),
         })?;
+        let mut preserves_active_macro = false;
         let result = (|| -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
             let role = self
                 .read_typed_state_collection::<StateRoleRecord>("roles")?
@@ -593,7 +594,9 @@ impl AppCore {
                     .find(|runtime_role| runtime_role.role_id == role_id)
                     .map(|runtime_role| runtime_role.owner.clone());
                 if let Some(owner) = source_owner.as_ref() {
-                    self.macro_runtime.request_stop_role(&role_id)?;
+                    preserves_active_macro = self
+                        .macro_runtime
+                        .begin_role_ownership_transfer(&role_id)?;
                     self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.clone(),
                         runtime: "embedded".to_owned(),
@@ -773,13 +776,27 @@ impl AppCore {
                     return Err(error);
                 }
             };
-            self.macro_runtime.allow_role_after_launch(&role_id);
             Ok(completed)
         })();
         let completion = self.browser_operations.complete(&lease.id);
         match (result, completion) {
-            (Ok(snapshot), Ok(())) => Ok(snapshot),
-            (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+            (Ok(snapshot), Ok(())) => {
+                if !preserves_active_macro {
+                    self.macro_runtime.allow_role_after_launch(&role_id);
+                }
+                // An ownership transfer remains quiesced until the native
+                // navigation fence observes both input drain and page-ready.
+                // The Core mutation can complete before that authoritative
+                // event, so it must not resume the active macro here.
+                Ok(snapshot)
+            }
+            (Err(error), _) | (Ok(_), Err(error)) => {
+                if preserves_active_macro {
+                    let _ = self.macro_runtime.request_stop_role(&role_id);
+                    self.emit_browser_statuses();
+                }
+                Err(error)
+            }
         }
     }
 

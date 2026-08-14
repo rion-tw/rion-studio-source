@@ -11,6 +11,7 @@ pub(crate) enum DesktopE2eWindowControlRequest {
         delta_x: i32,
         delta_y: i32,
     },
+    Focus,
     Minimize,
     PermitCloseConfirmation,
     MoveResize {
@@ -241,6 +242,15 @@ impl SystemRuntimeExecutor {
             None,
             json!({ "action": action }),
         );
+        if matches!(request, DesktopE2eWindowControlRequest::Focus) {
+            crate::desktop_e2e::record_event(
+                "window-focus-acknowledged",
+                Some(window_id),
+                Some(generation),
+                None,
+                json!({ "action": action, "status": "applied" }),
+            );
+        }
         if matches!(
             request,
             DesktopE2eWindowControlRequest::Close
@@ -311,6 +321,7 @@ fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> 
         DesktopE2eWindowControlRequest::ClickVisibleClose => "clickVisibleClose",
         DesktopE2eWindowControlRequest::Close => "close",
         DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => "dragVisibleChrome",
+        DesktopE2eWindowControlRequest::Focus => "focus",
         DesktopE2eWindowControlRequest::Minimize => "minimize",
         DesktopE2eWindowControlRequest::PermitCloseConfirmation => "permitCloseConfirmation",
         DesktopE2eWindowControlRequest::MoveResize { .. } => "moveResize",
@@ -376,6 +387,9 @@ fn desktop_e2e_apply_native_window_control(
         }
         DesktopE2eWindowControlRequest::DragVisibleChrome { delta_x, delta_y } => {
             desktop_e2e_windows_visible_chrome_pointer(window, Some((*delta_x, *delta_y)))
+        }
+        DesktopE2eWindowControlRequest::Focus => {
+            request_platform_window_show_foreground(window).map_err(|error| error.message)
         }
         DesktopE2eWindowControlRequest::PermitCloseConfirmation => Ok(()),
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
@@ -580,6 +594,10 @@ fn desktop_e2e_apply_native_window_control(
             return Err("Visible chrome pointer controls are Windows-only.".to_owned());
         }
         DesktopE2eWindowControlRequest::MoveResize { .. } => 0,
+        DesktopE2eWindowControlRequest::Focus => {
+            return request_platform_window_show_foreground(window)
+                .map_err(|error| error.message);
+        }
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
             "normal" => 1,
             "maximized" => 2,

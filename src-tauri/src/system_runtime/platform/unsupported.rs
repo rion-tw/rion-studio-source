@@ -246,6 +246,7 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
 pub(in crate::system_runtime) fn perform_platform_surface_quiesce(
     _webview: &Webview,
     lifecycle: &Arc<SurfaceLifecycleTracker>,
+    _defer_navigation_to_preflight: bool,
 ) -> RuntimeResult<()> {
     lifecycle.mark_native_surface_released();
     let _ = lifecycle.mark_isolated(2);

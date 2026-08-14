@@ -45,6 +45,22 @@ fn open_tab_from_model(
         .text(format!("{STOP_PREFIX}{tab_id}"), text.stop)
         .build()
         .map_err(|error| error.to_string())?;
+    #[cfg(feature = "desktop-e2e")]
+    crate::desktop_e2e::record_event(
+        "runtime-tab-menu-opened",
+        Some(live_window_id),
+        None,
+        None,
+        serde_json::json!({
+            "completionScope": "nativeSubmission",
+            "status": "submitted",
+            "tabId": tab_id
+        }),
+    );
+    // Tauri's native popup call tracks the menu synchronously on Windows and only returns after
+    // selection or dismissal. The submission boundary above is therefore the only event-bound
+    // signal that another actor can use to choose a visible menu item without deadlocking on the
+    // popup call itself.
     menu.popup(window).map_err(|error| error.to_string())
 }
 
@@ -256,16 +272,16 @@ pub fn handle_event(app: &AppHandle, id: &str) -> bool {
                 reveal_menu_error(&app, "runtime state is unavailable");
                 return;
             };
-            if let Err(error) = crate::move_game_window_tab_to_new_window(
+            match crate::move_game_window_tab_to_new_window(
                 &app,
                 &state,
                 &tab_id,
                 None,
             )
-            .await
-                && error.code != "TAURI_RUNTIME_TAB_MOVE_SUPERSEDED"
-            {
-                crate::reveal_shell_error(&app, error);
+            .await {
+                Ok(created) => crate::record_runtime_operation_terminal(&created.receipt),
+                Err(error) if error.code == "TAURI_RUNTIME_TAB_MOVE_SUPERSEDED" => {}
+                Err(error) => crate::reveal_shell_error(&app, error),
             }
         });
     } else if let Some(value) = id.strip_prefix(MOVE_PREFIX) {

@@ -136,6 +136,15 @@ bool rion_runtime_tabs_accessibility_press(
     void * _Nullable controller, const char *tabIdentifier);
 bool rion_runtime_tabs_accessibility_close(
     void * _Nullable controller, const char *tabIdentifier);
+#if defined(RION_DESKTOP_E2E)
+bool rion_runtime_tabs_accessibility_show_menu(
+    void * _Nullable controller, const char *tabIdentifier);
+bool rion_runtime_tabs_desktop_e2e_drag(
+    void * _Nullable sourceController, const char *tabIdentifier,
+    void * _Nullable targetController, const char *beforeTabIdentifier);
+bool rion_runtime_tabs_desktop_e2e_select_menu_item(
+    int action, unsigned long targetRank);
+#endif
 void rion_runtime_tabs_hide_failure_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(
     void * _Nullable controller, const char *tabIdentifier,

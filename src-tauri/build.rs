@@ -98,15 +98,19 @@ fn main() {
                 .compile("rion_desktop_e2e");
             println!("cargo:rerun-if-changed=native/macos/RionDesktopE2E.m");
         }
-        cc::Build::new()
+        let mut runtime_tabs = cc::Build::new();
+        runtime_tabs
             .cpp(true)
             .file("native/macos/RionRuntimeTabsController.mm")
             .flag("-fobjc-arc")
             .flag("-std=c++17")
             .flag("-Werror=nullability-completeness")
             .flag("-Werror=nullability")
-            .flag("-Werror=nonnull")
-            .compile("rion_runtime_tabs");
+            .flag("-Werror=nonnull");
+        if std::env::var_os("CARGO_FEATURE_DESKTOP_E2E").is_some() {
+            runtime_tabs.define("RION_DESKTOP_E2E", None);
+        }
+        runtime_tabs.compile("rion_runtime_tabs");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=WebKit");

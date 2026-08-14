@@ -231,6 +231,20 @@ describe("Windows local runtime tab sorting", () => {
     expect(commit).toHaveBeenCalledWith({ beforeTabId: "tab-1", tabId: "tab-3" });
   });
 
+  it("commits from the real release point when Sortable starts without swapping DOM order", async () => {
+    const { applyOrder, commit, root } = setup();
+    const dragged = root.querySelector<HTMLButtonElement>('[data-tab-id="tab-3"]')!;
+
+    sortableOptions.onStart?.(eventFor(dragged));
+    pointerUp(20, 15);
+    sortableOptions.onEnd?.(eventFor(dragged));
+    await Promise.resolve();
+
+    expect(applyOrder).toHaveBeenCalledWith(["tab-3", "tab-1", "tab-2"], true);
+    expect(commit).toHaveBeenCalledOnce();
+    expect(commit).toHaveBeenCalledWith({ beforeTabId: "tab-1", tabId: "tab-3" });
+  });
+
   it("does not commit an unchanged order", async () => {
     const { commit, root } = setup();
     const dragged = root.querySelector<HTMLButtonElement>('[data-tab-id="tab-1"]')!;

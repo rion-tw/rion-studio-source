@@ -315,10 +315,10 @@ async fn restore_saved_game_windows(
                 )
             })?;
         let runtime_before_restore = browser_runtime_snapshot(state)?;
-        if saved_window_conflicts_with_runtime(&saved, &runtime_before_restore) {
+        if saved_window_duplicates_runtime_tab_source(&saved, &runtime_before_restore) {
             return Err(shell_error(
                 "TAURI_RESTORE_SOURCE_CONFLICT",
-                "A saved Game Window source is already owned by another live window.",
+                "A saved Game Window tab source is already open in another live window.",
             ));
         }
         vec![saved]

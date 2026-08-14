@@ -174,3 +174,85 @@ fn clean_exit_requires_a_terminal_shutdown_drain() {
         assert!(!shutdown_receipt_allows_clean_exit(&SystemRuntimeOperationStatus::Indeterminate));
     }
 }
+
+#[test]
+fn full_application_shutdown_does_not_wait_for_in_process_store_reuse() {
+    assert_eq!(
+        application_shutdown_release_boundary(SurfaceReleaseBoundary::DedicatedStore),
+        SurfaceReleaseBoundary::SharedBrowserProcess
+    );
+    assert_eq!(
+        application_shutdown_release_boundary(SurfaceReleaseBoundary::SharedBrowserProcess),
+        SurfaceReleaseBoundary::SharedBrowserProcess
+    );
+}
+
+#[test]
+fn full_application_shutdown_uses_the_platform_stop_boundary_without_cookie_preflight() {
+    assert!(!application_shutdown_defers_navigation_to_preflight());
+    #[cfg(windows)]
+    {
+        assert!(windows_surface_quiesce_completes_at_stop(
+            application_shutdown_defers_navigation_to_preflight()
+        ));
+        assert!(!windows_surface_quiesce_completes_at_stop(true));
+    }
+    for platform in ["windows", "macos"] {
+        assert!(managed_surface_close_checkpoints_role_cookies(
+            ManagedSurfaceKind::Role,
+            true,
+        ), "{platform}");
+        assert!(!managed_surface_close_checkpoints_role_cookies(
+            ManagedSurfaceKind::Role,
+            false,
+        ), "{platform}");
+        assert!(!managed_surface_close_checkpoints_role_cookies(
+            ManagedSurfaceKind::Divider,
+            true,
+        ), "{platform}");
+    }
+}
+
+#[test]
+fn shutdown_rejects_late_non_clean_restore_session_writes() {
+    assert!(restore_session_persist_is_admitted(
+        RuntimeShutdownState::Accepting,
+        false
+    ));
+    for state in [
+        RuntimeShutdownState::Draining,
+        RuntimeShutdownState::Closed,
+        RuntimeShutdownState::Indeterminate,
+    ] {
+        assert!(!restore_session_persist_is_admitted(state, false));
+        assert!(restore_session_persist_is_admitted(state, true));
+    }
+}
+
+#[test]
+fn placeholder_only_restored_tabs_have_an_authoritative_ready_boundary() {
+    for platform in ["windows", "macos"] {
+        assert!(placeholder_attachment_is_role_load_boundary(0), "{platform}");
+        assert!(!placeholder_attachment_is_role_load_boundary(1), "{platform}");
+    }
+}
+
+#[test]
+fn windows_dividers_release_without_a_remote_page_quiesce() {
+    assert!(!managed_surface_requires_page_quiesce(
+        "windows",
+        ManagedSurfaceKind::Divider,
+    ));
+    assert!(managed_surface_requires_page_quiesce(
+        "macos",
+        ManagedSurfaceKind::Divider,
+    ));
+    for kind in [
+        ManagedSurfaceKind::Popup,
+        ManagedSurfaceKind::Recovery,
+        ManagedSurfaceKind::Role,
+    ] {
+        assert!(managed_surface_requires_page_quiesce("windows", kind));
+        assert!(managed_surface_requires_page_quiesce("macos", kind));
+    }
+}

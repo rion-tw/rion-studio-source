@@ -93,6 +93,18 @@ async fn execute_tab_stop(
         ));
     }
 
+    if !dormant
+        && let Err(error) = state.runtime.checkpoint_tab_close_role_sessions(tab_id)
+    {
+        return Ok(state.runtime.complete_tab_mutation(
+            &operation_id,
+            "tabStopSessionCheckpointFailed",
+            RuntimeTabMutationTerminalStatus::Failed,
+            Some(error.code),
+            0,
+        ));
+    }
+
     let intent = match state.runtime.preview_tab_close(tab_id) {
         Ok(intent) => intent,
         Err(message) if stale_live_tab_action_error(&message) => {

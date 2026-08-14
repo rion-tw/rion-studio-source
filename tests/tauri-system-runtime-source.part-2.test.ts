@@ -969,7 +969,16 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
   });
 
   it("keeps surface close and main focus completion strictly event-bound", async () => {
-    const [surfaceClose, roleSetup, sessionStorage, mainWindow, windowsLifecycle, macLifecycle, windowClose] = await Promise.all([
+    const [
+      surfaceClose,
+      roleSetup,
+      sessionStorage,
+      mainWindow,
+      windowsLifecycle,
+      macLifecycle,
+      windowClose,
+      tabMutation
+    ] = await Promise.all([
       readFile(
         new URL(
           "../src-tauri/src/system_runtime/section_26_sync_native_tab_metadata.rs",
@@ -1014,6 +1023,10 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       ),
       readFile(
         new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src-tauri/src/lib/section_01_tab_mutation.rs", import.meta.url),
         "utf8"
       )
     ]);
@@ -1086,6 +1099,7 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(sessionStorage).toContain("write_private_file(&directory, ROLE_COOKIE_CHECKPOINT_FILE");
     expect(sessionStorage.match(/deduplicate_role_cookie_checkpoint_records\(/g)).toHaveLength(3);
     expect(sessionStorage).toContain("checkpoint_window_close_role_sessions(");
+    expect(sessionStorage).toContain("checkpoint_tab_close_role_sessions(");
     expect(sessionStorage).toContain("native_absent_tab_can_skip_window_session_checkpoint(");
     expect(sessionStorage).toContain("surface.session-checkpointed");
     expect(sessionStorage).toContain("session_checkpointed_for_close = true");
@@ -1093,6 +1107,11 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       .toBeLessThan(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
     expect(osWindowCloseTransaction.indexOf("checkpoint_window_close_role_sessions"))
       .toBeLessThan(osWindowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
+    expect(tabMutation.indexOf("checkpoint_tab_close_role_sessions"))
+      .toBeLessThan(tabMutation.indexOf("preview_tab_close"));
+    expect(tabMutation.indexOf("checkpoint_tab_close_role_sessions"))
+      .toBeLessThan(tabMutation.indexOf("CoreCommand::EmbeddedTabStop"));
+    expect(tabMutation).toContain("tabStopSessionCheckpointFailed");
     expect(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"))
       .toBeLessThan(windowCloseTransaction.indexOf("commit_visible_window_close"));
     expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))

@@ -392,6 +392,30 @@ impl SystemRuntimeExecutor {
         &self,
         tab_ids: &[String],
     ) -> RuntimeResult<()> {
+        self.checkpoint_close_role_sessions(
+            tab_ids,
+            "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+            "window close admission",
+            "The live role Cookie and LocalStorage state was durably checkpointed before window close admission.",
+        )
+    }
+
+    pub(crate) fn checkpoint_tab_close_role_sessions(&self, tab_id: &str) -> RuntimeResult<()> {
+        self.checkpoint_close_role_sessions(
+            &[tab_id.to_owned()],
+            "SYSTEM_TAB_CLOSE_SESSION_CHECKPOINT_STALE",
+            "tab close admission",
+            "The live role Cookie and LocalStorage state was durably checkpointed before tab close admission.",
+        )
+    }
+
+    fn checkpoint_close_role_sessions(
+        &self,
+        tab_ids: &[String],
+        stale_code: &'static str,
+        admission: &'static str,
+        checkpoint_message: &'static str,
+    ) -> RuntimeResult<()> {
         let surfaces = {
             let state = self.state()?;
             let mut surfaces = Vec::new();
@@ -416,8 +440,10 @@ impl SystemRuntimeExecutor {
                         continue;
                     }
                     return Err(RuntimeError::new(
-                        "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
-                        "A native-absent runtime tab retained a live surface or close fence before its role session could be checkpointed.",
+                        stale_code,
+                        format!(
+                            "A native-absent runtime tab retained a live surface or close fence before {admission}."
+                        ),
                     ));
                 };
                 for (role_id, role_surface) in &tab.roles {
@@ -435,8 +461,10 @@ impl SystemRuntimeExecutor {
                         .cloned()
                         .ok_or_else(|| {
                             RuntimeError::new(
-                                "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
-                                "The exact live role surface was unavailable before window close admission.",
+                                stale_code,
+                                format!(
+                                    "The exact live role surface was unavailable before {admission}."
+                                ),
                             )
                         })?;
                     surfaces.push(managed);
@@ -448,7 +476,7 @@ impl SystemRuntimeExecutor {
         for surface in &surfaces {
             let role_id = surface.role_id.as_deref().ok_or_else(|| {
                 RuntimeError::new(
-                    "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                    stale_code,
                     "A role session checkpoint surface did not retain its role identity.",
                 )
             })?;
@@ -473,7 +501,7 @@ impl SystemRuntimeExecutor {
         });
         if !all_current {
             return Err(RuntimeError::new(
-                "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+                stale_code,
                 "A role surface changed while its close session checkpoint was being persisted.",
             ));
         }
@@ -491,7 +519,7 @@ impl SystemRuntimeExecutor {
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.session-checkpointed",
-                "The live role Cookie and LocalStorage state was durably checkpointed before window close admission.",
+                checkpoint_message,
                 expected.webview.label(),
             );
         }

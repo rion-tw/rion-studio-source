@@ -344,12 +344,10 @@ function PerformanceDiagnosticsResult({
               <DiagnosticValue label="WebGL 2" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgl2}`)} />
               <DiagnosticValue label="WebGPU" value={t(`settings.performanceDiagnosticsCapability.${surface.graphics.webgpu}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsHighRefresh")} value={formatHighRefreshStatus(surface.highRefreshRateStatus)} />
-              <DiagnosticValue label="UseGPUProcessForWebGLEnabled" value={formatFeatureStatus(surface.useGpuProcessForWebGlStatus)} />
-              <DiagnosticValue label="UseGPUProcessForDOMRenderingEnabled" value={formatFeatureStatus(surface.useGpuProcessForDomRenderingStatus)} />
-              <DiagnosticValue label="UseGPUProcessForCanvasRenderingEnabled" value={formatFeatureStatus(surface.useGpuProcessForCanvasRenderingStatus)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsMaximumMode")} value={t(`settings.performanceDiagnosticsMaximumMode.${surface.maximumModeStatus}`)} />
-              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlPath")} value={formatWebGlExecutionPath(surface.webGlExecutionPath)} />
-              <DiagnosticValue label="WebGL command batching" value={formatCommandBatchingStatus(surface.webGlCommandBatchingStatus)} />
+              <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlPath")} value={t(`settings.performanceDiagnosticsWebGlPath.${surface.webGlExecutionPath}`)} />
+              {performance.platform === "macos" ? (
+                <DiagnosticValue label={t("settings.performanceDiagnosticsBatching")} value={t(`settings.performanceDiagnosticsBatching.${surface.webGlCommandBatchingStatus}`)} />
+              ) : null}
               <DiagnosticValue label={t("settings.performanceDiagnosticsTarget")} value={t(`settings.performanceDiagnosticsTarget.${surface.performanceTargetStatus}`)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsCanvas")} value={formatCanvas(surface, t)} />
               <DiagnosticValue label={t("settings.performanceDiagnosticsWebGlAttributes")} value={formatWebGlAttributes(surface, t)} />
@@ -397,40 +395,10 @@ function DiagnosticValue({ label, value }: { label: string; value: string }): JS
   return <div><p className="text-muted-foreground">{label}</p><p className="mt-0.5 break-words font-medium text-foreground">{value}</p></div>;
 }
 
-function formatFeatureStatus(
-  status: BrowserPerformanceDiagnostics["surfaces"][number]["maximumModeStatus"]
-): string {
-  return status;
-}
-
 function formatHighRefreshStatus(
   status: BrowserPerformanceDiagnostics["surfaces"][number]["highRefreshRateStatus"]
 ): string {
   return status;
-}
-
-function formatWebGlExecutionPath(
-  path: BrowserPerformanceDiagnostics["surfaces"][number]["webGlExecutionPath"]
-): string {
-  const labels = {
-    webContentDirect: "WebContent direct",
-    gpuProcess: "GPU process",
-    engineManaged: "engineManaged",
-    unknown: "unknown"
-  } as const;
-  return labels[path];
-}
-
-function formatCommandBatchingStatus(
-  status: BrowserPerformanceDiagnostics["surfaces"][number]["webGlCommandBatchingStatus"]
-): string {
-  const labels = {
-    verifiedAvailable: "VerifiedAvailable",
-    verifiedAbsent: "VerifiedAbsent",
-    unknown: "Unknown",
-    notApplicable: "NotApplicable"
-  } as const;
-  return labels[status];
 }
 
 function formatWebKitRuntimeVersion(version: string): string {
@@ -455,16 +423,6 @@ function performanceFinding(
       .replace(
         "{state}",
         t(`settings.performanceDiagnosticsThermal.${performance.systemThermalState}`)
-      );
-  }
-  if (
-    performance.maximumWebGlPerformanceRequested
-    && ["unavailable", "failed"].includes(surface.maximumModeStatus)
-  ) {
-    return t("settings.performanceDiagnosticsFindingMaximumModeFailed")
-      .replace(
-        "{status}",
-        t(`settings.performanceDiagnosticsMaximumMode.${surface.maximumModeStatus}`)
       );
   }
   if (surface.performanceTargetStatus === "failed") {

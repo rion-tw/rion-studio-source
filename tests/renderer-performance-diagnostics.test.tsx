@@ -30,7 +30,6 @@ function performanceDiagnostics(
     systemLowPowerModeEnabled: false,
     systemThermalState: "nominal",
     highRefreshRateRequested: true,
-    maximumWebGlPerformanceRequested: true,
     sampleDurationMs: 1500,
     surfaces: [{
       roleId: "role-1",
@@ -61,11 +60,7 @@ function performanceDiagnostics(
         webgpu: "available"
       },
       highRefreshRateStatus: "applied",
-      useGpuProcessForWebGlStatus: "applied",
-      useGpuProcessForDomRenderingStatus: "applied",
-      useGpuProcessForCanvasRenderingStatus: "applied",
       webGlExecutionPath: "webContentDirect",
-      maximumModeStatus: "applied",
       webGlCommandBatchingStatus: "verifiedAbsent",
       performanceTargetStatus: "notRun",
       browserProcessPresent: undefined,
@@ -212,25 +207,21 @@ describe("foreground performance diagnostics UI", () => {
     expect(document.body.textContent).toContain("14.70 ms");
     expect(document.body.textContent).toContain("0 / 0.0 ms");
     expect(screen.getByText(/Observed 72.0 FPS on a 120 Hz display/u)).toBeTruthy();
-    expect(screen.getAllByText("applied")).toHaveLength(4);
-    expect(screen.getByText("UseGPUProcessForWebGLEnabled")).toBeTruthy();
-    expect(screen.getByText("UseGPUProcessForDOMRenderingEnabled")).toBeTruthy();
-    expect(screen.getByText("UseGPUProcessForCanvasRenderingEnabled")).toBeTruthy();
+    expect(screen.getByText("applied")).toBeTruthy();
+    expect(screen.queryByText("UseGPUProcessForWebGLEnabled")).toBeNull();
+    expect(screen.getByText("WebGL command batching")).toBeTruthy();
   });
 
-  it("uses canonical WebKit feature names and STP capability values", async () => {
+  it("shows the retained WebKit command-batching capability values", async () => {
     await renderPerformanceDiagnostics(performanceDiagnostics({}, {
       webGlExecutionPath: "gpuProcess",
       webGlCommandBatchingStatus: "verifiedAvailable",
       webKitRuntimeVersion: "21626.1.1"
     }));
     const text = document.body.textContent ?? "";
-    expect(text).toContain("UseGPUProcessForWebGLEnabledapplied");
-    expect(text).toContain("UseGPUProcessForDOMRenderingEnabledapplied");
-    expect(text).toContain("UseGPUProcessForCanvasRenderingEnabledapplied");
     expect(text).toContain("Experimental high refresh rateapplied");
     expect(text).toContain("WebGL pathGPU process");
-    expect(text).toContain("WebGL command batchingVerifiedAvailable");
+    expect(text).toContain("WebGL command batchingVerified available");
     expect(text).toContain("WebKit: STP 249／21626.1.1");
   });
 

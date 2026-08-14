@@ -26,7 +26,7 @@ import { normalizeGameBrowserSettings, workspaceGapSizes } from "../../../../sha
 
 import { getLegalDocumentVersion, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 
-import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
+import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacosHighRefreshMode, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
 
 import { MacroSettingsSection } from "./MacroSettingsSection";
 
@@ -372,33 +372,31 @@ function SettingsViewBase({
                   </Select>
                 }
               />
-              <SettingsRow
-                title={t("settings.maximumWebGlPerformance")}
-                description={t(isMacOS
-                  ? "settings.maximumWebGlPerformanceDescriptionMacos"
-                  : "settings.maximumWebGlPerformanceDescriptionWindows")}
-                control={
-                  <Switch
-                    aria-label={t("settings.maximumWebGlPerformance")}
-                    checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.maximumWebGlPerformance}
-                    disabled={isBrowserPerformanceSaving}
-                    onCheckedChange={(maximumWebGlPerformance) =>
-                      updateBrowserPerformanceSettings({ maximumWebGlPerformance })}
-                  />
-                }
-              />
               {isMacOS ? (
                 <SettingsRow
                   title={t("settings.macosHighRefreshRate")}
                   description={t("settings.macosHighRefreshRateDescription")}
                   control={
-                    <Switch
-                      aria-label={t("settings.macosHighRefreshRate")}
-                      checked={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshRate}
+                    <Select
+                      value={normalizeGameBrowserSettings(gameBrowserSettings).performance.macosHighRefreshMode}
                       disabled={isBrowserPerformanceSaving}
-                      onCheckedChange={(macosHighRefreshRate) =>
-                        updateBrowserPerformanceSettings({ macosHighRefreshRate })}
-                    />
+                      onValueChange={(macosHighRefreshMode) =>
+                        updateBrowserPerformanceSettings({
+                          macosHighRefreshMode: macosHighRefreshMode as MacosHighRefreshMode
+                        })}
+                    >
+                      <SelectTrigger
+                        className="settings-menu-control"
+                        aria-label={t("settings.macosHighRefreshRate")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">{t("settings.macosHighRefreshRate.auto")}</SelectItem>
+                        <SelectItem value="enabled">{t("settings.macosHighRefreshRate.enabled")}</SelectItem>
+                        <SelectItem value="disabled">{t("settings.macosHighRefreshRate.disabled")}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   }
                 />
               ) : null}

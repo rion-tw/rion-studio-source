@@ -1,5 +1,6 @@
 use std::fs;
 
+    use crate::MacosHighRefreshMode;
     use tempfile::tempdir;
 
     use super::*;
@@ -36,14 +37,15 @@ use std::fs;
     }
 
     #[test]
-    fn legacy_browser_settings_persist_the_default_maximum_webgl_mode() {
+    fn legacy_browser_performance_settings_migrate_and_drop_maximum_webgl_mode() {
         let mut connection = Connection::open_in_memory().unwrap();
         create_schema(&connection, false).unwrap();
         let mut legacy = serde_json::to_value(default_game_browser_settings()).unwrap();
+        legacy["performance"]["maximumWebGlPerformance"] = json!(false);
         legacy["performance"]
             .as_object_mut()
             .unwrap()
-            .remove("maximumWebGlPerformance");
+            .remove("macosHighRefreshMode");
         legacy["performance"]["macosHighRefreshRate"] = json!(true);
         replace_scalar(&mut connection, "gameBrowserSettings", legacy).unwrap();
 
@@ -52,8 +54,9 @@ use std::fs;
         let stored = read_scalar(&connection, "gameBrowserSettings")
             .unwrap()
             .unwrap();
-        assert_eq!(stored["performance"]["maximumWebGlPerformance"], true);
-        assert_eq!(stored["performance"]["macosHighRefreshRate"], true);
+        assert!(stored["performance"].get("maximumWebGlPerformance").is_none());
+        assert!(stored["performance"].get("macosHighRefreshRate").is_none());
+        assert_eq!(stored["performance"]["macosHighRefreshMode"], "enabled");
     }
 
     #[test]
@@ -316,8 +319,10 @@ use std::fs;
             }))
             .unwrap();
             let settings = normalize_game_browser_settings(settings);
-            assert!(settings.performance.maximum_web_gl_performance);
-            assert!(!settings.performance.macos_high_refresh_rate);
+            assert_eq!(
+                settings.performance.macos_high_refresh_mode,
+                MacosHighRefreshMode::Auto
+            );
             assert!(settings.macro_overlay.show_tool_button);
             assert!(settings.macro_overlay.show_running_badges);
             assert!(settings.macro_overlay.show_click_markers);

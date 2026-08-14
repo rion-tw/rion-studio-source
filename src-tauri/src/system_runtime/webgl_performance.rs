@@ -1,7 +1,4 @@
-use rion_core::{
-    MaximumWebGlPerformanceDiagnosticStatus, PerformanceTargetStatus, WebGlCommandBatchingStatus,
-    WebGlExecutionPath,
-};
+use rion_core::{PerformanceTargetStatus, WebGlCommandBatchingStatus, WebGlExecutionPath};
 
 #[cfg(any(target_os = "macos", test))]
 const WEBKIT_26_5_BUILD: &str = "21624.2.5.11.4";
@@ -9,38 +6,20 @@ const WEBKIT_26_5_BUILD: &str = "21624.2.5.11.4";
 const WEBKIT_26_6_BUILD: &str = "21624.4.5.14.1";
 #[cfg(any(target_os = "macos", test))]
 const WEBKIT_STP_249_BUILD: &str = "21626.1.1";
-// Builds enter this production catalog only after the real Flyff A/B meets all
-// acceptance gates. The 2026-08-13 system-direct run did not meet the 15%
-// improvement gate, so no shipping WebKit build is currently certified.
-#[cfg(any(target_os = "macos", test))]
-const CERTIFIED_DIRECT_WEB_GL_BUILDS: &[&str] = &[];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RoleWebGlConfiguration {
-    pub(super) canvas_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus,
     pub(super) command_batching_status: WebGlCommandBatchingStatus,
-    pub(super) dom_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus,
     pub(super) execution_path: WebGlExecutionPath,
-    pub(super) maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus,
     pub(super) performance_target_status: PerformanceTargetStatus,
-    pub(super) web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus,
 }
 
 impl RoleWebGlConfiguration {
     #[cfg(not(target_os = "macos"))]
-    pub(super) fn windows(maximum_mode_enabled: bool) -> Self {
+    pub(super) fn windows() -> Self {
         Self {
-            canvas_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus::NotApplicable,
             command_batching_status: WebGlCommandBatchingStatus::NotApplicable,
-            dom_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus::NotApplicable,
             execution_path: WebGlExecutionPath::EngineManaged,
-            maximum_mode_status: if maximum_mode_enabled {
-                MaximumWebGlPerformanceDiagnosticStatus::EngineManaged
-            } else {
-                MaximumWebGlPerformanceDiagnosticStatus::Disabled
-            },
             performance_target_status: PerformanceTargetStatus::NotRun,
-            web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus::NotApplicable,
         }
     }
 }
@@ -142,7 +121,6 @@ pub(super) fn active_mac_web_gl_experiment() -> Option<MacWebGlExperimentMode> {
 
 #[cfg(any(target_os = "macos", test))]
 pub(super) fn mac_web_gl_policy(
-    maximum_mode_enabled: bool,
     webkit_runtime_version: Option<&str>,
     experiment: Option<MacWebGlExperimentMode>,
 ) -> MacWebGlPolicy {
@@ -156,21 +134,13 @@ pub(super) fn mac_web_gl_policy(
                 WebKitFeaturePreference::KeepDefault
             },
             configuration: RoleWebGlConfiguration {
-                canvas_rendering_feature_status: feature_status(
-                    experiment.uses_canvas_rendering_override(),
-                ),
                 command_batching_status,
-                dom_rendering_feature_status: feature_status(
-                    experiment.uses_dom_rendering_override(),
-                ),
                 execution_path: if uses_gpu_process {
                     WebGlExecutionPath::GpuProcess
                 } else {
                     WebGlExecutionPath::WebContentDirect
                 },
-                maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus::Applied,
                 performance_target_status: PerformanceTargetStatus::Indeterminate,
-                web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus::Applied,
             },
             dom_rendering_preference: if experiment.uses_dom_rendering_override() {
                 WebKitFeaturePreference::Enable
@@ -184,64 +154,15 @@ pub(super) fn mac_web_gl_policy(
             },
         };
     }
-    if !maximum_mode_enabled {
-        return MacWebGlPolicy {
-            canvas_rendering_preference: WebKitFeaturePreference::KeepDefault,
-            configuration: RoleWebGlConfiguration {
-                canvas_rendering_feature_status:
-                    MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-                command_batching_status,
-                dom_rendering_feature_status:
-                    MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-                execution_path: WebGlExecutionPath::GpuProcess,
-                maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus::Disabled,
-                performance_target_status: PerformanceTargetStatus::NotRun,
-                web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-            },
-            dom_rendering_preference: WebKitFeaturePreference::KeepDefault,
-            web_gl_preference: WebKitFeaturePreference::KeepDefault,
-        };
-    }
-    if certified_direct_web_gl_build(webkit_runtime_version) {
-        return MacWebGlPolicy {
-            canvas_rendering_preference: WebKitFeaturePreference::KeepDefault,
-            configuration: RoleWebGlConfiguration {
-                canvas_rendering_feature_status:
-                    MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-                command_batching_status,
-                dom_rendering_feature_status:
-                    MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-                execution_path: WebGlExecutionPath::WebContentDirect,
-                maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus::Applied,
-                performance_target_status: PerformanceTargetStatus::NotRun,
-                web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus::Applied,
-            },
-            dom_rendering_preference: WebKitFeaturePreference::KeepDefault,
-            web_gl_preference: WebKitFeaturePreference::Disable,
-        };
-    }
     MacWebGlPolicy {
         canvas_rendering_preference: WebKitFeaturePreference::KeepDefault,
         configuration: RoleWebGlConfiguration {
-            canvas_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
             command_batching_status,
-            dom_rendering_feature_status: MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-            execution_path: WebGlExecutionPath::Unknown,
-            maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus::Unavailable,
+            execution_path: WebGlExecutionPath::EngineManaged,
             performance_target_status: PerformanceTargetStatus::NotRun,
-            web_gl_feature_status: MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
         },
         dom_rendering_preference: WebKitFeaturePreference::KeepDefault,
         web_gl_preference: WebKitFeaturePreference::KeepDefault,
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn feature_status(explicitly_enabled: bool) -> MaximumWebGlPerformanceDiagnosticStatus {
-    if explicitly_enabled {
-        MaximumWebGlPerformanceDiagnosticStatus::Applied
-    } else {
-        MaximumWebGlPerformanceDiagnosticStatus::EngineManaged
     }
 }
 
@@ -255,13 +176,6 @@ pub(super) fn webkit_command_batching_status(
         Some(WEBKIT_STP_249_BUILD) => WebGlCommandBatchingStatus::VerifiedAvailable,
         _ => WebGlCommandBatchingStatus::Unknown,
     }
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn certified_direct_web_gl_build(webkit_runtime_version: Option<&str>) -> bool {
-    webkit_runtime_version
-        .map(str::trim)
-        .is_some_and(|build| CERTIFIED_DIRECT_WEB_GL_BUILDS.contains(&build))
 }
 
 #[cfg(test)]
@@ -293,48 +207,38 @@ mod tests {
     }
 
     #[test]
-    fn production_policy_falls_back_to_webkit_default_for_unknown_builds() {
-        let policy = mac_web_gl_policy(true, Some("unknown"), None);
+    fn production_policy_always_keeps_webkit_process_preferences_at_default() {
+        let policy = mac_web_gl_policy(Some("unknown"), None);
         assert_eq!(
             policy.web_gl_preference,
             WebKitFeaturePreference::KeepDefault
         );
         assert_eq!(
-            policy.configuration.maximum_mode_status,
-            MaximumWebGlPerformanceDiagnosticStatus::Unavailable
-        );
-        assert_eq!(
             policy.configuration.execution_path,
-            WebGlExecutionPath::Unknown
+            WebGlExecutionPath::EngineManaged
         );
-        let unstrategized = mac_web_gl_policy(true, Some(WEBKIT_26_6_BUILD), None);
+        let known = mac_web_gl_policy(Some(WEBKIT_26_6_BUILD), None);
         assert_eq!(
-            unstrategized.web_gl_preference,
+            known.web_gl_preference,
             WebKitFeaturePreference::KeepDefault
         );
         assert_eq!(
-            unstrategized.configuration.maximum_mode_status,
-            MaximumWebGlPerformanceDiagnosticStatus::Unavailable
+            known.configuration.execution_path,
+            WebGlExecutionPath::EngineManaged
+        );
+        assert_eq!(
+            known.dom_rendering_preference,
+            WebKitFeaturePreference::KeepDefault
+        );
+        assert_eq!(
+            known.canvas_rendering_preference,
+            WebKitFeaturePreference::KeepDefault
         );
     }
 
     #[test]
-    fn failed_direct_gate_keeps_production_on_webkit_default_and_experiments_are_explicit() {
-        let production = mac_web_gl_policy(true, Some(WEBKIT_26_5_BUILD), None);
-        assert_eq!(
-            production.web_gl_preference,
-            WebKitFeaturePreference::KeepDefault
-        );
-        assert_eq!(
-            production.configuration.execution_path,
-            WebGlExecutionPath::Unknown
-        );
-        assert_eq!(
-            production.configuration.maximum_mode_status,
-            MaximumWebGlPerformanceDiagnosticStatus::Unavailable
-        );
+    fn debug_experiments_remain_explicit() {
         let experiment = mac_web_gl_policy(
-            true,
             Some(WEBKIT_STP_249_BUILD),
             Some(MacWebGlExperimentMode::StpGpuProcessAllRendering),
         );

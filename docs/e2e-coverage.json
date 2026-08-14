@@ -301,7 +301,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "restart"],
-      "description": "Change theme, maximum WebGL performance, Game Window preferences, and in-game macro interface visibility through Settings; verify macro execution remains available and preferences persist after restart."
+      "description": "Change theme, Game Window preferences, and in-game macro interface visibility through Settings; verify macro execution remains available and preferences persist after restart."
     },
     {
       "id": "GAME-WINDOWS-NATIVE-001",
@@ -380,7 +380,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Verify data, event-bound performance diagnostics and cancellation, update, font preset, and legal entry points plus their non-destructive cancel boundaries."
+      "description": "Verify the macOS-only high-refresh selector (and its Windows absence), data, event-bound performance diagnostics and cancellation, update, font preset, and legal entry points plus their non-destructive cancel boundaries."
     },
     {
       "id": "NATIVE-DISPLAY-001",

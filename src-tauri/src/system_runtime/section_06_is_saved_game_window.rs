@@ -145,8 +145,7 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 additional_browser_arguments,
                 document_start_script,
-                maximum_web_gl_performance: settings.performance.maximum_web_gl_performance,
-                macos_high_refresh_rate: settings.performance.macos_high_refresh_rate,
+                macos_high_refresh_mode: settings.performance.macos_high_refresh_mode,
                 overlay_document_start_script_template,
             },
             core: Arc::clone(&core),

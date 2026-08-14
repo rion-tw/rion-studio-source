@@ -154,7 +154,6 @@ describe("performance process metrics", () => {
       edge: webGlRun(120, 110),
       gpuProcessPresent: true,
       hardwareAccelerationEnabled: true,
-      maximumModeStatus: "engineManaged",
       productionGraphicsFlags: [],
       rion: webGlRun(113, 104),
       visualOutputMatched: true,

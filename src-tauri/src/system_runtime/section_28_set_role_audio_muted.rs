@@ -223,8 +223,10 @@ fn empty_performance_diagnostics(
         display_refresh_rate_hz: None,
         system_low_power_mode_enabled,
         system_thermal_state,
-        high_refresh_rate_requested: configuration.macos_high_refresh_rate,
-        maximum_web_gl_performance_requested: configuration.maximum_web_gl_performance,
+        high_refresh_rate_requested: macos_high_refresh_rate_enabled(
+            configuration.macos_high_refresh_mode,
+            None,
+        ),
         sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
         surfaces: Vec::new(),
     }
@@ -287,21 +289,9 @@ fn completed_performance_surface(
         .execution_path
     {
         WebGlExecutionPath::WebContentDirect => Some(false),
-        WebGlExecutionPath::GpuProcess | WebGlExecutionPath::EngineManaged => Some(true),
-        WebGlExecutionPath::Unknown => None,
+        WebGlExecutionPath::GpuProcess => Some(true),
+        WebGlExecutionPath::EngineManaged | WebGlExecutionPath::Unknown => None,
     });
-    let maximum_mode_status = maximum_mode_status_with_evidence(
-        cfg!(windows),
-        surface.web_gl_configuration.maximum_mode_status,
-        platform.browser_process_present,
-        platform.renderer_process_present,
-        gpu_process_present,
-        hardware_acceleration,
-    );
-    let web_gl_execution_path = web_gl_execution_path_with_evidence(
-        surface.web_gl_configuration.execution_path,
-        maximum_mode_status,
-    );
     let game_loop_fps = readback
         .game_loop_fps
         .and_then(finite_non_negative)
@@ -362,17 +352,7 @@ fn completed_performance_surface(
         longest_task_ms: readback.longest_task_ms.and_then(finite_non_negative),
         graphics: readback.graphics,
         high_refresh_rate_status: surface.high_refresh_rate_status,
-        use_gpu_process_for_web_gl_status: surface
-            .web_gl_configuration
-            .web_gl_feature_status,
-        use_gpu_process_for_dom_rendering_status: surface
-            .web_gl_configuration
-            .dom_rendering_feature_status,
-        use_gpu_process_for_canvas_rendering_status: surface
-            .web_gl_configuration
-            .canvas_rendering_feature_status,
-        web_gl_execution_path,
-        maximum_mode_status,
+        web_gl_execution_path: surface.web_gl_configuration.execution_path,
         web_gl_command_batching_status: surface.web_gl_configuration.command_batching_status,
         performance_target_status,
         webview_runtime_version: platform.runtime_version.clone(),
@@ -400,14 +380,6 @@ fn failed_performance_surface(
     error: String,
 ) -> BrowserPerformanceSurfaceDiagnosticRecord {
     let platform = platform_webview_diagnostics(&surface.webview);
-    let maximum_mode_status = maximum_mode_status_with_evidence(
-        cfg!(windows),
-        surface.web_gl_configuration.maximum_mode_status,
-        platform.browser_process_present,
-        platform.renderer_process_present,
-        platform.gpu_process_present,
-        platform.hardware_acceleration_enabled,
-    );
     let web_kit_runtime_version = if cfg!(target_os = "macos") {
         platform.runtime_version.clone()
     } else {
@@ -443,20 +415,7 @@ fn failed_performance_surface(
             webgpu: "unknown".to_owned(),
         },
         high_refresh_rate_status: surface.high_refresh_rate_status,
-        use_gpu_process_for_web_gl_status: surface
-            .web_gl_configuration
-            .web_gl_feature_status,
-        use_gpu_process_for_dom_rendering_status: surface
-            .web_gl_configuration
-            .dom_rendering_feature_status,
-        use_gpu_process_for_canvas_rendering_status: surface
-            .web_gl_configuration
-            .canvas_rendering_feature_status,
-        web_gl_execution_path: web_gl_execution_path_with_evidence(
-            surface.web_gl_configuration.execution_path,
-            maximum_mode_status,
-        ),
-        maximum_mode_status,
+        web_gl_execution_path: surface.web_gl_configuration.execution_path,
         web_gl_command_batching_status: surface.web_gl_configuration.command_batching_status,
         performance_target_status: PerformanceTargetStatus::Indeterminate,
         webview_runtime_version: platform.runtime_version.clone(),
@@ -474,44 +433,6 @@ fn failed_performance_surface(
         game_loop_timer_drift_p95_ms: None,
         context_loss_count: None,
         error: bounded_diagnostic_text(error),
-    }
-}
-
-fn maximum_mode_status_with_evidence(
-    windows_engine: bool,
-    configured: MaximumWebGlPerformanceDiagnosticStatus,
-    browser_process_present: Option<bool>,
-    renderer_process_present: Option<bool>,
-    gpu_process_present: Option<bool>,
-    hardware_acceleration_enabled: Option<bool>,
-) -> MaximumWebGlPerformanceDiagnosticStatus {
-    if !windows_engine || configured != MaximumWebGlPerformanceDiagnosticStatus::EngineManaged {
-        return configured;
-    }
-    let evidence = [
-        browser_process_present,
-        renderer_process_present,
-        gpu_process_present,
-        hardware_acceleration_enabled,
-    ];
-    if evidence.contains(&Some(false)) {
-        MaximumWebGlPerformanceDiagnosticStatus::Failed
-    } else if evidence.contains(&None) {
-        MaximumWebGlPerformanceDiagnosticStatus::Unavailable
-    } else {
-        configured
-    }
-}
-
-fn web_gl_execution_path_with_evidence(
-    configured: WebGlExecutionPath,
-    status: MaximumWebGlPerformanceDiagnosticStatus,
-) -> WebGlExecutionPath {
-    match status {
-        MaximumWebGlPerformanceDiagnosticStatus::Unavailable
-        | MaximumWebGlPerformanceDiagnosticStatus::Failed
-        | MaximumWebGlPerformanceDiagnosticStatus::NotApplicable => WebGlExecutionPath::Unknown,
-        _ => configured,
     }
 }
 

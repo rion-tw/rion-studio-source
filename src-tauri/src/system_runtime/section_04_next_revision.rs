@@ -921,8 +921,7 @@ struct RuntimeWebViewConfiguration {
     #[cfg(windows)]
     additional_browser_arguments: String,
     document_start_script: String,
-    maximum_web_gl_performance: bool,
-    macos_high_refresh_rate: bool,
+    macos_high_refresh_mode: MacosHighRefreshMode,
     overlay_document_start_script_template: String,
 }
 

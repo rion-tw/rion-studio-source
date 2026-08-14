@@ -54,9 +54,11 @@ describe("macOS System WebView high refresh mode", () => {
     expect(runtime).toContain("builder.with_webview_configuration(configuration)");
     expect(runtime).toContain("mac_web_gl_policy");
     expect(runtime).toContain('const WEBKIT_26_5_BUILD: &str = "21624.2.5.11.4"');
-    expect(runtime).toContain("certified_direct_web_gl_build");
     expect(runtime).toContain("WebKitFeaturePreference::KeepDefault");
-    expect(runtime).not.toContain("if !high_refresh_rate_enabled && !maximum_web_gl_performance_enabled");
+    expect(runtime).toContain("execution_path: WebGlExecutionPath::EngineManaged");
+    expect(runtime).not.toContain("maximum_web_gl_performance_enabled");
+    expect(runtime).toContain("RION_WEBKIT_EXPERIMENT_ISOLATED");
+    expect(runtime).toContain("macos_high_refresh_rate_enabled");
     expect(runtime).toContain("#[cfg(not(target_os = \"macos\"))]");
     expect(runtime).not.toContain("disable-frame-rate-limit");
     expect(runtime).not.toContain("force-high-performance-gpu");

@@ -2,4 +2,4 @@
 import type { BrowserPerformanceDiagnosticStatus } from "./BrowserPerformanceDiagnosticStatus";
 import type { BrowserPerformanceSurfaceDiagnosticRecord } from "./BrowserPerformanceSurfaceDiagnosticRecord";
 
-export type BrowserPerformanceDiagnosticsRecord = { capturedAt: string, platform: "macos" | "windows", status: BrowserPerformanceDiagnosticStatus, windowId?: string, windowFocused: boolean, displayRefreshRateHz?: number, systemLowPowerModeEnabled?: boolean, systemThermalState?: "nominal" | "fair" | "serious" | "critical" | "unknown", highRefreshRateRequested: boolean, maximumWebGlPerformanceRequested: boolean, sampleDurationMs: number, surfaces: Array<BrowserPerformanceSurfaceDiagnosticRecord>, };
+export type BrowserPerformanceDiagnosticsRecord = { capturedAt: string, platform: "macos" | "windows", status: BrowserPerformanceDiagnosticStatus, windowId?: string, windowFocused: boolean, displayRefreshRateHz?: number, systemLowPowerModeEnabled?: boolean, systemThermalState?: "nominal" | "fair" | "serious" | "critical" | "unknown", highRefreshRateRequested: boolean, sampleDurationMs: number, surfaces: Array<BrowserPerformanceSurfaceDiagnosticRecord>, };

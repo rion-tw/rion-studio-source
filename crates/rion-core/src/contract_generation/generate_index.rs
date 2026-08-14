@@ -138,7 +138,7 @@ fn export_bindings_index() {
                 "export type { RuntimeWindowPersistenceReceiptRecord } from \"./RuntimeWindowPersistenceReceiptRecord\";\n",
                 "export type { RuntimeWindowTabSnapshotRecord } from \"./RuntimeWindowTabSnapshotRecord\";\n",
                 "export type { HighRefreshRateDiagnosticStatus } from \"./HighRefreshRateDiagnosticStatus\";\n",
-                "export type { MaximumWebGlPerformanceDiagnosticStatus } from \"./MaximumWebGlPerformanceDiagnosticStatus\";\n",
+                "export type { MacosHighRefreshMode } from \"./MacosHighRefreshMode\";\n",
                 "export type { PerformanceTargetStatus } from \"./PerformanceTargetStatus\";\n",
                 "export type { WebGlCommandBatchingStatus } from \"./WebGlCommandBatchingStatus\";\n",
                 "export type { WebGlExecutionPath } from \"./WebGlExecutionPath\";\n",

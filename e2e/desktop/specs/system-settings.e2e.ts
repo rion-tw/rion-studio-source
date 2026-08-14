@@ -25,6 +25,23 @@ describe("system settings boundaries", () => {
 
     await navigate("/settings?section=interface");
     await $("button[aria-label='Font smoothing']").waitForExist({ timeout: 10_000 });
+    const isMacOS = await browser.execute(
+      () => document.documentElement.dataset.platform === "mac"
+    );
+    const highRefresh = await $("button[role='combobox'][aria-label='Experimental high refresh rate']");
+    if (isMacOS) {
+      await highRefresh.waitForExist({ timeout: 10_000 });
+      await highRefresh.click();
+      const disabled = await $("[role='option']=Disabled");
+      await disabled.waitForExist({ timeout: 10_000 });
+      await disabled.click();
+      await browser.waitUntil(async () => (await highRefresh.getText()).includes("Disabled"), {
+        timeout: 10_000,
+        timeoutMsg: "macOS high refresh preference did not update"
+      });
+    } else {
+      expect(await highRefresh.isExisting()).toBe(false);
+    }
     await $("button=Customize fonts").click();
     await $("button*=Fresh humanist").waitForExist({ timeout: 10_000 });
 

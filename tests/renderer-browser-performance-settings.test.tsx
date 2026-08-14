@@ -20,6 +20,12 @@ beforeAll(() => {
     observe(): void {}
     unobserve(): void {}
   });
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: { configurable: true, value: () => false },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    scrollIntoView: { configurable: true, value: () => undefined },
+    setPointerCapture: { configurable: true, value: () => undefined }
+  });
 });
 
 afterEach(() => {
@@ -91,24 +97,26 @@ describe("browser performance settings", () => {
   it("shows and persists the experimental high refresh preference on macOS", async () => {
     const onGameBrowserSettingsPatch = vi.fn(async () => ({
       ...DEFAULT_GAME_BROWSER_SETTINGS,
-      performance: { maximumWebGlPerformance: true, macosHighRefreshRate: true }
+      performance: { macosHighRefreshMode: "enabled" as const }
     }));
     renderSettings("mac", onGameBrowserSettingsPatch);
 
     const languageRow = screen.getByRole("combobox", { name: "Language" }).closest(".settings-row");
-    const highRefreshSwitch = screen.getByRole("switch", { name: "Experimental high refresh rate" });
-    const highRefreshRow = highRefreshSwitch.closest(".settings-row");
-    expect(languageRow?.nextElementSibling?.nextElementSibling).toBe(highRefreshRow);
+    const highRefreshSelect = screen.getByRole("combobox", { name: "Experimental high refresh rate" });
+    const highRefreshRow = highRefreshSelect.closest(".settings-row");
+    expect(languageRow?.nextElementSibling).toBe(highRefreshRow);
     expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
+    expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
 
     expect(
       screen.getByText(/Requires restarting Rion Studio and may increase energy use and temperature/u)
     ).toBeTruthy();
-    fireEvent.click(highRefreshSwitch);
+    fireEvent.click(highRefreshSelect);
+    fireEvent.click(await screen.findByRole("option", { name: "Enabled" }));
 
     await waitFor(() => {
       expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
-        performance: { maximumWebGlPerformance: true, macosHighRefreshRate: true }
+        performance: { macosHighRefreshMode: "enabled" }
       });
     });
   });
@@ -116,21 +124,7 @@ describe("browser performance settings", () => {
   it("does not expose the macOS-only control on Windows", () => {
     renderSettings("windows", async () => DEFAULT_GAME_BROWSER_SETTINGS);
 
-    expect(
-      screen.queryByRole("switch", { name: "Experimental high refresh rate" })
-    ).toBeNull();
-    expect(
-      screen.getByRole("switch", { name: "Maximum WebGL performance" }).getAttribute("data-state")
-    ).toBe("checked");
-  });
-
-  it("persists maximum WebGL mode while preserving the platform preference", async () => {
-    const onGameBrowserSettingsPatch = vi.fn(async () => DEFAULT_GAME_BROWSER_SETTINGS);
-    renderSettings("mac", onGameBrowserSettingsPatch);
-
-    fireEvent.click(screen.getByRole("switch", { name: "Maximum WebGL performance" }));
-    await waitFor(() => expect(onGameBrowserSettingsPatch).toHaveBeenCalledWith({
-      performance: { maximumWebGlPerformance: false, macosHighRefreshRate: false }
-    }));
+    expect(screen.queryByRole("combobox", { name: "Experimental high refresh rate" })).toBeNull();
+    expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
   });
 });

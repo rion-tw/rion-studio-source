@@ -81,30 +81,29 @@ shutdown result.
 
 ## WebGL performance policy
 
-`maximumWebGlPerformance` defaults to enabled and never changes DPR, canvas
-backing dimensions, WebGL context attributes, or page content. It is independent
-from the macOS high-refresh presentation preference and takes effect only after
-Rion Studio restarts; changing it does not close a running role surface.
+Production does not expose a WebGL process-path setting. It never changes DPR,
+canvas backing dimensions, WebGL context attributes, or page content.
 
-On macOS, enabled selects only a strategy certified for the exact WebKit
-framework build loaded by `WKWebView`. The checked-in capability catalog records
-command batching separately from the preferred process path and never compares
-version strings numerically. A verified legacy build may use the exact private
-feature key `UseGPUProcessForWebGLEnabled` to select direct WebContent-process
-WebGL. A future build is allowed to retain GPU-process WebGL only after the same
-Flyff and fixture gates certify its batched command path. An unknown build, a
-missing feature, or a rejected setter leaves WebKit's default unchanged and
-reports `unavailable` or `failed`; disabled remains compatibility mode. Production
-never writes `UseGPUProcessForDOMRenderingEnabled`.
+On macOS, WKWebView owns the production WebGL execution path. Production leaves
+`UseGPUProcessForWebGLEnabled`, `UseGPUProcessForDOMRenderingEnabled`, and
+`UseGPUProcessForCanvasRenderingEnabled` untouched. The checked-in exact-build
+catalog remains read-only evidence for WebGL command batching and never compares
+version strings numerically. Explicit process-path and rendering-feature writes
+exist only behind the isolated debug experiment gate.
 
-On Windows, enabled is `engineManaged`: WebView2 retains its supported hardware
-accelerated renderer/GPU-process path. Production arguments never include GPU
+The separate macOS high-refresh preference is `auto`, `enabled`, or `disabled`.
+`auto` requests WebKit's high-refresh presentation feature when the selected
+display is above 60 Hz. The preference is resolved before creating each role
+WKWebView and takes effect after Rion Studio restarts.
+
+On Windows, WebView2 owns the hardware-accelerated renderer and GPU-process path.
+Production arguments never include GPU
 VSync, frame-limit, in-process GPU, ANGLE selection, or sandbox-disabling flags.
 Diagnostics enumerate renderer and GPU processes through
 `ICoreWebView2Environment8::GetProcessInfos`, record the WebView2/Chromium runtime
-version, and summarize `SystemInfo.getInfo` GPU evidence. Command batching is
-`notApplicable` because Chromium owns that engine-managed mechanism. Missing supported
-evidence is reported; it is never compensated by lower resolution or an
+version, and summarize `SystemInfo.getInfo` GPU evidence. The WebKit-specific
+command-batching catalog is `notApplicable` on Windows. Missing supported evidence
+is reported; it is never compensated by lower resolution or an
 unsupported production flag.
 
 Foreground diagnostics are operation-ID and revision fenced. Begin returns a

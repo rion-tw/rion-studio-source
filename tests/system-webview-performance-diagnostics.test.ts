@@ -54,7 +54,7 @@ describe("foreground System WebView performance diagnostics", () => {
     expect(runtime).toContain("COREWEBVIEW2_PROCESS_KIND_BROWSER");
     expect(runtime).toContain('HSTRING::from("SystemInfo.getInfo")');
     expect(runtime).toContain("decode_webview2_gpu_diagnostics");
-    expect(runtime).toContain("maximum_mode_status");
+    expect(runtime).not.toContain("maximum_mode_status");
     expect(runtime).toContain("presentation_fps");
     expect(runtime).toContain("diagnostic_timed_out");
     expect(runtime).toContain("the result is indeterminate");

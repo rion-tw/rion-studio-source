@@ -350,6 +350,7 @@ impl SystemRuntimeExecutor {
 
     fn role_webview_builder(
         &self,
+        window: &Window,
         label: String,
         paths: &SessionPaths,
         role_id: &str,
@@ -359,12 +360,19 @@ impl SystemRuntimeExecutor {
         RoleWebGlConfiguration,
     )> {
         let builder = self.webview_builder(label, paths, Some(role_id))?;
+        let high_refresh_rate_enabled = if cfg!(target_os = "macos") {
+            macos_high_refresh_rate_enabled(
+                self.configuration.macos_high_refresh_mode,
+                platform_display_refresh_rate(window),
+            )
+        } else {
+            false
+        };
         Ok(prepare_platform_role_webview_builder(
             &self.app,
             builder,
             paths.webkit_identifier,
-            self.configuration.macos_high_refresh_rate,
-            self.configuration.maximum_web_gl_performance,
+            high_refresh_rate_enabled,
         ))
     }
 
@@ -670,4 +678,25 @@ impl SystemRuntimeExecutor {
         result.and(cleanup)
     }
 
+}
+
+fn macos_high_refresh_rate_enabled(
+    mode: MacosHighRefreshMode,
+    display_refresh_rate_hz: Option<f64>,
+) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    macos_high_refresh_mode_requests(mode, display_refresh_rate_hz)
+}
+
+fn macos_high_refresh_mode_requests(
+    mode: MacosHighRefreshMode,
+    display_refresh_rate_hz: Option<f64>,
+) -> bool {
+    match mode {
+        MacosHighRefreshMode::Auto => display_refresh_rate_hz.is_some_and(|rate| rate > 60.0),
+        MacosHighRefreshMode::Enabled => true,
+        MacosHighRefreshMode::Disabled => false,
+    }
 }

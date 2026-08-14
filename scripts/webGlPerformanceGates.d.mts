@@ -37,7 +37,6 @@ export function compareWindowsWebGlAcceptance(input: {
   edge: WebGlFixtureRun;
   gpuProcessPresent?: boolean;
   hardwareAccelerationEnabled?: boolean;
-  maximumModeStatus?: string;
   productionGraphicsFlags?: string[];
   rion: WebGlFixtureRun;
   visualOutputMatched: boolean;

@@ -211,7 +211,7 @@
         let performance = thread::spawn(move || {
             performance_core.invoke(command(json!({
                 "type": "gameBrowserSettingsPatch",
-                "patch": { "performance": { "macosHighRefreshRate": true } }
+                "patch": { "performance": { "macosHighRefreshMode": "enabled" } }
             })))
         });
         workspace.join().unwrap().unwrap();
@@ -244,7 +244,7 @@
             settings["workspace"],
             json!({ "background": "black", "gap": 12 })
         );
-        assert_eq!(settings["performance"]["macosHighRefreshRate"], true);
+        assert_eq!(settings["performance"]["macosHighRefreshMode"], "enabled");
         assert_eq!(settings["macroBadgePosition"]["horizontalAlign"], "right");
         assert_eq!(settings["macroOverlay"]["showToolButton"], false);
         assert_eq!(settings["macroOverlay"]["showClickMarkers"], false);

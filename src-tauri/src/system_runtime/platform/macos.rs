@@ -416,7 +416,6 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
     high_refresh_rate_enabled: bool,
-    maximum_web_gl_performance_enabled: bool,
 ) -> (
     WebviewBuilder<tauri::Wry>,
     HighRefreshRateDiagnosticStatus,
@@ -438,11 +437,7 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
 
     let runtime_version = macos_webkit_runtime_version();
     let experiment = active_mac_web_gl_experiment();
-    let policy = mac_web_gl_policy(
-        maximum_web_gl_performance_enabled,
-        runtime_version.as_deref(),
-        experiment,
-    );
+    let policy = mac_web_gl_policy(runtime_version.as_deref(), experiment);
     let web_gl_preference = policy.web_gl_preference;
     let dom_rendering_preference = policy.dom_rendering_preference;
     let canvas_rendering_preference = policy.canvas_rendering_preference;
@@ -506,17 +501,9 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
                 if experiment.is_some() {
                     eprintln!(
                         "Rion WKWebView experiment feature writes: UseGPUProcessForWebGLEnabled={}, UseGPUProcessForDOMRenderingEnabled={}, UseGPUProcessForCanvasRenderingEnabled={}.",
-                        maximum_webgl_performance_status_label(
-                            decode_macos_maximum_webgl_performance_status(raw_maximum_status)
-                        ),
-                        maximum_webgl_performance_status_label(
-                            decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status)
-                        ),
-                        maximum_webgl_performance_status_label(
-                            decode_macos_maximum_webgl_performance_status(
-                                raw_canvas_rendering_status
-                            )
-                        ),
+                        macos_webgl_feature_write_status_label(raw_maximum_status),
+                        macos_webgl_feature_write_status_label(raw_dom_rendering_status),
+                        macos_webgl_feature_write_status_label(raw_canvas_rendering_status),
                     );
                 }
                 if raw_configuration == 0 {
@@ -544,10 +531,9 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
         }
     };
     eprintln!(
-        "System WebView macOS performance configuration: WebKit={}, high-refresh={}, maximum-webgl={}, path={:?}, batching={:?}, experiment={:?}.",
+        "System WebView macOS performance configuration: WebKit={}, high-refresh={}, path={:?}, batching={:?}, experiment={:?}.",
         runtime_version.as_deref().unwrap_or("unknown"),
         high_refresh_rate_status_label(outcome.1),
-        maximum_webgl_performance_status_label(outcome.2.maximum_mode_status),
         outcome.2.execution_path,
         outcome.2.command_batching_status,
         experiment,
@@ -568,15 +554,13 @@ pub(in crate::system_runtime) fn decode_macos_high_refresh_rate_status(
 }
 
 #[cfg(target_os = "macos")]
-pub(in crate::system_runtime) fn decode_macos_maximum_webgl_performance_status(
-    value: i32,
-) -> MaximumWebGlPerformanceDiagnosticStatus {
+fn macos_webgl_feature_write_status_label(value: i32) -> &'static str {
     match value {
-        0 => MaximumWebGlPerformanceDiagnosticStatus::Applied,
-        1 => MaximumWebGlPerformanceDiagnosticStatus::Unavailable,
-        3 => MaximumWebGlPerformanceDiagnosticStatus::Disabled,
-        4 => MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-        _ => MaximumWebGlPerformanceDiagnosticStatus::Failed,
+        0 => "applied",
+        1 => "unavailable",
+        3 => "disabled",
+        4 => "engine-managed",
+        _ => "failed",
     }
 }
 
@@ -588,32 +572,21 @@ fn applied_mac_web_gl_configuration(
     raw_canvas_rendering_status: i32,
 ) -> RoleWebGlConfiguration {
     let mut configuration = policy.configuration;
-    configuration.web_gl_feature_status =
-        decode_macos_maximum_webgl_performance_status(raw_web_gl_status);
-    configuration.dom_rendering_feature_status =
-        decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status);
-    configuration.canvas_rendering_feature_status =
-        decode_macos_maximum_webgl_performance_status(raw_canvas_rendering_status);
-    if policy.web_gl_preference != WebKitFeaturePreference::KeepDefault {
-        let status = decode_macos_maximum_webgl_performance_status(raw_web_gl_status);
-        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
-            configuration.maximum_mode_status = status;
-            configuration.execution_path = WebGlExecutionPath::Unknown;
-        }
-    }
-    if policy.dom_rendering_preference != WebKitFeaturePreference::KeepDefault {
-        let status = decode_macos_maximum_webgl_performance_status(raw_dom_rendering_status);
-        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
-            configuration.maximum_mode_status = status;
-            configuration.execution_path = WebGlExecutionPath::Unknown;
-        }
-    }
-    if policy.canvas_rendering_preference != WebKitFeaturePreference::KeepDefault {
-        let status = decode_macos_maximum_webgl_performance_status(raw_canvas_rendering_status);
-        if status != MaximumWebGlPerformanceDiagnosticStatus::Applied {
-            configuration.maximum_mode_status = status;
-            configuration.execution_path = WebGlExecutionPath::Unknown;
-        }
+    let explicit_write_failed = [
+        (policy.web_gl_preference, raw_web_gl_status),
+        (policy.dom_rendering_preference, raw_dom_rendering_status),
+        (
+            policy.canvas_rendering_preference,
+            raw_canvas_rendering_status,
+        ),
+    ]
+    .into_iter()
+    .any(|(preference, raw_status)| {
+        preference != WebKitFeaturePreference::KeepDefault && raw_status != 0
+    });
+    if explicit_write_failed {
+        configuration.execution_path = WebGlExecutionPath::Unknown;
+        configuration.performance_target_status = PerformanceTargetStatus::Indeterminate;
     }
     configuration
 }
@@ -622,11 +595,8 @@ fn applied_mac_web_gl_configuration(
 fn failed_web_gl_configuration(
     mut configuration: RoleWebGlConfiguration,
 ) -> RoleWebGlConfiguration {
-    configuration.canvas_rendering_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
-    configuration.dom_rendering_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
-    configuration.maximum_mode_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
     configuration.execution_path = WebGlExecutionPath::Unknown;
-    configuration.web_gl_feature_status = MaximumWebGlPerformanceDiagnosticStatus::Failed;
+    configuration.performance_target_status = PerformanceTargetStatus::Indeterminate;
     configuration
 }
 

@@ -139,6 +139,7 @@ impl SystemRuntimeExecutor {
         let paths = role_session_paths(&self.user_data_dir, role_id)?;
         fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
         let (builder, high_refresh_rate_status, web_gl_configuration) = self.role_webview_builder(
+            &window,
             navigation_label.clone(),
             &paths,
             role_id,

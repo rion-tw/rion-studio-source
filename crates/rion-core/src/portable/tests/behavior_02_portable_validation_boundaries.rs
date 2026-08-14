@@ -1,3 +1,5 @@
+use crate::MacosHighRefreshMode;
+
 #[test]
     fn portable_validation_boundaries() {
         {
@@ -130,6 +132,10 @@
                 .as_object_mut()
                 .unwrap()
                 .remove("presetId");
+            settings["performance"]
+                .as_object_mut()
+                .unwrap()
+                .remove("macosHighRefreshMode");
             settings["performance"]["macosHighRefreshRate"] = json!(true);
             source["preferences"] = json!({"gameBrowserSettings": settings});
             let mut runtime = PortableRuntime::default();
@@ -163,8 +169,10 @@
             );
             assert!(serialized_fonts["slots"].get("monospace").is_none());
             assert!(fonts.font_smoothing_enabled);
-            assert!(browser_settings.performance.maximum_web_gl_performance);
-            assert!(browser_settings.performance.macos_high_refresh_rate);
+            assert_eq!(
+                browser_settings.performance.macos_high_refresh_mode,
+                MacosHighRefreshMode::Enabled
+            );
         };
     }
 
@@ -177,7 +185,7 @@
             "latin".to_owned(),
             serde_json::from_value(json!({"source":"system","family":"Inter"})).unwrap(),
         );
-        browser_settings.performance.macos_high_refresh_rate = true;
+        browser_settings.performance.macos_high_refresh_mode = MacosHighRefreshMode::Enabled;
         browser_settings.macro_overlay.show_tool_button = false;
         browser_settings.macro_overlay.show_running_badges = false;
         browser_settings.macro_overlay.show_click_markers = false;
@@ -217,8 +225,7 @@
             json!({"source":"system","family":"Inter"})
         );
         assert_eq!(serialized["fonts"]["fontSmoothingEnabled"], false);
-        assert_eq!(serialized["performance"]["maximumWebGlPerformance"], true);
-        assert_eq!(serialized["performance"]["macosHighRefreshRate"], true);
+        assert_eq!(serialized["performance"]["macosHighRefreshMode"], "enabled");
         assert_eq!(serialized["macroOverlay"]["showToolButton"], false);
         assert_eq!(serialized["macroOverlay"]["showRunningBadges"], false);
         assert_eq!(serialized["macroOverlay"]["showClickMarkers"], false);

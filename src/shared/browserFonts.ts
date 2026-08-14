@@ -202,8 +202,7 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
 };
 
 const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
-  maximumWebGlPerformance: true,
-  macosHighRefreshRate: false
+  macosHighRefreshMode: "auto"
 };
 
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];
@@ -265,15 +264,16 @@ function normalizeBrowserPerformanceSettings(
   fallback: BrowserPerformanceSettings = DEFAULT_BROWSER_PERFORMANCE_SETTINGS
 ): BrowserPerformanceSettings {
   const input = isRecord(value) ? value : {};
+  const legacyHighRefreshRate = input.macosHighRefreshRate;
   return {
-    maximumWebGlPerformance:
-      typeof input.maximumWebGlPerformance === "boolean"
-        ? input.maximumWebGlPerformance
-        : fallback.maximumWebGlPerformance,
-    macosHighRefreshRate:
-      typeof input.macosHighRefreshRate === "boolean"
-        ? input.macosHighRefreshRate
-        : fallback.macosHighRefreshRate
+    macosHighRefreshMode:
+      input.macosHighRefreshMode === "auto" ||
+      input.macosHighRefreshMode === "enabled" ||
+      input.macosHighRefreshMode === "disabled"
+        ? input.macosHighRefreshMode
+        : typeof legacyHighRefreshRate === "boolean"
+          ? legacyHighRefreshRate ? "enabled" : "disabled"
+          : fallback.macosHighRefreshMode
   };
 }
 

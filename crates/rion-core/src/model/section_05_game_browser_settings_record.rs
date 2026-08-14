@@ -29,27 +29,62 @@ pub struct GameBrowserSettingsPatchRecord {
     pub workspace: Option<WorkspaceAppearanceSettingsRecord>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserPerformanceSettingsRecord {
-    #[serde(default = "default_maximum_webgl_performance")]
-    pub maximum_web_gl_performance: bool,
-    #[serde(default)]
-    pub macos_high_refresh_rate: bool,
+    pub macos_high_refresh_mode: MacosHighRefreshMode,
 }
 
 impl Default for BrowserPerformanceSettingsRecord {
     fn default() -> Self {
         Self {
-            maximum_web_gl_performance: true,
-            macos_high_refresh_rate: false,
+            macos_high_refresh_mode: MacosHighRefreshMode::Auto,
         }
     }
 }
 
-fn default_maximum_webgl_performance() -> bool {
-    true
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
+pub enum MacosHighRefreshMode {
+    #[default]
+    Auto,
+    Enabled,
+    Disabled,
+}
+
+impl<'de> Deserialize<'de> for BrowserPerformanceSettingsRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct CompatibleRecord {
+            #[serde(default)]
+            macos_high_refresh_mode: Option<MacosHighRefreshMode>,
+            #[serde(default)]
+            macos_high_refresh_rate: Option<bool>,
+        }
+
+        let compatible = CompatibleRecord::deserialize(deserializer)?;
+        let macos_high_refresh_mode = compatible
+            .macos_high_refresh_mode
+            .or_else(|| {
+                compatible.macos_high_refresh_rate.map(|enabled| {
+                    if enabled {
+                        MacosHighRefreshMode::Enabled
+                    } else {
+                        MacosHighRefreshMode::Disabled
+                    }
+                })
+            })
+            .unwrap_or_default();
+        Ok(Self {
+            macos_high_refresh_mode,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -553,19 +588,6 @@ pub enum HighRefreshRateDiagnosticStatus {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub enum MaximumWebGlPerformanceDiagnosticStatus {
-    Applied,
-    EngineManaged,
-    Disabled,
-    Unavailable,
-    Failed,
-    #[default]
-    NotApplicable,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum WebGlExecutionPath {
     WebContentDirect,
     GpuProcess,
@@ -676,15 +698,7 @@ pub struct BrowserPerformanceSurfaceDiagnosticRecord {
     pub graphics: StateWebGraphicsRecord,
     pub high_refresh_rate_status: HighRefreshRateDiagnosticStatus,
     #[serde(default)]
-    pub use_gpu_process_for_web_gl_status: MaximumWebGlPerformanceDiagnosticStatus,
-    #[serde(default)]
-    pub use_gpu_process_for_dom_rendering_status: MaximumWebGlPerformanceDiagnosticStatus,
-    #[serde(default)]
-    pub use_gpu_process_for_canvas_rendering_status: MaximumWebGlPerformanceDiagnosticStatus,
-    #[serde(default)]
     pub web_gl_execution_path: WebGlExecutionPath,
-    #[serde(default)]
-    pub maximum_mode_status: MaximumWebGlPerformanceDiagnosticStatus,
     #[serde(default)]
     pub web_gl_command_batching_status: WebGlCommandBatchingStatus,
     #[serde(default)]
@@ -761,8 +775,6 @@ pub struct BrowserPerformanceDiagnosticsRecord {
     )]
     pub system_thermal_state: Option<String>,
     pub high_refresh_rate_requested: bool,
-    #[serde(default)]
-    pub maximum_web_gl_performance_requested: bool,
     pub sample_duration_ms: u32,
     pub surfaces: Vec<BrowserPerformanceSurfaceDiagnosticRecord>,
 }

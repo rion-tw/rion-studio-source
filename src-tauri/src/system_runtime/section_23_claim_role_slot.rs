@@ -81,7 +81,7 @@ impl SystemRuntimeExecutor {
             &format!("{}:generation-{native_generation}", role.role.id),
         );
         let (builder, high_refresh_rate_status, web_gl_configuration) =
-            self.role_webview_builder(label, &paths, &role.role.id)?;
+            self.role_webview_builder(&window, label, &paths, &role.role.id)?;
         let builder = builder.on_page_load(move |webview, payload| {
             callback_navigation.page_event(payload.event(), payload.url());
             if payload.event() == PageLoadEvent::Finished

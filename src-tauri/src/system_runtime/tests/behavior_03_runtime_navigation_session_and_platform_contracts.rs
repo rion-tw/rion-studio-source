@@ -540,7 +540,7 @@ use uuid::Uuid;
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_maximum_webgl_mode_finds_only_the_exact_webkit_feature() {
+    fn macos_debug_webgl_experiment_finds_only_the_exact_webkit_feature() {
         unsafe extern "C" {
             fn rion_wk_maximum_webgl_performance_self_test() -> bool;
         }
@@ -660,59 +660,27 @@ use uuid::Uuid;
     }
 
     #[test]
-    fn webview2_maximum_mode_requires_complete_hardware_process_evidence() {
-        let managed = MaximumWebGlPerformanceDiagnosticStatus::EngineManaged;
-        assert_eq!(
-            maximum_mode_status_with_evidence(
-                true,
-                managed,
-                Some(true),
-                Some(true),
-                Some(true),
-                Some(true),
-            ),
-            managed
-        );
-        assert_eq!(
-            maximum_mode_status_with_evidence(
-                true,
-                managed,
-                Some(true),
-                Some(true),
-                None,
-                Some(true),
-            ),
-            MaximumWebGlPerformanceDiagnosticStatus::Unavailable
-        );
-        assert_eq!(
-            maximum_mode_status_with_evidence(
-                true,
-                managed,
-                Some(true),
-                Some(true),
-                Some(false),
-                Some(true),
-            ),
-            MaximumWebGlPerformanceDiagnosticStatus::Failed
-        );
-    }
-
-    #[test]
-    fn configured_webgl_path_is_not_inferred_from_maximum_mode_status() {
-        assert_eq!(
-            web_gl_execution_path_with_evidence(
-                WebGlExecutionPath::WebContentDirect,
-                MaximumWebGlPerformanceDiagnosticStatus::Applied,
-            ),
-            WebGlExecutionPath::WebContentDirect
-        );
-        assert_eq!(
-            web_gl_execution_path_with_evidence(
-                WebGlExecutionPath::GpuProcess,
-                MaximumWebGlPerformanceDiagnosticStatus::Failed,
-            ),
-            WebGlExecutionPath::Unknown
-        );
+    fn macos_high_refresh_modes_resolve_against_the_selected_display() {
+        assert!(macos_high_refresh_mode_requests(
+            MacosHighRefreshMode::Auto,
+            Some(144.0)
+        ));
+        assert!(!macos_high_refresh_mode_requests(
+            MacosHighRefreshMode::Auto,
+            Some(60.0)
+        ));
+        assert!(!macos_high_refresh_mode_requests(
+            MacosHighRefreshMode::Auto,
+            None
+        ));
+        assert!(macos_high_refresh_mode_requests(
+            MacosHighRefreshMode::Enabled,
+            None
+        ));
+        assert!(!macos_high_refresh_mode_requests(
+            MacosHighRefreshMode::Disabled,
+            Some(144.0)
+        ));
     }
 
     #[test]
@@ -858,31 +826,6 @@ use uuid::Uuid;
             assert_eq!(high_refresh_rate_status_label(status), expected);
         }
     }
-
-
-    #[test]
-    fn maximum_webgl_diagnostic_status_labels_are_stable() {
-        for (status, expected) in [
-            (MaximumWebGlPerformanceDiagnosticStatus::Applied, "applied"),
-            (
-                MaximumWebGlPerformanceDiagnosticStatus::EngineManaged,
-                "engine-managed",
-            ),
-            (MaximumWebGlPerformanceDiagnosticStatus::Disabled, "disabled"),
-            (
-                MaximumWebGlPerformanceDiagnosticStatus::Unavailable,
-                "unavailable",
-            ),
-            (MaximumWebGlPerformanceDiagnosticStatus::Failed, "failed"),
-            (
-                MaximumWebGlPerformanceDiagnosticStatus::NotApplicable,
-                "not-applicable",
-            ),
-        ] {
-            assert_eq!(maximum_webgl_performance_status_label(status), expected);
-        }
-    }
-
     #[test]
     fn role_session_identity_matches_the_core_uuid_v8_algorithm() {
         let paths = role_session_paths(Path::new("/tmp/rion"), "role-1").unwrap();

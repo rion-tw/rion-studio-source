@@ -233,8 +233,6 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
-  const maximumWebGl = await $("button[role='switch'][aria-label='Maximum WebGL performance']");
-  if ((await maximumWebGl.getAttribute("data-state")) === "checked") await maximumWebGl.click();
   for (const label of [
     "Show macro tools button",
     "Show running macro badges",
@@ -250,8 +248,7 @@ async function updateSettings(): Promise<void> {
   await browser.waitUntil(async () => {
     const settings = await rendererCall("getGameBrowserSettings");
     const overlay = settings.macroOverlay;
-    return !settings.performance.maximumWebGlPerformance
-      && !overlay.showToolButton
+    return !overlay.showToolButton
       && !overlay.showRunningBadges
       && !overlay.showClickMarkers;
   }, {
@@ -333,12 +330,9 @@ async function restartPhase(): Promise<void> {
     showRunningBadges: false,
     showToolButton: false
   });
-  expect((await rendererCall("getGameBrowserSettings")).performance.maximumWebGlPerformance)
-    .toBe(false);
-
   await navigate("/settings?section=interface");
-  expect(await $("button[role='switch'][aria-label='Maximum WebGL performance']")
-    .getAttribute("data-state")).toBe("unchecked");
+  expect(await $("button[role='switch'][aria-label='Maximum WebGL performance']").isExisting())
+    .toBe(false);
   for (const label of [
     "Show macro tools button",
     "Show running macro badges",

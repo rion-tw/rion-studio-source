@@ -36,6 +36,7 @@ import type {
   LogQuery as RustLogQuery,
   LogSource as RustLogSource,
   LogStorageStatusRecord,
+  MacosHighRefreshMode as RustMacosHighRefreshMode,
   MacroCreateRequest,
   MacroBadgePositionRecord,
   MacroOverlaySettingsRecord,
@@ -371,6 +372,7 @@ export type WorkspaceGapSize = 1 | 2 | 4 | 6 | 8 | 12 | 16;
 export type BrowserFontSettings = BrowserFontSettingsRecord;
 
 export type BrowserPerformanceSettings = BrowserPerformanceSettingsRecord;
+export type MacosHighRefreshMode = RustMacosHighRefreshMode;
 
 export type WorkspaceAppearanceSettings = WorkspaceAppearanceSettingsRecord;
 

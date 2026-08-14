@@ -37,7 +37,7 @@ use rion_core::{
     HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
     MacroCoordinateContextRecord, MacroInputDiagnosticsRecord,
-    MaximumWebGlPerformanceDiagnosticStatus,
+    MacosHighRefreshMode,
     OperationCompletionPolicy, PerformanceTargetStatus,
     RuntimeTabMutationRequestRecord,
     RuntimeWindowStopRequestRecord,

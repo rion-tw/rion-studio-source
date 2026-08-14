@@ -80,7 +80,6 @@ export function compareWindowsWebGlAcceptance({
   brave,
   edge,
   hardwareAccelerationEnabled,
-  maximumModeStatus,
   productionGraphicsFlags = [],
   rion,
   webGlExecutionPath,
@@ -104,7 +103,6 @@ export function compareWindowsWebGlAcceptance({
     contextLosses: runs.rion.contextLosses,
     gpuProcessPresent: gpuProcessPresent === true,
     hardwareAccelerationEnabled: hardwareAccelerationEnabled === true,
-    maximumModeStatus,
     medianGameLoopFps: runs.rion.medianGameLoopFps,
     medianGameLoopP10Fps: runs.rion.medianGameLoopP10Fps,
     nativeSurfaceMatched,
@@ -122,7 +120,6 @@ export function compareWindowsWebGlAcceptance({
       && gates.contextLosses === 0
       && gates.gpuProcessPresent
       && gates.hardwareAccelerationEnabled
-      && gates.maximumModeStatus === "engineManaged"
       && gates.webGlExecutionPath === "engineManaged"
       && gates.productionGraphicsFlagsAbsent
       && gates.nativeSurfaceMatched

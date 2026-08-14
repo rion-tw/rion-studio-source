@@ -127,7 +127,7 @@ export type { GameWindowUpdateInputRecord } from "./GameWindowUpdateInputRecord"
 export type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 export type { RuntimeWindowTabSnapshotRecord } from "./RuntimeWindowTabSnapshotRecord";
 export type { HighRefreshRateDiagnosticStatus } from "./HighRefreshRateDiagnosticStatus";
-export type { MaximumWebGlPerformanceDiagnosticStatus } from "./MaximumWebGlPerformanceDiagnosticStatus";
+export type { MacosHighRefreshMode } from "./MacosHighRefreshMode";
 export type { PerformanceTargetStatus } from "./PerformanceTargetStatus";
 export type { WebGlCommandBatchingStatus } from "./WebGlCommandBatchingStatus";
 export type { WebGlExecutionPath } from "./WebGlExecutionPath";

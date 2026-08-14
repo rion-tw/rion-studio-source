@@ -812,10 +812,10 @@ impl SystemRuntimeExecutor {
                 display_refresh_rate_hz,
                 system_low_power_mode_enabled: environment.system_low_power_mode_enabled,
                 system_thermal_state: environment.system_thermal_state,
-                high_refresh_rate_requested: self.configuration.macos_high_refresh_rate,
-                maximum_web_gl_performance_requested: self
-                    .configuration
-                    .maximum_web_gl_performance,
+                high_refresh_rate_requested: macos_high_refresh_rate_enabled(
+                    self.configuration.macos_high_refresh_mode,
+                    display_refresh_rate_hz,
+                ),
                 sample_duration_ms: sample_duration.as_millis().min(u32::MAX as u128) as u32,
                 surfaces,
             }),

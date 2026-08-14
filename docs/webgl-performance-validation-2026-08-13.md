@@ -225,15 +225,12 @@ immediately rejected.
 
 - Keep native resolution, DPR, canvas backing dimensions, WebGL attributes, and
   page content unchanged.
-- Default `maximumWebGlPerformance` to enabled on macOS, but select a process
-  path only from an exact WebKit build capability catalog. No shipping build
-  currently passes the production gates: `21624.2.5.11.4` keeps WebKit's
-  default GPU-process path and reports `unavailable`, and STP 249 remains a
-  development-only framework. Numeric version ordering is never used as a
-  capability guess.
-- Record maximum-mode application, actual execution path, WebGL command
-  batching evidence, and performance-target status independently. `applied`
-  does not mean the 120 FPS target passed.
+- Leave the production WebGL process path at the System WebView engine default
+  on macOS and Windows. Keep direct/GPU-process feature writes isolated to the
+  debug experiment harness.
+- Retain exact-build WebGL command-batching evidence and performance-target
+  status independently. Numeric version ordering is never used as a capability
+  guess, and batching evidence does not mean a performance target passed.
 - Do not add Chromium development graphics flags to production.
 - Report rAF cadence as `presentationFps`, separately from a page's game-loop
   counter.

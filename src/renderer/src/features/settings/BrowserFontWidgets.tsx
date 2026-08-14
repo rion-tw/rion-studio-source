@@ -86,7 +86,7 @@ export function BrowserFontPresetCards({
                 type="button"
                 aria-pressed={isActive}
                 disabled={disabled}
-                className={`group min-h-[104px] rounded-md border px-3 py-2.5 text-left transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:opacity-45 ${
+                className={`group min-h-[112px] rounded-md border px-3 py-2.5 text-left transition-[background-color,border-color,color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/25 disabled:opacity-45 ${
                   isActive
                     ? "border-activity/45 bg-activity/[0.08] text-foreground shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))]"
                     : "border-border/25 bg-muted/[0.07] text-muted-foreground hover:border-border/40 hover:bg-accent/25 hover:text-foreground"
@@ -127,7 +127,7 @@ function BrowserFontPresetSample({
 }): JSX.Element {
   const settings = resolveBrowserFontPreset(presetId, cjkVariant);
   return (
-    <span className="mt-2 flex min-w-0 items-baseline gap-2 overflow-hidden rounded-sm border border-border/15 bg-background/20 px-2 py-1 text-sm text-foreground">
+    <span className="browser-font-preset-sample mt-2 flex min-w-0 items-baseline gap-2 overflow-hidden rounded-sm border border-border/15 bg-background/20 px-2 py-1.5 text-base leading-6 text-foreground">
       <BrowserFontSample
         catalog={catalog}
         enabled={enabled}
@@ -165,11 +165,13 @@ interface BrowserFontSelectionPickerProps {
 
 function BrowserFontSample({
   catalog,
+  compact = false,
   enabled,
   selection,
   text
 }: {
   catalog: BrowserFontCatalogEntry[];
+  compact?: boolean;
   enabled: boolean;
   selection?: BrowserFontSelection;
   text: string;
@@ -205,7 +207,7 @@ function BrowserFontSample({
     <span
       ref={sampleRef}
       aria-hidden="true"
-      className={`shrink-0 whitespace-nowrap text-sm transition-opacity ${
+      className={`browser-font-sample shrink-0 whitespace-nowrap ${compact ? "text-sm" : "text-base leading-6"} transition-opacity ${
         preview.status === "loading" ? "animate-pulse opacity-45" : "opacity-85"
       }`}
       style={preview.fontFamily ? { fontFamily: preview.fontFamily } : undefined}
@@ -362,11 +364,12 @@ export function BrowserFontSelectionPicker({
                       data-font-option
                     >
                       <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                        <span className="min-w-0 truncate">
+                        <span className="browser-font-option-label min-w-0 truncate">
                           {font.label} · {t("settings.browserFontsSourceSystem")}
                         </span>
                         <BrowserFontSample
                           catalog={catalog}
+                          compact
                           enabled={previewEnabled && isOpen}
                           selection={{ source: "system", family: font.family }}
                           text={browserFontSampleText(slot, cjkVariant)}
@@ -388,13 +391,14 @@ export function BrowserFontSelectionPicker({
                       data-font-option
                     >
                       <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                        <span className="min-w-0 truncate">
+                        <span className="browser-font-option-label min-w-0 truncate">
                           {font.family} · {font.installed
                             ? t("settings.browserFontsInstalled")
                             : t("settings.browserFontsNotDownloaded")}
                         </span>
                         <BrowserFontSample
                           catalog={catalog}
+                          compact
                           enabled={previewEnabled && isOpen}
                           selection={{ source: "google", catalogId: font.catalogId, family: font.family }}
                           text={browserFontSampleText(slot, cjkVariant)}
@@ -488,13 +492,13 @@ export function BrowserFontsPreview({
           {t("settings.browserFontsOnlinePreviewDescription")}
         </p>
       </div>
-      <Surface className="grid gap-2 border border-border/25 px-3 py-3 text-xs leading-5 text-muted-foreground" variant="inset">
-        <p className="text-base leading-7">
+      <Surface className="browser-font-preview-samples grid gap-2 border border-border/25 px-3 py-3 text-lg leading-8 text-muted-foreground" variant="inset">
+        <p className="text-lg leading-8">
           <span style={fontPreviewStyle(cjk)}>繁體中文 · 简体中文 · 日本語 </span>
           <span style={fontPreviewStyle(latin)}>Rion Studio </span>
           <span style={fontPreviewStyle(numeric)}>0123456789</span>
         </p>
-        <p className="text-base leading-6 tracking-wide" style={fontPreviewStyle(numeric)}>
+        <p className="text-lg leading-8 tracking-wide" style={fontPreviewStyle(numeric)}>
           1,234.56 · -20% · 08:45 · 100/75
         </p>
         <p style={fontPreviewStyle(latin)}>{t("settings.browserFontsPreviewText")}</p>

@@ -224,6 +224,11 @@ describe("browser font settings", () => {
     expect(screen.getByRole("button", { name: /Compact dashboard/u })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Natural handwriting/u })).toBeNull();
     expect(screen.getByText("English & Latin").closest(".settings-row")?.classList.contains("border-b")).toBe(true);
+    const fontPreview = screen.getByText("Online font preview").closest(".settings-row");
+    const overrideWarning = screen.getByText("Font overrides take priority over game-page styles", {
+      exact: false
+    });
+    expect(fontPreview?.contains(overrideWarning)).toBe(true);
     await waitFor(() => {
       expect(document.head.querySelector("link[data-rion-google-font-preview]")).toBeTruthy();
     });
@@ -253,6 +258,36 @@ describe("browser font settings", () => {
     expect(advancedPanel?.parentElement?.classList.contains("border-b")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("w-full")).toBe(true);
     expect(advancedPanel?.firstElementChild?.classList.contains("settings-row")).toBe(false);
+  });
+
+  it("uses larger font samples in presets without changing font selections or options", async () => {
+    const user = userEvent.setup();
+    window.rionStudio = {
+      listBrowserFontCatalog: vi.fn(async () => catalog),
+      installBrowserFont: vi.fn(),
+      removeBrowserFont: vi.fn(),
+      getBrowserFontPreview: vi.fn(async (settings) => ({ settings, faces: [] }))
+    } as unknown as RionStudioApi;
+
+    renderSettings(vi.fn(async (settings) => settings));
+    await user.click(screen.getByRole("button", { name: "Customize fonts" }));
+    await screen.findByText("Distinctive styles");
+
+    const presetSamples = document.querySelectorAll(".browser-font-preset-sample .browser-font-sample");
+    expect(presetSamples.length).toBeGreaterThan(0);
+    expect([...presetSamples].every((sample) => sample.classList.contains("text-base"))).toBe(true);
+    expect(document.querySelector(".browser-font-preview-samples")?.classList.contains("text-lg")).toBe(true);
+
+    const trigger = screen.getByRole("button", { name: "English & Latin" });
+    expect(trigger.querySelector(".text-base")).toBeNull();
+    await user.click(trigger);
+
+    const optionSamples = await screen.findAllByText("Aa Rion");
+    expect(optionSamples.length).toBeGreaterThan(0);
+    expect(optionSamples.every((sample) => sample.classList.contains("text-sm"))).toBe(true);
+    expect(
+      [...document.querySelectorAll(".browser-font-option-label")].every((label) => !label.classList.contains("text-base"))
+    ).toBe(true);
   });
 
   it("searches and applies a system font within an individual font slot", async () => {

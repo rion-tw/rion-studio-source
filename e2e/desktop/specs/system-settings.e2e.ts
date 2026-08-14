@@ -44,6 +44,36 @@ describe("system settings boundaries", () => {
     }
     await $("button=Customize fonts").click();
     await $("button*=Fresh humanist").waitForExist({ timeout: 10_000 });
+    await browser.waitUntil(
+      async () =>
+        browser.execute(() => {
+          const sample = document.querySelector<HTMLElement>(
+            ".browser-font-preset-sample .browser-font-sample"
+          );
+          return sample?.classList.contains("text-base") ?? false;
+        }),
+      {
+        timeout: 10_000,
+        timeoutMsg: "Font preset samples did not use the larger preview size"
+      }
+    );
+    const selectedFontValue = await $("button[aria-label='English & Latin'] > span");
+    await selectedFontValue.waitForExist({ timeout: 10_000 });
+    expect(await selectedFontValue.getAttribute("class")).not.toContain("text-base");
+    const onlinePreviewSamples = await $(".browser-font-preview-samples");
+    await onlinePreviewSamples.waitForExist({ timeout: 10_000 });
+    expect(await onlinePreviewSamples.getAttribute("class")).toContain("text-lg");
+    expect(
+      await browser.execute(() => {
+        const previewTitle = [...document.querySelectorAll<HTMLElement>("p")].find(
+          (element) => element.textContent === "Online font preview"
+        );
+        const overrideWarning = [...document.querySelectorAll<HTMLElement>("span")].find((element) =>
+          element.textContent?.startsWith("Font overrides take priority")
+        );
+        return previewTitle?.closest(".settings-row") === overrideWarning?.closest(".settings-row");
+      })
+    ).toBe(true);
 
     await navigate("/settings?section=data");
     await $("button=Export JSON").click();

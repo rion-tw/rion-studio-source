@@ -369,10 +369,6 @@ export function BrowserFontsSettingsRows({
                 t={t}
                 onSelect={handlePresetChange}
               />
-              <StatusCallout className="leading-5" tone="warning">
-                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                <span>{t("settings.browserFontsForceWarning")}</span>
-              </StatusCallout>
             </div>
 
             {browserFontSlots.map((slot) => (
@@ -406,6 +402,10 @@ export function BrowserFontsSettingsRows({
                 settings={draft}
                 t={t}
               />
+              <StatusCallout className="leading-5" tone="warning">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span>{t("settings.browserFontsForceWarning")}</span>
+              </StatusCallout>
             </div>
 
             <div className="settings-row flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">

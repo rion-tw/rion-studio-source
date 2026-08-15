@@ -209,12 +209,17 @@ async function exerciseLaunchCancellation(
     waitForFixtureEvent(`/api/gates/${PRIMARY_FIXTURE_ID}/waiting`),
     waitForFixtureEvent(`/api/gates/${RECOVERY_FIXTURE_ID}/waiting`)
   ]);
-  await waitForRuntimeProjection({ afterSequence: cursor, sourceId: workspace.id });
-  await stopWindowFromUi(windowId);
+  const relaunchRuntime = await waitForRuntimeProjection({
+    afterSequence: cursor,
+    sourceId: workspace.id
+  });
+  const relaunchTab = relaunchRuntime.tabs.find((tab) => tab.sourceId === workspace.id);
+  if (!relaunchTab) throw new Error("Gated workspace relaunch tab is unavailable");
+  await stopWindowFromUi(relaunchTab.windowId);
   await waitForRoleProjection({ absent: true, roleId: primaryRole.id });
   await waitForRoleProjection({ absent: true, roleId: recoveryRole.id });
   await waitForRuntimeProjection({ absent: true, sourceId: workspace.id });
-  await waitForRuntimeProjection({ absent: true, windowId });
+  await waitForRuntimeProjection({ absent: true, windowId: relaunchTab.windowId });
   await expect($(`[data-selection-id='${windowId}']`)).toHaveText(
     expect.stringContaining("Not open")
   );

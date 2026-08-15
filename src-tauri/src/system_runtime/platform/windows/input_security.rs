@@ -22,6 +22,50 @@ pub(in crate::system_runtime) fn dispatch_key_effect(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn dispatch_key_effect_with_physical_modifiers(
+    webview: &Webview,
+    effect: &EmbeddedKeyEffectRecord,
+    physical_modifier_codes: &[String],
+    context: &InputDispatchContext,
+) -> RuntimeResult<()> {
+    let confirmed_physical_modifier_codes = physical_modifier_codes
+        .iter()
+        .filter(|code| windows_physical_modifier_is_pressed(code))
+        .cloned()
+        .collect::<Vec<_>>();
+    dispatch_key_effect(webview, effect, context)?;
+    for projection in physical_modifier_projection_effects(
+        effect,
+        &confirmed_physical_modifier_codes,
+        |_| true,
+    ) {
+        dispatch_key_effect(webview, &projection, context)?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_physical_modifier_is_pressed(code: &str) -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
+        VK_RSHIFT, VK_RWIN,
+    };
+
+    let virtual_key = match code {
+        "AltLeft" => VK_LMENU,
+        "AltRight" => VK_RMENU,
+        "ControlLeft" => VK_LCONTROL,
+        "ControlRight" => VK_RCONTROL,
+        "MetaLeft" => VK_LWIN,
+        "MetaRight" => VK_RWIN,
+        "ShiftLeft" => VK_LSHIFT,
+        "ShiftRight" => VK_RSHIFT,
+        _ => return false,
+    };
+    unsafe { GetAsyncKeyState(virtual_key.0.into()) < 0 }
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn dispatch_mouse_effect(
     webview: &Webview,
     _viewport: ViewportSize,

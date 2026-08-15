@@ -27,6 +27,7 @@ function roleCounters(roleId) {
     keyup: 0,
     lastEvent: "boot",
     lastEventSequence: 0,
+    pressedCodes: [],
     visibility: 0
   };
   counters.set(roleId, current);
@@ -72,6 +73,12 @@ function recordFixtureEvent(input) {
   while (events.length > EVENT_CAPACITY) events.shift();
   const state = roleCounters(input.roleId);
   if (Object.hasOwn(state, input.kind)) state[input.kind] += 1;
+  if (event.code && input.kind === "keydown" && !state.pressedCodes.includes(event.code)) {
+    state.pressedCodes.push(event.code);
+  }
+  if (event.code && input.kind === "keyup") {
+    state.pressedCodes = state.pressedCodes.filter((code) => code !== event.code);
+  }
   state.lastEvent = input.kind;
   state.lastEventSequence = event.sequence;
   notifyEventWaiters(event);
@@ -345,6 +352,29 @@ const server = createServer(async (request, response) => {
       }
       eventWaiters.add(waitRequest);
       response.once("close", () => eventWaiters.delete(waitRequest));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/events/snapshot") {
+      const afterSequence = Number(url.searchParams.get("afterSequence") ?? 0);
+      const kind = url.searchParams.get("kind") ?? undefined;
+      const roleId = url.searchParams.get("roleId") ?? undefined;
+      if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+        json(response, 400, { error: "afterSequence must be a non-negative safe integer" });
+        return;
+      }
+      if (kind && !/^[a-z][a-z-]*$/.test(kind)) {
+        json(response, 400, { error: "invalid fixture event kind" });
+        return;
+      }
+      if (roleId && !/^[a-z0-9-]+$/.test(roleId)) {
+        json(response, 400, { error: "invalid fixture role" });
+        return;
+      }
+      const filter = { afterSequence, kind, roleId };
+      json(response, 200, {
+        events: events.filter((event) => fixtureEventMatches(event, filter)),
+        latestSequence: nextEventSequence - 1
+      });
       return;
     }
     if (request.method === "GET" && url.pathname === "/api/gates") {

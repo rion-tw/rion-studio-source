@@ -94,6 +94,32 @@ fn is_modifier_input_code(code: &str) -> bool {
     )
 }
 
+fn physical_modifier_projection_effects(
+    effect: &EmbeddedKeyEffectRecord,
+    physical_modifier_codes: &[String],
+    mut is_physically_pressed: impl FnMut(&str) -> bool,
+) -> Vec<EmbeddedKeyEffectRecord> {
+    let mut active = effect.active_codes.iter().cloned().collect::<HashSet<_>>();
+    physical_modifier_codes
+        .iter()
+        .filter_map(|code| {
+            if active.contains(code) || !is_physically_pressed(code) {
+                return None;
+            }
+            let active_codes_before = sorted_input_codes(&active);
+            active.insert(code.clone());
+            Some(EmbeddedKeyEffectRecord {
+                phase: "rawKeyDown".to_owned(),
+                code: code.clone(),
+                active_codes_before,
+                active_codes: sorted_input_codes(&active),
+                auto_repeat: false,
+                suppress_shortcut: false,
+            })
+        })
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct MouseInputDispatchDiagnostics {
     down_completion: Duration,

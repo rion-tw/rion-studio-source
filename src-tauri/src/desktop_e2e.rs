@@ -39,6 +39,44 @@ pub(crate) struct DesktopE2eWaitRequest {
     pub window_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopE2eKeyboardInputRequest {
+    pub code: String,
+    pub phase: String,
+}
+
+impl DesktopE2eKeyboardInputRequest {
+    fn validate(&self) -> Result<(), String> {
+        if !matches!(self.phase.as_str(), "keyDown" | "keyUp") {
+            return Err("Desktop E2E keyboard phase must be keyDown or keyUp.".to_owned());
+        }
+        let ascii_code = self.code.as_bytes();
+        let allowed_alpha = ascii_code.len() == 4
+            && ascii_code.starts_with(b"Key")
+            && ascii_code[3].is_ascii_uppercase();
+        let allowed_digit = ascii_code.len() == 6
+            && ascii_code.starts_with(b"Digit")
+            && ascii_code[5].is_ascii_digit();
+        let allowed_modifier = matches!(
+            self.code.as_str(),
+            "AltLeft"
+                | "AltRight"
+                | "ControlLeft"
+                | "ControlRight"
+                | "MetaLeft"
+                | "MetaRight"
+                | "ShiftLeft"
+                | "ShiftRight"
+        );
+        if allowed_alpha || allowed_digit || allowed_modifier {
+            Ok(())
+        } else {
+            Err("Desktop E2E keyboard code is not allowlisted.".to_owned())
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopE2eEvent {
@@ -391,6 +429,121 @@ pub(crate) fn desktop_e2e_input_diagnostics(
 }
 
 #[tauri::command]
+pub(crate) fn desktop_e2e_keyboard_input(
+    control: State<'_, Arc<DesktopE2eControl>>,
+    token: String,
+    request: DesktopE2eKeyboardInputRequest,
+) -> Result<Value, String> {
+    control.authenticate(&token)?;
+    request.validate()?;
+    desktop_e2e_submit_keyboard_input(&request.code, request.phase == "keyDown")?;
+    let event = control.record(
+        "native-key-input-submitted",
+        None,
+        None,
+        None,
+        json!({
+            "code": request.code,
+            "phase": request.phase,
+            "status": "submitted"
+        }),
+    );
+    Ok(json!({
+        "code": request.code,
+        "phase": request.phase,
+        "sequence": event.sequence,
+        "status": "submitted"
+    }))
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_e2e_submit_keyboard_input(code: &str, key_down: bool) -> Result<(), String> {
+    use std::{ffi::CString, os::raw::c_char};
+
+    unsafe extern "C" {
+        fn rion_desktop_e2e_keyboard_input(code: *const c_char, key_down: bool) -> bool;
+    }
+
+    let code = CString::new(code)
+        .map_err(|_| "Desktop E2E keyboard code contains an invalid character.".to_owned())?;
+    if unsafe { rion_desktop_e2e_keyboard_input(code.as_ptr(), key_down) } {
+        Ok(())
+    } else {
+        Err("macOS rejected the desktop E2E keyboard input submission.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+fn desktop_e2e_submit_keyboard_input(code: &str, key_down: bool) -> Result<(), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
+        KEYEVENTF_SCANCODE, SendInput,
+    };
+
+    let (scan_code, extended) = desktop_e2e_windows_scan_code(code)
+        .ok_or_else(|| "Windows does not support the desktop E2E keyboard code.".to_owned())?;
+    let mut flags = KEYEVENTF_SCANCODE;
+    if extended {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    if !key_down {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    let input = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: Default::default(),
+                wScan: scan_code,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let submitted = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+    if submitted == 1 {
+        Ok(())
+    } else {
+        Err("Windows rejected the desktop E2E keyboard input submission.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_scan_code(code: &str) -> Option<(u16, bool)> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{MAPVK_VK_TO_VSC, MapVirtualKeyW};
+
+    let fixed = match code {
+        "AltLeft" => Some((0x38, false)),
+        "AltRight" => Some((0x38, true)),
+        "ControlLeft" => Some((0x1d, false)),
+        "ControlRight" => Some((0x1d, true)),
+        "MetaLeft" => Some((0x5b, true)),
+        "MetaRight" => Some((0x5c, true)),
+        "ShiftLeft" => Some((0x2a, false)),
+        "ShiftRight" => Some((0x36, false)),
+        _ => None,
+    };
+    if fixed.is_some() {
+        return fixed;
+    }
+    let virtual_key = if let Some(letter) = code.strip_prefix("Key") {
+        letter.as_bytes().first().copied().map(u32::from)
+    } else {
+        code.strip_prefix("Digit")
+            .and_then(|digit| digit.as_bytes().first().copied())
+            .map(u32::from)
+    }?;
+    let scan_code = unsafe { MapVirtualKeyW(virtual_key, MAPVK_VK_TO_VSC) } as u16;
+    (scan_code != 0).then_some((scan_code, false))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn desktop_e2e_submit_keyboard_input(_code: &str, _key_down: bool) -> Result<(), String> {
+    Err("Desktop E2E keyboard input requires macOS or Windows.".to_owned())
+}
+
+#[tauri::command]
 pub(crate) fn desktop_e2e_shutdown(
     app: AppHandle,
     control: State<'_, Arc<DesktopE2eControl>>,
@@ -461,5 +614,34 @@ mod tests {
             },
             &request
         ));
+    }
+
+    #[test]
+    fn keyboard_input_accepts_only_explicit_phases_and_allowlisted_codes() {
+        for code in ["Digit4", "KeyA", "ShiftLeft", "ControlRight", "MetaLeft"] {
+            assert!(
+                DesktopE2eKeyboardInputRequest {
+                    code: code.to_owned(),
+                    phase: "keyDown".to_owned(),
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for (code, phase) in [
+            ("F2", "keyDown"),
+            ("Keya", "keyDown"),
+            ("Digit10", "keyDown"),
+            ("Digit1", "press"),
+        ] {
+            assert!(
+                DesktopE2eKeyboardInputRequest {
+                    code: code.to_owned(),
+                    phase: phase.to_owned(),
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
 }

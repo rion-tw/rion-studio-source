@@ -165,6 +165,7 @@ fn main() {
         "desktop_e2e_control_window",
         "desktop_e2e_runtime_ui_action",
         "desktop_e2e_input_diagnostics",
+        "desktop_e2e_keyboard_input",
         "desktop_e2e_shutdown",
     ];
     let commands = if std::env::var_os("CARGO_FEATURE_DESKTOP_E2E").is_some() {

@@ -1,4 +1,5 @@
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
 
 typedef struct {
   double content_height;
@@ -24,6 +25,46 @@ static CGFloat RionDesktopTop(void) {
     top = MAX(top, NSMaxY(screen.frame));
   }
   return top;
+}
+
+static NSNumber *RionDesktopE2EKeyCode(NSString *code) {
+  static NSDictionary<NSString *, NSNumber *> *codes;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    codes = @{
+      @"KeyA": @0, @"KeyS": @1, @"KeyD": @2, @"KeyF": @3,
+      @"KeyH": @4, @"KeyG": @5, @"KeyZ": @6, @"KeyX": @7,
+      @"KeyC": @8, @"KeyV": @9, @"KeyB": @11, @"KeyQ": @12,
+      @"KeyW": @13, @"KeyE": @14, @"KeyR": @15, @"KeyY": @16,
+      @"KeyT": @17, @"Digit1": @18, @"Digit2": @19, @"Digit3": @20,
+      @"Digit4": @21, @"Digit6": @22, @"Digit5": @23,
+      @"Digit9": @25, @"Digit7": @26, @"Digit8": @28, @"Digit0": @29,
+      @"KeyO": @31, @"KeyU": @32, @"KeyI": @34, @"KeyP": @35,
+      @"KeyL": @37, @"KeyJ": @38, @"KeyK": @40, @"KeyN": @45,
+      @"KeyM": @46, @"MetaRight": @54, @"MetaLeft": @55,
+      @"ShiftLeft": @56, @"AltLeft": @58, @"ControlLeft": @59,
+      @"ShiftRight": @60, @"AltRight": @61, @"ControlRight": @62
+    };
+  });
+  return codes[code];
+}
+
+bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
+  @autoreleasepool {
+    if (!rawCode) return false;
+    NSString *code = [NSString stringWithUTF8String:rawCode];
+    NSNumber *virtualCode = RionDesktopE2EKeyCode(code);
+    if (!virtualCode) return false;
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!source) return false;
+    CGEventRef event = CGEventCreateKeyboardEvent(
+        source, (CGKeyCode)virtualCode.unsignedShortValue, keyDown);
+    CFRelease(source);
+    if (!event) return false;
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+    return true;
+  }
 }
 
 bool rion_desktop_e2e_control_window(void *rawWindow, int32_t action,

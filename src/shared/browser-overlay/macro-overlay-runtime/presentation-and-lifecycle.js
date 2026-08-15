@@ -569,13 +569,16 @@
   function handleBlur() {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext(false);
+    releasePhysicalGameKeys();
     releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
   }
 
   function handleVisibilityChange() {
     if (document.visibilityState === "hidden") {
+      runtimeTabShortcutModifierCodes.clear();
       reportGameInputContext(false);
+      releasePhysicalGameKeys();
       releaseActiveHeldShortcuts();
       destroyCoordinateMeasurement();
       return;
@@ -594,6 +597,7 @@
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
     reportGameInputContext(false);
+    releasePhysicalGameKeys();
     releaseActiveHeldShortcuts();
     releaseAllForwardedMacroKeys();
     window.removeEventListener("keydown", handleKeyDown, true);
@@ -662,6 +666,7 @@
       clearSuppressedShortcut,
       dispose,
       refresh,
+      physicalModifierCodes,
       releaseForwardedMacroKey,
       suppressNextShortcut,
       version: scriptVersion

@@ -131,7 +131,7 @@ static NSNumber * _Nullable RionVirtualKeyCode(NSString *code) {
       @"KeyK": @40, @"Semicolon": @41, @"Backslash": @42,
       @"Comma": @43, @"Slash": @44, @"KeyN": @45, @"KeyM": @46,
       @"Period": @47, @"Tab": @48, @"Space": @49, @"Backquote": @50,
-      @"Backspace": @51, @"Escape": @53, @"MetaLeft": @55,
+      @"Backspace": @51, @"Escape": @53, @"MetaRight": @54, @"MetaLeft": @55,
       @"ShiftLeft": @56, @"AltLeft": @58, @"ControlLeft": @59,
       @"ShiftRight": @60, @"AltRight": @61, @"ControlRight": @62,
       @"F17": @64, @"F18": @79, @"F19": @80, @"F20": @90,
@@ -150,6 +150,18 @@ static NSNumber * _Nullable RionVirtualKeyCode(NSString *code) {
 static BOOL RionIsModifier(NSString *code) {
   return [code hasPrefix:@"Shift"] || [code hasPrefix:@"Control"] ||
          [code hasPrefix:@"Alt"] || [code hasPrefix:@"Meta"];
+}
+
+bool rion_wk_physical_modifier_pressed(const char * _Nullable rawCode) {
+  @autoreleasepool {
+    if (!rawCode) return false;
+    NSString *code = [NSString stringWithUTF8String:rawCode];
+    NSNumber *virtualCode = RionVirtualKeyCode(code);
+    if (!virtualCode || !RionIsModifier(code)) return false;
+    return CGEventSourceKeyState(
+        kCGEventSourceStateCombinedSessionState,
+        (CGKeyCode)virtualCode.unsignedShortValue);
+  }
 }
 
 static NSString *RionFunctionCharacter(unichar value) {

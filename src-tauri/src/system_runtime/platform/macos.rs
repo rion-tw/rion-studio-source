@@ -293,6 +293,40 @@ pub(in crate::system_runtime) fn dispatch_key_effect(
 }
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn dispatch_key_effect_with_physical_modifiers(
+    webview: &Webview,
+    effect: &EmbeddedKeyEffectRecord,
+    physical_modifier_codes: &[String],
+    context: &InputDispatchContext,
+) -> RuntimeResult<()> {
+    let confirmed_physical_modifier_codes = physical_modifier_codes
+        .iter()
+        .filter(|code| macos_physical_modifier_is_pressed(code))
+        .cloned()
+        .collect::<Vec<_>>();
+    dispatch_key_effect(webview, effect, context)?;
+    for projection in
+        physical_modifier_projection_effects(effect, &confirmed_physical_modifier_codes, |_| true)
+    {
+        dispatch_key_effect(webview, &projection, context)?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_physical_modifier_is_pressed(code: &str) -> bool {
+    use std::{ffi::CString, os::raw::c_char};
+
+    unsafe extern "C" {
+        fn rion_wk_physical_modifier_pressed(code: *const c_char) -> bool;
+    }
+
+    CString::new(code)
+        .ok()
+        .is_some_and(|code| unsafe { rion_wk_physical_modifier_pressed(code.as_ptr()) })
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn macos_key_dispatch_needs_settle(
     previous_role_label: Option<&str>,
     role_label: &str,

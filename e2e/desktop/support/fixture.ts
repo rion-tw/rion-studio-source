@@ -28,6 +28,7 @@ export interface FixtureRoleState {
   keyup: number;
   lastEvent: string;
   lastEventSequence: number;
+  pressedCodes: string[];
   visibility: number;
 }
 
@@ -69,4 +70,17 @@ export async function waitFixtureEvent(input: {
   });
   if (!response.ok) throw new Error(`Fixture event wait failed with ${response.status}`);
   return ((await response.json()) as { event: FixtureEvent }).event;
+}
+
+export async function fixtureEvents(input: {
+  afterSequence: number;
+  kind?: string;
+  roleId?: string;
+}): Promise<FixtureEvent[]> {
+  const query = new URLSearchParams({ afterSequence: String(input.afterSequence) });
+  if (input.kind) query.set("kind", input.kind);
+  if (input.roleId) query.set("roleId", input.roleId);
+  const response = await fetch(fixtureUrl(`/api/events/snapshot?${query}`));
+  if (!response.ok) throw new Error(`Fixture event snapshot failed with ${response.status}`);
+  return ((await response.json()) as { events: FixtureEvent[] }).events;
 }

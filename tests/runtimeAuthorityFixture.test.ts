@@ -102,8 +102,28 @@ describe("runtime authority fixture launch gates", () => {
       latestSequence: 2
     });
     expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
-      "role-a": { keydown: 1, lastEventSequence: 1 },
-      "role-b": { keyup: 1, lastEventSequence: 2 }
+      "role-a": { keydown: 1, lastEventSequence: 1, pressedCodes: ["KeyA"] },
+      "role-b": { keyup: 1, lastEventSequence: 2, pressedCodes: [] }
+    });
+    expect(await (await fetch(
+      `${origin}/api/events/snapshot?afterSequence=0&roleId=role-b`
+    )).json()).toMatchObject({
+      events: [{ code: "KeyB", kind: "keyup", sequence: 2 }],
+      latestSequence: 2
+    });
+  });
+
+  it("tracks pressed codes without duplicate repeat ownership and clears exact keyup", async () => {
+    const { origin } = await startFixture();
+    for (const kind of ["keydown", "keydown"]) {
+      await post(origin, "/api/event", { code: "Digit1", kind, roleId: "role-a" });
+    }
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": { pressedCodes: ["Digit1"] }
+    });
+    await post(origin, "/api/event", { code: "Digit1", kind: "keyup", roleId: "role-a" });
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": { pressedCodes: [] }
     });
   });
 

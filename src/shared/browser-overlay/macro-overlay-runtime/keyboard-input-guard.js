@@ -1,5 +1,16 @@
   const activeMacroGameKeys = new Map();
   const forwardedMacroGameEvents = new WeakSet();
+  const physicalGameKeys = new Map();
+  const physicalModifierCodeSet = new Set([
+    "AltLeft",
+    "AltRight",
+    "ControlLeft",
+    "ControlRight",
+    "MetaLeft",
+    "MetaRight",
+    "ShiftLeft",
+    "ShiftRight"
+  ]);
   let lastMacroGameCanvas = null;
   let macroGameKeyReassertQueued = false;
   let macroGameKeysNeedReassert = false;
@@ -139,6 +150,78 @@
     };
   }
 
+  function rememberPhysicalGameKey(event) {
+    if (!event.code || physicalGameKeys.has(event.code)) return;
+    const target = event.target;
+    if (!target || typeof target.dispatchEvent !== "function") return;
+    physicalGameKeys.set(event.code, {
+      snapshot: snapshotMacroKeyboardEvent(event, false),
+      target
+    });
+  }
+
+  function forgetPhysicalGameKey(code) {
+    physicalGameKeys.delete(String(code));
+  }
+
+  function physicalModifierCodes() {
+    return [...physicalGameKeys.keys()].filter((code) => physicalModifierCodeSet.has(code));
+  }
+
+  function currentPhysicalModifierSnapshot(snapshot) {
+    const codes = physicalModifierCodes();
+    return {
+      ...snapshot,
+      altKey: codes.some((code) => code.startsWith("Alt")),
+      ctrlKey: codes.some((code) => code.startsWith("Control")),
+      metaKey: codes.some((code) => code.startsWith("Meta")),
+      repeat: false,
+      shiftKey: codes.some((code) => code.startsWith("Shift"))
+    };
+  }
+
+  function dispatchPhysicalGameKeyUp(active) {
+    if (typeof window.KeyboardEvent !== "function") return;
+    try {
+      const snapshot = currentPhysicalModifierSnapshot(active.snapshot);
+      const event = new window.KeyboardEvent("keyup", {
+        altKey: snapshot.altKey,
+        bubbles: true,
+        cancelable: true,
+        code: snapshot.code,
+        composed: true,
+        ctrlKey: snapshot.ctrlKey,
+        isComposing: snapshot.isComposing,
+        key: snapshot.key,
+        location: snapshot.location,
+        metaKey: snapshot.metaKey,
+        repeat: false,
+        shiftKey: snapshot.shiftKey
+      });
+      for (const property of ["charCode", "keyCode", "which"]) {
+        const value = Number(snapshot[property]) || 0;
+        if (event[property] === value) continue;
+        try {
+          Object.defineProperty(event, property, { configurable: true, value });
+        } catch {
+          // `code` and `key` remain available when a WebView rejects a legacy field override.
+        }
+      }
+      forwardedMacroGameEvents.add(event);
+      active.target.dispatchEvent(event);
+    } catch (error) {
+      console.warn("Unable to release a physical game key after focus loss.", error);
+    }
+  }
+
+  function releasePhysicalGameKeys() {
+    for (const code of [...physicalGameKeys.keys()].reverse()) {
+      const active = physicalGameKeys.get(code);
+      physicalGameKeys.delete(code);
+      if (active) dispatchPhysicalGameKeyUp(active);
+    }
+  }
+
   function dispatchForwardedMacroGameEvent(target, type, snapshot) {
     if (!isConnectedGameCanvas(target) || typeof window.KeyboardEvent !== "function") return false;
     try {
@@ -269,6 +352,15 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
+    if (consumeSuppressedShortcut(event.code, "keydown")) {
+      const activeElement = gameInputContextActive ? undefined : document.activeElement;
+      const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
+      if (editableContext && event.cancelable) {
+        event.preventDefault();
+      }
+      routeMacroGameKeyDown(event, editableContext);
+      return;
+    }
     updateRuntimeTabShortcutModifier(event, true);
     if (isReservedRuntimeTabSwitchShortcutEvent(event)) {
       consumeShortcutEvent(event);
@@ -289,17 +381,12 @@
     if (!ignoresShortcut) {
       preventGameBrowserDefault(event);
     }
-    if (consumeSuppressedShortcut(event.code, "keydown")) {
-      if (ignoresShortcut && event.cancelable) {
-        event.preventDefault();
-      }
-      routeMacroGameKeyDown(event, ignoresShortcut);
-      return;
-    }
     if (ignoresShortcut) {
+      rememberPhysicalGameKey(event);
       return;
     }
     if (isReservedBrowserZoomShortcutEvent(event)) {
+      rememberPhysicalGameKey(event);
       return;
     }
 
@@ -312,6 +399,8 @@
     if (event.repeat) {
       if (matchesOpenShortcut(event) || matchesMacroShortcut) {
         consumeShortcutEvent(event);
+      } else {
+        rememberPhysicalGameKey(event);
       }
       return;
     }
@@ -330,6 +419,7 @@
         matchesShortcut(event, macro.trigger)
     );
     if (matchingMacros.length === 0) {
+      rememberPhysicalGameKey(event);
       return;
     }
 
@@ -355,19 +445,20 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
+    if (consumeSuppressedShortcut(event.code, "keyup")) {
+      const activeElement = gameInputContextActive ? undefined : document.activeElement;
+      const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
+      routeMacroGameKeyUp(event, editableContext);
+      return;
+    }
     updateRuntimeTabShortcutModifier(event, false);
+    forgetPhysicalGameKey(event.code);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }
     if (coordinateMeasurementPending) {
       event.preventDefault();
       event.stopPropagation();
-      return;
-    }
-    if (consumeSuppressedShortcut(event.code, "keyup")) {
-      const activeElement = gameInputContextActive ? undefined : document.activeElement;
-      const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
-      routeMacroGameKeyUp(event, editableContext);
       return;
     }
     const matches = [...activeHeldShortcuts.entries()].filter(

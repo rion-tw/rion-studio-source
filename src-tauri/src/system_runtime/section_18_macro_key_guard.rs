@@ -13,36 +13,47 @@ fn dispatch_guarded_macro_key_effect(
     dispatch_guarded_macro_key_effect_with(
         effect,
         || arm_macro_key_event_guard(webview, effect, context),
-        || dispatch_key_effect(webview, effect, context),
-        || {
-            let _ = release_forwarded_macro_key(webview, effect);
+        |physical_modifier_codes| {
+            dispatch_key_effect_with_physical_modifiers(
+                webview,
+                effect,
+                physical_modifier_codes,
+                context,
+            )
         },
+        || acknowledge_forwarded_macro_key_release(webview, effect, context).map(|_| ()),
     )
 }
 
 fn dispatch_guarded_macro_key_effect_with(
     effect: &EmbeddedKeyEffectRecord,
-    mut arm: impl FnMut() -> RuntimeResult<()>,
-    dispatch: impl FnOnce() -> RuntimeResult<()>,
-    release_forwarded: impl FnOnce(),
+    mut arm: impl FnMut() -> RuntimeResult<MacroKeyGuardAcknowledgement>,
+    dispatch: impl FnOnce(&[String]) -> RuntimeResult<()>,
+    release_forwarded: impl FnOnce() -> RuntimeResult<()>,
 ) -> RuntimeResult<()> {
     let guard = arm();
     if effect.phase != "keyUp" {
-        guard?;
-        return dispatch();
+        let acknowledgement = guard?;
+        return dispatch(&acknowledgement.physical_modifier_codes);
     }
-    let dispatched = dispatch();
-    if guard.is_err() {
-        release_forwarded();
+    let physical_modifier_codes = guard
+        .as_ref()
+        .map(|acknowledgement| acknowledgement.physical_modifier_codes.as_slice())
+        .unwrap_or_default();
+    let dispatched = dispatch(physical_modifier_codes);
+    let released = release_forwarded();
+    match (dispatched, released) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
     }
-    dispatched
 }
 
 fn arm_macro_key_event_guard(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
     context: &InputDispatchContext,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
     context.ensure_current()?;
     let lifetime = context.remaining(MACRO_KEY_GUARD_MAX_LIFETIME);
     if lifetime.is_zero() {
@@ -71,7 +82,7 @@ fn arm_webview_macro_key_event_guard(
     effect: &EmbeddedKeyEffectRecord,
     context: &InputDispatchContext,
     lifetime: Duration,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     webview
         .eval_with_callback(source, move |value| {
@@ -89,11 +100,12 @@ fn arm_webview_macro_key_event_guard(
         lifetime
     };
     match receiver.recv_timeout(wait) {
-        Ok(value) if macro_key_guard_acknowledged(&value) => Ok(()),
-        Ok(_) => Err(RuntimeError::new(
-            "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-            "The game page did not acknowledge the macro key guard.",
-        )),
+        Ok(value) => macro_key_guard_acknowledgement(&value).ok_or_else(|| {
+            RuntimeError::new(
+                "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
+                "The game page did not acknowledge the macro key guard.",
+            )
+        }),
         Err(_) => {
             context.ensure_current()?;
             Err(RuntimeError::new(
@@ -110,7 +122,7 @@ fn arm_windows_macro_key_event_guard(
     source: &str,
     context: &InputDispatchContext,
     lifetime: Duration,
-) -> RuntimeResult<()> {
+) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
     let result = call_system_input_devtools_bounded(
         webview,
         "Runtime.evaluate",
@@ -137,35 +149,101 @@ fn arm_windows_macro_key_event_guard(
         }
         Err(error) => return Err(error),
     };
-    if macro_key_guard_devtools_acknowledged(&raw) {
-        Ok(())
-    } else {
-        Err(RuntimeError::new(
+    macro_key_guard_devtools_acknowledgement(&raw).ok_or_else(|| {
+        RuntimeError::new(
             "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
             "The game page did not acknowledge the macro key guard.",
-        ))
-    }
+        )
+    })
 }
 
 #[cfg(windows)]
-fn macro_key_guard_devtools_acknowledged(raw: &str) -> bool {
+fn macro_key_guard_devtools_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledgement> {
     serde_json::from_str::<Value>(raw)
         .ok()
         .and_then(|value| value.pointer("/result/value").cloned())
-        .is_some_and(|value| value == Value::Bool(true))
+        .and_then(parse_macro_key_guard_acknowledgement)
 }
 
-fn release_forwarded_macro_key(
+fn acknowledge_forwarded_macro_key_release(
     webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
-) -> RuntimeResult<()> {
+    context: &InputDispatchContext,
+) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
     let source = macro_key_guard_release_script(&effect.code)?;
-    webview.eval(&source).map_err(|error| {
+    #[cfg(windows)]
+    return acknowledge_windows_forwarded_macro_key_release(webview, &source, context);
+    #[cfg(not(windows))]
+    {
+        let _ = context;
+        acknowledge_webview_forwarded_macro_key_release(webview, &source)
+    }
+}
+
+#[cfg(not(windows))]
+fn acknowledge_webview_forwarded_macro_key_release(
+    webview: &Webview,
+    source: &str,
+) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .eval_with_callback(source, move |value| {
+            let _ = sender.send(value);
+        })
+        .map_err(|error| {
+            RuntimeError::new(
+                "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
+                format!("Unable to submit forwarded macro key cleanup: {error}"),
+            )
+        })?;
+    let raw = receiver
+        .recv_timeout(MACRO_KEY_RELEASE_GUARD_WAIT)
+        .map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_MACRO_KEY_RELEASE_TIMEOUT",
+                "The game page did not acknowledge forwarded macro key cleanup.",
+            )
+        })?;
+    macro_key_release_acknowledgement(&raw).ok_or_else(|| {
         RuntimeError::new(
-            "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-            format!("Unable to release the forwarded macro key: {error}"),
+            "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
+            "The game page returned an invalid forwarded macro key cleanup acknowledgement.",
         )
     })
+}
+
+#[cfg(windows)]
+fn acknowledge_windows_forwarded_macro_key_release(
+    webview: &Webview,
+    source: &str,
+    context: &InputDispatchContext,
+) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
+    let raw = call_system_input_devtools_bounded(
+        webview,
+        "Runtime.evaluate",
+        &json!({
+            "expression": source,
+            "returnByValue": true
+        }),
+        context,
+        MACRO_KEY_GUARD_MAX_LIFETIME,
+    )?;
+    macro_key_release_devtools_acknowledgement(&raw).ok_or_else(|| {
+        RuntimeError::new(
+            "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
+            "The game page returned an invalid forwarded macro key cleanup acknowledgement.",
+        )
+    })
+}
+
+#[cfg(windows)]
+fn macro_key_release_devtools_acknowledgement(
+    raw: &str,
+) -> Option<MacroKeyReleaseAcknowledgement> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|value| value.pointer("/result/value").cloned())
+        .and_then(parse_macro_key_release_acknowledgement)
 }
 
 fn macro_key_guard_arm_script(
@@ -189,7 +267,7 @@ fn macro_key_guard_arm_script(
         RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string())
     })?;
     Ok(format!(
-        "globalThis.__rionStudioMacroOverlay?.suppressNextShortcut?.({code},{phase},{expires_at_ms}) === true"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextShortcut?.({code},{phase},{expires_at_ms}) === true; const physicalModifierCodes = armed ? controller?.physicalModifierCodes?.() : []; return {{ armed, physicalModifierCodes: Array.isArray(physicalModifierCodes) ? physicalModifierCodes : [] }}; }})()"
     ))
 }
 
@@ -198,23 +276,69 @@ fn macro_key_guard_release_script(code: &str) -> RuntimeResult<String> {
         RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string())
     })?;
     Ok(format!(
-        "globalThis.__rionStudioMacroOverlay?.releaseForwardedMacroKey?.({code}) === true"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; if (typeof controller?.releaseForwardedMacroKey !== 'function') return {{ acknowledged: false, released: false }}; return {{ acknowledged: true, released: controller.releaseForwardedMacroKey({code}) === true }}; }})()"
     ))
 }
 
-#[cfg(any(not(windows), test))]
-fn macro_key_guard_acknowledged(raw: &str) -> bool {
-    fn acknowledged(value: &Value) -> bool {
-        match value {
-            Value::Bool(value) => *value,
-            Value::String(value) => serde_json::from_str::<Value>(value)
-                .ok()
-                .is_some_and(|nested| acknowledged(&nested)),
-            _ => false,
-        }
-    }
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct MacroKeyGuardAcknowledgement {
+    armed: bool,
+    physical_modifier_codes: Vec<String>,
+}
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct MacroKeyReleaseAcknowledgement {
+    acknowledged: bool,
+    released: bool,
+}
+
+fn parse_macro_key_guard_acknowledgement(
+    value: Value,
+) -> Option<MacroKeyGuardAcknowledgement> {
+    if let Value::String(nested) = value {
+        return serde_json::from_str::<Value>(&nested)
+            .ok()
+            .and_then(parse_macro_key_guard_acknowledgement);
+    }
+    let acknowledgement = serde_json::from_value::<MacroKeyGuardAcknowledgement>(value).ok()?;
+    if !acknowledgement.armed || acknowledgement.physical_modifier_codes.len() > 8 {
+        return None;
+    }
+    let mut seen = HashSet::new();
+    if acknowledgement
+        .physical_modifier_codes
+        .iter()
+        .any(|code| !is_modifier_input_code(code) || !seen.insert(code))
+    {
+        return None;
+    }
+    Some(acknowledgement)
+}
+
+fn parse_macro_key_release_acknowledgement(
+    value: Value,
+) -> Option<MacroKeyReleaseAcknowledgement> {
+    if let Value::String(nested) = value {
+        return serde_json::from_str::<Value>(&nested)
+            .ok()
+            .and_then(parse_macro_key_release_acknowledgement);
+    }
+    let acknowledgement = serde_json::from_value::<MacroKeyReleaseAcknowledgement>(value).ok()?;
+    acknowledgement.acknowledged.then_some(acknowledgement)
+}
+
+#[cfg(any(not(windows), test))]
+fn macro_key_guard_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledgement> {
     serde_json::from_str::<Value>(raw)
         .ok()
-        .is_some_and(|value| acknowledged(&value))
+        .and_then(parse_macro_key_guard_acknowledgement)
+}
+
+#[cfg(any(not(windows), test))]
+fn macro_key_release_acknowledgement(raw: &str) -> Option<MacroKeyReleaseAcknowledgement> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(parse_macro_key_release_acknowledgement)
 }

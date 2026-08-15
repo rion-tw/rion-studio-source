@@ -348,6 +348,33 @@ export async function inputDiagnostics(): Promise<MacroInputDiagnosticsRecord> {
   return result as unknown as MacroInputDiagnosticsRecord;
 }
 
+export async function keyboardInput(
+  code: string,
+  phase: "keyDown" | "keyUp"
+): Promise<{ code: string; phase: string; sequence: number; status: "submitted" }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, inputCode, inputPhase) => core.invoke("desktop_e2e_keyboard_input", {
+      request: { code: inputCode, phase: inputPhase },
+      token
+    }),
+    sessionToken(),
+    code,
+    phase
+  );
+  return result as unknown as {
+    code: string;
+    phase: string;
+    sequence: number;
+    status: "submitted";
+  };
+}
+
+export async function focusMainApplicationWindow(): Promise<void> {
+  await browser.tauri.execute(
+    ({ core }) => core.invoke("plugin:window|set_focus", { label: "main" })
+  );
+}
+
 export async function shutdown(confirm = false): Promise<void> {
   await browser.tauri.execute(
     ({ core }, token, shouldConfirm) => core.invoke("desktop_e2e_shutdown", {

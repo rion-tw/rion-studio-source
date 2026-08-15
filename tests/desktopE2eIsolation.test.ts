@@ -18,6 +18,27 @@ describe("desktop E2E build isolation", () => {
     expect(control).toContain("compile_error!");
   });
 
+  it("keeps native keyboard injection out of product commands and capabilities", async () => {
+    const [build, productConfig, run] = await Promise.all([
+      readFile("src-tauri/build.rs", "utf8"),
+      readFile("src-tauri/tauri.conf.json", "utf8"),
+      readFile("src-tauri/src/lib/section_09_run.rs", "utf8")
+    ]);
+    const productCommands = build.slice(
+      build.indexOf("const PRODUCT_COMMANDS"),
+      build.indexOf("const DESKTOP_E2E_COMMANDS")
+    );
+    const productHandler = run.slice(
+      run.indexOf("#[cfg(not(feature = \"desktop-e2e\"))]"),
+      run.indexOf("#[cfg(feature = \"desktop-e2e\")]")
+    );
+
+    expect(productCommands).not.toContain("desktop_e2e_keyboard_input");
+    expect(productHandler).not.toContain("desktop_e2e_keyboard_input");
+    expect(productConfig).not.toContain("desktop-e2e-keyboard-input");
+    expect(build).toContain('"desktop_e2e_keyboard_input"');
+  });
+
   it("grants native runtime evidence commands only in the desktop E2E capability", async () => {
     const config = JSON.parse(await readFile("src-tauri/tauri.e2e.conf.json", "utf8"));
     const capabilities = config.app.security.capabilities as Array<{
@@ -28,7 +49,9 @@ describe("desktop E2E build isolation", () => {
       capability.identifier === "desktop-e2e-debug-only"
     );
     expect(debug?.permissions).toEqual(expect.arrayContaining([
+      "core:window:allow-set-focus",
       "allow-desktop-e2e-input-diagnostics",
+      "allow-desktop-e2e-keyboard-input",
       "allow-desktop-e2e-inject-duplicate-role-cookie-checkpoint",
       "allow-desktop-e2e-runtime-ui-action"
     ]));

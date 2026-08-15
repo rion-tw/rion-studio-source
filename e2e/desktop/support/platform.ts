@@ -9,3 +9,9 @@ export function requiresPrearmedNativeTabMenuSelection(
 ): boolean {
   return platform === "darwin" || platform === "win32";
 }
+
+export function requiresNativeDeminimizeFocusFence(
+  platform: NodeJS.Platform
+): boolean {
+  return platform === "darwin";
+}

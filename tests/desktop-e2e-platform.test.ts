@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  requiresNativeDeminimizeFocusFence,
   requiresPrearmedNativeTabMenuSelection,
   requiresRendererTabChromeProjection
 } from "../e2e/desktop/support/platform";
@@ -16,5 +17,11 @@ describe("desktop E2E platform readiness", () => {
     expect(requiresPrearmedNativeTabMenuSelection("win32")).toBe(true);
     expect(requiresPrearmedNativeTabMenuSelection("darwin")).toBe(true);
     expect(requiresPrearmedNativeTabMenuSelection("linux")).toBe(false);
+  });
+
+  it("waits for AppKit focus after an asynchronous deminiaturize", () => {
+    expect(requiresNativeDeminimizeFocusFence("darwin")).toBe(true);
+    expect(requiresNativeDeminimizeFocusFence("win32")).toBe(false);
+    expect(requiresNativeDeminimizeFocusFence("linux")).toBe(false);
   });
 });

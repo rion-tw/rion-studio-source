@@ -32,6 +32,7 @@ import {
   type FixtureEvent
 } from "../support/fixture";
 import {
+  requiresNativeDeminimizeFocusFence,
   requiresPrearmedNativeTabMenuSelection,
   requiresRendererTabChromeProjection
 } from "../support/platform";
@@ -724,11 +725,19 @@ async function topologyForcePhase(): Promise<void> {
       tabId: lastSourceTab,
       target: restoredA
     });
-    const restoredB = await controlWindow(WINDOW_B, {
+    const restoreSubmitted = await submitWindowControl(minimizedB, {
       action: "setPresentation",
       presentation: liveBBeforeMinimize.target.presentation
     });
-    if ("submitted" in restoredB) throw new Error("Window B restore did not return native state");
+    if (requiresNativeDeminimizeFocusFence(process.platform)) {
+      await waitEvent({
+        afterSequence: restoreSubmitted.sequence,
+        kind: "window-focus-persisted",
+        minimumGeneration: minimizedB.windowGeneration,
+        windowId: WINDOW_B
+      });
+    }
+    const restoredB = await windowSnapshot(WINDOW_B);
     expect(restoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
     const positionedB = await controlWindow(WINDOW_B, {
       action: "moveResize",

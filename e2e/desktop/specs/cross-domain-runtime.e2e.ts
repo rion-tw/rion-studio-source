@@ -22,6 +22,7 @@ import {
   submitWindowControl,
   waitEvent,
   windowSnapshot,
+  type DesktopE2eEvent,
   type DesktopE2eWindowSnapshot
 } from "../support/control";
 import {
@@ -487,13 +488,17 @@ async function claimSharedRoleAndAssertMacroContinuity(
   });
 }
 
-async function waitForMutationReceipt(afterSequence: number, tabId: string): Promise<void> {
+async function waitForMutationReceipt(
+  afterSequence: number,
+  tabId: string
+): Promise<DesktopE2eEvent> {
   const terminal = await waitEvent({
     afterSequence,
     kind: "runtime-operation-terminal",
     timeoutMs: 55_000
   });
   expect(terminal.details).toMatchObject({ status: "applied", tabId });
+  return terminal;
 }
 
 async function dragTab(
@@ -520,7 +525,7 @@ async function tabMenuAction(input: {
   snapshot: DesktopE2eWindowSnapshot;
   tabId: string;
   target?: DesktopE2eWindowSnapshot;
-}): Promise<void> {
+}): Promise<DesktopE2eEvent> {
   const source = await windowSnapshot(input.snapshot.windowId);
   const target = input.target
     ? await windowSnapshot(input.target.windowId)
@@ -563,8 +568,7 @@ async function tabMenuAction(input: {
       });
       expect(inputTerminal.details).toMatchObject({ action: input.action, status: "applied" });
     }
-    await waitForMutationReceipt(openCursor, input.tabId);
-    return;
+    return waitForMutationReceipt(openCursor, input.tabId);
   }
   const receiptCursor = (await probe()).latestSequence;
   await runtimeUiAction(source.windowId, {
@@ -576,7 +580,7 @@ async function tabMenuAction(input: {
     topologyRevision: source.kernel?.revision ?? 0,
     windowGeneration: source.windowGeneration
   });
-  await waitForMutationReceipt(receiptCursor, input.tabId);
+  return waitForMutationReceipt(receiptCursor, input.tabId);
 }
 
 async function showSourceFromVisibleUi(tab: EmbeddedRuntimeState["tabs"][number]): Promise<void> {
@@ -763,10 +767,18 @@ async function topologyForcePhase(): Promise<void> {
   );
   if (!finalHidden) throw new Error("A second visible tab is required for durable hidden state");
   const persistenceCursor = (await probe()).latestSequence;
-  await tabMenuAction({ action: "hide", snapshot: liveB, tabId: finalHidden.id });
+  const hideReceipt = await tabMenuAction({
+    action: "hide",
+    snapshot: liveB,
+    tabId: finalHidden.id
+  });
+  if (hideReceipt.revision === undefined) {
+    throw new Error("The final hidden-tab mutation did not report its committed revision");
+  }
   await waitEvent({
     afterSequence: persistenceCursor,
     kind: "window-state-persisted",
+    minimumRevision: hideReceipt.revision,
     timeoutMs: 55_000,
     windowId: WINDOW_B
   });

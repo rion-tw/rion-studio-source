@@ -467,13 +467,13 @@ impl SystemRuntimeExecutor {
                                 ),
                             )
                         })?;
-                    surfaces.push(managed);
+                    surfaces.push((managed, Arc::clone(&role_surface.navigation)));
                 }
             }
             surfaces
         };
 
-        for surface in &surfaces {
+        for (surface, navigation) in &surfaces {
             let role_id = surface.role_id.as_deref().ok_or_else(|| {
                 RuntimeError::new(
                     stale_code,
@@ -481,11 +481,20 @@ impl SystemRuntimeExecutor {
                 )
             })?;
             self.persist_role_cookie_checkpoint(&surface.webview, role_id)?;
-            self.persist_role_local_storage_checkpoint(&surface.webview, role_id)?;
+            if navigation.has_committed_page() {
+                self.persist_role_local_storage_checkpoint(&surface.webview, role_id)?;
+            } else {
+                self.record_surface_stage_by_label(
+                    LogLevel::Debug,
+                    "surface.session-local-storage-skipped",
+                    "The role page had not committed, so close admission retained the native cookie checkpoint without waiting for unavailable LocalStorage page state.",
+                    surface.webview.label(),
+                );
+            }
         }
 
         let mut state = self.state()?;
-        let all_current = surfaces.iter().all(|expected| {
+        let all_current = surfaces.iter().all(|(expected, _)| {
             state
                 .native_resources
                 .surface_registry
@@ -505,7 +514,7 @@ impl SystemRuntimeExecutor {
                 "A role surface changed while its close session checkpoint was being persisted.",
             ));
         }
-        for expected in &surfaces {
+        for (expected, _) in &surfaces {
             if let Some(current) = state
                 .native_resources
                 .surface_registry
@@ -515,7 +524,7 @@ impl SystemRuntimeExecutor {
             }
         }
         drop(state);
-        for expected in &surfaces {
+        for (expected, _) in &surfaces {
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
                 "surface.session-checkpointed",

@@ -307,3 +307,22 @@ fn only_retired_recovery_surfaces_with_a_recoverable_baseline_can_skip_failed_re
         ), "{platform}");
     }
 }
+
+#[test]
+fn close_admission_reads_local_storage_only_after_an_authoritative_page_commit() {
+    let url = Url::parse("https://example.test/role").unwrap();
+    for platform in ["windows", "macos"] {
+        let tracker = NavigationTracker::new_for_platform(platform);
+        tracker.page_event(PageLoadEvent::Started, &url);
+        assert!(!tracker.has_committed_page(), "{platform}");
+        if platform == "windows" {
+            assert!(tracker.native_navigation_started(41), "{platform}");
+        }
+        tracker.page_event(PageLoadEvent::Finished, &url);
+        if platform == "windows" {
+            assert!(!tracker.has_committed_page(), "{platform}");
+            assert!(tracker.native_navigation_completed(41, true, None), "{platform}");
+        }
+        assert!(tracker.has_committed_page(), "{platform}");
+    }
+}

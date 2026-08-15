@@ -93,6 +93,23 @@ fn managed_surface_close_checkpoints_role_session(
         && !session_checkpointed_for_close
 }
 
+fn durable_checkpoint_fallback_is_allowed(
+    retired_recovery_surface: bool,
+    checkpoint_error_code: &str,
+    has_durable_checkpoint: bool,
+) -> bool {
+    retired_recovery_surface
+        && checkpoint_error_code == "TAURI_EVALUATION_TIMEOUT"
+        && has_durable_checkpoint
+}
+
+fn managed_surface_close_allows_durable_checkpoint_fallback(
+    phase_before_close: ManagedSurfacePhase,
+    kind: ManagedSurfaceKind,
+) -> bool {
+    phase_before_close == ManagedSurfacePhase::Retired && kind == ManagedSurfaceKind::Role
+}
+
 const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
     match kind {
         ManagedSurfaceKind::Popup => 0,

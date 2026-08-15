@@ -766,14 +766,39 @@ impl SystemRuntimeExecutor {
         let result: RuntimeResult<SurfaceCloseOutcome> = async {
             let platform = current_runtime_platform();
             if plan.checkpoint_role_session && !lifecycle.native_surface_is_released() {
-                self.persist_role_cookie_checkpoint(webview, role_id)?;
-                self.persist_role_local_storage_checkpoint(webview, role_id)?;
-                self.record_surface_stage_by_label(
-                    LogLevel::Debug,
-                    "surface.session-checkpointed",
-                    "The live role Cookie and LocalStorage state was durably checkpointed before native isolation.",
-                    &label,
-                );
+                let checkpoint_result = self
+                    .persist_role_cookie_checkpoint(webview, role_id)
+                    .and_then(|()| self.persist_role_local_storage_checkpoint(webview, role_id));
+                if let Err(error) = checkpoint_result {
+                    let has_durable_checkpoint = if plan.allow_durable_checkpoint_fallback
+                        && error.code == "TAURI_EVALUATION_TIMEOUT"
+                    {
+                        read_role_local_storage_checkpoint_blob(&self.user_data_dir, role_id)?
+                            .is_some()
+                    } else {
+                        false
+                    };
+                    if !durable_checkpoint_fallback_is_allowed(
+                        plan.allow_durable_checkpoint_fallback,
+                        error.code,
+                        has_durable_checkpoint,
+                    ) {
+                        return Err(error);
+                    }
+                    self.record_surface_stage_by_label(
+                        LogLevel::Warn,
+                        "surface.session-checkpoint-fallback",
+                        "The unresponsive retired page could not refresh LocalStorage; recovery retained the last durable role checkpoint before exact native isolation.",
+                        &label,
+                    );
+                } else {
+                    self.record_surface_stage_by_label(
+                        LogLevel::Debug,
+                        "surface.session-checkpointed",
+                        "The live role Cookie and LocalStorage state was durably checkpointed before native isolation.",
+                        &label,
+                    );
+                }
             }
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
@@ -916,6 +941,7 @@ impl SystemRuntimeExecutor {
             lifecycle,
             role_id,
             SurfaceClosePlan {
+                allow_durable_checkpoint_fallback: false,
                 checkpoint_role_session: false,
                 defer_navigation_to_preflight: true,
                 release_boundary,
@@ -1039,7 +1065,7 @@ impl SystemRuntimeExecutor {
                 | ManagedSurfacePhase::Quarantined
                 | ManagedSurfacePhase::Retired => {}
             }
-            let (surface, owns_close) = {
+            let (surface, owns_close, allow_durable_checkpoint_fallback) = {
                 let mut state = self.state()?;
                 let surface = state.native_resources.surface_registry.get_mut(instance_id).ok_or_else(|| {
                     RuntimeError::new(
@@ -1047,6 +1073,11 @@ impl SystemRuntimeExecutor {
                         "The native surface registry entry is missing.",
                     )
                 })?;
+                let allow_durable_checkpoint_fallback =
+                    managed_surface_close_allows_durable_checkpoint_fallback(
+                        surface.phase,
+                        surface.kind,
+                    );
                 let owns_close = match surface.phase {
                     ManagedSurfacePhase::Released => return Ok(()),
                     ManagedSurfacePhase::CloseRequested
@@ -1061,7 +1092,7 @@ impl SystemRuntimeExecutor {
                         true
                     }
                 };
-                (surface.clone(), owns_close)
+                (surface.clone(), owns_close, allow_durable_checkpoint_fallback)
             };
             if !owns_close {
                 return self
@@ -1092,6 +1123,7 @@ impl SystemRuntimeExecutor {
                     &surface.lifecycle,
                     lifecycle_id,
                     SurfaceClosePlan {
+                        allow_durable_checkpoint_fallback,
                         checkpoint_role_session: managed_surface_close_checkpoints_role_session(
                             surface.kind,
                             defer_navigation_to_preflight,

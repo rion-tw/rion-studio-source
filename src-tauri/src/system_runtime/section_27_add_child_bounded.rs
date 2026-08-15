@@ -418,6 +418,7 @@ impl SystemRuntimeExecutor {
                 &lifecycle,
                 role_id,
                 SurfaceClosePlan {
+                    allow_durable_checkpoint_fallback: false,
                     checkpoint_role_session: true,
                     defer_navigation_to_preflight: true,
                     release_boundary: SurfaceReleaseBoundary::DedicatedStore,

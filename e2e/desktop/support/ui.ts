@@ -4,6 +4,18 @@ import { Key } from "webdriverio";
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 const RENDERER_PROBE_TIMEOUT_MS = 5_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
+const LEGAL_CHECKBOX_SELECTOR = "[role='checkbox']";
+const LEGAL_CONTINUE_SELECTOR = "[data-testid='legal-onboarding-continue']";
+const FIRST_RUN_SKIP_SELECTOR = "[data-testid='onboarding-skip']";
+const MAIN_SIDEBAR_SELECTOR = ".app-main-sidebar";
+
+type InitialScreen = "first-run" | "legal" | "main";
+
+const INITIAL_SCREEN_SELECTORS: Record<InitialScreen, string> = {
+  "first-run": FIRST_RUN_SKIP_SELECTOR,
+  legal: LEGAL_CONTINUE_SELECTOR,
+  main: MAIN_SIDEBAR_SELECTOR
+};
 
 interface RendererNavigationResult {
   error?: string;
@@ -64,22 +76,57 @@ export async function ensureEnglishUi(): Promise<void> {
   }
 }
 
+async function waitForInitialScreen(
+  expected: readonly InitialScreen[] = ["legal", "first-run", "main"]
+): Promise<InitialScreen> {
+  let screen: InitialScreen | undefined;
+  await browser.waitUntil(async () => {
+    for (const candidate of expected) {
+      const element = await $(INITIAL_SCREEN_SELECTORS[candidate]);
+      if (await element.isExisting()) {
+        screen = candidate;
+        return true;
+      }
+    }
+    return false;
+  }, {
+    timeout: RENDERER_READY_TIMEOUT_MS,
+    timeoutMsg: `Desktop renderer did not reach an expected initial screen: ${expected.join(", ")}`
+  });
+  if (!screen) throw new Error("Desktop renderer initial screen is unavailable");
+  return screen;
+}
+
 export async function acceptLegalAndSkipFirstRun(): Promise<void> {
-  const checkboxes = await $$("button[role='checkbox']");
-  if ((await checkboxes.length) === 2) {
-    await checkboxes[0].click();
-    await checkboxes[1].click();
-    const continueButton = await $("button=Agree and continue");
+  let screen = await waitForInitialScreen();
+  if (screen === "legal") {
+    await browser.waitUntil(
+      async () => {
+        const checkboxes = await $$(LEGAL_CHECKBOX_SELECTOR);
+        return await checkboxes.length === 2;
+      },
+      {
+        timeout: 10_000,
+        timeoutMsg: "Legal onboarding did not expose both agreement checkboxes"
+      }
+    );
+    const checkboxes = await $$(LEGAL_CHECKBOX_SELECTOR);
+    for (const checkbox of checkboxes) await checkbox.click();
+    const continueButton = await $(LEGAL_CONTINUE_SELECTOR);
+    await continueButton.waitForEnabled({ timeout: 10_000 });
     await continueButton.click();
     await continueButton.waitForExist({ reverse: true, timeout: 15_000 });
+    screen = await waitForInitialScreen(["first-run", "main"]);
   }
 
-  const skip = await $("button=Set up later");
-  if (await skip.isExisting()) {
+  if (screen === "first-run") {
+    const skip = await $(FIRST_RUN_SKIP_SELECTOR);
+    await skip.waitForEnabled({ timeout: 10_000 });
     await skip.click();
     await skip.waitForExist({ reverse: true, timeout: 15_000 });
   }
-  await $(".app-main-sidebar").waitForExist({ timeout: 20_000 });
+  const sidebar = await $(MAIN_SIDEBAR_SELECTOR);
+  await sidebar.waitForExist({ timeout: 20_000 });
 }
 
 export async function navigate(path: string): Promise<void> {

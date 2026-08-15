@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   findElement: vi.fn(),
+  findElements: vi.fn(),
   browser: {
     execute: vi.fn(),
     executeAsync: vi.fn(),
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@wdio/globals", () => ({
   $: mocks.findElement,
-  $$: vi.fn(),
+  $$: mocks.findElements,
   browser: mocks.browser,
   expect: vi.fn()
 }));
@@ -23,7 +24,7 @@ vi.mock("webdriverio", () => ({
   Key: { Ctrl: "Control" }
 }));
 
-import { ensureEnglishUi, navigate, waitForRoute } from "./ui";
+import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate, waitForRoute } from "./ui";
 
 describe("desktop E2E renderer readiness", () => {
   afterEach(() => {
@@ -63,6 +64,42 @@ describe("desktop E2E renderer readiness", () => {
       [{ script: 5_000 }],
       [{ script: 55_000 }]
     ]);
+  });
+
+  it("waits for the async legal gate before accepting and skipping first run", async () => {
+    let screen: "first-run" | "legal" | "loading" | "main" = "loading";
+    const checkboxClicks = [vi.fn(), vi.fn()];
+    const element = (selector: string) => ({
+      click: vi.fn(async () => {
+        if (selector === "[data-testid='legal-onboarding-continue']") screen = "first-run";
+        if (selector === "[data-testid='onboarding-skip']") screen = "main";
+      }),
+      isExisting: vi.fn(async () => (
+        (selector === "[data-testid='legal-onboarding-continue']" && screen === "legal")
+        || (selector === "[data-testid='onboarding-skip']" && screen === "first-run")
+        || (selector === ".app-main-sidebar" && screen === "main")
+      )),
+      waitForEnabled: vi.fn().mockResolvedValue(undefined),
+      waitForExist: vi.fn().mockResolvedValue(undefined)
+    });
+    mocks.findElement.mockImplementation(async (selector: string) => element(selector));
+    mocks.findElements.mockImplementation(async () => {
+      if (screen !== "legal") throw new Error("Agreement checkboxes queried before legal readiness");
+      return checkboxClicks.map((click) => ({ click }));
+    });
+    mocks.browser.waitUntil.mockImplementation(async (condition: () => Promise<boolean>) => {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (await condition()) return true;
+        if (screen === "loading") screen = "legal";
+      }
+      throw new Error("readiness condition timed out");
+    });
+
+    await expect(acceptLegalAndSkipFirstRun()).resolves.toBeUndefined();
+
+    expect(checkboxClicks[0]).toHaveBeenCalledOnce();
+    expect(checkboxClicks[1]).toHaveBeenCalledOnce();
+    expect(screen).toBe("main");
   });
 
   it("navigates through the renderer router instead of mutating the hash", async () => {

@@ -184,4 +184,19 @@ describe("desktop E2E build isolation", () => {
       .toBeLessThan(drag.indexOf("CGEventCreateMouseEvent("));
     expect(drag).toContain("!sourceWindow.isVisible || !targetWindow.isVisible");
   });
+
+  it("posts AppKit menu input outside the modal main-thread tracking loop", async () => {
+    const source = await readFile(
+      "src-tauri/src/runtime_tabs_macos/section_01_controller_creation_timeout.rs",
+      "utf8"
+    );
+    const selection = source.slice(
+      source.indexOf("pub fn desktop_e2e_select_menu_item("),
+      source.indexOf("pub fn hide_failure_status(")
+    );
+
+    expect(selection).toContain("rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank)");
+    expect(selection).not.toContain("run_on_appkit_tracking_main");
+    expect(selection).toContain("NSMenu owns a modal AppKit tracking loop");
+  });
 });

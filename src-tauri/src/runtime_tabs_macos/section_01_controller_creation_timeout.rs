@@ -569,11 +569,13 @@ impl MacRuntimeTabsController {
             "move" => 2,
             _ => return Err("The runtime tab menu action is invalid.".to_owned()),
         };
-        run_on_appkit_tracking_main(move || unsafe {
-            rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank)
-        })?
-        .then_some(())
-        .ok_or_else(|| "The AppKit runtime-tab menu action was rejected.".to_owned())
+        // NSMenu owns a modal AppKit tracking loop while it is visible, so a
+        // block submitted to the main dispatch queue cannot post the input
+        // that closes that same menu. The bridge only calls CGEventPost and is
+        // safe to invoke from the command thread while AppKit tracks the menu.
+        unsafe { rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank) }
+            .then_some(())
+            .ok_or_else(|| "The AppKit runtime-tab menu action was rejected.".to_owned())
     }
 
     pub fn hide_failure_status(&self) {

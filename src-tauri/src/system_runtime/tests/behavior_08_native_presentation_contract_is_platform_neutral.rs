@@ -51,6 +51,25 @@ fn presentation_plan(platform: &'static str) -> NativePresentationPlan {
     }
 }
 
+#[cfg(feature = "desktop-e2e")]
+#[test]
+fn desktop_e2e_fullscreen_edges_use_the_macos_transition_owner_only() {
+    for (platform, current, requested, expected) in [
+        ("macos", false, "fullscreen", Some(true)),
+        ("macos", true, "normal", Some(false)),
+        ("macos", false, "normal", None),
+        ("macos", true, "fullscreen", None),
+        ("windows", false, "fullscreen", None),
+        ("windows", true, "normal", None),
+    ] {
+        assert_eq!(
+            desktop_e2e_event_bound_fullscreen_target(platform, current, requested),
+            expected,
+            "unexpected E2E fullscreen owner: platform={platform} current={current} requested={requested}"
+        );
+    }
+}
+
 #[test]
 fn macos_and_windows_share_exact_launch_visibility_terminal_semantics() {
     for platform in ["macos", "windows"] {

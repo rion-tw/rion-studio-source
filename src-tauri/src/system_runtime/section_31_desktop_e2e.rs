@@ -354,6 +354,21 @@ fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> 
     }
 }
 
+fn desktop_e2e_event_bound_fullscreen_target(
+    platform: &str,
+    currently_fullscreen: bool,
+    requested_presentation: &str,
+) -> Option<bool> {
+    if platform != "macos" {
+        return None;
+    }
+    match (currently_fullscreen, requested_presentation) {
+        (true, "normal") => Some(false),
+        (false, "fullscreen") => Some(true),
+        _ => None,
+    }
+}
+
 #[cfg(windows)]
 fn desktop_e2e_outer_extent_for_client(
     requested_logical: i32,
@@ -608,6 +623,20 @@ fn desktop_e2e_apply_native_window_control(
     window: &Window,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
+    if let DesktopE2eWindowControlRequest::SetPresentation { presentation } = request {
+        let currently_fullscreen = window.is_fullscreen().map_err(|error| error.to_string())?;
+        if let Some(fullscreen) = desktop_e2e_event_bound_fullscreen_target(
+            "macos",
+            currently_fullscreen,
+            presentation,
+        ) {
+            // Tao owns the AppKit transition fence and queues an opposite target
+            // received before windowDidEnter/ExitFullscreen clears it. Calling
+            // toggleFullScreen directly here would bypass that authoritative
+            // state and AppKit can silently discard a fast round trip.
+            return request_platform_window_set_fullscreen(window, fullscreen);
+        }
+    }
     let action = match request {
         DesktopE2eWindowControlRequest::ClickVisibleClose
         | DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => {

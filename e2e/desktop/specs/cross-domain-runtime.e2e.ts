@@ -269,19 +269,27 @@ async function visibleDestinationLaunch(input: {
   );
   await destination.waitForClickable({ timeout: 10_000 });
   await destination.click();
+  await waitForRuntimeLaunchTerminal(control, input.id, input.sourceType);
+  return waitForRuntimeProjection({ afterSequence: cursor, sourceId: input.id });
+}
+
+async function waitForRuntimeLaunchTerminal(
+  control: Awaited<ReturnType<typeof probe>>,
+  sourceId: string,
+  sourceType: "role" | "workspace"
+): Promise<void> {
   const terminal = await waitForTranscriptEvent(
     control.transcriptPath,
     (candidate) => candidate.sequence > control.latestSequence
       && candidate.kind === "runtime-launch-intent-terminal"
-      && (candidate.details as { sourceId?: string }).sourceId === input.id,
+      && (candidate.details as { sourceId?: string }).sourceId === sourceId,
     55_000
   );
   expect(terminal.details).toMatchObject({
-    sourceId: input.id,
-    sourceType: input.sourceType,
+    sourceId,
+    sourceType,
     status: "applied"
   });
-  return waitForRuntimeProjection({ afterSequence: cursor, sourceId: input.id });
 }
 
 async function shutdownAndWaitForFlush(): Promise<void> {
@@ -357,18 +365,7 @@ async function seedPhase(): Promise<void> {
   const duplicateControl = await probe();
   const duplicateCursor = await rendererEventCursor();
   await $(`[data-selection-id='${scenario.roles[1].id}'] button[aria-label='Open']`).click();
-  const duplicateTerminal = await waitForTranscriptEvent(
-    duplicateControl.transcriptPath,
-    (candidate) => candidate.sequence > duplicateControl.latestSequence
-      && candidate.kind === "runtime-launch-intent-terminal"
-      && (candidate.details as { sourceId?: string }).sourceId === scenario.roles[1].id,
-    55_000
-  );
-  expect(duplicateTerminal.details).toMatchObject({
-    sourceId: scenario.roles[1].id,
-    sourceType: "role",
-    status: "applied"
-  });
+  await waitForRuntimeLaunchTerminal(duplicateControl, scenario.roles[1].id, "role");
   const afterDuplicate = await waitForRuntimeProjection({
     afterSequence: duplicateCursor,
     sourceId: scenario.roles[1].id
@@ -584,15 +581,11 @@ async function tabMenuAction(input: {
 
 async function showSourceFromVisibleUi(tab: EmbeddedRuntimeState["tabs"][number]): Promise<void> {
   await navigate(tab.type === "role" ? "/roles" : "/workspaces");
-  const cursor = await rendererEventCursor();
+  const control = await probe();
   const label = tab.type === "role" ? "Open" : "Open workspace";
   await $(`[data-selection-id='${tab.sourceId}'] button[aria-label='${label}']`).click();
-  const projected = await waitForRuntimeProjection({
-    afterSequence: cursor,
-    hidden: false,
-    sourceId: tab.sourceId,
-    tabId: tab.id
-  });
+  await waitForRuntimeLaunchTerminal(control, tab.sourceId, tab.type);
+  const projected = await rendererCall("getEmbeddedRuntimeState");
   expect(projected.tabs.find((candidate) => candidate.id === tab.id)?.hidden).toBe(false);
 }
 

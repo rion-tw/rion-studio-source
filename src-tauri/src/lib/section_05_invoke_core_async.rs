@@ -322,6 +322,14 @@ async fn restore_saved_game_windows(
             ));
         }
         vec![saved]
+    } else if activation == SavedWindowRestoreActivation::UserInitiated
+        && !session_recovery_window_ids.is_empty()
+    {
+        select_recovery_restore_saved_windows(
+            &eligible_game_windows,
+            last_focused_window_id.as_deref(),
+            &browser_runtime_snapshot(state)?,
+        )
     } else {
         let runtime_before_restore = browser_runtime_snapshot(state)?;
         select_auto_restore_saved_windows(

@@ -68,6 +68,54 @@ fn select_auto_restore_saved_windows(
     select_non_conflicting_saved_windows(&eligible, last_focused_window_id)
 }
 
+fn select_recovery_restore_saved_windows(
+    game_windows: &[StateGameWindowRecord],
+    last_focused_window_id: Option<&str>,
+    snapshot: &BrowserRuntimeSnapshot,
+) -> Vec<StateGameWindowRecord> {
+    let eligible = game_windows
+        .iter()
+        .filter(|saved| !saved_window_duplicates_runtime_tab_source(saved, snapshot))
+        .cloned()
+        .collect::<Vec<_>>();
+    select_non_duplicate_saved_tab_sources(&eligible, last_focused_window_id)
+}
+
+fn select_non_duplicate_saved_tab_sources(
+    game_windows: &[StateGameWindowRecord],
+    last_focused_window_id: Option<&str>,
+) -> Vec<StateGameWindowRecord> {
+    let mut ordered = game_windows.iter().collect::<Vec<_>>();
+    if let Some(last_focused_window_id) = last_focused_window_id
+        && let Some(index) = ordered
+            .iter()
+            .position(|window| window.id == last_focused_window_id)
+    {
+        let focused = ordered.remove(index);
+        ordered.insert(0, focused);
+    }
+    let mut claimed_sources = HashSet::new();
+    ordered
+        .into_iter()
+        .filter(|window| {
+            let sources = window
+                .tabs
+                .iter()
+                .map(|tab| format!("{}:{}", tab.tab_type, tab.source_id))
+                .collect::<HashSet<_>>();
+            if sources
+                .iter()
+                .any(|source| claimed_sources.contains(source))
+            {
+                return false;
+            }
+            claimed_sources.extend(sources);
+            true
+        })
+        .cloned()
+        .collect()
+}
+
 fn order_selected_saved_windows_for_restore(
     mut selected: Vec<StateGameWindowRecord>,
     focus_window_id: Option<&str>,

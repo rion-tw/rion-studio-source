@@ -399,6 +399,63 @@ use super::*;
     }
 
     #[test]
+    fn crash_recovery_restores_shared_role_placeholders_without_duplicate_tab_sources() {
+        let window = |id: &str, tab_type: &str, source_id: &str| {
+            serde_json::from_value::<StateGameWindowRecord>(json!({
+                "id": id,
+                "name": id,
+                "targetDisplay": { "id": 1 },
+                "placement": {
+                    "normalBounds": { "x": 0, "y": 0, "width": 960, "height": 640 },
+                    "savedWorkArea": { "x": 0, "y": 0, "width": 1440, "height": 900 },
+                    "presentation": "normal"
+                },
+                "tabs": [{
+                    "id": format!("tab-{id}"),
+                    "tabType": tab_type,
+                    "sourceId": source_id,
+                    "name": source_id,
+                    "roleSlots": [{
+                        "slotId": format!("slot-{id}"), "roleId": "role-shared",
+                        "rect": {"x":0.0,"y":0.0,"width":1.0,"height":1.0}
+                    }],
+                    "hidden": false,
+                    "audioMuted": false
+                }],
+                "activeTabId": format!("tab-{id}"),
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z"
+            }))
+            .unwrap()
+        };
+        let role_window = window("role-window", "role", "role-shared");
+        let workspace_window = window("workspace-window", "workspace", "workspace-shared");
+        let duplicate_workspace = window("duplicate-workspace", "workspace", "workspace-shared");
+        let runtime = serde_json::from_value::<BrowserRuntimeSnapshot>(json!({
+            "windows": [],
+            "tabs": [],
+            "roles": [],
+            "workspaces": []
+        }))
+        .unwrap();
+
+        let selected = select_recovery_restore_saved_windows(
+            &[role_window, workspace_window, duplicate_workspace],
+            Some("workspace-window"),
+            &runtime,
+        );
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|window| window.id.as_str())
+                .collect::<Vec<_>>(),
+            ["workspace-window", "role-window"],
+            "recovery preserves shared Role placeholders but never duplicates an exact tab source"
+        );
+    }
+
+    #[test]
     fn saved_workspace_role_membership_is_the_existing_launch_source() {
         let workspace_window = serde_json::from_value::<StateGameWindowRecord>(json!({
             "id": "workspace-window",

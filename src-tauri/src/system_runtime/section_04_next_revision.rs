@@ -354,9 +354,9 @@ impl PresentationRegistry {
             })
             .unwrap_or_default();
         for (window_id, window) in windows {
-            if let Ok(mut projection) = window.lock()
-                && projection.unbind_surface(instance_id)
-            {
+            if mutate_projection_before_actor(&window, |projection| {
+                projection.unbind_surface(instance_id)
+            }) {
                 if let Some(actor) = self
                     .actors
                     .lock()
@@ -393,6 +393,19 @@ impl PresentationRegistry {
             actor.stop();
         }
     }
+}
+
+/// Applies projection bookkeeping and releases that lock before the caller enters a
+/// native window actor. The actor commits its receipt back into the projection, so
+/// holding both locks here would invert the actor's `actor -> projection` order.
+fn mutate_projection_before_actor<T>(
+    projection: &Mutex<T>,
+    mutation: impl FnOnce(&mut T) -> bool,
+) -> bool {
+    let Ok(mut projection) = projection.lock() else {
+        return false;
+    };
+    mutation(&mut projection)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

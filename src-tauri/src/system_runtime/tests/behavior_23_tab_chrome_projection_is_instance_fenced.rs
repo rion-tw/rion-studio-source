@@ -645,3 +645,15 @@ fn a_dormant_native_tab_reservation_is_not_a_stable_launcher_destination() {
     assert!(!launcher_tab_is_materialized_stable(false, false, false));
     assert!(launcher_tab_is_materialized_stable(true, false, false));
 }
+#[test]
+fn surface_unbind_releases_projection_before_entering_the_window_actor() {
+    let projection = Mutex::new(false);
+    assert!(mutate_projection_before_actor(&projection, |state| {
+        *state = true;
+        true
+    }));
+    let state = projection
+        .try_lock()
+        .expect("projection lock must be released before entering the actor");
+    assert!(*state);
+}

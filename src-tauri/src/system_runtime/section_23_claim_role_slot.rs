@@ -267,17 +267,6 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         owner: Option<BrowserRuntimeRoleOwnerRecord>,
     ) -> RuntimeResult<()> {
-        let live_windows = self
-            .presentation
-            .snapshot_states()
-            .map_err(|message| RuntimeError::new("SYSTEM_RUNTIME_PRESENTATION_UNAVAILABLE", message))?
-            .into_iter()
-            .flat_map(|(window_id, live)| {
-                live.all_tab_ids()
-                    .into_iter()
-                    .map(move |tab_id| (tab_id, window_id.clone()))
-            })
-            .collect::<HashMap<_, _>>();
         let placeholders = {
             let state = self.state()?;
             state
@@ -286,12 +275,8 @@ impl SystemRuntimeExecutor {
                 .filter_map(|(tab_id, tab)| {
                     let slot = tab.slots.values().find(|slot| slot.role.id == role_id)?;
                     let placeholder = slot.placeholder.as_ref()?;
-                    let window_id = live_windows.get(tab_id)?.clone();
-                    let window = state.native_resources.display_hosts.get(&window_id)?.window.clone();
                     Some((
                         tab_id.clone(),
-                        window_id,
-                        window,
                         slot.rect.clone(),
                         slot.role.clone(),
                         slot.slot_id.clone(),
@@ -304,15 +289,7 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Vec<_>>()
         };
-        for (tab_id, window_id, window, rect, role, slot_id, projected_zoom, placeholder) in
-            placeholders
-        {
-            let (zoom_factor, adaptive) = self.runtime_role_zoom_contract(
-                &window_id,
-                &tab_id,
-                role_id,
-                projected_zoom,
-            );
+        for (tab_id, rect, role, slot_id, projected_zoom, placeholder) in placeholders {
             let slot = EmbeddedRoleSlotEffectRecord {
                 owner: owner.clone(),
                 rect,
@@ -328,50 +305,78 @@ impl SystemRuntimeExecutor {
                         }
                     },
                 ),
-                zoom_factor,
-                zoom_mode: if adaptive { "adaptive" } else { "fixed" }.to_owned(),
+                zoom_factor: projected_zoom,
+                zoom_mode: "fixed".to_owned(),
             };
-            self.close_role_placeholder_surface(placeholder)?;
+            let identity = self.role_placeholder_identity(&tab_id, &slot);
+            let serialized_identity = serde_json::to_string(&identity).map_err(|error| {
+                RuntimeError::new("SYSTEM_ROLE_PLACEHOLDER_INVALID", error.to_string())
+            })?;
             {
                 let mut state = self.state()?;
-                if let Some(runtime_slot) = state
+                let runtime_slot = state
                     .native_resources.tabs
                     .get_mut(&tab_id)
                     .and_then(|tab| tab.slots.get_mut(&slot.slot_id))
-                {
-                    runtime_slot.placeholder = None;
-                    runtime_slot.owner_generation =
-                        owner.as_ref().map(|owner| owner.generation);
-                }
+                    .filter(|runtime_slot| {
+                        runtime_slot.placeholder.as_ref().is_some_and(|current| {
+                            current.surface_instance_id == placeholder.surface_instance_id
+                                && current.webview.label() == placeholder.webview.label()
+                        })
+                    })
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_RUNTIME_ROLE_SLOT_STALE",
+                            "Role slot closed while its placeholder was refreshed.",
+                        )
+                    })?;
+                runtime_slot.owner_generation = owner.as_ref().map(|owner| owner.generation);
+                state
+                    .role_placeholder_identities
+                    .insert(placeholder.webview.label().to_owned(), identity);
             }
-            if owner
-                .as_ref()
-                .is_some_and(|owner| tab_id.as_str() == owner.tab_id)
-            {
-                continue;
-            }
-            let metrics = runtime_window_content_metrics(&window)?;
-            let bounds = role_bounds_for_content(metrics, &slot.rect);
-            let replacement = self.create_role_placeholder(
-                &window,
-                &window_id,
-                &tab_id,
-                &slot,
-                bounds,
-            )?;
-            let mut state = self.state()?;
-            let runtime_slot = state
-                .native_resources.tabs
-                .get_mut(&tab_id)
-                .and_then(|tab| tab.slots.get_mut(&slot.slot_id))
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "SYSTEM_RUNTIME_ROLE_SLOT_STALE",
-                        "Role slot closed while its placeholder was refreshed.",
-                    )
-                })?;
-            runtime_slot.placeholder = Some(replacement);
+            placeholder
+                .webview
+                .eval(format!(
+                    "globalThis.__rionRefreshRoleSlotIdentity?.({serialized_identity});"
+                ))
+                .map_err(RuntimeError::tauri)?;
         }
         Ok(())
+    }
+
+    fn schedule_released_role_placeholder_refresh(&self, role_ids: Vec<String>) {
+        let Some(runtime) = self.self_weak.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        tauri::async_runtime::spawn_blocking(move || {
+            #[cfg(feature = "desktop-e2e")]
+            let started = Instant::now();
+            let mut first_error = None;
+            for role_id in &role_ids {
+                if let Err(error) = runtime.refresh_role_placeholders(role_id, None) {
+                    eprintln!(
+                        "Released role placeholder refresh failed: role={role_id} error={}",
+                        error.message
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                }
+            }
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "role-placeholder-refresh-terminal",
+                None,
+                None,
+                None,
+                json!({
+                    "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    "errorCode": first_error.as_ref().map(|error| error.code),
+                    "roleIds": role_ids,
+                    "status": if first_error.is_some() { "failed" } else { "completed" },
+                }),
+            );
+        });
     }
 }

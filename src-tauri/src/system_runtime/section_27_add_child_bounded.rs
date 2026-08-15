@@ -887,9 +887,6 @@ impl SystemRuntimeExecutor {
                 state.close_coordinator.closing_roles.remove(role_id);
             });
             drop(state);
-            for released in &released_roles {
-                self.refresh_role_placeholders(&released.role_id, None)?;
-            }
             Ok(())
         }
         .await;
@@ -964,6 +961,9 @@ impl SystemRuntimeExecutor {
                     "tabId": tab_id,
                 }),
             );
+        }
+        if terminal_result.is_ok() {
+            self.schedule_released_role_placeholder_refresh(role_ids.clone());
         }
         terminal_result
     }

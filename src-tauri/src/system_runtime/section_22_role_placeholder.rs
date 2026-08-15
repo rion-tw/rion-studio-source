@@ -23,14 +23,11 @@ fn embedded_role_slot_input(slot: &EmbeddedRoleSlotEffectRecord) -> LayoutRoleIn
 }
 
 impl SystemRuntimeExecutor {
-    fn create_role_placeholder(
+    fn role_placeholder_identity(
         &self,
-        window: &Window,
-        window_id: &str,
         tab_id: &str,
         slot: &EmbeddedRoleSlotEffectRecord,
-        bounds: RoleBounds,
-    ) -> RuntimeResult<RolePlaceholderSurface> {
+    ) -> RuntimeRolePlaceholderIdentity {
         let owner_tab_name = slot.owner.as_ref().and_then(|owner| {
             self.presentation
                 .tab_window(&owner.tab_id)
@@ -39,7 +36,7 @@ impl SystemRuntimeExecutor {
                 .and_then(|window_id| self.presentation.existing(&window_id))
                 .and_then(|presentation| presentation.tab_title(&owner.tab_id))
         });
-        let identity = RuntimeRolePlaceholderIdentity {
+        RuntimeRolePlaceholderIdentity {
             blocked: slot.owner.is_some(),
             unavailable: slot.state == "stopping",
             owner_generation: slot.owner.as_ref().map(|owner| owner.generation),
@@ -48,7 +45,18 @@ impl SystemRuntimeExecutor {
             role_name: slot.role.name.clone(),
             slot_id: slot.slot_id.clone(),
             tab_id: tab_id.to_owned(),
-        };
+        }
+    }
+
+    fn create_role_placeholder(
+        &self,
+        window: &Window,
+        window_id: &str,
+        tab_id: &str,
+        slot: &EmbeddedRoleSlotEffectRecord,
+        bounds: RoleBounds,
+    ) -> RuntimeResult<RolePlaceholderSurface> {
+        let identity = self.role_placeholder_identity(tab_id, slot);
         let serialized_identity = serde_json::to_string(&identity).map_err(|error| {
             RuntimeError::new("SYSTEM_ROLE_PLACEHOLDER_INVALID", error.to_string())
         })?;

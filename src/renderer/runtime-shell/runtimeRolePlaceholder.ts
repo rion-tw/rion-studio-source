@@ -13,6 +13,7 @@ type RoleSlotIdentity = {
 
 declare global {
   var __rionRoleSlotIdentity: RoleSlotIdentity | undefined;
+  var __rionRefreshRoleSlotIdentity: ((identity: RoleSlotIdentity) => void) | undefined;
 }
 
 const translations = {
@@ -26,7 +27,7 @@ const locale = navigator.language === "zh-TW" || navigator.language === "zh-CN" 
   ? navigator.language
   : "en";
 const text = translations[locale];
-const identity = globalThis.__rionRoleSlotIdentity;
+let identity = globalThis.__rionRoleSlotIdentity;
 const roleName = document.querySelector<HTMLElement>("#role-name")!;
 const message = document.querySelector<HTMLElement>("#message")!;
 const claim = document.querySelector<HTMLButtonElement>("#claim")!;
@@ -35,26 +36,46 @@ const error = document.querySelector<HTMLElement>("#error")!;
 if (!identity) {
   document.body.replaceChildren();
 } else {
-  roleName.textContent = identity.roleName;
-  message.textContent = identity.unavailable
-    ? text.unavailable
-    : identity.blocked
-    ? text.blocked.replace("{tab}", identity.ownerTabName ?? text.unknownTab)
-    : text.available;
-  claim.textContent = identity.blocked ? text.claim : text.open;
-  claim.disabled = identity.unavailable === true;
+  const renderIdentity = (): void => {
+    if (!identity) return;
+    roleName.textContent = identity.roleName;
+    message.textContent = identity.unavailable
+      ? text.unavailable
+      : identity.blocked
+      ? text.blocked.replace("{tab}", identity.ownerTabName ?? text.unknownTab)
+      : text.available;
+    claim.textContent = identity.blocked ? text.claim : text.open;
+    claim.disabled = identity.unavailable === true;
+    error.hidden = true;
+  };
+
+  const acknowledgeIdentity = (): void => {
+    if (identity) {
+      void invoke("rion_runtime_role_slot_ready", { action: identity }).catch(() => undefined);
+    }
+  };
+
+  renderIdentity();
+  globalThis.__rionRefreshRoleSlotIdentity = (nextIdentity): void => {
+    identity = nextIdentity;
+    renderIdentity();
+    acknowledgeIdentity();
+  };
   claim.addEventListener("click", async () => {
+    if (!identity) return;
+    const action = identity;
     claim.disabled = true;
     claim.textContent = text.busy;
     error.hidden = true;
     try {
-      await invoke("rion_runtime_role_slot_action", { action: identity });
+      await invoke("rion_runtime_role_slot_action", { action });
     } catch {
+      if (identity !== action) return;
       claim.disabled = false;
       claim.textContent = identity.blocked ? text.claim : text.open;
       error.textContent = text.failed;
       error.hidden = false;
     }
   });
-  void invoke("rion_runtime_role_slot_ready", { action: identity }).catch(() => undefined);
+  acknowledgeIdentity();
 }

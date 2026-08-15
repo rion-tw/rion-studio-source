@@ -31,6 +31,7 @@ describe("runtime role placeholder", () => {
     vi.resetModules();
     invoke.mockReset();
     invoke.mockResolvedValue(undefined);
+    globalThis.__rionRefreshRoleSlotIdentity = undefined;
     mountPlaceholder();
   });
 
@@ -98,6 +99,30 @@ describe("runtime role placeholder", () => {
     });
     expect(invoke).not.toHaveBeenCalledWith("rion_runtime_role_slot_action", {
       action: unavailableIdentity
+    });
+  });
+
+  it("reprojects a released owner in place and claims the revised identity", async () => {
+    await import("../src/renderer/runtime-shell/runtimeRolePlaceholder");
+    const availableIdentity = {
+      ...identity,
+      blocked: false,
+      ownerGeneration: undefined,
+      ownerTabName: undefined
+    };
+
+    globalThis.__rionRefreshRoleSlotIdentity?.(availableIdentity);
+
+    expect(document.querySelector("#message")?.textContent).toBe(
+      "This role is currently stopped."
+    );
+    expect(document.querySelector("#claim")?.textContent).toBe("Open here");
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_role_slot_ready", {
+      action: availableIdentity
+    });
+    document.querySelector<HTMLButtonElement>("#claim")!.click();
+    expect(invoke).toHaveBeenCalledWith("rion_runtime_role_slot_action", {
+      action: availableIdentity
     });
   });
 });

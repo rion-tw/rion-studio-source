@@ -345,7 +345,7 @@ describe("runtime window lifecycle authority", () => {
     expect(create).toContain("SYSTEM_RUNTIME_PREVIOUS_CLOSE_PENDING");
   });
 
-  it("reprojects surviving role placeholders after their owner tab closes", async () => {
+  it("reprojects surviving role placeholders after the exact owner-tab terminal", async () => {
     const closeFollower = await readFile(
       new URL(
         "../src-tauri/src/system_runtime/section_27_add_child_bounded.rs",
@@ -354,17 +354,18 @@ describe("runtime window lifecycle authority", () => {
       "utf8"
     );
     const successfulClose = closeFollower.slice(
-      closeFollower.indexOf("state.native_resources.tabs.remove(tab_id)"),
-      closeFollower.indexOf("let authority_result = completed_tombstone")
+      closeFollower.indexOf("state.native_resources.tabs.remove(tab_id)")
     );
 
     expect(successfulClose).toContain("drop(state)");
-    expect(successfulClose).toContain("for released in &released_roles");
     expect(successfulClose).toContain(
+      "self.schedule_released_role_placeholder_refresh(role_ids.clone())"
+    );
+    expect(successfulClose.indexOf('"runtime-tab-close-terminal"'))
+      .toBeLessThan(successfulClose.indexOf("schedule_released_role_placeholder_refresh"));
+    expect(successfulClose).not.toContain(
       "self.refresh_role_placeholders(&released.role_id, None)?"
     );
-    expect(successfulClose.indexOf("state.native_resources.tabs.remove(tab_id)"))
-      .toBeLessThan(successfulClose.indexOf("self.refresh_role_placeholders"));
   });
 
   it("fences cancelled create effects and retires a create that loses its Core acknowledgement race", async () => {

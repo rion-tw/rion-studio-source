@@ -32,6 +32,24 @@ it("records HTML, native-menu, and drag receipts from the shared terminal record
   expect(menuSource).toContain('"completionScope": "nativeSubmission"');
 });
 
+it("activates a dormant AppKit tab after its native drag commits", async () => {
+  const source = await readFile(
+    "src-tauri/src/lib/section_08_tab_drag_projection.rs",
+    "utf8"
+  );
+  const commit = source.slice(
+    source.indexOf("fn finish_visible_tab_drag("),
+    source.indexOf("async fn finish_deferred_tab_drag_session(")
+  );
+
+  expect(commit).toContain("schedule_macos_dragged_tab_activation(app, &session.tab_id);");
+  expect(commit.indexOf("finish_applied_tab_drag("))
+    .toBeLessThan(commit.indexOf("schedule_macos_dragged_tab_activation("));
+  expect(commit).toContain(
+    "activate_runtime_tab_on_demand(&app, &state, &tab_id, true).await"
+  );
+});
+
 it("uses one synchronous Windows input-queue handoff for exact game-window foreground", async () => {
   const lifecycle = await readFile(
     "src-tauri/src/system_runtime/platform/windows/lifecycle.rs",

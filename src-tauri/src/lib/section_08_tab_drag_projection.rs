@@ -36,10 +36,27 @@ fn finish_visible_tab_drag(
         "tab.drag-live-committed",
         "The live tab destination committed and released the gesture lane.",
     );
-    finish_applied_tab_drag(
+    let response = finish_applied_tab_drag(
         app,
         state,
         session,
         RuntimeTabMutationProjectionOutcome::Applied,
-    )
+    )?;
+    #[cfg(target_os = "macos")]
+    schedule_macos_dragged_tab_activation(app, &session.tab_id);
+    Ok(response)
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_macos_dragged_tab_activation(app: &AppHandle, tab_id: &str) {
+    let app = app.clone();
+    let tab_id = tab_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<CoreState>();
+        if let Err(error) = activate_runtime_tab_on_demand(&app, &state, &tab_id, true).await
+            && !stale_live_tab_action_error(&error.message)
+        {
+            reveal_shell_error(&app, error);
+        }
+    });
 }

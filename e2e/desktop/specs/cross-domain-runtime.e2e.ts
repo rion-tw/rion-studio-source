@@ -19,6 +19,7 @@ import {
   requireEnvironment,
   runtimeUiAction,
   shutdown,
+  submitWindowControl,
   waitEvent,
   windowSnapshot,
   type DesktopE2eWindowSnapshot
@@ -691,8 +692,16 @@ async function topologyForcePhase(): Promise<void> {
       || sourceTop >= destinationTop + destinationOuter.height
       || destinationTop >= sourceTop + sourceOuter.height
   ).toBe(true);
-  const minimizedB = await controlWindow(WINDOW_B, { action: "minimize" });
-  if ("submitted" in minimizedB) throw new Error("Window B minimize did not return native state");
+  const minimizeSubmitted = await submitWindowControl(liveBBeforeMinimize, {
+    action: "minimize"
+  });
+  await waitEvent({
+    afterSequence: minimizeSubmitted.sequence,
+    kind: "window-minimized-observed",
+    minimumGeneration: liveBBeforeMinimize.windowGeneration,
+    windowId: WINDOW_B
+  });
+  const minimizedB = await windowSnapshot(WINDOW_B);
   expect(minimizedB.native.presentation).toBe("minimized");
   const dashboardX = (workArea.x ?? 0) + Math.max(0, workArea.width - 960);
   await browser.setWindowRect(Math.round(dashboardX), Math.round(workArea.y ?? 0), 960, 640);

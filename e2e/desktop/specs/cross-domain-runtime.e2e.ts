@@ -30,6 +30,7 @@ import {
   waitFixtureEvent,
   type FixtureEvent
 } from "../support/fixture";
+import { requiresRendererTabChromeProjection } from "../support/platform";
 import { forceTerminateProcessTree } from "../support/process";
 import {
   installRendererEventJournal,
@@ -217,13 +218,15 @@ async function showSavedWindow(windowId: string): Promise<DesktopE2eWindowSnapsh
     kind: "window-context-initialized",
     windowId
   });
-  await waitEvent({
-    afterSequence: cursor,
-    kind: "runtime-tab-chrome-projection-applied",
-    minimumGeneration: context.generation,
-    timeoutMs: 45_000,
-    windowId
-  });
+  if (requiresRendererTabChromeProjection(process.platform)) {
+    await waitEvent({
+      afterSequence: cursor,
+      kind: "runtime-tab-chrome-projection-applied",
+      minimumGeneration: context.generation,
+      timeoutMs: 45_000,
+      windowId
+    });
+  }
   return windowSnapshot(windowId);
 }
 

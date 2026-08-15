@@ -485,6 +485,10 @@ use super::*;
                 ..current.clone()
             },
             RuntimeTabStatusIdentityRecord {
+                tab_id: "tab-b".to_owned(),
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
                 window_generation: 6,
                 ..current.clone()
             },
@@ -502,18 +506,82 @@ use super::*;
     }
 
     #[test]
+    fn runtime_status_accepts_only_current_progress_or_failure_identity() {
+        let current = RuntimeTabStatusIdentityRecord {
+            attempt_id: "attempt-1".to_owned(),
+            phase: RuntimeTabActivationPhaseRecord::Loading,
+            tab_id: "tab-a".to_owned(),
+            window_generation: 7,
+            window_id: "window-a".to_owned(),
+        };
+        assert!(runtime_tab_status_identity_matches(Some(&current), &current));
+        for phase in [
+            RuntimeTabActivationPhaseRecord::Activating,
+            RuntimeTabActivationPhaseRecord::Attaching,
+            RuntimeTabActivationPhaseRecord::Loading,
+            RuntimeTabActivationPhaseRecord::Failed,
+        ] {
+            assert!(runtime_tab_status_phase_visible(phase));
+        }
+        for phase in [
+            RuntimeTabActivationPhaseRecord::Dormant,
+            RuntimeTabActivationPhaseRecord::Ready,
+            RuntimeTabActivationPhaseRecord::Degraded,
+        ] {
+            let hidden = RuntimeTabStatusIdentityRecord {
+                phase,
+                ..current.clone()
+            };
+            assert!(!runtime_tab_status_phase_visible(phase));
+            assert!(!runtime_tab_status_identity_matches(Some(&hidden), &hidden));
+        }
+        for stale in [
+            RuntimeTabStatusIdentityRecord {
+                attempt_id: "attempt-old".to_owned(),
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
+                window_generation: 6,
+                ..current.clone()
+            },
+            RuntimeTabStatusIdentityRecord {
+                window_id: "window-b".to_owned(),
+                ..current.clone()
+            },
+        ] {
+            assert!(!runtime_tab_status_identity_matches(Some(&current), &stale));
+        }
+    }
+
+    #[test]
     fn tab_phase_and_failure_copy_is_complete_for_every_supported_language() {
         let expectations = [
-            ("en", "Not started. Select to start this tab.", "Try Again"),
-            ("zh-TW", "尚未啟動。選取時啟動此分頁。", "再試一次"),
-            ("zh-CN", "尚未启动。选择时启动此标签页。", "重试"),
+            (
+                "en",
+                "Not started. Select to start this tab.",
+                "Try Again",
+                "Opening “Beta”.",
+            ),
+            (
+                "zh-TW",
+                "尚未啟動。選取時啟動此分頁。",
+                "再試一次",
+                "正在開啟「Beta」。",
+            ),
+            (
+                "zh-CN",
+                "尚未启动。选择时启动此标签页。",
+                "重试",
+                "正在打开“Beta”。",
+            ),
             (
                 "ja",
                 "まだ起動していません。選択するとこのタブを起動します。",
                 "もう一度試す",
+                "「Beta」を開いています。",
             ),
         ];
-        for (language, dormant, retry) in expectations {
+        for (language, dormant, retry, loading) in expectations {
             assert_eq!(
                 runtime_tab_phase_label(language, TabRuntimePhase::Dormant),
                 Some(dormant)
@@ -521,6 +589,10 @@ use super::*;
             assert_eq!(
                 runtime_tab_failure_labels(language, "Beta", RuntimeTabFailureKind::Generic).retry,
                 retry
+            );
+            assert_eq!(
+                runtime_tab_loading_accessibility_label(language, "Beta"),
+                loading
             );
         }
     }

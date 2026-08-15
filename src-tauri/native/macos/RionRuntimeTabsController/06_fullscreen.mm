@@ -1,5 +1,11 @@
 NS_ASSUME_NONNULL_BEGIN
 
+static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
+  return [phase isEqualToString:@"activating"] ||
+      [phase isEqualToString:@"attaching"] ||
+      [phase isEqualToString:@"loading"];
+}
+
 - (void)updateTabMetadata:(RionRuntimeTabModel *)tab
        hideTabCloseButton:(BOOL)hideTabCloseButton
                  addLabel:(NSString *)addLabel
@@ -17,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
   _scrollRightButton.accessibilityLabel = scrollRightLabel;
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tab.identifier];
   if (!item) return;
+  _tabModelsByIdentifier[tab.identifier] = tab;
   tab.active = item == _activeTabItem;
   [item configureWithTab:tab
                    image:[self imageForTab:tab]
@@ -25,97 +32,143 @@ NS_ASSUME_NONNULL_BEGIN
        audioPlayingLabel:audioPlayingLabel
           audioMutedLabel:audioMutedLabel
              windowActive:_window.isKeyWindow];
-  if (tab.active && [tab.phase isEqualToString:@"failed"] &&
-      tab.statusIdentity.count > 0) {
-    [self showFailureStatusForTab:tab];
-  } else if (tab.active) {
-    [self hideFailureStatus];
-  }
+  if (tab.active) [self updateStatusForActiveTab];
+}
+
+- (void)ensureStatusBackdrop {
+  if (_destroyed || !_window.contentView || _statusBackdrop) return;
+  _statusBackdrop = [[RionRuntimeStatusBackdropView alloc]
+        initWithFrame:_window.contentView.bounds];
+  _statusBackdrop.accessibilityElement = YES;
+  _statusBackdrop.accessibilityRole = NSAccessibilityGroupRole;
+
+  _statusLoadingProgress = [[NSProgressIndicator alloc] initWithFrame:NSZeroRect];
+  _statusLoadingProgress.style = NSProgressIndicatorStyleSpinning;
+  _statusLoadingProgress.controlSize = NSControlSizeRegular;
+  _statusLoadingProgress.displayedWhenStopped = NO;
+  _statusLoadingProgress.indeterminate = YES;
+  _statusLoadingProgress.accessibilityElement = NO;
+  _statusLoadingProgress.translatesAutoresizingMaskIntoConstraints = NO;
+  _statusLoadingProgress.hidden = YES;
+
+  _failureStack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+  _failureStack.orientation = NSUserInterfaceLayoutOrientationVertical;
+  _failureStack.alignment = NSLayoutAttributeCenterX;
+  _failureStack.spacing = 10.0;
+  _failureStack.translatesAutoresizingMaskIntoConstraints = NO;
+  _failureStack.hidden = YES;
+
+  _failureImageView = [[NSImageView alloc] initWithFrame:NSZeroRect];
+  NSImage *image = [NSImage imageWithSystemSymbolName:@"exclamationmark.circle.fill"
+                             accessibilityDescription:nil];
+  _failureImageView.image = [image imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:32.0
+                                                       weight:NSFontWeightRegular]];
+  _failureImageView.contentTintColor = NSColor.systemRedColor;
+  _failureImageView.accessibilityElement = NO;
+
+  _failureTitleField = [NSTextField labelWithString:@""];
+  _failureTitleField.font = [NSFont systemFontOfSize:17.0
+                                             weight:NSFontWeightSemibold];
+  _failureTitleField.alignment = NSTextAlignmentCenter;
+  _failureTitleField.maximumNumberOfLines = 2;
+  _failureTitleField.lineBreakMode = NSLineBreakByWordWrapping;
+
+  _failureBodyField = [NSTextField wrappingLabelWithString:@""];
+  _failureBodyField.textColor = NSColor.secondaryLabelColor;
+  _failureBodyField.alignment = NSTextAlignmentCenter;
+  _failureBodyField.maximumNumberOfLines = 3;
+
+  _failureRetryButton = [NSButton buttonWithTitle:@""
+                                           target:self
+                                           action:@selector(retryFailedTab:)];
+  _failureRetryButton.bezelStyle = NSBezelStyleRounded;
+  _failureRetryButton.keyEquivalent = @"";
+
+  [_failureStack addArrangedSubview:_failureImageView];
+  [_failureStack addArrangedSubview:_failureTitleField];
+  [_failureStack addArrangedSubview:_failureBodyField];
+  [_failureStack setCustomSpacing:16.0 afterView:_failureBodyField];
+  [_failureStack addArrangedSubview:_failureRetryButton];
+  [_statusBackdrop addSubview:_statusLoadingProgress];
+  [_statusBackdrop addSubview:_failureStack];
+  [NSLayoutConstraint activateConstraints:@[
+    [_statusLoadingProgress.centerXAnchor constraintEqualToAnchor:_statusBackdrop.centerXAnchor],
+    [_statusLoadingProgress.centerYAnchor constraintEqualToAnchor:_statusBackdrop.centerYAnchor],
+    [_failureStack.centerXAnchor constraintEqualToAnchor:_statusBackdrop.centerXAnchor],
+    [_failureStack.centerYAnchor constraintEqualToAnchor:_statusBackdrop.centerYAnchor],
+    [_failureStack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_statusBackdrop.leadingAnchor
+                                                             constant:24.0],
+    [_failureStack.trailingAnchor constraintLessThanOrEqualToAnchor:_statusBackdrop.trailingAnchor
+                                                            constant:-24.0],
+    [_failureTitleField.widthAnchor constraintLessThanOrEqualToConstant:480.0],
+    [_failureBodyField.widthAnchor constraintLessThanOrEqualToConstant:440.0],
+    [_failureImageView.widthAnchor constraintEqualToConstant:36.0],
+    [_failureImageView.heightAnchor constraintEqualToConstant:36.0]
+  ]];
+  _statusBackdrop.hidden = YES;
+  [_window.contentView addSubview:_statusBackdrop
+                       positioned:NSWindowAbove
+                       relativeTo:nil];
+}
+
+- (void)showLoadingStatusForTab:(RionRuntimeTabModel *)tab {
+  if (_destroyed || !RionRuntimeTabPhaseIsLoading(tab.phase)) return;
+  [self ensureStatusBackdrop];
+  if (!_statusBackdrop) return;
+  _failureStatusIdentity = nil;
+  _failureStack.hidden = YES;
+  _statusLoadingProgress.hidden = NO;
+  _statusBackdrop.accessibilityLabel = tab.loadingAccessibilityLabel.length > 0
+      ? tab.loadingAccessibilityLabel
+      : tab.tooltip;
+  _statusBackdrop.frame = _window.contentView.bounds;
+  _statusBackdrop.hidden = NO;
+  [_statusLoadingProgress startAnimation:nil];
 }
 
 - (void)showFailureStatusForTab:(RionRuntimeTabModel *)tab {
   if (_destroyed || !_window.contentView || tab.statusIdentity.count == 0) return;
-  if (!_failureBackdrop) {
-    _failureBackdrop = [[RionRuntimeFailureBackdropView alloc]
-        initWithFrame:_window.contentView.bounds];
-    _failureBackdrop.accessibilityElement = YES;
-    _failureBackdrop.accessibilityRole = NSAccessibilityGroupRole;
-
-    NSStackView *stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
-    stack.orientation = NSUserInterfaceLayoutOrientationVertical;
-    stack.alignment = NSLayoutAttributeCenterX;
-    stack.spacing = 10.0;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-
-    _failureImageView = [[NSImageView alloc] initWithFrame:NSZeroRect];
-    NSImage *image = [NSImage imageWithSystemSymbolName:@"exclamationmark.circle.fill"
-                               accessibilityDescription:nil];
-    _failureImageView.image = [image imageWithSymbolConfiguration:
-        [NSImageSymbolConfiguration configurationWithPointSize:32.0
-                                                         weight:NSFontWeightRegular]];
-    _failureImageView.contentTintColor = NSColor.systemRedColor;
-    _failureImageView.accessibilityElement = NO;
-
-    _failureTitleField = [NSTextField labelWithString:@""];
-    _failureTitleField.font = [NSFont systemFontOfSize:17.0
-                                               weight:NSFontWeightSemibold];
-    _failureTitleField.alignment = NSTextAlignmentCenter;
-    _failureTitleField.maximumNumberOfLines = 2;
-    _failureTitleField.lineBreakMode = NSLineBreakByWordWrapping;
-
-    _failureBodyField = [NSTextField wrappingLabelWithString:@""];
-    _failureBodyField.textColor = NSColor.secondaryLabelColor;
-    _failureBodyField.alignment = NSTextAlignmentCenter;
-    _failureBodyField.maximumNumberOfLines = 3;
-
-    _failureRetryButton = [NSButton buttonWithTitle:@""
-                                             target:self
-                                             action:@selector(retryFailedTab:)];
-    _failureRetryButton.bezelStyle = NSBezelStyleRounded;
-    _failureRetryButton.keyEquivalent = @"";
-
-    [stack addArrangedSubview:_failureImageView];
-    [stack addArrangedSubview:_failureTitleField];
-    [stack addArrangedSubview:_failureBodyField];
-    [stack setCustomSpacing:16.0 afterView:_failureBodyField];
-    [stack addArrangedSubview:_failureRetryButton];
-    [_failureBackdrop addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-      [stack.centerXAnchor constraintEqualToAnchor:_failureBackdrop.centerXAnchor],
-      [stack.centerYAnchor constraintEqualToAnchor:_failureBackdrop.centerYAnchor],
-      [stack.leadingAnchor constraintGreaterThanOrEqualToAnchor:_failureBackdrop.leadingAnchor
-                                                       constant:24.0],
-      [stack.trailingAnchor constraintLessThanOrEqualToAnchor:_failureBackdrop.trailingAnchor
-                                                      constant:-24.0],
-      [_failureTitleField.widthAnchor constraintLessThanOrEqualToConstant:480.0],
-      [_failureBodyField.widthAnchor constraintLessThanOrEqualToConstant:440.0],
-      [_failureImageView.widthAnchor constraintEqualToConstant:36.0],
-      [_failureImageView.heightAnchor constraintEqualToConstant:36.0]
-    ]];
-    [_window.contentView addSubview:_failureBackdrop
-                         positioned:NSWindowAbove
-                         relativeTo:nil];
-  }
+  [self ensureStatusBackdrop];
+  if (!_statusBackdrop) return;
+  [_statusLoadingProgress stopAnimation:nil];
+  _statusLoadingProgress.hidden = YES;
+  _failureStack.hidden = NO;
   _failureStatusIdentity = [tab.statusIdentity copy];
   _failureTitleField.stringValue = tab.failureTitle ?: @"";
   _failureBodyField.stringValue = tab.failureBody ?: @"";
   _failureRetryButton.title = tab.retryLabel ?: @"";
   _failureRetryButton.accessibilityLabel = tab.retryLabel ?: @"";
-  _failureBackdrop.accessibilityLabel = tab.failureTitle ?: @"";
-  _failureBackdrop.frame = _window.contentView.bounds;
-  _failureBackdrop.hidden = NO;
+  _statusBackdrop.accessibilityLabel = tab.failureTitle ?: @"";
+  _statusBackdrop.frame = _window.contentView.bounds;
+  _statusBackdrop.hidden = NO;
 }
 
-- (void)hideFailureStatus {
+- (void)hideStatus {
   _failureStatusIdentity = nil;
-  _failureBackdrop.hidden = YES;
+  [_statusLoadingProgress stopAnimation:nil];
+  _statusLoadingProgress.hidden = YES;
+  _failureStack.hidden = YES;
+  _statusBackdrop.hidden = YES;
+}
+
+- (void)updateStatusForActiveTab {
+  RionRuntimeTabModel *tab = _tabModelsByIdentifier[_activeTabItem.tabIdentifier];
+  if (RionRuntimeTabPhaseIsLoading(tab.phase)) {
+    [self showLoadingStatusForTab:tab];
+  } else if ([tab.phase isEqualToString:@"failed"] &&
+             tab.statusIdentity.count > 0) {
+    [self showFailureStatusForTab:tab];
+  } else {
+    [self hideStatus];
+  }
 }
 
 - (void)retryFailedTab:(id)sender {
   (void)sender;
   NSDictionary<NSString *, id> *identity = _failureStatusIdentity;
   NSString *tabIdentifier = identity[@"tabId"];
-  [self hideFailureStatus];
+  [self hideStatus];
   if (_actionHandler && identity.count > 0 && tabIdentifier.length > 0) {
     _actionHandler(@{ @"type" : @"retryFailed",
                       @"tabId" : tabIdentifier,
@@ -474,6 +527,13 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 #if defined(RION_DESKTOP_E2E)
+- (NSInteger)statusPresentation {
+  if (_destroyed || !_statusBackdrop || _statusBackdrop.hidden) return 0;
+  if (_statusLoadingProgress && !_statusLoadingProgress.hidden) return 1;
+  if (_failureStack && !_failureStack.hidden) return 2;
+  return 0;
+}
+
 - (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier {
   if (_destroyed || tabIdentifier.length == 0) return NO;
   RionRuntimeTabItemView *item = _tabItemsByIdentifier[tabIdentifier];
@@ -534,7 +594,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier {
   if (_destroyed) return;
-  [self hideFailureStatus];
   RionRuntimeTabItemView *nextItem = tabIdentifier.length > 0
       ? _tabItemsByIdentifier[tabIdentifier]
       : nil;
@@ -553,6 +612,7 @@ NS_ASSUME_NONNULL_BEGIN
     _activeTabItem = nextItem;
   }
   [self scrollActiveTabIntoView];
+  [self updateStatusForActiveTab];
 }
 
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
@@ -604,6 +664,7 @@ NS_ASSUME_NONNULL_BEGIN
     tab.identifier = tabIdentifier;
     tab.name = name.length > 0 ? name : tabIdentifier;
     tab.phase = @"activating";
+    tab.loadingAccessibilityLabel = tab.name;
     tab.tooltip = tab.name;
     tab.type = type.length > 0 ? type : @"role";
     tab.workspaceTemplate = workspaceTemplate;
@@ -627,6 +688,7 @@ NS_ASSUME_NONNULL_BEGIN
     [_tabSurfaces insertObject:surface atIndex:insertionIndex];
     [_tabCanvas addSubview:surface];
     _tabItemsByIdentifier[tabIdentifier] = item;
+    _tabModelsByIdentifier[tabIdentifier] = tab;
     if (promotesExternalDragGhost) {
       _dragPlaceholderTabIdentifier = [tabIdentifier copy];
       if (!hasCurrentDragPosition) _dragSurfaceCanvasX = promotedCanvasX;
@@ -674,6 +736,7 @@ NS_ASSUME_NONNULL_BEGIN
     [_tabIconCache removeObjectForKey:tabIdentifier];
     [_tabIconCacheKeys removeObjectForKey:tabIdentifier];
     [_tabItemsByIdentifier removeObjectForKey:tabIdentifier];
+    [_tabModelsByIdentifier removeObjectForKey:tabIdentifier];
     if (removedDragSurface) {
       _dragPlaceholderTabIdentifier = nil;
       _dragSurfaceOverlayActive = NO;

@@ -8,14 +8,19 @@
     <link rel="stylesheet" href="/runtime-tab-status.css" />
   </head>
   <body>
-    <main id="failure-status" role="status" aria-live="polite">
-      <svg class="failure-symbol" aria-hidden="true" viewBox="0 0 36 36">
-        <circle cx="18" cy="18" r="16" />
-        <path d="M18 9.5v11M18 26h.01" />
-      </svg>
-      <h1 id="failure-title"></h1>
-      <p id="failure-body"></p>
-      <button id="failure-retry" type="button"></button>
+    <main id="tab-status" role="status" aria-live="polite">
+      <div id="loading-status" aria-hidden="true" hidden>
+        <span class="loading-spinner"></span>
+      </div>
+      <div id="failure-status" hidden>
+        <svg class="failure-symbol" aria-hidden="true" viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="16" />
+          <path d="M18 9.5v11M18 26h.01" />
+        </svg>
+        <h1 id="failure-title"></h1>
+        <p id="failure-body"></p>
+        <button id="failure-retry" type="button"></button>
+      </div>
     </main>
     <script type="module" src="/runtime-shell/runtimeTabStatus.ts"></script>
   </body>

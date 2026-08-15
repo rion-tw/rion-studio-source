@@ -325,6 +325,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     const loading = await windowSnapshot(WINDOW_C);
     expect(loading.kernel?.tabs.find((candidate) => candidate.tabId === tab.tabId)
       ?.launchPhase).toBe("navigating");
+    expect(loading.native.tabStatusPresentation).toBe("loading");
   }
   let live = await windowSnapshot(WINDOW_C);
   expect(live.kernel?.tabs).toHaveLength(3);
@@ -350,37 +351,41 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     expect(live.kernel?.surfaceTabIds).toEqual([activeTabId]);
     expect(live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.launchPhase)
       .toBe("navigating");
+    expect(live.native.tabStatusPresentation).toBe("loading");
     expect(live.kernel?.tabs.filter((tab) => tab.tabId !== activeTabId)
       .every((tab) => tab.launchPhase === null)).toBe(true);
   }
-  let releasedFixtureId: string | undefined;
+  const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
+  const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
+  if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
+  const releasedFixtureId = recoveryFixtureId(RECOVERY_ROLE_NAMES[activeRoleIndex]);
   if (process.platform === "win32") {
-    const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
-    const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
-    if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
-    releasedFixtureId = recoveryFixtureId(RECOVERY_ROLE_NAMES[activeRoleIndex]);
     live = await dragVisibleGameWindow(live);
     expect(live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.launchPhase)
       .toBe("navigating");
+    expect(live.native.tabStatusPresentation).toBe("loading");
+  }
 
-    const readyCursor = (await probe()).latestSequence;
-    const fixtureAfter = await fixtureCursor();
-    await fixtureRequest("/api/release", { roleId: releasedFixtureId });
-    await Promise.all([
-      waitEvent({
-        afterSequence: readyCursor,
-        kind: `tab-launch-phase:${activeTabId}:ready`,
-        minimumGeneration: live.windowGeneration,
-        timeoutMs: 55_000,
-        windowId: WINDOW_C
-      }),
-      waitFixtureEvent({
-        afterSequence: fixtureAfter,
-        kind: "visibility",
-        roleId: releasedFixtureId
-      })
-    ]);
-    live = await windowSnapshot(WINDOW_C);
+  const readyCursor = (await probe()).latestSequence;
+  const fixtureAfter = await fixtureCursor();
+  await fixtureRequest("/api/release", { roleId: releasedFixtureId });
+  await Promise.all([
+    waitEvent({
+      afterSequence: readyCursor,
+      kind: `tab-launch-phase:${activeTabId}:ready`,
+      minimumGeneration: live.windowGeneration,
+      timeoutMs: 55_000,
+      windowId: WINDOW_C
+    }),
+    waitFixtureEvent({
+      afterSequence: fixtureAfter,
+      kind: "visibility",
+      roleId: releasedFixtureId
+    })
+  ]);
+  live = await windowSnapshot(WINDOW_C);
+  expect(live.native.tabStatusPresentation).toBe("hidden");
+  if (process.platform === "win32") {
     expectTabStripFitsClient(live);
     live = await dragVisibleGameWindow(live);
     expectTabStripFitsClient(live);

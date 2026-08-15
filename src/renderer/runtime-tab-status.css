@@ -29,12 +29,38 @@ body {
   place-items: center;
 }
 
+#tab-status,
 #failure-status {
   display: flex;
   width: min(480px, 100%);
   align-items: center;
   flex-direction: column;
   text-align: center;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#loading-status {
+  display: grid;
+  place-items: center;
+}
+
+.loading-spinner {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid hsl(var(--activity) / 0.32);
+  border-right-color: hsl(var(--activity));
+  border-radius: var(--radius-pill);
+  animation: loading-spinner-rotation 700ms linear infinite;
+}
+
+@keyframes loading-spinner-rotation {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .failure-symbol {
@@ -99,12 +125,28 @@ button:disabled {
 }
 
 @media (prefers-contrast: more) {
+  .loading-spinner {
+    border-width: 3px;
+  }
+
   button {
     border-width: 2px;
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+}
+
 @media (forced-colors: active) {
+  .loading-spinner {
+    border-color: GrayText;
+    border-right-color: Highlight;
+    forced-color-adjust: auto;
+  }
+
   .failure-symbol {
     color: LinkText;
     forced-color-adjust: auto;

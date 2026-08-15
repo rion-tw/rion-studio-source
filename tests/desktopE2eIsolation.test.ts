@@ -216,7 +216,7 @@ describe("desktop E2E build isolation", () => {
     );
     const selection = source.slice(
       source.indexOf("pub fn desktop_e2e_select_menu_item("),
-      source.indexOf("pub fn hide_failure_status(")
+      source.indexOf("pub fn hide_status(")
     );
 
     expect(selection).toContain("rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank)");

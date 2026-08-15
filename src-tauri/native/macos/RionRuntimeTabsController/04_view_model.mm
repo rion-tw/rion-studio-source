@@ -204,7 +204,9 @@ NS_ASSUME_NONNULL_BEGIN
   NSString *_externalDragGhostTabIdentifier;
   CGFloat _externalDragGhostWidth;
   CGFloat _externalDragGhostLayoutWidth;
-  RionRuntimeFailureBackdropView *_failureBackdrop;
+  RionRuntimeStatusBackdropView *_statusBackdrop;
+  NSProgressIndicator *_statusLoadingProgress;
+  NSStackView *_failureStack;
   NSImageView *_failureImageView;
   NSTextField *_failureBodyField;
   NSTextField *_failureTitleField;
@@ -229,6 +231,7 @@ NS_ASSUME_NONNULL_BEGIN
   __weak RionRuntimeTabItemView *_activeTabItem;
   NSMutableArray<RionRuntimeTabItemView *> *_tabItems;
   NSMutableDictionary<NSString *, RionRuntimeTabItemView *> *_tabItemsByIdentifier;
+  NSMutableDictionary<NSString *, RionRuntimeTabModel *> *_tabModelsByIdentifier;
   NSMutableDictionary<NSString *, NSImage *> *_tabIconCache;
   NSMutableDictionary<NSString *, NSString *> *_tabIconCacheKeys;
   NSScrollView *_tabScrollView;
@@ -295,6 +298,7 @@ NS_ASSUME_NONNULL_BEGIN
   _windowedTrafficLightFrames = [NSMutableDictionary dictionary];
   _tabItems = [NSMutableArray array];
   _tabItemsByIdentifier = [NSMutableDictionary dictionary];
+  _tabModelsByIdentifier = [NSMutableDictionary dictionary];
   _tabIconCache = [NSMutableDictionary dictionary];
   _tabIconCacheKeys = [NSMutableDictionary dictionary];
   _tabSurfaces = [NSMutableArray array];

@@ -605,7 +605,7 @@ async fn process_action(app: AppHandle, window_label: String, action: NativeTabA
             && tab_id.as_deref() == Some(identity.tab_id.as_str());
         state
             .runtime
-            .hide_runtime_tab_failure_status(&identity.window_id);
+            .hide_runtime_tab_status(&identity.window_id);
         if !identity_matches_host
             || !state
                 .runtime

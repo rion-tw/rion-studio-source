@@ -26,6 +26,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic, copy) NSString *phase;
 @property(nonatomic, copy) NSString *failureBody;
 @property(nonatomic, copy) NSString *failureTitle;
+@property(nonatomic, copy) NSString *loadingAccessibilityLabel;
 @property(nonatomic, copy) NSString *retryLabel;
 @property(nonatomic, copy, nullable) NSDictionary<NSString *, id> *statusIdentity;
 @property(nonatomic, copy) NSString *tooltip;
@@ -59,8 +60,9 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
                              targetController:(RionRuntimeTabsController *)targetController
                            beforeTabIdentifier:(NSString *)beforeTabIdentifier;
+- (NSInteger)statusPresentation;
 #endif
-- (void)hideFailureStatus;
+- (void)hideStatus;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name
                        type:(NSString *)type
@@ -94,6 +96,7 @@ typedef struct {
   const char *phase;
   const char *failureBody;
   const char *failureTitle;
+  const char *loadingAccessibilityLabel;
   const char *retryLabel;
   const char * _Nullable statusIdentityJSON;
   const char *tooltip;
@@ -150,8 +153,10 @@ bool rion_runtime_tabs_desktop_e2e_drag(
     void * _Nullable targetController, const char *beforeTabIdentifier);
 bool rion_runtime_tabs_desktop_e2e_select_menu_item(
     int action, unsigned long targetRank);
+int rion_runtime_tabs_desktop_e2e_status_presentation(
+    void * _Nullable controller);
 #endif
-void rion_runtime_tabs_hide_failure_status(void * _Nullable controller);
+void rion_runtime_tabs_hide_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(
     void * _Nullable controller, const char *tabIdentifier,
     const char *name, const char *type,

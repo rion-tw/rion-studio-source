@@ -457,16 +457,36 @@ struct RuntimeDisplayHost {
     #[cfg(windows)]
     tab_chrome_reveal: WindowsTabChromeRevealState,
     #[cfg(windows)]
-    tab_failure_status: Option<RuntimeTabFailureStatusSurface>,
+    tab_status: Option<RuntimeTabStatusSurface>,
     #[cfg(windows)]
-    tab_failure_status_creating: bool,
+    tab_status_creating: bool,
     #[cfg(target_os = "macos")]
     tabs_controller: crate::runtime_tabs_macos::MacRuntimeTabsController,
 }
 
 #[cfg(windows)]
-struct RuntimeTabFailureStatusSurface {
+struct RuntimeTabStatusSurface {
+    presentation: RuntimeTabStatusPresentation,
     webview: Webview,
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeTabStatusPresentation {
+    Failed,
+    Hidden,
+    Loading,
+}
+
+#[cfg(windows)]
+impl RuntimeTabStatusPresentation {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Failed => "failed",
+            Self::Hidden => "hidden",
+            Self::Loading => "loading",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

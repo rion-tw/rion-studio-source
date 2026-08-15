@@ -413,7 +413,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Fence native placement, presentation, and tab/control geometry across resize and maximize; verify visible Game Window chrome remains draggable, minimizable, and closable; preserve tab-strip bounds while minimized; and preserve persistence, clean restart, and forced termination by generation and revision."
+      "description": "Fence native placement, presentation, and tab/control geometry across resize and maximize; prove the active tab shows its native loading status while navigation is gated and hides it only after the authoritative ready event; verify visible Game Window chrome remains draggable, minimizable, and closable after role content becomes ready; preserve tab-strip bounds while minimized; and preserve persistence, clean restart, and forced termination by generation and revision."
     },
     {
       "id": "RUNTIME-LAUNCH-DESTINATIONS-008",

@@ -291,7 +291,7 @@ async fn rion_runtime_tab_action(
             })?;
         state
             .runtime
-            .hide_runtime_tab_failure_status(&window_id);
+            .hide_runtime_tab_status(&window_id);
         if identity.window_id != window_id
             || !state
                 .runtime

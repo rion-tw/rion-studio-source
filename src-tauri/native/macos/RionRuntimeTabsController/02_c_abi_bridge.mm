@@ -330,12 +330,21 @@ bool rion_runtime_tabs_desktop_e2e_select_menu_item(
     }
   }
 }
+
+int rion_runtime_tabs_desktop_e2e_status_presentation(
+    void * _Nullable rawController) {
+  @autoreleasepool {
+    if (!rawController) return 0;
+    return (int)[(__bridge RionRuntimeTabsController *)rawController
+        statusPresentation];
+  }
+}
 #endif
 
-void rion_runtime_tabs_hide_failure_status(void * _Nullable rawController) {
+void rion_runtime_tabs_hide_status(void * _Nullable rawController) {
   @autoreleasepool {
     if (!rawController) return;
-    [(__bridge RionRuntimeTabsController *)rawController hideFailureStatus];
+    [(__bridge RionRuntimeTabsController *)rawController hideStatus];
   }
 }
 
@@ -427,6 +436,8 @@ void rion_runtime_tabs_update_metadata(
     tab.phase = RionStringFromUTF8(input->phase) ?: @"ready";
     tab.failureBody = RionStringFromUTF8(input->failureBody) ?: @"";
     tab.failureTitle = RionStringFromUTF8(input->failureTitle) ?: @"";
+    tab.loadingAccessibilityLabel =
+        RionStringFromUTF8(input->loadingAccessibilityLabel) ?: @"";
     tab.retryLabel = RionStringFromUTF8(input->retryLabel) ?: @"";
     NSString *statusIdentityJSON = RionStringFromUTF8(input->statusIdentityJSON);
     if (statusIdentityJSON.length > 0) {
@@ -836,7 +847,7 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @interface RionRuntimeWindowNameField : NSTextField
 @end
 
-@interface RionRuntimeFailureBackdropView : NSView
+@interface RionRuntimeStatusBackdropView : NSView
 @end
 
 @interface RionRuntimeSurfaceView : NSView
@@ -910,9 +921,12 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 @property(nonatomic, readwrite) BOOL revealLocked;
 
 - (void)activateTab:(NSString *)tabIdentifier;
-- (void)hideFailureStatus;
+- (void)ensureStatusBackdrop;
+- (void)hideStatus;
+- (void)showLoadingStatusForTab:(RionRuntimeTabModel *)tab;
 - (void)retryFailedTab:(id)sender;
 - (void)showFailureStatusForTab:(RionRuntimeTabModel *)tab;
+- (void)updateStatusForActiveTab;
 - (void)closeTab:(NSString *)tabIdentifier;
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;

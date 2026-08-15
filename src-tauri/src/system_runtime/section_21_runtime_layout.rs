@@ -861,9 +861,9 @@ impl SystemRuntimeExecutor {
                 #[cfg(windows)]
                 tab_chrome_reveal: WindowsTabChromeRevealState::new(tab_chrome_cloaked),
                 #[cfg(windows)]
-                tab_failure_status: None,
+                tab_status: None,
                 #[cfg(windows)]
-                tab_failure_status_creating: false,
+                tab_status_creating: false,
                 #[cfg(target_os = "macos")]
                 tabs_controller,
             },

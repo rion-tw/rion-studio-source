@@ -23,7 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
-@implementation RionRuntimeFailureBackdropView
+@implementation RionRuntimeStatusBackdropView
 
 - (BOOL)wantsUpdateLayer {
   return YES;

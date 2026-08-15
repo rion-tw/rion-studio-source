@@ -64,6 +64,7 @@ export interface DesktopE2eWindowSnapshot {
       roleId: string;
     }>;
     scaleFactor: number;
+    tabStatusPresentation?: "failed" | "hidden" | "loading";
     tabStripBounds?: WindowBounds;
     tabStripHostBounds?: WindowBounds;
     title: string;

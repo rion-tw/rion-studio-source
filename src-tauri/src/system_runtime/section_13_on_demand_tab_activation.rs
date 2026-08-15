@@ -15,8 +15,26 @@ fn failed_tab_status_identity_matches(
     requested.phase == RuntimeTabActivationPhaseRecord::Failed && current == Some(requested)
 }
 
+fn runtime_tab_status_phase_visible(phase: RuntimeTabActivationPhaseRecord) -> bool {
+    matches!(
+        phase,
+        RuntimeTabActivationPhaseRecord::Activating
+            | RuntimeTabActivationPhaseRecord::Attaching
+            | RuntimeTabActivationPhaseRecord::Loading
+            | RuntimeTabActivationPhaseRecord::Failed
+    )
+}
+
+#[cfg(any(windows, test))]
+fn runtime_tab_status_identity_matches(
+    current: Option<&RuntimeTabStatusIdentityRecord>,
+    requested: &RuntimeTabStatusIdentityRecord,
+) -> bool {
+    runtime_tab_status_phase_visible(requested.phase) && current == Some(requested)
+}
+
 impl SystemRuntimeExecutor {
-    pub(crate) fn active_failed_tab_status_identity(
+    pub(crate) fn active_runtime_tab_status_identity(
         &self,
         window_id: &str,
     ) -> Option<RuntimeTabStatusIdentityRecord> {
@@ -32,7 +50,7 @@ impl SystemRuntimeExecutor {
             .display_hosts
             .get(window_id)?
             .generation;
-        (activation.phase == RuntimeTabActivationPhaseRecord::Failed
+        (runtime_tab_status_phase_visible(activation.phase)
             && activation.owner_window_id == window_id
             && activation.window_generation.0 == host_generation)
             .then(|| RuntimeTabStatusIdentityRecord {
@@ -42,6 +60,23 @@ impl SystemRuntimeExecutor {
                 window_generation: activation.window_generation.0,
                 phase: activation.phase,
             })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn runtime_tab_status_identity_is_current(
+        &self,
+        identity: &RuntimeTabStatusIdentityRecord,
+    ) -> bool {
+        let current = self.active_runtime_tab_status_identity(&identity.window_id);
+        runtime_tab_status_identity_matches(current.as_ref(), identity)
+    }
+
+    pub(crate) fn active_failed_tab_status_identity(
+        &self,
+        window_id: &str,
+    ) -> Option<RuntimeTabStatusIdentityRecord> {
+        self.active_runtime_tab_status_identity(window_id)
+            .filter(|identity| identity.phase == RuntimeTabActivationPhaseRecord::Failed)
     }
 
     pub(crate) fn failed_tab_status_identity_is_current(

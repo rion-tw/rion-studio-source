@@ -30,6 +30,15 @@ fn runtime_tab_tooltip(base: String, language: &str, phase: TabRuntimePhase) -> 
         .unwrap_or(base)
 }
 
+fn runtime_tab_loading_accessibility_label(language: &str, tab_name: &str) -> String {
+    match language {
+        "zh-TW" => format!("正在開啟「{tab_name}」。"),
+        "zh-CN" => format!("正在打开“{tab_name}”。"),
+        "ja" => format!("「{tab_name}」を開いています。"),
+        _ => format!("Opening “{tab_name}”."),
+    }
+}
+
 struct RuntimeTabFailureLabels {
     body: &'static str,
     retry: &'static str,
@@ -239,7 +248,7 @@ impl SystemRuntimeExecutor {
                             .then(|| authoritative_phases.get(&presented.id))
                             .flatten()
                             .filter(|activation| {
-                                activation.phase == RuntimeTabActivationPhaseRecord::Failed
+                                runtime_tab_status_phase_visible(activation.phase)
                                     && activation.owner_window_id == window_id.as_str()
                                     && activation.window_generation.0 == host.generation
                             })
@@ -293,6 +302,11 @@ impl SystemRuntimeExecutor {
                                     .is_some_and(|live| runtime_tab_is_audible(&state, live)),
                                 icon_data_url,
                                 id: presented.id.clone(),
+                                loading_accessibility_label:
+                                    runtime_tab_loading_accessibility_label(
+                                        &language,
+                                        &presented.title,
+                                    ),
                                 name: presented.title.clone(),
                                 phase: phase.as_str().to_owned(),
                                 failure_body: failure_labels.body.to_owned(),

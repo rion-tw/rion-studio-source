@@ -154,6 +154,27 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.to_string())?
             .native_projection(window_id);
         let native = desktop_e2e_native_window_snapshot(&window)?;
+        #[cfg(target_os = "macos")]
+        let native = {
+            let controller = self
+                .state
+                .lock()
+                .map_err(|_| "The runtime state is unavailable.".to_owned())?
+                .native_resources
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.tabs_controller.clone())
+                .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
+            let mut native = native;
+            let native_object = native
+                .as_object_mut()
+                .ok_or_else(|| "The native window snapshot is invalid.".to_owned())?;
+            native_object.insert(
+                "tabStatusPresentation".to_owned(),
+                Value::String(controller.desktop_e2e_status_presentation().to_owned()),
+            );
+            native
+        };
         #[cfg(windows)]
         let native = {
             let mut native = native;
@@ -167,7 +188,7 @@ impl SystemRuntimeExecutor {
             let selected_tab_is_ready = selected_tab_id.as_ref().is_some_and(|tab_id| {
                 self.presentation.statuses.launch_phase(tab_id) == Some(LaunchPhase::Ready)
             });
-            let (tab_strip, mut role_webviews) = {
+            let (tab_strip, tab_status_presentation, mut role_webviews) = {
                 let state = self
                     .state
                     .lock()
@@ -189,7 +210,14 @@ impl SystemRuntimeExecutor {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
-                (host.tab_strip.clone(), roles)
+                (
+                    host.tab_strip.clone(),
+                    host.tab_status
+                        .as_ref()
+                        .map(|status| status.presentation)
+                        .unwrap_or(RuntimeTabStatusPresentation::Hidden),
+                    roles,
+                )
             };
             let (tab_strip_bounds, tab_strip_host_bounds) =
                 desktop_e2e_windows_tab_strip_geometry(&tab_strip)?;
@@ -213,6 +241,10 @@ impl SystemRuntimeExecutor {
             native_object.insert("tabStripBounds".to_owned(), tab_strip_bounds);
             native_object.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
             native_object.insert("roleSurfaces".to_owned(), json!(role_surfaces));
+            native_object.insert(
+                "tabStatusPresentation".to_owned(),
+                Value::String(tab_status_presentation.as_str().to_owned()),
+            );
             native
         };
         let kernel = projection.map(|projection| {

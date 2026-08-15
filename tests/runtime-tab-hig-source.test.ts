@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
 describe("runtime tab HIG status presentation", () => {
-  it("uses semantic AppKit accessories and a non-focusing failure backdrop", async () => {
+  it("uses semantic AppKit accessories and a non-focusing status backdrop", async () => {
     const [tabItem, supportViews, failurePresentation] = await Promise.all([
       readFile(
         new URL(
@@ -44,7 +44,14 @@ describe("runtime tab HIG status presentation", () => {
     expect(tabItem).toContain("self->_phaseAccessory.animator.alphaValue = phaseAlpha;");
     expect(supportViews).toContain("NSColor.windowBackgroundColor.CGColor");
     expect(supportViews).toContain("- (BOOL)wantsUpdateLayer");
-    expect(failurePresentation).toContain("RionRuntimeFailureBackdropView");
+    expect(supportViews).toContain("NSViewWidthSizable | NSViewHeightSizable");
+    expect(failurePresentation).toContain("RionRuntimeStatusBackdropView");
+    expect(failurePresentation).toContain("_statusLoadingProgress.style = NSProgressIndicatorStyleSpinning");
+    expect(failurePresentation).toContain("_statusLoadingProgress.accessibilityElement = NO");
+    expect(failurePresentation).toContain("tab.loadingAccessibilityLabel");
+    expect(failurePresentation).toContain("[_statusLoadingProgress stopAnimation:nil]");
+    expect(failurePresentation).toContain("_statusBackdrop.hidden = YES");
+    expect(failurePresentation).not.toContain("loadingLabelWithString");
     expect(failurePresentation).toContain("target:self");
     expect(failurePresentation).not.toContain("makeFirstResponder:_failureRetryButton");
   });
@@ -71,6 +78,9 @@ describe("runtime tab HIG status presentation", () => {
     expect(tabStyles).toContain("@media (forced-colors: active)");
     expect(statusDocument).toContain('role="status"');
     expect(statusDocument).toContain('aria-live="polite"');
+    expect(statusDocument).toContain('id="loading-status"');
+    expect(statusStyles).toContain(".loading-spinner");
+    expect(statusStyles).toMatch(/prefers-reduced-motion[\s\S]*?\.loading-spinner \{[\s\S]*?animation: none;/);
     expect(statusStyles).toContain("background: hsl(var(--background));");
     expect(statusStyles).toContain("button:focus-visible");
     expect(statusStyles).toContain("@media (forced-colors: active)");

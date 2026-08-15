@@ -74,6 +74,7 @@ struct NativeTabInput {
     phase: *const c_char,
     failure_body: *const c_char,
     failure_title: *const c_char,
+    loading_accessibility_label: *const c_char,
     retry_label: *const c_char,
     status_identity_json: *const c_char,
     tooltip: *const c_char,
@@ -148,7 +149,9 @@ unsafe extern "C" {
         action: i32,
         target_rank: usize,
     ) -> bool;
-    fn rion_runtime_tabs_hide_failure_status(controller: *mut c_void);
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_desktop_e2e_status_presentation(controller: *mut c_void) -> i32;
+    fn rion_runtime_tabs_hide_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
         controller: *mut c_void,
@@ -283,6 +286,7 @@ pub struct MacRuntimeTabState {
     pub audible: bool,
     pub icon_data_url: Option<String>,
     pub id: String,
+    pub loading_accessibility_label: String,
     pub name: String,
     pub phase: String,
     pub failure_body: String,
@@ -443,6 +447,37 @@ impl MacRuntimeTabsController {
             .flatten()
     }
 
+    #[cfg(feature = "desktop-e2e")]
+    pub fn desktop_e2e_status_presentation(&self) -> &'static str {
+        let raw = self.inner.raw as usize;
+        let query = move || unsafe {
+            rion_runtime_tabs_desktop_e2e_status_presentation(raw as *mut c_void)
+        };
+        let presentation = if unsafe { rion_runtime_tabs_is_main_thread() } {
+            query()
+        } else {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            if self
+                .inner
+                .app
+                .run_on_main_thread(move || {
+                    let _ = sender.send(query());
+                })
+                .is_err()
+            {
+                return "hidden";
+            }
+            receiver
+                .recv_timeout(Duration::from_millis(250))
+                .unwrap_or_default()
+        };
+        match presentation {
+            1 => "loading",
+            2 => "failed",
+            _ => "hidden",
+        }
+    }
+
     pub fn update_metadata(
         &self,
         tab: MacRuntimeTabState,
@@ -577,11 +612,11 @@ impl MacRuntimeTabsController {
             .ok_or_else(|| "The AppKit runtime-tab menu action was rejected.".to_owned())
     }
 
-    pub fn hide_failure_status(&self) {
+    pub fn hide_status(&self) {
         let inner = Arc::clone(&self.inner);
         let app = inner.app.clone();
         let _ = app.run_on_main_thread(move || unsafe {
-            rion_runtime_tabs_hide_failure_status(inner.raw);
+            rion_runtime_tabs_hide_status(inner.raw);
         });
     }
 
@@ -787,6 +822,7 @@ fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingM
     };
     let failure_body = c_string(&tab.failure_body);
     let failure_title = c_string(&tab.failure_title);
+    let loading_accessibility_label = c_string(&tab.loading_accessibility_label);
     let retry_label = c_string(&tab.retry_label);
     let status_identity_json = tab.status_identity_json.as_deref().map(c_string);
     let labels = labels(&update.language);
@@ -805,6 +841,7 @@ fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingM
         phase: strings.phase.as_ptr(),
         failure_body: failure_body.as_ptr(),
         failure_title: failure_title.as_ptr(),
+        loading_accessibility_label: loading_accessibility_label.as_ptr(),
         retry_label: retry_label.as_ptr(),
         status_identity_json: status_identity_json
             .as_ref()

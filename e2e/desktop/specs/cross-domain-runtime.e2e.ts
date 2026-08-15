@@ -586,15 +586,20 @@ async function tabMenuAction(input: {
 async function showSourceFromVisibleUi(tab: EmbeddedRuntimeState["tabs"][number]): Promise<void> {
   await navigate(tab.type === "role" ? "/roles" : "/workspaces");
   const control = await probe();
-  const projectionCursor = await rendererEventCursor();
+  const beforeLaunch = await rendererCall("getEmbeddedRuntimeState");
+  const hiddenBeforeLaunch = beforeLaunch.tabs.find((candidate) => candidate.id === tab.id)?.hidden
+    === true;
+  const projectionCursor = hiddenBeforeLaunch ? await rendererEventCursor() : undefined;
   const label = tab.type === "role" ? "Open" : "Open workspace";
   await $(`[data-selection-id='${tab.sourceId}'] button[aria-label='${label}']`).click();
   await waitForRuntimeLaunchTerminal(control, tab.sourceId, tab.type);
-  const projected = await waitForRuntimeProjection({
-    afterSequence: projectionCursor,
-    hidden: false,
-    tabId: tab.id
-  });
+  const projected = projectionCursor === undefined
+    ? await rendererCall("getEmbeddedRuntimeState")
+    : await waitForRuntimeProjection({
+        afterSequence: projectionCursor,
+        hidden: false,
+        tabId: tab.id
+      });
   expect(projected.tabs.find((candidate) => candidate.id === tab.id)?.hidden).toBe(false);
 }
 

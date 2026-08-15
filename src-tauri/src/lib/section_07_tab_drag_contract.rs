@@ -194,6 +194,7 @@ fn record_tab_drag_terminal(
     drop(finished);
     let _ = app.emit("rion://runtime-tab-drag-session", terminal_session);
     let _ = app.emit("rion://runtime-tab-drag-receipt", &receipt);
+    record_runtime_operation_terminal(&receipt);
     state.runtime.complete_tab_drag_intent(&session.id);
     Ok(receipt)
 }

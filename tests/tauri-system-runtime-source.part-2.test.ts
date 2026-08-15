@@ -3,11 +3,12 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri System WebView runtime source", () => {
-it("records HTML and native-menu tab mutation receipts from the shared terminal recorder", async () => {
-  const [receiptSource, overlaySource, menuSource] = await Promise.all([
+it("records HTML, native-menu, and drag receipts from the shared terminal recorder", async () => {
+  const [receiptSource, overlaySource, menuSource, dragSource] = await Promise.all([
     readFile("src-tauri/src/lib/section_01_runtime_operation_receipt.rs", "utf8"),
     readFile("src-tauri/src/lib/section_03_rion_overlay_request.rs", "utf8"),
-    readFile("src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs", "utf8")
+    readFile("src-tauri/src/runtime_tab_menu/section_02_open_tab_from_model.rs", "utf8"),
+    readFile("src-tauri/src/lib/section_07_tab_drag_contract.rs", "utf8")
   ]);
   const mutationBranch = overlaySource.slice(
     overlaySource.indexOf('Some("hide" | "move" | "reorder")'),
@@ -23,6 +24,9 @@ it("records HTML and native-menu tab mutation receipts from the shared terminal 
   expect(menuSource).toContain(
     "Ok(created) => crate::record_runtime_operation_terminal(&created.receipt)"
   );
+  expect(dragSource).toContain("record_runtime_operation_terminal(&receipt);");
+  expect(dragSource.indexOf('app.emit("rion://runtime-tab-drag-receipt", &receipt)'))
+    .toBeLessThan(dragSource.indexOf("record_runtime_operation_terminal(&receipt);"));
   expect(menuSource.indexOf('"runtime-tab-menu-opened"'))
     .toBeLessThan(menuSource.indexOf("menu.popup(window)"));
   expect(menuSource).toContain('"completionScope": "nativeSubmission"');

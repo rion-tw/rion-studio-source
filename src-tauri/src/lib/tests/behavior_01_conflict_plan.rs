@@ -654,6 +654,56 @@ use super::*;
     }
 
     #[test]
+    fn shortcut_lifecycle_diagnostics_accept_only_bounded_configured_key_metadata() {
+        assert_eq!(
+            parse_macro_shortcut_lifecycle(&json!({
+                "code": "Digit2",
+                "macroId": "macro-a",
+                "phase": "physical-keydown-allowed",
+                "type": "macro-shortcut-lifecycle"
+            }))
+            .unwrap(),
+            (
+                "macro-a".to_owned(),
+                "Digit2".to_owned(),
+                "physical-keydown-allowed".to_owned()
+            )
+        );
+        for payload in [
+            json!({
+                "code": "Digit2",
+                "extra": true,
+                "macroId": "macro-a",
+                "phase": "macro-dispatched",
+                "type": "macro-shortcut-lifecycle"
+            }),
+            json!({
+                "code": "typed text",
+                "macroId": "macro-a",
+                "phase": "macro-dispatched",
+                "type": "macro-shortcut-lifecycle"
+            }),
+            json!({
+                "code": "Digit2",
+                "macroId": "typed text",
+                "phase": "macro-dispatched",
+                "type": "macro-shortcut-lifecycle"
+            }),
+            json!({
+                "code": "Digit2",
+                "macroId": "macro-a",
+                "phase": "unknown",
+                "type": "macro-shortcut-lifecycle"
+            }),
+        ] {
+            assert_eq!(
+                parse_macro_shortcut_lifecycle(&payload).unwrap_err().code,
+                "OVERLAY_REQUEST_INVALID"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_tab_activation_terminal_evidence_is_platform_neutral() {
         assert_eq!(
             runtime_tab_activation_terminal_details("tab-a", None),

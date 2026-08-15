@@ -1,4 +1,4 @@
-import { $, expect } from "@wdio/globals";
+import { $, browser, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {
@@ -264,6 +264,34 @@ async function waitMacroKeyReceipt(input: {
   }
 }
 
+async function waitShortcutLifecycle(input: {
+  afterSequence: number;
+  code: string;
+  macroId: string;
+  phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+  roleId: string;
+}) {
+  let cursor = input.afterSequence;
+  for (;;) {
+    const event = await waitEvent({ afterSequence: cursor, kind: "macro-shortcut-lifecycle" });
+    const details = event.details as {
+      code?: string;
+      macroId?: string;
+      phase?: string;
+      roleId?: string;
+    };
+    if (
+      details.code === input.code
+      && details.macroId === input.macroId
+      && details.phase === input.phase
+      && details.roleId === input.roleId
+    ) {
+      return event;
+    }
+    cursor = event.sequence;
+  }
+}
+
 async function nativeEffectPhase(): Promise<void> {
   await bootstrap();
   const scenario = await createScenario({
@@ -421,7 +449,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
     roleIds: [scenario.roles[0].id],
     shortcutSourceScope: { type: "selected_roles", roleIds: [scenario.roles[0].id] },
     steps: [
-      { action: "tap", code: "Digit2", id: "same-trigger-two", modifiers: ["shift"], type: "key" },
       {
         callMode: "trigger",
         id: "nested-after-two",
@@ -439,10 +466,33 @@ async function keyboardLifecyclePhase(): Promise<void> {
     roleIds: [scenario.roles[0].id],
     shortcutSourceScope: { type: "selected_roles", roleIds: [scenario.roles[0].id] },
     steps: [
-      { action: "tap", code: "Digit3", id: "same-trigger-three", modifiers: ["shift"], type: "key" },
       { action: "tap", code: "Digit1", id: "marker-three", modifiers: ["shift"], type: "key" }
     ],
     trigger: { alt: false, code: "Digit3", ctrl: false, meta: false, shift: true }
+  });
+  const compatibilityMacro = await rendererCall("createMacro", {
+    activationMode: "toggle",
+    enabled: true,
+    name: "E2E Keyboard Lifecycle Same Trigger Compatibility Macro",
+    repeat: { type: "once" },
+    roleIds: [scenario.roles[0].id],
+    shortcutSourceScope: { type: "selected_roles", roleIds: [scenario.roles[0].id] },
+    steps: [
+      { action: "tap", code: "Digit6", id: "same-trigger-six", modifiers: ["shift"], type: "key" }
+    ],
+    trigger: { alt: false, code: "Digit6", ctrl: false, meta: false, shift: true }
+  });
+  const continuityMacro = await rendererCall("createMacro", {
+    activationMode: "while_held",
+    enabled: true,
+    name: "E2E Keyboard Lifecycle Modifier Continuity Macro",
+    repeat: { type: "once" },
+    roleIds: [scenario.roles[0].id],
+    shortcutSourceScope: { type: "selected_roles", roleIds: [scenario.roles[0].id] },
+    steps: [
+      { action: "tap", code: "Digit1", id: "continuity-one", modifiers: ["shift"], type: "key" }
+    ],
+    trigger: { alt: false, code: "Digit5", ctrl: false, meta: false, shift: true }
   });
   const heldCodes: string[] = [];
   const press = async (code: string): Promise<void> => {
@@ -479,7 +529,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     });
 
     const shortcutFixtureCursor = await fixtureCursor();
-    const firstNativeCursor = (await probe()).latestSequence;
+    const firstDiagnosticCursor = (await probe()).latestSequence;
     const firstMacroCursor = await rendererEventCursor();
     await press("ShiftLeft");
     const firstShiftDown = await waitFixtureCode({
@@ -489,31 +539,31 @@ async function keyboardLifecyclePhase(): Promise<void> {
       roleId: "macro-keyboard-a"
     });
     await press("Digit2");
-    await waitForMacroProjection({
-      afterSequence: firstMacroCursor,
-      macroId: firstMacro.id,
-      roleIds: [scenario.roles[0].id],
-      state: "running"
-    });
-    await release("Digit2");
-    await release("ShiftLeft");
     const digitTwoDown = await waitFixtureCode({
       afterSequence: firstShiftDown.sequence,
       code: "Digit2",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await waitFixtureCode({
+    await release("Digit2");
+    const digitTwoUp = await waitFixtureCode({
       afterSequence: digitTwoDown.sequence,
       code: "Digit2",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
+    await release("ShiftLeft");
     await waitFixtureCode({
-      afterSequence: firstShiftDown.sequence,
+      afterSequence: digitTwoUp.sequence,
       code: "ShiftLeft",
       kind: "keyup",
       roleId: "macro-keyboard-a"
+    });
+    await waitForMacroProjection({
+      afterSequence: firstMacroCursor,
+      macroId: firstMacro.id,
+      roleIds: [scenario.roles[0].id],
+      state: "running"
     });
     const nestedOneDown = await waitFixtureCode({
       afterSequence: shortcutFixtureCursor,
@@ -540,20 +590,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
         kind: "keyup",
         roleId: "macro-keyboard-a"
       }),
-      waitMacroKeyReceipt({
-        afterSequence: firstNativeCursor,
-        code: "Digit2",
-        kind: "macro-key-native-acknowledged",
-        phase: "keyup",
-        roleId: scenario.roles[0].id
-      }),
-      waitMacroKeyReceipt({
-        afterSequence: firstNativeCursor,
-        code: "Digit2",
-        kind: "macro-key-dom-observed",
-        phase: "keyup",
-        roleId: scenario.roles[0].id
-      }),
       waitForMacroProjection({
         afterSequence: firstMacroCursor,
         macroId: firstMacro.id,
@@ -565,6 +601,27 @@ async function keyboardLifecyclePhase(): Promise<void> {
         macroId: scenario.macro.id,
         minimumIteration: 1,
         roleIds: [scenario.roles[0].id]
+      }),
+      waitShortcutLifecycle({
+        afterSequence: firstDiagnosticCursor,
+        code: "Digit2",
+        macroId: firstMacro.id,
+        phase: "physical-keydown-allowed",
+        roleId: scenario.roles[0].id
+      }),
+      waitShortcutLifecycle({
+        afterSequence: firstDiagnosticCursor,
+        code: "Digit2",
+        macroId: firstMacro.id,
+        phase: "chord-released",
+        roleId: scenario.roles[0].id
+      }),
+      waitShortcutLifecycle({
+        afterSequence: firstDiagnosticCursor,
+        code: "Digit2",
+        macroId: firstMacro.id,
+        phase: "macro-dispatched",
+        roleId: scenario.roles[0].id
       })
     ]);
     await waitForMacroProjection({
@@ -577,6 +634,10 @@ async function keyboardLifecyclePhase(): Promise<void> {
       afterSequence: firstMacroCursor,
       macroId: scenario.macro.id
     });
+
+    // Reproduce the user's real cadence without using the interval as success
+    // evidence: the first macro has already reached its authoritative terminal.
+    await browser.pause(2_000);
 
     const firstShortcutEvents = await fixtureEvents({
       afterSequence: shortcutFixtureCursor,
@@ -614,7 +675,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(firstState.trustedPressedCodes).toEqual([]);
 
     const secondShortcutCursor = await fixtureCursor();
-    const secondNativeCursor = (await probe()).latestSequence;
+    const secondDiagnosticCursor = (await probe()).latestSequence;
     const secondMacroCursor = await rendererEventCursor();
     await press("ShiftLeft");
     const secondShiftDown = await waitFixtureCode({
@@ -624,31 +685,31 @@ async function keyboardLifecyclePhase(): Promise<void> {
       roleId: "macro-keyboard-a"
     });
     await press("Digit3");
-    await waitForMacroProjection({
-      afterSequence: secondMacroCursor,
-      macroId: secondMacro.id,
-      roleIds: [scenario.roles[0].id],
-      state: "running"
-    });
-    await release("Digit3");
-    await release("ShiftLeft");
     const digitThreeDown = await waitFixtureCode({
       afterSequence: secondShiftDown.sequence,
       code: "Digit3",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await waitFixtureCode({
+    await release("Digit3");
+    const digitThreeUp = await waitFixtureCode({
       afterSequence: digitThreeDown.sequence,
       code: "Digit3",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
+    await release("ShiftLeft");
     await waitFixtureCode({
-      afterSequence: secondShiftDown.sequence,
+      afterSequence: digitThreeUp.sequence,
       code: "ShiftLeft",
       kind: "keyup",
       roleId: "macro-keyboard-a"
+    });
+    await waitForMacroProjection({
+      afterSequence: secondMacroCursor,
+      macroId: secondMacro.id,
+      roleIds: [scenario.roles[0].id],
+      state: "running"
     });
 
     await Promise.all([
@@ -658,18 +719,32 @@ async function keyboardLifecyclePhase(): Promise<void> {
         kind: "keydown",
         roleId: "macro-keyboard-a"
       }),
-      waitMacroKeyReceipt({
-        afterSequence: secondNativeCursor,
-        code: "Digit3",
-        kind: "macro-key-dom-observed",
-        phase: "keyup",
-        roleId: scenario.roles[0].id
-      }),
       waitForMacroProjection({
         afterSequence: secondMacroCursor,
         macroId: secondMacro.id,
         minimumIteration: 1,
         roleIds: [scenario.roles[0].id]
+      }),
+      waitShortcutLifecycle({
+        afterSequence: secondDiagnosticCursor,
+        code: "Digit3",
+        macroId: secondMacro.id,
+        phase: "physical-keydown-allowed",
+        roleId: scenario.roles[0].id
+      }),
+      waitShortcutLifecycle({
+        afterSequence: secondDiagnosticCursor,
+        code: "Digit3",
+        macroId: secondMacro.id,
+        phase: "chord-released",
+        roleId: scenario.roles[0].id
+      }),
+      waitShortcutLifecycle({
+        afterSequence: secondDiagnosticCursor,
+        code: "Digit3",
+        macroId: secondMacro.id,
+        phase: "macro-dispatched",
+        roleId: scenario.roles[0].id
       })
     ]);
     await waitForMacroProjection({
@@ -723,6 +798,85 @@ async function keyboardLifecyclePhase(): Promise<void> {
       event.kind === "keydown" && event.code === "Digit1" && event.modifiers?.shift === true
     )).toHaveLength(1);
 
+    const compatibilityFixtureCursor = await fixtureCursor();
+    const compatibilityNativeCursor = (await probe()).latestSequence;
+    const compatibilityMacroCursor = await rendererEventCursor();
+    await press("ShiftLeft");
+    await waitFixtureCode({
+      afterSequence: compatibilityFixtureCursor,
+      code: "ShiftLeft",
+      kind: "keydown",
+      roleId: "macro-keyboard-a"
+    });
+    await press("Digit6");
+    const compatibilityDigitDown = await waitFixtureCode({
+      afterSequence: compatibilityFixtureCursor,
+      code: "Digit6",
+      kind: "keydown",
+      roleId: "macro-keyboard-a"
+    });
+    await release("Digit6");
+    const compatibilityDigitUp = await waitFixtureCode({
+      afterSequence: compatibilityDigitDown.sequence,
+      code: "Digit6",
+      kind: "keyup",
+      roleId: "macro-keyboard-a"
+    });
+    await release("ShiftLeft");
+    await waitFixtureCode({
+      afterSequence: compatibilityDigitUp.sequence,
+      code: "ShiftLeft",
+      kind: "keyup",
+      roleId: "macro-keyboard-a"
+    });
+    await waitForMacroProjection({
+      afterSequence: compatibilityMacroCursor,
+      macroId: compatibilityMacro.id,
+      roleIds: [scenario.roles[0].id],
+      state: "running"
+    });
+    await Promise.all([
+      waitMacroKeyReceipt({
+        afterSequence: compatibilityNativeCursor,
+        code: "Digit6",
+        kind: "macro-key-native-acknowledged",
+        phase: "keyup",
+        roleId: scenario.roles[0].id
+      }),
+      waitMacroKeyReceipt({
+        afterSequence: compatibilityNativeCursor,
+        code: "Digit6",
+        kind: "macro-key-dom-observed",
+        phase: "keyup",
+        roleId: scenario.roles[0].id
+      }),
+      waitForMacroProjection({
+        afterSequence: compatibilityMacroCursor,
+        macroId: compatibilityMacro.id,
+        minimumIteration: 1,
+        roleIds: [scenario.roles[0].id]
+      })
+    ]);
+    await waitForMacroProjection({
+      absent: true,
+      afterSequence: compatibilityMacroCursor,
+      macroId: compatibilityMacro.id
+    });
+    const compatibilityEvents = await fixtureEvents({
+      afterSequence: compatibilityFixtureCursor,
+      roleId: "macro-keyboard-a"
+    });
+    expect(compatibilityEvents.filter((event) => event.code === "Digit6").map(
+      (event) => event.kind
+    )).toEqual(["keydown", "keyup", "keydown", "keyup"]);
+    expect(compatibilityEvents.filter((event) =>
+      event.kind === "keydown" && event.code === "Digit6" && event.modifiers?.shift === true
+    )).toHaveLength(2);
+    expect(compatibilityEvents.filter((event) =>
+      (event.kind === "keydown" || event.kind === "keyup") && event.isTrusted !== true
+    )).toHaveLength(0);
+    expect((await fixtureState())["macro-keyboard-a"].trustedPressedCodes).toEqual([]);
+
     const continuityFixtureCursor = await fixtureCursor();
     const continuityMacroCursor = await rendererEventCursor();
     await press("ShiftLeft");
@@ -732,14 +886,26 @@ async function keyboardLifecyclePhase(): Promise<void> {
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit3");
+    await press("Digit5");
+    const continuityTriggerDown = await waitFixtureCode({
+      afterSequence: continuityFixtureCursor,
+      code: "Digit5",
+      kind: "keydown",
+      roleId: "macro-keyboard-a"
+    });
     await waitForMacroProjection({
       afterSequence: continuityMacroCursor,
-      macroId: secondMacro.id,
+      macroId: continuityMacro.id,
       roleIds: [scenario.roles[0].id],
       state: "running"
     });
-    await release("Digit3");
+    await release("Digit5");
+    await waitFixtureCode({
+      afterSequence: continuityTriggerDown.sequence,
+      code: "Digit5",
+      kind: "keyup",
+      roleId: "macro-keyboard-a"
+    });
     const continuityDigitOneDown = await waitFixtureCode({
       afterSequence: continuityFixtureCursor,
       code: "Digit1",
@@ -779,14 +945,14 @@ async function keyboardLifecyclePhase(): Promise<void> {
     });
     await waitForMacroProjection({
       afterSequence: continuityMacroCursor,
-      macroId: secondMacro.id,
+      macroId: continuityMacro.id,
       minimumIteration: 1,
       roleIds: [scenario.roles[0].id]
     });
     await waitForMacroProjection({
       absent: true,
       afterSequence: continuityMacroCursor,
-      macroId: secondMacro.id
+      macroId: continuityMacro.id
     });
 
     const continuityEvents = await fixtureEvents({
@@ -871,6 +1037,8 @@ async function keyboardLifecyclePhase(): Promise<void> {
     for (const code of [...heldCodes].reverse()) {
       await keyboardInput(code, "keyUp").catch(() => undefined);
     }
+    await rendererCall("deleteMacro", continuityMacro.id).catch(() => undefined);
+    await rendererCall("deleteMacro", compatibilityMacro.id).catch(() => undefined);
     await rendererCall("deleteMacro", secondMacro.id).catch(() => undefined);
     await rendererCall("deleteMacro", firstMacro.id).catch(() => undefined);
     await cleanup(scenario).catch(() => undefined);

@@ -21,5 +21,12 @@
     }
     return nativeInvoke("rion_macro_key_event_observed", { capability, observation });
   };
+  bridge.shortcutLifecycle = (event) => {
+    if (!nativeInvoke) return Promise.resolve();
+    return nativeInvoke("rion_overlay_request", {
+      capability,
+      payload: { ...event, type: "macro-shortcut-lifecycle" }
+    });
+  };
   return bridge;
 })()

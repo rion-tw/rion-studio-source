@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-16.1";
+  const scriptVersion = "2026-08-16.2";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";

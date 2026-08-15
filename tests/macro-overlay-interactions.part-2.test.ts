@@ -837,12 +837,14 @@ function _createMouseEvent(
 
 function dispatchShortcut(targetWindow: Window, code: string, key: string): void {
   const KeyboardEventConstructor = (targetWindow as unknown as { KeyboardEvent: typeof KeyboardEvent }).KeyboardEvent;
-  targetWindow.document.dispatchEvent(new KeyboardEventConstructor("keydown", {
-    bubbles: true,
-    cancelable: true,
-    code,
-    key
-  }));
+  for (const type of ["keydown", "keyup"]) {
+    targetWindow.document.dispatchEvent(new KeyboardEventConstructor(type, {
+      bubbles: true,
+      cancelable: true,
+      code,
+      key
+    }));
+  }
 }
 
 function runningStatus(overrides: Record<string, unknown> = {}): Record<string, unknown> {

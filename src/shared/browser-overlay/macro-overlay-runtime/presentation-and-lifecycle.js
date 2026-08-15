@@ -569,6 +569,7 @@
   function handleBlur() {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext(false);
+    cancelPendingPhysicalToggleShortcuts();
     releasePhysicalGameKeys();
     releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
@@ -578,6 +579,7 @@
     if (document.visibilityState === "hidden") {
       runtimeTabShortcutModifierCodes.clear();
       reportGameInputContext(false);
+      cancelPendingPhysicalToggleShortcuts();
       releasePhysicalGameKeys();
       releaseActiveHeldShortcuts();
       destroyCoordinateMeasurement();
@@ -597,6 +599,7 @@
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
     reportGameInputContext(false);
+    cancelPendingPhysicalToggleShortcuts();
     releaseActiveHeldShortcuts();
     releaseAllForwardedMacroKeys();
     releasePhysicalGameKeys();

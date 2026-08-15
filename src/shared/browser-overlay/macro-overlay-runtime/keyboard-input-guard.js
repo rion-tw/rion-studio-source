@@ -2,6 +2,7 @@
   const consumedPhysicalShortcutCodes = new Set();
   const forwardedMacroGameEvents = new WeakSet();
   const macroModifierOwnership = new Map();
+  const pendingPhysicalToggleShortcuts = [];
   const physicalGameKeys = new Map();
   const physicalModifierCodeSet = new Set([
     "AltLeft",
@@ -16,6 +17,7 @@
   let lastMacroGameCanvas = null;
   let macroGameKeyReassertQueued = false;
   let macroGameKeysNeedReassert = false;
+  let physicalShortcutEpoch = 0;
 
   function consumeShortcutEvent(event) {
     event.preventDefault();
@@ -431,6 +433,69 @@
     }
   }
 
+  function physicalShortcutTriggerSnapshot(trigger) {
+    return {
+      alt: Boolean(trigger.alt),
+      ctrl: Boolean(trigger.ctrl),
+      meta: Boolean(trigger.meta),
+      shift: Boolean(trigger.shift)
+    };
+  }
+
+  function reportMacroShortcutLifecycle(macroId, code, phase) {
+    void binding.shortcutLifecycle?.({
+      code,
+      macroId,
+      phase
+    }).catch(() => undefined);
+  }
+
+  function modifierIsReleased(event, required, property) {
+    return !required || event[property] === false;
+  }
+
+  function finishReleasedPhysicalToggleShortcuts(event) {
+    const ready = [];
+    for (let index = pendingPhysicalToggleShortcuts.length - 1; index >= 0; index -= 1) {
+      const pending = pendingPhysicalToggleShortcuts[index];
+      if (pending.code === event.code) pending.mainReleased = true;
+      if (
+        !pending.mainReleased ||
+        !modifierIsReleased(event, pending.modifiers.alt, "altKey") ||
+        !modifierIsReleased(event, pending.modifiers.ctrl, "ctrlKey") ||
+        !modifierIsReleased(event, pending.modifiers.meta, "metaKey") ||
+        !modifierIsReleased(event, pending.modifiers.shift, "shiftKey")
+      ) {
+        continue;
+      }
+      pendingPhysicalToggleShortcuts.splice(index, 1);
+      reportMacroShortcutLifecycle(
+        pending.macroId,
+        pending.code,
+        "chord-released"
+      );
+      ready.unshift(pending);
+    }
+    if (ready.length === 0) return;
+    const epoch = physicalShortcutEpoch;
+    queueMicrotask(() => {
+      if (isDisposed || epoch !== physicalShortcutEpoch) return;
+      ready.forEach((pending) => {
+        reportMacroShortcutLifecycle(
+          pending.macroId,
+          pending.code,
+          "macro-dispatched"
+        );
+        runAction("toggle", pending.macroId, undefined, true);
+      });
+    });
+  }
+
+  function cancelPendingPhysicalToggleShortcuts() {
+    physicalShortcutEpoch += 1;
+    pendingPhysicalToggleShortcuts.length = 0;
+  }
+
   function handleKeyDown(event) {
     if (forwardedMacroGameEvents.has(event)) return;
     if (!isTrustedUserEvent(event)) {
@@ -502,14 +567,8 @@
       return;
     }
 
-    const matchesMacroShortcut = state.macros.some(
-      (macro) =>
-        isShortcutMacroId(macro.id) &&
-        macro.enabled !== false &&
-        matchesShortcut(event, macro.trigger)
-    );
     if (event.repeat) {
-      if (matchesOpenShortcut(event) || matchesMacroShortcut) {
+      if (matchesOpenShortcut(event)) {
         consumedPhysicalShortcutCodes.add(event.code);
         consumeShortcutEvent(event);
       } else {
@@ -537,14 +596,18 @@
       return;
     }
 
-    consumedPhysicalShortcutCodes.add(event.code);
-    consumeShortcutEvent(event);
+    rememberPhysicalGameKey(event);
     if (matchingMacros.length !== 1) {
       console.warn("Multiple Rion Studio macros use the same shortcut for this role.");
       return;
     }
 
     const macro = matchingMacros[0];
+    reportMacroShortcutLifecycle(
+      macro.id,
+      event.code,
+      "physical-keydown-allowed"
+    );
     if ((macro.activationMode ?? "toggle") === "while_held") {
       if (activeHeldShortcuts.has(macro.id)) return;
       const pressId = `${Date.now()}-${nextPressId++}`;
@@ -552,7 +615,12 @@
       runAction("press", macro.id, { pressId }, true);
       return;
     }
-    runAction("toggle", macro.id, undefined, true);
+    pendingPhysicalToggleShortcuts.push({
+      code: event.code,
+      macroId: macro.id,
+      mainReleased: false,
+      modifiers: physicalShortcutTriggerSnapshot(macro.trigger)
+    });
   }
 
   function handleKeyUp(event) {
@@ -577,6 +645,7 @@
     const consumedModifierKeyUp = consumeOverlappingPhysicalModifierKeyUp(event);
     if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
     if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code);
+    finishReleasedPhysicalToggleShortcuts(event);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }
@@ -589,7 +658,6 @@
       ([, active]) => active.code === event.code
     );
     if (matches.length === 0) return;
-    if (!consumedShortcutKeyUp) consumeShortcutEvent(event);
     matches.forEach(([macroId, active]) => {
       activeHeldShortcuts.delete(macroId);
       runAction("release", macroId, {

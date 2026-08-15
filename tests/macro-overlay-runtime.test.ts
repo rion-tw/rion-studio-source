@@ -217,12 +217,14 @@ describe("shell-neutral macro overlay runtime", () => {
 
     canvas.blur();
     for (let index = 0; index < 20; index += 1) {
-      window.dispatchEvent(new KeyboardEvent("keydown", {
-        bubbles: true,
-        cancelable: true,
-        code: "KeyA",
-        key: "a"
-      }));
+      for (const type of ["keydown", "keyup"]) {
+        window.dispatchEvent(new KeyboardEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          code: "KeyA",
+          key: "a"
+        }));
+      }
     }
     await vi.waitFor(() => expect(
       requests.filter((request) => request.type === "toggle" && request.macroId === "toggle")

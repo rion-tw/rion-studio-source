@@ -20,6 +20,30 @@ async fn rion_overlay_request(
             "The overlay request exceeds the allowed size.",
         ));
     }
+    if payload.get("type").and_then(Value::as_str) == Some("macro-shortcut-lifecycle") {
+        let lifecycle = parse_macro_shortcut_lifecycle(&payload)?;
+        #[cfg(feature = "desktop-e2e")]
+        {
+            let (macro_id, code, phase) = lifecycle;
+            let window_id = state.runtime.window_id_for_webview(webview.label());
+            desktop_e2e::record_event(
+                "macro-shortcut-lifecycle",
+                window_id.as_deref(),
+                None,
+                None,
+                json!({
+                    "code": code,
+                    "macroId": macro_id,
+                    "phase": phase,
+                    "roleId": role_id,
+                    "webviewLabel": webview.label(),
+                }),
+            );
+        }
+        #[cfg(not(feature = "desktop-e2e"))]
+        let _ = lifecycle;
+        return Ok(Value::Null);
+    }
     if payload.get("type").and_then(Value::as_str) == Some("runtime-tab-shortcut") {
         let payload_object = payload.as_object().ok_or_else(|| {
             shell_error(
@@ -133,6 +157,64 @@ async fn rion_overlay_request(
         })
         .await
         .map_err(error_payload)
+}
+
+fn parse_macro_shortcut_lifecycle(
+    payload: &Value,
+) -> Result<(String, String, String), CoreErrorPayload> {
+    let object = payload.as_object().filter(|object| object.len() == 4).ok_or_else(|| {
+        shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The macro shortcut lifecycle payload contains unsupported fields.",
+        )
+    })?;
+    let bounded_field = |name: &str, max_len: usize| {
+        object
+            .get(name)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty() && value.len() <= max_len)
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                shell_error(
+                    "OVERLAY_REQUEST_INVALID",
+                    format!("The macro shortcut lifecycle {name} is invalid."),
+                )
+            })
+    };
+    if object.get("type").and_then(Value::as_str) != Some("macro-shortcut-lifecycle") {
+        return Err(shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The macro shortcut lifecycle type is invalid.",
+        ));
+    }
+    let macro_id = bounded_field("macroId", 128)?;
+    if !macro_id
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The macro shortcut lifecycle macroId is invalid.",
+        ));
+    }
+    let code = bounded_field("code", 32)?;
+    if !code.chars().all(|character| character.is_ascii_alphanumeric()) {
+        return Err(shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The macro shortcut lifecycle code is invalid.",
+        ));
+    }
+    let phase = bounded_field("phase", 32)?;
+    if !matches!(
+        phase.as_str(),
+        "physical-keydown-allowed" | "chord-released" | "macro-dispatched"
+    ) {
+        return Err(shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The macro shortcut lifecycle phase is invalid.",
+        ));
+    }
+    Ok((macro_id, code, phase))
 }
 
 #[tauri::command]

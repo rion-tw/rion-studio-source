@@ -376,7 +376,7 @@ it("preserves Flyff text input focus and ignores keyboard events forwarded to th
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
   });
 
-it("pairs while-held shortcuts with one press and release while consuming auto-repeat", async () => {
+it("pairs while-held shortcuts with one press and release while passing through auto-repeat", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {
       ...assignedMacro,
@@ -403,7 +403,8 @@ it("pairs while-held shortcuts with one press and release while consuming auto-r
       key: "F2",
       repeat: true
     });
-    expect(document.dispatchEvent(repeated)).toBe(false);
+    expect(document.dispatchEvent(repeated)).toBe(true);
+    expect(repeated.defaultPrevented).toBe(false);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "press",
       macroId: heldMacro.id,
@@ -424,7 +425,8 @@ it("pairs while-held shortcuts with one press and release while consuming auto-r
       code: "F2",
       key: "F2"
     });
-    expect(document.dispatchEvent(keyUp)).toBe(false);
+    expect(document.dispatchEvent(keyUp)).toBe(true);
+    expect(keyUp.defaultPrevented).toBe(false);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "release",
       macroId: heldMacro.id,
@@ -638,11 +640,17 @@ it("starts a macro even when the game already prevented the shortcut event", asy
     event.preventDefault();
 
     document.dispatchEvent(event);
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
 
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
   });
 
-it("captures macro shortcuts before game document handlers", async () => {
+it("lets game handlers observe macro shortcuts before toggling after keyup", async () => {
     createGameSurface(document);
     const gameKeyDown = vi.fn((event: KeyboardEvent) => {
       event.preventDefault();
@@ -657,10 +665,16 @@ it("captures macro shortcuts before game document handlers", async () => {
     await controller.refresh();
 
     dispatchShortcut(window, "F2", "F2");
+    document.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
 
     document.removeEventListener("keydown", gameKeyDown, true);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
-    expect(gameKeyDown).not.toHaveBeenCalled();
+    expect(gameKeyDown).toHaveBeenCalledOnce();
   });
 
 it("does not let a stale editable active element block a canvas shortcut", async () => {
@@ -684,6 +698,12 @@ it("does not let a stale editable active element block a canvas shortcut", async
     canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
     expect(document.activeElement).toBe(staleInput);
     canvas.dispatchEvent(event);
+    canvas.dispatchEvent(new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    }));
 
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
   });

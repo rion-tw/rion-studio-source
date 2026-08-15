@@ -375,7 +375,7 @@
   "macroForm.unknownGame": "不明なゲーム",
   "macroForm.unavailableRoles": "利用できないロール",
   "macroForm.shortcut": "Shortcut",
-  "macroForm.shortcutDescription": "Recorded by physical key code, so input language does not affect it.",
+  "macroForm.shortcutDescription": "物理キーコードで記録します。ショートカットは現在のゲームロールにも届くため、もう一度入力する場合だけ同じキーを手順に追加してください。",
   "macroForm.shortcutRecording": "Press shortcut",
   "macroForm.shortcutReserved": "Ctrl+Shift+M はマクロオーバーレイ用に予約されています。",
   "macroForm.shortcutBrowserZoomReserved": "Ctrl/Command +、-、0 はブラウザーのズーム用に予約されています。",

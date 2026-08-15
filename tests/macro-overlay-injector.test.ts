@@ -15,6 +15,11 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
     dispatchId: string;
     phase: "keydown" | "keyup";
   }): Promise<unknown>;
+  shortcutLifecycle(event: {
+    code: string;
+    macroId: string;
+    phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+  }): Promise<unknown>;
 };
 
 const macro = {
@@ -146,6 +151,25 @@ describe("Tauri macro overlay injector", () => {
     expect(invoke).toHaveBeenCalledWith("rion_macro_key_event_observed", {
       capability: "test-capability",
       observation
+    });
+  });
+
+  it("forwards configured shortcut lifecycle diagnostics without role or text data", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => undefined);
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const event = {
+      code: "Digit2",
+      macroId: "macro-1",
+      phase: "chord-released" as const
+    };
+
+    await binding.shortcutLifecycle(event);
+
+    expect(invoke).toHaveBeenCalledWith("rion_overlay_request", {
+      capability: "test-capability",
+      payload: { ...event, type: "macro-shortcut-lifecycle" }
     });
   });
 

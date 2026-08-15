@@ -56,6 +56,11 @@ interface OverlayTestWindow extends Window {
 interface OverlayBinding {
   (request: unknown): Promise<unknown>;
   macroKeyObserved?: (observation: MacroKeyObservation) => Promise<unknown>;
+  shortcutLifecycle?: (event: {
+    code: string;
+    macroId: string;
+    phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+  }) => Promise<unknown>;
 }
 
 interface MacroKeyObservation {
@@ -268,23 +273,47 @@ describe("macro overlay native key guard", () => {
         steps: []
       }
     ];
-    const binding = vi.fn(async (_request: unknown) => ({
-      macros,
-      shortcutMacroIds: macros.map(({ id }) => id),
-      statuses: []
-    }));
-    const controller = installOverlay(binding);
+    const actionTimeline: string[] = [];
+    const shortcutLifecycle = vi.fn(async (_event: {
+      code: string;
+      macroId: string;
+      phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+    }) => undefined);
+    const binding = vi.fn(async (request: unknown) => {
+      if (
+        typeof request === "object"
+        && request !== null
+        && (request as { type?: string }).type === "toggle"
+      ) {
+        actionTimeline.push(`toggle:${String((request as { macroId?: unknown }).macroId)}`);
+      }
+      return {
+        macros,
+        shortcutMacroIds: macros.map(({ id }) => id),
+        statuses: []
+      };
+    });
+    Object.assign(binding, { shortcutLifecycle });
+    const controller = installOverlay(binding as OverlayBinding);
     await controller.refresh();
-    const gameKeyUps = vi.fn();
-    document.addEventListener("keyup", gameKeyUps);
+    const gameEvents: string[] = [];
+    document.addEventListener("keydown", (event) => {
+      gameEvents.push(`down:${event.code}`);
+      actionTimeline.push(`down:${event.code}`);
+    });
+    document.addEventListener("keyup", (event) => {
+      gameEvents.push(`up:${event.code}`);
+      actionTimeline.push(`up:${event.code}`);
+    });
 
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const physicalTwoDown = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
-    expect(document.dispatchEvent(physicalTwoDown)).toBe(false);
+    expect(document.dispatchEvent(physicalTwoDown)).toBe(true);
     const physicalTwoUp = keyEvent("keyup", "Digit2", "@", { shiftKey: true });
-    expect(document.dispatchEvent(physicalTwoUp)).toBe(false);
-    expect(physicalTwoUp.defaultPrevented).toBe(true);
-    expect(gameKeyUps).not.toHaveBeenCalled();
+    expect(document.dispatchEvent(physicalTwoUp)).toBe(true);
+    expect(physicalTwoUp.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
+    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-two"
@@ -294,14 +323,14 @@ describe("macro overlay native key guard", () => {
     document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
     armShortcut(controller, "Digit2", "keyup");
     document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
-    expect(gameKeyUps).toHaveBeenCalledOnce();
-    expect(gameKeyUps.mock.calls[0]?.[0]).toMatchObject({ code: "Digit2" });
+    document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const physicalThreeDown = keyEvent("keydown", "Digit3", "#", { shiftKey: true });
-    expect(document.dispatchEvent(physicalThreeDown)).toBe(false);
+    expect(document.dispatchEvent(physicalThreeDown)).toBe(true);
     const physicalThreeUp = keyEvent("keyup", "Digit3", "#", { shiftKey: true });
-    expect(document.dispatchEvent(physicalThreeUp)).toBe(false);
-    expect(physicalThreeUp.defaultPrevented).toBe(true);
-    expect(gameKeyUps).toHaveBeenCalledOnce();
+    expect(document.dispatchEvent(physicalThreeUp)).toBe(true);
+    expect(physicalThreeUp.defaultPrevented).toBe(false);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-three" });
+    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-three"
@@ -315,8 +344,82 @@ describe("macro overlay native key guard", () => {
       )
       .map((request) => request.macroId);
     expect(toggleIds).toEqual(["macro-two", "macro-three"]);
-    expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
+    expect(shortcutLifecycle.mock.calls.map(([event]) => [event.macroId, event.phase])).toEqual([
+      ["macro-two", "physical-keydown-allowed"],
+      ["macro-two", "chord-released"],
+      ["macro-two", "macro-dispatched"],
+      ["macro-three", "physical-keydown-allowed"],
+      ["macro-three", "chord-released"],
+      ["macro-three", "macro-dispatched"]
+    ]);
+    expect(actionTimeline.indexOf("toggle:macro-two")).toBeGreaterThan(
+      actionTimeline.indexOf("up:ShiftLeft")
+    );
+    expect(actionTimeline.indexOf("toggle:macro-three")).toBeGreaterThan(
+      actionTimeline.lastIndexOf("up:ShiftLeft")
+    );
+    expect(gameEvents).toEqual([
+      "down:ShiftLeft",
+      "down:Digit2",
+      "up:Digit2",
+      "up:ShiftLeft",
+      "down:Digit2",
+      "up:Digit2",
+      "down:ShiftLeft",
+      "down:Digit3",
+      "up:Digit3",
+      "up:ShiftLeft"
+    ]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
   });
+
+  it.each(["blur", "pagehide", "hidden", "dispose"] as const)(
+    "cancels a partially released toggle shortcut on %s",
+    async (terminal) => {
+      const macro = {
+        id: "macro-two",
+        enabled: true,
+        name: "Shift 2",
+        roleIds: ["role-1"],
+        shortcutSourceScope: { type: "all_execution_roles" },
+        trigger: { code: "Digit2", ctrl: false, alt: false, shift: true, meta: false },
+        repeat: { type: "once" },
+        steps: []
+      };
+      const binding = vi.fn(async () => ({
+        macros: [macro],
+        shortcutMacroIds: [macro.id],
+        statuses: []
+      }));
+      const controller = installOverlay(binding);
+      await controller.refresh();
+
+      document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+      document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+      document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
+      expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
+
+      if (terminal === "hidden") {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "hidden"
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible"
+        });
+      } else if (terminal === "dispose") {
+        controller.dispose();
+      } else {
+        window.dispatchEvent(new Event(terminal));
+      }
+      document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+      await Promise.resolve();
+
+      expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
+    }
+  );
 
   it("forwards an editable macro key only to the remembered canvas target", () => {
     const controller = installOverlay();

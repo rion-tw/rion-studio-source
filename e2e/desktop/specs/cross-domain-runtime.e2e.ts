@@ -239,6 +239,7 @@ async function visibleDestinationLaunch(input: {
   sourceType: "role" | "workspace";
 }): Promise<EmbeddedRuntimeState> {
   await navigate(input.sourceType === "role" ? "/roles" : "/workspaces");
+  const control = await probe();
   const cursor = await rendererEventCursor();
   const card = await $(`[data-selection-id='${input.id}']`);
   await card.waitForDisplayed({ timeout: 10_000 });
@@ -266,6 +267,18 @@ async function visibleDestinationLaunch(input: {
   );
   await destination.waitForClickable({ timeout: 10_000 });
   await destination.click();
+  const terminal = await waitForTranscriptEvent(
+    control.transcriptPath,
+    (candidate) => candidate.sequence > control.latestSequence
+      && candidate.kind === "runtime-launch-intent-terminal"
+      && (candidate.details as { sourceId?: string }).sourceId === input.id,
+    55_000
+  );
+  expect(terminal.details).toMatchObject({
+    sourceId: input.id,
+    sourceType: input.sourceType,
+    status: "applied"
+  });
   return waitForRuntimeProjection({ afterSequence: cursor, sourceId: input.id });
 }
 
@@ -339,8 +352,21 @@ async function seedPhase(): Promise<void> {
 
   const beforeDuplicate = await rendererCall("getEmbeddedRuntimeState");
   await navigate("/roles");
+  const duplicateControl = await probe();
   const duplicateCursor = await rendererEventCursor();
   await $(`[data-selection-id='${scenario.roles[1].id}'] button[aria-label='Open']`).click();
+  const duplicateTerminal = await waitForTranscriptEvent(
+    duplicateControl.transcriptPath,
+    (candidate) => candidate.sequence > duplicateControl.latestSequence
+      && candidate.kind === "runtime-launch-intent-terminal"
+      && (candidate.details as { sourceId?: string }).sourceId === scenario.roles[1].id,
+    55_000
+  );
+  expect(duplicateTerminal.details).toMatchObject({
+    sourceId: scenario.roles[1].id,
+    sourceType: "role",
+    status: "applied"
+  });
   const afterDuplicate = await waitForRuntimeProjection({
     afterSequence: duplicateCursor,
     sourceId: scenario.roles[1].id

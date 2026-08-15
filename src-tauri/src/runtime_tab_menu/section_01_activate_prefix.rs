@@ -37,6 +37,46 @@ struct LaunchIntent {
     target_policy: RuntimeLaunchTargetPolicy,
 }
 
+fn record_launch_intent_terminal(
+    intent: &RuntimeLaunchIntentRecord,
+    result: Result<&RuntimeLaunchOutcome, &rion_core::CoreErrorPayload>,
+) {
+    #[cfg(not(feature = "desktop-e2e"))]
+    let _ = (intent, result);
+    #[cfg(feature = "desktop-e2e")]
+    match result {
+        Ok(outcome) => crate::desktop_e2e::record_event(
+            "runtime-launch-intent-terminal",
+            Some(&outcome.receipt.window_id),
+            Some(outcome.receipt.window_generation),
+            Some(outcome.receipt.topology_revision),
+            serde_json::json!({
+                "adapterSequence": intent.adapter_sequence,
+                "intentId": intent.intent_id,
+                "receipt": outcome.receipt,
+                "sourceId": intent.source_id,
+                "sourceType": intent.source_type,
+                "status": outcome.receipt.status,
+            }),
+        ),
+        Err(error) => crate::desktop_e2e::record_event(
+            "runtime-launch-intent-terminal",
+            None,
+            None,
+            None,
+            serde_json::json!({
+                "adapterSequence": intent.adapter_sequence,
+                "failureCode": error.code,
+                "intentId": intent.intent_id,
+                "message": error.message,
+                "sourceId": intent.source_id,
+                "sourceType": intent.source_type,
+                "status": "failed",
+            }),
+        ),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeLaunchTargetPolicy {
     Automatic,
@@ -160,6 +200,7 @@ impl LaunchIntentDispatcher {
                         ),
                     )
                     .await;
+                    record_launch_intent_terminal(&terminal_intent, result.as_ref());
                     if let Err(error) = result.as_ref() {
                         let mut events = crate::RuntimeLaunchEventBatch::with_timing(
                             job_launch_log_sender,

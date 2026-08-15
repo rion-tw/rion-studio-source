@@ -232,81 +232,83 @@ async function waitForRendererProjection<T>(request: RendererWaitRequest): Promi
             : undefined;
         }
         if (waitRequest.kind === "runtime") {
-          const entry = latestEntry(journal.runtimeStates);
-          if (!entry) return undefined;
-          const tab = waitRequest.tabId
-            ? entry.value.tabs.find((candidate) => candidate.id === waitRequest.tabId)
-            : waitRequest.sourceId
-              ? entry.value.tabs.find((candidate) => candidate.sourceId === waitRequest.sourceId)
-            : undefined;
-          const runtimeWindow = waitRequest.windowId
-            ? entry.value.windows.find((candidate) => candidate.windowId === waitRequest.windowId)
-            : undefined;
-          if (waitRequest.absent) {
-            const targetAbsent = waitRequest.sourceId || waitRequest.tabId
-              ? tab === undefined
-              : runtimeWindow === undefined;
-            return targetAbsent ? entry.value : undefined;
-          }
-          if (waitRequest.sourceId && !tab) return undefined;
-          if (waitRequest.tabId && !tab) return undefined;
-          if (waitRequest.hidden !== undefined && tab?.hidden !== waitRequest.hidden) {
-            return undefined;
-          }
-          if (waitRequest.windowId && !runtimeWindow) return undefined;
-          if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
-            return undefined;
-          }
-          if (waitRequest.windowIds?.some((windowId) =>
-            !entry.value.windows.some((candidate) => candidate.windowId === windowId)
-          )) {
-            return undefined;
-          }
-          if (waitRequest.exactWindowIds) {
-            const actualWindowIds = entry.value.windows.map((candidate) => candidate.windowId).sort();
-            const expectedWindowIds = [...waitRequest.exactWindowIds].sort();
-            if (actualWindowIds.join("\n") !== expectedWindowIds.join("\n")) return undefined;
-          }
-          if (waitRequest.recoveryAbsent && entry.value.recovery) return undefined;
-          if (waitRequest.recoveryWindowCount !== undefined
-            && entry.value.recovery?.windowCount !== waitRequest.recoveryWindowCount) {
-            return undefined;
-          }
-          if (waitRequest.recoveryTabCount !== undefined
-            && entry.value.recovery?.tabCount !== waitRequest.recoveryTabCount) {
-            return undefined;
-          }
-          if (waitRequest.savedWindowStates?.some((expectation) =>
-            !entry.value.savedWindows?.some((candidate) =>
-              candidate.id === expectation.windowId && candidate.state === expectation.state
-            )
-          )) {
-            return undefined;
-          }
-          if (waitRequest.roleSlots?.some((ownerExpectation) => {
-            const targetTab = ownerExpectation.tabId
-              ? entry.value.tabs.find((candidate) => candidate.id === ownerExpectation.tabId)
-              : tab;
-            const slot = targetTab?.slots.find(
-              (candidate) => candidate.roleId === ownerExpectation.roleId
-            );
-            return !slot
-              || Boolean(ownerExpectation.state && slot.state !== ownerExpectation.state)
-              || Boolean(
-                ownerExpectation.ownerTabId
-                && slot.owner?.tabId !== ownerExpectation.ownerTabId
+          for (let index = journal.runtimeStates.length - 1; index >= 0; index -= 1) {
+            const entry = journal.runtimeStates[index];
+            if (entry.sequence <= afterSequence) continue;
+            const tab = waitRequest.tabId
+              ? entry.value.tabs.find((candidate) => candidate.id === waitRequest.tabId)
+              : waitRequest.sourceId
+                ? entry.value.tabs.find((candidate) => candidate.sourceId === waitRequest.sourceId)
+              : undefined;
+            const runtimeWindow = waitRequest.windowId
+              ? entry.value.windows.find((candidate) => candidate.windowId === waitRequest.windowId)
+              : undefined;
+            if (waitRequest.absent) {
+              const targetAbsent = waitRequest.sourceId || waitRequest.tabId
+                ? tab === undefined
+                : runtimeWindow === undefined;
+              if (targetAbsent) return entry.value;
+              continue;
+            }
+            if (waitRequest.sourceId && !tab) continue;
+            if (waitRequest.tabId && !tab) continue;
+            if (waitRequest.hidden !== undefined && tab?.hidden !== waitRequest.hidden) continue;
+            if (waitRequest.windowId && !runtimeWindow) continue;
+            if (waitRequest.activeTabId && runtimeWindow?.activeTabId !== waitRequest.activeTabId) {
+              continue;
+            }
+            if (waitRequest.windowIds?.some((windowId) =>
+              !entry.value.windows.some((candidate) => candidate.windowId === windowId)
+            )) {
+              continue;
+            }
+            if (waitRequest.exactWindowIds) {
+              const actualWindowIds = entry.value.windows.map((candidate) => candidate.windowId).sort();
+              const expectedWindowIds = [...waitRequest.exactWindowIds].sort();
+              if (actualWindowIds.join("\n") !== expectedWindowIds.join("\n")) continue;
+            }
+            if (waitRequest.recoveryAbsent && entry.value.recovery) continue;
+            if (waitRequest.recoveryWindowCount !== undefined
+              && entry.value.recovery?.windowCount !== waitRequest.recoveryWindowCount) {
+              continue;
+            }
+            if (waitRequest.recoveryTabCount !== undefined
+              && entry.value.recovery?.tabCount !== waitRequest.recoveryTabCount) {
+              continue;
+            }
+            if (waitRequest.savedWindowStates?.some((expectation) =>
+              !entry.value.savedWindows?.some((candidate) =>
+                candidate.id === expectation.windowId && candidate.state === expectation.state
               )
-              || Boolean(
-                ownerExpectation.ownedByTargetTab
-                && slot.owner?.tabId !== targetTab?.id
+            )) {
+              continue;
+            }
+            if (waitRequest.roleSlots?.some((ownerExpectation) => {
+              const targetTab = ownerExpectation.tabId
+                ? entry.value.tabs.find((candidate) => candidate.id === ownerExpectation.tabId)
+                : tab;
+              const slot = targetTab?.slots.find(
+                (candidate) => candidate.roleId === ownerExpectation.roleId
               );
-          })) {
-            return undefined;
+              return !slot
+                || Boolean(ownerExpectation.state && slot.state !== ownerExpectation.state)
+                || Boolean(
+                  ownerExpectation.ownerTabId
+                  && slot.owner?.tabId !== ownerExpectation.ownerTabId
+                )
+                || Boolean(
+                  ownerExpectation.ownedByTargetTab
+                  && slot.owner?.tabId !== targetTab?.id
+                );
+            })) {
+              continue;
+            }
+            if (!waitRequest.roleIds
+              || (tab && waitRequest.roleIds.every((roleId) => tab.roleIds.includes(roleId)))) {
+              return entry.value;
+            }
           }
-          return !waitRequest.roleIds
-            || (tab && waitRequest.roleIds.every((roleId) => tab.roleIds.includes(roleId)))
-            ? entry.value
-            : undefined;
+          return undefined;
         }
         if (waitRequest.kind === "gameWindow") {
           const entry = latestEntry(journal.gameWindows);

@@ -58,6 +58,8 @@ describe("desktop E2E build isolation", () => {
 
     expect(journal).toContain("hidden?: boolean;");
     expect(journal).toContain("tabId?: string;");
+    expect(journal).toContain("journal.runtimeStates.length - 1");
+    expect(journal).toContain("if (entry.sequence <= afterSequence) continue;");
     expect(journal).toContain("candidate.id === waitRequest.tabId");
     expect(journal).toContain("tab?.hidden !== waitRequest.hidden");
     expect(journey).toContain("hidden: false");

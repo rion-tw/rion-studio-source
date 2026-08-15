@@ -180,6 +180,23 @@ it("projects authoritative launch-phase changes into Windows tab chrome", async 
     .toBeLessThan(setLaunchPhase.indexOf("self.publish_projection()"));
 });
 
+it("publishes a hidden launcher tab only after its exact activation terminal", async () => {
+  const source = await readFile(
+    "src-tauri/src/lib/section_04_runtime_launch_intent.rs",
+    "utf8"
+  );
+  const admitted = source.slice(
+    source.indexOf("let was_hidden = activation_tracked"),
+    source.indexOf("state.runtime.cancel_provisional_tab_launch(&tab_id);")
+  );
+
+  expect(admitted).toContain("if was_hidden {");
+  expect(admitted).toContain("activate_runtime_tab_on_demand(app, &state, &tab_id, false).await?");
+  expect(admitted).toContain("state.runtime.publish_projection();");
+  expect(admitted.indexOf("activate_runtime_tab_on_demand"))
+    .toBeLessThan(admitted.indexOf("state.runtime.publish_projection()"));
+});
+
 it("terminalizes Kernel close operations and input fences from exact native release", async () => {
   const [destroySource, inputFenceSource] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_27_add_child_bounded.rs", "utf8"),

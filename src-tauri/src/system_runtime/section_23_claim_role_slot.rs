@@ -308,6 +308,27 @@ impl SystemRuntimeExecutor {
                 zoom_factor: projected_zoom,
                 zoom_mode: "fixed".to_owned(),
             };
+            if owner
+                .as_ref()
+                .is_some_and(|owner| tab_id.as_str() == owner.tab_id)
+            {
+                self.close_role_placeholder_surface(placeholder)?;
+                let mut state = self.state()?;
+                let runtime_slot = state
+                    .native_resources
+                    .tabs
+                    .get_mut(&tab_id)
+                    .and_then(|tab| tab.slots.get_mut(&slot.slot_id))
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            "SYSTEM_RUNTIME_ROLE_SLOT_STALE",
+                            "Role slot closed while its claimed placeholder was retired.",
+                        )
+                    })?;
+                runtime_slot.placeholder = None;
+                runtime_slot.owner_generation = owner.as_ref().map(|owner| owner.generation);
+                continue;
+            }
             let identity = self.role_placeholder_identity(&tab_id, &slot);
             let serialized_identity = serde_json::to_string(&identity).map_err(|error| {
                 RuntimeError::new("SYSTEM_ROLE_PLACEHOLDER_INVALID", error.to_string())

@@ -368,6 +368,26 @@ describe("runtime window lifecycle authority", () => {
     );
   });
 
+  it("retires the claimed slot placeholder but reprojects sibling slots in place", async () => {
+    const source = await readFile(
+      new URL(
+        "../src-tauri/src/system_runtime/section_23_claim_role_slot.rs",
+        import.meta.url
+      ),
+      "utf8"
+    );
+    const refresh = source.slice(
+      source.indexOf("fn refresh_role_placeholders("),
+      source.indexOf("fn schedule_released_role_placeholder_refresh(")
+    );
+
+    expect(refresh).toContain("tab_id.as_str() == owner.tab_id");
+    expect(refresh).toContain("self.close_role_placeholder_surface(placeholder)?");
+    expect(refresh).toContain("runtime_slot.placeholder = None");
+    expect(refresh).toContain("__rionRefreshRoleSlotIdentity");
+    expect(refresh).not.toContain("self.create_role_placeholder(");
+  });
+
   it("fences cancelled create effects and retires a create that loses its Core acknowledgement race", async () => {
     const [executor, admission, core] = await Promise.all([
       readFile(

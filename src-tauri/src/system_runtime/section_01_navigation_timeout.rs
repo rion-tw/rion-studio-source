@@ -582,6 +582,7 @@ enum SurfaceReleaseBoundary {
 struct SurfaceClosePlan {
     allow_durable_checkpoint_fallback: bool,
     checkpoint_role_session: bool,
+    committed_page_before_retirement: bool,
     defer_navigation_to_preflight: bool,
     release_boundary: SurfaceReleaseBoundary,
     requires_page_quiesce: bool,

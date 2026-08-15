@@ -420,6 +420,7 @@ impl SystemRuntimeExecutor {
                 SurfaceClosePlan {
                     allow_durable_checkpoint_fallback: false,
                     checkpoint_role_session: true,
+                    committed_page_before_retirement: true,
                     defer_navigation_to_preflight: true,
                     release_boundary: SurfaceReleaseBoundary::DedicatedStore,
                     requires_page_quiesce: true,

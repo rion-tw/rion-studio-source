@@ -266,7 +266,7 @@ fn windows_dividers_release_without_a_remote_page_quiesce() {
 }
 
 #[test]
-fn only_retired_recovery_surfaces_with_a_durable_checkpoint_can_skip_failed_readback() {
+fn only_retired_recovery_surfaces_with_a_recoverable_baseline_can_skip_failed_readback() {
     for platform in ["windows", "macos"] {
         assert!(managed_surface_close_allows_durable_checkpoint_fallback(
             ManagedSurfacePhase::Retired,
@@ -283,22 +283,27 @@ fn only_retired_recovery_surfaces_with_a_durable_checkpoint_can_skip_failed_read
         assert!(durable_checkpoint_fallback_is_allowed(
             true,
             "TAURI_EVALUATION_TIMEOUT",
+            recovery_session_baseline_is_available(true, true),
+        ), "{platform}");
+        assert!(durable_checkpoint_fallback_is_allowed(
             true,
+            "TAURI_EVALUATION_TIMEOUT",
+            recovery_session_baseline_is_available(false, false),
         ), "{platform}");
         assert!(!durable_checkpoint_fallback_is_allowed(
             false,
             "TAURI_EVALUATION_TIMEOUT",
-            true,
+            recovery_session_baseline_is_available(true, true),
         ), "{platform}");
         assert!(!durable_checkpoint_fallback_is_allowed(
             true,
             "ROLE_LOCAL_STORAGE_CHECKPOINT_WRITE_FAILED",
-            true,
+            recovery_session_baseline_is_available(true, true),
         ), "{platform}");
         assert!(!durable_checkpoint_fallback_is_allowed(
             true,
             "TAURI_EVALUATION_TIMEOUT",
-            false,
+            recovery_session_baseline_is_available(false, true),
         ), "{platform}");
     }
 }

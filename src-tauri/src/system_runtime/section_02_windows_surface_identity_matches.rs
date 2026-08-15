@@ -96,11 +96,18 @@ fn managed_surface_close_checkpoints_role_session(
 fn durable_checkpoint_fallback_is_allowed(
     retired_recovery_surface: bool,
     checkpoint_error_code: &str,
-    has_durable_checkpoint: bool,
+    has_recoverable_session_baseline: bool,
 ) -> bool {
     retired_recovery_surface
         && checkpoint_error_code == "TAURI_EVALUATION_TIMEOUT"
-        && has_durable_checkpoint
+        && has_recoverable_session_baseline
+}
+
+fn recovery_session_baseline_is_available(
+    has_durable_checkpoint: bool,
+    committed_page_before_retirement: bool,
+) -> bool {
+    has_durable_checkpoint || !committed_page_before_retirement
 }
 
 fn managed_surface_close_allows_durable_checkpoint_fallback(

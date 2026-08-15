@@ -770,25 +770,33 @@ impl SystemRuntimeExecutor {
                     .persist_role_cookie_checkpoint(webview, role_id)
                     .and_then(|()| self.persist_role_local_storage_checkpoint(webview, role_id));
                 if let Err(error) = checkpoint_result {
-                    let has_durable_checkpoint = if plan.allow_durable_checkpoint_fallback
+                    let has_recoverable_session_baseline = if plan.allow_durable_checkpoint_fallback
                         && error.code == "TAURI_EVALUATION_TIMEOUT"
                     {
-                        read_role_local_storage_checkpoint_blob(&self.user_data_dir, role_id)?
-                            .is_some()
+                        let has_durable_checkpoint = if plan.committed_page_before_retirement {
+                            read_role_local_storage_checkpoint_blob(&self.user_data_dir, role_id)?
+                                .is_some()
+                        } else {
+                            false
+                        };
+                        recovery_session_baseline_is_available(
+                            has_durable_checkpoint,
+                            plan.committed_page_before_retirement,
+                        )
                     } else {
                         false
                     };
                     if !durable_checkpoint_fallback_is_allowed(
                         plan.allow_durable_checkpoint_fallback,
                         error.code,
-                        has_durable_checkpoint,
+                        has_recoverable_session_baseline,
                     ) {
                         return Err(error);
                     }
                     self.record_surface_stage_by_label(
                         LogLevel::Warn,
                         "surface.session-checkpoint-fallback",
-                        "The unresponsive retired page could not refresh LocalStorage; recovery retained the last durable role checkpoint before exact native isolation.",
+                        "The unresponsive retired page could not refresh LocalStorage; recovery retained its recoverable session baseline before exact native isolation.",
                         &label,
                     );
                 } else {
@@ -943,6 +951,7 @@ impl SystemRuntimeExecutor {
             SurfaceClosePlan {
                 allow_durable_checkpoint_fallback: false,
                 checkpoint_role_session: false,
+                committed_page_before_retirement: true,
                 defer_navigation_to_preflight: true,
                 release_boundary,
                 requires_page_quiesce: true,
@@ -1033,6 +1042,24 @@ impl SystemRuntimeExecutor {
     ) -> RuntimeResult<()> {
         let surface = self.managed_surface(instance_id)?;
         let release_boundary = release_boundary.unwrap_or(surface.release_boundary);
+        let committed_page_before_retirement = if managed_surface_close_allows_durable_checkpoint_fallback(
+            surface.phase,
+            surface.kind,
+        ) {
+            let navigation = {
+                let state = self.state()?;
+                state
+                    .native_resources
+                    .tabs
+                    .values()
+                    .flat_map(|tab| tab.roles.values())
+                    .find(|role| role.surface_instance_id == instance_id)
+                    .map(|role| Arc::clone(&role.navigation))
+            };
+            navigation.is_none_or(|navigation| navigation.has_committed_page())
+        } else {
+            true
+        };
         let mut operation = NativeOperationContext::new_event_bound(
             NativeOperationSubsystem::SurfaceLifecycle,
             "closeManagedSurface",
@@ -1129,6 +1156,7 @@ impl SystemRuntimeExecutor {
                             defer_navigation_to_preflight,
                             surface.session_checkpointed_for_close,
                         ),
+                        committed_page_before_retirement,
                         defer_navigation_to_preflight,
                         release_boundary,
                         requires_page_quiesce: managed_surface_requires_page_quiesce(

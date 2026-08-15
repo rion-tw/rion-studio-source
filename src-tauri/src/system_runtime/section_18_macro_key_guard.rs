@@ -1,282 +1,581 @@
-#[cfg(windows)]
-const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = PLATFORM_CALLBACK_TIMEOUT;
-#[cfg(not(windows))]
-const MACRO_KEY_GUARD_MAX_LIFETIME: Duration = Duration::from_secs(1);
-#[cfg(not(windows))]
-const MACRO_KEY_RELEASE_GUARD_WAIT: Duration = Duration::from_millis(100);
+const MACRO_KEY_OBSERVATION_MAX_WAIT: Duration = PLATFORM_CALLBACK_TIMEOUT;
 
-fn dispatch_guarded_macro_key_effect(
-    webview: &Webview,
-    effect: &EmbeddedKeyEffectRecord,
-    context: &InputDispatchContext,
-) -> RuntimeResult<()> {
-    dispatch_guarded_macro_key_effect_with(
-        effect,
-        || arm_macro_key_event_guard(webview, effect, context),
-        |physical_modifier_codes| {
-            dispatch_key_effect_with_physical_modifiers(
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MacroKeyEventObservation {
+    dispatch_id: String,
+    code: String,
+    phase: String,
+}
+
+struct MacroKeyObservationWaiter {
+    dispatch_id: String,
+    receiver: mpsc::Receiver<MacroKeyObservationSignal>,
+}
+
+struct MacroKeyObservationError {
+    dispatch_id: String,
+    error: RuntimeError,
+}
+
+impl SystemRuntimeExecutor {
+    fn dispatch_guarded_macro_key_effect(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        effect: &EmbeddedKeyEffectRecord,
+        context: &InputDispatchContext,
+    ) -> RuntimeResult<()> {
+        self.dispatch_guarded_macro_key_effect_inner(
+            role_id, webview, effect, context, true, false,
+        )
+    }
+
+    fn dispatch_guarded_macro_key_effect_inner(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        effect: &EmbeddedKeyEffectRecord,
+        context: &InputDispatchContext,
+        compensate_unknown: bool,
+        modifier_projection: bool,
+    ) -> RuntimeResult<()> {
+        let (acknowledgement, waiter) =
+            self.arm_macro_key_event_guard(
+                role_id,
                 webview,
                 effect,
-                physical_modifier_codes,
                 context,
+                modifier_projection,
+            )?;
+        let native_result = dispatch_key_effect(webview, effect, context);
+        if native_result
+            .as_ref()
+            .is_err_and(|error| error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE")
+        {
+            self.cancel_macro_key_observation(&waiter.dispatch_id);
+            let cleanup = self.cleanup_input_context(context);
+            let _ = cancel_macro_key_event_guard(webview, &waiter.dispatch_id, &cleanup);
+            return native_result;
+        }
+        if native_result.is_ok() {
+            self.record_macro_key_receipt(
+                "macro-key-native-acknowledged",
+                role_id,
+                webview.label(),
+                effect,
+                &waiter.dispatch_id,
+            );
+        }
+        let observed = self.wait_for_macro_key_observation(waiter, context);
+        if let Err(observation_error) = observed {
+            if observation_error.error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                return Err(observation_error.error);
+            }
+            let cleanup = self.cleanup_input_context(context);
+            let _ = cancel_macro_key_event_guard(
+                webview,
+                &observation_error.dispatch_id,
+                &cleanup,
+            );
+            if compensate_unknown {
+                let compensation = macro_key_compensation_effect(effect);
+                if let Err(cleanup_error) = self.dispatch_guarded_macro_key_effect_inner(
+                    role_id,
+                    webview,
+                    &compensation,
+                    &cleanup,
+                    false,
+                    false,
+                ) {
+                    return Err(RuntimeError::new(
+                        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                        format!(
+                            "The page did not acknowledge {} {}; guarded cleanup also failed: {}",
+                            effect.code, effect.phase, cleanup_error.message
+                        ),
+                    ));
+                }
+            }
+            return Err(observation_error.error);
+        }
+        if let Err(error) = native_result
+            && error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+        {
+            return Err(error);
+        }
+        dispatch_key_effect_with_physical_modifiers(
+            webview,
+            effect,
+            &acknowledgement.physical_modifier_codes,
+            context,
+            |projection| {
+                self.dispatch_guarded_macro_key_effect_inner(
+                    role_id,
+                    webview,
+                    projection,
+                    context,
+                    true,
+                    true,
+                )
+            },
+        )
+    }
+
+    fn arm_macro_key_event_guard(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        effect: &EmbeddedKeyEffectRecord,
+        context: &InputDispatchContext,
+        modifier_projection: bool,
+    ) -> RuntimeResult<(MacroKeyGuardAcknowledgement, MacroKeyObservationWaiter)> {
+        context.ensure_current()?;
+        let waiter = self.register_macro_key_observation(role_id, webview, effect, context)?;
+        let source = if modifier_projection {
+            macro_modifier_projection_guard_arm_script(effect, &waiter.dispatch_id)
+        } else {
+            macro_key_guard_arm_script(effect, &waiter.dispatch_id)
+        };
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => {
+                self.cancel_macro_key_observation(&waiter.dispatch_id);
+                return Err(error);
+            }
+        };
+        let acknowledgement = arm_webview_macro_key_event_guard(webview, &source, context);
+        match acknowledgement {
+            Ok(acknowledgement) => {
+                self.record_macro_key_receipt(
+                    "macro-key-guard-armed",
+                    role_id,
+                    webview.label(),
+                    effect,
+                    &waiter.dispatch_id,
+                );
+                Ok((acknowledgement, waiter))
+            }
+            Err(error) => {
+                self.cancel_macro_key_observation(&waiter.dispatch_id);
+                let cleanup = self.cleanup_input_context(context);
+                let _ = cancel_macro_key_event_guard(webview, &waiter.dispatch_id, &cleanup);
+                Err(error)
+            }
+        }
+    }
+
+    fn register_macro_key_observation(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        effect: &EmbeddedKeyEffectRecord,
+        context: &InputDispatchContext,
+    ) -> RuntimeResult<MacroKeyObservationWaiter> {
+        let phase = macro_key_dom_phase(effect)?;
+        context.ensure_current()?;
+        let dispatch_id = uuid::Uuid::new_v4().to_string();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let pending = PendingMacroKeyObservation {
+            code: effect.code.clone(),
+            input_epoch: context.input_epoch,
+            phase: phase.to_owned(),
+            role_id: role_id.to_owned(),
+            sender,
+            surface_generation: context.surface_generation,
+            webview_label: webview.label().to_owned(),
+        };
+        let mut observations = self.macro_key_observations.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_MACRO_KEY_OBSERVATION_UNAVAILABLE",
+                "The macro key observation registry is unavailable.",
             )
-        },
-        || acknowledge_forwarded_macro_key_release(webview, effect, context).map(|_| ()),
-    )
+        })?;
+        if observations
+            .values()
+            .any(|observation| observation.webview_label == webview.label())
+        {
+            return Err(RuntimeError::new(
+                "SYSTEM_MACRO_KEY_GUARD_BUSY",
+                "The role WebView already has a guarded key event in flight.",
+            ));
+        }
+        observations.insert(dispatch_id.clone(), pending);
+        Ok(MacroKeyObservationWaiter {
+            dispatch_id,
+            receiver,
+        })
+    }
+
+    fn wait_for_macro_key_observation(
+        &self,
+        waiter: MacroKeyObservationWaiter,
+        context: &InputDispatchContext,
+    ) -> Result<(), MacroKeyObservationError> {
+        let wait = context.remaining(MACRO_KEY_OBSERVATION_MAX_WAIT);
+        let signal = if wait.is_zero() {
+            Err(mpsc::RecvTimeoutError::Timeout)
+        } else {
+            waiter.receiver.recv_timeout(wait)
+        };
+        match signal {
+            Ok(MacroKeyObservationSignal::Observed) => context.ensure_current().map_err(|error| {
+                MacroKeyObservationError {
+                    dispatch_id: waiter.dispatch_id,
+                    error,
+                }
+            }),
+            Ok(MacroKeyObservationSignal::Cancelled) => Err(MacroKeyObservationError {
+                dispatch_id: waiter.dispatch_id,
+                error: RuntimeError::new(
+                    "BROWSER_ACTION_STALE",
+                    "The role surface changed before trusted key delivery was acknowledged.",
+                ),
+            }),
+            Err(_) => {
+                self.cancel_macro_key_observation(&waiter.dispatch_id);
+                Err(MacroKeyObservationError {
+                    dispatch_id: waiter.dispatch_id,
+                    error: RuntimeError::new(
+                        "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                        "Native key submission was not acknowledged by a matching trusted DOM event before its deadline.",
+                    ),
+                })
+            }
+        }
+    }
+
+    pub(crate) fn observe_macro_key_event(
+        &self,
+        webview_label: &str,
+        role_id: &str,
+        observation: MacroKeyEventObservation,
+    ) -> RuntimeResult<()> {
+        let lane = self.role_input_lane(role_id)?;
+        let pending = claim_macro_key_observation(
+            &self.macro_key_observations,
+            &lane,
+            webview_label,
+            role_id,
+            &observation,
+        )?;
+        let _ = pending.sender.send(MacroKeyObservationSignal::Observed);
+        self.record_macro_key_observation_receipt(
+            role_id,
+            webview_label,
+            &observation.code,
+            &observation.phase,
+            &observation.dispatch_id,
+        );
+        Ok(())
+    }
+
+    fn cancel_macro_key_observation(&self, dispatch_id: &str) {
+        let pending = self
+            .macro_key_observations
+            .lock()
+            .ok()
+            .and_then(|mut observations| observations.remove(dispatch_id));
+        if let Some(pending) = pending {
+            let _ = pending.sender.send(MacroKeyObservationSignal::Cancelled);
+        }
+    }
+
+    fn cancel_macro_key_observations_for_webview(&self, webview_label: &str) {
+        cancel_macro_key_observations_matching(&self.macro_key_observations, |pending| {
+            pending.webview_label == webview_label
+        });
+    }
+
+    fn cancel_macro_key_observations_for_role(&self, role_id: &str) {
+        cancel_macro_key_observations_matching(&self.macro_key_observations, |pending| {
+            pending.role_id == role_id
+        });
+    }
+
+    #[cfg(not(feature = "desktop-e2e"))]
+    fn record_macro_key_receipt(
+        &self,
+        _kind: &str,
+        _role_id: &str,
+        _webview_label: &str,
+        _effect: &EmbeddedKeyEffectRecord,
+        _dispatch_id: &str,
+    ) {
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    fn record_macro_key_receipt(
+        &self,
+        kind: &str,
+        role_id: &str,
+        webview_label: &str,
+        effect: &EmbeddedKeyEffectRecord,
+        dispatch_id: &str,
+    ) {
+        crate::desktop_e2e::record_event(
+            kind,
+            self.window_id_for_webview(webview_label).as_deref(),
+            None,
+            None,
+            json!({
+                "code": effect.code,
+                "dispatchId": dispatch_id,
+                "phase": macro_key_dom_phase(effect).ok(),
+                "roleId": role_id,
+                "webviewLabel": webview_label,
+            }),
+        );
+    }
+
+    #[cfg(not(feature = "desktop-e2e"))]
+    fn record_macro_key_observation_receipt(
+        &self,
+        _role_id: &str,
+        _webview_label: &str,
+        _code: &str,
+        _phase: &str,
+        _dispatch_id: &str,
+    ) {
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    fn record_macro_key_observation_receipt(
+        &self,
+        role_id: &str,
+        webview_label: &str,
+        code: &str,
+        phase: &str,
+        dispatch_id: &str,
+    ) {
+        crate::desktop_e2e::record_event(
+            "macro-key-dom-observed",
+            self.window_id_for_webview(webview_label).as_deref(),
+            None,
+            None,
+            json!({
+                "code": code,
+                "dispatchId": dispatch_id,
+                "phase": phase,
+                "roleId": role_id,
+                "webviewLabel": webview_label,
+            }),
+        );
+    }
 }
 
-fn dispatch_guarded_macro_key_effect_with(
-    effect: &EmbeddedKeyEffectRecord,
-    mut arm: impl FnMut() -> RuntimeResult<MacroKeyGuardAcknowledgement>,
-    dispatch: impl FnOnce(&[String]) -> RuntimeResult<()>,
-    release_forwarded: impl FnOnce() -> RuntimeResult<()>,
-) -> RuntimeResult<()> {
-    let guard = arm();
-    if effect.phase != "keyUp" {
-        let acknowledgement = guard?;
-        return dispatch(&acknowledgement.physical_modifier_codes);
-    }
-    let physical_modifier_codes = guard
-        .as_ref()
-        .map(|acknowledgement| acknowledgement.physical_modifier_codes.as_slice())
-        .unwrap_or_default();
-    let dispatched = dispatch(physical_modifier_codes);
-    let released = release_forwarded();
-    match (dispatched, released) {
-        (Err(error), _) => Err(error),
-        (Ok(()), Err(error)) => Err(error),
-        (Ok(()), Ok(())) => Ok(()),
-    }
-}
-
-fn arm_macro_key_event_guard(
-    webview: &Webview,
-    effect: &EmbeddedKeyEffectRecord,
-    context: &InputDispatchContext,
-) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
-    context.ensure_current()?;
-    let lifetime = context.remaining(MACRO_KEY_GUARD_MAX_LIFETIME);
-    if lifetime.is_zero() {
+fn claim_macro_key_observation(
+    observations: &Mutex<HashMap<String, PendingMacroKeyObservation>>,
+    lane: &RoleInputDispatchLane,
+    webview_label: &str,
+    role_id: &str,
+    observation: &MacroKeyEventObservation,
+) -> RuntimeResult<PendingMacroKeyObservation> {
+    let mut observations = observations.lock().map_err(|_| {
+        RuntimeError::new(
+            "SYSTEM_MACRO_KEY_OBSERVATION_UNAVAILABLE",
+            "The macro key observation registry is unavailable.",
+        )
+    })?;
+    let pending = observations.get(&observation.dispatch_id).ok_or_else(|| {
+        RuntimeError::new(
+            "SYSTEM_MACRO_KEY_OBSERVATION_STALE",
+            "The macro key observation is stale or was already consumed.",
+        )
+    })?;
+    if pending.webview_label != webview_label
+        || pending.role_id != role_id
+        || pending.code != observation.code
+        || pending.phase != observation.phase
+    {
         return Err(RuntimeError::new(
-            "BROWSER_ACTION_DEADLINE",
-            "Macro key guard expired before it could be armed.",
+            "SYSTEM_MACRO_KEY_OBSERVATION_MISMATCH",
+            "The macro key observation does not match its guarded dispatch.",
         ));
     }
-    let expires_at_ms = chrono::Utc::now()
-        .timestamp_millis()
-        .max(0)
-        .saturating_add(lifetime.as_millis().min(i64::MAX as u128) as i64);
-    let source = macro_key_guard_arm_script(effect, expires_at_ms)?;
-    #[cfg(windows)]
-    return arm_windows_macro_key_event_guard(webview, &source, context, lifetime);
-    #[cfg(not(windows))]
+    if lane.epoch.load(Ordering::Acquire) != pending.input_epoch
+        || lane.surface_generation.load(Ordering::Acquire) != pending.surface_generation
     {
-        arm_webview_macro_key_event_guard(webview, &source, effect, context, lifetime)
+        return Err(RuntimeError::new(
+            "SYSTEM_MACRO_KEY_OBSERVATION_STALE",
+            "The macro key observation belongs to an obsolete role surface.",
+        ));
+    }
+    Ok(observations
+        .remove(&observation.dispatch_id)
+        .expect("validated macro key observation must remain registered"))
+}
+
+fn cancel_macro_key_observations_matching(
+    observations: &Mutex<HashMap<String, PendingMacroKeyObservation>>,
+    matches: impl Fn(&PendingMacroKeyObservation) -> bool,
+) {
+    let pending = observations
+        .lock()
+        .ok()
+        .map(|mut observations| {
+            let dispatch_ids = observations
+                .iter()
+                .filter_map(|(dispatch_id, pending)| matches(pending).then_some(dispatch_id.clone()))
+                .collect::<Vec<_>>();
+            dispatch_ids
+                .into_iter()
+                .filter_map(|dispatch_id| observations.remove(&dispatch_id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for pending in pending {
+        let _ = pending.sender.send(MacroKeyObservationSignal::Cancelled);
     }
 }
 
-#[cfg(not(windows))]
+fn macro_key_compensation_effect(effect: &EmbeddedKeyEffectRecord) -> EmbeddedKeyEffectRecord {
+    let mut active_codes = effect.active_codes.clone();
+    active_codes.retain(|code| code != &effect.code);
+    EmbeddedKeyEffectRecord {
+        phase: "keyUp".to_owned(),
+        code: effect.code.clone(),
+        active_codes_before: effect.active_codes.clone(),
+        active_codes,
+        auto_repeat: false,
+        suppress_shortcut: effect.suppress_shortcut,
+    }
+}
+
+fn macro_key_dom_phase(effect: &EmbeddedKeyEffectRecord) -> RuntimeResult<&'static str> {
+    match effect.phase.as_str() {
+        "rawKeyDown" => Ok("keydown"),
+        "keyUp" => Ok("keyup"),
+        _ => Err(RuntimeError::new(
+            "SYSTEM_MACRO_KEY_GUARD_INVALID",
+            "Macro key guard received an unsupported key phase.",
+        )),
+    }
+}
+
 fn arm_webview_macro_key_event_guard(
     webview: &Webview,
     source: &str,
-    effect: &EmbeddedKeyEffectRecord,
     context: &InputDispatchContext,
-    lifetime: Duration,
 ) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    webview
-        .eval_with_callback(source, move |value| {
-            let _ = sender.send(value);
-        })
-        .map_err(|error| {
-            RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-                format!("Unable to arm the macro key guard: {error}"),
-            )
-        })?;
-    let wait = if effect.phase == "keyUp" {
-        lifetime.min(MACRO_KEY_RELEASE_GUARD_WAIT)
-    } else {
-        lifetime
-    };
-    match receiver.recv_timeout(wait) {
-        Ok(value) => macro_key_guard_acknowledgement(&value).ok_or_else(|| {
+    #[cfg(windows)]
+    {
+        let raw = call_system_input_devtools_bounded(
+            webview,
+            "Runtime.evaluate",
+            &json!({ "expression": source, "returnByValue": true }),
+            context,
+            context.remaining(PLATFORM_CALLBACK_TIMEOUT),
+        )?;
+        return macro_key_guard_devtools_acknowledgement(&raw).ok_or_else(|| {
             RuntimeError::new(
                 "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
                 "The game page did not acknowledge the macro key guard.",
             )
-        }),
-        Err(_) => {
-            context.ensure_current()?;
-            Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
-                "The macro key guard did not become ready before input dispatch.",
-            ))
-        }
+        });
     }
-}
-
-#[cfg(windows)]
-fn arm_windows_macro_key_event_guard(
-    webview: &Webview,
-    source: &str,
-    context: &InputDispatchContext,
-    lifetime: Duration,
-) -> RuntimeResult<MacroKeyGuardAcknowledgement> {
-    let result = call_system_input_devtools_bounded(
-        webview,
-        "Runtime.evaluate",
-        &json!({
-            "expression": source,
-            "returnByValue": true
-        }),
-        context,
-        lifetime,
-    );
-    let raw = match result {
-        Ok(raw) => raw,
-        Err(error)
-            if matches!(
-                error.code,
-                "BROWSER_ACTION_DEADLINE" | "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
-            ) =>
-        {
-            context.ensure_current()?;
-            return Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
-                "The macro key guard did not become ready before input dispatch.",
-            ));
-        }
-        Err(error) => return Err(error),
-    };
-    macro_key_guard_devtools_acknowledgement(&raw).ok_or_else(|| {
-        RuntimeError::new(
-            "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-            "The game page did not acknowledge the macro key guard.",
-        )
-    })
-}
-
-#[cfg(windows)]
-fn macro_key_guard_devtools_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledgement> {
-    serde_json::from_str::<Value>(raw)
-        .ok()
-        .and_then(|value| value.pointer("/result/value").cloned())
-        .and_then(parse_macro_key_guard_acknowledgement)
-}
-
-fn acknowledge_forwarded_macro_key_release(
-    webview: &Webview,
-    effect: &EmbeddedKeyEffectRecord,
-    context: &InputDispatchContext,
-) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
-    let source = macro_key_guard_release_script(&effect.code)?;
-    #[cfg(windows)]
-    return acknowledge_windows_forwarded_macro_key_release(webview, &source, context);
     #[cfg(not(windows))]
     {
-        let _ = context;
-        acknowledge_webview_forwarded_macro_key_release(webview, &source)
+        let (sender, receiver) = mpsc::sync_channel(1);
+        webview
+            .eval_with_callback(source, move |value| {
+                let _ = sender.send(value);
+            })
+            .map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
+                    format!("Unable to arm the macro key guard: {error}"),
+                )
+            })?;
+        let raw = receiver
+            .recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT))
+            .map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
+                    "The macro key guard did not become ready before input dispatch.",
+                )
+            })?;
+        macro_key_guard_acknowledgement(&raw).ok_or_else(|| {
+            RuntimeError::new(
+                "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
+                "The game page did not acknowledge the macro key guard.",
+            )
+        })
     }
 }
 
-#[cfg(not(windows))]
-fn acknowledge_webview_forwarded_macro_key_release(
+fn cancel_macro_key_event_guard(
     webview: &Webview,
-    source: &str,
-) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    webview
-        .eval_with_callback(source, move |value| {
-            let _ = sender.send(value);
-        })
-        .map_err(|error| {
-            RuntimeError::new(
-                "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
-                format!("Unable to submit forwarded macro key cleanup: {error}"),
-            )
-        })?;
-    let raw = receiver
-        .recv_timeout(MACRO_KEY_RELEASE_GUARD_WAIT)
-        .map_err(|_| {
-            RuntimeError::new(
-                "SYSTEM_MACRO_KEY_RELEASE_TIMEOUT",
-                "The game page did not acknowledge forwarded macro key cleanup.",
-            )
-        })?;
-    macro_key_release_acknowledgement(&raw).ok_or_else(|| {
-        RuntimeError::new(
-            "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
-            "The game page returned an invalid forwarded macro key cleanup acknowledgement.",
-        )
-    })
-}
-
-#[cfg(windows)]
-fn acknowledge_windows_forwarded_macro_key_release(
-    webview: &Webview,
-    source: &str,
+    dispatch_id: &str,
     context: &InputDispatchContext,
-) -> RuntimeResult<MacroKeyReleaseAcknowledgement> {
-    let raw = call_system_input_devtools_bounded(
-        webview,
-        "Runtime.evaluate",
-        &json!({
-            "expression": source,
-            "returnByValue": true
-        }),
-        context,
-        MACRO_KEY_GUARD_MAX_LIFETIME,
-    )?;
-    macro_key_release_devtools_acknowledgement(&raw).ok_or_else(|| {
-        RuntimeError::new(
-            "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
-            "The game page returned an invalid forwarded macro key cleanup acknowledgement.",
-        )
-    })
-}
-
-#[cfg(windows)]
-fn macro_key_release_devtools_acknowledgement(
-    raw: &str,
-) -> Option<MacroKeyReleaseAcknowledgement> {
-    serde_json::from_str::<Value>(raw)
-        .ok()
-        .and_then(|value| value.pointer("/result/value").cloned())
-        .and_then(parse_macro_key_release_acknowledgement)
+) -> RuntimeResult<()> {
+    let dispatch_id = serde_json::to_string(dispatch_id)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    let source = format!(
+        "globalThis.__rionStudioMacroOverlay?.clearSuppressedShortcut?.({dispatch_id}) === true"
+    );
+    #[cfg(windows)]
+    {
+        call_system_input_devtools_bounded(
+            webview,
+            "Runtime.evaluate",
+            &json!({ "expression": source, "returnByValue": true }),
+            context,
+            context.remaining(PLATFORM_CALLBACK_TIMEOUT),
+        )?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        webview
+            .eval_with_callback(source, move |value| {
+                let _ = sender.send(value);
+            })
+            .map_err(RuntimeError::tauri)?;
+        receiver
+            .recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT))
+            .map(|_| ())
+            .map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
+                    "The page did not acknowledge guarded key cancellation.",
+                )
+            })
+    }
 }
 
 fn macro_key_guard_arm_script(
     effect: &EmbeddedKeyEffectRecord,
-    expires_at_ms: i64,
+    dispatch_id: &str,
 ) -> RuntimeResult<String> {
-    let phase = match effect.phase.as_str() {
-        "rawKeyDown" => "keydown",
-        "keyUp" => "keyup",
-        _ => {
-            return Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_INVALID",
-                "Macro key guard received an unsupported key phase.",
-            ));
-        }
-    };
-    let code = serde_json::to_string(&effect.code).map_err(|error| {
-        RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string())
-    })?;
-    let phase = serde_json::to_string(phase).map_err(|error| {
-        RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string())
-    })?;
+    let phase = serde_json::to_string(macro_key_dom_phase(effect)?)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    let code = serde_json::to_string(&effect.code)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    let dispatch_id = serde_json::to_string(dispatch_id)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
     Ok(format!(
-        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextShortcut?.({code},{phase},{expires_at_ms}) === true; const physicalModifierCodes = armed ? controller?.physicalModifierCodes?.() : []; return {{ armed, physicalModifierCodes: Array.isArray(physicalModifierCodes) ? physicalModifierCodes : [] }}; }})()"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextShortcut?.({dispatch_id},{code},{phase}) === true; const physicalModifierCodes = armed ? controller?.physicalModifierCodes?.() : []; return {{ armed, physicalModifierCodes: Array.isArray(physicalModifierCodes) ? physicalModifierCodes : [] }}; }})()"
     ))
 }
 
-fn macro_key_guard_release_script(code: &str) -> RuntimeResult<String> {
-    let code = serde_json::to_string(code).map_err(|error| {
-        RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string())
-    })?;
+fn macro_modifier_projection_guard_arm_script(
+    effect: &EmbeddedKeyEffectRecord,
+    dispatch_id: &str,
+) -> RuntimeResult<String> {
+    if effect.phase != "rawKeyDown" || !is_modifier_input_code(&effect.code) {
+        return Err(RuntimeError::new(
+            "SYSTEM_MACRO_KEY_GUARD_INVALID",
+            "A modifier projection guard requires a modifier keydown.",
+        ));
+    }
+    let code = serde_json::to_string(&effect.code)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    let dispatch_id = serde_json::to_string(dispatch_id)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
     Ok(format!(
-        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; if (typeof controller?.releaseForwardedMacroKey !== 'function') return {{ acknowledged: false, released: false }}; return {{ acknowledged: true, released: controller.releaseForwardedMacroKey({code}) === true }}; }})()"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextModifierProjection?.({dispatch_id},{code}) === true; return {{ armed, physicalModifierCodes: [] }}; }})()"
     ))
 }
 
@@ -287,16 +586,7 @@ struct MacroKeyGuardAcknowledgement {
     physical_modifier_codes: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct MacroKeyReleaseAcknowledgement {
-    acknowledged: bool,
-    released: bool,
-}
-
-fn parse_macro_key_guard_acknowledgement(
-    value: Value,
-) -> Option<MacroKeyGuardAcknowledgement> {
+fn parse_macro_key_guard_acknowledgement(value: Value) -> Option<MacroKeyGuardAcknowledgement> {
     if let Value::String(nested) = value {
         return serde_json::from_str::<Value>(&nested)
             .ok()
@@ -317,18 +607,6 @@ fn parse_macro_key_guard_acknowledgement(
     Some(acknowledgement)
 }
 
-fn parse_macro_key_release_acknowledgement(
-    value: Value,
-) -> Option<MacroKeyReleaseAcknowledgement> {
-    if let Value::String(nested) = value {
-        return serde_json::from_str::<Value>(&nested)
-            .ok()
-            .and_then(parse_macro_key_release_acknowledgement);
-    }
-    let acknowledgement = serde_json::from_value::<MacroKeyReleaseAcknowledgement>(value).ok()?;
-    acknowledgement.acknowledged.then_some(acknowledgement)
-}
-
 #[cfg(any(not(windows), test))]
 fn macro_key_guard_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledgement> {
     serde_json::from_str::<Value>(raw)
@@ -336,9 +614,10 @@ fn macro_key_guard_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledge
         .and_then(parse_macro_key_guard_acknowledgement)
 }
 
-#[cfg(any(not(windows), test))]
-fn macro_key_release_acknowledgement(raw: &str) -> Option<MacroKeyReleaseAcknowledgement> {
+#[cfg(windows)]
+fn macro_key_guard_devtools_acknowledgement(raw: &str) -> Option<MacroKeyGuardAcknowledgement> {
     serde_json::from_str::<Value>(raw)
         .ok()
-        .and_then(parse_macro_key_release_acknowledgement)
+        .and_then(|value| value.pointer("/result/value").cloned())
+        .and_then(parse_macro_key_guard_acknowledgement)
 }

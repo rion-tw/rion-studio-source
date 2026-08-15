@@ -49,6 +49,49 @@ static NSNumber *RionDesktopE2EKeyCode(NSString *code) {
   return codes[code];
 }
 
+static NSMutableSet<NSString *> *RionDesktopE2EHeldModifierCodes(void) {
+  static NSMutableSet<NSString *> *codes;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    codes = [NSMutableSet set];
+  });
+  return codes;
+}
+
+static CGEventFlags RionDesktopE2EModifierFlag(NSString *code) {
+  if ([code isEqualToString:@"ShiftLeft"] || [code isEqualToString:@"ShiftRight"]) {
+    return kCGEventFlagMaskShift;
+  }
+  if ([code isEqualToString:@"ControlLeft"] || [code isEqualToString:@"ControlRight"]) {
+    return kCGEventFlagMaskControl;
+  }
+  if ([code isEqualToString:@"AltLeft"] || [code isEqualToString:@"AltRight"]) {
+    return kCGEventFlagMaskAlternate;
+  }
+  if ([code isEqualToString:@"MetaLeft"] || [code isEqualToString:@"MetaRight"]) {
+    return kCGEventFlagMaskCommand;
+  }
+  return 0;
+}
+
+static CGEventFlags RionDesktopE2EUpdateModifierFlags(NSString *code, bool keyDown) {
+  NSMutableSet<NSString *> *heldCodes = RionDesktopE2EHeldModifierCodes();
+  @synchronized(heldCodes) {
+    if (RionDesktopE2EModifierFlag(code) != 0) {
+      if (keyDown) {
+        [heldCodes addObject:code];
+      } else {
+        [heldCodes removeObject:code];
+      }
+    }
+    CGEventFlags flags = 0;
+    for (NSString *heldCode in heldCodes) {
+      flags |= RionDesktopE2EModifierFlag(heldCode);
+    }
+    return flags;
+  }
+}
+
 bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
   @autoreleasepool {
     if (!rawCode) return false;
@@ -61,6 +104,7 @@ bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
         source, (CGKeyCode)virtualCode.unsignedShortValue, keyDown);
     CFRelease(source);
     if (!event) return false;
+    CGEventSetFlags(event, RionDesktopE2EUpdateModifierFlags(code, keyDown));
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
     return true;

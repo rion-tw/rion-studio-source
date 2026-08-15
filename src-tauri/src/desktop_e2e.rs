@@ -46,6 +46,14 @@ pub(crate) struct DesktopE2eKeyboardInputRequest {
     pub phase: String,
 }
 
+#[derive(Clone, Debug)]
+struct DesktopE2eKeyboardTarget {
+    role_id: String,
+    tab_id: String,
+    window_generation: u64,
+    window_id: String,
+}
+
 impl DesktopE2eKeyboardInputRequest {
     fn validate(&self) -> Result<(), String> {
         if !matches!(self.phase.as_str(), "keyDown" | "keyUp") {
@@ -100,6 +108,7 @@ pub(crate) struct DesktopE2eControl {
     accepted_close_labels: Mutex<HashSet<String>>,
     changed: Condvar,
     event_state: Mutex<DesktopE2eEventState>,
+    keyboard_target: Mutex<Option<DesktopE2eKeyboardTarget>>,
     session_id: String,
     token: String,
     transcript_path: PathBuf,
@@ -122,6 +131,22 @@ impl DesktopE2eControl {
         } else {
             Err("The desktop E2E session token is invalid.".to_owned())
         }
+    }
+
+    fn keyboard_target(&self) -> Result<Option<DesktopE2eKeyboardTarget>, String> {
+        self.keyboard_target
+            .lock()
+            .map(|target| target.clone())
+            .map_err(|_| "The desktop E2E keyboard target is unavailable.".to_owned())
+    }
+
+    fn remember_keyboard_target(&self, target: DesktopE2eKeyboardTarget) -> Result<(), String> {
+        *self
+            .keyboard_target
+            .lock()
+            .map_err(|_| "The desktop E2E keyboard target is unavailable.".to_owned())? =
+            Some(target);
+        Ok(())
     }
 
     fn probe(&self) -> Value {
@@ -287,6 +312,7 @@ pub(crate) fn initialize(user_data_dir: &Path) -> Result<Arc<DesktopE2eControl>,
             next_sequence: 1,
             transcript,
         }),
+        keyboard_target: Mutex::new(None),
         session_id,
         token,
         transcript_path,
@@ -404,12 +430,31 @@ pub(crate) async fn desktop_e2e_runtime_ui_action(
     request: crate::system_runtime::DesktopE2eRuntimeUiActionRequest,
 ) -> Result<Value, String> {
     control.authenticate(&token)?;
+    let keyboard_target = match &request {
+        crate::system_runtime::DesktopE2eRuntimeUiActionRequest::FocusRole {
+            role_id,
+            tab_id,
+            window_generation,
+        } => Some(DesktopE2eKeyboardTarget {
+            role_id: role_id.clone(),
+            tab_id: tab_id.clone(),
+            window_generation: *window_generation,
+            window_id: window_id.clone(),
+        }),
+        _ => None,
+    };
     let runtime = Arc::clone(&state.runtime);
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         runtime.desktop_e2e_runtime_ui_action(&window_id, request)
     })
     .await
-    .map_err(|error| format!("Desktop E2E native UI action task failed: {error}"))?
+    .map_err(|error| format!("Desktop E2E native UI action task failed: {error}"))?;
+    if result.is_ok()
+        && let Some(target) = keyboard_target
+    {
+        control.remember_keyboard_target(target)?;
+    }
+    result
 }
 
 #[tauri::command]
@@ -431,12 +476,22 @@ pub(crate) fn desktop_e2e_input_diagnostics(
 #[tauri::command]
 pub(crate) fn desktop_e2e_keyboard_input(
     control: State<'_, Arc<DesktopE2eControl>>,
+    state: State<'_, crate::CoreState>,
     token: String,
     request: DesktopE2eKeyboardInputRequest,
 ) -> Result<Value, String> {
     control.authenticate(&token)?;
     request.validate()?;
-    desktop_e2e_submit_keyboard_input(&request.code, request.phase == "keyDown")?;
+    let key_down = request.phase == "keyDown";
+    if key_down && let Some(target) = control.keyboard_target()? {
+        state.runtime.desktop_e2e_focus_keyboard_target(
+            &target.window_id,
+            target.window_generation,
+            &target.tab_id,
+            &target.role_id,
+        )?;
+    }
+    desktop_e2e_submit_keyboard_input(&request.code, key_down)?;
     let event = control.record(
         "native-key-input-submitted",
         None,

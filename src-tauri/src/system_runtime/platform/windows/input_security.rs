@@ -23,23 +23,23 @@ pub(in crate::system_runtime) fn dispatch_key_effect(
 
 #[cfg(windows)]
 pub(in crate::system_runtime) fn dispatch_key_effect_with_physical_modifiers(
-    webview: &Webview,
+    _webview: &Webview,
     effect: &EmbeddedKeyEffectRecord,
     physical_modifier_codes: &[String],
-    context: &InputDispatchContext,
+    _context: &InputDispatchContext,
+    mut dispatch_projection: impl FnMut(&EmbeddedKeyEffectRecord) -> RuntimeResult<()>,
 ) -> RuntimeResult<()> {
     let confirmed_physical_modifier_codes = physical_modifier_codes
         .iter()
         .filter(|code| windows_physical_modifier_is_pressed(code))
         .cloned()
         .collect::<Vec<_>>();
-    dispatch_key_effect(webview, effect, context)?;
     for projection in physical_modifier_projection_effects(
         effect,
         &confirmed_physical_modifier_codes,
         |_| true,
     ) {
-        dispatch_key_effect(webview, &projection, context)?;
+        dispatch_projection(&projection)?;
     }
     Ok(())
 }

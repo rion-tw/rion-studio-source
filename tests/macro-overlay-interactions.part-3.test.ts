@@ -38,10 +38,14 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
   );
 
 interface OverlayController {
-  clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+  clearSuppressedShortcut?: (dispatchId: string) => boolean;
   dispose: () => void;
   refresh: () => Promise<void>;
-  suppressNextShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+  suppressNextShortcut?: (
+    dispatchId: string,
+    code: string,
+    phase?: "keydown" | "keyup"
+  ) => boolean;
 }
 
 interface OverlayTestWindow extends Window {
@@ -515,7 +519,7 @@ it("does not release a physical held shortcut for a suppressed synthetic keyup",
       macroId: heldMacro.id
     })));
 
-    controller.suppressNextShortcut?.("F2", "keyup");
+    controller.suppressNextShortcut?.("test-keyup", "F2", "keyup");
     document.dispatchEvent(new window.KeyboardEvent("keyup", {
       bubbles: true,
       cancelable: true,

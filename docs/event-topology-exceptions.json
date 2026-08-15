@@ -27,17 +27,6 @@
       "cleanup": "The settle guard accepts the first terminal path and clears the timer."
     },
     {
-      "id": "embedded-shortcut-suppression-expiry",
-      "paths": [
-        "src/shared/browser-overlay/macro-overlay-runtime/keyboard-input-guard.js"
-      ],
-      "mechanism": "Bounded expiry of a single synthetic shortcut suppression lease.",
-      "authoritativeEvent": "The matching key event consumes and removes the lease.",
-      "reason": "The remote page may never deliver the matching event after native input handoff.",
-      "terminalOutcome": "Expiry only removes the exact suppression item; it does not infer page or macro state.",
-      "cleanup": "Explicit consume, clear, overlay disposal, and the item-scoped expiry all remove the same lease idempotently."
-    },
-    {
       "id": "pointer-drag-click-suppression-expiry",
       "paths": [
         "src/renderer/src/hooks/usePointerDrag.ts"

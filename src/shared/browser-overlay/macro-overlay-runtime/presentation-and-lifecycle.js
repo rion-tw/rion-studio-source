@@ -597,9 +597,9 @@
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
     reportGameInputContext(false);
-    releasePhysicalGameKeys();
     releaseActiveHeldShortcuts();
     releaseAllForwardedMacroKeys();
+    releasePhysicalGameKeys();
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keypress", handleCoordinateKeyPress, true);
     window.removeEventListener("keyup", handleKeyUp, true);
@@ -622,6 +622,7 @@
     retainedClickStatuses.clear();
     seenClickStatusEvents.clear();
     activeHeldShortcuts.clear();
+    consumedPhysicalShortcutCodes.clear();
     runtimeTabShortcutModifierCodes.clear();
     clickMarkerEvents.clear();
     clickMarkerFlashStates.clear();
@@ -668,6 +669,7 @@
       refresh,
       physicalModifierCodes,
       releaseForwardedMacroKey,
+      suppressNextModifierProjection,
       suppressNextShortcut,
       version: scriptVersion
     };

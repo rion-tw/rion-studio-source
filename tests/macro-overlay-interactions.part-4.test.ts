@@ -34,25 +34,57 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
   );
 
 interface OverlayController {
+  clearSuppressedShortcut: (dispatchId: string) => boolean;
   dispose: () => void;
   physicalModifierCodes: () => string[];
   refresh: () => Promise<void>;
   releaseForwardedMacroKey: (code: string) => boolean;
+  suppressNextModifierProjection: (dispatchId: string, code: string) => boolean;
   suppressNextShortcut: (
+    dispatchId: string,
     code: string,
-    phase?: "keydown" | "keyup",
-    expiresAt?: number
+    phase?: "keydown" | "keyup"
   ) => boolean;
 }
 
 interface OverlayTestWindow extends Window {
   __rionStudioMacroOverlay?: OverlayController;
-  rionStudioMacroOverlay?: (request: unknown) => Promise<unknown>;
+  rionStudioMacroOverlay?: OverlayBinding;
   __rionTestCoordinateMeasurementModuleImporter?: (url: string) => Promise<unknown>;
+}
+
+interface OverlayBinding {
+  (request: unknown): Promise<unknown>;
+  macroKeyObserved?: (observation: MacroKeyObservation) => Promise<unknown>;
+}
+
+interface MacroKeyObservation {
+  code: string;
+  dispatchId: string;
+  phase: "keydown" | "keyup";
+}
+
+let testDispatchSequence = 0;
+
+function armShortcut(
+  controller: OverlayController,
+  code: string,
+  phase: "keydown" | "keyup" = "keydown"
+): string {
+  const dispatchId = `test-dispatch-${++testDispatchSequence}`;
+  expect(controller.suppressNextShortcut(dispatchId, code, phase)).toBe(true);
+  return dispatchId;
+}
+
+function armModifierProjection(controller: OverlayController, code: string): string {
+  const dispatchId = `test-dispatch-${++testDispatchSequence}`;
+  expect(controller.suppressNextModifierProjection(dispatchId, code)).toBe(true);
+  return dispatchId;
 }
 
 describe("macro overlay native key guard", () => {
   beforeEach(() => {
+    testDispatchSequence = 0;
     document.body.replaceChildren();
     Object.defineProperty(window.URL, "createObjectURL", {
       configurable: true,
@@ -92,7 +124,7 @@ describe("macro overlay native key guard", () => {
       control.addEventListener("beforeinput", beforeInputListener, { once: true });
       control.addEventListener("input", inputListener, { once: true });
       document.addEventListener("keydown", documentListener, { once: true });
-      expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+      armShortcut(controller, "KeyA");
 
       const event = keyEvent("keydown", "KeyA", "a");
       expect(control.dispatchEvent(event), label).toBe(false);
@@ -114,7 +146,7 @@ describe("macro overlay native key guard", () => {
     expect(input.dispatchEvent(physical)).toBe(true);
     expect(physical.defaultPrevented).toBe(false);
 
-    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+    const dispatchId = armShortcut(controller, "KeyA");
     const mismatch = keyEvent("keydown", "KeyB", "b");
     expect(input.dispatchEvent(mismatch)).toBe(true);
     expect(mismatch.defaultPrevented).toBe(false);
@@ -122,7 +154,7 @@ describe("macro overlay native key guard", () => {
     const armed = keyEvent("keydown", "KeyA", "a");
     expect(input.dispatchEvent(armed)).toBe(false);
     expect(armed.defaultPrevented).toBe(true);
-    expect(controller.suppressNextShortcut("KeyA", "keydown", Date.now() - 1)).toBe(false);
+    expect(controller.clearSuppressedShortcut(dispatchId)).toBe(false);
   });
 
   it("prevents text, deletion, newline, and navigation defaults for macro keys", () => {
@@ -140,7 +172,7 @@ describe("macro overlay native key guard", () => {
       ["Space", " "],
       ["ArrowLeft", "ArrowLeft"]
     ]) {
-      expect(controller.suppressNextShortcut(code, "keydown")).toBe(true);
+      armShortcut(controller, code);
       const event = keyEvent("keydown", code, key);
       expect(input.dispatchEvent(event)).toBe(false);
       expect(event.defaultPrevented).toBe(true);
@@ -160,7 +192,7 @@ describe("macro overlay native key guard", () => {
       composed: true
     }));
     expect(document.activeElement).toBe(staleInput);
-    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+    armShortcut(controller, "KeyA");
 
     const event = keyEvent("keydown", "KeyA", "a");
     expect(canvas.dispatchEvent(event)).toBe(true);
@@ -176,7 +208,7 @@ describe("macro overlay native key guard", () => {
     const documentListener = vi.fn();
     input.addEventListener("keyup", targetListener);
     document.addEventListener("keyup", documentListener);
-    expect(controller.suppressNextShortcut("KeyA", "keyup")).toBe(true);
+    armShortcut(controller, "KeyA", "keyup");
 
     const event = keyEvent("keyup", "KeyA", "a");
     expect(input.dispatchEvent(event)).toBe(true);
@@ -204,7 +236,7 @@ describe("macro overlay native key guard", () => {
     document.body.append(canvas);
     const gameListener = vi.fn();
     canvas.addEventListener("keydown", gameListener);
-    expect(controller.suppressNextShortcut("F2", "keydown")).toBe(true);
+    armShortcut(controller, "F2");
 
     const event = keyEvent("keydown", "F2", "F2");
     expect(canvas.dispatchEvent(event)).toBe(true);
@@ -243,19 +275,33 @@ describe("macro overlay native key guard", () => {
     }));
     const controller = installOverlay(binding);
     await controller.refresh();
+    const gameKeyUps = vi.fn();
+    document.addEventListener("keyup", gameKeyUps);
 
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
-    document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+    const physicalTwoDown = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
+    expect(document.dispatchEvent(physicalTwoDown)).toBe(false);
+    const physicalTwoUp = keyEvent("keyup", "Digit2", "@", { shiftKey: true });
+    expect(document.dispatchEvent(physicalTwoUp)).toBe(false);
+    expect(physicalTwoUp.defaultPrevented).toBe(true);
+    expect(gameKeyUps).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-two"
     }));
 
-    expect(controller.suppressNextShortcut("Digit2", "keydown")).toBe(true);
+    armShortcut(controller, "Digit2");
     document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
-    expect(controller.suppressNextShortcut("Digit2", "keyup")).toBe(true);
+    armShortcut(controller, "Digit2", "keyup");
     document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
-    document.dispatchEvent(keyEvent("keydown", "Digit3", "#", { shiftKey: true }));
+    expect(gameKeyUps).toHaveBeenCalledOnce();
+    expect(gameKeyUps.mock.calls[0]?.[0]).toMatchObject({ code: "Digit2" });
+    const physicalThreeDown = keyEvent("keydown", "Digit3", "#", { shiftKey: true });
+    expect(document.dispatchEvent(physicalThreeDown)).toBe(false);
+    const physicalThreeUp = keyEvent("keyup", "Digit3", "#", { shiftKey: true });
+    expect(document.dispatchEvent(physicalThreeUp)).toBe(false);
+    expect(physicalThreeUp.defaultPrevented).toBe(true);
+    expect(gameKeyUps).toHaveBeenCalledOnce();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-three"
@@ -285,11 +331,10 @@ describe("macro overlay native key guard", () => {
     const documentListener = vi.fn();
     canvas.addEventListener("keydown", (event) => canvasEvents.push(event));
     document.addEventListener("keydown", documentListener);
-    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    armShortcut(controller, "KeyW");
     const original = keyEvent("keydown", "KeyW", "w", {
       ctrlKey: true,
-      location: 1,
-      repeat: true
+      location: 1
     });
     Object.defineProperties(original, {
       charCode: { configurable: true, value: 119 },
@@ -316,7 +361,7 @@ describe("macro overlay native key guard", () => {
     expect(forwarded.key).toBe("w");
     expect(forwarded.ctrlKey).toBe(true);
     expect(forwarded.location).toBe(1);
-    expect(forwarded.repeat).toBe(true);
+    expect(forwarded.repeat).toBe(false);
     expect(forwarded.keyCode).toBe(87);
     expect(forwarded.which).toBe(87);
     expect(forwarded.charCode).toBe(119);
@@ -332,7 +377,7 @@ describe("macro overlay native key guard", () => {
     input.focus();
     const canvasKeyDown = vi.fn();
     canvas.addEventListener("keydown", canvasKeyDown);
-    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+    armShortcut(controller, "KeyA");
 
     input.dispatchEvent(keyEvent("keydown", "KeyA", "a"));
 
@@ -350,7 +395,7 @@ describe("macro overlay native key guard", () => {
     const secondKeyDown = vi.fn();
     firstCanvas.addEventListener("keydown", firstKeyDown);
     secondCanvas.addEventListener("keydown", secondKeyDown);
-    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+    armShortcut(controller, "KeyA");
 
     const original = keyEvent("keydown", "KeyA", "a");
     input.dispatchEvent(original);
@@ -372,7 +417,7 @@ describe("macro overlay native key guard", () => {
     input.focus();
     const connectedKeyDown = vi.fn();
     connectedCanvas.addEventListener("keydown", connectedKeyDown);
-    expect(controller.suppressNextShortcut("KeyA", "keydown")).toBe(true);
+    armShortcut(controller, "KeyA");
 
     input.dispatchEvent(keyEvent("keydown", "KeyA", "a"));
 
@@ -391,7 +436,7 @@ describe("macro overlay native key guard", () => {
     canvas.addEventListener("keydown", canvasKeyDown);
     canvas.addEventListener("keyup", canvasKeyUp);
     canvas.focus();
-    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    armShortcut(controller, "KeyW");
     canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w"));
     expect(canvasKeyDown).toHaveBeenCalledOnce();
 
@@ -404,7 +449,7 @@ describe("macro overlay native key guard", () => {
     secondInput.focus();
     await Promise.resolve();
     expect(canvasKeyDown).toHaveBeenCalledTimes(2);
-    expect(controller.suppressNextShortcut("KeyW", "keyup")).toBe(true);
+    armShortcut(controller, "KeyW", "keyup");
     const release = keyEvent("keyup", "KeyW", "w");
     secondInput.dispatchEvent(release);
     expect(release.defaultPrevented).toBe(false);
@@ -416,27 +461,15 @@ describe("macro overlay native key guard", () => {
     expect(canvasKeyDown).toHaveBeenCalledTimes(2);
   });
 
-  it("releases a forwarded held key when its armed keyup expires", () => {
-    vi.useFakeTimers();
-    try {
-      const controller = installOverlay();
-      const canvas = document.createElement("canvas");
-      canvas.tabIndex = 0;
-      document.body.append(canvas);
-      const canvasKeyUp = vi.fn();
-      canvas.addEventListener("keyup", canvasKeyUp);
-      canvas.focus();
-      expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
-      canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w"));
-      expect(controller.suppressNextShortcut("KeyW", "keyup", Date.now() + 20)).toBe(true);
+  it("keeps an unobserved guard event-bound until exact cancellation", () => {
+    const controller = installOverlay();
+    const dispatchId = armShortcut(controller, "KeyW");
 
-      vi.advanceTimersByTime(21);
-
-      expect(canvasKeyUp).toHaveBeenCalledOnce();
-      expect(controller.releaseForwardedMacroKey("KeyW")).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(controller.suppressNextShortcut("other", "KeyW", "keyup")).toBe(false);
+    expect(controller.clearSuppressedShortcut("other")).toBe(false);
+    expect(controller.clearSuppressedShortcut(dispatchId)).toBe(true);
+    expect(controller.clearSuppressedShortcut(dispatchId)).toBe(false);
+    armShortcut(controller, "KeyW", "keyup");
   });
 
   it("does not reassert a forwarded key after acknowledged macro keyup cleanup", async () => {
@@ -450,7 +483,7 @@ describe("macro overlay native key guard", () => {
     canvas.addEventListener("keydown", canvasKeyDown);
     canvas.addEventListener("keyup", canvasKeyUp);
     canvas.focus();
-    expect(controller.suppressNextShortcut("Digit2", "keydown")).toBe(true);
+    armShortcut(controller, "Digit2");
     canvas.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
 
     expect(controller.releaseForwardedMacroKey("Digit2")).toBe(true);
@@ -466,6 +499,68 @@ describe("macro overlay native key guard", () => {
     expect(canvasKeyUp).toHaveBeenCalledOnce();
   });
 
+  it("does not arm keyup until the exact trusted keydown is observed", async () => {
+    const observed = vi.fn(async (_observation: MacroKeyObservation) => undefined);
+    const binding = Object.assign(
+      vi.fn(async () => ({ macros: [], statuses: [] })),
+      { macroKeyObserved: observed }
+    );
+    const controller = installOverlay(binding);
+    const canvas = document.createElement("canvas");
+    canvas.tabIndex = 0;
+    document.body.append(canvas);
+    canvas.focus();
+
+    const keyDownDispatchId = armShortcut(controller, "Digit2");
+    document.dispatchEvent(keyEvent("keyup", "Digit2", "2"));
+    expect(controller.suppressNextShortcut("early-keyup", "Digit2", "keyup")).toBe(false);
+    canvas.dispatchEvent(keyEvent("keydown", "Digit2", "@", {
+      repeat: true,
+      shiftKey: true
+    }));
+    expect(controller.suppressNextShortcut("after-repeat", "Digit2", "keyup")).toBe(false);
+
+    const keyDownCodes: string[] = [];
+    const keyUpCodes: string[] = [];
+    canvas.addEventListener("keydown", (event) => keyDownCodes.push(event.code));
+    canvas.addEventListener("keyup", (event) => keyUpCodes.push(event.code));
+
+    canvas.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+    await Promise.resolve();
+    expect(observed).toHaveBeenCalledWith({
+      code: "Digit2",
+      dispatchId: keyDownDispatchId,
+      phase: "keydown"
+    });
+
+    const keyUpDispatchId = armShortcut(controller, "Digit2", "keyup");
+    canvas.dispatchEvent(keyEvent("keyup", "Digit2", "2"));
+    await Promise.resolve();
+
+    expect(keyDownCodes).toEqual(["Digit2"]);
+    expect(keyUpCodes).toEqual(["Digit2"]);
+    expect(observed).toHaveBeenLastCalledWith({
+      code: "Digit2",
+      dispatchId: keyUpDispatchId,
+      phase: "keyup"
+    });
+  });
+
+  it("forces guarded forwarded keys up when the overlay is disposed", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const keyUpCodes: string[] = [];
+    canvas.addEventListener("keyup", (event) => keyUpCodes.push(event.code));
+
+    armShortcut(controller, "Digit2");
+    canvas.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+    armShortcut(controller, "Digit2", "keyup");
+    controller.dispose();
+
+    expect(keyUpCodes).toEqual(["Digit2"]);
+  });
+
   it("reasserts held modifiers before the main key and releases them in native order", async () => {
     const controller = installOverlay();
     const canvas = document.createElement("canvas");
@@ -477,18 +572,18 @@ describe("macro overlay native key guard", () => {
     canvas.addEventListener("keydown", (event) => keyDownCodes.push(event.code));
     canvas.addEventListener("keyup", (event) => keyUpCodes.push(event.code));
     canvas.focus();
-    expect(controller.suppressNextShortcut("ControlLeft", "keydown")).toBe(true);
+    armShortcut(controller, "ControlLeft");
     canvas.dispatchEvent(keyEvent("keydown", "ControlLeft", "Control", { ctrlKey: true }));
-    expect(controller.suppressNextShortcut("KeyW", "keydown")).toBe(true);
+    armShortcut(controller, "KeyW");
     canvas.dispatchEvent(keyEvent("keydown", "KeyW", "w", { ctrlKey: true }));
 
     input.focus();
     await Promise.resolve();
 
     expect(keyDownCodes).toEqual(["ControlLeft", "KeyW", "ControlLeft", "KeyW"]);
-    expect(controller.suppressNextShortcut("KeyW", "keyup")).toBe(true);
+    armShortcut(controller, "KeyW", "keyup");
     input.dispatchEvent(keyEvent("keyup", "KeyW", "w", { ctrlKey: true }));
-    expect(controller.suppressNextShortcut("ControlLeft", "keyup")).toBe(true);
+    armShortcut(controller, "ControlLeft", "keyup");
     input.dispatchEvent(keyEvent("keyup", "ControlLeft", "Control"));
     expect(keyUpCodes).toEqual(["KeyW", "ControlLeft"]);
   });
@@ -521,14 +616,121 @@ describe("macro overlay native key guard", () => {
     }));
     expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
 
-    expect(controller.suppressNextShortcut("ShiftLeft", "keydown")).toBe(true);
+    armShortcut(controller, "ShiftLeft");
     canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
-    expect(controller.suppressNextShortcut("ShiftLeft", "keyup")).toBe(true);
+    armShortcut(controller, "ShiftLeft", "keyup");
     canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
 
     canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     expect(controller.physicalModifierCodes()).toEqual([]);
+  });
+
+  it("projects a physical modifier wrapped around a macro modifier as one DOM pair", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    armShortcut(controller, "ShiftLeft");
+    const macroDown = keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true });
+    expect(canvas.dispatchEvent(macroDown)).toBe(false);
+    expect(macroDown.defaultPrevented).toBe(true);
+    armShortcut(controller, "ShiftLeft", "keyup");
+    const macroUp = keyEvent("keyup", "ShiftLeft", "Shift");
+    expect(canvas.dispatchEvent(macroUp)).toBe(false);
+    expect(macroUp.defaultPrevented).toBe(true);
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+  });
+
+  it("keeps a native modifier re-projection out of the page ownership stream", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    armShortcut(controller, "ShiftLeft");
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    armShortcut(controller, "ShiftLeft", "keyup");
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(controller.suppressNextModifierProjection("invalid", "Digit2")).toBe(false);
+    armModifierProjection(controller, "ShiftLeft");
+    const projection = keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true });
+    expect(canvas.dispatchEvent(projection)).toBe(true);
+    expect(projection.defaultPrevented).toBe(false);
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+  });
+
+  it("hands aggregate modifier ownership from physical input to a running macro", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    armShortcut(controller, "ShiftLeft");
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    const physicalUp = keyEvent("keyup", "ShiftLeft", "Shift");
+    expect(canvas.dispatchEvent(physicalUp)).toBe(false);
+    expect(physicalUp.defaultPrevented).toBe(true);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+    armShortcut(controller, "ShiftLeft", "keyup");
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+  });
+
+  it("hands aggregate modifier ownership from a running macro to physical input", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    armShortcut(controller, "ShiftLeft");
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    const physicalDown = keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true });
+    expect(canvas.dispatchEvent(physicalDown)).toBe(false);
+    expect(physicalDown.defaultPrevented).toBe(true);
+    expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
+    armShortcut(controller, "ShiftLeft", "keyup");
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+  });
+
+  it("releases an overlapped modifier once when the overlay is disposed", () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const events: string[] = [];
+    canvas.addEventListener("keydown", (event) => events.push(`down:${event.code}`));
+    canvas.addEventListener("keyup", (event) => events.push(`up:${event.code}`));
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    armShortcut(controller, "ShiftLeft");
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    controller.dispose();
+
+    expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
   });
 
   it("releases pass-through physical keys to their original target in reverse press order", () => {
@@ -582,9 +784,10 @@ describe("macro overlay native key guard", () => {
 });
 
 function installOverlay(
-  binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
+  binding: OverlayBinding = async () => ({ macros: [], statuses: [] })
 ): OverlayController {
   const overlayWindow = window as OverlayTestWindow;
+  binding.macroKeyObserved ??= vi.fn(async () => undefined);
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
     value: binding

@@ -54,6 +54,10 @@ describe("runtime authority fixture launch gates", () => {
     expect(source).toContain('const sessionMarker = "marker-a"');
     expect(source).toContain('fetch("/api/session-cookie"');
     expect(source).toContain('addEventListener("load", () => void recordSession(), { once: true })');
+    expect(source).toContain('<canvas id="game-input-canvas" tabindex="0"></canvas>');
+    expect(source).toContain('qaTarget.addEventListener("mousedown", (event) => event.preventDefault())');
+    expect(source).toContain('document.querySelector("#game-input-canvas").focus()');
+    expect(source).toContain("isTrusted: event.isTrusted");
   });
 
   it("seeds and reads persistent session cookies through acknowledged HTTP responses", async () => {
@@ -116,14 +120,33 @@ describe("runtime authority fixture launch gates", () => {
   it("tracks pressed codes without duplicate repeat ownership and clears exact keyup", async () => {
     const { origin } = await startFixture();
     for (const kind of ["keydown", "keydown"]) {
-      await post(origin, "/api/event", { code: "Digit1", kind, roleId: "role-a" });
+      await post(origin, "/api/event", {
+        code: "Digit1",
+        isTrusted: true,
+        kind,
+        roleId: "role-a"
+      });
     }
     expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
-      "role-a": { pressedCodes: ["Digit1"] }
+      "role-a": { pressedCodes: ["Digit1"], trustedPressedCodes: ["Digit1"] }
     });
-    await post(origin, "/api/event", { code: "Digit1", kind: "keyup", roleId: "role-a" });
+    await post(origin, "/api/event", {
+      code: "Digit1",
+      isTrusted: false,
+      kind: "keyup",
+      roleId: "role-a"
+    });
     expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
-      "role-a": { pressedCodes: [] }
+      "role-a": { pressedCodes: [], trustedPressedCodes: ["Digit1"] }
+    });
+    await post(origin, "/api/event", {
+      code: "Digit1",
+      isTrusted: true,
+      kind: "keyup",
+      roleId: "role-a"
+    });
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": { pressedCodes: [], trustedPressedCodes: [] }
     });
   });
 

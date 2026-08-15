@@ -9,6 +9,13 @@ type OverlayController = {
   dispose(): void;
   refresh(): Promise<void>;
 };
+type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
+  macroKeyObserved(observation: {
+    code: string;
+    dispatchId: string;
+    phase: "keydown" | "keyup";
+  }): Promise<unknown>;
+};
 
 const macro = {
   activationMode: "toggle",
@@ -120,6 +127,25 @@ describe("Tauri macro overlay injector", () => {
     expect(invoke).toHaveBeenCalledWith("rion_overlay_request", {
       capability: "test-capability",
       payload: { macroId: "macro-1", type: "toggle" }
+    });
+  });
+
+  it("forwards trusted key observations through the authenticated internal command", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => undefined);
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const observation = {
+      code: "Digit2",
+      dispatchId: "dispatch-1",
+      phase: "keydown" as const
+    };
+
+    await binding.macroKeyObserved(observation);
+
+    expect(invoke).toHaveBeenCalledWith("rion_macro_key_event_observed", {
+      capability: "test-capability",
+      observation
     });
   });
 
@@ -325,10 +351,8 @@ async function installOverlay(
 function nativeBinding(
   bridge: string,
   capability: string
-): (request: OverlayRequest) => Promise<unknown> {
-  return new Function(`return ${nativeBindingSource(bridge, capability)}`)() as (
-    request: OverlayRequest
-  ) => Promise<unknown>;
+): NativeOverlayBinding {
+  return new Function(`return ${nativeBindingSource(bridge, capability)}`)() as NativeOverlayBinding;
 }
 
 function nativeBindingSource(bridge: string, capability: string) {

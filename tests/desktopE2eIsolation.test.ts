@@ -37,6 +37,36 @@ describe("desktop E2E build isolation", () => {
     expect(productHandler).not.toContain("desktop_e2e_keyboard_input");
     expect(productConfig).not.toContain("desktop-e2e-keyboard-input");
     expect(build).toContain('"desktop_e2e_keyboard_input"');
+    expect(run).toContain("desktop_e2e_keyboard_input");
+  });
+
+  it("reasserts only the explicitly focused role before debug keydown", async () => {
+    const [control, runtimeUi] = await Promise.all([
+      readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8")
+    ]);
+
+    expect(control).toContain("DesktopE2eRuntimeUiActionRequest::FocusRole");
+    expect(control).toContain("remember_keyboard_target");
+    expect(control).toContain("if key_down && let Some(target)");
+    expect(control).toContain("desktop_e2e_focus_keyboard_target(");
+    expect(runtimeUi).toContain("desktop_e2e_require_selected_tab");
+    expect(runtimeUi).toContain("request_platform_window_show_foreground(&window)");
+    expect(runtimeUi).toContain("webview.set_focus()");
+  });
+
+  it("projects held macOS modifier sides onto every debug keyboard event", async () => {
+    const source = await readFile("src-tauri/native/macos/RionDesktopE2E.m", "utf8");
+
+    expect(source).toContain("RionDesktopE2EHeldModifierCodes");
+    expect(source).toContain('isEqualToString:@"ShiftLeft"');
+    expect(source).toContain('isEqualToString:@"ShiftRight"');
+    expect(source).toContain("kCGEventFlagMaskShift");
+    expect(source).toContain(
+      "CGEventSetFlags(event, RionDesktopE2EUpdateModifierFlags(code, keyDown))"
+    );
+    expect(source.indexOf("RionDesktopE2EUpdateModifierFlags(code, keyDown)"))
+      .toBeLessThan(source.indexOf("CGEventPost(kCGHIDEventTap, event)"));
   });
 
   it("grants native runtime evidence commands only in the desktop E2E capability", async () => {

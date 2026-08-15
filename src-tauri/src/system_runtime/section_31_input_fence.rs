@@ -33,6 +33,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn set_role_input_fence(&self, role_id: &str, input_epoch: u64) -> RuntimeResult<()> {
+        self.cancel_macro_key_observations_for_role(role_id);
         let lane = self.role_input_lane(role_id)?;
         lane.epoch.fetch_max(input_epoch, Ordering::AcqRel);
         lane.normal_enabled.store(false, Ordering::Release);
@@ -52,6 +53,7 @@ impl SystemRuntimeExecutor {
         normal_enabled: bool,
         advance_input_epoch: bool,
     ) -> RuntimeResult<()> {
+        self.cancel_macro_key_observations_for_role(role_id);
         let lane = self.role_input_lane(role_id)?;
         if advance_input_epoch {
             lane.epoch.fetch_add(1, Ordering::AcqRel);
@@ -65,6 +67,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn retire_role_input_surface(&self, role_id: &str) -> RuntimeResult<()> {
+        self.cancel_macro_key_observations_for_role(role_id);
         let lane = self
             .input_dispatch_lanes
             .lock()

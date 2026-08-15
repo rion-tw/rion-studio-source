@@ -298,6 +298,7 @@ impl SystemRuntimeExecutor {
     }
 
     fn revoke_overlay_capability(&self, label: &str) {
+        self.cancel_macro_key_observations_for_webview(label);
         if let Ok(mut state) = self.state.lock() {
             state.overlay_capabilities.remove(label);
             state.overlay_ready_webviews.remove(label);

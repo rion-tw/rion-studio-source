@@ -28,6 +28,7 @@ function roleCounters(roleId) {
     lastEvent: "boot",
     lastEventSequence: 0,
     pressedCodes: [],
+    trustedPressedCodes: [],
     visibility: 0
   };
   counters.set(roleId, current);
@@ -59,6 +60,7 @@ function recordFixtureEvent(input) {
     code: typeof input.code === "string" ? input.code : undefined,
     coordinates: input.coordinates,
     hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
+    isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
     kind: input.kind,
     modifiers: input.modifiers,
@@ -78,6 +80,17 @@ function recordFixtureEvent(input) {
   }
   if (event.code && input.kind === "keyup") {
     state.pressedCodes = state.pressedCodes.filter((code) => code !== event.code);
+  }
+  if (
+    event.isTrusted === true
+    && event.code
+    && input.kind === "keydown"
+    && !state.trustedPressedCodes.includes(event.code)
+  ) {
+    state.trustedPressedCodes.push(event.code);
+  }
+  if (event.isTrusted === true && event.code && input.kind === "keyup") {
+    state.trustedPressedCodes = state.trustedPressedCodes.filter((code) => code !== event.code);
   }
   state.lastEvent = input.kind;
   state.lastEventSequence = event.sequence;
@@ -125,7 +138,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #10141d; color: #ecf2ff; }
-    main { width: min(760px, calc(100vw - 40px)); padding: 28px; border: 2px solid #5eead4; border-radius: 18px; background: #182131; box-shadow: 0 24px 80px #0008; }
+    main { position: relative; z-index: 1; width: min(760px, calc(100vw - 40px)); padding: 28px; border: 2px solid #5eead4; border-radius: 18px; background: #182131; box-shadow: 0 24px 80px #0008; }
     h1 { margin: 0 0 8px; color: #5eead4; }
     p { color: #a9b7ce; }
     button { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; cursor: pointer; }
@@ -133,10 +146,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
+    #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; pointer-events: none; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
   </style>
 </head>
 <body>
+  <canvas id="game-input-canvas" tabindex="0"></canvas>
   <main>
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
@@ -173,14 +188,21 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         keepalive: true
       }).catch(() => {});
     };
-    document.querySelector("#qa-target").addEventListener("click", (event) => record("click", {
-      coordinates: { x: event.clientX, y: event.clientY },
-      targetId: event.currentTarget.id
-    }));
+    const qaTarget = document.querySelector("#qa-target");
+    qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
+    qaTarget.addEventListener("click", (event) => {
+      record("click", {
+        coordinates: { x: event.clientX, y: event.clientY },
+        targetId: event.currentTarget.id
+      });
+      document.querySelector("#game-input-canvas").focus();
+    });
     const keyboardDetails = (event) => ({
       code: event.code,
+      isTrusted: event.isTrusted,
       key: event.key,
-      modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey }
+      modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
+      targetId: event.target instanceof Element ? event.target.id : undefined
     });
     addEventListener("keydown", (event) => record("keydown", keyboardDetails(event)), true);
     addEventListener("keyup", (event) => record("keyup", keyboardDetails(event)), true);
@@ -212,6 +234,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
     };
     addEventListener("load", () => void recordSession(), { once: true });
+    document.querySelector("#game-input-canvas").focus();
     record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden });
   </script>
 </body>

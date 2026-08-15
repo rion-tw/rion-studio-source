@@ -173,12 +173,13 @@ pub(in crate::system_runtime) fn dispatch_key_effect(
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn dispatch_key_effect_with_physical_modifiers(
-    webview: &Webview,
-    effect: &EmbeddedKeyEffectRecord,
+    _webview: &Webview,
+    _effect: &EmbeddedKeyEffectRecord,
     _physical_modifier_codes: &[String],
-    context: &InputDispatchContext,
+    _context: &InputDispatchContext,
+    _dispatch_projection: impl FnMut(&EmbeddedKeyEffectRecord) -> RuntimeResult<()>,
 ) -> RuntimeResult<()> {
-    dispatch_key_effect(webview, effect, context)
+    Ok(())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]

@@ -15,5 +15,11 @@
     if (!nativeInvoke) return Promise.resolve();
     return nativeInvoke("rion_overlay_ready", { capability });
   };
+  bridge.macroKeyObserved = (observation) => {
+    if (!nativeInvoke) {
+      return Promise.reject(new Error("Rion Studio overlay IPC is unavailable."));
+    }
+    return nativeInvoke("rion_macro_key_event_observed", { capability, observation });
+  };
   return bridge;
 })()

@@ -16,191 +16,224 @@ fn guard_acknowledgement(codes: &[&str]) -> MacroKeyGuardAcknowledgement {
     }
 }
 
-#[test]
-fn macro_main_keydown_arms_the_page_guard_before_native_dispatch() {
-    let effect = guarded_key_effect("rawKeyDown", "KeyA", true);
-    let order = Mutex::new(Vec::new());
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || {
-            order.lock().unwrap().push("arm");
-            Ok(guard_acknowledgement(&[]))
+fn observation_fixture() -> (
+    Mutex<HashMap<String, PendingMacroKeyObservation>>,
+    RoleInputDispatchLane,
+    mpsc::Receiver<MacroKeyObservationSignal>,
+) {
+    let lane = RoleInputDispatchLane::default();
+    lane.epoch.store(7, Ordering::Release);
+    lane.surface_generation.store(3, Ordering::Release);
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let observations = Mutex::new(HashMap::from([(
+        "dispatch-1".to_owned(),
+        PendingMacroKeyObservation {
+            code: "Digit2".to_owned(),
+            input_epoch: 7,
+            phase: "keydown".to_owned(),
+            role_id: "role-1".to_owned(),
+            sender,
+            surface_generation: 3,
+            webview_label: "role-webview-1".to_owned(),
         },
-        |_| {
-            order.lock().unwrap().push("dispatch");
-            Ok(())
-        },
-        || {
-            order.lock().unwrap().push("release");
-            Ok(())
-        },
-    );
+    )]));
+    (observations, lane, receiver)
+}
 
-    assert!(result.is_ok());
-    assert_eq!(*order.lock().unwrap(), ["arm", "dispatch"]);
+fn exact_observation() -> MacroKeyEventObservation {
+    MacroKeyEventObservation {
+        dispatch_id: "dispatch-1".to_owned(),
+        code: "Digit2".to_owned(),
+        phase: "keydown".to_owned(),
+    }
 }
 
 #[test]
-fn macro_main_keydown_is_not_dispatched_when_the_page_guard_fails() {
-    let effect = guarded_key_effect("rawKeyDown", "KeyA", true);
-    let dispatched = AtomicBool::new(false);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || {
-            Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-                "guard unavailable",
-            ))
-        },
-        |_| {
-            dispatched.store(true, Ordering::Release);
-            Ok(())
-        },
-        || Ok(()),
-    );
-
-    assert_eq!(
-        result.expect_err("keydown guard failure must be returned").code,
-        "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE"
-    );
-    assert!(!dispatched.load(Ordering::Acquire));
-}
-
-#[test]
-fn macro_keyup_is_always_dispatched_even_when_guard_arming_fails() {
-    let effect = guarded_key_effect("keyUp", "KeyA", true);
-    let dispatched = AtomicBool::new(false);
-    let released = AtomicBool::new(false);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || {
-            Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
-                "guard unavailable",
-            ))
-        },
-        |_| {
-            dispatched.store(true, Ordering::Release);
-            Ok(())
-        },
-        || {
-            released.store(true, Ordering::Release);
-            Ok(())
-        },
-    );
-
-    assert!(result.is_ok());
-    assert!(dispatched.load(Ordering::Acquire));
-    assert!(released.load(Ordering::Acquire));
-}
-
-#[test]
-fn modifier_keydown_is_armed_before_native_dispatch() {
-    let effect = guarded_key_effect("rawKeyDown", "ControlLeft", false);
-    let armed = AtomicBool::new(false);
-    let dispatched = AtomicBool::new(false);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || {
-            armed.store(true, Ordering::Release);
-            Ok(guard_acknowledgement(&[]))
-        },
-        |_| {
-            dispatched.store(true, Ordering::Release);
-            Ok(())
-        },
-        || Ok(()),
-    );
-
-    assert!(result.is_ok());
-    assert!(armed.load(Ordering::Acquire));
-    assert!(dispatched.load(Ordering::Acquire));
-}
-
-#[test]
-fn successful_keyup_guard_acknowledges_forwarded_release_after_native_dispatch() {
-    let effect = guarded_key_effect("keyUp", "KeyA", true);
-    let released = AtomicBool::new(false);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || Ok(guard_acknowledgement(&[])),
-        |_| Ok(()),
-        || {
-            released.store(true, Ordering::Release);
-            Ok(())
-        },
-    );
-
-    assert!(result.is_ok());
-    assert!(released.load(Ordering::Acquire));
-}
-
-#[test]
-fn macro_keyup_cleanup_failure_is_terminal_after_successful_native_dispatch() {
-    let effect = guarded_key_effect("keyUp", "KeyA", true);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || Ok(guard_acknowledgement(&[])),
-        |_| Ok(()),
-        || {
-            Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
-                "cleanup unavailable",
-            ))
-        },
-    );
-
-    assert_eq!(
-        result.expect_err("cleanup acknowledgement must be terminal").code,
-        "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE"
-    );
-}
-
-#[test]
-fn macro_keyup_preserves_native_failure_after_attempting_cleanup() {
-    let effect = guarded_key_effect("keyUp", "KeyA", true);
-    let released = AtomicBool::new(false);
-    let result = dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || Ok(guard_acknowledgement(&[])),
-        |_| {
-            Err(RuntimeError::new(
-                "SYSTEM_TRUSTED_INPUT_FAILED",
-                "native dispatch failed",
-            ))
-        },
-        || {
-            released.store(true, Ordering::Release);
-            Err(RuntimeError::new(
-                "SYSTEM_MACRO_KEY_RELEASE_UNAVAILABLE",
-                "cleanup unavailable",
-            ))
-        },
-    );
-
-    assert_eq!(
-        result.expect_err("native failure must remain authoritative").code,
-        "SYSTEM_TRUSTED_INPUT_FAILED"
-    );
-    assert!(released.load(Ordering::Acquire));
-}
-
-#[test]
-fn guarded_dispatch_receives_the_foreground_physical_modifier_sides() {
-    let effect = guarded_key_effect("rawKeyDown", "Digit4", true);
-    let observed = Mutex::new(Vec::new());
-    dispatch_guarded_macro_key_effect_with(
-        &effect,
-        || Ok(guard_acknowledgement(&["ShiftRight", "ControlLeft"])),
-        |codes| {
-            *observed.lock().unwrap() = codes.to_vec();
-            Ok(())
-        },
-        || Ok(()),
+fn macro_key_observation_is_identity_fenced_and_one_shot() {
+    let (observations, lane, _receiver) = observation_fixture();
+    let pending = claim_macro_key_observation(
+        &observations,
+        &lane,
+        "role-webview-1",
+        "role-1",
+        &exact_observation(),
     )
     .unwrap();
+    assert_eq!(pending.code, "Digit2");
+    assert!(observations.lock().unwrap().is_empty());
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "role-webview-1",
+            "role-1",
+            &exact_observation(),
+        )
+        .expect_err("a receipt must be consumed exactly once")
+        .code,
+        "SYSTEM_MACRO_KEY_OBSERVATION_STALE"
+    );
+}
 
-    assert_eq!(*observed.lock().unwrap(), ["ShiftRight", "ControlLeft"]);
+#[test]
+fn mismatched_observation_does_not_consume_the_waiter() {
+    for observation in [
+        MacroKeyEventObservation {
+            code: "Digit3".to_owned(),
+            ..exact_observation()
+        },
+        MacroKeyEventObservation {
+            phase: "keyup".to_owned(),
+            ..exact_observation()
+        },
+    ] {
+        let (observations, lane, _receiver) = observation_fixture();
+        assert_eq!(
+            claim_macro_key_observation(
+                &observations,
+                &lane,
+                "role-webview-1",
+                "role-1",
+                &observation,
+            )
+            .expect_err("mismatched receipt must be rejected")
+            .code,
+            "SYSTEM_MACRO_KEY_OBSERVATION_MISMATCH"
+        );
+        assert_eq!(observations.lock().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn observation_rejects_webview_role_generation_and_epoch_mismatches() {
+    let (observations, lane, _receiver) = observation_fixture();
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "other-webview",
+            "role-1",
+            &exact_observation(),
+        )
+        .unwrap_err()
+        .code,
+        "SYSTEM_MACRO_KEY_OBSERVATION_MISMATCH"
+    );
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "role-webview-1",
+            "other-role",
+            &exact_observation(),
+        )
+        .unwrap_err()
+        .code,
+        "SYSTEM_MACRO_KEY_OBSERVATION_MISMATCH"
+    );
+    lane.epoch.store(8, Ordering::Release);
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "role-webview-1",
+            "role-1",
+            &exact_observation(),
+        )
+        .unwrap_err()
+        .code,
+        "SYSTEM_MACRO_KEY_OBSERVATION_STALE"
+    );
+    lane.epoch.store(7, Ordering::Release);
+    lane.surface_generation.store(4, Ordering::Release);
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "role-webview-1",
+            "role-1",
+            &exact_observation(),
+        )
+        .unwrap_err()
+        .code,
+        "SYSTEM_MACRO_KEY_OBSERVATION_STALE"
+    );
+    assert_eq!(observations.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn navigation_or_dispose_cancels_the_exact_pending_waiter() {
+    let (observations, _lane, receiver) = observation_fixture();
+    cancel_macro_key_observations_matching(&observations, |pending| {
+        pending.webview_label == "role-webview-1"
+    });
+    assert!(observations.lock().unwrap().is_empty());
+    assert!(matches!(
+        receiver.recv().unwrap(),
+        MacroKeyObservationSignal::Cancelled
+    ));
+}
+
+#[test]
+fn macro_key_guard_script_serializes_dispatch_code_and_phase_without_expiry() {
+    let effect = guarded_key_effect("rawKeyDown", "KeyA\"\\", true);
+    let source = macro_key_guard_arm_script(&effect, "dispatch-123").unwrap();
+
+    assert!(source.contains("suppressNextShortcut"));
+    assert!(source.contains(r#""dispatch-123""#));
+    assert!(source.contains(r#""KeyA\"\\""#));
+    assert!(source.contains(r#""keydown""#));
+    assert!(!source.contains("expires"));
+    assert!(source.contains("physicalModifierCodes"));
+}
+
+#[test]
+fn modifier_projection_guard_has_its_own_disposition_and_dispatch_id() {
+    let effect = guarded_key_effect("rawKeyDown", "ShiftLeft", false);
+    let source = macro_modifier_projection_guard_arm_script(&effect, "dispatch-shift").unwrap();
+
+    assert!(source.contains("suppressNextModifierProjection"));
+    assert!(source.contains(r#""dispatch-shift""#));
+    assert!(source.contains(r#""ShiftLeft""#));
+    assert!(source.contains("physicalModifierCodes: []"));
+    assert!(macro_modifier_projection_guard_arm_script(
+        &guarded_key_effect("rawKeyDown", "Digit2", true),
+        "dispatch-2"
+    )
+    .is_err());
+}
+
+#[test]
+fn unknown_keydown_compensation_is_an_exact_non_repeat_keyup() {
+    let mut effect = guarded_key_effect("rawKeyDown", "Digit2", true);
+    effect.active_codes = vec!["Digit2".to_owned(), "ShiftLeft".to_owned()];
+    let compensation = macro_key_compensation_effect(&effect);
+
+    assert_eq!(compensation.phase, "keyUp");
+    assert_eq!(compensation.code, "Digit2");
+    assert_eq!(compensation.active_codes_before, ["Digit2", "ShiftLeft"]);
+    assert_eq!(compensation.active_codes, ["ShiftLeft"]);
+    assert!(!compensation.auto_repeat);
+}
+
+#[test]
+fn macro_key_guard_acknowledgement_validates_modifier_sides() {
+    assert_eq!(
+        macro_key_guard_acknowledgement(
+            r#"{"armed":true,"physicalModifierCodes":["ShiftRight","ControlLeft"]}"#
+        ),
+        Some(guard_acknowledgement(&["ShiftRight", "ControlLeft"]))
+    );
+    for raw in [
+        r#"{"armed":false,"physicalModifierCodes":[]}"#,
+        r#"{"armed":true,"physicalModifierCodes":["KeyA"]}"#,
+        r#"{"armed":true,"physicalModifierCodes":["ShiftLeft","ShiftLeft"]}"#,
+        "true",
+        "null",
+        "not-json",
+    ] {
+        assert!(macro_key_guard_acknowledgement(raw).is_none(), "{raw}");
+    }
 }
 
 #[test]
@@ -226,11 +259,10 @@ fn physical_modifier_projection_preserves_sides_and_unions_macro_state() {
         projections[1].active_codes,
         ["AltLeft", "ShiftLeft", "ShiftRight"]
     );
-    assert!(projections.iter().all(|projection| !projection.suppress_shortcut));
 }
 
 #[test]
-fn physical_modifier_projection_does_not_inherit_background_or_repress_macro_owned_sides() {
+fn background_roles_receive_no_physical_modifier_projection() {
     let mut effect = guarded_key_effect("rawKeyDown", "ShiftLeft", false);
     effect.active_codes = vec!["ShiftLeft".to_owned()];
     assert!(physical_modifier_projection_effects(&effect, &[], |_| true).is_empty());
@@ -243,137 +275,13 @@ fn physical_modifier_projection_does_not_inherit_background_or_repress_macro_own
 }
 
 #[test]
-fn macro_key_guard_script_serializes_code_phase_and_deadline() {
-    let effect = guarded_key_effect("rawKeyDown", "KeyA\"\\", true);
-    let source = macro_key_guard_arm_script(&effect, 123_456).unwrap();
-
-    assert!(source.contains("suppressNextShortcut"));
-    assert!(source.contains(r#""KeyA\"\\""#));
-    assert!(source.contains(r#""keydown""#));
-    assert!(source.contains(",123456) === true"));
-    assert!(source.contains("physicalModifierCodes"));
-}
-
-#[test]
-fn macro_key_release_script_serializes_the_code() {
-    let source = macro_key_guard_release_script("KeyA\"\\").unwrap();
-
-    assert!(source.contains("releaseForwardedMacroKey"));
-    assert!(source.contains(r#""KeyA\"\\""#));
-    assert!(source.contains("acknowledged: true"));
-    assert!(source.contains("released:"));
-}
-
-#[test]
-fn macro_key_guard_acknowledgement_validates_armed_state_and_modifier_sides() {
-    assert_eq!(
-        macro_key_guard_acknowledgement(
-            r#"{"armed":true,"physicalModifierCodes":["ShiftRight","ControlLeft"]}"#
-        ),
-        Some(guard_acknowledgement(&["ShiftRight", "ControlLeft"]))
-    );
-    assert_eq!(
-        macro_key_guard_acknowledgement(
-            r#""{\"armed\":true,\"physicalModifierCodes\":[\"ShiftLeft\"]}""#
-        ),
-        Some(guard_acknowledgement(&["ShiftLeft"]))
-    );
-    for raw in [
-        r#"{"armed":false,"physicalModifierCodes":[]}"#,
-        r#"{"armed":true,"physicalModifierCodes":["KeyA"]}"#,
-        r#"{"armed":true,"physicalModifierCodes":["ShiftLeft","ShiftLeft"]}"#,
-        "true",
-        "null",
-        "not-json",
-    ] {
-        assert!(macro_key_guard_acknowledgement(raw).is_none(), "{raw}");
-    }
-}
-
-#[test]
-fn macro_key_release_acknowledgement_is_structured_and_idempotent() {
-    assert_eq!(
-        macro_key_release_acknowledgement(r#"{"acknowledged":true,"released":true}"#),
-        Some(MacroKeyReleaseAcknowledgement {
-            acknowledged: true,
-            released: true,
-        })
-    );
-    assert_eq!(
-        macro_key_release_acknowledgement(
-            r#""{\"acknowledged\":true,\"released\":false}""#
-        ),
-        Some(MacroKeyReleaseAcknowledgement {
-            acknowledged: true,
-            released: false,
-        })
-    );
-    for raw in [
-        r#"{"acknowledged":false,"released":true}"#,
-        r#"{"acknowledged":true}"#,
-        "true",
-        "null",
-        "not-json",
-    ] {
-        assert!(macro_key_release_acknowledgement(raw).is_none(), "{raw}");
-    }
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_macro_key_guard_accepts_only_the_cdp_structured_terminal() {
-    assert_eq!(
-        macro_key_guard_devtools_acknowledgement(
-            r#"{"result":{"type":"object","value":{"armed":true,"physicalModifierCodes":["ShiftLeft"]}}}"#
-        ),
-        Some(guard_acknowledgement(&["ShiftLeft"]))
-    );
-    assert!(macro_key_guard_devtools_acknowledgement(
-        r#"{"result":{"type":"boolean","value":true}}"#
-    )
-    .is_none());
-    assert!(macro_key_guard_devtools_acknowledgement(
-        r#"{"exceptionDetails":{"text":"failed"}}"#
-    )
-    .is_none());
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_macro_key_release_accepts_only_the_cdp_structured_terminal() {
-    assert_eq!(
-        macro_key_release_devtools_acknowledgement(
-            r#"{"result":{"type":"object","value":{"acknowledged":true,"released":false}}}"#
-        ),
-        Some(MacroKeyReleaseAcknowledgement {
-            acknowledged: true,
-            released: false,
-        })
-    );
-    assert!(macro_key_release_devtools_acknowledgement(
-        r#"{"result":{"type":"boolean","value":true}}"#
-    )
-    .is_none());
-    assert!(macro_key_release_devtools_acknowledgement(
-        r#"{"exceptionDetails":{"text":"failed"}}"#
-    )
-    .is_none());
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_macro_key_guard_uses_the_authoritative_action_callback_budget() {
-    assert_eq!(MACRO_KEY_GUARD_MAX_LIFETIME, PLATFORM_CALLBACK_TIMEOUT);
-}
-
-#[test]
 fn macro_focus_waits_for_essential_page_readiness() {
-    for phase in [None, Some(LaunchPhase::Attaching), Some(LaunchPhase::Navigating)] {
-        assert_eq!(
-            focus_launch_readiness(phase),
-            FocusLaunchReadiness::Pending,
-            "{phase:?}"
-        );
+    for phase in [
+        None,
+        Some(LaunchPhase::Attaching),
+        Some(LaunchPhase::Navigating),
+    ] {
+        assert_eq!(focus_launch_readiness(phase), FocusLaunchReadiness::Pending);
     }
     for phase in [
         LaunchPhase::EssentialReady,
@@ -382,8 +290,7 @@ fn macro_focus_waits_for_essential_page_readiness() {
     ] {
         assert_eq!(
             focus_launch_readiness(Some(phase)),
-            FocusLaunchReadiness::Ready,
-            "{phase:?}"
+            FocusLaunchReadiness::Ready
         );
     }
     assert_eq!(

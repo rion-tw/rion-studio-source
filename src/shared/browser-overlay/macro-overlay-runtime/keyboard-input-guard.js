@@ -1,5 +1,7 @@
   const activeMacroGameKeys = new Map();
+  const consumedPhysicalShortcutCodes = new Set();
   const forwardedMacroGameEvents = new WeakSet();
+  const macroModifierOwnership = new Map();
   const physicalGameKeys = new Map();
   const physicalModifierCodeSet = new Set([
     "AltLeft",
@@ -21,73 +23,77 @@
     event.stopImmediatePropagation?.();
   }
 
-  function clearSuppressedShortcutTimer(item) {
-    if (item?.expiryTimer !== undefined) {
-      clearTimeout(item.expiryTimer);
-      item.expiryTimer = undefined;
-    }
-  }
-
-  function removeSuppressedShortcutItem(item, releaseExpiredKeyUp = false) {
-    const index = suppressedShortcutEvents.indexOf(item);
-    if (index !== -1) suppressedShortcutEvents.splice(index, 1);
-    clearSuppressedShortcutTimer(item);
-    if (releaseExpiredKeyUp && item?.phase === "keyup") {
-      releaseForwardedMacroKey(item.code);
-    }
-  }
-
-  function pruneSuppressedShortcutEvents(now = Date.now()) {
-    for (const item of [...suppressedShortcutEvents]) {
-      if (item.expiresAt <= now) removeSuppressedShortcutItem(item, true);
-    }
-  }
-
-  function suppressNextShortcut(code, phase = "keydown", expiresAt = Date.now() + 1000) {
-    const now = Date.now();
+  function armMacroKeyGuard(dispatchId, code, phase, disposition) {
+    const normalizedDispatchId = String(dispatchId);
     const normalizedCode = String(code);
-    const normalizedExpiry = Math.min(Number(expiresAt), now + 1000);
     if (
+      isDisposed ||
+      inFlightMacroKeyGuard !== null ||
+      normalizedDispatchId.length === 0 ||
       normalizedCode.length === 0 ||
       (phase !== "keydown" && phase !== "keyup") ||
-      !Number.isFinite(normalizedExpiry) ||
-      normalizedExpiry <= now
+      (disposition !== "macro-key" && disposition !== "modifier-projection")
     ) {
       return false;
     }
-    pruneSuppressedShortcutEvents(now);
-    const item = {
+    inFlightMacroKeyGuard = {
       code: normalizedCode,
-      expiresAt: normalizedExpiry,
-      expiryTimer: undefined,
+      dispatchId: normalizedDispatchId,
+      disposition,
       phase
     };
-    // event-topology-exception: embedded-shortcut-suppression-expiry
-    item.expiryTimer = setTimeout(() => {
-      removeSuppressedShortcutItem(item, true);
-    }, Math.max(0, normalizedExpiry - now));
-    suppressedShortcutEvents.push(item);
     return true;
   }
 
-  function clearSuppressedShortcut(code, phase = "keydown") {
-    for (const item of [...suppressedShortcutEvents]) {
-      if (item.code === code && item.phase === phase) removeSuppressedShortcutItem(item);
-    }
+  function suppressNextShortcut(dispatchId, code, phase = "keydown") {
+    return armMacroKeyGuard(dispatchId, code, phase, "macro-key");
   }
 
-  function consumeSuppressedShortcut(code, phase) {
-    pruneSuppressedShortcutEvents();
-    const item = suppressedShortcutEvents.find(
-      (item) => item.code === code && item.phase === phase
+  function suppressNextModifierProjection(dispatchId, code) {
+    const normalizedCode = String(code);
+    if (!physicalModifierCodeSet.has(normalizedCode)) return false;
+    return armMacroKeyGuard(
+      dispatchId,
+      normalizedCode,
+      "keydown",
+      "modifier-projection"
     );
-    if (!item) return false;
-    removeSuppressedShortcutItem(item);
+  }
+
+  function clearSuppressedShortcut(dispatchId) {
+    if (inFlightMacroKeyGuard?.dispatchId !== String(dispatchId)) return false;
+    inFlightMacroKeyGuard = null;
     return true;
+  }
+
+  function consumeSuppressedShortcut(event, disposition) {
+    const guard = inFlightMacroKeyGuard;
+    const phase = event.type === "keydown" ? "keydown" : "keyup";
+    if (
+      !guard ||
+      guard.disposition !== disposition ||
+      guard.code !== event.code ||
+      guard.phase !== phase ||
+      event.repeat
+    ) {
+      return null;
+    }
+    inFlightMacroKeyGuard = null;
+    return guard;
+  }
+
+  function reportObservedMacroKey(guard) {
+    queueMicrotask(() => {
+      void binding.macroKeyObserved?.({
+        code: guard.code,
+        dispatchId: guard.dispatchId,
+        phase: guard.phase
+      }).catch(() => undefined);
+    });
   }
 
   function clearAllSuppressedShortcuts() {
-    for (const item of [...suppressedShortcutEvents]) removeSuppressedShortcutItem(item);
+    inFlightMacroKeyGuard = null;
   }
 
   function isConnectedGameCanvas(candidate) {
@@ -150,11 +156,12 @@
     };
   }
 
-  function rememberPhysicalGameKey(event) {
+  function rememberPhysicalGameKey(event, delivered = true) {
     if (!event.code || physicalGameKeys.has(event.code)) return;
     const target = event.target;
     if (!target || typeof target.dispatchEvent !== "function") return;
     physicalGameKeys.set(event.code, {
+      delivered,
       snapshot: snapshotMacroKeyboardEvent(event, false),
       target
     });
@@ -181,6 +188,7 @@
   }
 
   function dispatchPhysicalGameKeyUp(active) {
+    if (active.delivered === false) return;
     if (typeof window.KeyboardEvent !== "function") return;
     try {
       const snapshot = currentPhysicalModifierSnapshot(active.snapshot);
@@ -218,8 +226,67 @@
     for (const code of [...physicalGameKeys.keys()].reverse()) {
       const active = physicalGameKeys.get(code);
       physicalGameKeys.delete(code);
+      const macroOwnership = macroModifierOwnership.get(code);
+      if (macroOwnership) {
+        macroOwnership.delivered = true;
+        continue;
+      }
       if (active) dispatchPhysicalGameKeyUp(active);
     }
+  }
+
+  function discardForwardedMacroKey(code) {
+    activeMacroGameKeys.delete(code);
+    if (activeMacroGameKeys.size === 0) macroGameKeysNeedReassert = false;
+  }
+
+  function consumeOverlappingMacroModifierKeyDown(event) {
+    if (!physicalModifierCodeSet.has(event.code)) return false;
+    const delivered = !physicalGameKeys.has(event.code);
+    macroModifierOwnership.set(event.code, { delivered });
+    if (delivered) return false;
+    consumeShortcutEvent(event);
+    return true;
+  }
+
+  function consumeOverlappingMacroModifierKeyUp(event) {
+    if (!physicalModifierCodeSet.has(event.code)) return false;
+    const ownership = macroModifierOwnership.get(event.code);
+    macroModifierOwnership.delete(event.code);
+    const physical = physicalGameKeys.get(event.code);
+    if (physical) {
+      physical.delivered = true;
+      discardForwardedMacroKey(event.code);
+      consumeShortcutEvent(event);
+      return true;
+    }
+    if (ownership?.delivered !== false) return false;
+    discardForwardedMacroKey(event.code);
+    consumeShortcutEvent(event);
+    return true;
+  }
+
+  function consumeOverlappingPhysicalModifierKeyDown(event) {
+    if (
+      !physicalModifierCodeSet.has(event.code) ||
+      !macroModifierOwnership.has(event.code)
+    ) {
+      return false;
+    }
+    rememberPhysicalGameKey(event, false);
+    consumeShortcutEvent(event);
+    return true;
+  }
+
+  function consumeOverlappingPhysicalModifierKeyUp(event) {
+    if (!physicalModifierCodeSet.has(event.code)) return false;
+    const physical = physicalGameKeys.get(event.code);
+    const macroOwnership = macroModifierOwnership.get(event.code);
+    if (!physical || !macroOwnership) return false;
+    physicalGameKeys.delete(event.code);
+    macroOwnership.delivered = true;
+    consumeShortcutEvent(event);
+    return true;
   }
 
   function dispatchForwardedMacroGameEvent(target, type, snapshot) {
@@ -259,7 +326,20 @@
 
   function releaseForwardedMacroKey(code) {
     const normalizedCode = String(code);
-    clearSuppressedShortcut(normalizedCode, "keyup");
+    const modifierOwnership = macroModifierOwnership.get(normalizedCode);
+    if (modifierOwnership) {
+      macroModifierOwnership.delete(normalizedCode);
+      const physical = physicalGameKeys.get(normalizedCode);
+      if (physical) {
+        physical.delivered = true;
+        discardForwardedMacroKey(normalizedCode);
+        return true;
+      }
+      if (modifierOwnership.delivered === false) {
+        discardForwardedMacroKey(normalizedCode);
+        return true;
+      }
+    }
     const active = activeMacroGameKeys.get(normalizedCode);
     if (!active) return false;
     activeMacroGameKeys.delete(normalizedCode);
@@ -273,7 +353,11 @@
   }
 
   function releaseAllForwardedMacroKeys() {
-    for (const code of [...activeMacroGameKeys.keys()].reverse()) {
+    const codes = new Set([
+      ...activeMacroGameKeys.keys(),
+      ...macroModifierOwnership.keys()
+    ]);
+    for (const code of [...codes].reverse()) {
       releaseForwardedMacroKey(code);
     }
     macroGameKeysNeedReassert = false;
@@ -352,16 +436,44 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
-    if (consumeSuppressedShortcut(event.code, "keydown")) {
+    // Native adapters may need to restore WebView modifier flags after a
+    // guarded macro keyup. The physical DOM owner already keeps the aggregate
+    // modifier down, so this projection updates only native state and must not
+    // become a second page-visible keydown or a new macro ownership cycle.
+    const modifierProjectionGuard = consumeSuppressedShortcut(
+      event,
+      "modifier-projection"
+    );
+    if (modifierProjectionGuard) {
+      // Keep WebKit/WebView2's native default modifier update. Only isolate the
+      // projection from page listeners; preventing its default would make the
+      // next physical key lose the still-held modifier flags.
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      reportObservedMacroKey(modifierProjectionGuard);
+      return;
+    }
+    const macroKeyGuard = consumeSuppressedShortcut(event, "macro-key");
+    if (macroKeyGuard) {
+      if (consumeOverlappingMacroModifierKeyDown(event)) {
+        reportObservedMacroKey(macroKeyGuard);
+        return;
+      }
       const activeElement = gameInputContextActive ? undefined : document.activeElement;
       const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
       if (editableContext && event.cancelable) {
         event.preventDefault();
       }
       routeMacroGameKeyDown(event, editableContext);
+      reportObservedMacroKey(macroKeyGuard);
       return;
     }
+    // A non-repeat keydown starts a new physical ownership cycle. This also
+    // retires ownership left behind when a prior keyup occurred after blur and
+    // never reached this document.
+    if (!event.repeat) consumedPhysicalShortcutCodes.delete(event.code);
     updateRuntimeTabShortcutModifier(event, true);
+    if (consumeOverlappingPhysicalModifierKeyDown(event)) return;
     if (isReservedRuntimeTabSwitchShortcutEvent(event)) {
       consumeShortcutEvent(event);
       if (!event.repeat) {
@@ -398,6 +510,7 @@
     );
     if (event.repeat) {
       if (matchesOpenShortcut(event) || matchesMacroShortcut) {
+        consumedPhysicalShortcutCodes.add(event.code);
         consumeShortcutEvent(event);
       } else {
         rememberPhysicalGameKey(event);
@@ -407,6 +520,7 @@
 
     refreshIfStale();
     if (matchesOpenShortcut(event)) {
+      consumedPhysicalShortcutCodes.add(event.code);
       consumeShortcutEvent(event);
       void requestOpenMacroPage();
       return;
@@ -423,6 +537,7 @@
       return;
     }
 
+    consumedPhysicalShortcutCodes.add(event.code);
     consumeShortcutEvent(event);
     if (matchingMacros.length !== 1) {
       console.warn("Multiple Rion Studio macros use the same shortcut for this role.");
@@ -445,14 +560,23 @@
     if (!isTrustedUserEvent(event)) {
       return;
     }
-    if (consumeSuppressedShortcut(event.code, "keyup")) {
+    const macroKeyGuard = consumeSuppressedShortcut(event, "macro-key");
+    if (macroKeyGuard) {
+      if (consumeOverlappingMacroModifierKeyUp(event)) {
+        reportObservedMacroKey(macroKeyGuard);
+        return;
+      }
       const activeElement = gameInputContextActive ? undefined : document.activeElement;
       const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
       routeMacroGameKeyUp(event, editableContext);
+      reportObservedMacroKey(macroKeyGuard);
       return;
     }
+    const consumedShortcutKeyUp = consumedPhysicalShortcutCodes.delete(event.code);
     updateRuntimeTabShortcutModifier(event, false);
-    forgetPhysicalGameKey(event.code);
+    const consumedModifierKeyUp = consumeOverlappingPhysicalModifierKeyUp(event);
+    if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
+    if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }
@@ -465,7 +589,7 @@
       ([, active]) => active.code === event.code
     );
     if (matches.length === 0) return;
-    consumeShortcutEvent(event);
+    if (!consumedShortcutKeyUp) consumeShortcutEvent(event);
     matches.forEach(([macroId, active]) => {
       activeHeldShortcuts.delete(macroId);
       runAction("release", macroId, {

@@ -1074,6 +1074,23 @@ struct RoleInputDispatchLane {
     surface_generation: AtomicU64,
 }
 
+#[derive(Debug)]
+struct PendingMacroKeyObservation {
+    code: String,
+    input_epoch: u64,
+    phase: String,
+    role_id: String,
+    sender: mpsc::SyncSender<MacroKeyObservationSignal>,
+    surface_generation: u64,
+    webview_label: String,
+}
+
+#[derive(Debug)]
+enum MacroKeyObservationSignal {
+    Cancelled,
+    Observed,
+}
+
 impl Default for RoleInputDispatchLane {
     fn default() -> Self {
         Self {

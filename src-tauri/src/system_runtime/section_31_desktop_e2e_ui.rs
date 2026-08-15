@@ -47,6 +47,46 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn desktop_e2e_focus_keyboard_target(
+        &self,
+        window_id: &str,
+        window_generation: u64,
+        tab_id: &str,
+        role_id: &str,
+    ) -> Result<(), String> {
+        let projection = self
+            .presentation
+            .live
+            .kernel
+            .snapshot()
+            .map_err(|error| error.to_string())?
+            .native_projection(window_id)
+            .ok_or_else(|| "The desktop E2E keyboard target window is no longer live.".to_owned())?;
+        if projection.window_generation != window_generation {
+            return Err("The desktop E2E keyboard target generation is stale.".to_owned());
+        }
+        desktop_e2e_require_selected_tab(&projection, tab_id, "keyboard target")?;
+        let (window, webview) = {
+            let state = self.state().map_err(|error| error.message)?;
+            let window = state
+                .native_resources
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.window.clone())
+                .ok_or_else(|| "The desktop E2E keyboard target window is unavailable.".to_owned())?;
+            let webview = state
+                .native_resources
+                .tabs
+                .get(tab_id)
+                .and_then(|tab| tab.roles.get(role_id))
+                .map(|surface| surface.webview.clone())
+                .ok_or_else(|| "The desktop E2E keyboard target role is unavailable.".to_owned())?;
+            (window, webview)
+        };
+        request_platform_window_show_foreground(&window).map_err(|error| error.message)?;
+        webview.set_focus().map_err(|error| error.to_string())
+    }
+
     pub(crate) fn desktop_e2e_runtime_ui_action(
         &self,
         window_id: &str,

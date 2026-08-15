@@ -4,6 +4,7 @@ export interface FixtureEvent {
   code?: string;
   coordinates?: { x: number; y: number };
   hidden?: boolean;
+  isTrusted?: boolean;
   key?: string;
   kind: string;
   modifiers?: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
@@ -29,6 +30,7 @@ export interface FixtureRoleState {
   lastEvent: string;
   lastEventSequence: number;
   pressedCodes: string[];
+  trustedPressedCodes: string[];
   visibility: number;
 }
 

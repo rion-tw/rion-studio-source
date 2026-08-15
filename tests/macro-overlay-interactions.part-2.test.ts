@@ -38,10 +38,14 @@ const MACRO_OVERLAY_SCRIPT = runtimeSource
   );
 
 interface OverlayController {
-  clearSuppressedShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+  clearSuppressedShortcut?: (dispatchId: string) => boolean;
   dispose: () => void;
   refresh: () => Promise<void>;
-  suppressNextShortcut?: (code: string, phase?: "keydown" | "keyup") => void;
+  suppressNextShortcut?: (
+    dispatchId: string,
+    code: string,
+    phase?: "keydown" | "keyup"
+  ) => boolean;
 }
 
 interface OverlayTestWindow extends Window {

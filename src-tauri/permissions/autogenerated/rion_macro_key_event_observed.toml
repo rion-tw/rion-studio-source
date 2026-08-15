@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-macro-key-event-observed"
+description = "Enables the rion_macro_key_event_observed command without any pre-configured scope."
+commands.allow = ["rion_macro_key_event_observed"]
+
+[[permission]]
+identifier = "deny-rion-macro-key-event-observed"
+description = "Denies the rion_macro_key_event_observed command without any pre-configured scope."
+commands.deny = ["rion_macro_key_event_observed"]

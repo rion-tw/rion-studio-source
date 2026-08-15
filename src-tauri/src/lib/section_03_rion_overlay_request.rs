@@ -136,6 +136,23 @@ async fn rion_overlay_request(
 }
 
 #[tauri::command]
+fn rion_macro_key_event_observed(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    capability: String,
+    observation: system_runtime::MacroKeyEventObservation,
+) -> Result<(), CoreErrorPayload> {
+    let role_id = state
+        .runtime
+        .authorize_overlay_request(webview.label(), &capability)
+        .map_err(|message| shell_error("MACRO_KEY_OBSERVATION_UNAUTHORIZED", message))?;
+    state
+        .runtime
+        .observe_macro_key_event(webview.label(), &role_id, observation)
+        .map_err(|error| shell_error(error.code, error.message))
+}
+
+#[tauri::command]
 async fn rion_overlay_ready(
     webview: Webview,
     state: State<'_, CoreState>,

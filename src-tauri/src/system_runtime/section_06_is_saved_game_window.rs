@@ -167,6 +167,7 @@ impl SystemRuntimeExecutor {
             main_window_actor,
             application_lifecycle,
             input_dispatch_lanes: Mutex::new(HashMap::new()),
+            macro_key_observations: Mutex::new(HashMap::new()),
             input_readiness: InputReadinessRegistry::new(),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(

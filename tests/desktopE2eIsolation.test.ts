@@ -165,4 +165,23 @@ describe("desktop E2E build isolation", () => {
     expect(macPointer).toContain("kCGEventLeftMouseDragged");
     expect(build).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
   });
+
+  it("foregrounds the exact AppKit drag windows before posting pointer input", async () => {
+    const source = await readFile(
+      "src-tauri/native/macos/RionRuntimeTabsController/06_fullscreen.mm",
+      "utf8"
+    );
+    const drag = source.slice(
+      source.indexOf("- (BOOL)performDesktopE2EDragForTabIdentifier:"),
+      source.indexOf("#endif", source.indexOf(
+        "- (BOOL)performDesktopE2EDragForTabIdentifier:"
+      ))
+    );
+
+    expect(drag).toContain("[targetWindow orderFront:nil]");
+    expect(drag).toContain("[sourceWindow makeKeyAndOrderFront:nil]");
+    expect(drag.indexOf("[sourceWindow makeKeyAndOrderFront:nil]"))
+      .toBeLessThan(drag.indexOf("CGEventCreateMouseEvent("));
+    expect(drag).toContain("!sourceWindow.isVisible || !targetWindow.isVisible");
+  });
 });

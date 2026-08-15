@@ -491,6 +491,12 @@ NS_ASSUME_NONNULL_BEGIN
       targetController->_tabItemsByIdentifier[beforeTabIdentifier];
   if (!sourceItem || sourceItem.hidden || !sourceItem.window || !targetItem ||
       targetItem.hidden || !targetItem.window) return NO;
+  NSWindow *sourceWindow = sourceItem.window;
+  NSWindow *targetWindow = targetItem.window;
+  [targetWindow orderFront:nil];
+  [NSApp activateIgnoringOtherApps:YES];
+  [sourceWindow makeKeyAndOrderFront:nil];
+  if (!sourceWindow.isVisible || !targetWindow.isVisible) return NO;
   NSPoint sourcePoint = [sourceItem.window convertPointToScreen:
       [sourceItem convertPoint:NSMakePoint(NSMidX(sourceItem.bounds),
                                            NSMidY(sourceItem.bounds))

@@ -3,6 +3,38 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("native tab scroll viewport", () => {
+  it("publishes fullscreen placement after AppKit titlebar consumers settle", async () => {
+    const layout = await readFile(
+      new URL(
+        "../src-tauri/native/macos/RionRuntimeTabsController/05_layout.mm",
+        import.meta.url
+      ),
+      "utf8"
+    );
+    const scheduled = layout.slice(
+      layout.indexOf("- (void)scheduleSettledFullscreenPlacementObservation"),
+      layout.indexOf("- (void)installWindowObservers")
+    );
+    expect(scheduled).toContain("dispatch_async(dispatch_get_main_queue()");
+    const didEnter = layout.slice(
+      layout.indexOf("NSWindowDidEnterFullScreenNotification])"),
+      layout.indexOf("NSWindowWillExitFullScreenNotification])")
+    );
+    expect(didEnter.indexOf("scheduleFullscreenHostRefresh"))
+      .toBeLessThan(
+        didEnter.indexOf("scheduleSettledFullscreenPlacementObservation")
+      );
+    const didExitStart = layout.indexOf("NSWindowDidExitFullScreenNotification])");
+    const didExit = layout.slice(
+      didExitStart,
+      layout.indexOf("} else {", didExitStart)
+    );
+    expect(didExit.indexOf("scheduleLiquidGlassTitlebarRehost"))
+      .toBeLessThan(
+        didExit.indexOf("scheduleSettledFullscreenPlacementObservation")
+      );
+  });
+
   it("clips at the outer controls while preserving arrow fusion zones", async () => {
     const [
       geometry,

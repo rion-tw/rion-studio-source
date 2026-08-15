@@ -102,6 +102,20 @@ NS_ASSUME_NONNULL_BEGIN
   });
 }
 
+- (void)scheduleSettledFullscreenPlacementObservation {
+  __weak RionRuntimeTabsController *weakSelf = self;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    RionRuntimeTabsController *strongSelf = weakSelf;
+    if (!strongSelf || strongSelf->_destroyed) return;
+
+    // DidEnter/DidExit is the native mode authority, but the titlebar host
+    // consumers scheduled by the same notification must finish first. Publish
+    // the placement terminal on the following main-queue turn so a subsequent
+    // presentation request cannot overlap AppKit's pending host mutation.
+    [strongSelf emitWindowPlacementObservation];
+  });
+}
+
 - (void)installWindowObservers {
   [_window addObserver:self
             forKeyPath:@"contentLayoutRect"
@@ -195,7 +209,7 @@ NS_ASSUME_NONNULL_BEGIN
         [strongSelf applyFullScreenPolicy];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
         [strongSelf scheduleFullscreenHostRefresh];
-        [strongSelf emitWindowPlacementObservation];
+        [strongSelf scheduleSettledFullscreenPlacementObservation];
       } else if ([notification.name
                      isEqualToString:NSWindowWillExitFullScreenNotification]) {
         strongSelf->_fullscreenHostReady = NO;
@@ -232,7 +246,7 @@ NS_ASSUME_NONNULL_BEGIN
         // established the windowed button geometry.
         [strongSelf applyLiquidGlassTitlebarAppearance];
         [strongSelf scheduleLiquidGlassTitlebarRehost];
-        [strongSelf emitWindowPlacementObservation];
+        [strongSelf scheduleSettledFullscreenPlacementObservation];
       } else {
         [strongSelf applyFullScreenPolicy];
       }

@@ -17,7 +17,7 @@ describe("desktop E2E restored tab readiness", () => {
     expect(activation).not.toContain("tab-launch-phase:${tabId}:essentialReady");
   });
 
-  it("fences a visible hidden-tab show on its exact launch terminal", async () => {
+  it("fences hidden-tab visibility after the exact launch terminal", async () => {
     const source = await readFile(
       new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),
       "utf8"
@@ -27,8 +27,13 @@ describe("desktop E2E restored tab readiness", () => {
       source.indexOf("async function forceTerminateCurrentProcess(")
     );
 
+    expect(showSource).toContain("hiddenBeforeLaunch");
+    expect(showSource).toContain("hiddenBeforeLaunch ? await rendererEventCursor() : undefined");
     expect(showSource).toContain("waitForRuntimeLaunchTerminal(control, tab.sourceId, tab.type)");
     expect(showSource).toContain('rendererCall("getEmbeddedRuntimeState")');
-    expect(showSource).not.toContain("waitForRuntimeProjection");
+    expect(showSource).toContain("waitForRuntimeProjection({");
+    expect(showSource).toContain("hidden: false");
+    expect(showSource.indexOf("waitForRuntimeLaunchTerminal"))
+      .toBeLessThan(showSource.indexOf("waitForRuntimeProjection({"));
   });
 });

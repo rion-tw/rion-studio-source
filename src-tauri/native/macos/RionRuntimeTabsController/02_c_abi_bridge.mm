@@ -279,25 +279,55 @@ static void RionDesktopE2EPostKey(CGKeyCode keyCode) {
   if (up) CFRelease(up);
 }
 
+static id _Nullable RionDesktopE2EMenuTrackingObserver = nil;
+
+static bool RionDesktopE2EPostMenuSelection(
+    int action, unsigned long targetRank) {
+  RionDesktopE2EPostKey(115);  // Home
+  unsigned long downCount = 0;
+  if (action == 0) downCount = 4;       // Hide
+  else if (action == 1) downCount = 2;  // Move to New Window
+  else if (action == 2) {               // Move to Game Window submenu
+    RionDesktopE2EPostKey(125);
+    RionDesktopE2EPostKey(124);
+    downCount = targetRank;
+  } else {
+    return false;
+  }
+  for (unsigned long index = 0; index < downCount; ++index) {
+    RionDesktopE2EPostKey(125);
+  }
+  RionDesktopE2EPostKey(36);  // Return
+  return true;
+}
+
 bool rion_runtime_tabs_desktop_e2e_select_menu_item(
     int action, unsigned long targetRank) {
   @autoreleasepool {
-    RionDesktopE2EPostKey(115);  // Home
-    unsigned long downCount = 0;
-    if (action == 0) downCount = 4;       // Hide
-    else if (action == 1) downCount = 2;  // Move to New Window
-    else if (action == 2) {               // Move to Game Window submenu
-      RionDesktopE2EPostKey(125);
-      RionDesktopE2EPostKey(124);
-      downCount = targetRank;
-    } else {
-      return false;
+    if (action < 0 || action > 2) return false;
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    @synchronized(center) {
+      if (RionDesktopE2EMenuTrackingObserver) {
+        [center removeObserver:RionDesktopE2EMenuTrackingObserver];
+        RionDesktopE2EMenuTrackingObserver = nil;
+      }
+      __weak NSNotificationCenter *weakCenter = center;
+      RionDesktopE2EMenuTrackingObserver =
+          [center addObserverForName:NSMenuDidBeginTrackingNotification
+                              object:nil
+                               queue:nil
+                          usingBlock:^(__unused NSNotification *notification) {
+        NSNotificationCenter *callbackCenter = weakCenter;
+        if (!callbackCenter) return;
+        @synchronized(callbackCenter) {
+          id observer = RionDesktopE2EMenuTrackingObserver;
+          RionDesktopE2EMenuTrackingObserver = nil;
+          if (observer) [callbackCenter removeObserver:observer];
+        }
+        RionDesktopE2EPostMenuSelection(action, targetRank);
+      }];
+      return RionDesktopE2EMenuTrackingObserver != nil;
     }
-    for (unsigned long index = 0; index < downCount; ++index) {
-      RionDesktopE2EPostKey(125);
-    }
-    RionDesktopE2EPostKey(36);  // Return
-    return true;
   }
 }
 #endif

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  requiresPrearmedNativeTabMenuSelection,
   requiresRendererTabChromeProjection
 } from "../e2e/desktop/support/platform";
 
@@ -9,5 +10,11 @@ describe("desktop E2E platform readiness", () => {
     expect(requiresRendererTabChromeProjection("win32")).toBe(true);
     expect(requiresRendererTabChromeProjection("darwin")).toBe(false);
     expect(requiresRendererTabChromeProjection("linux")).toBe(false);
+  });
+
+  it("prearms selection for native modal tab menus", () => {
+    expect(requiresPrearmedNativeTabMenuSelection("win32")).toBe(true);
+    expect(requiresPrearmedNativeTabMenuSelection("darwin")).toBe(true);
+    expect(requiresPrearmedNativeTabMenuSelection("linux")).toBe(false);
   });
 });

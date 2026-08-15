@@ -104,15 +104,15 @@ it("supersedes stale Windows work and accepts unchanged initial placement receip
     .toBeLessThan(windowsReceipt.indexOf("host.initial_placement_fence = None"));
 });
 
-it("selects a visible Win32 tab menu from the authoritative popup-start event", async () => {
+it("selects visible native tab menus from authoritative popup-start events", async () => {
   const [pointer, journey] = await Promise.all([
     readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_pointer.rs", "utf8"),
     readFile("e2e/desktop/specs/cross-domain-runtime.e2e.ts", "utf8")
   ]);
   const arm = pointer.slice(pointer.indexOf("fn desktop_e2e_windows_arm_tab_menu_item("));
-  const windowsMenu = journey.slice(
-    journey.indexOf('if (process.platform === "win32")'),
-    journey.indexOf('const receiptCursor = (await probe()).latestSequence;')
+  const nativeMenu = journey.slice(
+    journey.indexOf("async function tabMenuAction("),
+    journey.indexOf("async function showSourceFromVisibleUi(")
   );
   const detachedMenuStart = journey.indexOf("await browser.setWindowRect(Math.round(dashboardX)");
   const detachedMenu = journey.slice(
@@ -126,9 +126,10 @@ it("selects a visible Win32 tab menu from the authoritative popup-start event", 
   expect(pointer).toContain('"nativeEvent": "EVENT_SYSTEM_MENUPOPUPSTART"');
   expect(arm).not.toContain("sleep");
   expect(arm).not.toContain("FindWindow");
-  expect(windowsMenu.indexOf('action: "selectTabMenuItem"'))
-    .toBeLessThan(windowsMenu.indexOf('action: "openTabMenu"'));
-  expect(windowsMenu).toContain('kind: "runtime-tab-menu-input-terminal"');
+  expect(nativeMenu).toContain("requiresPrearmedNativeTabMenuSelection(process.platform)");
+  expect(nativeMenu.indexOf('action: "selectTabMenuItem"'))
+    .toBeLessThan(nativeMenu.indexOf('action: "openTabMenu"'));
+  expect(nativeMenu).toContain('kind: "runtime-tab-menu-input-terminal"');
   expect(detachedMenu.indexOf("browser.setWindowRect(Math.round(dashboardX)"))
     .toBeLessThan(detachedMenu.indexOf("await tabMenuAction({"));
   expect(detachedMenu).toContain("} finally {");

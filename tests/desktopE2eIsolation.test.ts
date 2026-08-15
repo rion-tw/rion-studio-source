@@ -197,6 +197,12 @@ describe("desktop E2E build isolation", () => {
 
     expect(selection).toContain("rion_runtime_tabs_desktop_e2e_select_menu_item(action, target_rank)");
     expect(selection).not.toContain("run_on_appkit_tracking_main");
-    expect(selection).toContain("NSMenu owns a modal AppKit tracking loop");
+    expect(selection).toContain("one-shot NSMenu tracking notification");
+    const bridge = await readFile(
+      "src-tauri/native/macos/RionRuntimeTabsController/02_c_abi_bridge.mm",
+      "utf8"
+    );
+    expect(bridge).toContain("NSMenuDidBeginTrackingNotification");
+    expect(bridge).toContain("RionDesktopE2EPostMenuSelection(action, targetRank)");
   });
 });

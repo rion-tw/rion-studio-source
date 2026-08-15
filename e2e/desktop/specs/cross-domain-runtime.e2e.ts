@@ -30,7 +30,10 @@ import {
   waitFixtureEvent,
   type FixtureEvent
 } from "../support/fixture";
-import { requiresRendererTabChromeProjection } from "../support/platform";
+import {
+  requiresPrearmedNativeTabMenuSelection,
+  requiresRendererTabChromeProjection
+} from "../support/platform";
 import { forceTerminateProcessTree } from "../support/process";
 import {
   installRendererEventJournal,
@@ -500,10 +503,11 @@ async function tabMenuAction(input: {
   const fencedTab = source.kernel?.tabs.find((tab) => tab.tabId === input.tabId && !tab.hidden);
   if (!fencedTab) throw new Error("The native tab menu target is no longer visible");
   const openCursor = (await probe()).latestSequence;
-  if (process.platform === "win32") {
-    // The Win32 popup owns a synchronous modal tracking loop. Arm an exact
-    // EVENT_SYSTEM_MENUPOPUPSTART observer first so the real keyboard input is submitted only
-    // after the native menu is visible, without trying to re-enter the blocked Tauri IPC lane.
+  const prearmSelection = requiresPrearmedNativeTabMenuSelection(process.platform);
+  if (prearmSelection) {
+    // Native popup menus own synchronous modal tracking loops. Arm the exact
+    // platform menu-start observer first so real keyboard input is submitted
+    // only after the menu is visible, without re-entering the blocked IPC lane.
     await runtimeUiAction(source.windowId, {
       action: "selectTabMenuItem",
       menuAction: input.action,
@@ -525,13 +529,15 @@ async function tabMenuAction(input: {
     kind: "runtime-tab-menu-opened",
     windowId: source.windowId
   });
-  if (process.platform === "win32") {
-    const inputTerminal = await waitEvent({
-      afterSequence: openCursor,
-      kind: "runtime-tab-menu-input-terminal",
-      windowId: source.windowId
-    });
-    expect(inputTerminal.details).toMatchObject({ action: input.action, status: "applied" });
+  if (prearmSelection) {
+    if (process.platform === "win32") {
+      const inputTerminal = await waitEvent({
+        afterSequence: openCursor,
+        kind: "runtime-tab-menu-input-terminal",
+        windowId: source.windowId
+      });
+      expect(inputTerminal.details).toMatchObject({ action: input.action, status: "applied" });
+    }
     await waitForMutationReceipt(openCursor, input.tabId);
     return;
   }

@@ -29,6 +29,11 @@ pub(crate) enum DesktopE2eWindowControlRequest {
 impl DesktopE2eWindowControlRequest {
     fn validate(&self) -> Result<(), String> {
         match self {
+            Self::DragVisibleChrome { delta_x, delta_y }
+                if *delta_x == 0 && *delta_y == 0 =>
+            {
+                Err("Desktop E2E visible chrome drag must move the pointer.".to_owned())
+            }
             Self::MoveResize {
                 height,
                 scale_factor,

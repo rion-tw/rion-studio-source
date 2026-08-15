@@ -275,7 +275,9 @@ impl SystemRuntimeExecutor {
             // The native adapter dispatches to AppKit without waiting. This must
             // precede Core persistence so a rapid close burst takes every game
             // page offline even while metadata commits are queued.
-            if let Ok(request) = quiesce_platform_surface(&surface.webview, &surface.lifecycle) {
+            if let Ok(request) =
+                quiesce_platform_surface(&surface.webview, &surface.lifecycle, true)
+            {
                 self.record_surface_isolation_request(surface.webview.label(), request);
             }
         }
@@ -307,7 +309,9 @@ impl SystemRuntimeExecutor {
 
         #[cfg(not(any(windows, target_os = "macos")))]
         for surface in surfaces {
-            if let Ok(request) = quiesce_platform_surface(&surface.webview, &surface.lifecycle) {
+            if let Ok(request) =
+                quiesce_platform_surface(&surface.webview, &surface.lifecycle, true)
+            {
                 self.record_surface_isolation_request(surface.webview.label(), request);
             }
         }

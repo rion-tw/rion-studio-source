@@ -54,6 +54,12 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (void)setActiveTabIdentifier:(nullable NSString *)tabIdentifier;
 - (BOOL)performAccessibilityPressForTabIdentifier:(NSString *)tabIdentifier;
 - (BOOL)performAccessibilityCloseForTabIdentifier:(NSString *)tabIdentifier;
+#if defined(RION_DESKTOP_E2E)
+- (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier;
+- (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
+                             targetController:(RionRuntimeTabsController *)targetController
+                           beforeTabIdentifier:(NSString *)beforeTabIdentifier;
+#endif
 - (void)hideFailureStatus;
 - (void)ensureTabIdentifier:(NSString *)tabIdentifier
                        name:(NSString *)name

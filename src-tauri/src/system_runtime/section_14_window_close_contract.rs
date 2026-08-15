@@ -591,7 +591,7 @@ impl SystemRuntimeExecutor {
             focus_identity,
             destroyed_window_id,
             retired_identity,
-            live_tab_chrome_identity,
+            _live_tab_chrome_identity,
         ) = self
             .state
             .lock()
@@ -639,7 +639,7 @@ impl SystemRuntimeExecutor {
             })
             .unwrap_or_default();
         #[cfg(windows)]
-        if let Some((webview_label, generation)) = live_tab_chrome_identity {
+        if let Some((webview_label, generation)) = _live_tab_chrome_identity {
             self.presentation
                 .retire_tab_chrome_acknowledgements(&webview_label, generation);
             if let Some((window_id, _)) = focus_identity.as_ref() {

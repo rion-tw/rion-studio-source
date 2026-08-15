@@ -3,6 +3,25 @@ use std::cell::RefCell;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED;
 
+#[cfg(feature = "desktop-e2e")]
+#[test]
+fn desktop_e2e_visible_chrome_drag_rejects_a_stationary_pointer() {
+    let stationary = DesktopE2eWindowControlRequest::DragVisibleChrome {
+        delta_x: 0,
+        delta_y: 0,
+    };
+    assert_eq!(
+        stationary.validate().unwrap_err(),
+        "Desktop E2E visible chrome drag must move the pointer."
+    );
+    assert!(DesktopE2eWindowControlRequest::DragVisibleChrome {
+        delta_x: 56,
+        delta_y: 36,
+    }
+    .validate()
+    .is_ok());
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_live_resize_contract_is_reachable_from_system_runtime_parent() {

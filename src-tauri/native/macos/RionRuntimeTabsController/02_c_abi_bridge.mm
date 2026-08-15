@@ -887,11 +887,5 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
 - (void)applyLiquidGlassTitlebarAppearance;
 - (void)attachAccessoryController;
 - (void)beginTabDrag:(RionRuntimeTabItemView *)item event:(NSEvent *)event;
-#if defined(RION_DESKTOP_E2E)
-- (BOOL)performAccessibilityShowMenuForTabIdentifier:(NSString *)tabIdentifier;
-- (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
-                             targetController:(RionRuntimeTabsController *)targetController
-                           beforeTabIdentifier:(NSString *)beforeTabIdentifier;
-#endif
 
 NS_ASSUME_NONNULL_END

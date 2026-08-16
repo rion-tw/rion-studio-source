@@ -180,6 +180,14 @@ fn runtime_window_mode_controls_do_not_create_or_replace_a_focus_lease() {
 }
 
 #[test]
+fn desktop_e2e_main_focus_preserves_the_visible_user_gesture_intent() {
+    assert_eq!(
+        native_focus_intent_origin("desktop-e2e-main-focus"),
+        NativeFocusIntentOrigin::UserGesture
+    );
+}
+
+#[test]
 fn native_focus_observation_confirms_matching_intent_and_supersedes_other_windows() {
     let broker = NativeFocusBroker::default();
     broker.observe_application_foreground();

@@ -222,6 +222,19 @@ describe("desktop E2E build isolation", () => {
     expect(controlSource).not.toContain("thread::sleep");
   });
 
+  it("waits for authoritative main-window focus before blur assertions", async () => {
+    const [commandSource, controlSource] = await Promise.all([
+      readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
+      readFile("e2e/desktop/support/control.ts", "utf8")
+    ]);
+
+    expect(commandSource).toContain('.show_main_window(true, "desktop-e2e-main-focus")');
+    expect(commandSource).toContain("tauri::async_runtime::spawn_blocking");
+    expect(controlSource).toContain('windowId: "main"');
+    expect(controlSource).toContain('receipt.status !== "applied"');
+    expect(controlSource).not.toContain('core.invoke("plugin:window|set_focus"');
+  });
+
   it("keeps native tab gestures feature-gated and user-input driven", async () => {
     const [command, windowsPointer, macHeader, macBridge, macPointer, build] =
       await Promise.all([

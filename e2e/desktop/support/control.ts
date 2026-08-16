@@ -550,9 +550,21 @@ export async function keyboardInputSession(
 }
 
 export async function focusMainApplicationWindow(): Promise<void> {
-  await browser.tauri.execute(
-    ({ core }) => core.invoke("plugin:window|set_focus", { label: "main" })
+  const result = await browser.tauri.execute(
+    ({ core }, token) => core.invoke("desktop_e2e_control_window", {
+      request: { action: "focus" },
+      token,
+      windowId: "main"
+    }),
+    sessionToken()
   );
+  const receipt = result as unknown as { stage?: string; status?: string };
+  if (receipt.status !== "applied") {
+    throw new Error(
+      `Desktop E2E main-window focus ended as ${receipt.status ?? "unknown"}`
+      + ` at ${receipt.stage ?? "unknown"}.`
+    );
+  }
 }
 
 export async function shutdown(confirm = false): Promise<void> {

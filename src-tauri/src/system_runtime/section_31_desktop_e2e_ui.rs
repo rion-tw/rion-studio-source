@@ -627,7 +627,7 @@ async fn desktop_e2e_wait_for_windows_webview_focus(webview: &Webview) -> Result
                 if let Some(controller) = controller {
                     let token = callback_token.replace(0);
                     if token != 0 {
-                        let _ = unsafe { controller.remove_GotFocus(token) };
+                        let _ = controller.remove_GotFocus(token);
                     }
                 }
                 if let Some(sender) = callback_sender.borrow_mut().take() {

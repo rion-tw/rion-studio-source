@@ -409,7 +409,7 @@ pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
 }
 
 #[tauri::command]
-pub(crate) fn desktop_e2e_control_window(
+pub(crate) async fn desktop_e2e_control_window(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -417,6 +417,25 @@ pub(crate) fn desktop_e2e_control_window(
     request: crate::system_runtime::DesktopE2eWindowControlRequest,
 ) -> Result<Value, String> {
     control.authenticate(&token)?;
+    if window_id == "main" {
+        if !matches!(
+            &request,
+            crate::system_runtime::DesktopE2eWindowControlRequest::Focus
+        ) {
+            return Err("The desktop E2E main window supports only the focus action.".to_owned());
+        }
+        let runtime = Arc::clone(&state.runtime);
+        return tauri::async_runtime::spawn_blocking(move || {
+            runtime
+                .show_main_window(true, "desktop-e2e-main-focus")
+                .map_err(|error| error.message)
+                .and_then(|receipt| {
+                    serde_json::to_value(receipt).map_err(|error| error.to_string())
+                })
+        })
+        .await
+        .map_err(|error| format!("Desktop E2E main-window focus task failed: {error}"))?;
+    }
     state
         .runtime
         .desktop_e2e_control_window(&window_id, request)

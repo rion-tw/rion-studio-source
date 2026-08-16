@@ -578,7 +578,8 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
                                     clickCount:1
                                       pressure:1.0];
   if (!down) return NO;
-  [NSApp postEvent:down atStart:NO];
+  [sourceItem mouseDown:down];
+  NSEvent *firstDrag = nil;
   for (NSInteger step = 1; step <= 8; ++step) {
     NSPoint point = NSMakePoint(
         sourceWindowPoint.x +
@@ -595,8 +596,10 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
                                       clickCount:1
                                         pressure:1.0];
     if (!drag) return NO;
-    [NSApp postEvent:drag atStart:NO];
+    if (step == 1) firstDrag = drag;
+    else [NSApp postEvent:drag atStart:NO];
   }
+  if (!firstDrag) return NO;
   NSEvent *up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp
                                     location:targetWindowPoint
                                modifierFlags:0
@@ -608,6 +611,7 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
                                     pressure:0.0];
   if (!up) return NO;
   [NSApp postEvent:up atStart:NO];
+  [sourceItem mouseDragged:firstDrag];
   return YES;
 }
 #endif

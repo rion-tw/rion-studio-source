@@ -43,6 +43,7 @@ pub(crate) struct DesktopE2eWaitRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopE2eKeyboardInputRequest {
     pub code: String,
+    pub focus: Option<bool>,
     pub phase: String,
 }
 
@@ -483,7 +484,10 @@ pub(crate) fn desktop_e2e_keyboard_input(
     control.authenticate(&token)?;
     request.validate()?;
     let key_down = request.phase == "keyDown";
-    if key_down && let Some(target) = control.keyboard_target()? {
+    if key_down
+        && request.focus.unwrap_or(true)
+        && let Some(target) = control.keyboard_target()?
+    {
         state.runtime.desktop_e2e_focus_keyboard_target(
             &target.window_id,
             target.window_generation,
@@ -677,6 +681,7 @@ mod tests {
             assert!(
                 DesktopE2eKeyboardInputRequest {
                     code: code.to_owned(),
+                    focus: None,
                     phase: "keyDown".to_owned(),
                 }
                 .validate()
@@ -692,6 +697,7 @@ mod tests {
             assert!(
                 DesktopE2eKeyboardInputRequest {
                     code: code.to_owned(),
+                    focus: None,
                     phase: phase.to_owned(),
                 }
                 .validate()

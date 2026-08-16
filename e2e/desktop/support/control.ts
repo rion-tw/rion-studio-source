@@ -437,8 +437,14 @@ export async function keyboardInputSequence(
       }
       void (async () => {
         const receipts: unknown[] = [];
+        let focusNextKeyDown = true;
         for (const request of inputRequests) {
-          receipts.push(await core.invoke("desktop_e2e_keyboard_input", { request, token }));
+          const focus = focusNextKeyDown && request.phase === "keyDown";
+          receipts.push(await core.invoke("desktop_e2e_keyboard_input", {
+            request: { ...request, focus },
+            token
+          }));
+          if (focus) focusNextKeyDown = false;
         }
         return receipts;
       })().then(
@@ -493,12 +499,15 @@ export async function keyboardInputSession(
       void (async () => {
         const events: DesktopE2eEvent[] = [];
         const receipts: unknown[] = [];
+        let focusNextKeyDown = true;
         for (const step of sessionSteps) {
           if (step.type === "input") {
+            const focus = focusNextKeyDown && step.phase === "keyDown";
             receipts.push(await core.invoke("desktop_e2e_keyboard_input", {
-              request: { code: step.code, phase: step.phase },
+              request: { code: step.code, focus, phase: step.phase },
               token
             }));
+            if (focus) focusNextKeyDown = false;
             continue;
           }
           let cursor = step.afterSequence;

@@ -41,18 +41,22 @@ describe("desktop E2E build isolation", () => {
   });
 
   it("reasserts only the explicitly focused role before debug keydown", async () => {
-    const [control, runtimeUi] = await Promise.all([
+    const [control, runtimeUi, inputSupport] = await Promise.all([
       readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
-      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8")
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8"),
+      readFile("e2e/desktop/support/control.ts", "utf8")
     ]);
 
     expect(control).toContain("DesktopE2eRuntimeUiActionRequest::FocusRole");
     expect(control).toContain("remember_keyboard_target");
-    expect(control).toContain("if key_down && let Some(target)");
+    expect(control).toContain("request.focus.unwrap_or(true)");
+    expect(control).toContain("&& let Some(target)");
     expect(control).toContain("desktop_e2e_focus_keyboard_target(");
     expect(runtimeUi).toContain("desktop_e2e_require_selected_tab");
     expect(runtimeUi).toContain("request_platform_window_show_foreground(&window)");
     expect(runtimeUi).toContain("webview.set_focus()");
+    expect(inputSupport).toContain("let focusNextKeyDown = true");
+    expect(inputSupport).toContain("request: { ...request, focus }");
   });
 
   it("projects held macOS modifier sides onto every debug keyboard event", async () => {
@@ -241,6 +245,8 @@ describe("desktop E2E build isolation", () => {
     expect(macBridge).toContain("rion_runtime_tabs_accessibility_show_menu");
     expect(macPointer).toContain("NSEventTypeLeftMouseDragged");
     expect(macPointer).toContain("[NSApp postEvent:drag atStart:NO]");
+    expect(macPointer).toContain("[sourceItem mouseDown:down]");
+    expect(macPointer).toContain("[sourceItem mouseDragged:firstDrag]");
     expect(build).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
   });
 

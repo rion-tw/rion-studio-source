@@ -207,7 +207,12 @@ fn parse_macro_shortcut_lifecycle(
     let phase = bounded_field("phase", 32)?;
     if !matches!(
         phase.as_str(),
-        "physical-keydown-allowed" | "chord-released" | "macro-dispatched"
+        "physical-keydown-managed"
+            | "chord-released"
+            | "managed-replay-acknowledged"
+            | "managed-keydown-acknowledged"
+            | "managed-keyup-acknowledged"
+            | "macro-dispatched"
     ) {
         return Err(shell_error(
             "OVERLAY_REQUEST_INVALID",
@@ -215,6 +220,132 @@ fn parse_macro_shortcut_lifecycle(
         ));
     }
     Ok((macro_id, code, phase))
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ManagedShortcutKeyPhaseRequest {
+    press_id: String,
+    macro_id: String,
+    code: String,
+    phase: String,
+    modifier_codes: Vec<String>,
+}
+
+impl ManagedShortcutKeyPhaseRequest {
+    fn validate(&self) -> Result<(), CoreErrorPayload> {
+        let identifier = |value: &str, name: &str| {
+            if value.is_empty()
+                || value.len() > 128
+                || !value
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            {
+                return Err(shell_error(
+                    "MANAGED_SHORTCUT_INVALID",
+                    format!("Managed shortcut {name} is invalid."),
+                ));
+            }
+            Ok(())
+        };
+        identifier(&self.press_id, "pressId")?;
+        identifier(&self.macro_id, "macroId")?;
+        if self.code.is_empty()
+            || self.code.len() > 32
+            || !self
+                .code
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+            || !matches!(self.phase.as_str(), "replay" | "keyDown" | "keyUp")
+        {
+            return Err(shell_error(
+                "MANAGED_SHORTCUT_INVALID",
+                "Managed shortcut key phase is invalid.",
+            ));
+        }
+        if self.modifier_codes.len() > 4 {
+            return Err(shell_error(
+                "MANAGED_SHORTCUT_INVALID",
+                "Managed shortcut modifiers are invalid.",
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        if self.modifier_codes.iter().any(|code| {
+            !matches!(
+                code.as_str(),
+                "AltLeft"
+                    | "AltRight"
+                    | "ControlLeft"
+                    | "ControlRight"
+                    | "MetaLeft"
+                    | "MetaRight"
+                    | "ShiftLeft"
+                    | "ShiftRight"
+            ) || !seen.insert(code)
+        }) {
+            return Err(shell_error(
+                "MANAGED_SHORTCUT_INVALID",
+                "Managed shortcut modifiers are invalid.",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn rion_managed_shortcut_key_phase(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    capability: String,
+    request: ManagedShortcutKeyPhaseRequest,
+) -> Result<(), CoreErrorPayload> {
+    let role_id = state
+        .runtime
+        .authorize_overlay_request(webview.label(), &capability)
+        .map_err(|message| shell_error("MANAGED_SHORTCUT_UNAUTHORIZED", message))?;
+    request.validate()?;
+    if !state
+        .runtime
+        .overlay_webview_is_selected(webview.label(), &role_id)
+        .map_err(|message| shell_error("MANAGED_SHORTCUT_FOCUS_STATE_FAILED", message))?
+    {
+        return Err(shell_error(
+            "MANAGED_SHORTCUT_UNAUTHORIZED",
+            "Managed shortcuts are restricted to the selected role WebView.",
+        ));
+    }
+    let runtime = Arc::clone(&state.runtime);
+    let code = request.code.clone();
+    let phase = request.phase.clone();
+    let modifier_codes = request.modifier_codes.clone();
+    let dispatch_role_id = role_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.dispatch_managed_shortcut_key_phase(
+            &dispatch_role_id,
+            &code,
+            &phase,
+            modifier_codes,
+        )
+    })
+    .await
+    .map_err(|error| shell_error("MANAGED_SHORTCUT_FAILED", error.to_string()))?
+    .map_err(|error| shell_error(error.code, error.message))?;
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e::record_event(
+        "managed-shortcut-key-acknowledged",
+        state.runtime.window_id_for_webview(webview.label()).as_deref(),
+        None,
+        None,
+        json!({
+            "code": request.code,
+            "macroId": request.macro_id,
+            "phase": request.phase,
+            "pressId": request.press_id,
+            "roleId": role_id,
+            "webviewLabel": webview.label(),
+        }),
+    );
+    Ok(())
 }
 
 #[tauri::command]

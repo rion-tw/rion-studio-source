@@ -347,7 +347,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Pass trusted Shift+2 through to the source role, wait for its macro terminal and a two-second reproduction cadence, then pass Shift+3 through, proving each shortcut executes once, Shift+2 is never reasserted, and an explicitly retained same-key first step remains guarded and non-recursive."
+      "description": "Own and replay one trusted Shift+2 lifecycle to the source role, wait for its macro terminal and a two-second reproduction cadence, use a Shift-only held-key canary, then replay Shift+3, proving each shortcut executes once, the game-like consumer retains no Digit2, and an explicitly retained same-key first step remains guarded and non-recursive."
     },
     {
       "id": "MACRO-MODIFIER-CONTINUITY-008",

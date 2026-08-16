@@ -27,6 +27,9 @@ function roleCounters(roleId) {
     keyup: 0,
     lastEvent: "boot",
     lastEventSequence: 0,
+    consumerChordActivations: [],
+    consumerPressedCodes: [],
+    consumerRevision: 0,
     pressedCodes: [],
     trustedPressedCodes: [],
     visibility: 0
@@ -91,6 +94,19 @@ function recordFixtureEvent(input) {
   }
   if (event.isTrusted === true && event.code && input.kind === "keyup") {
     state.trustedPressedCodes = state.trustedPressedCodes.filter((code) => code !== event.code);
+  }
+  if (
+    input.kind.startsWith("consumer-")
+    && Number.isInteger(input.consumerRevision)
+    && input.consumerRevision > state.consumerRevision
+    && Array.isArray(input.consumerPressedCodes)
+    && input.consumerPressedCodes.every((code) => typeof code === "string")
+    && Array.isArray(input.consumerChordActivations)
+    && input.consumerChordActivations.every((activation) => typeof activation === "string")
+  ) {
+    state.consumerRevision = input.consumerRevision;
+    state.consumerPressedCodes = [...input.consumerPressedCodes];
+    state.consumerChordActivations = [...input.consumerChordActivations];
   }
   state.lastEvent = input.kind;
   state.lastEventSequence = event.sequence;
@@ -178,15 +194,17 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
       document.querySelector("#last-event").textContent = kind;
     };
+    let recordQueue = Promise.resolve();
     const record = (kind, details = {}) => {
       if (kind in counts) counts[kind] += 1;
       render(kind);
-      fetch("/api/event", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ roleId, kind, ...details }),
-        keepalive: true
-      }).catch(() => {});
+      recordQueue = recordQueue.then(() => fetch("/api/event", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ roleId, kind, ...details }),
+          keepalive: true
+        }))
+        .then(() => undefined, () => undefined);
     };
     const qaTarget = document.querySelector("#qa-target");
     qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
@@ -204,8 +222,36 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
       targetId: event.target instanceof Element ? event.target.id : undefined
     });
+    const consumerPressedCodes = new Set();
+    const consumerChordActivations = [];
+    let consumerRevision = 0;
+    const recordConsumerKeyboard = (kind, event) => {
+      if (event.isTrusted) {
+        if (kind === "consumer-keydown") {
+          consumerPressedCodes.add(event.code);
+          const completesShiftChord = event.code.startsWith("Shift") || event.code.startsWith("Digit");
+          const shiftPressed = event.shiftKey
+            || [...consumerPressedCodes].some((code) => code.startsWith("Shift"));
+          if (completesShiftChord && shiftPressed) {
+            for (const code of [...consumerPressedCodes].filter((pressed) => pressed.startsWith("Digit"))) {
+              consumerChordActivations.push("Shift+" + code);
+            }
+          }
+        } else {
+          consumerPressedCodes.delete(event.code);
+        }
+      }
+      record(kind, {
+        ...keyboardDetails(event),
+        consumerChordActivations: [...consumerChordActivations],
+        consumerPressedCodes: [...consumerPressedCodes],
+        consumerRevision: ++consumerRevision
+      });
+    };
     addEventListener("keydown", (event) => record("keydown", keyboardDetails(event)), true);
     addEventListener("keyup", (event) => record("keyup", keyboardDetails(event)), true);
+    addEventListener("keydown", (event) => recordConsumerKeyboard("consumer-keydown", event));
+    addEventListener("keyup", (event) => recordConsumerKeyboard("consumer-keyup", event));
     addEventListener("focus", () => record("focus"));
     addEventListener("blur", () => record("blur"));
     document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));

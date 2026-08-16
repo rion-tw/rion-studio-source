@@ -235,6 +235,7 @@ describe("Tauri shell contract guard", () => {
       webviews: ["game-role-*"],
       permissions: [
         "allow-rion-browser-font-payload",
+        "allow-rion-managed-shortcut-key-phase",
         "allow-rion-macro-key-event-observed",
         "allow-rion-overlay-request",
         "allow-rion-runtime-audio-state"

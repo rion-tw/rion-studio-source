@@ -29,6 +29,9 @@ export interface FixtureRoleState {
   keyup: number;
   lastEvent: string;
   lastEventSequence: number;
+  consumerChordActivations: string[];
+  consumerPressedCodes: string[];
+  consumerRevision: number;
   pressedCodes: string[];
   trustedPressedCodes: string[];
   visibility: number;
@@ -84,5 +87,8 @@ export async function fixtureEvents(input: {
   if (input.roleId) query.set("roleId", input.roleId);
   const response = await fetch(fixtureUrl(`/api/events/snapshot?${query}`));
   if (!response.ok) throw new Error(`Fixture event snapshot failed with ${response.status}`);
-  return ((await response.json()) as { events: FixtureEvent[] }).events;
+  const events = ((await response.json()) as { events: FixtureEvent[] }).events;
+  return input.kind
+    ? events
+    : events.filter((event) => !event.kind.startsWith("consumer-"));
 }

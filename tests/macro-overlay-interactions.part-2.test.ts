@@ -802,6 +802,7 @@ function installOverlay(
   binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
 ): OverlayController {
   const overlayWindow = targetWindow as OverlayTestWindow;
+  Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
     value: binding

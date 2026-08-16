@@ -18,7 +18,7 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
   shortcutLifecycle(event: {
     code: string;
     macroId: string;
-    phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+    phase: "physical-keydown-managed" | "chord-released" | "macro-dispatched";
   }): Promise<unknown>;
 };
 
@@ -358,6 +358,7 @@ async function installOverlay(
   trustSyntheticEvents = true
 ): Promise<OverlayController> {
   const sources = await overlaySources();
+  Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
   Object.defineProperty(window, "__rionTestOverlayBinding", {
     configurable: true,
     value: binding

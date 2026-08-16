@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-managed-shortcut-key-phase"
+description = "Enables the rion_managed_shortcut_key_phase command without any pre-configured scope."
+commands.allow = ["rion_managed_shortcut_key_phase"]
+
+[[permission]]
+identifier = "deny-rion-managed-shortcut-key-phase"
+description = "Denies the rion_managed_shortcut_key_phase command without any pre-configured scope."
+commands.deny = ["rion_managed_shortcut_key_phase"]

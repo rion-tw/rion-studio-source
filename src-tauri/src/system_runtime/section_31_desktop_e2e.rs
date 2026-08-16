@@ -285,14 +285,24 @@ impl SystemRuntimeExecutor {
         request: DesktopE2eWindowControlRequest,
     ) -> Result<Value, String> {
         request.validate()?;
-        let (window, generation, _tab_strip) = self
+        let (window, generation) = self
             .state
             .lock()
             .map_err(|_| "The runtime state is unavailable.".to_owned())?
             .native_resources
             .display_hosts
             .get(window_id)
-            .map(|host| (host.window.clone(), host.generation, host.tab_strip.clone()))
+            .map(|host| (host.window.clone(), host.generation))
+            .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
+        #[cfg(windows)]
+        let tab_strip = self
+            .state
+            .lock()
+            .map_err(|_| "The runtime state is unavailable.".to_owned())?
+            .native_resources
+            .display_hosts
+            .get(window_id)
+            .map(|host| host.tab_strip.clone())
             .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
         let action = desktop_e2e_window_control_name(&request);
         if matches!(
@@ -313,7 +323,7 @@ impl SystemRuntimeExecutor {
             crate::desktop_e2e::permit_close_confirmation_once(window.label());
         }
         #[cfg(windows)]
-        desktop_e2e_apply_native_window_control(&window, &_tab_strip, &request)?;
+        desktop_e2e_apply_native_window_control(&window, &tab_strip, &request)?;
         #[cfg(target_os = "macos")]
         desktop_e2e_apply_native_window_control(&window, &request)?;
         let native_readback = (!matches!(

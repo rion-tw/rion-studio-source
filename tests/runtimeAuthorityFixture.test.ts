@@ -150,6 +150,58 @@ describe("runtime authority fixture launch gates", () => {
     });
   });
 
+  it("models a trusted game consumer that re-evaluates held digits when Shift is pressed", async () => {
+    const { origin } = await startFixture();
+    await post(origin, "/api/event", {
+      code: "Digit2",
+      consumerChordActivations: [],
+      consumerPressedCodes: ["Digit2"],
+      consumerRevision: 1,
+      isTrusted: true,
+      kind: "consumer-keydown",
+      roleId: "role-a"
+    });
+    await post(origin, "/api/event", {
+      code: "ShiftLeft",
+      consumerChordActivations: ["Shift+Digit2"],
+      consumerPressedCodes: ["Digit2", "ShiftLeft"],
+      consumerRevision: 2,
+      isTrusted: true,
+      kind: "consumer-keydown",
+      roleId: "role-a"
+    });
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": {
+        consumerChordActivations: ["Shift+Digit2"],
+        consumerPressedCodes: ["Digit2", "ShiftLeft"]
+      }
+    });
+    await post(origin, "/api/event", {
+      code: "ShiftLeft",
+      consumerChordActivations: ["stale"],
+      consumerPressedCodes: ["Digit2"],
+      consumerRevision: 1,
+      isTrusted: true,
+      kind: "consumer-keyup",
+      roleId: "role-a"
+    });
+    await post(origin, "/api/event", {
+      code: "ShiftLeft",
+      consumerChordActivations: ["Shift+Digit2"],
+      consumerPressedCodes: ["ShiftLeft"],
+      consumerRevision: 3,
+      isTrusted: true,
+      kind: "consumer-keydown",
+      roleId: "role-a"
+    });
+    expect(await (await fetch(`${origin}/api/state`)).json()).toMatchObject({
+      "role-a": {
+        consumerChordActivations: ["Shift+Digit2"],
+        consumerPressedCodes: ["ShiftLeft"]
+      }
+    });
+  });
+
   it("keeps event sequence monotonic when fixture state is reset", async () => {
     const { origin } = await startFixture();
     await post(origin, "/api/event", { kind: "focus", roleId: "role-a" });

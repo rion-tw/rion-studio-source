@@ -2,6 +2,7 @@
   const consumedPhysicalShortcutCodes = new Set();
   const forwardedMacroGameEvents = new WeakSet();
   const macroModifierOwnership = new Map();
+  const pendingMacroObservationListeners = new Map();
   const pendingPhysicalToggleShortcuts = [];
   const physicalGameKeys = new Map();
   const physicalModifierCodeSet = new Set([
@@ -63,7 +64,12 @@
   }
 
   function clearSuppressedShortcut(dispatchId) {
-    if (inFlightMacroKeyGuard?.dispatchId !== String(dispatchId)) return false;
+    const observation = pendingMacroObservationListeners.get(String(dispatchId));
+    if (observation) {
+      observation.target.removeEventListener(observation.type, observation.listener);
+      pendingMacroObservationListeners.delete(String(dispatchId));
+    }
+    if (inFlightMacroKeyGuard?.dispatchId !== String(dispatchId)) return Boolean(observation);
     inFlightMacroKeyGuard = null;
     return true;
   }
@@ -84,18 +90,41 @@
     return guard;
   }
 
-  function reportObservedMacroKey(guard) {
-    queueMicrotask(() => {
+  function reportObservedMacroKey(guard, event, afterPropagation = true) {
+    const report = () => {
       void binding.macroKeyObserved?.({
         code: guard.code,
         dispatchId: guard.dispatchId,
         phase: guard.phase
       }).catch(() => undefined);
+    };
+    if (!afterPropagation || !event.bubbles) {
+      report();
+      return;
+    }
+    const observeBubbleCompletion = (candidate) => {
+      if (candidate !== event) return;
+      window.removeEventListener(event.type, observeBubbleCompletion);
+      pendingMacroObservationListeners.delete(guard.dispatchId);
+      report();
+    };
+    // Register while the event is in window capture. The listener is appended
+    // after page listeners that already exist and therefore acknowledges this
+    // exact event only after its target/bubble consumers have run.
+    window.addEventListener(event.type, observeBubbleCompletion);
+    pendingMacroObservationListeners.set(guard.dispatchId, {
+      listener: observeBubbleCompletion,
+      target: window,
+      type: event.type
     });
   }
 
   function clearAllSuppressedShortcuts() {
     inFlightMacroKeyGuard = null;
+    for (const observation of pendingMacroObservationListeners.values()) {
+      observation.target.removeEventListener(observation.type, observation.listener);
+    }
+    pendingMacroObservationListeners.clear();
   }
 
   function isConnectedGameCanvas(candidate) {
@@ -175,6 +204,41 @@
 
   function physicalModifierCodes() {
     return [...physicalGameKeys.keys()].filter((code) => physicalModifierCodeSet.has(code));
+  }
+
+  function managedShortcutModifierCodes(trigger) {
+    const required = [
+      ["Alt", trigger.alt],
+      ["Control", trigger.ctrl],
+      ["Meta", trigger.meta],
+      ["Shift", trigger.shift]
+    ];
+    return physicalModifierCodes().filter((code) =>
+      required.some(([prefix, enabled]) => enabled && code.startsWith(prefix))
+    );
+  }
+
+  function dispatchManagedShortcutPhase(active, phase) {
+    if (typeof binding.managedShortcutKeyPhase !== "function") {
+      return Promise.reject(new Error("Rion Studio managed shortcut IPC is unavailable."));
+    }
+    return Promise.resolve(binding.managedShortcutKeyPhase({
+      code: active.code,
+      macroId: active.macroId,
+      modifierCodes: active.modifierCodes,
+      phase,
+      pressId: active.pressId
+    })).then(() => {
+      reportMacroShortcutLifecycle(
+        active.macroId,
+        active.code,
+        phase === "replay"
+          ? "managed-replay-acknowledged"
+          : phase === "keyDown"
+            ? "managed-keydown-acknowledged"
+            : "managed-keyup-acknowledged"
+      );
+    });
   }
 
   function currentPhysicalModifierSnapshot(snapshot) {
@@ -450,45 +514,84 @@
     }).catch(() => undefined);
   }
 
-  function modifierIsReleased(event, required, property) {
-    return !required || event[property] === false;
+  function pendingModifiersReleased(pending) {
+    const activeModifiers = physicalModifierCodes();
+    return (
+      (!pending.modifiers.alt || !activeModifiers.some((code) => code.startsWith("Alt"))) &&
+      (!pending.modifiers.ctrl || !activeModifiers.some((code) => code.startsWith("Control"))) &&
+      (!pending.modifiers.meta || !activeModifiers.some((code) => code.startsWith("Meta"))) &&
+      (!pending.modifiers.shift || !activeModifiers.some((code) => code.startsWith("Shift")))
+    );
   }
 
-  function finishReleasedPhysicalToggleShortcuts(event) {
-    const ready = [];
+  function observePhysicalShortcutRelease(pending, event) {
+    if (pending.releaseCompletionPending) return;
+    pending.releaseCompletionPending = true;
+    const observeBubbleCompletion = (candidate) => {
+      if (candidate !== event) return;
+      window.removeEventListener(event.type, observeBubbleCompletion);
+      pending.releaseCompletionPending = false;
+      pending.releasePropagationCompleted = true;
+      finishReleasedPhysicalToggleShortcuts();
+    };
+    window.addEventListener(event.type, observeBubbleCompletion);
+  }
+
+  function finishReleasedPhysicalToggleShortcuts(event = null) {
     for (let index = pendingPhysicalToggleShortcuts.length - 1; index >= 0; index -= 1) {
       const pending = pendingPhysicalToggleShortcuts[index];
-      if (pending.code === event.code) pending.mainReleased = true;
+      if (event && pending.code === event.code) pending.mainReleased = true;
+      const chordReleased = pending.mainReleased && pendingModifiersReleased(pending);
+      if (chordReleased && !pending.releasePropagationCompleted) {
+        if (event && event.code !== pending.code && event.bubbles) {
+          observePhysicalShortcutRelease(pending, event);
+        } else {
+          // The managed main-key event is intentionally stopped at capture;
+          // its native replay is submitted through asynchronous overlay IPC.
+          pending.releasePropagationCompleted = true;
+        }
+      }
+      if (chordReleased && !pending.replayPromise && !pending.failed) {
+        if (!pending.releasePropagationCompleted) continue;
+        reportMacroShortcutLifecycle(pending.macroId, pending.code, "chord-released");
+        pending.replayPromise = dispatchManagedShortcutPhase(pending, "replay")
+          .then(() => {
+            pending.managedKeyUpAcknowledged = true;
+            finishReleasedPhysicalToggleShortcuts();
+          })
+          .catch((error) => {
+            pending.failed = true;
+            console.warn("Unable to replay a managed Rion Studio shortcut.", error);
+          });
+      }
       if (
-        !pending.mainReleased ||
-        !modifierIsReleased(event, pending.modifiers.alt, "altKey") ||
-        !modifierIsReleased(event, pending.modifiers.ctrl, "ctrlKey") ||
-        !modifierIsReleased(event, pending.modifiers.meta, "metaKey") ||
-        !modifierIsReleased(event, pending.modifiers.shift, "shiftKey")
+        !chordReleased ||
+        !pending.managedKeyUpAcknowledged ||
+        pending.failed ||
+        !pendingModifiersReleased(pending)
       ) {
         continue;
       }
       pendingPhysicalToggleShortcuts.splice(index, 1);
-      reportMacroShortcutLifecycle(
-        pending.macroId,
-        pending.code,
-        "chord-released"
-      );
-      ready.unshift(pending);
+      if (isDisposed || pending.epoch !== physicalShortcutEpoch) continue;
+      reportMacroShortcutLifecycle(pending.macroId, pending.code, "macro-dispatched");
+      runAction("toggle", pending.macroId, undefined, true);
     }
-    if (ready.length === 0) return;
-    const epoch = physicalShortcutEpoch;
-    queueMicrotask(() => {
-      if (isDisposed || epoch !== physicalShortcutEpoch) return;
-      ready.forEach((pending) => {
-        reportMacroShortcutLifecycle(
-          pending.macroId,
-          pending.code,
-          "macro-dispatched"
-        );
-        runAction("toggle", pending.macroId, undefined, true);
+  }
+
+  function beginManagedShortcutKeyUp(active) {
+    if (active.keyUpPromise) return active.keyUpPromise;
+    active.keyUpPromise = active.keyDownPromise
+      .then(() => dispatchManagedShortcutPhase(active, "keyUp"))
+      .then(() => {
+        active.managedKeyUpAcknowledged = true;
+        finishReleasedPhysicalToggleShortcuts();
+      })
+      .catch((error) => {
+        active.failed = true;
+        console.warn("Unable to complete a managed Rion Studio shortcut.", error);
       });
-    });
+    return active.keyUpPromise;
   }
 
   function cancelPendingPhysicalToggleShortcuts() {
@@ -515,13 +618,13 @@
       // next physical key lose the still-held modifier flags.
       event.stopPropagation();
       event.stopImmediatePropagation?.();
-      reportObservedMacroKey(modifierProjectionGuard);
+      reportObservedMacroKey(modifierProjectionGuard, event, false);
       return;
     }
     const macroKeyGuard = consumeSuppressedShortcut(event, "macro-key");
     if (macroKeyGuard) {
       if (consumeOverlappingMacroModifierKeyDown(event)) {
-        reportObservedMacroKey(macroKeyGuard);
+        reportObservedMacroKey(macroKeyGuard, event, false);
         return;
       }
       const activeElement = gameInputContextActive ? undefined : document.activeElement;
@@ -530,7 +633,7 @@
         event.preventDefault();
       }
       routeMacroGameKeyDown(event, editableContext);
-      reportObservedMacroKey(macroKeyGuard);
+      reportObservedMacroKey(macroKeyGuard, event);
       return;
     }
     // A non-repeat keydown starts a new physical ownership cycle. This also
@@ -568,7 +671,12 @@
     }
 
     if (event.repeat) {
-      if (matchesOpenShortcut(event)) {
+      const managedRepeat = pendingPhysicalToggleShortcuts.some(
+        (pending) => pending.code === event.code && !pending.mainReleased
+      ) || [...activeHeldShortcuts.values()].some(
+        (active) => active.code === event.code && !active.mainReleased
+      );
+      if (matchesOpenShortcut(event) || managedRepeat) {
         consumedPhysicalShortcutCodes.add(event.code);
         consumeShortcutEvent(event);
       } else {
@@ -596,31 +704,50 @@
       return;
     }
 
-    rememberPhysicalGameKey(event);
     if (matchingMacros.length !== 1) {
+      rememberPhysicalGameKey(event);
       console.warn("Multiple Rion Studio macros use the same shortcut for this role.");
       return;
     }
 
     const macro = matchingMacros[0];
+    consumeShortcutEvent(event);
+    const whileHeld = (macro.activationMode ?? "toggle") === "while_held";
+    if (whileHeld && activeHeldShortcuts.has(macro.id)) return;
     reportMacroShortcutLifecycle(
       macro.id,
       event.code,
-      "physical-keydown-allowed"
+      "physical-keydown-managed"
     );
-    if ((macro.activationMode ?? "toggle") === "while_held") {
-      if (activeHeldShortcuts.has(macro.id)) return;
-      const pressId = `${Date.now()}-${nextPressId++}`;
-      activeHeldShortcuts.set(macro.id, { code: event.code, pressId });
-      runAction("press", macro.id, { pressId }, true);
-      return;
-    }
-    pendingPhysicalToggleShortcuts.push({
+    const active = {
       code: event.code,
+      epoch: physicalShortcutEpoch,
+      failed: false,
+      keyUpPromise: null,
       macroId: macro.id,
       mainReleased: false,
-      modifiers: physicalShortcutTriggerSnapshot(macro.trigger)
-    });
+      managedKeyUpAcknowledged: false,
+      modifierCodes: managedShortcutModifierCodes(macro.trigger),
+      modifiers: physicalShortcutTriggerSnapshot(macro.trigger),
+      pressId: `${Date.now()}-${nextPressId++}`
+    };
+    active.keyDownPromise = whileHeld
+      ? dispatchManagedShortcutPhase(active, "keyDown").catch((error) => {
+        active.failed = true;
+        console.warn("Unable to begin a managed Rion Studio shortcut.", error);
+        throw error;
+      })
+      : Promise.resolve();
+    if (whileHeld) {
+      activeHeldShortcuts.set(macro.id, active);
+      void active.keyDownPromise.then(() => {
+        if (active.failed) return;
+        active.macroPressed = true;
+        runAction("press", macro.id, { pressId: active.pressId }, true);
+      }).catch(() => undefined);
+      return;
+    }
+    pendingPhysicalToggleShortcuts.push(active);
   }
 
   function handleKeyUp(event) {
@@ -631,13 +758,39 @@
     const macroKeyGuard = consumeSuppressedShortcut(event, "macro-key");
     if (macroKeyGuard) {
       if (consumeOverlappingMacroModifierKeyUp(event)) {
-        reportObservedMacroKey(macroKeyGuard);
+        reportObservedMacroKey(macroKeyGuard, event, false);
         return;
       }
       const activeElement = gameInputContextActive ? undefined : document.activeElement;
       const editableContext = shouldIgnoreShortcutEvent(event, activeElement, document.designMode);
       routeMacroGameKeyUp(event, editableContext);
-      reportObservedMacroKey(macroKeyGuard);
+      reportObservedMacroKey(macroKeyGuard, event);
+      return;
+    }
+    const managedToggles = pendingPhysicalToggleShortcuts.filter(
+      (pending) => pending.code === event.code && !pending.mainReleased
+    );
+    const managedHeld = [...activeHeldShortcuts.entries()].filter(
+      ([, active]) => active.code === event.code && !active.mainReleased
+    );
+    if (managedToggles.length > 0 || managedHeld.length > 0) {
+      consumeShortcutEvent(event);
+      for (const pending of managedToggles) {
+        pending.mainReleased = true;
+        if (pendingModifiersReleased(pending)) pending.releasePropagationCompleted = true;
+      }
+      for (const [macroId, active] of managedHeld) {
+        active.mainReleased = true;
+        activeHeldShortcuts.delete(macroId);
+        void beginManagedShortcutKeyUp(active).then(() => {
+          if (!active.macroPressed) return;
+          runAction("release", macroId, {
+            pressId: active.pressId,
+            releaseMode: "complete_first_iteration"
+          }, true, true);
+        });
+      }
+      finishReleasedPhysicalToggleShortcuts(event);
       return;
     }
     const consumedShortcutKeyUp = consumedPhysicalShortcutCodes.delete(event.code);
@@ -654,25 +807,18 @@
       event.stopPropagation();
       return;
     }
-    const matches = [...activeHeldShortcuts.entries()].filter(
-      ([, active]) => active.code === event.code
-    );
-    if (matches.length === 0) return;
-    matches.forEach(([macroId, active]) => {
-      activeHeldShortcuts.delete(macroId);
-      runAction("release", macroId, {
-        pressId: active.pressId,
-        releaseMode: "complete_first_iteration"
-      }, true, true);
-    });
   }
 
   function releaseActiveHeldShortcuts() {
     [...activeHeldShortcuts.entries()].forEach(([macroId, active]) => {
       activeHeldShortcuts.delete(macroId);
-      runAction("release", macroId, {
-        pressId: active.pressId,
-        releaseMode: "immediate"
-      }, true, true);
+      active.mainReleased = true;
+      void beginManagedShortcutKeyUp(active).then(() => {
+        if (!active.macroPressed) return;
+        runAction("release", macroId, {
+          pressId: active.pressId,
+          releaseMode: "immediate"
+        }, true, true);
+      });
     });
   }

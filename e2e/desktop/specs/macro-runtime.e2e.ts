@@ -6,6 +6,7 @@ import {
   focusMainApplicationWindow,
   inputDiagnostics,
   keyboardInput,
+  keyboardInputSequence,
   probe,
   rendererCall,
   requireEnvironment,
@@ -541,16 +542,25 @@ async function keyboardLifecyclePhase(): Promise<void> {
     const shortcutFixtureCursor = await fixtureCursor();
     const firstDiagnosticCursor = (await probe()).latestSequence;
     const firstMacroCursor = await rendererEventCursor();
-    await press("ShiftLeft");
+    const firstShortcutReceipts = await keyboardInputSequence([
+      { code: "ShiftLeft", phase: "keyDown" },
+      { code: "Digit2", phase: "keyDown" },
+      { code: "Digit2", phase: "keyUp" },
+      { code: "ShiftLeft", phase: "keyUp" }
+    ]);
+    expect(firstShortcutReceipts.map(({ code, phase, status }) => ({ code, phase, status })))
+      .toEqual([
+        { code: "ShiftLeft", phase: "keyDown", status: "submitted" },
+        { code: "Digit2", phase: "keyDown", status: "submitted" },
+        { code: "Digit2", phase: "keyUp", status: "submitted" },
+        { code: "ShiftLeft", phase: "keyUp", status: "submitted" }
+      ]);
     const firstShiftDown = await waitFixtureCode({
       afterSequence: shortcutFixtureCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit2");
-    await release("Digit2");
-    await release("ShiftLeft");
     await waitFixtureCode({
       afterSequence: firstShiftDown.sequence,
       code: "ShiftLeft",
@@ -684,28 +694,31 @@ async function keyboardLifecyclePhase(): Promise<void> {
     // re-evaluates held digits on Shift keydown, so a stale Digit2 would add a
     // second Shift+Digit2 before the expected Shift+Digit1 activation.
     const canaryCursor = await fixtureCursor();
-    await press("ShiftLeft");
+    const canaryReceipts = await keyboardInputSequence([
+      { code: "ShiftLeft", phase: "keyDown" },
+      { code: "Digit1", phase: "keyDown" },
+      { code: "Digit1", phase: "keyUp" },
+      { code: "ShiftLeft", phase: "keyUp" }
+    ]);
+    expect(canaryReceipts.every((receipt) => receipt.status === "submitted")).toBe(true);
     const canaryShiftDown = await waitFixtureCode({
       afterSequence: canaryCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit1");
     const canaryDigitDown = await waitFixtureCode({
       afterSequence: canaryShiftDown.sequence,
       code: "Digit1",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await release("Digit1");
     await waitFixtureCode({
       afterSequence: canaryDigitDown.sequence,
       code: "Digit1",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
-    await release("ShiftLeft");
     await waitFixtureCode({
       afterSequence: canaryShiftDown.sequence,
       code: "ShiftLeft",
@@ -729,22 +742,25 @@ async function keyboardLifecyclePhase(): Promise<void> {
     const secondShortcutCursor = await fixtureCursor();
     const secondDiagnosticCursor = (await probe()).latestSequence;
     const secondMacroCursor = await rendererEventCursor();
-    await press("ShiftLeft");
+    const secondShortcutReceipts = await keyboardInputSequence([
+      { code: "ShiftLeft", phase: "keyDown" },
+      { code: "Digit3", phase: "keyDown" },
+      { code: "ShiftLeft", phase: "keyUp" },
+      { code: "Digit3", phase: "keyUp" }
+    ]);
+    expect(secondShortcutReceipts.every((receipt) => receipt.status === "submitted")).toBe(true);
     const secondShiftDown = await waitFixtureCode({
       afterSequence: secondShortcutCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit3");
-    await release("ShiftLeft");
     await waitFixtureCode({
       afterSequence: secondShiftDown.sequence,
       code: "ShiftLeft",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
-    await release("Digit3");
     await waitForMacroProjection({
       afterSequence: secondMacroCursor,
       macroId: secondMacro.id,

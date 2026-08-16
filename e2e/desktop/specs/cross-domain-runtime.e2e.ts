@@ -18,6 +18,7 @@ import {
   rendererCall,
   requireEnvironment,
   runtimeUiAction,
+  runtimeUiActionAndWaitEvent,
   shutdown,
   submitWindowControl,
   waitEvent,
@@ -506,16 +507,24 @@ async function dragTab(
   beforeTabId: string
 ): Promise<void> {
   const cursor = (await probe()).latestSequence;
-  await runtimeUiAction(source.windowId, {
-    action: "dragTab",
-    beforeTabId,
-    tabId,
-    targetWindowGeneration: target.windowGeneration,
-    targetWindowId: target.windowId,
-    topologyRevision: source.kernel?.revision ?? 0,
-    windowGeneration: source.windowGeneration
-  });
-  await waitForMutationReceipt(cursor, tabId);
+  const terminal = await runtimeUiActionAndWaitEvent(
+    source.windowId,
+    {
+      action: "dragTab",
+      beforeTabId,
+      tabId,
+      targetWindowGeneration: target.windowGeneration,
+      targetWindowId: target.windowId,
+      topologyRevision: source.kernel?.revision ?? 0,
+      windowGeneration: source.windowGeneration
+    },
+    {
+      afterSequence: cursor,
+      kind: "runtime-operation-terminal",
+      timeoutMs: 55_000
+    }
+  );
+  expect(terminal.details).toMatchObject({ status: "applied", tabId });
 }
 
 async function tabMenuAction(input: {

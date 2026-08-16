@@ -340,6 +340,55 @@ export async function runtimeUiAction(
   };
 }
 
+export async function runtimeUiActionAndWaitEvent(
+  windowId: string,
+  request: RuntimeUiActionRequest,
+  wait: {
+    afterSequence: number;
+    kind: string;
+    timeoutMs?: number;
+  }
+): Promise<DesktopE2eEvent> {
+  const waitRequest = { timeoutMs: 30_000, ...wait };
+  const result = await browser.executeAsync(
+    (
+      token: string,
+      id: string,
+      actionRequest: RuntimeUiActionRequest,
+      eventRequest: typeof waitRequest,
+      done: (result: RendererCallResult) => void
+    ) => {
+      const core = (window as typeof window & {
+        __wdio_original_core__?: DesktopE2eTauriCore;
+      }).__wdio_original_core__;
+      if (!core?.invoke) {
+        done({ error: "Desktop E2E Tauri invoke bridge is unavailable", ok: false });
+        return;
+      }
+      void core.invoke("desktop_e2e_runtime_ui_action", {
+        request: actionRequest,
+        token,
+        windowId: id
+      }).then(() => core.invoke("desktop_e2e_wait_event", {
+        request: eventRequest,
+        token
+      })).then(
+        (value: unknown) => done({ ok: true, value }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    },
+    sessionToken(),
+    windowId,
+    request,
+    waitRequest
+  ) as RendererCallResult;
+  if (!result.ok) throw new Error(result.error ?? "Desktop E2E UI action event wait failed");
+  return result.value as DesktopE2eEvent;
+}
+
 export async function inputDiagnostics(): Promise<MacroInputDiagnosticsRecord> {
   const result = await browser.tauri.execute(
     ({ core }, token) => core.invoke("desktop_e2e_input_diagnostics", { token }),
@@ -367,6 +416,49 @@ export async function keyboardInput(
     sequence: number;
     status: "submitted";
   };
+}
+
+export async function keyboardInputSequence(
+  requests: Array<{ code: string; phase: "keyDown" | "keyUp" }>
+): Promise<Array<{ code: string; phase: string; sequence: number; status: "submitted" }>> {
+  if (requests.length === 0) throw new Error("Desktop E2E keyboard input sequence is empty");
+  const result = await browser.executeAsync(
+    (
+      token: string,
+      inputRequests: Array<{ code: string; phase: "keyDown" | "keyUp" }>,
+      done: (result: RendererCallResult) => void
+    ) => {
+      const core = (window as typeof window & {
+        __wdio_original_core__?: DesktopE2eTauriCore;
+      }).__wdio_original_core__;
+      if (!core?.invoke) {
+        done({ error: "Desktop E2E Tauri invoke bridge is unavailable", ok: false });
+        return;
+      }
+      void (async () => {
+        const receipts: unknown[] = [];
+        for (const request of inputRequests) {
+          receipts.push(await core.invoke("desktop_e2e_keyboard_input", { request, token }));
+        }
+        return receipts;
+      })().then(
+        (value) => done({ ok: true, value }),
+        (error: unknown) => done({
+          error: error instanceof Error ? error.message : String(error),
+          ok: false
+        })
+      );
+    },
+    sessionToken(),
+    requests
+  ) as RendererCallResult;
+  if (!result.ok) throw new Error(result.error ?? "Desktop E2E keyboard input sequence failed");
+  return result.value as Array<{
+    code: string;
+    phase: string;
+    sequence: number;
+    status: "submitted";
+  }>;
 }
 
 export async function focusMainApplicationWindow(): Promise<void> {

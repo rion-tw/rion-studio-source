@@ -349,7 +349,7 @@ impl MainWindowActor {
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(any(not(windows), test))]
     fn install_pending_focus(
         queue: &Arc<(Mutex<MainWindowActorState>, Condvar)>,
         operations: &NativeOperationRegistry,

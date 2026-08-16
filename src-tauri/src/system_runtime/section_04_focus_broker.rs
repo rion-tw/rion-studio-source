@@ -157,6 +157,7 @@ impl NativeFocusBroker {
         })
     }
 
+    #[cfg(any(not(windows), test))]
     fn is_confirmed(&self, lease: &NativeFocusLease) -> bool {
         self.state
             .lock()

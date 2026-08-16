@@ -425,6 +425,23 @@ pub(crate) fn desktop_e2e_control_window(
             return Err("The desktop E2E main window supports only the focus action.".to_owned());
         }
         let runtime = Arc::clone(&state.runtime);
+        #[cfg(windows)]
+        if runtime
+            .desktop_e2e_main_window_is_focused()
+            .map_err(|error| error.message)?
+        {
+            record_event(
+                "main-window-focus-terminal",
+                Some("main"),
+                None,
+                None,
+                json!({
+                    "stage": "mainWindowAlreadyFocused",
+                    "status": "applied"
+                }),
+            );
+            return Ok(json!({ "submitted": true }));
+        }
         std::thread::Builder::new()
             .name("rion-desktop-e2e-main-focus".to_owned())
             .spawn(move || {

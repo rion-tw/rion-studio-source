@@ -1146,6 +1146,18 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    #[cfg(all(windows, feature = "desktop-e2e"))]
+    pub(crate) fn desktop_e2e_main_window_is_focused(&self) -> RuntimeResult<bool> {
+        use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+        let hwnd = self
+            .main_window_actor
+            .window
+            .hwnd()
+            .map_err(RuntimeError::tauri)?;
+        Ok(unsafe { GetForegroundWindow() } == hwnd)
+    }
+
     pub(crate) fn publish_main_window_state(&self) {
         let _ = self.main_window_actor.publish_state();
     }

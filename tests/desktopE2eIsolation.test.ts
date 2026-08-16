@@ -229,12 +229,37 @@ describe("desktop E2E build isolation", () => {
     ]);
 
     expect(commandSource).toContain('.show_main_window(true, "desktop-e2e-main-focus")');
+    expect(commandSource).toContain("desktop_e2e_main_window_is_focused");
+    expect(commandSource).toContain('"stage": "mainWindowAlreadyFocused"');
     expect(commandSource).toContain('record_event(\n                    "main-window-focus-terminal"');
     expect(commandSource).toContain('return Ok(json!({ "submitted": true }))');
     expect(controlSource).toContain('windowId: "main"');
     expect(controlSource).toContain('kind: "main-window-focus-terminal"');
     expect(controlSource).toContain('receipt.status !== "applied"');
     expect(controlSource).not.toContain('core.invoke("plugin:window|set_focus"');
+  });
+
+  it("opens entity menus through the visible WebDriver trigger", async () => {
+    const source = await readFile("e2e/desktop/support/ui.ts", "utf8");
+    const helper = source.slice(source.indexOf("export async function clickEntityMenuAction"));
+
+    expect(helper.indexOf("trigger.scrollIntoView"))
+      .toBeLessThan(helper.indexOf("focusMainApplicationWindow"));
+    expect(helper.indexOf("focusMainApplicationWindow"))
+      .toBeLessThan(helper.indexOf("control.focus"));
+    expect(helper.indexOf("control.focus"))
+      .toBeLessThan(helper.indexOf("trigger.waitForDisplayed"));
+    expect(helper.indexOf("trigger.waitForDisplayed"))
+      .toBeLessThan(helper.indexOf("trigger.moveTo"));
+    expect(helper.indexOf("trigger.moveTo"))
+      .toBeLessThan(helper.indexOf("trigger.waitForClickable"));
+    expect(helper.indexOf("trigger.waitForClickable"))
+      .toBeLessThan(helper.indexOf('browser.action("pointer"'));
+    expect(helper).toContain('trigger.getAttribute("data-state")');
+    expect(helper).toContain('.down("left")');
+    expect(helper).toContain('.up("left")');
+    expect(helper).toContain('browser.action("key").down(Key.Enter).up(Key.Enter).perform()');
+    expect(helper).not.toContain("dispatchEvent");
   });
 
   it("keeps native tab gestures feature-gated and user-input driven", async () => {

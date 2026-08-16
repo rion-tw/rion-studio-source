@@ -353,11 +353,15 @@ export async function clickEntityMenuAction(
   await focusMainApplicationWindow();
   await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
   await trigger.waitForDisplayed({ timeout: 10_000 });
+  await trigger.moveTo();
   await trigger.waitForClickable({ timeout: 10_000 });
   if (await trigger.getAttribute("data-state") === null) {
-    await trigger.click();
+    await browser.action("pointer", { parameters: { pointerType: "mouse" } })
+      .move({ origin: trigger })
+      .down("left")
+      .up("left")
+      .perform();
   } else {
-    // The embedded driver emits mouse rather than pointer events; use Radix's keyboard path.
     await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
   }
   const menu = await $("[role='menu']");

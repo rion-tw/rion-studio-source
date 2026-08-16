@@ -475,7 +475,7 @@ pub(crate) fn desktop_e2e_input_diagnostics(
 }
 
 #[tauri::command]
-pub(crate) fn desktop_e2e_keyboard_input(
+pub(crate) async fn desktop_e2e_keyboard_input(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -488,12 +488,15 @@ pub(crate) fn desktop_e2e_keyboard_input(
         && request.focus.unwrap_or(true)
         && let Some(target) = control.keyboard_target()?
     {
-        state.runtime.desktop_e2e_focus_keyboard_target(
-            &target.window_id,
-            target.window_generation,
-            &target.tab_id,
-            &target.role_id,
-        )?;
+        state
+            .runtime
+            .desktop_e2e_focus_keyboard_target(
+                &target.window_id,
+                target.window_generation,
+                &target.tab_id,
+                &target.role_id,
+            )
+            .await?;
     }
     desktop_e2e_submit_keyboard_input(&request.code, key_down)?;
     let event = control.record(

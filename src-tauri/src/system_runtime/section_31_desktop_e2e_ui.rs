@@ -47,7 +47,7 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
 }
 
 impl SystemRuntimeExecutor {
-    pub(crate) fn desktop_e2e_focus_keyboard_target(
+    pub(crate) async fn desktop_e2e_focus_keyboard_target(
         &self,
         window_id: &str,
         window_generation: u64,
@@ -84,7 +84,11 @@ impl SystemRuntimeExecutor {
             (window, webview)
         };
         request_platform_window_show_foreground(&window).map_err(|error| error.message)?;
-        webview.set_focus().map_err(|error| error.to_string())
+        #[cfg(windows)]
+        desktop_e2e_wait_for_windows_webview_focus(&webview).await?;
+        #[cfg(not(windows))]
+        webview.set_focus().map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     pub(crate) fn desktop_e2e_runtime_ui_action(
@@ -597,6 +601,75 @@ impl SystemRuntimeExecutor {
     ) -> Result<(), String> {
         Err("Desktop E2E runtime UI actions require macOS or Windows.".to_owned())
     }
+}
+
+#[cfg(windows)]
+async fn desktop_e2e_wait_for_windows_webview_focus(webview: &Webview) -> Result<(), String> {
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
+    use webview2_com::{
+        FocusChangedEventHandler,
+        Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC,
+    };
+    use windows::Win32::{
+        Foundation::HWND,
+        UI::Input::KeyboardAndMouse::{GetFocus, SetFocus},
+    };
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let sender = Rc::new(RefCell::new(Some(sender)));
+            let registration_token = Rc::new(Cell::new(0_i64));
+            let callback_sender = Rc::clone(&sender);
+            let callback_token = Rc::clone(&registration_token);
+            let handler = FocusChangedEventHandler::create(Box::new(move |controller, _| {
+                if let Some(controller) = controller {
+                    let token = callback_token.replace(0);
+                    if token != 0 {
+                        let _ = unsafe { controller.remove_GotFocus(token) };
+                    }
+                }
+                if let Some(sender) = callback_sender.borrow_mut().take() {
+                    let _ = sender.send(Ok(()));
+                }
+                Ok(())
+            }));
+            let result = (|| -> Result<(), String> {
+                let mut token = 0;
+                controller
+                    .add_GotFocus(&handler, &mut token)
+                    .map_err(|error| error.to_string())?;
+                registration_token.set(token);
+                let mut parent = HWND::default();
+                controller
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                let _ = SetFocus(Some(parent));
+                if GetFocus() != parent {
+                    return Err("Windows did not move focus to the Game Window host.".to_owned());
+                }
+                controller
+                    .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
+                    .map_err(|error| error.to_string())
+            })();
+            if let Err(error) = result {
+                let token = registration_token.replace(0);
+                if token != 0 {
+                    let _ = controller.remove_GotFocus(token);
+                }
+                if let Some(sender) = sender.borrow_mut().take() {
+                    let _ = sender.send(Err(error));
+                }
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .await
+        .map_err(|_| "The WebView2 focus acknowledgement was interrupted.".to_owned())?
 }
 
 fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest) -> u64 {

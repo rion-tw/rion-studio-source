@@ -206,6 +206,20 @@ describe("desktop E2E build isolation", () => {
       .toBeLessThan(forceTerminate.indexOf("await runtimeUiAction(WINDOW_C"));
   });
 
+  it("fences Windows keyboard injection on the WebView2 focus callback", async () => {
+    const [commandSource, controlSource] = await Promise.all([
+      readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8")
+    ]);
+
+    expect(commandSource).toContain("desktop_e2e_focus_keyboard_target(");
+    expect(commandSource).toContain(".await?;");
+    expect(controlSource).toContain("FocusChangedEventHandler::create");
+    expect(controlSource).toContain(".add_GotFocus(");
+    expect(controlSource).toContain("COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC");
+    expect(controlSource).not.toContain("thread::sleep");
+  });
+
   it("keeps native tab gestures feature-gated and user-input driven", async () => {
     const [command, windowsPointer, macHeader, macBridge, macPointer, build] =
       await Promise.all([

@@ -95,11 +95,35 @@ fn show_standard_minimized(hwnd: windows::Win32::Foundation::HWND) -> Result<(),
 }
 
 #[cfg(windows)]
+fn submit_standard_minimized(hwnd: windows::Win32::Foundation::HWND) -> Result<(), String> {
+    use windows::Win32::{
+        Foundation::{LPARAM, WPARAM},
+        UI::WindowsAndMessaging::{IsWindow, PostMessageW, SC_MINIMIZE, WM_SYSCOMMAND},
+    };
+
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err("The Win32 window handle is no longer valid.".to_owned());
+    }
+    // Match the native caption-button path without synchronously re-entering
+    // the presentation actor while it owns its mutation lane. WM_SIZE remains
+    // the authoritative completion event.
+    unsafe {
+        PostMessageW(
+            Some(hwnd),
+            WM_SYSCOMMAND,
+            WPARAM(SC_MINIMIZE as usize),
+            LPARAM(0),
+        )
+    }
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_window_minimize(
     window: &Window,
 ) -> Result<(), String> {
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
-    show_standard_minimized(hwnd)
+    submit_standard_minimized(hwnd)
 }
 
 #[cfg(windows)]

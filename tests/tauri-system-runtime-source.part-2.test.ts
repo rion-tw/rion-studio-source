@@ -629,6 +629,11 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(runtime).toContain("SetWindowSubclass");
     expect(runtime).toContain("WM_SIZE");
     expect(runtime).toContain("SIZE_MINIMIZED");
+    expect(runtime).toContain("projection_suspended: bool");
+    expect(runtime).toContain("IsIconic(hwnd)");
+    expect(runtime).toContain("windows_live_resize_suspend_host(host)");
+    expect(runtime.match(/windows_live_resize_projection_is_actionable\(hwnd\)/g))
+      .toHaveLength(3);
     expect(runtime).toContain("WM_RION_GEOMETRY_FLUSH");
     expect(runtime).toContain("PostMessageW");
     expect(liveResizeGeometry).not.toContain("BeginDeferWindowPos");

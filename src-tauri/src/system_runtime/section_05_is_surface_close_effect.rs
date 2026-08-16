@@ -779,6 +779,45 @@ fn apply_native_presentation_batch(
             }
         }
 
+        #[cfg(windows)]
+        if matches!(window_mode, Some(NativeWindowMode::Minimized)) {
+            // Windows game-window minimize is an owning-thread queue
+            // submission. Do not synchronously query focus or visibility from
+            // this callback before SIZE_MINIMIZED has run; the UI loop cannot
+            // process that authoritative event until this callback returns.
+            let mutations_complete = visibility_errors.is_empty() && skipped_surface_count == 0;
+            let presentation_applied = presentation_current && mutations_complete;
+            let applied = (presentation_current || ordered_window_control) && mutations_complete;
+            let _ = sender.send(NativePresentationOutcome {
+                applied,
+                presentation_applied,
+                focus_applied: false,
+                focus_superseded: false,
+                hidden_surface_count,
+                hide_ms,
+                main_queue_wait_ms,
+                main_thread_ms: main_started_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u64::MAX as u128) as u64,
+                no_op: false,
+                planned_surface_mutation_count,
+                shown_surface_count,
+                show_ms,
+                skipped_surface_count,
+                visibility_errors,
+                webview_focus_ms: 0,
+                window_focused_after: None,
+                window_focus_applied: false,
+                window_focus_ms,
+                window_restore_applied,
+                window_visible_after: None,
+                window_visibility_ms,
+                window_was_minimized,
+            });
+            return;
+        }
+
         let mut focus_applied = false;
         let window_focus_started_at = Instant::now();
         if apply_window_focus

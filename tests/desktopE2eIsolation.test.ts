@@ -96,6 +96,27 @@ describe("desktop E2E build isolation", () => {
     expect(closeControl).not.toContain("window.close()");
   });
 
+  it("observes Windows minimize geometry through debug-only native evidence", async () => {
+    const [control, viewport, receipts, journey] = await Promise.all([
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_viewport.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/section_18_resize_diagnostics.rs", "utf8"),
+      readFile("e2e/desktop/specs/cross-domain-runtime.e2e.ts", "utf8")
+    ]);
+
+    expect(control).toContain("DesktopE2eWindowControlRequest::ClickVisibleMinimize");
+    expect(control).toContain("DesktopE2eVisibleChromePointer::Minimize");
+    expect(control).toContain("SendInput(");
+    expect(viewport).toContain(".Bounds(&mut bounds)");
+    expect(viewport).toContain("GetClientRect(parent, &mut host_bounds)");
+    expect(viewport).toContain("WebMessageReceivedEventHandler::create");
+    expect(viewport).toContain("rion-desktop-e2e-role-viewport-v1");
+    expect(viewport).toContain('addEventListener("resize"');
+    expect(receipts).toContain('"windows-geometry-receipt"');
+    expect(journey).toContain('status: "unchanged"');
+    expect(journey).toContain("expect(restoredB.native.roleSurfaces).toEqual");
+  });
+
   it("records an authoritative foreground precondition on both native hosts", async () => {
     const source = await readFile(
       "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",

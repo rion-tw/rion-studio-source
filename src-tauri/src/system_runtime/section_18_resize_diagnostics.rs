@@ -25,6 +25,14 @@ impl SystemRuntimeExecutor {
             "width": receipt.key.width,
             "windowId": window_id,
         });
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "windows-geometry-receipt",
+            Some(window_id),
+            Some(receipt.key.generation),
+            Some(receipt.key.frame_revision),
+            context.clone(),
+        );
         let core = Arc::clone(&self.core);
         tauri::async_runtime::spawn(async move {
             let _ = core

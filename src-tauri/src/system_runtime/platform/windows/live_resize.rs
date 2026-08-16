@@ -7,9 +7,9 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, IsZoomed, PostMessageW, SetWindowPos, SIZE_MAXIMIZED, SIZE_MINIMIZED,
-            SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER, WM_APP,
-            WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
+            GetClientRect, IsIconic, IsZoomed, PostMessageW, SetWindowPos, SIZE_MAXIMIZED,
+            SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
+            WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
             WM_NCDESTROY, WM_SIZE, WM_WINDOWPOSCHANGED,
         },
     },
@@ -86,8 +86,11 @@ pub(in crate::system_runtime) struct WindowsLiveResizeHost {
     pub(in crate::system_runtime) pending_frame: Option<WindowsGeometryPendingFrame>,
     pub(in crate::system_runtime) plan: Option<WindowsLiveResizePlan>,
     pub(in crate::system_runtime) plan_epoch: u64,
+    pub(in crate::system_runtime) projection_suspended: bool,
     pub(in crate::system_runtime) receipt_handler: WindowsGeometryReceiptHandler,
     pub(in crate::system_runtime) subclass_id: usize,
+    #[cfg(feature = "desktop-e2e")]
+    pub(in crate::system_runtime) window_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,10 +183,15 @@ pub(in crate::system_runtime) fn windows_hwnd_from_key(key: usize) -> HWND {
 
 pub(in crate::system_runtime) fn windows_live_resize_install_host(
     window: &Window,
+    window_id: &str,
     generation: u64,
     receipt_handler: WindowsGeometryReceiptHandler,
 ) -> RuntimeResult<()> {
     let install_window = window.clone();
+    #[cfg(feature = "desktop-e2e")]
+    let window_id = window_id.to_owned();
+    #[cfg(not(feature = "desktop-e2e"))]
+    let _ = window_id;
     window
         .run_on_main_thread(move || {
             let Ok(hwnd) = install_window.hwnd() else {
@@ -227,8 +235,11 @@ pub(in crate::system_runtime) fn windows_live_resize_install_host(
                             pending_frame: None,
                             plan: None,
                             plan_epoch: 0,
+                            projection_suspended: unsafe { IsIconic(hwnd) }.as_bool(),
                             receipt_handler,
                             subclass_id,
+                            #[cfg(feature = "desktop-e2e")]
+                            window_id,
                         },
                     );
                 });
@@ -270,6 +281,8 @@ pub(in crate::system_runtime) fn windows_live_resize_register_controller(
     label: String,
     controller: ICoreWebView2Controller,
 ) {
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e_windows_register_role_viewport_channel(&controller);
     let mut hwnd = HWND::default();
     if unsafe { controller.ParentWindow(&mut hwnd) }.is_err() || hwnd.is_invalid() {
         return;
@@ -555,15 +568,68 @@ pub(in crate::system_runtime) fn windows_live_resize_is_interactive(hwnd: HWND) 
     })
 }
 
+pub(in crate::system_runtime) fn windows_live_resize_host_accepts_geometry(
+    host: &WindowsLiveResizeHost,
+    native_minimized: bool,
+    client_rect_is_positive: bool,
+) -> bool {
+    !host.projection_suspended && !native_minimized && client_rect_is_positive
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_suspend_host(host: &mut WindowsLiveResizeHost) {
+    host.projection_suspended = true;
+    host.pending_frame = None;
+    host.flush_posted = false;
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_resume_host(hwnd: HWND) {
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
+            host.projection_suspended = false;
+        }
+    });
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_projection_is_actionable(hwnd: HWND) -> bool {
+    let native_minimized = unsafe { IsIconic(hwnd) }.as_bool();
+    let client_rect_is_positive = windows_live_resize_client_size(hwnd).is_some();
+    WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
+        let mut registry = registry.borrow_mut();
+        let Some(host) = registry.hosts.get_mut(&windows_hwnd_key(hwnd)) else {
+            return false;
+        };
+        if native_minimized {
+            windows_live_resize_suspend_host(host);
+        }
+        windows_live_resize_host_accepts_geometry(
+            host,
+            native_minimized,
+            client_rect_is_positive,
+        )
+    })
+}
+
 pub(in crate::system_runtime) fn windows_live_resize_note_minimized(hwnd: HWND) {
     WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         if let Some(host) = registry.borrow_mut().hosts.get_mut(&windows_hwnd_key(hwnd)) {
             host.counters.received = host.counters.received.saturating_add(1);
+            windows_live_resize_suspend_host(host);
+            #[cfg(feature = "desktop-e2e")]
+            crate::desktop_e2e::record_event(
+                "window-minimized-observed",
+                Some(&host.window_id),
+                Some(host.generation),
+                None,
+                json!({ "source": "WM_SIZE/SIZE_MINIMIZED" }),
+            );
         }
     });
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_queue_current_frame(hwnd: HWND, terminal: bool) {
+    if !windows_live_resize_projection_is_actionable(hwnd) {
+        return;
+    }
     let Some((width, height)) = windows_live_resize_client_size(hwnd) else {
         return;
     };
@@ -582,6 +648,9 @@ pub(in crate::system_runtime) fn windows_live_resize_queue_frame(
     presentation: WindowsGeometryPresentation,
     terminal: bool,
 ) {
+    if !windows_live_resize_projection_is_actionable(hwnd) {
+        return;
+    }
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let should_post = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
@@ -651,6 +720,13 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
     subclass_id: usize,
     _generation: usize,
 ) -> LRESULT {
+    // SIZE_MINIMIZED is the authoritative suspension event. Fence projection
+    // before default processing because DefSubclassProc can synchronously
+    // dispatch WM_WINDOWPOSCHANGED while ShowWindow(SW_MINIMIZE) is still on
+    // the stack.
+    if message == WM_SIZE && wparam.0 == SIZE_MINIMIZED as usize {
+        windows_live_resize_note_minimized(hwnd);
+    }
     let result = unsafe { DefSubclassProc(hwnd, message, wparam, lparam) };
     match message {
         WM_ENTERSIZEMOVE => windows_live_resize_set_interactive(hwnd, true),
@@ -658,6 +734,7 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
             let width = lparam.0 as u32 & 0xffff;
             let height = (lparam.0 as u32 >> 16) & 0xffff;
             if windows_live_resize_message_is_actionable(wparam.0, width, height) {
+                windows_live_resize_resume_host(hwnd);
                 windows_live_resize_queue_frame(
                     hwnd,
                     width,
@@ -665,8 +742,6 @@ unsafe extern "system" fn windows_live_resize_subclass_proc(
                     windows_geometry_presentation(wparam.0),
                     !windows_live_resize_is_interactive(hwnd),
                 );
-            } else if wparam.0 == SIZE_MINIMIZED as usize {
-                windows_live_resize_note_minimized(hwnd);
             }
         }
         WM_EXITSIZEMOVE => {
@@ -958,6 +1033,9 @@ pub(in crate::system_runtime) fn windows_live_resize_complete_submission(
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_flush(hwnd: HWND) {
+    if !windows_live_resize_projection_is_actionable(hwnd) {
+        return;
+    }
     let Some(submission) = windows_live_resize_prepare_submission(hwnd) else {
         return;
     };

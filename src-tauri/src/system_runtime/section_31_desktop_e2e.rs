@@ -6,6 +6,7 @@
 )]
 pub(crate) enum DesktopE2eWindowControlRequest {
     ClickVisibleClose,
+    ClickVisibleMinimize,
     Close,
     DragVisibleChrome {
         delta_x: i32,
@@ -156,22 +157,62 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let native = {
             let mut native = native;
-            let tab_strip = self
-                .state
-                .lock()
-                .map_err(|_| "The runtime state is unavailable.".to_owned())?
-                .native_resources
-                .display_hosts
-                .get(window_id)
-                .map(|host| host.tab_strip.clone())
-                .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
+            let selected_tab_id = projection.as_ref().and_then(|projection| {
+                projection
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.selected)
+                    .map(|tab| tab.tab_id.clone())
+            });
+            let selected_tab_is_ready = selected_tab_id.as_ref().is_some_and(|tab_id| {
+                self.presentation.statuses.launch_phase(tab_id) == Some(LaunchPhase::Ready)
+            });
+            let (tab_strip, mut role_webviews) = {
+                let state = self
+                    .state
+                    .lock()
+                    .map_err(|_| "The runtime state is unavailable.".to_owned())?;
+                let host = state
+                    .native_resources
+                    .display_hosts
+                    .get(window_id)
+                    .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
+                let roles = selected_tab_id
+                    .as_ref()
+                    .and_then(|tab_id| state.native_resources.tabs.get(tab_id))
+                    .map(|tab| {
+                        tab.roles
+                            .iter()
+                            .map(|(role_id, surface)| {
+                                (role_id.clone(), surface.webview.clone())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                (host.tab_strip.clone(), roles)
+            };
             let (tab_strip_bounds, tab_strip_host_bounds) =
                 desktop_e2e_windows_tab_strip_geometry(&tab_strip)?;
+            role_webviews.sort_by(|left, right| left.0.cmp(&right.0));
+            let include_document_viewport = native.get("presentation").and_then(Value::as_str)
+                != Some("minimized")
+                && selected_tab_is_ready;
+            let role_surfaces = role_webviews
+                .iter()
+                .map(|(role_id, webview)| {
+                    desktop_e2e_windows_role_surface_snapshot(
+                        role_id,
+                        webview,
+                        include_document_viewport,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let native_object = native
                 .as_object_mut()
                 .ok_or_else(|| "The native window snapshot is invalid.".to_owned())?;
             native_object.insert("tabStripBounds".to_owned(), tab_strip_bounds);
             native_object.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
+            native_object.insert("roleSurfaces".to_owned(), json!(role_surfaces));
             native
         };
         let kernel = projection.map(|projection| {
@@ -212,14 +253,14 @@ impl SystemRuntimeExecutor {
         request: DesktopE2eWindowControlRequest,
     ) -> Result<Value, String> {
         request.validate()?;
-        let (window, generation) = self
+        let (window, generation, _tab_strip) = self
             .state
             .lock()
             .map_err(|_| "The runtime state is unavailable.".to_owned())?
             .native_resources
             .display_hosts
             .get(window_id)
-            .map(|host| (host.window.clone(), host.generation))
+            .map(|host| (host.window.clone(), host.generation, host.tab_strip.clone()))
             .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
         let action = desktop_e2e_window_control_name(&request);
         if matches!(
@@ -239,6 +280,9 @@ impl SystemRuntimeExecutor {
         if matches!(request, DesktopE2eWindowControlRequest::Close) {
             crate::desktop_e2e::permit_close_confirmation_once(window.label());
         }
+        #[cfg(windows)]
+        desktop_e2e_apply_native_window_control(&window, &_tab_strip, &request)?;
+        #[cfg(target_os = "macos")]
         desktop_e2e_apply_native_window_control(&window, &request)?;
         let native_readback = (!matches!(
             request,
@@ -339,6 +383,7 @@ fn desktop_e2e_windows_tab_strip_geometry(tab_strip: &Webview) -> Result<(Value,
 fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> &'static str {
     match request {
         DesktopE2eWindowControlRequest::ClickVisibleClose => "clickVisibleClose",
+        DesktopE2eWindowControlRequest::ClickVisibleMinimize => "clickVisibleMinimize",
         DesktopE2eWindowControlRequest::Close => "close",
         DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => "dragVisibleChrome",
         DesktopE2eWindowControlRequest::Focus => "focus",
@@ -387,6 +432,7 @@ fn desktop_e2e_outer_extent_for_client(
 #[cfg(windows)]
 fn desktop_e2e_apply_native_window_control(
     window: &Window,
+    tab_strip: &Webview,
     request: &DesktopE2eWindowControlRequest,
 ) -> Result<(), String> {
     use windows::Win32::UI::{
@@ -401,8 +447,17 @@ fn desktop_e2e_apply_native_window_control(
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
-        DesktopE2eWindowControlRequest::ClickVisibleClose => {
-            desktop_e2e_windows_visible_chrome_pointer(window, None)
+        DesktopE2eWindowControlRequest::ClickVisibleClose => desktop_e2e_windows_visible_chrome_pointer(
+            window,
+            tab_strip,
+            DesktopE2eVisibleChromePointer::Close,
+        ),
+        DesktopE2eWindowControlRequest::ClickVisibleMinimize => {
+            desktop_e2e_windows_visible_chrome_pointer(
+                window,
+                tab_strip,
+                DesktopE2eVisibleChromePointer::Minimize,
+            )
         }
         DesktopE2eWindowControlRequest::Close => unsafe {
             // Exercise the same asynchronous Win32 close request as the native
@@ -421,7 +476,11 @@ fn desktop_e2e_apply_native_window_control(
             request_platform_window_minimize(window)
         }
         DesktopE2eWindowControlRequest::DragVisibleChrome { delta_x, delta_y } => {
-            desktop_e2e_windows_visible_chrome_pointer(window, Some((*delta_x, *delta_y)))
+            desktop_e2e_windows_visible_chrome_pointer(
+                window,
+                tab_strip,
+                DesktopE2eVisibleChromePointer::Drag(*delta_x, *delta_y),
+            )
         }
         DesktopE2eWindowControlRequest::Focus => {
             request_platform_window_show_foreground(window).map_err(|error| error.message)
@@ -503,9 +562,18 @@ fn desktop_e2e_apply_native_window_control(
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy)]
+enum DesktopE2eVisibleChromePointer {
+    Close,
+    Drag(i32, i32),
+    Minimize,
+}
+
+#[cfg(windows)]
 fn desktop_e2e_windows_visible_chrome_pointer(
     window: &Window,
-    drag_delta: Option<(i32, i32)>,
+    tab_strip: &Webview,
+    pointer: DesktopE2eVisibleChromePointer,
 ) -> Result<(), String> {
     // A Game Window is a native Window with child WebViews, so Tauri WebDriver
     // cannot select it as a WebviewWindow handle. Keep the E2E action at the
@@ -521,14 +589,22 @@ fn desktop_e2e_windows_visible_chrome_pointer(
                 MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, MOUSE_EVENT_FLAGS,
             },
             WindowsAndMessaging::{
-                GetClientRect, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-                IsChild, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WindowFromPoint,
+                BringWindowToTop, GetClientRect, GetForegroundWindow, GetSystemMetrics, IsChild,
+                SetForegroundWindow, WindowFromPoint, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+                SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
             },
         },
     };
 
-    window.set_focus().map_err(|error| error.to_string())?;
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    unsafe { BringWindowToTop(hwnd) }
+        .map_err(|error| format!("Windows could not raise the visible Game Window: {error}"))?;
+    if !unsafe { SetForegroundWindow(hwnd) }.as_bool()
+        || unsafe { GetForegroundWindow() } != hwnd
+    {
+        return Err("Windows did not foreground the visible Game Window pointer target.".to_owned());
+    }
     let mut client = RECT::default();
     let mut origin = POINT::default();
     unsafe {
@@ -541,21 +617,51 @@ fn desktop_e2e_windows_visible_chrome_pointer(
     let client_width = client.right.saturating_sub(client.left);
     let client_height = client.bottom.saturating_sub(client.top);
     let logical = |value: f64| (value * scale).round() as i32;
-    let start = if drag_delta.is_some() {
-        // The flexible #window-drag-region ends immediately before the three
-        // 46px window controls and has a 12px minimum width. Aim at its center.
-        POINT {
+    let start = match pointer {
+        DesktopE2eVisibleChromePointer::Drag(_, _) => POINT {
+            // The flexible #window-drag-region ends immediately before the three
+            // 46px window controls and has a 12px minimum width. Aim at its center.
             x: origin.x + client_width - logical(150.0),
             y: origin.y + logical(20.0).min(client_height.saturating_sub(1)),
-        }
-    } else {
-        // The visible close control is 46px wide and 40px high.
-        POINT {
+        },
+        DesktopE2eVisibleChromePointer::Close => POINT {
             x: origin.x + client_width - logical(23.0),
             y: origin.y + logical(20.0).min(client_height.saturating_sub(1)),
+        },
+        DesktopE2eVisibleChromePointer::Minimize => {
+            let rect = desktop_e2e_windows_minimize_screen_rect(tab_strip)?;
+            POINT {
+                x: rect.left + (rect.right - rect.left) / 2,
+                y: rect.top + (rect.bottom - rect.top) / 2,
+            }
         }
     };
     let hit_window = unsafe { WindowFromPoint(start) };
+    crate::desktop_e2e::record_event(
+        "visible-chrome-pointer-resolved",
+        None,
+        None,
+        None,
+        json!({
+            "action": match pointer {
+                DesktopE2eVisibleChromePointer::Close => "close",
+                DesktopE2eVisibleChromePointer::Drag(_, _) => "drag",
+                DesktopE2eVisibleChromePointer::Minimize => "minimize",
+            },
+            "clientHeight": client_height,
+            "clientOrigin": { "x": origin.x, "y": origin.y },
+            "clientWidth": client_width,
+            "fallbackMinimize": {
+                "x": origin.x + client_width - logical(115.0),
+                "y": origin.y + logical(20.0).min(client_height.saturating_sub(1)),
+            },
+            "foregroundWindow": unsafe { GetForegroundWindow() }.0 as usize,
+            "hitWindow": hit_window.0 as usize,
+            "hostWindow": hwnd.0 as usize,
+            "scale": scale,
+            "screenPoint": { "x": start.x, "y": start.y },
+        }),
+    );
     if hit_window != hwnd && !unsafe { IsChild(hwnd, hit_window) }.as_bool() {
         return Err("The visible Game Window pointer target is obscured.".to_owned());
     }
@@ -595,7 +701,7 @@ fn desktop_e2e_windows_visible_chrome_pointer(
         },
     };
     let mut inputs = vec![absolute(start, Default::default()), button(MOUSEEVENTF_LEFTDOWN)];
-    if let Some((delta_x, delta_y)) = drag_delta {
+    if let DesktopE2eVisibleChromePointer::Drag(delta_x, delta_y) = pointer {
         for step in 1..=4 {
             inputs.push(absolute(
                 POINT {
@@ -639,6 +745,7 @@ fn desktop_e2e_apply_native_window_control(
     }
     let action = match request {
         DesktopE2eWindowControlRequest::ClickVisibleClose
+        | DesktopE2eWindowControlRequest::ClickVisibleMinimize
         | DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => {
             return Err("Visible chrome pointer controls are Windows-only.".to_owned());
         }

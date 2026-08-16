@@ -279,13 +279,11 @@ async function waitForRuntimeLaunchTerminal(
   sourceId: string,
   sourceType: "role" | "workspace"
 ): Promise<void> {
-  const terminal = await waitForTranscriptEvent(
-    control.transcriptPath,
-    (candidate) => candidate.sequence > control.latestSequence
-      && candidate.kind === "runtime-launch-intent-terminal"
-      && (candidate.details as { sourceId?: string }).sourceId === sourceId,
-    55_000
-  );
+  const terminal = await waitEvent({
+    afterSequence: control.latestSequence,
+    kind: "runtime-launch-intent-terminal",
+    timeoutMs: 55_000
+  });
   expect(terminal.details).toMatchObject({
     sourceId,
     sourceType,
@@ -664,6 +662,11 @@ async function topologyForcePhase(): Promise<void> {
   );
   if (!detached) throw new Error("The last-tab detach destination is unavailable");
   const liveBBeforeMinimize = await windowSnapshot(WINDOW_B);
+  const roleSurfacesBeforeMinimize = liveBBeforeMinimize.native.roleSurfaces;
+  if (process.platform === "win32") {
+    expect(roleSurfacesBeforeMinimize?.length ?? 0).toBeGreaterThan(0);
+    expect(roleSurfacesBeforeMinimize?.every((surface) => surface.documentViewport)).toBe(true);
+  }
   const detachedBeforeMove = await windowSnapshot(detached.windowId);
   const workArea = detachedBeforeMove.native.workArea;
   const detachedBounds = detachedBeforeMove.target.bounds;
@@ -700,17 +703,103 @@ async function topologyForcePhase(): Promise<void> {
       || sourceTop >= destinationTop + destinationOuter.height
       || destinationTop >= sourceTop + sourceOuter.height
   ).toBe(true);
+  if (process.platform === "win32") {
+    const focusCursor = (await probe()).latestSequence;
+    await controlWindow(WINDOW_B, { action: "focus" });
+    await waitEvent({
+      afterSequence: focusCursor,
+      kind: "window-focus-acknowledged",
+      minimumGeneration: liveBBeforeMinimize.windowGeneration,
+      windowId: WINDOW_B
+    });
+  }
   const minimizeSubmitted = await submitWindowControl(liveBBeforeMinimize, {
-    action: "minimize"
+    action: process.platform === "win32" ? "clickVisibleMinimize" : "minimize"
   });
+  if (process.platform === "win32") {
+    const pointer = await waitEvent({
+      afterSequence: minimizeSubmitted.sequence,
+      kind: "visible-chrome-pointer-observed"
+    });
+    expect(pointer.details).toMatchObject({ targetId: "window-minimize" });
+    await waitEvent({
+      afterSequence: minimizeSubmitted.sequence,
+      kind: "runtime-tab-window-control-received",
+      windowId: WINDOW_B
+    });
+  }
   await waitEvent({
     afterSequence: minimizeSubmitted.sequence,
     kind: "window-minimized-observed",
     minimumGeneration: liveBBeforeMinimize.windowGeneration,
+    timeoutMs: 45_000,
     windowId: WINDOW_B
   });
   const minimizedB = await windowSnapshot(WINDOW_B);
   expect(minimizedB.native.presentation).toBe("minimized");
+  if (process.platform === "win32") {
+    expect(minimizedB.native.roleSurfaces?.map((surface) => ({
+      controllerBounds: surface.controllerBounds,
+      hostBounds: surface.hostBounds,
+      roleId: surface.roleId
+    }))).toEqual(roleSurfacesBeforeMinimize?.map((surface) => ({
+      controllerBounds: surface.controllerBounds,
+      hostBounds: surface.hostBounds,
+      roleId: surface.roleId
+    })));
+    expect(minimizedB.native.roleSurfaces?.every((surface) => !surface.documentViewport)).toBe(true);
+  }
+  const restoreCursor = (await probe()).latestSequence;
+  await controlWindow(minimizedB.windowId, {
+    action: "setPresentation",
+    presentation: liveBBeforeMinimize.target.presentation
+  });
+  const restoreSubmitted = await waitEvent({
+    afterSequence: restoreCursor,
+    kind: "native-control-submitted",
+    minimumGeneration: minimizedB.windowGeneration,
+    windowId: WINDOW_B
+  });
+  if (process.platform === "win32") {
+    const geometryReceipt = await waitEvent({
+      afterSequence: restoreCursor,
+      kind: "windows-geometry-receipt",
+      minimumGeneration: minimizedB.windowGeneration,
+      timeoutMs: 45_000,
+      windowId: WINDOW_B
+    });
+    expect(geometryReceipt.details).toMatchObject({
+      presentation: liveBBeforeMinimize.native.presentation === "maximized"
+        ? "maximized"
+        : "restored",
+      status: "unchanged",
+      terminal: true
+    });
+  }
+  if (requiresNativeDeminimizeFocusFence(process.platform)) {
+    await waitEvent({
+      afterSequence: restoreSubmitted.sequence,
+      kind: "window-focus-persisted",
+      minimumGeneration: minimizedB.windowGeneration,
+      windowId: WINDOW_B
+    });
+  }
+  const restoredB = await windowSnapshot(WINDOW_B);
+  expect(restoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
+  if (process.platform === "win32") {
+    expect(restoredB.native.roleSurfaces).toEqual(roleSurfacesBeforeMinimize);
+  }
+  const topologyMinimizeSubmitted = await submitWindowControl(restoredB, {
+    action: "minimize"
+  });
+  await waitEvent({
+    afterSequence: topologyMinimizeSubmitted.sequence,
+    kind: "window-minimized-observed",
+    minimumGeneration: restoredB.windowGeneration,
+    windowId: WINDOW_B
+  });
+  const topologyMinimizedB = await windowSnapshot(WINDOW_B);
+  expect(topologyMinimizedB.native.presentation).toBe("minimized");
   const dashboardX = (workArea.x ?? 0) + Math.max(0, workArea.width - 960);
   await browser.setWindowRect(Math.round(dashboardX), Math.round(workArea.y ?? 0), 960, 640);
   try {
@@ -732,25 +821,25 @@ async function topologyForcePhase(): Promise<void> {
       tabId: lastSourceTab,
       target: restoredA
     });
-    const restoreSubmitted = await submitWindowControl(minimizedB, {
+    const topologyRestoreSubmitted = await submitWindowControl(topologyMinimizedB, {
       action: "setPresentation",
       presentation: liveBBeforeMinimize.target.presentation
     });
     if (requiresNativeDeminimizeFocusFence(process.platform)) {
       await waitEvent({
-        afterSequence: restoreSubmitted.sequence,
+        afterSequence: topologyRestoreSubmitted.sequence,
         kind: "window-focus-persisted",
-        minimumGeneration: minimizedB.windowGeneration,
+        minimumGeneration: topologyMinimizedB.windowGeneration,
         windowId: WINDOW_B
       });
     }
-    const restoredB = await windowSnapshot(WINDOW_B);
-    expect(restoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
+    const topologyRestoredB = await windowSnapshot(WINDOW_B);
+    expect(topologyRestoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
     const positionedB = await controlWindow(WINDOW_B, {
       action: "moveResize",
-      height: restoredB.target.bounds.height,
-      scaleFactor: restoredB.native.scaleFactor,
-      width: restoredB.target.bounds.width,
+      height: topologyRestoredB.target.bounds.height,
+      scaleFactor: topologyRestoredB.native.scaleFactor,
+      width: topologyRestoredB.target.bounds.width,
       x: (workArea.x ?? 0) + 64,
       y: workArea.y ?? 0
     });

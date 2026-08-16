@@ -751,6 +751,7 @@ impl SystemRuntimeExecutor {
             });
             windows_live_resize_install_host(
                 &window,
+                &target.window_id,
                 window_generation,
                 receipt_handler,
             )?;
@@ -783,6 +784,11 @@ impl SystemRuntimeExecutor {
             windows_mica_enabled,
         )
         .map_err(RuntimeError::tauri)?;
+        #[cfg(all(windows, feature = "desktop-e2e"))]
+        let tab_initialization_script = format!(
+            "{tab_initialization_script}\n{}",
+            desktop_e2e_windows_tab_chrome_probe_script()
+        );
         #[cfg(windows)]
         let tab_strip_builder = WebviewBuilder::new(
             runtime_label("game-tab-strip", &host_id),
@@ -819,6 +825,9 @@ impl SystemRuntimeExecutor {
                 return Err(error);
             }
         };
+        #[cfg(all(windows, feature = "desktop-e2e"))]
+        desktop_e2e_windows_register_tab_chrome_channel(&tab_strip)
+            .map_err(|message| RuntimeError::new("DESKTOP_E2E_WINDOW_CHROME_FAILED", message))?;
         #[cfg(windows)]
         windows_live_resize_register_webview(&tab_strip)?;
 

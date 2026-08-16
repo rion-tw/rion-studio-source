@@ -413,7 +413,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Fence native placement, presentation, tab/control geometry across resize and maximize, verify visible Game Window chrome remains draggable and closable after role content becomes ready, and preserve persistence, clean restart, and forced termination by generation and revision."
+      "description": "Fence native placement, presentation, and tab/control geometry across resize and maximize; verify visible Game Window chrome remains draggable, minimizable, and closable; preserve tab-strip bounds while minimized; and preserve persistence, clean restart, and forced termination by generation and revision."
     },
     {
       "id": "RUNTIME-LAUNCH-DESTINATIONS-008",
@@ -441,7 +441,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Use real native tab drag and visible context-menu actions to reorder, move, detach, hide, and reveal Role and Workspace tabs before crash recovery."
+      "description": "Use real native tab drag and visible context-menu actions to reorder, move, detach, hide, and reveal Role and Workspace tabs before crash recovery, and verify Windows minimize/restore preserves every role WebView controller, parent-host, and DOM viewport bound without a resize event."
     },
     {
       "id": "MACRO-OWNERSHIP-TRANSFER-010",

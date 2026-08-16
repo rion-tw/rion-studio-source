@@ -526,15 +526,44 @@ async function restartPhase(): Promise<void> {
   expectPlacement(liveA, normalBounds, "maximized");
   expectTabStripFitsClient(liveA);
   await expectModeCell(WINDOW_A, "maximized");
-  const minimizeSubmitted = await submitWindowControl(liveA, { action: "minimize" });
+  if (process.platform === "win32") {
+    const focusCursor = (await probe()).latestSequence;
+    await controlWindow(WINDOW_A, { action: "focus" });
+    await waitEvent({
+      afterSequence: focusCursor,
+      kind: "window-focus-acknowledged",
+      minimumGeneration: liveA.windowGeneration,
+      windowId: WINDOW_A
+    });
+  }
+  const minimizeSubmitted = await submitWindowControl(liveA, {
+    action: process.platform === "win32" ? "clickVisibleMinimize" : "minimize"
+  });
+  if (process.platform === "win32") {
+    const pointer = await waitEvent({
+      afterSequence: minimizeSubmitted.sequence,
+      kind: "visible-chrome-pointer-observed"
+    });
+    expect(pointer.details).toMatchObject({ targetId: "window-minimize" });
+    await waitEvent({
+      afterSequence: minimizeSubmitted.sequence,
+      kind: "runtime-tab-window-control-received",
+      windowId: WINDOW_A
+    });
+  }
   await waitEvent({
     afterSequence: minimizeSubmitted.sequence,
     kind: "window-minimized-observed",
     minimumGeneration: liveA.windowGeneration,
+    timeoutMs: 45_000,
     windowId: WINDOW_A
   });
   const minimized = await windowSnapshot(WINDOW_A);
   expect(minimized.native.presentation).toBe("minimized");
+  if (process.platform === "win32") {
+    expect(minimized.native.tabStripBounds).toEqual(liveA.native.tabStripBounds);
+    expect(minimized.native.tabStripHostBounds).toEqual(liveA.native.tabStripHostBounds);
+  }
   expect(minimized.kernel?.placement?.presentation).toBe("maximized");
   expectBoundsNear(minimized.kernel?.placement?.normalBounds ?? normalBounds, normalBounds);
   await expectModeCell(WINDOW_A, "maximized");

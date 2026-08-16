@@ -491,6 +491,7 @@ fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
         pending_frame: None,
         plan: Some(two_column_live_resize_plan()),
         plan_epoch: 3,
+        projection_suspended: false,
         receipt_handler: Arc::new(|_| {}),
         subclass_id: 7,
     };
@@ -521,6 +522,101 @@ fn windows_minimize_messages_never_enter_native_geometry_projection() {
     assert!(!windows_live_resize_message_is_actionable(0, 0, 720));
     assert!(!windows_live_resize_message_is_actionable(0, 1_280, 0));
     assert!(windows_live_resize_message_is_actionable(0, 1_280, 720));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_minimize_suspends_projection_before_default_window_processing() {
+    let source = include_str!("../platform/windows/live_resize.rs");
+    let procedure = source
+        .split("unsafe extern \"system\" fn windows_live_resize_subclass_proc")
+        .nth(1)
+        .expect("the Windows geometry subclass procedure must exist");
+    let suspend = procedure
+        .find("windows_live_resize_note_minimized(hwnd);")
+        .expect("SIZE_MINIMIZED must suspend the geometry host");
+    let default_dispatch = procedure
+        .find("DefSubclassProc(hwnd, message, wparam, lparam)")
+        .expect("the subclass must preserve default window processing");
+    assert!(
+        suspend < default_dispatch,
+        "SIZE_MINIMIZED must suspend projection before re-entrant default processing"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_minimize_actor_receipt_only_claims_native_submission() {
+    assert_eq!(
+        native_presentation_completion_scope(Some(NativeWindowMode::Minimized)),
+        SystemRuntimeOperationCompletionScope::NativeSubmission,
+    );
+    assert_eq!(
+        native_presentation_completion_scope(Some(NativeWindowMode::Maximized)),
+        SystemRuntimeOperationCompletionScope::NativeAcknowledgement,
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_minimize_suspends_pending_geometry_without_discarding_materialized_bounds() {
+    let materialized_key = WindowsGeometryKey {
+        dpi: 144,
+        frame_revision: 9,
+        generation: 7,
+        height: 720,
+        plan_revision: 11,
+        presentation: WindowsGeometryPresentation::Maximized,
+        width: 1_280,
+    };
+    let surface_bounds = HashMap::from([(
+        "role".to_owned(),
+        WindowsLiveResizeBounds {
+            height: 676,
+            width: 1_280,
+            x: 0,
+            y: 44,
+        },
+    )]);
+    let mut host = WindowsLiveResizeHost {
+        counters: WindowsLiveResizeCounters::default(),
+        flush_posted: true,
+        frame_sequence: 10,
+        generation: 7,
+        interactive_resize: false,
+        last_batch_failed: false,
+        last_materialized_key: Some(materialized_key),
+        last_surface_bounds: surface_bounds.clone(),
+        pending_frame: Some(WindowsGeometryPendingFrame {
+            dpi: 144,
+            frame_revision: 10,
+            height: 31,
+            presentation: WindowsGeometryPresentation::Restored,
+            terminal: true,
+            width: 160,
+        }),
+        plan: Some(two_column_live_resize_plan()),
+        plan_epoch: 3,
+        projection_suspended: false,
+        receipt_handler: Arc::new(|_| {}),
+        subclass_id: 7,
+    };
+
+    windows_live_resize_suspend_host(&mut host);
+
+    assert!(host.projection_suspended);
+    assert!(host.pending_frame.is_none());
+    assert!(!host.flush_posted);
+    assert_eq!(host.last_materialized_key, Some(materialized_key));
+    assert_eq!(host.last_surface_bounds, surface_bounds);
+    assert!(!windows_live_resize_host_accepts_geometry(&host, false, true));
+
+    host.projection_suspended = false;
+    assert!(windows_live_resize_host_accepts_geometry(&host, false, true));
+    assert!(!windows_live_resize_host_accepts_geometry(&host, true, true));
+    assert!(!windows_live_resize_host_accepts_geometry(
+        &host, false, false
+    ));
 }
 
 #[cfg(windows)]

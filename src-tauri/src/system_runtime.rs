@@ -122,6 +122,8 @@ include!("system_runtime/section_31_desktop_e2e.rs");
 #[cfg(feature = "desktop-e2e")]
 include!("system_runtime/section_31_desktop_e2e_pointer.rs");
 #[cfg(feature = "desktop-e2e")]
+include!("system_runtime/section_31_desktop_e2e_viewport.rs");
+#[cfg(feature = "desktop-e2e")]
 include!("system_runtime/section_31_desktop_e2e_ui.rs");
 include!("system_runtime/platform/shared.rs");
 

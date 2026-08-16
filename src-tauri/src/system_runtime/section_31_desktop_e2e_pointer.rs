@@ -19,6 +19,140 @@ struct DesktopE2eTabScreenRect {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopE2eWindowChromeRectMessage {
+    client_x: Option<f64>,
+    client_y: Option<f64>,
+    event: Option<String>,
+    kind: String,
+    minimize: Option<DesktopE2eTabClientRect>,
+    target_id: Option<String>,
+}
+
+#[cfg(windows)]
+static DESKTOP_E2E_WINDOWS_CHROME_RECTS:
+    std::sync::OnceLock<std::sync::Mutex<HashMap<String, DesktopE2eTabClientRect>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(windows)]
+fn desktop_e2e_windows_chrome_rects(
+) -> &'static std::sync::Mutex<HashMap<String, DesktopE2eTabClientRect>> {
+    DESKTOP_E2E_WINDOWS_CHROME_RECTS.get_or_init(Default::default)
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_tab_chrome_probe_script() -> &'static str {
+    r##"(() => {
+  const publish = () => {
+    const element = document.querySelector("#window-minimize");
+    if (!element || element.hidden || element.getClientRects().length !== 1) return;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    if (style.visibility === "hidden" || style.display === "none" || rect.width <= 0 || rect.height <= 0) return;
+    globalThis.chrome?.webview?.postMessage(JSON.stringify({
+      kind: "rion-desktop-e2e-window-chrome-v1",
+      minimize: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+    }));
+  };
+  addEventListener("DOMContentLoaded", publish, { once: true });
+  addEventListener("resize", publish);
+  for (const eventName of ["pointerdown", "pointerup", "click"]) {
+    addEventListener(eventName, (event) => {
+      globalThis.chrome?.webview?.postMessage(JSON.stringify({
+        clientX: event.clientX,
+        clientY: event.clientY,
+        event: eventName,
+        kind: "rion-desktop-e2e-window-chrome-v1",
+        targetId: event.target instanceof Element ? event.target.closest("[id]")?.id ?? null : null
+      }));
+    }, true);
+  }
+})();"##
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_register_tab_chrome_channel(tab_strip: &Webview) -> Result<(), String> {
+    use webview2_com::{
+        CoTaskMemPWSTR, WebMessageReceivedEventHandler,
+        Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    };
+    use windows::core::PWSTR;
+
+    let label = tab_strip.label().to_owned();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    tab_strip
+        .with_webview(move |platform_webview| {
+            let result = (|| -> Result<(), String> {
+                let core: ICoreWebView2 = unsafe { platform_webview.controller().CoreWebView2() }
+                    .map_err(|error| error.to_string())?;
+                let handler = WebMessageReceivedEventHandler::create(Box::new(
+                    move |_webview, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut raw = PWSTR::null();
+                        if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_err() {
+                            return Ok(());
+                        }
+                        let message = CoTaskMemPWSTR::from(raw).to_string();
+                        let Ok(message) =
+                            serde_json::from_str::<DesktopE2eWindowChromeRectMessage>(&message)
+                        else {
+                            return Ok(());
+                        };
+                        if message.kind != "rion-desktop-e2e-window-chrome-v1" {
+                            return Ok(());
+                        }
+                        if message.event.as_deref().is_some_and(|event| {
+                            matches!(event, "click" | "pointerdown" | "pointerup")
+                        }) {
+                            crate::desktop_e2e::record_event(
+                                "visible-chrome-pointer-observed",
+                                None,
+                                None,
+                                None,
+                                json!({
+                                    "clientX": message.client_x,
+                                    "clientY": message.client_y,
+                                    "event": message.event,
+                                    "tabStripLabel": label,
+                                    "targetId": message.target_id,
+                                }),
+                            );
+                            return Ok(());
+                        }
+                        let Some(rect) = message.minimize else {
+                            return Ok(());
+                        };
+                        if !rect.left.is_finite()
+                            || !rect.top.is_finite()
+                            || !rect.right.is_finite()
+                            || !rect.bottom.is_finite()
+                            || rect.right <= rect.left
+                            || rect.bottom <= rect.top
+                        {
+                            return Ok(());
+                        }
+                        if let Ok(mut rects) = desktop_e2e_windows_chrome_rects().lock() {
+                            rects.insert(label.clone(), rect);
+                        }
+                        Ok(())
+                    },
+                ));
+                let mut token = 0;
+                unsafe { core.add_WebMessageReceived(&handler, &mut token) }
+                    .map_err(|error| error.to_string())
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The WebView2 window-control event channel did not attach.".to_owned())?
+}
+
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopE2ePointerTraceEvent {
@@ -195,12 +329,107 @@ fn desktop_e2e_windows_tab_screen_rect(
     tab_strip: &Webview,
     tab_id: &str,
 ) -> Result<DesktopE2eTabScreenRect, String> {
+    use windows::core::HSTRING;
+
+    let encoded = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
+    let script = HSTRING::from(format!(
+        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const rect = button.getBoundingClientRect(); if (style.visibility === 'hidden' || style.display === 'none' || rect.width <= 0 || rect.height <= 0) return null; return {{ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }}; }})()"
+    ));
+    desktop_e2e_windows_element_screen_rect(
+        tab_strip,
+        script,
+        "The requested WebView2 runtime tab is not visible.",
+        "The WebView2 runtime-tab rectangle readback did not complete.",
+    )
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_minimize_screen_rect(
+    tab_strip: &Webview,
+) -> Result<DesktopE2eTabScreenRect, String> {
+    use windows::Win32::{
+        Foundation::{HWND, POINT, RECT},
+        Graphics::Gdi::ClientToScreen,
+        UI::HiDpi::GetDpiForWindow,
+    };
+
+    let rect = desktop_e2e_windows_chrome_rects()
+        .lock()
+        .map_err(|_| "The WebView2 window-control rectangle cache is unavailable.".to_owned())?
+        .get(tab_strip.label())
+        .copied()
+        .ok_or_else(|| "The WebView2 minimize control has not published its rectangle.".to_owned())?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    tab_strip
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let mut parent = HWND::default();
+            let mut bounds = RECT::default();
+            let result = (|| -> Result<DesktopE2eTabScreenRect, String> {
+                controller
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                controller
+                    .Bounds(&mut bounds)
+                    .map_err(|error| error.to_string())?;
+                let mut origin = POINT::default();
+                ClientToScreen(parent, &mut origin)
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+                let scale = f64::from(GetDpiForWindow(parent).max(96)) / 96.0;
+                let screen = |value: f64, offset: i32, host: i32| {
+                    offset + host + (value * scale).round() as i32
+                };
+                Ok(DesktopE2eTabScreenRect {
+                    bottom: screen(rect.bottom, origin.y, bounds.top),
+                    left: screen(rect.left, origin.x, bounds.left),
+                    parent: parent.0 as usize,
+                    right: screen(rect.right, origin.x, bounds.left),
+                    top: screen(rect.top, origin.y, bounds.top),
+                })
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    let resolved = receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The WebView2 minimize-control bounds readback did not complete.".to_owned())??;
+    crate::desktop_e2e::record_event(
+        "window-chrome-pointer-target-resolved",
+        None,
+        None,
+        None,
+        json!({
+            "cssRect": {
+                "bottom": rect.bottom,
+                "left": rect.left,
+                "right": rect.right,
+                "top": rect.top,
+            },
+            "screenRect": {
+                "bottom": resolved.bottom,
+                "left": resolved.left,
+                "right": resolved.right,
+                "top": resolved.top,
+            },
+            "tabStripLabel": tab_strip.label(),
+        }),
+    );
+    Ok(resolved)
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_element_screen_rect(
+    tab_strip: &Webview,
+    script: windows::core::HSTRING,
+    unavailable_message: &'static str,
+    timeout_message: &'static str,
+) -> Result<DesktopE2eTabScreenRect, String> {
     use webview2_com::{
         ExecuteScriptCompletedHandler,
         Microsoft::Web::WebView2::Win32::ICoreWebView2,
     };
     use windows::{
-        core::HSTRING,
         Win32::{
             Foundation::{HWND, POINT, RECT},
             Graphics::Gdi::ClientToScreen,
@@ -208,10 +437,6 @@ fn desktop_e2e_windows_tab_screen_rect(
         },
     };
 
-    let encoded = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
-    let script = HSTRING::from(format!(
-        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const rect = button.getBoundingClientRect(); if (style.visibility === 'hidden' || style.display === 'none' || rect.width <= 0 || rect.height <= 0) return null; return {{ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }}; }})()"
-    ));
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     tab_strip
         .with_webview(move |platform_webview| unsafe {
@@ -234,7 +459,7 @@ fn desktop_e2e_windows_tab_screen_rect(
                         .and_then(|value| {
                             serde_json::from_str::<Option<DesktopE2eTabClientRect>>(&value)
                                 .map_err(|error| error.to_string())?
-                                .ok_or_else(|| "The requested WebView2 runtime tab is not visible.".to_owned())
+                                .ok_or_else(|| unavailable_message.to_owned())
                         })
                         .and_then(|rect| {
                             let mut origin = POINT::default();
@@ -266,7 +491,7 @@ fn desktop_e2e_windows_tab_screen_rect(
         .map_err(|error| error.to_string())?;
     receiver
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| "The WebView2 runtime-tab rectangle readback did not complete.".to_owned())?
+        .map_err(|_| timeout_message.to_owned())?
 }
 
 #[cfg(windows)]

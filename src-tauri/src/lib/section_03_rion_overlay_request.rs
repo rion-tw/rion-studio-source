@@ -607,6 +607,17 @@ async fn rion_runtime_tab_action(
         });
     }
     if action.get("type").and_then(Value::as_str) == Some("windowControl") {
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "runtime-tab-window-control-received",
+            Some(&window_id),
+            None,
+            None,
+            serde_json::json!({
+                "control": action.get("control"),
+                "webviewLabel": webview.label(),
+            }),
+        );
         let control = action
             .get("control")
             .and_then(Value::as_str)
@@ -616,25 +627,40 @@ async fn rion_runtime_tab_action(
                     "runtime window control is required",
                 )
             })?;
+        if !matches!(control, "minimize" | "toggleFullscreen" | "zoom") {
+            return runtime_tab_menu::handle_scoped_action(
+                &app,
+                &state,
+                window_id,
+                action,
+            )
+            .await
+            .map(|_| Value::Null)
+            .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message));
+        }
+        #[cfg(windows)]
+        let receipt = {
+            let runtime = Arc::clone(&state.runtime);
+            let window_id = window_id.clone();
+            let control = control.to_owned();
+            tauri::async_runtime::spawn_blocking(move || match control.as_str() {
+                "minimize" => runtime.minimize_runtime_window(&window_id),
+                "toggleFullscreen" => runtime.toggle_runtime_window_fullscreen(&window_id),
+                "zoom" => runtime.toggle_runtime_window_maximized(&window_id),
+                _ => unreachable!("direct runtime window controls were validated before dispatch"),
+            })
+            .await
+            .map_err(|error| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string()))?
+        };
+        #[cfg(not(windows))]
         let receipt = match control {
             "minimize" => state.runtime.minimize_runtime_window(&window_id),
             "toggleFullscreen" => state.runtime.toggle_runtime_window_fullscreen(&window_id),
             "zoom" => state.runtime.toggle_runtime_window_maximized(&window_id),
-            _ => {
-                return runtime_tab_menu::handle_scoped_action(
-                    &app,
-                    &state,
-                    window_id,
-                    action,
-                )
-                .await
-                .map(|_| Value::Null)
-                .map_err(|message| {
-                    shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message)
-                });
-            }
-        }
-        .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
+            _ => unreachable!("direct runtime window controls were validated before dispatch"),
+        };
+        let receipt = receipt
+            .map_err(|message| shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", message))?;
         return serde_json::to_value(receipt).map_err(|error| {
             shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
         });

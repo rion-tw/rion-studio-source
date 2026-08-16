@@ -9,6 +9,16 @@ fn native_presentation_mode_for_dispatch(
     })
 }
 
+fn native_presentation_completion_scope(
+    window_mode: Option<NativeWindowMode>,
+) -> SystemRuntimeOperationCompletionScope {
+    if cfg!(windows) && matches!(window_mode, Some(NativeWindowMode::Minimized)) {
+        SystemRuntimeOperationCompletionScope::NativeSubmission
+    } else {
+        SystemRuntimeOperationCompletionScope::NativeAcknowledgement
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn apply_native_active_style(
         &self,
@@ -493,7 +503,7 @@ impl SystemRuntimeExecutor {
             current_runtime_platform(),
             requested_at,
         )
-        .with_completion_scope(SystemRuntimeOperationCompletionScope::NativeAcknowledgement)
+        .with_completion_scope(native_presentation_completion_scope(window_mode))
         .with_revision(revision)
         .with_window(window_id.clone())
         .with_window_generation(window_generation)

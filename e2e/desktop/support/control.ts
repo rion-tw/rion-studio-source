@@ -53,6 +53,16 @@ export interface DesktopE2eWindowSnapshot {
     normalOuterBounds?: WindowBounds;
     outerBounds: WindowBounds;
     presentation: "fullscreen" | "maximized" | "minimized" | "normal";
+    roleSurfaces?: Array<{
+      controllerBounds: WindowBounds;
+      documentViewport?: {
+        height: number;
+        resizeEventCount: number;
+        width: number;
+      };
+      hostBounds: WindowBounds;
+      roleId: string;
+    }>;
     scaleFactor: number;
     tabStripBounds?: WindowBounds;
     tabStripHostBounds?: WindowBounds;
@@ -85,7 +95,13 @@ interface WindowPlacement {
 
 export type WindowControlRequest =
   | {
-      action: "clickVisibleClose" | "close" | "focus" | "minimize" | "permitCloseConfirmation";
+      action:
+        | "clickVisibleClose"
+        | "clickVisibleMinimize"
+        | "close"
+        | "focus"
+        | "minimize"
+        | "permitCloseConfirmation";
     }
   | { action: "dragVisibleChrome"; deltaX: number; deltaY: number }
   | {

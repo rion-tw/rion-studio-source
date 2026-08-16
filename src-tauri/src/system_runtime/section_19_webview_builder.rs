@@ -360,6 +360,12 @@ impl SystemRuntimeExecutor {
         RoleWebGlConfiguration,
     )> {
         let mut builder = self.webview_builder(label, paths, Some(role_id))?;
+        #[cfg(all(windows, feature = "desktop-e2e"))]
+        {
+            builder = builder.initialization_script(
+                &desktop_e2e_windows_role_viewport_probe_script(role_id),
+            );
+        }
         if let Some(source) = self.role_local_storage_checkpoint_document_start_script(role_id)? {
             builder = builder.initialization_script_for_all_frames(&source);
         }

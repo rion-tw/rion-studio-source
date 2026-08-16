@@ -3,6 +3,7 @@ import { $, browser, expect } from "@wdio/globals";
 import type { AppSnapshot, Game, LaunchWorkspace, Macro, Role } from "../../../src/shared/types";
 import {
   detachTerminatedApplicationSession,
+  focusMainApplicationWindow,
   probe,
   rendererCall,
   requireEnvironment,
@@ -279,13 +280,30 @@ async function cleanupPersistedEntities(): Promise<void> {
     await navigate("/game-windows");
     for (const gameWindow of gameWindows) {
       const showAfterSequence = (await probe()).latestSequence;
+      const showRendererCursor = await rendererEventCursor();
       await $(`[data-selection-id='${gameWindow.id}'] button[aria-label='Show']`).click();
-      await waitEvent({
-        afterSequence: showAfterSequence,
-        kind: "window-context-initialized",
-        windowId: gameWindow.id
-      });
-      await waitForRuntimeProjection({ windowId: gameWindow.id });
+      await Promise.all([
+        waitEvent({
+          afterSequence: showAfterSequence,
+          kind: "window-context-initialized",
+          windowId: gameWindow.id
+        }),
+        waitForRuntimeProjection({
+          afterSequence: showRendererCursor,
+          windowId: gameWindow.id
+        }),
+        waitEvent({
+          afterSequence: showAfterSequence,
+          kind: "saved-window-restore-final-focus-started",
+          windowId: gameWindow.id
+        }),
+        waitEvent({
+          afterSequence: showAfterSequence,
+          kind: "window-focus-persisted",
+          windowId: gameWindow.id
+        })
+      ]);
+      await focusMainApplicationWindow();
       const cursor = await rendererEventCursor();
       const deleteAfterSequence = (await probe()).latestSequence;
       await clickEntityMenuAction(gameWindow.id, "Game window actions", "Delete window");

@@ -467,12 +467,12 @@ fn arm_webview_macro_key_event_guard(
             context,
             context.remaining(PLATFORM_CALLBACK_TIMEOUT),
         )?;
-        return macro_key_guard_devtools_acknowledgement(&raw).ok_or_else(|| {
+        macro_key_guard_devtools_acknowledgement(&raw).ok_or_else(|| {
             RuntimeError::new(
                 "SYSTEM_MACRO_KEY_GUARD_UNAVAILABLE",
                 "The game page did not acknowledge the macro key guard.",
             )
-        });
+        })
     }
     #[cfg(not(windows))]
     {

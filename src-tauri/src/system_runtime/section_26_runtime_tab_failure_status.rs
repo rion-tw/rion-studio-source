@@ -90,15 +90,18 @@ impl SystemRuntimeExecutor {
             controller.hide_status();
         }
         #[cfg(windows)]
-        if let Some(webview) = self.state.lock().ok().and_then(|state| {
-            state
-                .native_resources
-                .display_hosts
-                .get(window_id)
-                .and_then(|host| host.tab_status.as_ref())
-                .map(|status| status.webview.clone())
-        }) {
-            if webview.hide().is_ok() {
+        {
+            let status_webview = self.state.lock().ok().and_then(|state| {
+                state
+                    .native_resources
+                    .display_hosts
+                    .get(window_id)
+                    .and_then(|host| host.tab_status.as_ref())
+                    .map(|status| status.webview.clone())
+            });
+            if let Some(webview) = status_webview
+                && webview.hide().is_ok()
+            {
                 self.record_windows_tab_status_presentation(
                     window_id,
                     webview.label(),

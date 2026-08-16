@@ -478,7 +478,7 @@ enum RuntimeTabStatusPresentation {
     Loading,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "desktop-e2e"))]
 impl RuntimeTabStatusPresentation {
     fn as_str(self) -> &'static str {
         match self {

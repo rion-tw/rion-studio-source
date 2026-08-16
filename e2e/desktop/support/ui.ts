@@ -1,6 +1,8 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 import { Key } from "webdriverio";
 
+import { focusMainApplicationWindow } from "./control";
+
 const LANGUAGE_STORAGE_KEY = "rion-studio-language";
 const RENDERER_PROBE_TIMEOUT_MS = 5_000;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
@@ -347,23 +349,18 @@ export async function clickEntityMenuAction(
   await entity.waitForExist({ timeout: 10_000 });
   const trigger = await entity.$(`button[aria-label='${triggerLabel}']`);
   await trigger.waitForExist({ timeout: 10_000 });
-  await browser.execute((selectionId) => {
-    const item = document.querySelector<HTMLElement>(
-      `[data-selection-id='${CSS.escape(selectionId)}']`
-    );
-    if (!item) throw new Error(`Selection item ${selectionId} is unavailable`);
-    const rect = item.getBoundingClientRect();
-    item.dispatchEvent(new MouseEvent("contextmenu", {
-      bubbles: true,
-      button: 2,
-      buttons: 2,
-      cancelable: true,
-      clientX: rect.left + Math.min(24, rect.width / 2),
-      clientY: rect.top + Math.min(24, rect.height / 2),
-      view: window
-    }));
-  }, entityId);
-  const menu = await $("[role='menu'][data-state='open']");
+  await trigger.scrollIntoView({ block: "center", inline: "center" });
+  await focusMainApplicationWindow();
+  await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
+  await trigger.waitForDisplayed({ timeout: 10_000 });
+  await trigger.waitForClickable({ timeout: 10_000 });
+  if (await trigger.getAttribute("data-state") === null) {
+    await trigger.click();
+  } else {
+    // The embedded driver emits mouse rather than pointer events; use Radix's keyboard path.
+    await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
+  }
+  const menu = await $("[role='menu']");
   await menu.waitForDisplayed({ timeout: 10_000 });
   const action = await menu.$(`.//*[@role='menuitem' and normalize-space(.)='${actionLabel}']`);
   await action.waitForClickable({ timeout: 10_000 });

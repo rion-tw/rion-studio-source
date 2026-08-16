@@ -267,6 +267,18 @@ describe("desktop E2E build isolation", () => {
     expect(helper).not.toContain("dispatchEvent");
   });
 
+  it("terminalizes a pre-native Windows tab-close failure", async () => {
+    const source = await readFile("src-tauri/src/lib/section_03_rion_overlay_request.rs", "utf8");
+    const stop = source.slice(
+      source.indexOf('if action.get("type").and_then(Value::as_str) == Some("stop")'),
+      source.indexOf('Some("hide" | "move" | "reorder")')
+    );
+
+    expect(stop).toContain("if !topology_committed");
+    expect(stop).toContain('"runtime-tab-close-terminal"');
+    expect(stop).toContain('"status": "failed"');
+  });
+
   it("keeps native tab gestures feature-gated and user-input driven", async () => {
     const [command, windowsPointer, macHeader, macBridge, macPointer, build] =
       await Promise.all([

@@ -1187,9 +1187,12 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
       .toBeLessThan(osWindowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"));
     expect(tabMutation.indexOf("checkpoint_tab_close_role_sessions"))
       .toBeLessThan(tabMutation.indexOf("preview_tab_close"));
+    expect(tabMutation.indexOf("spawn_blocking(move ||"))
+      .toBeLessThan(tabMutation.indexOf("checkpoint_tab_close_role_sessions"));
     expect(tabMutation.indexOf("checkpoint_tab_close_role_sessions"))
       .toBeLessThan(tabMutation.indexOf("CoreCommand::EmbeddedTabStop"));
     expect(tabMutation).toContain("tabStopSessionCheckpointFailed");
+    expect(tabMutation).toContain("SYSTEM_TAB_CLOSE_SESSION_CHECKPOINT_INTERRUPTED");
     expect(windowCloseTransaction.indexOf("CoreCommand::BrowserWindowCloseAdmit"))
       .toBeLessThan(windowCloseTransaction.indexOf("commit_visible_window_close"));
     expect(sessionStorage.indexOf("set_cookie(cookie.clone())"))

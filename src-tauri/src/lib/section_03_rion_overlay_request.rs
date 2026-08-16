@@ -612,10 +612,11 @@ async fn rion_runtime_tab_action(
         let receipt = execute_tab_stop(&app, &state, tab_id).await?;
         #[cfg(windows)]
         {
+            let topology_committed = state.runtime.live_tab_window_id(tab_id).is_none();
             let intent_receipt = rion_core::RuntimeTabIntentReceiptRecord {
                 intent_id: intent.intent_id,
                 status: receipt.status,
-                topology_committed: state.runtime.live_tab_window_id(tab_id).is_none(),
+                topology_committed,
                 window_generation: intent_window_generation,
                 topology_revision: receipt
                     .topology_revision
@@ -624,6 +625,22 @@ async fn rion_runtime_tab_action(
                 failure_code: receipt.failure_code,
             };
             debug_assert_eq!(intent_window_id, window_id);
+            #[cfg(feature = "desktop-e2e")]
+            if !topology_committed {
+                crate::desktop_e2e::record_event(
+                    "runtime-tab-close-terminal",
+                    Some(&window_id),
+                    None,
+                    Some(intent_receipt.topology_revision),
+                    json!({
+                        "error": intent_receipt.failure_code.as_deref(),
+                        "errorCode": intent_receipt.failure_code.as_deref(),
+                        "roleIds": [],
+                        "status": "failed",
+                        "tabId": tab_id,
+                    }),
+                );
+            }
             return serde_json::to_value(intent_receipt).map_err(|error| {
                 shell_error("TAURI_RUNTIME_TAB_ACTION_FAILED", error.to_string())
             });

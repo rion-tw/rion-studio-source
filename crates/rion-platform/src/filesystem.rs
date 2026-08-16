@@ -168,16 +168,36 @@ pub fn atomic_replace_file(source: &Path, destination: &Path) -> Result<(), Plat
         core::PCWSTR,
     };
 
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    fn api_path(path: &Path) -> Result<Vec<u16>, PlatformError> {
+        const SEPARATOR: u16 = b'\\' as u16;
+        const QUESTION_MARK: u16 = b'?' as u16;
+        const DOT: u16 = b'.' as u16;
+
+        let absolute = std::path::absolute(path).map_err(|error| {
+            PlatformError::Operation(format!(
+                "resolve absolute path for atomic file replacement: {error}"
+            ))
+        })?;
+        let encoded = absolute.as_os_str().encode_wide().collect::<Vec<_>>();
+        let already_namespaced =
+            encoded.starts_with(&[SEPARATOR, SEPARATOR, QUESTION_MARK, SEPARATOR])
+                || encoded.starts_with(&[SEPARATOR, SEPARATOR, DOT, SEPARATOR]);
+        let mut api_path = if already_namespaced {
+            encoded
+        } else if encoded.starts_with(&[SEPARATOR, SEPARATOR]) {
+            "\\\\?\\UNC\\"
+                .encode_utf16()
+                .chain(encoded.into_iter().skip(2))
+                .collect()
+        } else {
+            "\\\\?\\".encode_utf16().chain(encoded).collect()
+        };
+        api_path.push(0);
+        Ok(api_path)
+    }
+
+    let source = api_path(source)?;
+    let destination = api_path(destination)?;
     let flags = MOVE_FILE_FLAGS(MOVEFILE_REPLACE_EXISTING.0 | MOVEFILE_WRITE_THROUGH.0);
     unsafe { MoveFileExW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr()), flags) }.map_err(
         |error| PlatformError::Operation(format!("atomic file replacement failed: {error}")),
@@ -195,6 +215,32 @@ mod tests {
         let destination = directory.path().join("result.json");
         std::fs::write(&source, b"new").unwrap();
         std::fs::write(&destination, b"old").unwrap();
+
+        atomic_replace_file(&source, &destination).unwrap();
+
+        assert_eq!(std::fs::read(&destination).unwrap(), b"new");
+        assert!(!source.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replaces_a_file_beyond_the_legacy_windows_path_limit() {
+        use std::os::windows::ffi::OsStrExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let long_directory = directory.path().join("a".repeat(120)).join("b".repeat(120));
+        std::fs::create_dir_all(&long_directory).unwrap();
+        let source = long_directory.join("source.tmp");
+        let destination = long_directory.join("result.json");
+        assert!(
+            std::path::absolute(&source)
+                .unwrap()
+                .as_os_str()
+                .encode_wide()
+                .count()
+                > 260
+        );
+        std::fs::write(&source, b"new").unwrap();
 
         atomic_replace_file(&source, &destination).unwrap();
 

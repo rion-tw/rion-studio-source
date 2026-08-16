@@ -216,7 +216,9 @@ describe("desktop E2E build isolation", () => {
     expect(commandSource).toContain(".await?;");
     expect(controlSource).toContain("FocusChangedEventHandler::create");
     expect(controlSource).toContain(".add_GotFocus(");
+    expect(controlSource).toContain("SetFocus(None)");
     expect(controlSource).toContain("COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC");
+    expect(controlSource).not.toContain("GetFocus");
     expect(controlSource).not.toContain("thread::sleep");
   });
 

@@ -613,10 +613,7 @@ async fn desktop_e2e_wait_for_windows_webview_focus(webview: &Webview) -> Result
         FocusChangedEventHandler,
         Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC,
     };
-    use windows::Win32::{
-        Foundation::HWND,
-        UI::Input::KeyboardAndMouse::{GetFocus, SetFocus},
-    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 
     let (sender, receiver) = tokio::sync::oneshot::channel();
     webview
@@ -644,14 +641,10 @@ async fn desktop_e2e_wait_for_windows_webview_focus(webview: &Webview) -> Result
                     .add_GotFocus(&handler, &mut token)
                     .map_err(|error| error.to_string())?;
                 registration_token.set(token);
-                let mut parent = HWND::default();
-                controller
-                    .ParentWindow(&mut parent)
-                    .map_err(|error| error.to_string())?;
-                let _ = SetFocus(Some(parent));
-                if GetFocus() != parent {
-                    return Err("Windows did not move focus to the Game Window host.".to_owned());
-                }
+                // Clear the UI thread's current target so MoveFocus always creates a
+                // fresh WebView2 focus acknowledgement, even when the role already
+                // owned focus before this input sequence.
+                let _ = SetFocus(None);
                 controller
                     .MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC)
                     .map_err(|error| error.to_string())

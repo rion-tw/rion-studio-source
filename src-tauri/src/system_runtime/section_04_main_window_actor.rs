@@ -202,6 +202,7 @@ struct MainWindowNativeOutcome {
 
 enum MainWindowApplyResult {
     Terminal(MainWindowNativeOutcome),
+    #[cfg(not(windows))]
     FocusSubmitted,
     MaximizeSubmitted { expected_maximized: bool },
 }
@@ -299,6 +300,7 @@ impl MainWindowActor {
                                 outcome.failure_code,
                             ));
                         }
+                        #[cfg(not(windows))]
                         MainWindowApplyResult::FocusSubmitted => {
                             Self::install_pending_focus(
                                 &worker_queue,
@@ -347,6 +349,7 @@ impl MainWindowActor {
         }
     }
 
+    #[cfg(not(windows))]
     fn install_pending_focus(
         queue: &Arc<(Mutex<MainWindowActorState>, Condvar)>,
         operations: &NativeOperationRegistry,
@@ -776,7 +779,30 @@ fn apply_main_window_command(
                 status: NativeOperationStatus::Failed,
             })
         } else {
-            MainWindowApplyResult::FocusSubmitted
+            #[cfg(windows)]
+            {
+                // The Win32 submission returns success only after the exact main
+                // HWND is observed as foreground. That synchronous readback is the
+                // authoritative native acknowledgement; a sibling HWND transition
+                // does not always produce another Tauri `Focused` event.
+                if focus_broker.confirm(focus_lease) {
+                    MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                        failure_code: None,
+                        stage: "mainWindowFocused",
+                        status: NativeOperationStatus::Applied,
+                    })
+                } else {
+                    MainWindowApplyResult::Terminal(MainWindowNativeOutcome {
+                        failure_code: None,
+                        stage: "mainWindowFocusSuperseded",
+                        status: NativeOperationStatus::Superseded,
+                    })
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                MainWindowApplyResult::FocusSubmitted
+            }
         };
     }
     if command == MainWindowCommand::StartDragging {

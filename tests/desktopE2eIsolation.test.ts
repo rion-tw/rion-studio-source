@@ -223,8 +223,10 @@ describe("desktop E2E build isolation", () => {
   });
 
   it("waits for authoritative main-window focus before blur assertions", async () => {
-    const [commandSource, controlSource] = await Promise.all([
+    const [commandSource, actorSource, windowsSource, controlSource] = await Promise.all([
       readFile("src-tauri/src/desktop_e2e.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/section_04_main_window_actor.rs", "utf8"),
+      readFile("src-tauri/src/system_runtime/platform/windows/lifecycle.rs", "utf8"),
       readFile("e2e/desktop/support/control.ts", "utf8")
     ]);
 
@@ -233,6 +235,9 @@ describe("desktop E2E build isolation", () => {
     expect(commandSource).toContain('"stage": "mainWindowAlreadyFocused"');
     expect(commandSource).toContain('record_event(\n                    "main-window-focus-terminal"');
     expect(commandSource).toContain('return Ok(json!({ "submitted": true }))');
+    expect(windowsSource).toContain("unsafe { GetForegroundWindow() } == hwnd");
+    expect(actorSource).toContain("if focus_broker.confirm(focus_lease)");
+    expect(actorSource).toContain('stage: "mainWindowFocused"');
     expect(controlSource).toContain('windowId: "main"');
     expect(controlSource).toContain('kind: "main-window-focus-terminal"');
     expect(controlSource).toContain('receipt.status !== "applied"');

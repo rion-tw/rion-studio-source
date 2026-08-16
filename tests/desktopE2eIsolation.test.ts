@@ -229,8 +229,10 @@ describe("desktop E2E build isolation", () => {
     ]);
 
     expect(commandSource).toContain('.show_main_window(true, "desktop-e2e-main-focus")');
-    expect(commandSource).toContain("tauri::async_runtime::spawn_blocking");
+    expect(commandSource).toContain('record_event(\n                    "main-window-focus-terminal"');
+    expect(commandSource).toContain('return Ok(json!({ "submitted": true }))');
     expect(controlSource).toContain('windowId: "main"');
+    expect(controlSource).toContain('kind: "main-window-focus-terminal"');
     expect(controlSource).toContain('receipt.status !== "applied"');
     expect(controlSource).not.toContain('core.invoke("plugin:window|set_focus"');
   });

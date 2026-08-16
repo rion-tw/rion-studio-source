@@ -441,6 +441,7 @@ fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> 
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn desktop_e2e_event_bound_fullscreen_target(
     platform: &str,
     currently_fullscreen: bool,

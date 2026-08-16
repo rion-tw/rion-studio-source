@@ -409,7 +409,7 @@ pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
 }
 
 #[tauri::command]
-pub(crate) async fn desktop_e2e_control_window(
+pub(crate) fn desktop_e2e_control_window(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -425,16 +425,43 @@ pub(crate) async fn desktop_e2e_control_window(
             return Err("The desktop E2E main window supports only the focus action.".to_owned());
         }
         let runtime = Arc::clone(&state.runtime);
-        return tauri::async_runtime::spawn_blocking(move || {
-            runtime
-                .show_main_window(true, "desktop-e2e-main-focus")
-                .map_err(|error| error.message)
-                .and_then(|receipt| {
-                    serde_json::to_value(receipt).map_err(|error| error.to_string())
-                })
-        })
-        .await
-        .map_err(|error| format!("Desktop E2E main-window focus task failed: {error}"))?;
+        std::thread::Builder::new()
+            .name("rion-desktop-e2e-main-focus".to_owned())
+            .spawn(move || {
+                let (generation, revision, details) =
+                    match runtime.show_main_window(true, "desktop-e2e-main-focus") {
+                        Ok(receipt) => (
+                            receipt.window_generation,
+                            receipt.revision,
+                            serde_json::to_value(receipt).unwrap_or_else(|error| {
+                                json!({
+                                    "failureCode": "DESKTOP_E2E_RECEIPT_SERIALIZATION_FAILED",
+                                    "message": error.to_string(),
+                                    "status": "failed"
+                                })
+                            }),
+                        ),
+                        Err(error) => (
+                            None,
+                            None,
+                            json!({
+                                "failureCode": error.code,
+                                "message": error.message,
+                                "stage": "mainWindowFocusReceiptUnavailable",
+                                "status": "failed"
+                            }),
+                        ),
+                    };
+                record_event(
+                    "main-window-focus-terminal",
+                    Some("main"),
+                    generation,
+                    revision,
+                    details,
+                );
+            })
+            .map_err(|error| format!("Desktop E2E main-window focus task failed: {error}"))?;
+        return Ok(json!({ "submitted": true }));
     }
     state
         .runtime

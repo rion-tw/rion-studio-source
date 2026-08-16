@@ -1,54 +1,5 @@
 impl SystemRuntimeExecutor {
     #[allow(clippy::too_many_arguments)]
-    fn record_managed_shortcut_key_result(
-        &self,
-        role_id: &str,
-        code: &str,
-        phase: &str,
-        modifier_count: usize,
-        context: &InputDispatchContext,
-        started: Instant,
-        result: &RuntimeResult<()>,
-    ) {
-        let error = result.as_ref().err();
-        let diagnostic = json!({
-            "code": code,
-            "completionScope": "trusted-dom-observation",
-            "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-            "inputEpoch": context.input_epoch,
-            "modifierCount": modifier_count,
-            "phase": phase,
-            "roleId": role_id,
-            "runtimeEpoch": context.lane.epoch.load(Ordering::Acquire),
-            "runtimeSurfaceGeneration": context.lane.surface_generation.load(Ordering::Acquire),
-        });
-        let core = Arc::clone(&self.core);
-        let entry = LogCaptureRecord {
-            level: if error.is_some() { LogLevel::Warn } else { LogLevel::Debug },
-            source: LogSource::Macro,
-            event: if error.is_some() {
-                "input.managed-shortcut-failed"
-            } else {
-                "input.managed-shortcut-completed"
-            }
-            .to_owned(),
-            message: if error.is_some() {
-                "A managed shortcut did not complete trusted DOM delivery."
-            } else {
-                "A managed shortcut completed trusted DOM delivery."
-            }
-            .to_owned(),
-            context_raw_json: serde_json::to_string(&diagnostic).ok(),
-            error: error.map(|error| log_error_details(error.code, &error.message)),
-        };
-        tauri::async_runtime::spawn(async move {
-            let _ = core
-                .invoke_async(CoreCommand::LogsCapture { entries: vec![entry] })
-                .await;
-        });
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn record_macro_browser_action_result(
         &self,
         request_id: &str,

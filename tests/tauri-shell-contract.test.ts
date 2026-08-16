@@ -235,12 +235,12 @@ describe("Tauri shell contract guard", () => {
       webviews: ["game-role-*"],
       permissions: [
         "allow-rion-browser-font-payload",
-        "allow-rion-managed-shortcut-key-phase",
         "allow-rion-macro-key-event-observed",
         "allow-rion-overlay-request",
         "allow-rion-runtime-audio-state"
       ]
     });
+    expect(roleCapability).not.toContain("managed-shortcut-key-phase");
     expect(roleCapability).not.toContain("allow-rion-runtime-role-slot-action");
     expect(roleCapability).not.toContain("local-storage-sync");
     expect(shell).toContain('"moveGameWindowTabToNewWindow"');

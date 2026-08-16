@@ -103,6 +103,7 @@ function fixtureRoleId(role: Role): string {
 
 async function launchRole(role: Role, destination: "new-window" | { windowId: string }) {
   const cursor = await rendererEventCursor();
+  const controlCursor = (await probe()).latestSequence;
   const sessionCursor = await fixtureCursor();
   await rendererCall(
     "launchRole",
@@ -119,6 +120,15 @@ async function launchRole(role: Role, destination: "new-window" | { windowId: st
     }),
     waitFixtureEvent({ afterSequence: sessionCursor, kind: "session", roleId: fixtureRoleId(role) })
   ]);
+  const launchTerminal = await waitEvent({
+    afterSequence: controlCursor,
+    kind: "runtime-launch-intent-terminal"
+  });
+  expect(launchTerminal.details).toMatchObject({
+    sourceId: role.id,
+    sourceType: "role",
+    status: "applied"
+  });
   const runtime = await waitForRuntimeProjection({ afterSequence: cursor, sourceId: role.id });
   const tab = runtime.tabs.find((candidate) => candidate.sourceId === role.id);
   if (!tab) throw new Error(`Runtime tab for ${role.name} is unavailable`);
@@ -268,13 +278,7 @@ async function waitShortcutLifecycle(input: {
   afterSequence: number;
   code: string;
   macroId: string;
-  phase:
-    | "physical-keydown-managed"
-    | "chord-released"
-    | "managed-replay-acknowledged"
-    | "managed-keydown-acknowledged"
-    | "managed-keyup-acknowledged"
-    | "macro-dispatched";
+  phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
   roleId: string;
 }) {
   let cursor = input.afterSequence;
@@ -292,39 +296,6 @@ async function waitShortcutLifecycle(input: {
       && details.phase === input.phase
       && details.roleId === input.roleId
     ) {
-      return event;
-    }
-    cursor = event.sequence;
-  }
-}
-
-async function waitManagedShortcutReceipt(input: {
-  afterSequence: number;
-  code: string;
-  macroId: string;
-  phase: "replay" | "keyDown" | "keyUp";
-  roleId: string;
-}) {
-  let cursor = input.afterSequence;
-  for (;;) {
-    const event = await waitEvent({
-      afterSequence: cursor,
-      kind: "managed-shortcut-key-acknowledged"
-    });
-    const details = event.details as {
-      code?: string;
-      macroId?: string;
-      phase?: string;
-      pressId?: string;
-      roleId?: string;
-    };
-    if (
-      details.code === input.code
-      && details.macroId === input.macroId
-      && details.phase === input.phase
-      && details.roleId === input.roleId
-    ) {
-      expect(details.pressId).toEqual(expect.any(String));
       return event;
     }
     cursor = event.sequence;
@@ -633,7 +604,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
         afterSequence: firstDiagnosticCursor,
         code: "Digit2",
         macroId: firstMacro.id,
-        phase: "physical-keydown-managed",
+        phase: "physical-keydown-allowed",
         roleId: scenario.roles[0].id
       }),
       waitShortcutLifecycle({
@@ -641,20 +612,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
         code: "Digit2",
         macroId: firstMacro.id,
         phase: "chord-released",
-        roleId: scenario.roles[0].id
-      }),
-      waitShortcutLifecycle({
-        afterSequence: firstDiagnosticCursor,
-        code: "Digit2",
-        macroId: firstMacro.id,
-        phase: "managed-replay-acknowledged",
-        roleId: scenario.roles[0].id
-      }),
-      waitManagedShortcutReceipt({
-        afterSequence: firstDiagnosticCursor,
-        code: "Digit2",
-        macroId: firstMacro.id,
-        phase: "replay",
         roleId: scenario.roles[0].id
       }),
       waitShortcutLifecycle({
@@ -684,7 +641,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
 
     // Reproduce the user's real cadence without using the interval as success
     // evidence: the first macro has already reached its authoritative terminal.
-    await browser.pause(2_000);
+    await browser.pause(4_000);
 
     const firstShortcutEvents = await fixtureEvents({
       afterSequence: shortcutFixtureCursor,
@@ -723,15 +680,29 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(firstState.consumerPressedCodes).toEqual([]);
     expect(firstState.consumerChordActivations).toEqual(["Shift+Digit2"]);
 
-    // The game-like consumer re-evaluates held digits on Shift keydown. If the
-    // first managed lifecycle left Digit2 behind, this Shift-only canary would
-    // deterministically add a second Shift+Digit2 activation.
+    // Reproduce the reported second chord exactly. The game-like consumer
+    // re-evaluates held digits on Shift keydown, so a stale Digit2 would add a
+    // second Shift+Digit2 before the expected Shift+Digit1 activation.
     const canaryCursor = await fixtureCursor();
     await press("ShiftLeft");
     const canaryShiftDown = await waitFixtureCode({
       afterSequence: canaryCursor,
       code: "ShiftLeft",
       kind: "keydown",
+      roleId: "macro-keyboard-a"
+    });
+    await press("Digit1");
+    const canaryDigitDown = await waitFixtureCode({
+      afterSequence: canaryShiftDown.sequence,
+      code: "Digit1",
+      kind: "keydown",
+      roleId: "macro-keyboard-a"
+    });
+    await release("Digit1");
+    await waitFixtureCode({
+      afterSequence: canaryDigitDown.sequence,
+      code: "Digit1",
+      kind: "keyup",
       roleId: "macro-keyboard-a"
     });
     await release("ShiftLeft");
@@ -747,9 +718,13 @@ async function keyboardLifecyclePhase(): Promise<void> {
       kind: "consumer-keyup",
       roleId: "macro-keyboard-a"
     });
+    const canaryStatuses = await rendererCall("listMacroStatuses");
+    expect(canaryStatuses.filter((status) =>
+      status.macroId === firstMacro.id || status.macroId === scenario.macro.id
+    )).toEqual([]);
     const canaryState = (await fixtureState())["macro-keyboard-a"];
     expect(canaryState.consumerPressedCodes).toEqual([]);
-    expect(canaryState.consumerChordActivations).toEqual(["Shift+Digit2"]);
+    expect(canaryState.consumerChordActivations).toEqual(["Shift+Digit2", "Shift+Digit1"]);
 
     const secondShortcutCursor = await fixtureCursor();
     const secondDiagnosticCursor = (await probe()).latestSequence;
@@ -794,7 +769,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
         afterSequence: secondDiagnosticCursor,
         code: "Digit3",
         macroId: secondMacro.id,
-        phase: "physical-keydown-managed",
+        phase: "physical-keydown-allowed",
         roleId: scenario.roles[0].id
       }),
       waitShortcutLifecycle({
@@ -802,20 +777,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
         code: "Digit3",
         macroId: secondMacro.id,
         phase: "chord-released",
-        roleId: scenario.roles[0].id
-      }),
-      waitShortcutLifecycle({
-        afterSequence: secondDiagnosticCursor,
-        code: "Digit3",
-        macroId: secondMacro.id,
-        phase: "managed-replay-acknowledged",
-        roleId: scenario.roles[0].id
-      }),
-      waitManagedShortcutReceipt({
-        afterSequence: secondDiagnosticCursor,
-        code: "Digit3",
-        macroId: secondMacro.id,
-        phase: "replay",
         roleId: scenario.roles[0].id
       }),
       waitShortcutLifecycle({
@@ -857,9 +818,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(secondShortcutEvents.filter((event) =>
       event.kind === "keydown" && event.code === "Digit3" && event.modifiers?.shift === true
     )).toHaveLength(1);
-    expect(secondShortcutEvents.find((event) =>
-      event.kind === "keydown" && event.code === "Digit3"
-    )?.targetId).toBe("game-input-canvas");
     expect(secondShortcutEvents.filter((event) =>
       event.kind === "keydown" && event.code === "Digit1" && event.modifiers?.shift === true
     )).toHaveLength(1);
@@ -869,6 +827,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(secondState.consumerPressedCodes).toEqual([]);
     expect(secondState.consumerChordActivations).toEqual([
       "Shift+Digit2",
+      "Shift+Digit1",
       "Shift+Digit3",
       "Shift+Digit1"
     ]);
@@ -887,7 +846,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     )).toHaveLength(1);
     expect(shortcutEvents.filter((event) =>
       event.kind === "keydown" && event.code === "Digit1" && event.modifiers?.shift === true
-    )).toHaveLength(1);
+    )).toHaveLength(2);
 
     const compatibilityFixtureCursor = await fixtureCursor();
     const compatibilityNativeCursor = (await probe()).latestSequence;

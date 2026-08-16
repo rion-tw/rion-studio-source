@@ -55,22 +55,12 @@ interface OverlayTestWindow extends Window {
 
 interface OverlayBinding {
   (request: unknown): Promise<unknown>;
-  managedShortcutKeyPhase?: (request: ManagedShortcutKeyPhase) => Promise<unknown>;
   macroKeyObserved?: (observation: MacroKeyObservation) => Promise<unknown>;
   shortcutLifecycle?: (event: {
     code: string;
     macroId: string;
-    phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
-      | "managed-keydown-acknowledged" | "managed-keyup-acknowledged" | "macro-dispatched";
+    phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
   }) => Promise<unknown>;
-}
-
-interface ManagedShortcutKeyPhase {
-  code: string;
-  macroId: string;
-  modifierCodes: string[];
-  phase: "replay" | "keyDown" | "keyUp";
-  pressId: string;
 }
 
 interface MacroKeyObservation {
@@ -233,7 +223,7 @@ describe("macro overlay native key guard", () => {
   });
 
   it("suppresses macro shortcut feedback while leaving the game event visible", async () => {
-    const binding = vi.fn(async () => ({
+    const binding = vi.fn(async (_request: unknown) => ({
       macros: [{
         id: "macro-1",
         enabled: true,
@@ -287,7 +277,7 @@ describe("macro overlay native key guard", () => {
     const shortcutLifecycle = vi.fn(async (_event: {
       code: string;
       macroId: string;
-      phase: "physical-keydown-managed" | "chord-released" | "macro-dispatched";
+      phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
     }) => undefined);
     const binding = vi.fn(async (request: unknown) => {
       if (
@@ -305,23 +295,6 @@ describe("macro overlay native key guard", () => {
     });
     Object.assign(binding, { shortcutLifecycle });
     const controller = installOverlay(binding as OverlayBinding);
-    (binding as OverlayBinding).managedShortcutKeyPhase = vi.fn(async (request) => {
-      const dispatch = (type: "keydown" | "keyup", code: string, shiftKey: boolean) => {
-        armShortcut(controller, code, type);
-        document.dispatchEvent(keyEvent(
-          type,
-          code,
-          code === "ShiftLeft" ? "Shift" : code === "Digit2" ? "@" : "#",
-          { shiftKey }
-        ));
-      };
-      if (request.phase === "replay") {
-        for (const code of request.modifierCodes) dispatch("keydown", code, true);
-        dispatch("keydown", request.code, true);
-        dispatch("keyup", request.code, true);
-        for (const code of [...request.modifierCodes].reverse()) dispatch("keyup", code, false);
-      }
-    });
     await controller.refresh();
     const gameEvents: string[] = [];
     const gameHeldCodes = new Set<string>();
@@ -345,10 +318,11 @@ describe("macro overlay native key guard", () => {
 
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const physicalTwoDown = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
-    expect(document.dispatchEvent(physicalTwoDown)).toBe(false);
+    expect(document.dispatchEvent(physicalTwoDown)).toBe(true);
+    expect(physicalTwoDown.defaultPrevented).toBe(false);
     const physicalTwoUp = keyEvent("keyup", "Digit2", "@", { shiftKey: true });
-    expect(document.dispatchEvent(physicalTwoUp)).toBe(false);
-    expect(physicalTwoUp.defaultPrevented).toBe(true);
+    expect(document.dispatchEvent(physicalTwoUp)).toBe(true);
+    expect(physicalTwoUp.defaultPrevented).toBe(false);
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
@@ -358,22 +332,19 @@ describe("macro overlay native key guard", () => {
     expect(gameChordActivations).toEqual(["Shift+Digit2"]);
     expect([...gameHeldCodes]).toEqual([]);
 
-    document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
-    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
-    expect(gameChordActivations).toEqual(["Shift+Digit2"]);
-    expect([...gameHeldCodes]).toEqual([]);
-
     armShortcut(controller, "Digit2");
     document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
     armShortcut(controller, "Digit2", "keyup");
     document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const physicalThreeDown = keyEvent("keydown", "Digit3", "#", { shiftKey: true });
-    expect(document.dispatchEvent(physicalThreeDown)).toBe(false);
+    expect(document.dispatchEvent(physicalThreeDown)).toBe(true);
+    expect(physicalThreeDown.defaultPrevented).toBe(false);
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
-    const physicalThreeUp = keyEvent("keyup", "Digit3", "#", { shiftKey: true });
-    expect(document.dispatchEvent(physicalThreeUp)).toBe(false);
-    expect(physicalThreeUp.defaultPrevented).toBe(true);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-three" });
+    const physicalThreeUp = keyEvent("keyup", "Digit3", "#");
+    expect(document.dispatchEvent(physicalThreeUp)).toBe(true);
+    expect(physicalThreeUp.defaultPrevented).toBe(false);
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-three" });
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
@@ -391,43 +362,35 @@ describe("macro overlay native key guard", () => {
     expect(gameChordActivations).toEqual(["Shift+Digit2", "Shift+Digit3"]);
     expect([...gameHeldCodes]).toEqual([]);
     expect(shortcutLifecycle.mock.calls.map(([event]) => [event.macroId, event.phase])).toEqual([
-      ["macro-two", "physical-keydown-managed"],
+      ["macro-two", "physical-keydown-allowed"],
       ["macro-two", "chord-released"],
-      ["macro-two", "managed-replay-acknowledged"],
       ["macro-two", "macro-dispatched"],
-      ["macro-three", "physical-keydown-managed"],
+      ["macro-three", "physical-keydown-allowed"],
       ["macro-three", "chord-released"],
-      ["macro-three", "managed-replay-acknowledged"],
       ["macro-three", "macro-dispatched"]
     ]);
     expect(actionTimeline.indexOf("toggle:macro-two")).toBeGreaterThan(
       actionTimeline.indexOf("up:ShiftLeft")
     );
     expect(actionTimeline.indexOf("toggle:macro-three")).toBeGreaterThan(
-      actionTimeline.lastIndexOf("up:ShiftLeft")
+      actionTimeline.lastIndexOf("up:Digit3")
     );
     expect(gameEvents).toEqual([
       "down:ShiftLeft",
-      "up:ShiftLeft",
-      "down:ShiftLeft",
       "down:Digit2",
       "up:Digit2",
       "up:ShiftLeft",
-      "down:ShiftLeft",
-      "up:ShiftLeft",
       "down:Digit2",
       "up:Digit2",
-      "down:ShiftLeft",
-      "up:ShiftLeft",
       "down:ShiftLeft",
       "down:Digit3",
-      "up:Digit3",
-      "up:ShiftLeft"
+      "up:ShiftLeft",
+      "up:Digit3"
     ]);
     expect(controller.physicalModifierCodes()).toEqual([]);
   });
 
-  it("fails closed without managed shortcut acknowledgement", async () => {
+  it("passes a matched key repeat through without dispatching the toggle twice", async () => {
     const macro = {
       id: "macro-two",
       enabled: true,
@@ -438,27 +401,79 @@ describe("macro overlay native key guard", () => {
       repeat: { type: "once" },
       steps: []
     };
-    const binding = vi.fn(async () => ({
+    const binding = vi.fn(async (_request: unknown) => ({
       macros: [macro],
       shortcutMacroIds: [macro.id],
       statuses: []
-    })) as OverlayBinding;
+    }));
     const controller = installOverlay(binding);
-    delete binding.managedShortcutKeyPhase;
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await controller.refresh();
+    const pageKeyDown = vi.fn();
+    document.addEventListener("keydown", pageKeyDown);
 
     document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     document.dispatchEvent(keyEvent("keydown", "Digit2", "@", { shiftKey: true }));
+    const repeated = keyEvent("keydown", "Digit2", "@", { repeat: true, shiftKey: true });
+    expect(document.dispatchEvent(repeated)).toBe(true);
+    expect(repeated.defaultPrevented).toBe(false);
     document.dispatchEvent(keyEvent("keyup", "Digit2", "@", { shiftKey: true }));
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
 
-    await vi.waitFor(() => expect(warning).toHaveBeenCalledWith(
-      "Unable to replay a managed Rion Studio shortcut.",
-      expect.any(Error)
-    ));
-    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: macro.id });
-    controller.dispose();
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+      type: "toggle",
+      macroId: macro.id
+    }));
+    expect(pageKeyDown.mock.calls.filter(([event]) => event.code === "Digit2")).toHaveLength(2);
+    expect(binding.mock.calls.filter(([request]) =>
+      typeof request === "object" && request !== null
+      && (request as { type?: string }).type === "toggle"
+    )).toHaveLength(1);
+  });
+
+  it("passes a conflicting physical shortcut through without choosing a macro", async () => {
+    const trigger = { code: "Digit2", ctrl: false, alt: false, shift: true, meta: false };
+    const macros = ["macro-a", "macro-b"].map((id) => ({
+      id,
+      enabled: true,
+      name: id,
+      roleIds: ["role-1"],
+      shortcutSourceScope: { type: "all_execution_roles" },
+      trigger,
+      repeat: { type: "once" },
+      steps: []
+    }));
+    const binding = vi.fn(async () => ({
+      macros,
+      shortcutMacroIds: macros.map(({ id }) => id),
+      statuses: []
+    }));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const controller = installOverlay(binding);
+    await controller.refresh();
+    const pageCodes: string[] = [];
+    document.addEventListener("keydown", (event) => pageCodes.push(`down:${event.code}`));
+    document.addEventListener("keyup", (event) => pageCodes.push(`up:${event.code}`));
+
+    document.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    const mainDown = keyEvent("keydown", "Digit2", "@", { shiftKey: true });
+    expect(document.dispatchEvent(mainDown)).toBe(true);
+    const mainUp = keyEvent("keyup", "Digit2", "@", { shiftKey: true });
+    expect(document.dispatchEvent(mainUp)).toBe(true);
+    document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    await Promise.resolve();
+
+    expect(mainDown.defaultPrevented).toBe(false);
+    expect(mainUp.defaultPrevented).toBe(false);
+    expect(pageCodes).toEqual([
+      "down:ShiftLeft",
+      "down:Digit2",
+      "up:Digit2",
+      "up:ShiftLeft"
+    ]);
+    expect(binding).not.toHaveBeenCalledWith(expect.objectContaining({ type: "toggle" }));
+    expect(warning).toHaveBeenCalledWith(
+      "Multiple Rion Studio macros use the same shortcut for this role."
+    );
     warning.mockRestore();
   });
 
@@ -980,7 +995,6 @@ function installOverlay(
 ): OverlayController {
   const overlayWindow = window as OverlayTestWindow;
   binding.macroKeyObserved ??= vi.fn(async () => undefined);
-  binding.managedShortcutKeyPhase ??= vi.fn(async () => undefined);
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
     value: binding

@@ -659,14 +659,14 @@ use super::*;
             parse_macro_shortcut_lifecycle(&json!({
                 "code": "Digit2",
                 "macroId": "macro-a",
-                "phase": "physical-keydown-managed",
+                "phase": "physical-keydown-allowed",
                 "type": "macro-shortcut-lifecycle"
             }))
             .unwrap(),
             (
                 "macro-a".to_owned(),
                 "Digit2".to_owned(),
-                "physical-keydown-managed".to_owned()
+                "physical-keydown-allowed".to_owned()
             )
         );
         for payload in [
@@ -700,52 +700,6 @@ use super::*;
                 parse_macro_shortcut_lifecycle(&payload).unwrap_err().code,
                 "OVERLAY_REQUEST_INVALID"
             );
-        }
-    }
-
-    #[test]
-    fn managed_shortcut_requests_validate_identity_phase_and_modifier_sides() {
-        ManagedShortcutKeyPhaseRequest {
-            press_id: "press-1".to_owned(),
-            macro_id: "macro-a".to_owned(),
-            code: "Digit2".to_owned(),
-            phase: "replay".to_owned(),
-            modifier_codes: vec!["ShiftRight".to_owned(), "ControlLeft".to_owned()],
-        }
-        .validate()
-        .unwrap();
-
-        for request in [
-            ManagedShortcutKeyPhaseRequest {
-                press_id: "press 1".to_owned(),
-                macro_id: "macro-a".to_owned(),
-                code: "Digit2".to_owned(),
-                phase: "replay".to_owned(),
-                modifier_codes: Vec::new(),
-            },
-            ManagedShortcutKeyPhaseRequest {
-                press_id: "press-1".to_owned(),
-                macro_id: "macro-a".to_owned(),
-                code: "Digit2".to_owned(),
-                phase: "unknown".to_owned(),
-                modifier_codes: Vec::new(),
-            },
-            ManagedShortcutKeyPhaseRequest {
-                press_id: "press-1".to_owned(),
-                macro_id: "macro-a".to_owned(),
-                code: "Digit2".to_owned(),
-                phase: "keyDown".to_owned(),
-                modifier_codes: vec!["ShiftLeft".to_owned(), "ShiftLeft".to_owned()],
-            },
-            ManagedShortcutKeyPhaseRequest {
-                press_id: "press-1".to_owned(),
-                macro_id: "macro-a".to_owned(),
-                code: "Digit2".to_owned(),
-                phase: "keyUp".to_owned(),
-                modifier_codes: vec!["KeyA".to_owned()],
-            },
-        ] {
-            assert_eq!(request.validate().unwrap_err().code, "MANAGED_SHORTCUT_INVALID");
         }
     }
 

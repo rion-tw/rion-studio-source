@@ -376,7 +376,7 @@ it("preserves Flyff text input focus and ignores keyboard events forwarded to th
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
   });
 
-it("pairs while-held shortcuts with one managed press and release while consuming auto-repeat", async () => {
+it("pairs while-held shortcuts with one press and release while passing through auto-repeat", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {
       ...assignedMacro,
@@ -403,8 +403,8 @@ it("pairs while-held shortcuts with one managed press and release while consumin
       key: "F2",
       repeat: true
     });
-    expect(document.dispatchEvent(repeated)).toBe(false);
-    expect(repeated.defaultPrevented).toBe(true);
+    expect(document.dispatchEvent(repeated)).toBe(true);
+    expect(repeated.defaultPrevented).toBe(false);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "press",
       macroId: heldMacro.id,
@@ -425,8 +425,8 @@ it("pairs while-held shortcuts with one managed press and release while consumin
       code: "F2",
       key: "F2"
     });
-    expect(document.dispatchEvent(keyUp)).toBe(false);
-    expect(keyUp.defaultPrevented).toBe(true);
+    expect(document.dispatchEvent(keyUp)).toBe(true);
+    expect(keyUp.defaultPrevented).toBe(false);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "release",
       macroId: heldMacro.id,
@@ -662,27 +662,6 @@ it("lets game handlers observe macro shortcuts before toggling after keyup", asy
       statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
     }));
     const controller = installOverlay(window, binding);
-    Object.assign(binding, {
-      managedShortcutKeyPhase: vi.fn(async (request: { code: string; phase: string }) => {
-        if (request.phase !== "replay") return;
-        const downId = "managed-game-down";
-        expect(controller.suppressNextShortcut?.(downId, request.code, "keydown")).toBe(true);
-        document.dispatchEvent(new window.KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          code: request.code,
-          key: "F2"
-        }));
-        const upId = "managed-game-up";
-        expect(controller.suppressNextShortcut?.(upId, request.code, "keyup")).toBe(true);
-        document.dispatchEvent(new window.KeyboardEvent("keyup", {
-          bubbles: true,
-          cancelable: true,
-          code: request.code,
-          key: "F2"
-        }));
-      })
-    });
     await controller.refresh();
 
     dispatchShortcut(window, "F2", "F2");
@@ -778,7 +757,6 @@ function installOverlay(
   binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
 ): OverlayController {
   const overlayWindow = targetWindow as OverlayTestWindow;
-  Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
     value: binding

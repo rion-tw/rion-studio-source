@@ -285,7 +285,7 @@ async function cleanupPhase(): Promise<void> {
     createRole(game, `E2E Cleanup Role ${index + 1}`, id)
   ));
   const macros = await Promise.all(roles.map((role, index) =>
-    createLoopMacro(role, `E2E Cleanup Macro ${index + 1}`, `Key${index + 1}`)
+    createLoopMacro(role, `E2E Cleanup Macro ${index + 1}`, `Digit${index + 1}`)
   ));
   await createWindow(CLEANUP_WINDOW_ID, "E2E Macro Cleanup Window");
   await showWindowFromUi(CLEANUP_WINDOW_ID);

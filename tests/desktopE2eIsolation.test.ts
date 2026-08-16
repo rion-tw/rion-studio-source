@@ -239,7 +239,8 @@ describe("desktop E2E build isolation", () => {
     expect(windowsPointer).toContain("SendInput(&inputs");
     expect(macHeader).toContain("#if defined(RION_DESKTOP_E2E)");
     expect(macBridge).toContain("rion_runtime_tabs_accessibility_show_menu");
-    expect(macPointer).toContain("kCGEventLeftMouseDragged");
+    expect(macPointer).toContain("NSEventTypeLeftMouseDragged");
+    expect(macPointer).toContain("[NSApp postEvent:drag atStart:NO]");
     expect(build).toContain('runtime_tabs.define("RION_DESKTOP_E2E", None)');
   });
 
@@ -258,7 +259,7 @@ describe("desktop E2E build isolation", () => {
     expect(drag).toContain("[targetWindow orderFront:nil]");
     expect(drag).toContain("[sourceWindow makeKeyAndOrderFront:nil]");
     expect(drag.indexOf("[sourceWindow makeKeyAndOrderFront:nil]"))
-      .toBeLessThan(drag.indexOf("CGEventCreateMouseEvent("));
+      .toBeLessThan(drag.indexOf("NSEvent *down"));
     expect(drag).toContain("!sourceWindow.isVisible || !targetWindow.isVisible");
   });
 

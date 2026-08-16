@@ -6,6 +6,7 @@ import {
   focusMainApplicationWindow,
   inputDiagnostics,
   keyboardInput,
+  keyboardInputSession,
   keyboardInputSequence,
   probe,
   rendererCall,
@@ -867,16 +868,19 @@ async function keyboardLifecyclePhase(): Promise<void> {
     const compatibilityFixtureCursor = await fixtureCursor();
     const compatibilityNativeCursor = (await probe()).latestSequence;
     const compatibilityMacroCursor = await rendererEventCursor();
-    await press("ShiftLeft");
+    const compatibilityReceipts = await keyboardInputSequence([
+      { code: "ShiftLeft", phase: "keyDown" },
+      { code: "Digit6", phase: "keyDown" },
+      { code: "Digit6", phase: "keyUp" },
+      { code: "ShiftLeft", phase: "keyUp" }
+    ]);
+    expect(compatibilityReceipts.every((receipt) => receipt.status === "submitted")).toBe(true);
     await waitFixtureCode({
       afterSequence: compatibilityFixtureCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit6");
-    await release("Digit6");
-    await release("ShiftLeft");
     await waitFixtureCode({
       afterSequence: compatibilityFixtureCursor,
       code: "ShiftLeft",
@@ -939,14 +943,38 @@ async function keyboardLifecyclePhase(): Promise<void> {
 
     const continuityFixtureCursor = await fixtureCursor();
     const continuityMacroCursor = await rendererEventCursor();
-    await press("ShiftLeft");
+    const continuityNativeCursor = (await probe()).latestSequence;
+    const continuitySession = await keyboardInputSession([
+      { code: "ShiftLeft", phase: "keyDown", type: "input" },
+      { code: "Digit5", phase: "keyDown", type: "input" },
+      {
+        afterSequence: continuityNativeCursor,
+        details: {
+          code: "Digit1",
+          phase: "keydown",
+          roleId: scenario.roles[0].id
+        },
+        kind: "macro-key-dom-observed",
+        type: "waitEvent"
+      },
+      { code: "Digit5", phase: "keyUp", type: "input" },
+      { code: "Digit4", phase: "keyDown", type: "input" },
+      { code: "Digit4", phase: "keyUp", type: "input" },
+      { code: "ShiftLeft", phase: "keyUp", type: "input" }
+    ]);
+    expect(continuitySession.receipts.every((receipt) => receipt.status === "submitted")).toBe(true);
+    expect(continuitySession.events).toHaveLength(1);
+    expect(continuitySession.events[0].details).toMatchObject({
+      code: "Digit1",
+      phase: "keydown",
+      roleId: scenario.roles[0].id
+    });
     await waitFixtureCode({
       afterSequence: continuityFixtureCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
-    await press("Digit5");
     const continuityTriggerDown = await waitFixtureCode({
       afterSequence: continuityFixtureCursor,
       code: "Digit5",
@@ -959,7 +987,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
       roleIds: [scenario.roles[0].id],
       state: "running"
     });
-    await release("Digit5");
     await waitFixtureCode({
       afterSequence: continuityTriggerDown.sequence,
       code: "Digit5",
@@ -979,26 +1006,21 @@ async function keyboardLifecyclePhase(): Promise<void> {
       roleId: "macro-keyboard-a"
     });
 
-    const digitFourCursor = await fixtureCursor();
-    await press("Digit4");
     const digitFourDown = await waitFixtureCode({
-      afterSequence: digitFourCursor,
+      afterSequence: continuityFixtureCursor,
       code: "Digit4",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
     expect(digitFourDown.modifiers?.shift).toBe(true);
-    await release("Digit4");
     await waitFixtureCode({
       afterSequence: digitFourDown.sequence,
       code: "Digit4",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
-    const shiftReleaseCursor = await fixtureCursor();
-    await release("ShiftLeft");
     await waitFixtureCode({
-      afterSequence: shiftReleaseCursor,
+      afterSequence: digitFourDown.sequence,
       code: "ShiftLeft",
       kind: "keyup",
       roleId: "macro-keyboard-a"

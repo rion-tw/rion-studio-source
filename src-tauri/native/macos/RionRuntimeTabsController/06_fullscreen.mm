@@ -565,29 +565,49 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
       [targetItem convertPoint:NSMakePoint(NSMinX(targetItem.bounds) + 2.0,
                                            NSMidY(targetItem.bounds))
                           toView:nil]];
-  sourcePoint = RionTopLeftScreenPoint(sourcePoint);
-  targetPoint = RionTopLeftScreenPoint(targetPoint);
-  CGEventRef down = CGEventCreateMouseEvent(
-      NULL, kCGEventLeftMouseDown, sourcePoint, kCGMouseButtonLeft);
+  NSPoint sourceWindowPoint = [sourceWindow convertPointFromScreen:sourcePoint];
+  NSPoint targetWindowPoint = [sourceWindow convertPointFromScreen:targetPoint];
+  NSTimeInterval timestamp = NSProcessInfo.processInfo.systemUptime;
+  NSEvent *down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
+                                      location:sourceWindowPoint
+                                 modifierFlags:0
+                                     timestamp:timestamp
+                                  windowNumber:sourceWindow.windowNumber
+                                       context:nil
+                                   eventNumber:0
+                                    clickCount:1
+                                      pressure:1.0];
   if (!down) return NO;
-  CGEventPost(kCGHIDEventTap, down);
-  CFRelease(down);
+  [NSApp postEvent:down atStart:NO];
   for (NSInteger step = 1; step <= 8; ++step) {
-    CGPoint point = CGPointMake(
-        sourcePoint.x + (targetPoint.x - sourcePoint.x) * step / 8.0,
-        sourcePoint.y + (targetPoint.y - sourcePoint.y) * step / 8.0);
-    CGEventRef drag = CGEventCreateMouseEvent(
-        NULL, kCGEventLeftMouseDragged, point, kCGMouseButtonLeft);
-    if (drag) {
-      CGEventPost(kCGHIDEventTap, drag);
-      CFRelease(drag);
-    }
+    NSPoint point = NSMakePoint(
+        sourceWindowPoint.x +
+            (targetWindowPoint.x - sourceWindowPoint.x) * step / 8.0,
+        sourceWindowPoint.y +
+            (targetWindowPoint.y - sourceWindowPoint.y) * step / 8.0);
+    NSEvent *drag = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged
+                                        location:point
+                                   modifierFlags:0
+                                       timestamp:timestamp + step * 0.001
+                                    windowNumber:sourceWindow.windowNumber
+                                         context:nil
+                                     eventNumber:step
+                                      clickCount:1
+                                        pressure:1.0];
+    if (!drag) return NO;
+    [NSApp postEvent:drag atStart:NO];
   }
-  CGEventRef up = CGEventCreateMouseEvent(
-      NULL, kCGEventLeftMouseUp, targetPoint, kCGMouseButtonLeft);
+  NSEvent *up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp
+                                    location:targetWindowPoint
+                               modifierFlags:0
+                                   timestamp:timestamp + 0.009
+                                windowNumber:sourceWindow.windowNumber
+                                     context:nil
+                                 eventNumber:9
+                                  clickCount:1
+                                    pressure:0.0];
   if (!up) return NO;
-  CGEventPost(kCGHIDEventTap, up);
-  CFRelease(up);
+  [NSApp postEvent:up atStart:NO];
   return YES;
 }
 #endif

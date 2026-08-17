@@ -48,8 +48,10 @@ describe("desktop E2E renderer readiness", () => {
   });
 
   it("refreshes through WebDriver and retries a reclaimed script completion", async () => {
+    mocks.findElement.mockImplementation(async (selector: string) => ({
+      isExisting: vi.fn().mockResolvedValue(selector === ".app-main-sidebar")
+    }));
     mocks.browser.execute
-      .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(true)
       .mockRejectedValueOnce(new Error("Script execution timed out"))
       .mockResolvedValueOnce(true);
@@ -57,13 +59,35 @@ describe("desktop E2E renderer readiness", () => {
     await expect(ensureEnglishUi()).resolves.toBeUndefined();
 
     expect(mocks.browser.refresh).toHaveBeenCalledOnce();
-    expect(mocks.browser.execute).toHaveBeenCalledTimes(4);
+    expect(mocks.browser.execute).toHaveBeenCalledTimes(3);
     expect(mocks.browser.setTimeout.mock.calls).toEqual([
-      [{ script: 5_000 }],
-      [{ script: 55_000 }],
       [{ script: 5_000 }],
       [{ script: 55_000 }]
     ]);
+  });
+
+  it("waits for a rendered initial screen before accessing language storage", async () => {
+    let rendererReady = false;
+    mocks.findElement.mockImplementation(async (selector: string) => ({
+      isExisting: vi.fn().mockResolvedValue(
+        rendererReady && selector === "[data-testid='legal-onboarding-continue']"
+      )
+    }));
+    mocks.browser.waitUntil.mockImplementation(async (condition: () => Promise<boolean>) => {
+      if (await condition()) return true;
+      rendererReady = true;
+      if (await condition()) return true;
+      throw new Error("readiness condition timed out");
+    });
+    mocks.browser.execute.mockImplementation(async () => {
+      if (!rendererReady) throw new Error("The operation is insecure");
+      return false;
+    });
+
+    await expect(ensureEnglishUi()).resolves.toBeUndefined();
+
+    expect(mocks.browser.execute).toHaveBeenCalledOnce();
+    expect(mocks.browser.refresh).not.toHaveBeenCalled();
   });
 
   it("waits for the async legal gate before accepting and skipping first run", async () => {

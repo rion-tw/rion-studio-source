@@ -349,7 +349,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Inject one indeterminate trusted-input acknowledgement into a visibly started zero-interval looping macro, rebuild the affected role surface, restart the eligible root exactly once, and prove native input resumes on the replacement page without another Start action."
+      "description": "Inject confirmed-cleanup and unproven indeterminate trusted-input acknowledgements into a visibly started zero-interval looping macro; prove the eligible root resumes exactly once in place with the same surface generation, then prove the unproven case leaves the page intact and requires a manual role restart."
     },
     {
       "id": "MACRO-SHORTCUT-REENTRY-007",

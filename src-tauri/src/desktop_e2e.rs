@@ -414,11 +414,12 @@ pub(crate) fn desktop_e2e_arm_indeterminate_macro_input(
     state: State<'_, crate::CoreState>,
     token: String,
     role_id: String,
+    cleanup_confirmed: bool,
 ) -> Result<Value, String> {
     control.authenticate(&token)?;
     state
         .runtime
-        .desktop_e2e_arm_indeterminate_macro_input(&role_id)
+        .desktop_e2e_arm_indeterminate_macro_input(&role_id, cleanup_confirmed)
 }
 
 #[tauri::command]

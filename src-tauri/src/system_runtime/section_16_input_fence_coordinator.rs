@@ -1,3 +1,7 @@
+fn input_fence_recovery_may_rebuild_surface(macro_recovery_owned: bool) -> bool {
+    !macro_recovery_owned
+}
+
 impl SystemRuntimeExecutor {
     fn allow_main_frame_navigation_after_input_fence(
         &self,
@@ -81,7 +85,13 @@ impl SystemRuntimeExecutor {
         if let Err(error) =
             self.install_role_input_fence(role_id, epoch, source.reason(), Some(generation))
         {
-            if let Some(state) = self.app.try_state::<crate::CoreState>() {
+            if self.macro_input_recovery_active(role_id) {
+                self.terminalize_macro_input_recovery(
+                    role_id,
+                    "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
+                    "Navigation input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
+                );
+            } else if let Some(state) = self.app.try_state::<crate::CoreState>() {
                 state.runtime.schedule_surface_recovery(
                     role_id.to_owned(),
                     "navigation-native-input-fence-failed".to_owned(),
@@ -248,11 +258,27 @@ impl SystemRuntimeExecutor {
             state
                 .last_completed_document_ids
                 .insert(webview_label.to_owned(), document_id.clone());
-            mark_main_frame_navigation_page_finished(
+            let completed = mark_main_frame_navigation_page_finished(
                 &mut state.main_frame_navigation_input_fences,
                 webview_label,
                 "https",
-            )
+            );
+            if let Some((role_id, input_epoch)) = completed.as_ref() {
+                let surface_generation = state
+                    .role_input_fences
+                    .get(role_id)
+                    .filter(|fence| fence.input_epoch == *input_epoch)
+                    .map(|fence| fence.surface_generation);
+                if let Some(surface_generation) = surface_generation {
+                    confirm_macro_recovery_document_replacement(
+                        &mut state.macro_input_recoveries,
+                        role_id,
+                        *input_epoch,
+                        surface_generation,
+                    );
+                }
+            }
+            completed
         });
         if let Some((role_id, input_epoch)) = ticket {
             self.record_input_fence_event(&role_id, input_epoch, "page-finished");
@@ -261,6 +287,15 @@ impl SystemRuntimeExecutor {
     }
 
     fn try_resume_navigation_input(&self, role_id: &str, input_epoch: u64) {
+        let macro_recovery = self.state.lock().ok().and_then(|state| {
+            state.macro_input_recoveries.get(role_id).cloned()
+        });
+        if macro_recovery
+            .as_ref()
+            .is_some_and(|recovery| !recovery.evidence.permits_in_place_resume())
+        {
+            return;
+        }
         let ready = self.state.lock().is_ok_and(|mut state| {
             let RuntimeState {
                 role_input_fences,
@@ -290,7 +325,17 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
-        if self.resume_role_input(role_id, input_epoch).unwrap_or(false) {
+        let native_resumed = if let Some(recovery) = macro_recovery.as_ref() {
+            self.resume_role_input_after_macro_recovery(
+                role_id,
+                input_epoch,
+                recovery.surface_generation,
+            )
+            .unwrap_or(false)
+        } else {
+            self.resume_role_input(role_id, input_epoch).unwrap_or(false)
+        };
+        if native_resumed {
             self.record_input_fence_event(role_id, input_epoch, "resumed");
             let operation = self.state.lock().ok().and_then(|mut state| {
                 if !state
@@ -318,6 +363,9 @@ impl SystemRuntimeExecutor {
                     operation,
                     "navigationInputReady",
                 ));
+            }
+            if macro_recovery.is_some() {
+                self.finish_macro_input_recovery_in_place(role_id, input_epoch);
             }
         } else {
             self.schedule_input_fence_recovery(
@@ -357,13 +405,21 @@ impl SystemRuntimeExecutor {
         }
         state.last_input_ready_epochs.remove(role_id);
         let (macro_recovery_id, pending_macro_restart_count) = state
-            .role_input_fences
+            .macro_input_recoveries
             .get(role_id)
-            .map(|fence| {
+            .map(|recovery| {
                 (
-                    fence.macro_recovery_id.clone(),
-                    fence.pending_macro_restart_count,
+                    Some(recovery.recovery_id.clone()),
+                    recovery.pending_macro_restart_count,
                 )
+            })
+            .or_else(|| {
+                state.role_input_fences.get(role_id).map(|fence| {
+                    (
+                        fence.macro_recovery_id.clone(),
+                        fence.pending_macro_restart_count,
+                    )
+                })
             })
             .unwrap_or_default();
         if let Some(recovery) = state.macro_input_recoveries.get_mut(role_id) {
@@ -428,15 +484,34 @@ impl SystemRuntimeExecutor {
         let recovery = self.state.lock().ok().and_then(|mut state| {
             let generation =
                 claim_input_fence_recovery(&mut state.role_input_fences, role_id, input_epoch)?;
-            let operation = state
+            let fence = state
                 .role_input_fences
-                .get(role_id)
-                .and_then(|fence| fence.navigation_operation.clone());
-            Some((generation, operation))
+                .get(role_id)?;
+            Some((
+                generation,
+                fence.navigation_operation.clone(),
+                fence.macro_recovery_id.is_some(),
+            ))
         });
-        let Some((generation, operation)) = recovery else {
+        let Some((generation, operation, macro_owned)) = recovery else {
             return;
         };
+        if !input_fence_recovery_may_rebuild_surface(macro_owned) {
+            if let Some(operation) = operation {
+                self.record_native_operation_receipt(NativeOperationReceipt::with_status(
+                    operation,
+                    "navigationInputRecoveryManual",
+                    NativeOperationStatus::Failed,
+                    Some("SYSTEM_NAVIGATION_INPUT_FENCE_FAILED"),
+                ));
+            }
+            self.terminalize_macro_input_recovery(
+                role_id,
+                "SYSTEM_MACRO_INPUT_RECOVERY_INPUT_UNPROVEN",
+                "Automatic input recovery could not prove that the current page was safe. The page was left unchanged; restart this role before running another macro.",
+            );
+            return;
+        }
         if let Err(error) = self
             .core
             .terminalize_macro_runs_after_navigation_failure(role_id)

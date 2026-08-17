@@ -667,7 +667,7 @@ struct RuntimeState {
     close_coordinator: CloseCoordinator,
     controlled_navigation_webviews: HashMap<String, u32>,
     #[cfg(feature = "desktop-e2e")]
-    desktop_e2e_indeterminate_macro_input_roles: HashSet<String>,
+    desktop_e2e_indeterminate_macro_input_roles: HashMap<String, bool>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     dormant_window_states: HashMap<String, DormantWindowState>,
     launch_attempt_generations: HashMap<String, String>,

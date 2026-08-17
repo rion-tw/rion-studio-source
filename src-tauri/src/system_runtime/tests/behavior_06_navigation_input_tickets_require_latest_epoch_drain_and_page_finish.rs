@@ -38,6 +38,104 @@ fn exact_native_release_neutralizes_the_input_lane_without_reusing_its_epoch() {
 }
 
 #[test]
+fn macro_recovery_unquarantines_only_the_exact_epoch_and_surface_generation() {
+    let lane = RoleInputDispatchLane::default();
+    lane.epoch.store(12, Ordering::Release);
+    lane.surface_generation.store(7, Ordering::Release);
+    lane.quarantined.store(true, Ordering::Release);
+    lane.normal_enabled.store(false, Ordering::Release);
+
+    assert!(!resume_input_lane_after_macro_recovery(&lane, 11, 7));
+    assert!(!resume_input_lane_after_macro_recovery(&lane, 12, 6));
+    assert!(lane.quarantined.load(Ordering::Acquire));
+    assert!(!lane.normal_enabled.load(Ordering::Acquire));
+
+    assert!(resume_input_lane_after_macro_recovery(&lane, 12, 7));
+    assert!(!lane.quarantined.load(Ordering::Acquire));
+    assert!(lane.normal_enabled.load(Ordering::Acquire));
+}
+
+#[test]
+fn macro_recovery_evidence_prefers_cleanup_then_exact_document_replacement() {
+    let mut tickets = HashMap::new();
+    assert_eq!(
+        macro_input_recovery_evidence(true, &tickets, "role-1", 4),
+        MacroInputRecoveryEvidence::CleanupConfirmed
+    );
+    assert_eq!(
+        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        MacroInputRecoveryEvidence::Unproven
+    );
+
+    update_main_frame_navigation_input_fences(
+        &mut tickets,
+        "role-main",
+        "role-1",
+        3,
+        4,
+        Some("old-document".to_owned()),
+    );
+    assert_eq!(
+        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        MacroInputRecoveryEvidence::DocumentReplacementPending
+    );
+    mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
+    assert_eq!(
+        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        MacroInputRecoveryEvidence::DocumentReplaced
+    );
+    assert_eq!(
+        macro_input_recovery_evidence(false, &tickets, "role-1", 5),
+        MacroInputRecoveryEvidence::Unproven
+    );
+}
+
+#[test]
+fn document_replacement_cannot_complete_a_stale_macro_recovery() {
+    let mut recoveries = HashMap::from([(
+        "role-1".to_owned(),
+        MacroInputRecoveryRuntimeState {
+            evidence: MacroInputRecoveryEvidence::DocumentReplacementPending,
+            input_epoch: 9,
+            pending_macro_restart_count: 1,
+            recovery_id: "recovery-1".to_owned(),
+            surface_generation: 6,
+        },
+    )]);
+
+    assert!(!confirm_macro_recovery_document_replacement(
+        &mut recoveries,
+        "role-1",
+        8,
+        6
+    ));
+    assert!(!confirm_macro_recovery_document_replacement(
+        &mut recoveries,
+        "role-1",
+        9,
+        5
+    ));
+    assert!(confirm_macro_recovery_document_replacement(
+        &mut recoveries,
+        "role-1",
+        9,
+        6
+    ));
+    assert!(!confirm_macro_recovery_document_replacement(
+        &mut recoveries,
+        "role-1",
+        9,
+        6
+    ));
+}
+
+#[test]
+fn macro_owned_input_fence_failure_never_rebuilds_the_surface() {
+    assert!(!input_fence_recovery_may_rebuild_surface(true));
+    assert!(input_fence_recovery_may_rebuild_surface(false));
+}
+
+#[test]
 fn stale_epoch_cannot_finish_or_resume_the_latest_role_fence() {
     let mut fences = HashMap::new();
     let mut tickets = HashMap::new();

@@ -528,22 +528,37 @@ it advances the role input epoch, marks every affected root invocation
 cancels the old invocation tree. Repeated failure delivery for the same role
 replays the active ticket rather than scheduling another restart.
 
-The System Runtime immediately disables the role's native input lane, drains the
-matching Core epoch, and uses the existing generation- and lifecycle-fenced
-surface recovery transaction. A terminal `applied` recovery receipt is the only
-event that may claim the ticket. Core then re-resolves the current macro
-configuration and active roles and restarts each still-eligible root once; it
-never resumes an old worker or replays an in-flight step. Zero-interval loops are
-eligible. While-held invocations are excluded because their physical hold lease
-cannot be reconstructed. A visible Stop action, a relevant macro mutation, role
-close, or role restart cancels pending restart intent.
+The System Runtime immediately disables the role's native input lane and drains
+the matching Core epoch. The indeterminate action result and proof of a neutral
+input state are tracked separately. An acknowledged guarded `keyup` or
+`mouseup` compensation proves neutrality. Otherwise, an already-fenced
+main-frame navigation must finish on the same surface generation with a changed
+document instance before recovery may continue. Pending navigation waits for its
+existing page-finished event and document-instance readback; popup close keeps
+using the popup input fence. No URL, provider, or authentication-domain rule is
+part of this decision.
 
-If surface recovery or input resume is not proven, Core marks the role
-restart-required and no macro assigned to it may start until the role is
-explicitly relaunched. Diagnostics retain the recovery ID and pending root count
-on active and recent input-fence records. This flow has no reconciliation poll
-or success timeout: browser-action result, Core drain, surface recovery receipt,
-input resume, and restart claim are the authoritative ordered events.
+Once every navigation ticket is complete, only the exact input epoch and surface
+generation may resume Core and the native input lane. The runtime then claims
+the restart ticket and Core re-resolves the current macro configuration and
+active roles before restarting each still-eligible root once. It never resumes
+an old worker or replays an in-flight step. Zero-interval loops are eligible.
+While-held invocations are excluded because their physical hold lease cannot be
+reconstructed. A visible Stop action, a relevant macro mutation, role close, or
+role restart cancels pending restart intent.
+
+Macro-input recovery never schedules surface recovery, reloads the page, or
+rebuilds the role WebView. If cleanup, document readback, Core resume, or native
+resume cannot be proven, the current page remains authoritative, automatic input
+stays quarantined, and Core marks the role restart-required until it is
+explicitly relaunched. Independent WebView process failure remains governed by
+the surface-recovery contract above and may complete an already-active macro
+ticket after its replacement surface is proven. Diagnostics distinguish
+`in-place` from `manual-restart-required` and retain the recovery ID and pending
+root count on active and recent input-fence records. This flow adds no
+reconciliation poll or success timer: browser-action result, compensation
+receipt, Core drain, page-finished/document-instance readback, input resume, and
+restart claim are the authoritative ordered events.
 
 ## Application power lifecycle
 

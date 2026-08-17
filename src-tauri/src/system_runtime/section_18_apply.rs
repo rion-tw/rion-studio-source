@@ -368,11 +368,12 @@ impl SystemRuntimeExecutor {
         let scheduled_at_ms = request.scheduled_at_ms;
         let deadline_ms = request.deadline_ms;
         #[cfg(feature = "desktop-e2e")]
-        let inject_indeterminate = request.intent == "normal"
-            && matches!(&request.action, BrowserAction::Key { .. } | BrowserAction::Click { .. })
-            && self.desktop_e2e_take_indeterminate_macro_input(&role_id);
+        let inject_indeterminate = (request.intent == "normal"
+            && matches!(&request.action, BrowserAction::Key { .. } | BrowserAction::Click { .. }))
+        .then(|| self.desktop_e2e_take_indeterminate_macro_input(&role_id))
+        .flatten();
         #[cfg(not(feature = "desktop-e2e"))]
-        let inject_indeterminate = false;
+        let inject_indeterminate = None;
         let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
         let mut native_operation = NativeOperationContext::new(
             NativeOperationSubsystem::Input,
@@ -386,11 +387,16 @@ impl SystemRuntimeExecutor {
             SystemRuntimeOperationCompletionScope::NativeSubmission
         })
         .with_role(&role_id);
-        let result = if inject_indeterminate {
-            Err(RuntimeError::new(
+        let result = if let Some(cleanup_confirmed) = inject_indeterminate {
+            let error = RuntimeError::new(
                 "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
                 "Desktop E2E injected an indeterminate native input acknowledgement.",
-            ))
+            );
+            Err(if cleanup_confirmed {
+                error.with_confirmed_input_neutrality()
+            } else {
+                error
+            })
         } else {
             (|| {
                 let context = self.input_dispatch_context(&request)?;
@@ -529,13 +535,21 @@ impl SystemRuntimeExecutor {
                 let cleanup_error =
                     self.compensate_key_prefix(role_id, &webview, &executed, context);
                 let _ = self.complete_key_transition(&transition, false);
-                if let Some(cleanup_error) = cleanup_error
-                    && cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
-                {
-                    Err(cleanup_error)
-                } else {
-                    Err(error)
+                if let Some(cleanup_error) = cleanup_error {
+                    if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                        return Err(RuntimeError::new(
+                            "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                            format!(
+                                "{}; guarded key cleanup also failed: {}",
+                                error.message, cleanup_error.message
+                            ),
+                        ));
+                    }
+                    if cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                        return Err(cleanup_error);
+                    }
                 }
+                Err(error)
             }
         }
     }

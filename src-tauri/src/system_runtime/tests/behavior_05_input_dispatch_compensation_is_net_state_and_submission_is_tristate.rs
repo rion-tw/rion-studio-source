@@ -159,8 +159,48 @@ fn indeterminate_mouse_down_schedules_exactly_one_cleanup_mouse_up() {
         },
     );
 
-    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert!(error.action.input_neutrality_confirmed());
+    assert!(error.cleanup.is_none());
     assert_eq!(phases, [true, false]);
+}
+
+#[test]
+fn indeterminate_mouse_up_requires_an_acknowledged_second_release() {
+    let context = live_input_context();
+    let cleanup = InputDispatchContext {
+        intent: "cleanup".to_owned(),
+        ..context.clone()
+    };
+    let mut phases = Vec::new();
+    let mut release_count = 0_u32;
+    let result = dispatch_mouse_input_sequence(
+        &context,
+        || cleanup.clone(),
+        MouseInputDispatchDiagnostics::default(),
+        || {},
+        |pressed, _| {
+            phases.push(pressed);
+            if pressed {
+                return Ok(());
+            }
+            release_count += 1;
+            if release_count == 1 {
+                Err(RuntimeError::new(
+                    "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                    "first mouseUp completion was lost",
+                ))
+            } else {
+                Ok(())
+            }
+        },
+    );
+
+    let error = result.unwrap_err();
+    assert!(error.down_confirmed);
+    assert!(error.action.input_neutrality_confirmed());
+    assert!(error.cleanup.is_none());
+    assert_eq!(phases, [true, false, false]);
 }
 
 #[test]

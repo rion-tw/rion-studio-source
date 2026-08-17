@@ -72,6 +72,7 @@ export interface DesktopE2eWindowSnapshot {
   };
   observationSequence: number;
   pid: number;
+  roleSurfaceGenerations: Record<string, number>;
   target: {
     bounds: WindowBounds;
     persistedName?: string;
@@ -274,17 +275,19 @@ export async function injectDuplicateRoleCookieCheckpoint(
 }
 
 export async function armIndeterminateMacroInput(
-  roleId: string
-): Promise<{ armed: true; roleId: string }> {
+  roleId: string,
+  cleanupConfirmed = true
+): Promise<{ armed: true; cleanupConfirmed: boolean; roleId: string }> {
   const result = await browser.tauri.execute(
-    ({ core }, token, id) => core.invoke("desktop_e2e_arm_indeterminate_macro_input", {
-      roleId: id,
-      token
-    }),
+    ({ core }, token, id, confirmed) => core.invoke(
+      "desktop_e2e_arm_indeterminate_macro_input",
+      { cleanupConfirmed: confirmed, roleId: id, token }
+    ),
     sessionToken(),
-    roleId
+    roleId,
+    cleanupConfirmed
   );
-  return result as unknown as { armed: true; roleId: string };
+  return result as unknown as { armed: true; cleanupConfirmed: boolean; roleId: string };
 }
 
 export async function controlWindow(

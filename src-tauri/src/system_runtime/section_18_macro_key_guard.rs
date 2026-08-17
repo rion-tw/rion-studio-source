@@ -97,7 +97,9 @@ impl SystemRuntimeExecutor {
                     ));
                 }
             }
-            return Err(observation_error.error);
+            return Err(observation_error
+                .error
+                .with_confirmed_input_neutrality());
         }
         if let Err(error) = native_result
             && error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE"

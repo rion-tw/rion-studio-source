@@ -45,9 +45,25 @@ struct RoleInputFence {
 
 #[derive(Clone)]
 struct MacroInputRecoveryRuntimeState {
+    evidence: MacroInputRecoveryEvidence,
     input_epoch: u64,
     pending_macro_restart_count: u32,
     recovery_id: String,
+    surface_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MacroInputRecoveryEvidence {
+    CleanupConfirmed,
+    DocumentReplacementPending,
+    DocumentReplaced,
+    Unproven,
+}
+
+impl MacroInputRecoveryEvidence {
+    const fn permits_in_place_resume(self) -> bool {
+        matches!(self, Self::CleanupConfirmed | Self::DocumentReplaced)
+    }
 }
 
 #[derive(Deserialize)]

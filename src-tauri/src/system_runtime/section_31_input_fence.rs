@@ -113,6 +113,20 @@ impl SystemRuntimeExecutor {
         Ok(resumable)
     }
 
+    fn resume_role_input_after_macro_recovery(
+        &self,
+        role_id: &str,
+        input_epoch: u64,
+        surface_generation: u64,
+    ) -> RuntimeResult<bool> {
+        let lane = self.role_input_lane(role_id)?;
+        Ok(resume_input_lane_after_macro_recovery(
+            &lane,
+            input_epoch,
+            surface_generation,
+        ))
+    }
+
     fn with_input_context_lane<T>(
         &self,
         context: &InputDispatchContext,
@@ -127,6 +141,21 @@ impl SystemRuntimeExecutor {
         context.ensure_current()?;
         operation()
     }
+}
+
+fn resume_input_lane_after_macro_recovery(
+    lane: &RoleInputDispatchLane,
+    input_epoch: u64,
+    surface_generation: u64,
+) -> bool {
+    let current = lane.epoch.load(Ordering::Acquire) == input_epoch
+        && lane.surface_generation.load(Ordering::Acquire) == surface_generation;
+    if !current {
+        return false;
+    }
+    lane.quarantined.store(false, Ordering::Release);
+    lane.normal_enabled.store(true, Ordering::Release);
+    true
 }
 
 fn retire_role_input_lane(lane: &RoleInputDispatchLane) {

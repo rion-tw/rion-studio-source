@@ -111,7 +111,15 @@ impl SystemRuntimeExecutor {
                         "popup-close-core-fence-failed",
                         LogLevel::Warn,
                     );
-                    if let Some(generation) = state.runtime.surface_generation_for_role(&role_id) {
+                    if state.runtime.macro_input_recovery_active(&role_id) {
+                        state.runtime.terminalize_macro_input_recovery(
+                            &role_id,
+                            "SYSTEM_POPUP_INPUT_FENCE_FAILED",
+                            "Popup input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
+                        );
+                    } else if let Some(generation) =
+                        state.runtime.surface_generation_for_role(&role_id)
+                    {
                         state.runtime.schedule_surface_recovery(
                             role_id.clone(),
                             "popup-close-input-fence-failed".to_owned(),
@@ -127,7 +135,15 @@ impl SystemRuntimeExecutor {
                     .install_role_input_fence(&role_id, fenced.input_epoch, "popup-close", None)
                     .is_err()
                 {
-                    if let Some(generation) = state.runtime.surface_generation_for_role(&role_id) {
+                    if state.runtime.macro_input_recovery_active(&role_id) {
+                        state.runtime.terminalize_macro_input_recovery(
+                            &role_id,
+                            "SYSTEM_POPUP_INPUT_FENCE_FAILED",
+                            "Popup input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
+                        );
+                    } else if let Some(generation) =
+                        state.runtime.surface_generation_for_role(&role_id)
+                    {
                         state.runtime.schedule_surface_recovery(
                             role_id.clone(),
                             "popup-close-native-fence-failed".to_owned(),

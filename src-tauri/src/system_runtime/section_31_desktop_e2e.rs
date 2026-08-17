@@ -154,6 +154,24 @@ impl SystemRuntimeExecutor {
             .map_err(|error| error.to_string())?
             .native_projection(window_id);
         let native = desktop_e2e_native_window_snapshot(&window)?;
+        let role_surface_generations = self
+            .state
+            .lock()
+            .map_err(|_| "The runtime state is unavailable.".to_owned())?
+            .native_resources
+            .tabs
+            .iter()
+            .filter(|(tab_id, _)| {
+                projection.as_ref().is_some_and(|projection| {
+                    projection.tabs.iter().any(|tab| &tab.tab_id == *tab_id)
+                })
+            })
+            .flat_map(|(_, tab)| {
+                tab.roles
+                    .iter()
+                    .map(|(role_id, surface)| (role_id.clone(), surface.generation))
+            })
+            .collect::<HashMap<_, _>>();
         #[cfg(target_os = "macos")]
         let native = {
             let controller = self
@@ -273,6 +291,7 @@ impl SystemRuntimeExecutor {
             "native": native,
             "observationSequence": observation_sequence,
             "pid": std::process::id(),
+            "roleSurfaceGenerations": role_surface_generations,
             "target": target,
             "windowGeneration": generation,
             "windowId": window_id,

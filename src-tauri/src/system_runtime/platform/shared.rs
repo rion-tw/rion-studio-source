@@ -162,18 +162,32 @@ fn dispatch_mouse_input_sequence(
             diagnostics.press_duration = press_started.elapsed();
             let up_result = dispatch(false, &cleanup);
             diagnostics.up_completion = Some(up_started.elapsed());
-            up_result
-                .map(|()| diagnostics)
-                .map_err(|action| {
-                    Box::new(MouseInputSequenceError {
+            match up_result {
+                Ok(()) => Ok(diagnostics),
+                Err(action) if action.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+                    let cleanup = cleanup_context();
+                    let cleanup_error = dispatch(false, &cleanup).err();
+                    let action = if cleanup_error.is_none() {
+                        action.with_confirmed_input_neutrality()
+                    } else {
+                        action
+                    };
+                    Err(Box::new(MouseInputSequenceError {
                         action,
-                        cleanup: None,
+                        cleanup: cleanup_error,
                         diagnostics,
                         down_confirmed: true,
-                    })
-                })
+                    }))
+                }
+                Err(action) => Err(Box::new(MouseInputSequenceError {
+                    action,
+                    cleanup: None,
+                    diagnostics,
+                    down_confirmed: true,
+                })),
+            }
         }
-        Err(action) if action.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+        Err(mut action) if action.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
             let press_started = Instant::now();
             after_down_submission();
             let cleanup = cleanup_context();
@@ -181,6 +195,9 @@ fn dispatch_mouse_input_sequence(
             diagnostics.press_duration = press_started.elapsed();
             let cleanup_error = dispatch(false, &cleanup).err();
             diagnostics.up_completion = Some(up_started.elapsed());
+            if cleanup_error.is_none() {
+                action = action.with_confirmed_input_neutrality();
+            }
             Err(Box::new(MouseInputSequenceError {
                 action,
                 cleanup: cleanup_error,
@@ -568,6 +585,7 @@ type RuntimeResult<T> = Result<T, RuntimeError>;
 pub(crate) struct RuntimeError {
     pub(crate) code: &'static str,
     diagnostic: Option<RuntimeErrorDiagnostic>,
+    input_neutrality_confirmed: bool,
     pub(crate) message: String,
     rollback_error_count: Option<u32>,
 }
@@ -577,9 +595,19 @@ impl RuntimeError {
         Self {
             code,
             diagnostic: None,
+            input_neutrality_confirmed: false,
             message: message.into(),
             rollback_error_count: None,
         }
+    }
+
+    fn with_confirmed_input_neutrality(mut self) -> Self {
+        self.input_neutrality_confirmed = true;
+        self
+    }
+
+    const fn input_neutrality_confirmed(&self) -> bool {
+        self.input_neutrality_confirmed
     }
 
     fn with_rollback_error_count(mut self, count: usize) -> Self {

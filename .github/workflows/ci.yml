@@ -149,8 +149,8 @@ jobs:
             cargo test -p rion-core --lib role_lock_registries_stay_bounded_across_five_hundred_role_lifecycles -- --test-threads=8
           done
 
-  platform-build:
-    name: ${{ matrix.name }} Tauri platform build
+  platform-validation:
+    name: ${{ matrix.name }} native validation
     needs: renderer-assets
     runs-on: ${{ matrix.os }}
     strategy:
@@ -185,7 +185,8 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-bin: "false"
-          shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}
+          save-if: "false"
+          shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}
 
       - name: Download renderer assets for platform checks
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -221,11 +222,49 @@ jobs:
           retention-days: 7
           path: diagnostics/windows-test-loader
 
-      - name: Check target-platform Tauri shell
-        run: cargo check -p rion-tauri --all-targets
-
       - name: Build target-platform Tauri shell
         run: cargo build -p rion-tauri
+
+  desktop-e2e:
+    name: ${{ matrix.name }} desktop E2E
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-latest
+          - name: Windows x64
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      # The E2E feature graph is the dependency superset for CI platform work.
+      # Only trusted main pushes may refresh this immutable cache namespace.
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          cache-bin: "false"
+          cache-on-failure: "true"
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}
 
       - name: Run required desktop UI smoke
         if: github.event_name == 'pull_request'

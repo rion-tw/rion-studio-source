@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("Tauri-only release workflows", () => {
-  it("runs common checks and platform validation on macOS and Windows", async () => {
+  it("runs native validation and desktop E2E in parallel on macOS and Windows", async () => {
     const [
       workflow,
       packageJsonSource,
@@ -30,9 +30,13 @@ describe("Tauri-only release workflows", () => {
     );
     const sanitizer = workflow.slice(
       workflow.indexOf("  rust-concurrency-sanitizer:"),
-      workflow.indexOf("  platform-build:")
+      workflow.indexOf("  platform-validation:")
     );
-    const platformChecks = workflow.slice(workflow.indexOf("  platform-build:"));
+    const platformChecks = workflow.slice(
+      workflow.indexOf("  platform-validation:"),
+      workflow.indexOf("  desktop-e2e:")
+    );
+    const desktopE2e = workflow.slice(workflow.indexOf("  desktop-e2e:"));
 
     expect(workflow).toContain("workflow_call:");
     expect(workflow).toContain("pull_request:");
@@ -77,18 +81,20 @@ describe("Tauri-only release workflows", () => {
     expect(platformChecks).toContain("steps.target_rust_tests.outcome == 'failure'");
     expect(platformChecks).toContain("name: windows-rust-test-loader-");
     expect(platformChecks).toContain("path: diagnostics/windows-test-loader");
-    expect(platformChecks).toContain("id: desktop_smoke");
-    expect(platformChecks).toContain("pnpm run test:e2e:desktop:smoke");
-    expect(platformChecks).toContain("if: github.event_name == 'pull_request'");
-    expect(platformChecks).toContain("id: desktop_e2e");
-    expect(platformChecks).toContain("Run hosted full desktop E2E gate");
-    expect(platformChecks).toContain(
+    expect(platformChecks).not.toContain("id: desktop_smoke");
+    expect(platformChecks).not.toContain("pnpm run test:e2e:desktop:");
+    expect(desktopE2e).toContain("id: desktop_smoke");
+    expect(desktopE2e).toContain("pnpm run test:e2e:desktop:smoke");
+    expect(desktopE2e).toContain("if: github.event_name == 'pull_request'");
+    expect(desktopE2e).toContain("id: desktop_e2e");
+    expect(desktopE2e).toContain("Run hosted full desktop E2E gate");
+    expect(desktopE2e).toContain(
       "continue-on-error: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}"
     );
-    expect(platformChecks).toContain("timeout-minutes: 75");
-    expect(platformChecks).toContain("pnpm run test:e2e:desktop:full");
-    expect(platformChecks).toContain("include-hidden-files: true");
-    expect(platformChecks).toContain("path: .desktop-e2e-artifacts");
+    expect(desktopE2e).toContain("timeout-minutes: 75");
+    expect(desktopE2e).toContain("pnpm run test:e2e:desktop:full");
+    expect(desktopE2e).toContain("include-hidden-files: true");
+    expect(desktopE2e).toContain("path: .desktop-e2e-artifacts");
     expect(windowsLoaderDiagnostic).toContain('Filter "rion_studio_lib-*.exe"');
     expect(windowsLoaderDiagnostic).toContain("/imports $testBinary.FullName");
     expect(windowsLoaderDiagnostic).toContain("/dependents $testBinary.FullName");
@@ -113,6 +119,8 @@ describe("Tauri-only release workflows", () => {
     );
     expect(platformChecks).toContain("needs: renderer-assets");
     expect(platformChecks).not.toContain("needs: checks");
+    expect(desktopE2e).not.toContain("needs:");
+    expect(desktopE2e).not.toContain("renderer-assets-");
     expect(platformChecks.indexOf("Download renderer assets for platform checks")).toBeLessThan(
       platformChecks.indexOf("pnpm run lint:rust")
     );
@@ -124,10 +132,21 @@ describe("Tauri-only release workflows", () => {
     );
     expect(workflow).toContain("os: macos-latest");
     expect(workflow).toContain("os: windows-latest");
-    expect(platformChecks).toContain("cargo check -p rion-tauri --all-targets");
+    expect(platformChecks).not.toContain("cargo check -p rion-tauri --all-targets");
+    expect(platformChecks).toContain("cargo build -p rion-tauri");
     expect(platformChecks).toContain(
-      "shared-key: platform-tauri-${{ runner.os }}-${{ runner.arch }}"
+      "shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}"
     );
+    expect(platformChecks).toContain('save-if: "false"');
+    expect(desktopE2e).toContain(
+      "shared-key: platform-ci-${{ runner.os }}-${{ runner.arch }}"
+    );
+    expect(desktopE2e).toContain('cache-on-failure: "true"');
+    expect(desktopE2e).toContain(
+      "save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}"
+    );
+    expect(workflow.match(/shared-key: platform-ci-/gu)).toHaveLength(2);
+    expect(workflow).not.toContain("shared-key: platform-tauri-");
     expect(workflow).not.toContain("pnpm exec tauri build");
     expect(workflow).not.toContain("pnpm run dist");
     expect(workflow).not.toContain("test:native:");

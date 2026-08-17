@@ -386,7 +386,6 @@ impl TabRuntimePhase {
         }
     }
 
-    #[cfg(windows)]
     fn as_record(self) -> RuntimeTabActivationPhaseRecord {
         match self {
             Self::Dormant => RuntimeTabActivationPhaseRecord::Dormant,

@@ -38,18 +38,38 @@ impl SystemRuntimeExecutor {
         &self,
         window_id: &str,
     ) -> Option<RuntimeTabStatusIdentityRecord> {
+        // Native status follows the committed live selection. The durable Core window
+        // projection may still contain the previous selection while persistence is queued.
+        let live_window = self.presentation.existing(window_id)?;
+        let tab_id = live_window.selected_tab_id.as_ref()?;
+        let (host_generation, native_attempt_id) = {
+            let state = self.state.lock().ok()?;
+            let host_generation = state
+                .native_resources
+                .display_hosts
+                .get(window_id)?
+                .generation;
+            let native_attempt_id = state.launch_attempt_generations.get(tab_id).cloned();
+            (host_generation, native_attempt_id)
+        };
+        if let Some(attempt_id) = native_attempt_id {
+            let phase = self
+                .presentation
+                .statuses
+                .presentation_phase(tab_id)
+                .as_record();
+            return runtime_tab_status_phase_visible(phase).then(|| {
+                RuntimeTabStatusIdentityRecord {
+                    attempt_id,
+                    tab_id: tab_id.clone(),
+                    window_id: window_id.to_owned(),
+                    window_generation: host_generation,
+                    phase,
+                }
+            });
+        }
         let snapshot = self.core.runtime_kernel().snapshot().ok()?;
-        let window = snapshot.windows.get(window_id)?;
-        let tab_id = window.selected_tab_id.as_ref()?;
         let activation = snapshot.tab_activations.get(tab_id.as_str())?;
-        let host_generation = self
-            .state
-            .lock()
-            .ok()?
-            .native_resources
-            .display_hosts
-            .get(window_id)?
-            .generation;
         (runtime_tab_status_phase_visible(activation.phase)
             && activation.owner_window_id == window_id
             && activation.window_generation.0 == host_generation)

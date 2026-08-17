@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("Tauri bridge runtime event ordering", () => {
-  it("ignores stale queries, lets native events supersede queries, and handles rejection", async () => {
+  it("revision-fences concurrent native events and queries, and handles rejection", async () => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       value: {}
@@ -59,12 +59,12 @@ describe("Tauri bridge runtime event ordering", () => {
     };
     const older = deferred<RuntimeProjection>();
     const newer = deferred<RuntimeProjection>();
-    const superseded = deferred<RuntimeProjection>();
+    const newerThanNative = deferred<RuntimeProjection>();
     const rejected = deferred<RuntimeProjection>();
     invoke
       .mockImplementationOnce(() => older.promise)
       .mockImplementationOnce(() => newer.promise)
-      .mockImplementationOnce(() => superseded.promise)
+      .mockImplementationOnce(() => newerThanNative.promise)
       .mockImplementationOnce(() => rejected.promise);
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
@@ -100,15 +100,15 @@ describe("Tauri bridge runtime event ordering", () => {
       windows: []
     };
     onNativeRuntimeState?.({ payload: native });
-    superseded.resolve({
-      revision: 3,
-      capturedAt: "2026-08-03T00:00:03Z",
-      tabs: [{ id: "superseded" }],
+    const queryAfterNative = {
+      revision: 5,
+      capturedAt: "2026-08-03T00:00:05Z",
+      tabs: [{ id: "query-after-native" }],
       windows: []
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onRuntimeState).toHaveBeenCalledTimes(2);
-    expect(onRuntimeState).toHaveBeenLastCalledWith(native);
+    };
+    newerThanNative.resolve(queryAfterNative);
+    await vi.waitFor(() => expect(onRuntimeState).toHaveBeenCalledTimes(3));
+    expect(onRuntimeState).toHaveBeenLastCalledWith(queryAfterNative);
 
     onNativeRuntimeState?.({ payload: {
       revision: 2,
@@ -116,16 +116,16 @@ describe("Tauri bridge runtime event ordering", () => {
       tabs: [{ id: "stale-native" }],
       windows: []
     } });
-    expect(onRuntimeState).toHaveBeenCalledTimes(2);
+    expect(onRuntimeState).toHaveBeenCalledTimes(3);
     const lateSubscriber = vi.fn();
     window.rionStudio.onEmbeddedRuntimeStateChanged(lateSubscriber);
     expect(lateSubscriber).toHaveBeenCalledOnce();
-    expect(lateSubscriber).toHaveBeenCalledWith(native);
+    expect(lateSubscriber).toHaveBeenCalledWith(queryAfterNative);
 
     onCoreEvents?.({ payload: [{ type: "browserStatuses", statuses: [] }] });
     rejected.reject(new Error("runtime state unavailable"));
     await vi.waitFor(() => expect(consoleError).toHaveBeenCalledOnce());
-    expect(onRuntimeState).toHaveBeenCalledTimes(2);
+    expect(onRuntimeState).toHaveBeenCalledTimes(3);
 
     const onWindowState = vi.fn();
     window.rionStudio.onCurrentWindowStateChanged(onWindowState);

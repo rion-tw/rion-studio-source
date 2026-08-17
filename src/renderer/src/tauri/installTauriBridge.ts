@@ -434,7 +434,9 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     () => listen<Awaited<ReturnType<RionStudioApi["getEmbeddedRuntimeState"]>>>(
       "rion://runtime-state",
       ({ payload }) => {
-        runtimeStateRefreshSequence += 1;
+        // A native projection may have been captured before an in-flight Core status
+        // query even when it is delivered first. Keep the query alive and let the shared
+        // monotonic projection revision decide which payload is authoritative.
         emitRevisioned("runtimeState", payload);
         refreshAppSnapshot();
       }

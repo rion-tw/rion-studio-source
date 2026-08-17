@@ -241,7 +241,7 @@ async function createAndShowGameWindow(): Promise<GameWindow> {
 }
 
 async function updateSettings(): Promise<void> {
-  await navigate("/settings?section=interface");
+  await navigate("/settings?section=preferences");
   const light = await $("button=Light");
   await light.click();
   await browser.waitUntil(
@@ -252,6 +252,7 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
+  await navigate("/settings?section=interface");
   for (const label of [
     "Show macro tools button",
     "Show running macro badges",

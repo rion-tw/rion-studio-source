@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 
@@ -50,6 +50,34 @@ function installWindowBridge() {
 }
 
 describe("application sidebar window dragging", () => {
+  it("groups preferences with general settings and data transfer with system settings", () => {
+    installWindowBridge();
+    document.documentElement.dataset.platform = "windows";
+    render(
+      <MemoryRouter initialEntries={["/settings"]}>
+        <SettingsSidebar t={t} />
+      </MemoryRouter>
+    );
+
+    const general = screen.getByRole("navigation", { name: "General" });
+    const system = screen.getByRole("navigation", { name: "System" });
+    expect(within(general).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Preferences",
+      "Interface settings",
+      "Macro settings"
+    ]);
+    expect(within(system).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Data transfer",
+      "App update",
+      "Diagnostics & logs",
+      "About & Legal"
+    ]);
+
+    const preferences = within(general).getByRole("button", { name: "Preferences" });
+    expect(preferences.className).toContain("nav-item-active");
+    expect(preferences.querySelector("svg")?.classList.contains("lucide-settings-2")).toBe(true);
+  });
+
   it.each(["mac", "windows"] as const)(
     "keeps the brand region draggable and Home navigation interactive on %s",
     async (platform) => {

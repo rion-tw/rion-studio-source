@@ -1,6 +1,14 @@
 import { getEditorParentPath } from "../../app/editorNavigation";
 
-export const settingsSectionIds = ["interface", "macros", "data", "updates", "diagnostics", "aboutLegal"] as const;
+export const settingsSectionIds = [
+  "preferences",
+  "interface",
+  "macros",
+  "data",
+  "updates",
+  "diagnostics",
+  "aboutLegal"
+] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
@@ -9,6 +17,7 @@ export const settingsSectionQueryValues: Record<SettingsSectionId, string> = {
   data: "data",
   interface: "interface",
   macros: "macros",
+  preferences: "preferences",
   updates: "updates",
   diagnostics: "diagnostics"
 };
@@ -22,7 +31,7 @@ export function readSettingsSection(value: string | null): SettingsSectionId {
     return value as SettingsSectionId;
   }
 
-  return "interface";
+  return "preferences";
 }
 
 export function readSettingsReturnTo(state: unknown): string {

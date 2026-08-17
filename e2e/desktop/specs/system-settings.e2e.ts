@@ -23,8 +23,7 @@ describe("system settings boundaries", () => {
     await ensureEnglishUi();
     await acceptLegalAndSkipFirstRun();
 
-    await navigate("/settings?section=interface");
-    await $("button[aria-label='Font smoothing']").waitForExist({ timeout: 10_000 });
+    await navigate("/settings?section=preferences");
     const isMacOS = await browser.execute(
       () => document.documentElement.dataset.platform === "mac"
     );
@@ -42,6 +41,8 @@ describe("system settings boundaries", () => {
     } else {
       expect(await highRefresh.isExisting()).toBe(false);
     }
+    await navigate("/settings?section=interface");
+    await $("button[aria-label='Font smoothing']").waitForExist({ timeout: 10_000 });
     await $("button=Customize fonts").click();
     await $("button*=Fresh humanist").waitForExist({ timeout: 10_000 });
     await browser.waitUntil(

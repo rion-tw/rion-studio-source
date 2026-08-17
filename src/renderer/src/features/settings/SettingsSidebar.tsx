@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, FileJson, Info, Keyboard, Palette, ScrollText, type LucideIcon } from "lucide-react";
+import { ArrowLeft, Download, FileJson, Info, Keyboard, Palette, ScrollText, Settings2, type LucideIcon } from "lucide-react";
 import { type JSX } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -17,9 +17,9 @@ interface SettingsSidebarProps {
 }
 
 const generalSectionItems = [
+  { icon: Settings2, labelKey: "settings.preferences", value: "preferences" },
   { icon: Palette, labelKey: "settings.interface", value: "interface" },
-  { icon: Keyboard, labelKey: "settings.macros", value: "macros" },
-  { icon: FileJson, labelKey: "settings.data", value: "data" }
+  { icon: Keyboard, labelKey: "settings.macros", value: "macros" }
 ] as const satisfies ReadonlyArray<{
   icon: LucideIcon;
   labelKey: TranslationKey;
@@ -27,6 +27,7 @@ const generalSectionItems = [
 }>;
 
 const systemSectionItems = [
+  { icon: FileJson, labelKey: "settings.data", value: "data" },
   { icon: Download, labelKey: "settings.updates", value: "updates" },
   { icon: ScrollText, labelKey: "settings.diagnostics", value: "diagnostics" },
   { icon: Info, labelKey: "settings.aboutLegal", value: "aboutLegal" }

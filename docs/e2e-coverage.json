@@ -460,7 +460,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "restart"],
-      "description": "Change theme, Game Window preferences, and in-game macro interface visibility through Settings; verify macro execution remains available and preferences persist after restart."
+      "description": "Change theme and Game Window behavior through Preferences, change in-game macro interface visibility through Interface settings, verify macro execution remains available, and confirm all preferences persist after restart."
     },
     {
       "id": "GAME-WINDOWS-NATIVE-001",
@@ -595,7 +595,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Verify the macOS-only high-refresh selector (and its Windows absence), data, event-bound performance diagnostics and cancellation, update, readable font previews and override-warning placement, and legal entry points plus their non-destructive cancel boundaries."
+      "description": "Verify the macOS-only high-refresh selector in Preferences (and its Windows absence), Interface font previews and override-warning placement, Data transfer, event-bound performance diagnostics and cancellation, update, and legal entry points plus their non-destructive cancel boundaries."
     },
     {
       "id": "NATIVE-DISPLAY-001",

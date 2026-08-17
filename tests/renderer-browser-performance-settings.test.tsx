@@ -40,11 +40,12 @@ afterAll(() => {
 
 function renderSettings(
   platform: "mac" | "windows",
-  onGameBrowserSettingsPatch: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>
+  onGameBrowserSettingsPatch: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>,
+  initialEntry = "/settings?section=preferences"
 ): void {
   document.documentElement.dataset.platform = platform;
   render(
-    <MemoryRouter initialEntries={["/settings?section=interface"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <ConfirmationProvider>
         <SettingsView
           gameBrowserSettings={DEFAULT_GAME_BROWSER_SETTINGS}
@@ -99,13 +100,16 @@ describe("browser performance settings", () => {
       ...DEFAULT_GAME_BROWSER_SETTINGS,
       performance: { macosHighRefreshMode: "enabled" as const }
     }));
-    renderSettings("mac", onGameBrowserSettingsPatch);
+    renderSettings("mac", onGameBrowserSettingsPatch, "/settings");
 
+    expect(screen.getByRole("heading", { name: "Preferences" })).toBeTruthy();
     const languageRow = screen.getByRole("combobox", { name: "Language" }).closest(".settings-row");
     const highRefreshSelect = screen.getByRole("combobox", { name: "Experimental high refresh rate" });
     const highRefreshRow = highRefreshSelect.closest(".settings-row");
     expect(languageRow?.nextElementSibling).toBe(highRefreshRow);
     expect(screen.queryByRole("heading", { name: "Game" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Restore Game Windows on startup" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Customize fonts" })).toBeNull();
     expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
 
     expect(
@@ -126,5 +130,18 @@ describe("browser performance settings", () => {
 
     expect(screen.queryByRole("combobox", { name: "Experimental high refresh rate" })).toBeNull();
     expect(screen.queryByText("Maximum WebGL performance")).toBeNull();
+  });
+
+  it("keeps performance and Game Window behavior out of Interface settings", () => {
+    renderSettings(
+      "mac",
+      async () => DEFAULT_GAME_BROWSER_SETTINGS,
+      "/settings?section=interface"
+    );
+
+    expect(screen.getByRole("heading", { name: "Interface settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Customize fonts" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Experimental high refresh rate" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Restore Game Windows on startup" })).toBeNull();
   });
 });

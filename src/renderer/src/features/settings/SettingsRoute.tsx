@@ -332,7 +332,7 @@ function SettingsViewBase({
       </header>
 
       <div className="grid gap-8">
-        {activeSection === "interface" ? (
+        {activeSection === "preferences" ? (
           <>
             <SettingsSection>
               <SettingsRow
@@ -401,7 +401,11 @@ function SettingsViewBase({
                 />
               ) : null}
             </SettingsSection>
+          </>
+        ) : null}
 
+        {activeSection === "interface" ? (
+          <>
             <SettingsSection title={t("settings.gameFonts")}>
               <SettingsRow
                 title={t("settings.browserFontSmoothing")}
@@ -425,7 +429,11 @@ function SettingsViewBase({
                 onSave={onGameBrowserSettingsChange}
               />
             </SettingsSection>
+          </>
+        ) : null}
 
+        {activeSection === "preferences" ? (
+          <>
             <SettingsSection title={t("settings.gameWindows")}>
               <SettingsRow
                 title={t("settings.alwaysHideTabCloseButton")}
@@ -489,7 +497,11 @@ function SettingsViewBase({
                 }
               />
             </SettingsSection>
+          </>
+        ) : null}
 
+        {activeSection === "interface" ? (
+          <>
             <SettingsSection title={t("settings.workspace")}>
               <SettingsRow
                 title={t("settings.workspaceBackground")}

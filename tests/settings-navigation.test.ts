@@ -1,17 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { readSettingsReturnTo, readSettingsSection } from "../src/renderer/src/features/settings/settingsNavigation";
+import {
+  readSettingsReturnTo,
+  readSettingsSection,
+  settingsSectionQueryValues
+} from "../src/renderer/src/features/settings/settingsNavigation";
 
 describe("settings navigation", () => {
   it("normalizes section query values", () => {
+    expect(readSettingsSection("preferences")).toBe("preferences");
     expect(readSettingsSection("interface")).toBe("interface");
     expect(readSettingsSection("macros")).toBe("macros");
     expect(readSettingsSection("data")).toBe("data");
     expect(readSettingsSection("updates")).toBe("updates");
     expect(readSettingsSection("about-legal")).toBe("aboutLegal");
-    expect(readSettingsSection("network")).toBe("interface");
-    expect(readSettingsSection("unknown")).toBe("interface");
-    expect(readSettingsSection(null)).toBe("interface");
+    expect(readSettingsSection("network")).toBe("preferences");
+    expect(readSettingsSection("unknown")).toBe("preferences");
+    expect(readSettingsSection(null)).toBe("preferences");
+  });
+
+  it("keeps existing deep links stable while adding preferences", () => {
+    expect(settingsSectionQueryValues).toMatchObject({
+      data: "data",
+      interface: "interface",
+      preferences: "preferences"
+    });
   });
 
   it("returns to a valid application route", () => {

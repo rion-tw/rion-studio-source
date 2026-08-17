@@ -77,7 +77,7 @@ function renderSettings(
 ): void {
   document.documentElement.dataset.platform = "windows";
   render(
-    <MemoryRouter initialEntries={["/settings?section=interface"]}>
+    <MemoryRouter initialEntries={["/settings?section=preferences"]}>
       <ConfirmationProvider>
         <SettingsView
           gameBrowserSettings={DEFAULT_GAME_BROWSER_SETTINGS}

@@ -1,4 +1,4 @@
-import { $, browser, expect } from "@wdio/globals";
+import { $, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {

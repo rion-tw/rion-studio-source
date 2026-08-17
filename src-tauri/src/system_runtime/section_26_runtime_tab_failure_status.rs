@@ -287,7 +287,7 @@ impl SystemRuntimeExecutor {
         webview_label: &str,
         presentation: RuntimeTabStatusPresentation,
     ) {
-        if let Ok(mut state) = self.state()
+        let generation = if let Ok(mut state) = self.state()
             && let Some(status) = state
                 .native_resources
                 .display_hosts
@@ -296,6 +296,29 @@ impl SystemRuntimeExecutor {
             && status.webview.label() == webview_label
         {
             status.presentation = presentation;
+            state
+                .native_resources
+                .display_hosts
+                .get(window_id)
+                .map(|host| host.generation)
+        } else {
+            None
+        };
+        #[cfg(feature = "desktop-e2e")]
+        if let Some(generation) = generation {
+            let presentation = presentation.as_str();
+            crate::desktop_e2e::record_event(
+                &format!("runtime-tab-status-presentation:{presentation}"),
+                Some(window_id),
+                Some(generation),
+                None,
+                json!({
+                    "presentation": presentation,
+                    "webviewLabel": webview_label,
+                }),
+            );
         }
+        #[cfg(not(feature = "desktop-e2e"))]
+        let _ = generation;
     }
 }

@@ -316,11 +316,19 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     const snapshot = await windowSnapshot(WINDOW_C);
     const tab = snapshot.kernel?.tabs.find((candidate) => candidate.sourceId === role.id);
     if (!tab) throw new Error(`Runtime tab was not projected for ${role.id}`);
-    await waitEvent({
+    const navigating = await waitEvent({
       afterSequence: cursor,
       kind: `tab-launch-phase:${tab.tabId}:navigating`,
       timeoutMs: 45_000
     });
+    if (process.platform === "win32") {
+      await waitEvent({
+        afterSequence: navigating.sequence,
+        kind: "runtime-tab-status-presentation:loading",
+        minimumGeneration: snapshot.windowGeneration,
+        windowId: WINDOW_C
+      });
+    }
     await waitForFixtureNavigation(recoveryFixtureId(RECOVERY_ROLE_NAMES[index]));
     const loading = await windowSnapshot(WINDOW_C);
     expect(loading.kernel?.tabs.find((candidate) => candidate.tabId === tab.tabId)

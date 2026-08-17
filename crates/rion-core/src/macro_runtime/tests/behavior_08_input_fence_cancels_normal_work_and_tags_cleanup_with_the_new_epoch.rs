@@ -82,7 +82,7 @@ fn stopping_role_cannot_report_a_successful_input_resume() {
 }
 
 #[test]
-fn navigation_failure_terminalizes_a_transferred_multi_role_run_without_stopping_the_role() {
+fn navigation_failure_terminalizes_a_transferred_multi_role_run_after_a_recovery_fence() {
     let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
     let runtime = MacroRuntime::new(Arc::new(move |batch| {
         let _ = events.send(batch);
@@ -102,6 +102,7 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_without_stopping
     runtime.seed_running_status("m1", "r1").unwrap();
     runtime.seed_running_status("m1", "r2").unwrap();
     assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
+    let recovery_epoch = runtime.fence_role_input("r1").unwrap();
 
     runtime
         .terminalize_role_after_navigation_failure("r1")
@@ -116,6 +117,7 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_without_stopping
         .into_iter()
         .find(|role| role.role_id == "r1")
         .unwrap();
+    assert_eq!(role.input_epoch, recovery_epoch);
     assert!(role.quiesced);
     assert!(!role.stopping);
     assert!(runtime.resume_role_input("r1", role.input_epoch).unwrap());

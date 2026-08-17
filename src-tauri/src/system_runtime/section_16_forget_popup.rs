@@ -456,6 +456,21 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
+        let macro_input_recovery_active = self.state.lock().ok().is_some_and(|state| {
+            state.macro_input_recoveries.contains_key(&role_id)
+        });
+        if should_project_surface_failure_to_core(macro_input_recovery_active)
+            && let Err(error) = self
+                .core
+                .terminalize_macro_runs_after_navigation_failure(&role_id)
+        {
+            self.emit_navigation_input_error(
+                "SYSTEM_SURFACE_RECOVERY_MACRO_TERMINAL_FAILED",
+                &error.to_string(),
+                &role_id,
+                "recovery",
+            );
+        }
         self.record_input_fence_event(&role_id, recovery_epoch, "started");
         let drained = self
             .core
@@ -506,9 +521,6 @@ impl SystemRuntimeExecutor {
         }
         self.record_input_fence_event(&role_id, recovery_epoch, "drained");
         self.clear_role_keys(&role_id);
-        let macro_input_recovery_active = self.state.lock().ok().is_some_and(|state| {
-            state.macro_input_recoveries.contains_key(&role_id)
-        });
         if should_project_surface_failure_to_core(macro_input_recovery_active) {
             self.report_system_surface_state_async(role_id.clone(), Some(reason.clone()), false);
         }

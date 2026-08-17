@@ -47,7 +47,10 @@ function localizedErrorKey(code: unknown) {
     GAME_WINDOW_NAME_REQUIRED: "error.gameWindowNameRequired",
     GAME_WINDOW_NAME_TOO_LONG: "error.gameWindowNameTooLong",
     MACRO_ROLE_STOPPING: "error.macroRoleStopping",
-    MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced"
+    MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced",
+    MACRO_ROLE_INPUT_RECOVERING: "error.macroRoleInputRecovering",
+    MACRO_ROLE_INPUT_RESTART_REQUIRED: "error.macroRoleInputRestartRequired",
+    SYSTEM_TRUSTED_INPUT_RECOVERING: "error.trustedInputRecovering"
   } as const;
   return typeof code === "string" ? keys[code as keyof typeof keys] : undefined;
 }

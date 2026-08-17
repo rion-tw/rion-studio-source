@@ -247,6 +247,7 @@ impl MacroRuntime {
     }
 
     fn stop_macro_run_chain(&self, macro_id: &str) -> CoreResult<()> {
+        self.cancel_input_restarts_for_macros(&HashSet::from([macro_id.to_owned()]))?;
         let controls = self.controls_matching(|control| {
             control
                 .macro_ids
@@ -273,6 +274,7 @@ impl MacroRuntime {
     /// cancellation flag is the safety boundary, whereas joining the worker is
     /// resource cleanup and can take up to `INVOCATION_STOP_TIMEOUT`.
     pub fn request_stop_role(&self, role_id: &str) -> CoreResult<()> {
+        self.cancel_input_recovery_for_role(role_id)?;
         let controls = {
             let mut inner = self
                 .shared
@@ -391,9 +393,12 @@ impl MacroRuntime {
 
     pub fn allow_role_after_launch(&self, role_id: &str) {
         if let Ok(mut inner) = self.shared.inner.lock() {
+            cancel_recovery_for_role(&mut inner, role_id);
             inner.stopping_role_ids.remove(role_id);
             inner.transferring_role_ids.remove(role_id);
             inner.quiesced_role_ids.remove(role_id);
+            inner.recovering_role_ids.remove(role_id);
+            inner.restart_required_role_ids.remove(role_id);
             let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
             *epoch = epoch.saturating_add(1);
         }
@@ -499,6 +504,7 @@ impl MacroRuntime {
     }
 
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
+        self.cancel_input_recovery_for_role(role_id)?;
         let releases = {
             let inner = self
                 .shared
@@ -596,7 +602,7 @@ impl MacroRuntime {
             }
             let active = inner.statuses.values().any(|status| {
                 macro_ids.contains(&status.macro_id)
-                    && matches!(status.state.as_str(), "running" | "stopping")
+                    && matches!(status.state.as_str(), "running" | "stopping" | "recovering")
             });
             if active && !stop_active {
                 return Err(CoreError::Domain {
@@ -615,6 +621,9 @@ impl MacroRuntime {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
+            if stop_active {
+                cancel_recovery_intents_for_macros(&mut inner, &macro_ids);
+            }
             inner.mutating_macro_ids.extend(macro_ids.iter().cloned());
             inner
                 .mutation_leases
@@ -654,13 +663,16 @@ impl MacroRuntime {
     pub fn dispatch_results(&self, results: Vec<BrowserActionResult>) -> CoreResult<()> {
         for result in results {
             validate_result(&result)?;
-            if let Some(pending) = self
+            let pending = self
                 .shared
                 .pending
                 .lock()
                 .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?
-                .remove(&result.request_id)
-            {
+                .remove(&result.request_id);
+            if let Some(pending) = pending {
+                if result.error_code.as_deref() == Some("SYSTEM_TRUSTED_INPUT_INDETERMINATE") {
+                    self.ensure_input_recovery(&result.request_id, &pending.role_id)?;
+                }
                 if let Some(signal) = pending.signal.upgrade() {
                     let _signal_guard = signal.wake.0.lock().ok();
                     let _ = pending.result.send(result);
@@ -692,7 +704,11 @@ impl MacroRuntime {
             inner.mutation_leases.clear();
             inner.mutating_macro_ids.clear();
             inner.input_epochs.clear();
+            inner.input_recoveries.clear();
+            inner.input_recovery_by_role.clear();
             inner.quiesced_role_ids.clear();
+            inner.recovering_role_ids.clear();
+            inner.restart_required_role_ids.clear();
             inner.stopping_role_ids.clear();
             inner.transferring_role_ids.clear();
             inner.statuses.clear();
@@ -712,6 +728,11 @@ impl MacroRuntime {
             return Err(CoreError::ShuttingDown);
         }
         validate_start_request(&request)?;
+        let restart_intent = (!defer_execution).then(|| MacroRestartIntent {
+            macro_id: request.macro_id.clone(),
+            sequence: 0,
+            source_role_id: request.source_role_id.clone(),
+        });
         let macros = request
             .macros
             .into_iter()
@@ -757,6 +778,12 @@ impl MacroRuntime {
             request.macro_id.clone(),
             roles.iter().cloned().collect(),
         );
+        if let Some(mut restart_intent) = restart_intent {
+            restart_intent.sequence = invocation_number;
+            if let Ok(mut current) = control.restart_intent.lock() {
+                *current = Some(restart_intent);
+            }
+        }
         let started_at = Utc::now().to_rfc3339();
         let statuses = roles
             .iter()
@@ -790,6 +817,24 @@ impl MacroRuntime {
                 return Err(CoreError::Domain {
                     code: "MACRO_ROLE_STOPPING",
                     message: STOPPING_ROLE_MESSAGE.to_owned(),
+                });
+            }
+            if roles
+                .iter()
+                .any(|role_id| inner.restart_required_role_ids.contains(role_id))
+            {
+                return Err(CoreError::Domain {
+                    code: "MACRO_ROLE_INPUT_RESTART_REQUIRED",
+                    message: INPUT_RESTART_REQUIRED_ROLE_MESSAGE.to_owned(),
+                });
+            }
+            if roles
+                .iter()
+                .any(|role_id| inner.recovering_role_ids.contains(role_id))
+            {
+                return Err(CoreError::Domain {
+                    code: "MACRO_ROLE_INPUT_RECOVERING",
+                    message: INPUT_RECOVERING_ROLE_MESSAGE.to_owned(),
                 });
             }
             if roles

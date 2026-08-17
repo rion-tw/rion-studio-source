@@ -567,6 +567,11 @@ pub struct SystemRuntimeInputFenceRecord {
     #[ts(optional, type = "number")]
     pub surface_generation: Option<u64>,
     pub recovery_scheduled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recovery_id: Option<String>,
+    #[serde(default)]
+    pub pending_macro_restart_count: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -587,6 +592,11 @@ pub struct SystemRuntimeInputFenceEventRecord {
     pub drained: bool,
     pub pending_page_finish_count: u32,
     pub recovery_scheduled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recovery_id: Option<String>,
+    #[serde(default)]
+    pub pending_macro_restart_count: u32,
 }
 
 fn default_system_runtime_shutdown_state() -> String {

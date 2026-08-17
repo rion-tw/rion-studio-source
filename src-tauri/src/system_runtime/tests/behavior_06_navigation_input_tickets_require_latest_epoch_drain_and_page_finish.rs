@@ -7,6 +7,8 @@ fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInput
         drained: false,
         surface_generation,
         recovery_scheduled: false,
+        macro_recovery_id: None,
+        pending_macro_restart_count: 0,
         resuming: false,
     }
 }

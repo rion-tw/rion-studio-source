@@ -33,6 +33,7 @@ pub use app::{AppCore, BrowserLaunchCompletionRecord};
 pub use bootstrap_settings::additional_browser_arguments;
 pub use error::{CoreError, CoreErrorPayload, CoreResult};
 pub use legal::current_versions as current_legal_document_versions;
+pub use macro_runtime::{MacroInputRecoveryCompletion, MacroInputRecoveryTicket};
 pub use model::{
     AppCoreOptions, AppUpdateInstallAttemptRecord, AppUpdateStatusRecord,
     ApplicationDiagnosticsSnapshotRecord, ApplicationLifecycleStatusRecord, BrowserAction,

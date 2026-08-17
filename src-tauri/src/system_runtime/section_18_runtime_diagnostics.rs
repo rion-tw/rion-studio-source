@@ -458,6 +458,10 @@ impl SystemRuntimeExecutor {
                             surface_generation: fence.map(|fence| fence.surface_generation),
                             recovery_scheduled: fence
                                 .is_some_and(|fence| fence.recovery_scheduled),
+                            recovery_id: fence
+                                .and_then(|fence| fence.macro_recovery_id.clone()),
+                            pending_macro_restart_count: fence
+                                .map_or(0, |fence| fence.pending_macro_restart_count),
                         }
                     })
                     .collect();

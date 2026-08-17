@@ -273,6 +273,20 @@ export async function injectDuplicateRoleCookieCheckpoint(
   };
 }
 
+export async function armIndeterminateMacroInput(
+  roleId: string
+): Promise<{ armed: true; roleId: string }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id) => core.invoke("desktop_e2e_arm_indeterminate_macro_input", {
+      roleId: id,
+      token
+    }),
+    sessionToken(),
+    roleId
+  );
+  return result as unknown as { armed: true; roleId: string };
+}
+
 export async function controlWindow(
   windowId: string,
   request: WindowControlRequest

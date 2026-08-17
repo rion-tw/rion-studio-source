@@ -356,6 +356,19 @@ impl SystemRuntimeExecutor {
             ticket.surface_generation = generation;
         }
         state.last_input_ready_epochs.remove(role_id);
+        let (macro_recovery_id, pending_macro_restart_count) = state
+            .role_input_fences
+            .get(role_id)
+            .map(|fence| {
+                (
+                    fence.macro_recovery_id.clone(),
+                    fence.pending_macro_restart_count,
+                )
+            })
+            .unwrap_or_default();
+        if let Some(recovery) = state.macro_input_recoveries.get_mut(role_id) {
+            recovery.input_epoch = input_epoch;
+        }
         let superseded_operation = state
             .role_input_fences
             .insert(
@@ -368,6 +381,8 @@ impl SystemRuntimeExecutor {
                     drained: false,
                     surface_generation: generation,
                     recovery_scheduled: false,
+                    macro_recovery_id,
+                    pending_macro_restart_count,
                     resuming: false,
                 },
             )
@@ -525,6 +540,8 @@ impl SystemRuntimeExecutor {
             drained,
             pending,
             recovery_scheduled,
+            recovery_id,
+            pending_macro_restart_count,
         ) = self
             .state
             .lock()
@@ -555,7 +572,23 @@ impl SystemRuntimeExecutor {
                             .count()
                             .min(u32::MAX as usize) as u32,
                         fence.recovery_scheduled,
+                        fence.macro_recovery_id.clone(),
+                        fence.pending_macro_restart_count,
                     )
+                }).or_else(|| {
+                    state.macro_input_recoveries.get(role_id).map(|recovery| {
+                        (
+                            fallback_reason.to_owned(),
+                            0,
+                            None,
+                            None,
+                            false,
+                            0,
+                            false,
+                            Some(recovery.recovery_id.clone()),
+                            recovery.pending_macro_restart_count,
+                        )
+                    })
                 })
             })
             .unwrap_or_else(|| {
@@ -567,6 +600,8 @@ impl SystemRuntimeExecutor {
                     false,
                     0,
                     false,
+                    None,
+                    0,
                 )
             });
         let record = SystemRuntimeInputFenceEventRecord {
@@ -580,10 +615,28 @@ impl SystemRuntimeExecutor {
             drained,
             pending_page_finish_count: pending,
             recovery_scheduled,
+            recovery_id: recovery_id.clone(),
+            pending_macro_restart_count,
         };
         if let Ok(mut diagnostics) = self.diagnostics.lock() {
             diagnostics.push_input_fence_event(record);
         }
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "input-fence-event",
+            None,
+            surface_generation,
+            None,
+            json!({
+                "drained": drained,
+                "event": event,
+                "inputEpoch": input_epoch,
+                "pendingMacroRestartCount": pending_macro_restart_count,
+                "reason": reason.clone(),
+                "recoveryId": recovery_id.clone(),
+                "roleId": role_id,
+            }),
+        );
         let context = json!({
             "drained": drained,
             "elapsedMs": elapsed_ms,
@@ -592,6 +645,8 @@ impl SystemRuntimeExecutor {
             "pendingPageFinishCount": pending,
             "reason": reason,
             "recoveryScheduled": recovery_scheduled,
+            "recoveryId": recovery_id,
+            "pendingMacroRestartCount": pending_macro_restart_count,
             "roleId": role_id,
             "surfaceGeneration": surface_generation,
         });

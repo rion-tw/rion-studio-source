@@ -7,6 +7,7 @@ include!("macro_runtime/section_02_new.rs");
 include!("macro_runtime/section_03_stop_role_matching.rs");
 include!("macro_runtime/section_04_start_child_invocation.rs");
 include!("macro_runtime/section_05_discard_unstarted_invocation.rs");
+include!("macro_runtime/section_06_input_recovery.rs");
 
 #[cfg(test)]
 mod tests;

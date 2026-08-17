@@ -23,11 +23,26 @@ impl SystemRuntimeExecutor {
                     return;
                 };
                 if let Some(state) = app.try_state::<crate::CoreState>() {
-                    let _ = state
-                        .runtime
-                        .set_role_input_fence(&role_id, fenced.input_epoch);
+                    let generation = state.runtime.surface_generation_for_role(&role_id);
+                    let _ = state.runtime.install_role_input_fence(
+                        &role_id,
+                        fenced.input_epoch,
+                        "trusted-input-quarantined",
+                        generation,
+                    );
                 }
-                let _ = core.drain_macro_input(&role_id, fenced.input_epoch);
+                let drained = core
+                    .drain_macro_input(&role_id, fenced.input_epoch)
+                    .ok()
+                    .is_some_and(|record| record.current);
+                if drained
+                    && let Some(state) = app.try_state::<crate::CoreState>()
+                    && let Ok(mut runtime_state) = state.runtime.state.lock()
+                    && let Some(fence) = runtime_state.role_input_fences.get_mut(&role_id)
+                    && fence.input_epoch == fenced.input_epoch
+                {
+                    fence.drained = true;
+                }
             });
         }
     }
@@ -81,6 +96,9 @@ impl SystemRuntimeExecutor {
             .cloned();
         if let Some(lane) = lane {
             retire_role_input_lane(&lane);
+        }
+        if let Ok(mut state) = self.state.lock() {
+            state.macro_input_recoveries.remove(role_id);
         }
         Ok(())
     }

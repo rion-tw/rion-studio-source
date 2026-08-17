@@ -279,7 +279,7 @@ export interface MacroPageRequest {
   roleId: string;
 }
 
-export type MacroRunState = "running" | "stopping" | "failed" | "cancelled";
+export type MacroRunState = "running" | "recovering" | "stopping" | "failed" | "cancelled";
 
 export interface MacroRunStatus {
   roleId: string;

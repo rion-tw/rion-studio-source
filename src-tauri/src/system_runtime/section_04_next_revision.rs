@@ -666,10 +666,13 @@ struct RuntimeState {
     auto_restore_attempted: bool,
     close_coordinator: CloseCoordinator,
     controlled_navigation_webviews: HashMap<String, u32>,
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e_indeterminate_macro_input_roles: HashSet<String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     dormant_window_states: HashMap<String, DormantWindowState>,
     launch_attempt_generations: HashMap<String, String>,
     main_frame_navigation_input_fences: HashMap<String, MainFrameNavigationInputFence>,
+    macro_input_recoveries: HashMap<String, MacroInputRecoveryRuntimeState>,
     role_input_fences: HashMap<String, RoleInputFence>,
     last_completed_document_ids: HashMap<String, String>,
     last_input_ready_epochs: HashMap<String, u64>,

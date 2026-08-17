@@ -490,7 +490,12 @@ impl SystemRuntimeExecutor {
         }
         self.record_input_fence_event(&role_id, recovery_epoch, "drained");
         self.clear_role_keys(&role_id);
-        self.report_system_surface_state_async(role_id.clone(), Some(reason.clone()), false);
+        let macro_input_recovery_active = self.state.lock().ok().is_some_and(|state| {
+            state.macro_input_recoveries.contains_key(&role_id)
+        });
+        if should_project_surface_failure_to_core(macro_input_recovery_active) {
+            self.report_system_surface_state_async(role_id.clone(), Some(reason.clone()), false);
+        }
         let mut destructive_started = false;
         let result = self
             .rebuild_role_surface(&transaction, &mut destructive_started)

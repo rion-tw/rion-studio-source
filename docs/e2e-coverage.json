@@ -36,6 +36,7 @@
         "p0-macro-terminal-cleanup",
         "p0-tabs-visible-activation",
         "p1-macro-multirole",
+        "p1-macro-input-recovery",
         "p1-role-session-seed",
         "p1-role-session-isolation",
         "p1-workspace-shared-role",
@@ -78,6 +79,7 @@
         "p0-macro-terminal-cleanup",
         "p0-tabs-visible-activation",
         "p1-macro-multirole",
+        "p1-macro-input-recovery",
         "p1-role-session-seed",
         "p1-role-session-isolation",
         "p1-workspace-shared-role",
@@ -334,6 +336,20 @@
       "risk": "native",
       "outcomes": ["success", "failure"],
       "description": "Run one looping macro across two workspace roles and preserve balanced iterations through a visible role focus change."
+    },
+    {
+      "id": "MACRO-INPUT-RECOVERY-011",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-macro-input-recovery",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Inject one indeterminate trusted-input acknowledgement into a visibly started zero-interval looping macro, rebuild the affected role surface, restart the eligible root exactly once, and prove native input resumes on the replacement page without another Start action."
     },
     {
       "id": "MACRO-SHORTCUT-REENTRY-007",

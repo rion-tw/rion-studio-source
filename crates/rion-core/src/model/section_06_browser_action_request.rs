@@ -693,6 +693,7 @@ pub struct MacroReleaseRequest {
 pub struct MacroRunStatus {
     pub role_id: String,
     pub macro_id: String,
+    #[ts(type = "\"running\" | \"recovering\" | \"stopping\" | \"failed\" | \"cancelled\"")]
     pub state: String,
     pub iteration: Option<u32>,
     pub last_click: Option<MacroLastClick>,

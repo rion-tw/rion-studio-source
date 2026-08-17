@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { getDashboardMacroItems } from "../src/renderer/src/features/dashboard/dashboardUtils";
 import { createMacroListRunActionState } from "../src/renderer/src/features/macros/MacroListControls";
-import type { Macro, Role, RoleStatus } from "../src/shared/types";
+import type { Macro, MacroRunStatus, Role, RoleStatus } from "../src/shared/types";
 
 const macro: Macro = {
   id: "macro-1",
@@ -73,5 +73,39 @@ describe("macro readiness admission", () => {
 
     expect(macroListState(readyStatus)).toMatchObject({ canStart: true, disabled: false });
     expect(dashboardState(readyStatus)).toMatchObject({ disabled: false, kind: "start" });
+  });
+
+  it("keeps a recovering macro active and stoppable", () => {
+    const readyStatus: RoleStatus = {
+      roleId: role.id,
+      state: "running",
+      automationState: "ready",
+      pageHealth: "healthy"
+    };
+    const recoveringStatus: MacroRunStatus = {
+      roleId: role.id,
+      macroId: macro.id,
+      state: "recovering",
+      startedAt: macro.createdAt,
+      updatedAt: macro.updatedAt
+    };
+    const macroStatusByRun = new Map([[`${role.id}:${macro.id}`, recoveringStatus]]);
+
+    expect(createMacroListRunActionState({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      hasUnassignedDependency: false,
+      macro,
+      macroStatusByRun,
+      statusByRole: new Map([[role.id, readyStatus]])
+    })).toMatchObject({ canStop: true, disabled: false, isRunning: true, kind: "stop" });
+    expect(getDashboardMacroItems({
+      busyMacroIds: new Set(),
+      busyRunKeys: new Set(),
+      macroStatusByRun,
+      macros: [macro],
+      roles: [role],
+      statusByRole: new Map([[role.id, readyStatus]])
+    })[0]).toMatchObject({ action: { disabled: false, isRunning: true, kind: "stop" }, runningCount: 1 });
   });
 });

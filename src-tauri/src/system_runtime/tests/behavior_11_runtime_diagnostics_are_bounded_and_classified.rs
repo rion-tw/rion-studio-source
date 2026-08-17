@@ -41,6 +41,8 @@ fn recent_input_fence_history_keeps_forty_privacy_safe_events() {
             drained: true,
             pending_page_finish_count: 0,
             recovery_scheduled: false,
+            recovery_id: None,
+            pending_macro_restart_count: 0,
         });
     }
 

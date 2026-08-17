@@ -23,7 +23,7 @@ import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared
 
 import { type MacroListSortKey, type MacroListSortState } from "./macroListUtils";
 
-import { createMacroRunKey } from "./macroUtils";
+import { createMacroRunKey, isMacroRunActive } from "./macroUtils";
 
 interface MacroSortHeaderProps {
   label: string;
@@ -171,7 +171,7 @@ export function createMacroListRunActionState({
   const assignedStatuses = macro.roleIds
     .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
     .filter((status): status is MacroRunStatus => Boolean(status));
-  const isRunning = assignedStatuses.some((status) => status.state === "running");
+  const isRunning = assignedStatuses.some(isMacroRunActive);
   const isStopping = assignedStatuses.some((status) => status.state === "stopping");
   const hasRunningBrowser = macro.roleIds.some(
     (roleId) => statusByRole.get(roleId)?.state === "running"

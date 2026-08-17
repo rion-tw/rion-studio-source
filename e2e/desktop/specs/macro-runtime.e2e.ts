@@ -2,6 +2,7 @@ import { $, browser, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {
+  armIndeterminateMacroInput,
   detachTerminatedApplicationSession,
   focusMainApplicationWindow,
   inputDiagnostics,
@@ -27,6 +28,7 @@ import {
   installRendererEventJournal,
   rendererEventCursor,
   waitForMacroProjection,
+  waitForRecoveryAttempt,
   waitForRoleProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
@@ -38,6 +40,7 @@ import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../suppor
 // [journey:MACRO-MULTIROLE-005]
 // [journey:MACRO-SHORTCUT-REENTRY-007]
 // [journey:MACRO-MODIFIER-CONTINUITY-008]
+// [journey:MACRO-INPUT-RECOVERY-011]
 // [journey:ROLE-KEY-BLUR-004]
 
 interface Scenario {
@@ -437,6 +440,84 @@ async function multiRolePhase(): Promise<void> {
     .map((status) => status.iteration ?? 0);
   expect(Math.max(...iterations) - Math.min(...iterations)).toBeLessThanOrEqual(1);
   await stopMacro(scenario.macro, macroCursor);
+  await cleanup(scenario);
+  await shutdownAndWaitForFlush();
+}
+
+async function inputRecoveryPhase(): Promise<void> {
+  await bootstrap();
+  const scenario = await createScenario({
+    fixtureRoleIds: ["macro-input-recovery"],
+    name: "E2E Input Recovery",
+    repeat: { intervalMs: 0, type: "loop" },
+    steps: [{ action: "tap", code: "KeyR", id: "recovery-key", type: "key" }]
+  });
+  await launchRole(scenario.roles[0], "new-window");
+  const macroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
+  await waitForMacroProjection({
+    afterSequence: macroCursor,
+    macroId: scenario.macro.id,
+    minimumIteration: 1,
+    roleIds: [scenario.roles[0].id]
+  });
+
+  const recoveryCursor = await rendererEventCursor();
+  const controlCursor = (await probe()).latestSequence;
+  expect(await armIndeterminateMacroInput(scenario.roles[0].id)).toMatchObject({
+    armed: true,
+    roleId: scenario.roles[0].id
+  });
+  const [recoveringStatuses, fenceEvent, recoveryAttempt] = await Promise.all([
+    waitForMacroProjection({
+      afterSequence: recoveryCursor,
+      macroId: scenario.macro.id,
+      roleIds: [scenario.roles[0].id],
+      state: "recovering"
+    }),
+    waitEvent({ afterSequence: controlCursor, kind: "input-fence-event", timeoutMs: 45_000 }),
+    waitForRecoveryAttempt({
+      afterSequence: recoveryCursor,
+      phase: "completed",
+      roleId: scenario.roles[0].id,
+      status: "applied"
+    })
+  ]);
+  expect(recoveringStatuses).toEqual(expect.arrayContaining([
+    expect.objectContaining({ macroId: scenario.macro.id, state: "recovering" })
+  ]));
+  expect(fenceEvent.details).toMatchObject({
+    event: "recovery-scheduled",
+    pendingMacroRestartCount: 1,
+    roleId: scenario.roles[0].id
+  });
+  expect(recoveryAttempt).toMatchObject({ phase: "completed", status: "applied" });
+
+  const recoveryTerminal = await waitEvent({
+    afterSequence: controlCursor,
+    kind: "macro-input-recovery-terminal",
+    timeoutMs: 45_000
+  });
+  expect(recoveryTerminal.details).toMatchObject({
+    restartedCount: 1,
+    roleId: scenario.roles[0].id,
+    skippedCount: 0,
+    status: "applied"
+  });
+  await waitForMacroProjection({
+    afterSequence: recoveryCursor,
+    macroId: scenario.macro.id,
+    roleIds: [scenario.roles[0].id],
+    state: "running"
+  });
+  const recoveredFixtureCursor = await fixtureCursor();
+  const recoveredKey = await waitFixtureEvent({
+    afterSequence: recoveredFixtureCursor,
+    kind: "keydown",
+    roleId: "macro-input-recovery"
+  });
+  expect(recoveredKey.code).toBe("KeyR");
+
+  await stopMacro(scenario.macro, recoveryCursor);
   await cleanup(scenario);
   await shutdownAndWaitForFlush();
 }
@@ -1129,6 +1210,7 @@ describe("native macro runtime journeys", () => {
     else if (phase === "p0-macro-keyboard-lifecycle") await keyboardLifecyclePhase();
     else if (phase === "p0-macro-background-tab") await backgroundTabPhase();
     else if (phase === "p1-macro-multirole") await multiRolePhase();
+    else if (phase === "p1-macro-input-recovery") await inputRecoveryPhase();
     else throw new Error(`Unknown native macro phase: ${phase}`);
   });
 });

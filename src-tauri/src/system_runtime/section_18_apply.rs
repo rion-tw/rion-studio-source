@@ -367,6 +367,12 @@ impl SystemRuntimeExecutor {
         let intent = request.intent.clone();
         let scheduled_at_ms = request.scheduled_at_ms;
         let deadline_ms = request.deadline_ms;
+        #[cfg(feature = "desktop-e2e")]
+        let inject_indeterminate = request.intent == "normal"
+            && matches!(&request.action, BrowserAction::Key { .. } | BrowserAction::Click { .. })
+            && self.desktop_e2e_take_indeterminate_macro_input(&role_id);
+        #[cfg(not(feature = "desktop-e2e"))]
+        let inject_indeterminate = false;
         let now_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
         let mut native_operation = NativeOperationContext::new(
             NativeOperationSubsystem::Input,
@@ -380,10 +386,16 @@ impl SystemRuntimeExecutor {
             SystemRuntimeOperationCompletionScope::NativeSubmission
         })
         .with_role(&role_id);
-        let result = (|| {
-            let context = self.input_dispatch_context(&request)?;
-            native_operation.surface_generation = Some(context.surface_generation);
-            self.with_input_context_lane(&context, || match request.action {
+        let result = if inject_indeterminate {
+            Err(RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                "Desktop E2E injected an indeterminate native input acknowledgement.",
+            ))
+        } else {
+            (|| {
+                let context = self.input_dispatch_context(&request)?;
+                native_operation.surface_generation = Some(context.surface_generation);
+                self.with_input_context_lane(&context, || match request.action {
                 BrowserAction::Focus => {
                     // Native key and mouse delivery targets the role WebView directly. Focus is
                     // therefore an event-fenced page-readiness check, not permission to blur the
@@ -427,8 +439,14 @@ impl SystemRuntimeExecutor {
                     self.dispatch_click_action_in_lane(&role_id, &click, &context)?;
                     Ok(None)
                 }
-            })
-        })();
+                })
+            })()
+        };
+        if let Err(error) = result.as_ref()
+            && error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+        {
+            self.schedule_macro_input_recovery(&role_id, &request_id, error);
+        }
         self.record_macro_browser_action_result(
             &request_id,
             &role_id,
@@ -495,19 +513,29 @@ impl SystemRuntimeExecutor {
         match dispatch_result {
             Ok(()) => {
                 if let Err(error) = self.complete_key_transition(&transition, true) {
-                    self.compensate_key_prefix(role_id, &webview, &executed, context);
+                    let cleanup_error =
+                        self.compensate_key_prefix(role_id, &webview, &executed, context);
                     let _ = self.complete_key_transition(&transition, false);
+                    if let Some(cleanup_error) = cleanup_error
+                        && cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                    {
+                        return Err(cleanup_error);
+                    }
                     return Err(error);
                 }
                 Ok(())
             }
             Err(error) => {
-                if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
-                    self.quarantine_role_input(role_id, &error);
-                }
-                self.compensate_key_prefix(role_id, &webview, &executed, context);
+                let cleanup_error =
+                    self.compensate_key_prefix(role_id, &webview, &executed, context);
                 let _ = self.complete_key_transition(&transition, false);
-                Err(error)
+                if let Some(cleanup_error) = cleanup_error
+                    && cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                {
+                    Err(cleanup_error)
+                } else {
+                    Err(error)
+                }
             }
         }
     }
@@ -707,16 +735,16 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         executed: &[EmbeddedKeyEffectRecord],
         context: &InputDispatchContext,
-    ) {
+    ) -> Option<RuntimeError> {
         let cleanup = self.cleanup_input_context(context);
         for effect in key_prefix_compensation(executed) {
             if let Err(error) =
                 self.dispatch_guarded_macro_key_effect(role_id, webview, &effect, &cleanup)
             {
-                self.quarantine_role_input(role_id, &error);
-                break;
+                return Some(error);
             }
         }
+        None
     }
 
     fn dispatch_click_action_in_lane(
@@ -791,10 +819,10 @@ impl SystemRuntimeExecutor {
                     Some(error.action.code),
                     error.cleanup.as_ref().map(|cleanup| cleanup.code),
                 );
-                if let Some(cleanup_error) = error.cleanup.as_ref() {
-                    self.quarantine_role_input(role_id, cleanup_error);
-                } else if error.down_confirmed {
-                    self.quarantine_role_input(role_id, &error.action);
+                if let Some(cleanup_error) = error.cleanup
+                    && cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                {
+                    return Err(cleanup_error);
                 }
                 return Err(error.action);
             }

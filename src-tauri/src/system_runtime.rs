@@ -117,6 +117,7 @@ include!("system_runtime/section_28_set_role_audio_muted.rs");
 include!("system_runtime/section_29_session_storage.rs");
 include!("system_runtime/section_30_geometry_and_input.rs");
 include!("system_runtime/section_31_input_fence.rs");
+include!("system_runtime/section_32_macro_input_recovery.rs");
 #[cfg(feature = "desktop-e2e")]
 include!("system_runtime/section_31_desktop_e2e.rs");
 #[cfg(feature = "desktop-e2e")]

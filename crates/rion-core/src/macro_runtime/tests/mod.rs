@@ -9,3 +9,4 @@ include!("behavior_06_manually_stopped_synchronous_child_cancels_parent_before_n
 include!("behavior_07_complete_first_release_arriving_before_press_runs_exactly_one_iteration.rs");
 include!("behavior_08_input_fence_cancels_normal_work_and_tags_cleanup_with_the_new_epoch.rs");
 include!("behavior_09_list_stop_cancels_owned_descendants.rs");
+include!("behavior_10_trusted_input_recovery_restarts_eligible_roots.rs");

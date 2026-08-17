@@ -1,4 +1,10 @@
 #[test]
+    fn controlled_macro_input_recovery_does_not_project_a_role_crash() {
+        assert!(!should_project_surface_failure_to_core(true));
+        assert!(should_project_surface_failure_to_core(false));
+    }
+
+    #[test]
     fn native_launch_errors_keep_their_code_and_message_in_diagnostics() {
         let error = log_error_details("SYSTEM_ROLE_SETUP_FAILED", "WebView2 setup failed");
         assert_eq!(error.name, "SYSTEM_ROLE_SETUP_FAILED");

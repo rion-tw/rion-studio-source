@@ -222,6 +222,10 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
     "error.macroRoleStopping",
   "A role assigned to this macro is reloading and cannot accept new input yet.":
     "error.macroRoleInputFenced",
+  "A role assigned to this macro is recovering automatic input.":
+    "error.macroRoleInputRecovering",
+  "A role assigned to this macro must be restarted before it can accept automatic input.":
+    "error.macroRoleInputRestartRequired",
   "Enable this macro before running it.": "error.macroDisabled",
   "Stop the macro before editing it.": "error.macroStopBeforeEditing",
   "Ctrl+Shift+M is reserved for the macro overlay.": "error.macroShortcutReserved",

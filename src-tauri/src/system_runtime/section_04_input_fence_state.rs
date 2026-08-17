@@ -38,7 +38,16 @@ struct RoleInputFence {
     drained: bool,
     surface_generation: u64,
     recovery_scheduled: bool,
+    macro_recovery_id: Option<String>,
+    pending_macro_restart_count: u32,
     resuming: bool,
+}
+
+#[derive(Clone)]
+struct MacroInputRecoveryRuntimeState {
+    input_epoch: u64,
+    pending_macro_restart_count: u32,
+    recovery_id: String,
 }
 
 #[derive(Deserialize)]

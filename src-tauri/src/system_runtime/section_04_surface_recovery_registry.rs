@@ -256,6 +256,7 @@ impl SystemRuntimeExecutor {
         {
             state.runtime_restart_required = true;
         }
+        let role_id = transaction.role_id.clone();
         let receipt = self.operations.complete(NativeOperationReceipt::with_status(
             transaction.context,
             stage,
@@ -287,6 +288,7 @@ impl SystemRuntimeExecutor {
         ) {
             self.emit_surface_recovery_attempt(&record);
         }
+        self.finish_macro_input_recovery_after_surface(&role_id, &receipt);
         receipt
     }
 

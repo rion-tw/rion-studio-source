@@ -6,6 +6,7 @@ import type {
   RoleStatus
 } from "../../../../shared/types";
 import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
+import { isMacroRunActive } from "../macros/macroUtils";
 
 interface DashboardSummary {
   runningMacros: number;
@@ -83,7 +84,7 @@ export function createDashboardSummary({
   const runningMacroIds = new Set(
     macroStatuses
       .filter(
-        (status) => status.state === "running" && roleIds.has(status.roleId) && macroIds.has(status.macroId)
+        (status) => isMacroRunActive(status) && roleIds.has(status.roleId) && macroIds.has(status.macroId)
       )
       .map((status) => status.macroId)
   );
@@ -186,7 +187,7 @@ function createMacroActionState({
   const assignedRunStatuses = macro.roleIds
     .map((roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
     .filter((status): status is MacroRunStatus => Boolean(status));
-  const isRunning = assignedRunStatuses.some((status) => status.state === "running");
+  const isRunning = assignedRunStatuses.some(isMacroRunActive);
   const isStopping = assignedRunStatuses.some((status) => status.state === "stopping");
   const hasRoles = macro.roleIds.length > 0;
   const hasRunningBrowser = macro.roleIds.some(
@@ -241,7 +242,7 @@ export function getDashboardMacroItems({
   return macros
     .map((macro) => {
       const runningCount = macro.roleIds.filter(
-        (roleId) => macroStatusByRun.get(createMacroRunKey(roleId, macro.id))?.state === "running"
+        (roleId) => isMacroRunActive(macroStatusByRun.get(createMacroRunKey(roleId, macro.id)))
       ).length;
 
       return {

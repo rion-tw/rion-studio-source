@@ -35,6 +35,10 @@ const STOPPING_ROLE_MESSAGE: &str =
     "A role assigned to this macro is stopping and cannot accept new input.";
 const INPUT_FENCED_ROLE_MESSAGE: &str =
     "A role assigned to this macro is reloading and cannot accept new input yet.";
+const INPUT_RECOVERING_ROLE_MESSAGE: &str =
+    "A role assigned to this macro is recovering automatic input.";
+const INPUT_RESTART_REQUIRED_ROLE_MESSAGE: &str =
+    "A role assigned to this macro must be restarted before it can accept automatic input.";
 
 type EventSink = Arc<dyn Fn(Vec<CoreEvent>) + Send + Sync>;
 type Waiter = Arc<dyn Fn(&Arc<InvocationControl>, &str, u32) -> Result<(), String> + Send + Sync>;
@@ -61,6 +65,7 @@ struct Shared {
 
 struct PendingMacroAction {
     result: mpsc::SyncSender<BrowserActionResult>,
+    role_id: String,
     signal: Weak<InvocationControl>,
 }
 
@@ -73,7 +78,11 @@ struct Inner {
     mutation_leases: HashMap<String, HashSet<String>>,
     mutating_macro_ids: HashSet<String>,
     input_epochs: HashMap<String, u64>,
+    input_recoveries: HashMap<String, MacroInputRecovery>,
+    input_recovery_by_role: HashMap<String, String>,
     quiesced_role_ids: HashSet<String>,
+    recovering_role_ids: HashSet<String>,
+    restart_required_role_ids: HashSet<String>,
     stopping_role_ids: HashSet<String>,
     transferring_role_ids: HashSet<String>,
     statuses: HashMap<String, MacroRunStatus>,
@@ -99,6 +108,7 @@ struct InvocationControl {
     macro_ids: Mutex<HashSet<String>>,
     outcome: Mutex<Option<Result<(), String>>>,
     owner_signal: Mutex<Option<Weak<InvocationControl>>>,
+    restart_intent: Mutex<Option<MacroRestartIntent>>,
     role_ids: HashSet<String>,
     start_ready: (Mutex<bool>, Condvar),
     stop_after_first_iteration: AtomicBool,
@@ -141,4 +151,32 @@ struct HeldKey {
     modifiers: Vec<String>,
     owner_id: String,
     role_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MacroRestartIntent {
+    pub(crate) macro_id: String,
+    pub(crate) sequence: u64,
+    pub(crate) source_role_id: Option<String>,
+}
+
+#[derive(Clone)]
+struct MacroInputRecovery {
+    input_epoch: u64,
+    intents: Vec<MacroRestartIntent>,
+    role_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MacroInputRecoveryTicket {
+    pub input_epoch: u64,
+    pub pending_macro_restart_count: u32,
+    pub recovery_id: String,
+    pub role_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MacroInputRecoveryCompletion {
+    pub restarted_count: u32,
+    pub skipped_count: u32,
 }

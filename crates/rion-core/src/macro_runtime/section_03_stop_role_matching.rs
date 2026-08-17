@@ -1,5 +1,10 @@
 impl MacroRuntime {
     fn stop_role_matching(&self, role_id: &str, macro_id: Option<&str>) -> CoreResult<()> {
+        if let Some(macro_id) = macro_id {
+            self.cancel_input_restarts_for_macros(&HashSet::from([macro_id.to_owned()]))?;
+        } else {
+            self.cancel_input_recovery_for_role(role_id)?;
+        }
         let controls = {
             let inner = self
                 .shared

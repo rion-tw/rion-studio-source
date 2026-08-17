@@ -7,6 +7,71 @@ impl AppCore {
         self.macro_runtime.role_ownership_transfer_active(role_id)
     }
 
+    pub fn ensure_macro_input_recovery(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+    ) -> CoreResult<crate::MacroInputRecoveryTicket> {
+        self.macro_runtime
+            .ensure_input_recovery(recovery_id, role_id)
+    }
+
+    pub fn complete_macro_input_recovery(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+    ) -> CoreResult<crate::MacroInputRecoveryCompletion> {
+        let (macros, settings) =
+            self.with_runtime(|runtime| runtime.state.macro_configuration())?;
+        let active_role_ids = self.macro_active_role_ids()?;
+        let intents = self
+            .macro_runtime
+            .take_input_recovery(recovery_id, role_id)?;
+        if intents.is_empty() {
+            return Ok(crate::MacroInputRecoveryCompletion {
+                restarted_count: 0,
+                skipped_count: 0,
+            });
+        }
+        let mut restarted_count = 0_u32;
+        let mut skipped_count = 0_u32;
+        for intent in intents {
+            let request = crate::model::MacroStartRequest {
+                macros: macros.clone(),
+                settings: settings.clone(),
+                macro_id: intent.macro_id,
+                source_role_id: intent.source_role_id,
+                active_role_ids: active_role_ids.clone(),
+            };
+            if self.macro_runtime.start(request).is_ok() {
+                restarted_count = restarted_count.saturating_add(1);
+            } else {
+                skipped_count = skipped_count.saturating_add(1);
+            }
+        }
+        Ok(crate::MacroInputRecoveryCompletion {
+            restarted_count,
+            skipped_count,
+        })
+    }
+
+    pub fn fail_macro_input_recovery(
+        &self,
+        recovery_id: &str,
+        role_id: &str,
+        message: &str,
+    ) -> CoreResult<bool> {
+        self.macro_runtime
+            .fail_input_recovery(recovery_id, role_id, message)
+    }
+
+    pub fn macro_input_recovery_for_role(
+        &self,
+        role_id: &str,
+    ) -> CoreResult<Option<crate::MacroInputRecoveryTicket>> {
+        self.macro_runtime.input_recovery_for_role(role_id)
+    }
+
     fn release_macro_role(&self, role_id: String) -> CoreResult<Value> {
         self.macro_runtime.release_role(&role_id)?;
         Ok(json!({ "released": true }))

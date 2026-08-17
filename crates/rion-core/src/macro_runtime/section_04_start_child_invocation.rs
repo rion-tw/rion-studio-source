@@ -60,6 +60,18 @@ fn start_child_invocation(
         }
         if roles
             .iter()
+            .any(|role_id| inner.restart_required_role_ids.contains(role_id))
+        {
+            return Err(INPUT_RESTART_REQUIRED_ROLE_MESSAGE.to_owned());
+        }
+        if roles
+            .iter()
+            .any(|role_id| inner.recovering_role_ids.contains(role_id))
+        {
+            return Err(INPUT_RECOVERING_ROLE_MESSAGE.to_owned());
+        }
+        if roles
+            .iter()
             .any(|role_id| inner.quiesced_role_ids.contains(role_id))
         {
             return Err(INPUT_FENCED_ROLE_MESSAGE.to_owned());
@@ -320,6 +332,7 @@ fn perform_actions_with_control(
                     request_id.clone(),
                     PendingMacroAction {
                         result: sender,
+                        role_id: role_id.to_owned(),
                         signal: Arc::downgrade(control),
                     },
                 );
@@ -750,6 +763,7 @@ fn new_invocation_control(
         macro_ids: Mutex::new(HashSet::from([macro_id])),
         outcome: Mutex::new(None),
         owner_signal: Mutex::new(None),
+        restart_intent: Mutex::new(None),
         role_ids,
         start_ready: (Mutex::new(false), Condvar::new()),
         stop_after_first_iteration: AtomicBool::new(false),

@@ -21,6 +21,10 @@ export const MACRO_INTERVAL_PRESETS = [0, 250, 500, 1000, 2000, 5000, 10000] as 
 export const MACRO_INTERVAL_CUSTOM_VALUE = "custom";
 export const MACRO_INTERVAL_OPTIONS = [...MACRO_INTERVAL_PRESETS, MACRO_INTERVAL_CUSTOM_VALUE] as const;
 
+export function isMacroRunActive(status: MacroRunStatus | undefined): boolean {
+  return status?.state === "running" || status?.state === "recovering";
+}
+
 export type MacroTargetUnavailableReason = "missing" | "self" | "cycle";
 
 export interface MacroTargetOption {

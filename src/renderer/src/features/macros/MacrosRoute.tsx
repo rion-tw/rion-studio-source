@@ -30,7 +30,7 @@ import type { Macro, MacroRunStatus, Role, RoleStatus } from "../../../../shared
 
 import { getMacroListItems, type MacroListSortKey, type MacroListSortState } from "./macroListUtils";
 
-import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, summarizeMacroSteps } from "./macroUtils";
+import { formatMacroActivationMode, formatMacroIntervalPreset, formatMacroRepeat, formatMacroShortcut, isMacroRunActive, summarizeMacroSteps } from "./macroUtils";
 
 import { MacroActionMenu, MacroContextMenuContent, MacroFailureMessage, MacroRoleBadge, MacroRunButton, MacroSortHeader, createMacroListRunActionState } from "./MacroListControls";
 
@@ -152,7 +152,7 @@ function MacrosRoute({
     [macros]
   );
   const runningCount = new Set(
-    macroStatuses.filter((status) => status.state === "running").map((status) => status.macroId)
+    macroStatuses.filter(isMacroRunActive).map((status) => status.macroId)
   ).size;
   const unassignedWorkflowMacroIds = useMemo(
     () => new Set(

@@ -518,6 +518,33 @@ boundary remains `indeterminate/restartRequired`. Recovery events and operation
 receipts use the real lifecycle epoch; they never default a live attempt to epoch
 zero.
 
+### Indeterminate macro-input recovery
+
+An indeterminate native key or pointer acknowledgement starts one recovery
+transaction keyed by the failing browser-action request ID and role ID. Core is
+the owner of restart intent: before the failed result wakes the old invocation,
+it advances the role input epoch, marks every affected root invocation
+`recovering`, captures eligible root starts in original invocation order, and
+cancels the old invocation tree. Repeated failure delivery for the same role
+replays the active ticket rather than scheduling another restart.
+
+The System Runtime immediately disables the role's native input lane, drains the
+matching Core epoch, and uses the existing generation- and lifecycle-fenced
+surface recovery transaction. A terminal `applied` recovery receipt is the only
+event that may claim the ticket. Core then re-resolves the current macro
+configuration and active roles and restarts each still-eligible root once; it
+never resumes an old worker or replays an in-flight step. Zero-interval loops are
+eligible. While-held invocations are excluded because their physical hold lease
+cannot be reconstructed. A visible Stop action, a relevant macro mutation, role
+close, or role restart cancels pending restart intent.
+
+If surface recovery or input resume is not proven, Core marks the role
+restart-required and no macro assigned to it may start until the role is
+explicitly relaunched. Diagnostics retain the recovery ID and pending root count
+on active and recent input-fence records. This flow has no reconciliation poll
+or success timeout: browser-action result, Core drain, surface recovery receipt,
+input resume, and restart claim are the authoritative ordered events.
+
 ## Application power lifecycle
 
 `ApplicationLifecycleStatusRecord` is a revisioned projection with `active`,

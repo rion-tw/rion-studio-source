@@ -494,6 +494,8 @@ fn live_resize_frame_matching_uses_client_size_and_plan_epoch() {
         projection_suspended: false,
         receipt_handler: Arc::new(|_| {}),
         subclass_id: 7,
+        #[cfg(feature = "desktop-e2e")]
+        window_id: "window-a".to_owned(),
     };
     assert_eq!(
         windows_live_resize_frame_match(&host, Some((1_280, 720))),
@@ -600,6 +602,8 @@ fn windows_minimize_suspends_pending_geometry_without_discarding_materialized_bo
         projection_suspended: false,
         receipt_handler: Arc::new(|_| {}),
         subclass_id: 7,
+        #[cfg(feature = "desktop-e2e")]
+        window_id: "window-a".to_owned(),
     };
 
     windows_live_resize_suspend_host(&mut host);

@@ -702,8 +702,12 @@
 
   function isRunning(macroId) {
     return getBadgeStatuses().some(
-      (status) => status.macroId === macroId && status.state === "running"
+      (status) => status.macroId === macroId && isMacroRunActive(status)
     );
+  }
+
+  function isMacroRunActive(status) {
+    return status.state === "running" || status.state === "recovering";
   }
 
   function isShortcutMacroId(macroId) {
@@ -727,7 +731,7 @@
 
   function getMacroIteration(macroId) {
     const status = getBadgeStatuses()
-      .filter((status) => status.macroId === macroId && status.state === "running")
+      .filter((status) => status.macroId === macroId && isMacroRunActive(status))
       .sort((left, right) => (right.iteration ?? 0) - (left.iteration ?? 0))[0];
     const iteration = status?.iteration ?? 0;
     const timestamp = Date.parse(status?.updatedAt ?? "") || Date.now();
@@ -803,6 +807,6 @@
 
   function getRunningMacroStatuses(macroId) {
     return state.statuses.filter(
-      (status) => status.macroId === macroId && status.state === "running"
+      (status) => status.macroId === macroId && isMacroRunActive(status)
     );
   }

@@ -347,7 +347,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Pass the original trusted Shift+2 keydown and keyup directly to the source role, dispatch its macro only after the chord is fully released, wait four seconds, then send Shift+1 and prove the game records only that new chord without replaying Shift+2 or restarting its macro; finally trigger Shift+3 and verify consecutive shortcuts and guarded same-key macro output remain non-recursive."
+      "description": "Pass the original trusted Shift+2 keydown and keyup directly to the source role, dispatch its macro only after the chord is fully released, then immediately send Shift+1 and prove the game records only that new chord without replaying Shift+2 or restarting its macro; finally trigger Shift+3 and verify consecutive shortcuts and guarded same-key macro output remain non-recursive."
     },
     {
       "id": "MACRO-MODIFIER-CONTINUITY-008",

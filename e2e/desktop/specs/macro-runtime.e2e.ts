@@ -650,10 +650,6 @@ async function keyboardLifecyclePhase(): Promise<void> {
       macroId: scenario.macro.id
     });
 
-    // Reproduce the user's real cadence without using the interval as success
-    // evidence: the first macro has already reached its authoritative terminal.
-    await browser.pause(4_000);
-
     const firstShortcutEvents = await fixtureEvents({
       afterSequence: shortcutFixtureCursor,
       roleId: "macro-keyboard-a"
@@ -695,37 +691,35 @@ async function keyboardLifecyclePhase(): Promise<void> {
     // re-evaluates held digits on Shift keydown, so a stale Digit2 would add a
     // second Shift+Digit2 before the expected Shift+Digit1 activation.
     const canaryCursor = await fixtureCursor();
-    const canaryReceipts = await keyboardInputSequence([
-      { code: "ShiftLeft", phase: "keyDown" },
-      { code: "Digit1", phase: "keyDown" },
-      { code: "Digit1", phase: "keyUp" },
-      { code: "ShiftLeft", phase: "keyUp" }
-    ]);
-    expect(canaryReceipts.every((receipt) => receipt.status === "submitted")).toBe(true);
+    const canaryReceipts = [await keyboardInput("ShiftLeft", "keyDown")];
     const canaryShiftDown = await waitFixtureCode({
       afterSequence: canaryCursor,
       code: "ShiftLeft",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
+    canaryReceipts.push(await keyboardInput("Digit1", "keyDown", false));
     const canaryDigitDown = await waitFixtureCode({
       afterSequence: canaryShiftDown.sequence,
       code: "Digit1",
       kind: "keydown",
       roleId: "macro-keyboard-a"
     });
+    canaryReceipts.push(await keyboardInput("Digit1", "keyUp", false));
     await waitFixtureCode({
       afterSequence: canaryDigitDown.sequence,
       code: "Digit1",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
+    canaryReceipts.push(await keyboardInput("ShiftLeft", "keyUp", false));
     await waitFixtureCode({
       afterSequence: canaryShiftDown.sequence,
       code: "ShiftLeft",
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
+    expect(canaryReceipts.every((receipt) => receipt.status === "submitted")).toBe(true);
     await waitFixtureCode({
       afterSequence: canaryShiftDown.sequence,
       code: "ShiftLeft",

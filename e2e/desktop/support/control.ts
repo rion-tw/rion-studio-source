@@ -399,16 +399,18 @@ export async function inputDiagnostics(): Promise<MacroInputDiagnosticsRecord> {
 
 export async function keyboardInput(
   code: string,
-  phase: "keyDown" | "keyUp"
+  phase: "keyDown" | "keyUp",
+  focus = true
 ): Promise<{ code: string; phase: string; sequence: number; status: "submitted" }> {
   const result = await browser.tauri.execute(
-    ({ core }, token, inputCode, inputPhase) => core.invoke("desktop_e2e_keyboard_input", {
-      request: { code: inputCode, phase: inputPhase },
+    ({ core }, token, inputCode, inputPhase, shouldFocus) => core.invoke("desktop_e2e_keyboard_input", {
+      request: { code: inputCode, focus: shouldFocus, phase: inputPhase },
       token
     }),
     sessionToken(),
     code,
-    phase
+    phase,
+    focus
   );
   return result as unknown as {
     code: string;

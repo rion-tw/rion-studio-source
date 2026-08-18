@@ -12,9 +12,16 @@ describe("desktop E2E restored tab readiness", () => {
       source.indexOf("async function closeTab(")
     );
 
-    expect(activation).toContain('if (phase !== "ready")');
+    expect(activation).toContain("const activated = await windowSnapshot(windowId)");
+    expect(activation).toContain(
+      'activated.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase !== "ready"'
+    );
     expect(activation).toContain("tab-launch-phase:${tabId}:ready");
     expect(activation).not.toContain("tab-launch-phase:${tabId}:essentialReady");
+    expect(activation.indexOf('kind: "runtime-tab-activation-terminal"'))
+      .toBeLessThan(activation.indexOf("const activated = await windowSnapshot(windowId)"));
+    expect(activation.indexOf("const activated = await windowSnapshot(windowId)"))
+      .toBeLessThan(activation.indexOf("tab-launch-phase:${tabId}:ready"));
   });
 
   it("fences hidden-tab visibility after the exact launch terminal", async () => {

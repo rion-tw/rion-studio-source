@@ -3,10 +3,22 @@ const RECENT_SURFACE_RECOVERY_CAPACITY: usize = 40;
 static SURFACE_RECOVERY_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug)]
+struct VerifiedProcessTermination {
+    reason: String,
+}
+
+impl VerifiedProcessTermination {
+    fn authoritative(reason: String) -> Self {
+        Self { reason }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct SurfaceRecoveryTransaction {
     context: NativeOperationContext,
     role_id: String,
     surface_generation: u64,
+    termination: VerifiedProcessTermination,
     window_id: String,
 }
 
@@ -39,6 +51,7 @@ impl SurfaceRecoveryRegistry {
         window_id: String,
         surface_generation: u64,
         lifecycle_epoch: u64,
+        termination: VerifiedProcessTermination,
     ) -> SurfaceRecoveryBegin {
         let Ok(mut state) = self.state.lock() else {
             return SurfaceRecoveryBegin::Full;
@@ -72,6 +85,7 @@ impl SurfaceRecoveryRegistry {
             context,
             role_id,
             surface_generation,
+            termination,
             window_id,
         };
         state.active_count = state.active_count.saturating_add(1);
@@ -295,12 +309,12 @@ impl SystemRuntimeExecutor {
     fn retry_surface_recovery_after_lifecycle(
         self: &Arc<Self>,
         transaction: SurfaceRecoveryTransaction,
-        reason: String,
         stage: &'static str,
     ) {
         let role_id = transaction.role_id.clone();
         let generation = transaction.surface_generation;
         let parent_operation_id = transaction.context.parent_operation_id.clone();
+        let termination = transaction.termination.clone();
         if let Ok(mut state) = self.state.lock() {
             state.recovering_roles.remove(&role_id);
         }
@@ -311,9 +325,9 @@ impl SystemRuntimeExecutor {
             Some("SYSTEM_LIFECYCLE_STALE"),
             false,
         );
-        self.schedule_surface_recovery_internal(
+        self.schedule_terminated_surface_recovery_internal(
             role_id,
-            format!("{reason}:lifecycle-retry"),
+            termination,
             generation,
             parent_operation_id,
             true,

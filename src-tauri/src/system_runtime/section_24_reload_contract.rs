@@ -199,7 +199,7 @@ impl SystemRuntimeExecutor {
                     status,
                     NativeOperationStatus::Failed | NativeOperationStatus::Indeterminate
                 ) {
-                    runtime.schedule_input_fence_recovery(
+                    runtime.require_role_restart_after_input_fence_failure(
                         &reload.role_id,
                         reload.input_epoch,
                         "reload-input-ready-deadline",

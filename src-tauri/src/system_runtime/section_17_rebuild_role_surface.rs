@@ -163,11 +163,16 @@ impl SystemRuntimeExecutor {
             role_id,
         )?;
         webview.hide().map_err(RuntimeError::tauri)?;
-        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
+        let lifecycle = match self.setup_role_surface(
+            &webview,
+            role_id,
+            generation,
+            Arc::clone(&navigation),
+        ) {
             Ok(lifecycle) => lifecycle,
-            Err(error) => {
+            Err(failure) => {
                 let _ = webview.close();
-                return Err(error);
+                return Err(failure.error);
             }
         };
         let replacement_instance_id = match self.register_managed_surface(
@@ -189,20 +194,7 @@ impl SystemRuntimeExecutor {
         let preparation = (|| -> RuntimeResult<()> {
             // The replacement remains about:blank until the old native surface is gone.
             webview.hide().map_err(RuntimeError::tauri)?;
-            install_platform_security_policy(&webview)?;
-            install_platform_navigation_completion_tracker(
-                &webview,
-                Arc::clone(&navigation),
-            )?;
             install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
-            install_process_failure_monitor(
-                &webview,
-                self.app.clone(),
-                SurfaceFailureTarget::Role {
-                    role_id: role_id.to_owned(),
-                    generation,
-                },
-            )?;
             webview
                 .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
                 .map_err(RuntimeError::tauri)?;

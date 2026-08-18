@@ -59,16 +59,16 @@ fn navigation_requires_input_fence(controlled: bool, role_closing: bool) -> bool
     !controlled && !role_closing
 }
 
-fn claim_input_fence_recovery(
+fn claim_input_fence_restart_required(
     fences: &mut HashMap<String, RoleInputFence>,
     role_id: &str,
     input_epoch: u64,
 ) -> Option<u64> {
     let fence = fences.get_mut(role_id)?;
-    if fence.input_epoch != input_epoch || fence.recovery_scheduled {
+    if fence.input_epoch != input_epoch || fence.recovery_scheduled || fence.restart_required {
         return None;
     }
-    fence.recovery_scheduled = true;
+    fence.restart_required = true;
     fence.resuming = false;
     Some(fence.surface_generation)
 }
@@ -93,7 +93,10 @@ fn main_frame_navigation_input_is_ready(
     input_epoch: u64,
 ) -> bool {
     let Some(fence) = fences.get(role_id).filter(|fence| {
-        fence.input_epoch == input_epoch && fence.drained && !fence.recovery_scheduled
+        fence.input_epoch == input_epoch
+            && fence.drained
+            && !fence.recovery_scheduled
+            && !fence.restart_required
     }) else {
         return false;
     };
@@ -138,6 +141,7 @@ fn main_frame_navigation_deadline_is_current(
         fence.input_epoch == input_epoch
             && fence.surface_generation == surface_generation
             && !fence.recovery_scheduled
+            && !fence.restart_required
     });
     current_fence
         && tickets.get(webview_label).is_some_and(|ticket| {

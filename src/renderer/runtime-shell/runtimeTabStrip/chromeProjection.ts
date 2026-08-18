@@ -18,6 +18,9 @@ export function stateFromChromeProjection(
     capturedAt: new Date().toISOString(),
     alwaysHideTabCloseButton: projection.alwaysHideTabCloseButton,
     alwaysShowToolbarInFullScreen: projection.alwaysShowToolbarInFullScreen,
+    automaticInputRestartRequiredTabIds: Object.fromEntries(
+      projection.tabs.map((tab) => [tab.id, tab.automaticInputRestartRequired])
+    ),
     displayId: projection.displayId,
     windowId: projection.windowId,
     displays: projection.displays,

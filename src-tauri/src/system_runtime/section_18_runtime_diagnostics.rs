@@ -90,10 +90,13 @@ fn diagnostic_input_fence_state(
     native_disabled: bool,
     core_stopping: bool,
     core_quiesced: bool,
+    core_restart_required: bool,
 ) -> (&'static str, bool) {
     let orphaned_core = core_quiesced && fence.is_none() && !native_disabled;
     let orphaned_native = (fence.is_some() || native_disabled) && !core_quiesced && !core_stopping;
-    if orphaned_core {
+    if core_restart_required || fence.is_some_and(|fence| fence.restart_required) {
+        ("restart-required", false)
+    } else if orphaned_core {
         ("orphaned-core", true)
     } else if orphaned_native {
         ("orphaned-native", true)
@@ -406,6 +409,8 @@ impl SystemRuntimeExecutor {
                         let core_role = core_input_roles.get(&role_id);
                         let core_stopping = core_role.is_some_and(|role| role.stopping);
                         let core_quiesced = core_role.is_some_and(|role| role.quiesced);
+                        let core_restart_required =
+                            core_role.is_some_and(|role| role.restart_required);
                         let native_lane = native_input_lanes.get(&role_id).copied();
                         let native_disabled = native_lane.is_some_and(|(_, enabled)| !enabled);
                         let (state_name, inconsistent) = diagnostic_input_fence_state(
@@ -413,6 +418,7 @@ impl SystemRuntimeExecutor {
                             native_disabled,
                             core_stopping,
                             core_quiesced,
+                            core_restart_required,
                         );
                         if inconsistent {
                             collection_error_codes

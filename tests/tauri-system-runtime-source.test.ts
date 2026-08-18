@@ -493,7 +493,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
-    expect(macRoleSetup).toContain("rion_wk_track_surface(");
+    expect(macRoleSetup).toContain("rion_wk_track_role_surface(");
     const loadRoles = runtime.slice(
       runtime.indexOf("fn start_role_loads("),
       runtime.indexOf("fn install_overlays(")
@@ -852,7 +852,7 @@ it("tracks exact native surface ownership across roles, popups, dividers, and mo
     );
     const popup = runtime.slice(
       runtime.indexOf("fn register_popup("),
-      runtime.indexOf("fn schedule_surface_recovery(")
+      runtime.indexOf("fn schedule_terminated_surface_recovery(")
     );
     expect(popup).toContain("ManagedSurfaceKind::Popup");
     expect(popup).toContain("register_managed_surface(");
@@ -1182,5 +1182,50 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(session).toContain('"surface.session-checkpointed"');
     expect(session).toContain("sessionStorage.getItem(markerKey)");
     expect(builder).toContain("role_local_storage_checkpoint_document_start_script(role_id)");
+  });
+
+  it("admits automatic surface replacement only from authoritative process termination", async () => {
+    const [failure, recovery, inputFence, pageLoad, layout, popup, windowsLifecycle] =
+      await Promise.all([
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_15_schedule_window_placement_persistence.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_16_surface_recovery_contract.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_16_input_fence_coordinator.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_07_async_role_load.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_21_runtime_layout.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/section_16_forget_popup.rs",
+          import.meta.url
+        ), "utf8"),
+        readFile(new URL(
+          "../src-tauri/src/system_runtime/platform/windows/lifecycle.rs",
+          import.meta.url
+        ), "utf8")
+      ]);
+
+    expect(recovery).toContain("termination: VerifiedProcessTermination");
+    expect(failure).toContain("VerifiedProcessTermination::authoritative(reason)");
+    expect(failure).toContain("schedule_terminated_surface_recovery(");
+    expect(inputFence).not.toContain("schedule_terminated_surface_recovery");
+    expect(pageLoad).not.toContain("schedule_terminated_surface_recovery");
+    expect(layout).not.toContain("schedule_terminated_surface_recovery");
+    expect(popup.slice(0, popup.indexOf("fn recover_surface(")))
+      .not.toContain("schedule_terminated_surface_recovery");
+    expect(windowsLifecycle).toContain("handle_surface_unresponsive(");
+    expect(windowsLifecycle).toContain("COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED");
   });
 });

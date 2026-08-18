@@ -206,6 +206,32 @@ impl SystemRuntimeExecutor {
         platform_surface_lifecycle_tracker(webview, SurfaceProcessExitTracking::Disabled)
     }
 
+    fn install_popup_surface_lifecycle_tracker(
+        &self,
+        webview: &Webview,
+        label: &str,
+        role_id: &str,
+        generation: u64,
+    ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+        #[cfg(target_os = "macos")]
+        {
+            platform_role_surface_setup_inner(
+                webview,
+                self.app.clone(),
+                SurfaceFailureTarget::Popup {
+                    label: label.to_owned(),
+                    role_id: role_id.to_owned(),
+                    generation,
+                },
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (label, role_id, generation);
+            self.install_shared_process_surface_lifecycle_tracker(webview)
+        }
+    }
+
     fn setup_role_surface(
         &self,
         webview: &Webview,

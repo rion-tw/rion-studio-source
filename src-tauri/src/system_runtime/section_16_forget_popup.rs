@@ -107,7 +107,7 @@ impl SystemRuntimeExecutor {
                     state.runtime.record_input_fence_event_with_reason(
                         &role_id,
                         local_epoch,
-                        "recovery-scheduled",
+                        "restart-required",
                         "popup-close-core-fence-failed",
                         LogLevel::Warn,
                     );
@@ -117,13 +117,12 @@ impl SystemRuntimeExecutor {
                             "SYSTEM_POPUP_INPUT_FENCE_FAILED",
                             "Popup input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
                         );
-                    } else if let Some(generation) =
-                        state.runtime.surface_generation_for_role(&role_id)
-                    {
-                        state.runtime.schedule_surface_recovery(
-                            role_id.clone(),
-                            "popup-close-input-fence-failed".to_owned(),
-                            generation,
+                    } else {
+                        state.runtime.require_live_role_restart(
+                            &role_id,
+                            "SYSTEM_POPUP_INPUT_FENCE_FAILED",
+                            "Popup close could not establish the Core input fence.",
+                            "popup-close-input-fence-failed",
                         );
                     }
                 }
@@ -141,13 +140,12 @@ impl SystemRuntimeExecutor {
                             "SYSTEM_POPUP_INPUT_FENCE_FAILED",
                             "Popup input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
                         );
-                    } else if let Some(generation) =
-                        state.runtime.surface_generation_for_role(&role_id)
-                    {
-                        state.runtime.schedule_surface_recovery(
-                            role_id.clone(),
-                            "popup-close-native-fence-failed".to_owned(),
-                            generation,
+                    } else {
+                        state.runtime.require_live_role_restart(
+                            &role_id,
+                            "SYSTEM_POPUP_INPUT_FENCE_FAILED",
+                            "Popup close could not establish the native input fence.",
+                            "popup-close-native-fence-failed",
                         );
                     }
                     return;
@@ -324,7 +322,6 @@ impl SystemRuntimeExecutor {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
                 self.retry_surface_recovery_after_lifecycle(
                     transaction,
-                    reason,
                     "surfaceRecoveryLifecycleCancelled",
                 );
                 return;
@@ -344,7 +341,6 @@ impl SystemRuntimeExecutor {
         if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
             self.retry_surface_recovery_after_lifecycle(
                 transaction,
-                reason,
                 "surfaceRecoveryLifecycleCancelled",
             );
             return;
@@ -401,7 +397,6 @@ impl SystemRuntimeExecutor {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
                 self.retry_surface_recovery_after_lifecycle(
                     transaction,
-                    reason,
                     "surfaceRecoveryLifecycleInterrupted",
                 );
                 return;
@@ -433,7 +428,6 @@ impl SystemRuntimeExecutor {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
                 self.retry_surface_recovery_after_lifecycle(
                     transaction,
-                    reason,
                     "surfaceRecoveryLifecycleInterrupted",
                 );
                 return;
@@ -462,7 +456,7 @@ impl SystemRuntimeExecutor {
         if should_project_surface_failure_to_core(macro_input_recovery_active)
             && let Err(error) = self
                 .core
-                .terminalize_macro_runs_after_navigation_failure(&role_id)
+                .terminalize_macro_runs_after_process_termination(&role_id)
         {
             self.emit_navigation_input_error(
                 "SYSTEM_SURFACE_RECOVERY_MACRO_TERMINAL_FAILED",
@@ -481,7 +475,6 @@ impl SystemRuntimeExecutor {
             if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
                 self.retry_surface_recovery_after_lifecycle(
                     transaction,
-                    reason,
                     "surfaceRecoveryLifecycleInterrupted",
                 );
                 return;
@@ -507,7 +500,6 @@ impl SystemRuntimeExecutor {
         if !self.application_lifecycle_epoch_matches(lifecycle_epoch) {
             self.retry_surface_recovery_after_lifecycle(
                 transaction,
-                reason,
                 "surfaceRecoveryLifecycleInterrupted",
             );
             return;
@@ -632,7 +624,6 @@ impl SystemRuntimeExecutor {
                 {
                     self.retry_surface_recovery_after_lifecycle(
                         transaction.clone(),
-                        reason.clone(),
                         "surfaceRecoveryLifecycleInterrupted",
                     );
                     return;

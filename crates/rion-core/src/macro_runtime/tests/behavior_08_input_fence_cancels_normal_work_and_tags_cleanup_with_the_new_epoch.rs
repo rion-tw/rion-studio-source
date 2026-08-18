@@ -104,9 +104,9 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_after_a_recovery
     assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
     let recovery_epoch = runtime.fence_role_input("r1").unwrap();
 
-    runtime
-        .terminalize_role_after_navigation_failure("r1")
-        .unwrap();
+    assert!(runtime
+        .require_role_restart_after_navigation_failure("r1", recovery_epoch)
+        .unwrap());
 
     assert!(control.cancelled.load(Ordering::Acquire));
     assert!(runtime.statuses().unwrap().is_empty());
@@ -120,7 +120,19 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_after_a_recovery
     assert_eq!(role.input_epoch, recovery_epoch);
     assert!(role.quiesced);
     assert!(!role.stopping);
-    assert!(runtime.resume_role_input("r1", role.input_epoch).unwrap());
+    assert!(role.restart_required);
+    assert!(!runtime.resume_role_input("r1", role.input_epoch).unwrap());
+    let error = runtime.start(request(Vec::new())).unwrap_err();
+    assert_eq!(error.code(), "MACRO_ROLE_INPUT_RESTART_REQUIRED");
+    runtime.allow_role_after_launch("r1");
+    assert!(!runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap()
+        .restart_required);
     let terminal = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(matches!(
         terminal.as_slice(),

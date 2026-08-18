@@ -675,6 +675,15 @@ use uuid::Uuid;
         assert!(unsafe { rion_wk_surface_lifecycle_self_test() });
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_navigation_scope_excludes_iframes_fragments_same_urls_and_new_windows() {
+        unsafe extern "C" {
+            fn rion_wk_navigation_scope_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_navigation_scope_self_test() });
+    }
+
     #[test]
     fn performance_diagnostic_probe_is_foreground_scoped_and_privacy_bounded() {
         let source = PERFORMANCE_DIAGNOSTIC_SOURCE_TEMPLATE;

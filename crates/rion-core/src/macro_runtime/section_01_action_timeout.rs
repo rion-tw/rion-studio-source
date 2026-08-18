@@ -34,7 +34,7 @@ const UNAVAILABLE_ROLE_MESSAGE: &str = "Launch at least one assigned role before
 const STOPPING_ROLE_MESSAGE: &str =
     "A role assigned to this macro is stopping and cannot accept new input.";
 const INPUT_FENCED_ROLE_MESSAGE: &str =
-    "A role assigned to this macro is reloading and cannot accept new input yet.";
+    "A role assigned to this macro is navigating and cannot accept automatic input yet.";
 const INPUT_RECOVERING_ROLE_MESSAGE: &str =
     "A role assigned to this macro is recovering automatic input.";
 const INPUT_RESTART_REQUIRED_ROLE_MESSAGE: &str =

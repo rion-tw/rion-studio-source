@@ -30,6 +30,15 @@ fn runtime_tab_tooltip(base: String, language: &str, phase: TabRuntimePhase) -> 
         .unwrap_or(base)
 }
 
+fn automatic_input_restart_required_label(language: &str) -> &'static str {
+    match language {
+        "zh-TW" => "自動輸入已暫停，需重啟角色。",
+        "zh-CN" => "自动输入已暂停，需要重启角色。",
+        "ja" => "自動入力を一時停止しました。ロールを再起動してください。",
+        _ => "Automatic input is paused. Restart the role.",
+    }
+}
+
 fn runtime_tab_loading_accessibility_label(language: &str, tab_name: &str) -> String {
     match language {
         "zh-TW" => format!("正在開啟「{tab_name}」。"),
@@ -185,6 +194,18 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|snapshot| snapshot.tab_activations)
             .unwrap_or_default();
+        let automatic_input_restart_required_role_ids = self
+            .core
+            .macro_input_diagnostics()
+            .map(|diagnostics| {
+                diagnostics
+                    .roles
+                    .into_iter()
+                    .filter(|role| role.restart_required)
+                    .map(|role| role.role_id)
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
         let presented_tabs = self
             .presentation
             .snapshot_states()
@@ -240,7 +261,18 @@ impl SystemRuntimeExecutor {
                             .unwrap_or_else(|| {
                                 self.presentation.statuses.presentation_phase(&presented.id)
                             });
+                        let automatic_input_restart_required = role_ids.iter().any(|role_id| {
+                            automatic_input_restart_required_role_ids.contains(role_id)
+                        });
                         let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
+                        let tooltip = if automatic_input_restart_required {
+                            format!(
+                                "{tooltip} — {}",
+                                automatic_input_restart_required_label(&language)
+                            )
+                        } else {
+                            tooltip
+                        };
                         let active = selected_tabs
                             .get(window_id)
                             .is_some_and(|selected| selected == &presented.id);
@@ -294,6 +326,7 @@ impl SystemRuntimeExecutor {
                             !presented.closable,
                             crate::runtime_tabs_macos::MacRuntimeTabState {
                                 active,
+                                automatic_input_restart_required,
                                 audio_muted: presented.audio_muted,
                                 audible: state
                                     .native_resources
@@ -394,6 +427,18 @@ impl SystemRuntimeExecutor {
             .ok()
             .map(|snapshot| snapshot.tab_activations)
             .unwrap_or_default();
+        let automatic_input_restart_required_role_ids = self
+            .core
+            .macro_input_diagnostics()
+            .map(|diagnostics| {
+                diagnostics
+                    .roles
+                    .into_iter()
+                    .filter(|role| role.restart_required)
+                    .map(|role| role.role_id)
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
         let presented_tabs = self
             .presentation
             .snapshot_states()
@@ -454,7 +499,18 @@ impl SystemRuntimeExecutor {
                             .unwrap_or_else(|| {
                                 self.presentation.statuses.presentation_phase(&presented.id)
                             });
+                        let automatic_input_restart_required = role_ids.iter().any(|role_id| {
+                            automatic_input_restart_required_role_ids.contains(role_id)
+                        });
                         let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
+                        let tooltip = if automatic_input_restart_required {
+                            format!(
+                                "{tooltip} — {}",
+                                automatic_input_restart_required_label(&language)
+                            )
+                        } else {
+                            tooltip
+                        };
                         Some((
                             tab_strip,
                             json!({
@@ -464,6 +520,7 @@ impl SystemRuntimeExecutor {
                                 "workspaceTemplate": presented.workspace_template,
                                 "sourceId": presented.source_id,
                                 "phase": phase.as_str(),
+                                "automaticInputRestartRequired": automatic_input_restart_required,
                                 "tooltip": tooltip,
                                 "iconDataUrl": icon_data_url,
                                 "audible": state

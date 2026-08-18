@@ -778,7 +778,9 @@ describe("runtime window lifecycle authority", () => {
     expect(geometry).toContain("self.submit_window_tab_layouts(tab_ids)");
     expect(rollback).not.toContain("layout_runtime_tab_inner");
     expect(layout).toContain("native_surface_channel_is_unavailable");
-    expect(layout).toContain("schedule_layout_surface_recovery");
+    expect(layout).toContain("quarantine_disconnected_layout_surfaces");
+    expect(layout).toContain("require_live_role_restart");
+    expect(layout).not.toContain("schedule_terminated_surface_recovery");
     expect(layout).not.toContain("apply_reversible_fanout");
     expect(layout).toContain("Ok(())");
   });

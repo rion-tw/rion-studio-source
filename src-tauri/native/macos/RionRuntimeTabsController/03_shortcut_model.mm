@@ -347,6 +347,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   BOOL _phaseReady;
+  BOOL _automaticInputRestartRequired;
   NSImageView *_audioView;
   NSImageView *_iconView;
   NSButton *_moreButton;
@@ -562,26 +563,33 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _titleField.stringValue = tab.name;
   NSString *phase = tab.phase.length > 0 ? tab.phase : @"ready";
   BOOL ready = [phase isEqualToString:@"ready"];
-  BOOL progressing = [phase isEqualToString:@"activating"] ||
+  _automaticInputRestartRequired = tab.automaticInputRestartRequired;
+  BOOL accessoryHidden = ready && !_automaticInputRestartRequired;
+  BOOL progressing = !_automaticInputRestartRequired &&
+      ([phase isEqualToString:@"activating"] ||
       [phase isEqualToString:@"attaching"] ||
-      [phase isEqualToString:@"loading"];
+      [phase isEqualToString:@"loading"]);
   BOOL wasHidden = _phaseAccessory.hidden;
-  _phaseReady = ready;
-  _phaseAccessory.hidden = ready;
-  _phaseImageView.hidden = ready || progressing;
+  _phaseReady = accessoryHidden;
+  _phaseAccessory.hidden = accessoryHidden;
+  _phaseImageView.hidden = accessoryHidden || progressing;
   _phaseProgress.hidden = !progressing;
   if (progressing) {
     [_phaseProgress startAnimation:nil];
   } else {
     [_phaseProgress stopAnimation:nil];
   }
-  if (!ready && !progressing) {
-    NSString *symbol = [phase isEqualToString:@"dormant"]
+  if (!accessoryHidden && !progressing) {
+    NSString *symbol = _automaticInputRestartRequired
+        ? @"exclamationmark.triangle.fill"
+        : [phase isEqualToString:@"dormant"]
         ? @"circle.dashed"
         : [phase isEqualToString:@"degraded"]
             ? @"exclamationmark.triangle.fill"
             : @"exclamationmark.circle.fill";
-    NSColor *color = [phase isEqualToString:@"dormant"]
+    NSColor *color = _automaticInputRestartRequired
+        ? NSColor.systemOrangeColor
+        : [phase isEqualToString:@"dormant"]
         ? NSColor.secondaryLabelColor
         : [phase isEqualToString:@"degraded"]
             ? NSColor.systemOrangeColor
@@ -593,10 +601,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
                                                          weight:NSFontWeightMedium]];
     _phaseImageView.contentTintColor = color;
   }
-  if (!ready && wasHidden &&
+  if (!accessoryHidden && wasHidden &&
       !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
     _phaseAccessory.alphaValue = 0.0;
-  } else if (ready) {
+  } else if (accessoryHidden) {
     _phaseAccessory.alphaValue = 0.0;
   }
   NSString *audioLabel = tab.audioMuted ? audioMutedLabel : audioPlayingLabel;

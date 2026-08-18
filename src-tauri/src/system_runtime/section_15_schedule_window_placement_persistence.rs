@@ -748,7 +748,11 @@ impl SystemRuntimeExecutor {
                         ..
                     } => (role_id, generation),
                 };
-                self.schedule_surface_recovery(role_id, reason, generation);
+                self.schedule_terminated_surface_recovery(
+                    role_id,
+                    VerifiedProcessTermination::authoritative(reason),
+                    generation,
+                );
             }
             SurfaceFailureAction::ClosePopup => {
                 let SurfaceFailureTarget::Popup {
@@ -762,6 +766,24 @@ impl SystemRuntimeExecutor {
                 self.close_failed_popup(&label, &role_id, generation, &reason);
             }
         }
+    }
+
+    #[cfg(windows)]
+    fn handle_surface_unresponsive(
+        &self,
+        target: SurfaceFailureTarget,
+        reason: &str,
+    ) {
+        let role_id = match target {
+            SurfaceFailureTarget::Role { role_id, .. }
+            | SurfaceFailureTarget::Popup { role_id, .. } => role_id,
+        };
+        self.require_live_role_restart(
+            &role_id,
+            "SYSTEM_WEBVIEW_RENDERER_UNRESPONSIVE",
+            reason,
+            "webview-renderer-unresponsive",
+        );
     }
 
     fn close_failed_popup(&self, label: &str, role_id: &str, generation: u64, reason: &str) {

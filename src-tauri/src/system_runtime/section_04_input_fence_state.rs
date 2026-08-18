@@ -38,6 +38,7 @@ struct RoleInputFence {
     drained: bool,
     surface_generation: u64,
     recovery_scheduled: bool,
+    restart_required: bool,
     macro_recovery_id: Option<String>,
     pending_macro_restart_count: u32,
     resuming: bool,

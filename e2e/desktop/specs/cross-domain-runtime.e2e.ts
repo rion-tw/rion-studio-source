@@ -43,7 +43,6 @@ import {
   installRendererEventJournal,
   rendererEventCursor,
   waitForMacroProjection,
-  waitForRecoveryAttempt,
   waitForRoleProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
@@ -939,6 +938,22 @@ async function waitFixturePath(path: string): Promise<void> {
   if (!response.ok) throw new Error(`Fixture event ${path} failed with ${response.status}`);
 }
 
+async function waitForInputFenceEvent(
+  afterSequence: number,
+  expectedEvent: string
+): Promise<DesktopE2eEvent> {
+  let cursor = afterSequence;
+  for (;;) {
+    const observed = await waitEvent({
+      afterSequence: cursor,
+      kind: "input-fence-event",
+      timeoutMs: 55_000
+    });
+    if ((observed.details as { event?: unknown }).event === expectedEvent) return observed;
+    cursor = observed.sequence;
+  }
+}
+
 function expectRestoredSession(event: FixtureEvent, marker: string): void {
   expect(event).toMatchObject({
     kind: "session",
@@ -1018,40 +1033,39 @@ async function recoveryPhase(): Promise<void> {
   if (!blockedTab) throw new Error("Shared-role failure injection requires a blocked occurrence");
   const target = await selectRuntimeTabForRoleSlot(blockedTab, sharedRole.id);
   await fixturePost("/api/navigation-failure", { enabled: true, roleId: FIXTURE_IDS[1] });
-  const recoveryCursor = await rendererEventCursor();
+  const failureCursor = (await probe()).latestSequence;
   await runtimeUiAction(blockedTab.windowId, {
     action: "pressRoleSlot",
     roleId: sharedRole.id,
     tabId: blockedTab.id,
     windowGeneration: target.windowGeneration
   });
-  await Promise.all([
+  const [, restartRequired] = await Promise.all([
     waitFixturePath(`/api/navigation-failures/${FIXTURE_IDS[1]}/attempted`),
-    waitForRecoveryAttempt({
-      afterSequence: recoveryCursor,
-      roleId: sharedRole.id,
-      status: "active"
-    }),
+    waitForInputFenceEvent(failureCursor, "restart-required"),
     waitForMacroProjection({
       absent: true,
       afterSequence: recoveryMacroCursor,
       macroId: scenario.macros[1].id
     })
   ]);
+  expect(restartRequired.details).toMatchObject({
+    event: "restart-required",
+    reason: "page-finish-deadline",
+    roleId: sharedRole.id
+  });
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: true,
+      roleId: sharedRole.id
+    })
+  ]));
   expect(await rendererCall("listMacroStatuses")).toHaveLength(0);
   for (const role of scenario.roles.filter((candidate) => candidate.id !== sharedRole.id)) {
     await waitForRoleProjection({ roleId: role.id, state: "running" });
   }
   const terminalInput = await fixtureState();
-  const retryCursor = await rendererEventCursor();
   await fixturePost("/api/navigation-failure", { enabled: false, roleId: FIXTURE_IDS[1] });
-  await waitForRecoveryAttempt({
-    afterSequence: retryCursor,
-    phase: "completed",
-    roleId: sharedRole.id,
-    status: "applied"
-  });
-  await waitForRoleProjection({ roleId: sharedRole.id, state: "running" });
   const afterRetryInput = await fixtureState();
   expect(afterRetryInput[FIXTURE_IDS[1]]?.keydown ?? 0)
     .toBe(terminalInput[FIXTURE_IDS[1]]?.keydown ?? 0);

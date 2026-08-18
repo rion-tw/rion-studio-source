@@ -428,16 +428,15 @@ impl SystemRuntimeExecutor {
             role_id,
             "Automatic input recovery failed. Restart this role before running another macro.",
         );
-        self.record_input_fence_event_with_reason(
-            role_id,
-            recovery.input_epoch,
-            "recovery-failed",
-            code,
-            LogLevel::Warn,
-        );
         if let Ok(mut state) = self.state.lock() {
             state.macro_input_recoveries.remove(role_id);
         }
+        self.require_live_role_restart(
+            role_id,
+            code,
+            message,
+            "macro-input-recovery-unproven",
+        );
         #[cfg(feature = "desktop-e2e")]
         crate::desktop_e2e::record_event(
             "macro-input-recovery-terminal",
@@ -449,15 +448,6 @@ impl SystemRuntimeExecutor {
                 "recoveryMethod": "manual-restart-required",
                 "roleId": role_id,
                 "status": "failed"
-            }),
-        );
-        let _ = self.app.emit(
-            "rion://shell-error",
-            json!({
-                "code": "MACRO_ROLE_INPUT_RESTART_REQUIRED",
-                "failureCode": code,
-                "message": message,
-                "roleId": role_id
             }),
         );
     }

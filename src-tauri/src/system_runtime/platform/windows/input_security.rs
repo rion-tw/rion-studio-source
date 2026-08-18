@@ -661,19 +661,26 @@ pub(in crate::system_runtime) fn install_windows_role_surface_handlers(
                         let kind_available =
                             args.is_some_and(|args| args.ProcessFailedKind(&mut kind).is_ok());
                         if kind_available
-                            && matches!(
+                            && let Some(state) = event_app.try_state::<crate::CoreState>()
+                        {
+                            if matches!(
                                 kind,
                                 COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED
                                     | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
-                                    | COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
-                            )
-                            && let Some(state) = event_app.try_state::<crate::CoreState>()
-                        {
-                            state.runtime.handle_surface_process_failure(
-                                event_target.clone(),
-                                webview2_process_failure_reason(kind).to_owned(),
-                                webview2_process_failure_scope(kind),
-                            );
+                            ) {
+                                state.runtime.handle_surface_process_failure(
+                                    event_target.clone(),
+                                    webview2_process_failure_reason(kind).to_owned(),
+                                    webview2_process_failure_scope(kind),
+                                );
+                            } else if kind
+                                == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE
+                            {
+                                state.runtime.handle_surface_unresponsive(
+                                    event_target.clone(),
+                                    webview2_process_failure_reason(kind),
+                                );
+                            }
                         }
                         Ok(())
                     }));

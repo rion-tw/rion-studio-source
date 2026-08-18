@@ -10,6 +10,7 @@ export type TranslationDictionary = Record<TranslationKey, string>;
 export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
 type RuntimeTabStripLabels = {
+  automaticInputRestartRequired: string;
   closeWindow: string;
   closeTab: string;
   maximizeWindow: string;
@@ -30,6 +31,7 @@ type RuntimeTabStripLabels = {
 
 const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
   en: {
+    automaticInputRestartRequired: "Automatic input is paused. Restart the role.",
     closeWindow: "Close window",
     closeTab: "Stop and close tab",
     maximizeWindow: "Maximize window",
@@ -48,6 +50,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "Window controls"
   },
   "zh-TW": {
+    automaticInputRestartRequired: "自動輸入已暫停，需重啟角色。",
     closeWindow: "關閉視窗",
     closeTab: "停止並關閉分頁",
     maximizeWindow: "最大化視窗",
@@ -66,6 +69,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "視窗控制項"
   },
   "zh-CN": {
+    automaticInputRestartRequired: "自动输入已暂停，需要重启角色。",
     closeWindow: "关闭窗口",
     closeTab: "停止并关闭标签页",
     maximizeWindow: "最大化窗口",
@@ -84,6 +88,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "窗口控件"
   },
   ja: {
+    automaticInputRestartRequired: "自動入力を一時停止しました。ロールを再起動してください。",
     closeWindow: "ウインドウを閉じる",
     closeTab: "停止してタブを閉じる",
     maximizeWindow: "ウインドウを最大化",
@@ -220,7 +225,7 @@ const knownErrorMessages: Partial<Record<string, TranslationKey>> = {
   "Macro is already running for this role.": "error.macroAlreadyRunning",
   "A role assigned to this macro is stopping and cannot accept new input.":
     "error.macroRoleStopping",
-  "A role assigned to this macro is reloading and cannot accept new input yet.":
+  "A role assigned to this macro is navigating and cannot accept automatic input yet.":
     "error.macroRoleInputFenced",
   "A role assigned to this macro is recovering automatic input.":
     "error.macroRoleInputRecovering",

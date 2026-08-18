@@ -124,15 +124,19 @@ fn diagnostic_surface_closing_policy_matches_lifecycle_boundaries() {
 #[test]
 fn input_fence_diagnostics_classify_core_and_native_orphans() {
     assert_eq!(
-        diagnostic_input_fence_state(None, false, false, true),
+        diagnostic_input_fence_state(None, false, false, true, false),
         ("orphaned-core", true)
     );
     assert_eq!(
-        diagnostic_input_fence_state(None, true, false, false),
+        diagnostic_input_fence_state(None, true, false, false, false),
         ("orphaned-native", true)
     );
     assert_eq!(
-        diagnostic_input_fence_state(None, true, true, true),
+        diagnostic_input_fence_state(None, true, true, true, false),
         ("waiting-page-finish", false)
+    );
+    assert_eq!(
+        diagnostic_input_fence_state(None, true, false, true, true),
+        ("restart-required", false)
     );
 }

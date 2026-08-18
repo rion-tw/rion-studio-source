@@ -776,36 +776,58 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
 }
 
 #[cfg(target_os = "macos")]
+struct MacosRoleSurfaceContext {
+    app: AppHandle,
+    role_id: String,
+    tracker: Arc<SurfaceLifecycleTracker>,
+    webview_label: String,
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
     webview: &Webview,
-    _app: AppHandle,
-    _target: SurfaceFailureTarget,
+    app: AppHandle,
+    target: SurfaceFailureTarget,
 ) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
     unsafe extern "C" {
         fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
-        fn rion_wk_track_surface(
+        fn rion_wk_track_role_surface(
             webview: *mut std::ffi::c_void,
             context: *mut std::ffi::c_void,
             event_callback: unsafe extern "C" fn(*mut std::ffi::c_void, i32),
             released_callback: unsafe extern "C" fn(*mut std::ffi::c_void),
             context_destructor: unsafe extern "C" fn(*mut std::ffi::c_void),
+            navigation_callback: unsafe extern "C" fn(
+                *mut std::ffi::c_void,
+                *const std::ffi::c_char,
+            ) -> bool,
         ) -> u64;
     }
 
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
-    let context = Arc::into_raw(Arc::clone(&tracker)) as usize;
+    let role_id = match target {
+        SurfaceFailureTarget::Role { role_id, .. }
+        | SurfaceFailureTarget::Popup { role_id, .. } => role_id,
+    };
+    let context = Box::into_raw(Box::new(MacosRoleSurfaceContext {
+        app,
+        role_id,
+        tracker: Arc::clone(&tracker),
+        webview_label: webview.label().to_owned(),
+    })) as usize;
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     if let Err(error) = webview.with_webview(move |platform_webview| {
         let native = platform_webview.inner();
         let security_installed = unsafe { rion_wk_install_security_policy(native) };
         let token = if security_installed {
             unsafe {
-                rion_wk_track_surface(
+                rion_wk_track_role_surface(
                     native,
                     context as *mut std::ffi::c_void,
-                    macos_surface_event,
-                    macos_surface_released,
-                    drop_macos_surface_context,
+                    macos_role_surface_event,
+                    macos_role_surface_released,
+                    drop_macos_role_surface_context,
+                    macos_main_frame_navigation,
                 )
             }
         } else {
@@ -813,7 +835,7 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
         };
         let _ = sender.send((security_installed, token));
     }) {
-        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
         return Err(RuntimeError::tauri(error));
     }
     let (security_installed, token) = receiver.recv().map_err(|_| {
@@ -823,7 +845,7 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
         )
     })?;
     if !security_installed || token == 0 {
-        drop(unsafe { Arc::from_raw(context as *const SurfaceLifecycleTracker) });
+        drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
         return Err(RuntimeError::new(
             if security_installed {
                 "SYSTEM_SURFACE_LIFECYCLE_FAILED"
@@ -842,47 +864,63 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
 }
 
 #[cfg(target_os = "macos")]
+fn handle_macos_surface_event(tracker: &SurfaceLifecycleTracker, event: i32) {
+    match event {
+        1 => tracker.record_native_isolation_event(1),
+        2 => {
+            let _ = tracker.mark_isolated(2);
+        }
+        5 => {
+            let _ = tracker.mark_process_terminated();
+        }
+        3 => tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_NAVIGATION_FAILED",
+            "The exact blank navigation failed.",
+        )),
+        4 => tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_PROVISIONAL_NAVIGATION_FAILED",
+            "The exact provisional blank navigation failed.",
+        )),
+        6 => tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_DATA_STORE_MISMATCH",
+            "The exact surface data-store identity changed during isolation.",
+        )),
+        7 => tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_NAVIGATION_SUBMISSION_FAILED",
+            "WKWebView rejected the exact blank navigation.",
+        )),
+        8 => tracker.fail_release(&RuntimeError::new(
+            "SYSTEM_SURFACE_NATIVE_RELEASE_FAILED",
+            "WKWebView rejected the exact native surface release.",
+        )),
+        9 => tracker.fail_isolation(&RuntimeError::new(
+            "SYSTEM_SURFACE_LEASE_DESTROYED",
+            "The exact WKWebView lifecycle lease was destroyed before isolation completed.",
+        )),
+        10 => tracker.record_stale_native_event(),
+        _ => {}
+    }
+}
+
+#[cfg(target_os = "macos")]
 unsafe extern "C" fn macos_surface_event(context: *mut std::ffi::c_void, event: i32) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if context.is_null() {
             return;
         }
         let tracker = unsafe { &*(context.cast::<SurfaceLifecycleTracker>()) };
-        match event {
-            1 => tracker.record_native_isolation_event(1),
-            2 => {
-                let _ = tracker.mark_isolated(2);
-            }
-            5 => {
-                let _ = tracker.mark_process_terminated();
-            }
-            3 => tracker.fail_isolation(&RuntimeError::new(
-                "SYSTEM_SURFACE_NAVIGATION_FAILED",
-                "The exact blank navigation failed.",
-            )),
-            4 => tracker.fail_isolation(&RuntimeError::new(
-                "SYSTEM_SURFACE_PROVISIONAL_NAVIGATION_FAILED",
-                "The exact provisional blank navigation failed.",
-            )),
-            6 => tracker.fail_isolation(&RuntimeError::new(
-                "SYSTEM_SURFACE_DATA_STORE_MISMATCH",
-                "The exact surface data-store identity changed during isolation.",
-            )),
-            7 => tracker.fail_isolation(&RuntimeError::new(
-                "SYSTEM_SURFACE_NAVIGATION_SUBMISSION_FAILED",
-                "WKWebView rejected the exact blank navigation.",
-            )),
-            8 => tracker.fail_release(&RuntimeError::new(
-                "SYSTEM_SURFACE_NATIVE_RELEASE_FAILED",
-                "WKWebView rejected the exact native surface release.",
-            )),
-            9 => tracker.fail_isolation(&RuntimeError::new(
-                "SYSTEM_SURFACE_LEASE_DESTROYED",
-                "The exact WKWebView lifecycle lease was destroyed before isolation completed.",
-            )),
-            10 => tracker.record_stale_native_event(),
-            _ => {}
+        handle_macos_surface_event(tracker, event);
+    }));
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_role_surface_event(context: *mut std::ffi::c_void, event: i32) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() {
+            return;
         }
+        let context = unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) };
+        handle_macos_surface_event(&context.tracker, event);
     }));
 }
 
@@ -898,10 +936,60 @@ unsafe extern "C" fn macos_surface_released(context: *mut std::ffi::c_void) {
 }
 
 #[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_role_surface_released(context: *mut std::ffi::c_void) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if !context.is_null() {
+            unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) }
+                .tracker
+                .mark_native_surface_released();
+        }
+    }));
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_main_frame_navigation(
+    context: *mut std::ffi::c_void,
+    url: *const std::ffi::c_char,
+) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() || url.is_null() {
+            return false;
+        }
+        let context = unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) };
+        let Ok(url) = unsafe { std::ffi::CStr::from_ptr(url) }.to_str() else {
+            return false;
+        };
+        let Ok(url) = Url::parse(url) else {
+            return false;
+        };
+        context
+            .app
+            .try_state::<crate::CoreState>()
+            .is_some_and(|state| {
+                state.runtime.allow_main_frame_navigation_after_input_fence(
+                    &context.webview_label,
+                    &context.role_id,
+                    &url,
+                )
+            })
+    }))
+    .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
 unsafe extern "C" fn drop_macos_surface_context(context: *mut std::ffi::c_void) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if !context.is_null() {
             drop(unsafe { Arc::from_raw(context.cast::<SurfaceLifecycleTracker>()) });
+        }
+    }));
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn drop_macos_role_surface_context(context: *mut std::ffi::c_void) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if !context.is_null() {
+            drop(unsafe { Box::from_raw(context.cast::<MacosRoleSurfaceContext>()) });
         }
     }));
 }

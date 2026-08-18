@@ -297,7 +297,36 @@ impl MacroRuntime {
         self.terminalize_controls(&controls)
     }
 
-    pub fn terminalize_role_after_navigation_failure(&self, role_id: &str) -> CoreResult<()> {
+    pub fn require_role_restart_after_navigation_failure(
+        &self,
+        role_id: &str,
+        input_epoch: u64,
+    ) -> CoreResult<bool> {
+        let controls = {
+            let mut inner = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+            if inner.input_epochs.get(role_id).copied().unwrap_or_default() != input_epoch {
+                return Ok(false);
+            }
+            inner.transferring_role_ids.remove(role_id);
+            inner.quiesced_role_ids.insert(role_id.to_owned());
+            inner.restart_required_role_ids.insert(role_id.to_owned());
+            inner
+                .invocations
+                .values()
+                .filter(|control| control.role_ids.contains(role_id))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        self.shared.role_transfer_changed.notify_all();
+        self.terminalize_controls(&controls)?;
+        Ok(true)
+    }
+
+    pub fn terminalize_role_after_process_termination(&self, role_id: &str) -> CoreResult<()> {
         let controls = {
             let mut inner = self
                 .shared
@@ -466,6 +495,7 @@ impl MacroRuntime {
         let current = inner.input_epochs.get(role_id).copied().unwrap_or_default() == input_epoch;
         let resumed = current
             && !inner.stopping_role_ids.contains(role_id)
+            && !inner.restart_required_role_ids.contains(role_id)
             && inner.quiesced_role_ids.remove(role_id);
         if resumed {
             inner.transferring_role_ids.remove(role_id);
@@ -486,6 +516,7 @@ impl MacroRuntime {
         let mut role_ids = inner.input_epochs.keys().cloned().collect::<HashSet<_>>();
         role_ids.extend(inner.stopping_role_ids.iter().cloned());
         role_ids.extend(inner.quiesced_role_ids.iter().cloned());
+        role_ids.extend(inner.restart_required_role_ids.iter().cloned());
         let mut roles = role_ids
             .into_iter()
             .map(|role_id| MacroInputRoleDiagnosticRecord {
@@ -496,6 +527,7 @@ impl MacroRuntime {
                     .unwrap_or_default(),
                 stopping: inner.stopping_role_ids.contains(&role_id),
                 quiesced: inner.quiesced_role_ids.contains(&role_id),
+                restart_required: inner.restart_required_role_ids.contains(&role_id),
                 role_id,
             })
             .collect::<Vec<_>>();

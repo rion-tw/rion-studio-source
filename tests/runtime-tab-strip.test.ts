@@ -21,6 +21,7 @@ const state: RuntimeTabStripState = {
   capturedAt: "2026-08-03T00:00:00Z",
   alwaysHideTabCloseButton: false,
   alwaysShowToolbarInFullScreen: false,
+  automaticInputRestartRequiredTabIds: {},
   displayId: 11,
   windowId: "window-1",
   displays: [],
@@ -108,6 +109,7 @@ function authoritativeSingleTabProjection(
     projectionRevision,
     topologyRevision,
     tabs: [{
+      automaticInputRestartRequired: false,
       id: "tab-1",
       name: "Workspace",
       type: "workspace",
@@ -1084,6 +1086,21 @@ it("removes ready status while preserving the shared close slot", () => {
     const slot = document.querySelector("[data-tab-id=\"tab-1\"] .tab-end-accessory");
     expect(slot).not.toBeNull();
     expect(slot?.querySelector(".close")).not.toBeNull();
+});
+
+it("shows restart-required without changing a ready tab phase", () => {
+  window.__rionApplyRuntimeTabState?.({
+    ...stateWithTabs(0),
+    automaticInputRestartRequiredTabIds: { "tab-1": true },
+    tabPhases: { "tab-1": "ready" }
+  });
+
+  const tab = document.querySelector<HTMLButtonElement>("[data-tab-id=\"tab-1\"]")!;
+  const warning = tab.querySelector<HTMLElement>(".phase-accessory");
+  expect(warning?.dataset.phase).toBe("automatic-input-restart-required");
+  expect(tab.dataset.automaticInputRestartRequired).toBe("true");
+  expect(tab.title).toContain("自動輸入已暫停，需重啟角色。");
+  expect(tab.ariaLabel).toContain("自動輸入已暫停，需重啟角色。");
 });
 
 it("keeps status in the end slot when close controls are hidden", () => {

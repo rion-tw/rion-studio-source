@@ -95,21 +95,21 @@ fn deferred_surface_recovery_is_bounded_and_latest_generation_wins() {
         let lifecycle = ApplicationLifecycleCoordinator::new_for_platform(platform);
         assert!(lifecycle.defer_surface_recovery(
             "role-1".to_owned(),
-            "first".to_owned(),
+            VerifiedProcessTermination::authoritative("first".to_owned()),
             2,
             None,
             false,
         ));
         assert!(lifecycle.defer_surface_recovery(
             "role-1".to_owned(),
-            "newer".to_owned(),
+            VerifiedProcessTermination::authoritative("newer".to_owned()),
             3,
             Some("parent".to_owned()),
             true,
         ));
         assert!(lifecycle.defer_surface_recovery(
             "role-1".to_owned(),
-            "stale".to_owned(),
+            VerifiedProcessTermination::authoritative("stale".to_owned()),
             1,
             None,
             false,
@@ -117,7 +117,7 @@ fn deferred_surface_recovery_is_bounded_and_latest_generation_wins() {
         for index in 2..=DEFERRED_SURFACE_RECOVERY_CAPACITY {
             assert!(lifecycle.defer_surface_recovery(
                 format!("role-{index}"),
-                "bounded".to_owned(),
+                VerifiedProcessTermination::authoritative("bounded".to_owned()),
                 1,
                 None,
                 false,
@@ -125,7 +125,7 @@ fn deferred_surface_recovery_is_bounded_and_latest_generation_wins() {
         }
         assert!(!lifecycle.defer_surface_recovery(
             "overflow".to_owned(),
-            "bounded".to_owned(),
+            VerifiedProcessTermination::authoritative("bounded".to_owned()),
             1,
             None,
             false,
@@ -137,7 +137,7 @@ fn deferred_surface_recovery_is_bounded_and_latest_generation_wins() {
             .find(|recovery| recovery.role_id == "role-1")
             .unwrap();
         assert_eq!(latest.generation, 3);
-        assert_eq!(latest.reason, "newer");
+        assert_eq!(latest.termination.reason, "newer");
         assert_eq!(latest.parent_operation_id.as_deref(), Some("parent"));
         assert!(latest.retry_terminal);
     }

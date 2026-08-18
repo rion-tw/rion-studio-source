@@ -226,7 +226,7 @@ impl SystemRuntimeExecutor {
                     (surface.webview.label() == surface_label)
                         .then_some((tab_id, surface.generation))
                 });
-                if let Some((tab_id, generation)) = current {
+                if let Some((tab_id, _generation)) = current {
                     failed_tabs.insert(tab_id.clone());
                     runtime.set_launch_phase(&tab_id, LaunchPhase::Degraded);
                     runtime.record_runtime_stage(
@@ -234,10 +234,11 @@ impl SystemRuntimeExecutor {
                         "failed",
                         started,
                     );
-                    runtime.schedule_surface_recovery(
-                        role_id,
-                        "navigation-page-ready-failed".to_owned(),
-                        generation,
+                    runtime.require_live_role_restart(
+                        &role_id,
+                        "SYSTEM_NAVIGATION_PAGE_READY_FAILED",
+                        "The initial page did not reach the authoritative ready state.",
+                        "navigation-page-ready-failed",
                     );
                 }
             }

@@ -20,6 +20,7 @@ fn surface_recovery_attempts_replay_exactly_and_keep_parent_metadata() {
             "window-1".to_owned(),
             7,
             3,
+            VerifiedProcessTermination::authoritative("renderer-process-exited".to_owned()),
         );
         let SurfaceRecoveryBegin::Started(_, initial) = started else {
             panic!("{platform}: recovery must start");
@@ -61,6 +62,7 @@ fn surface_recovery_attempts_replay_exactly_and_keep_parent_metadata() {
             "window-1".to_owned(),
             7,
             3,
+            VerifiedProcessTermination::authoritative("renderer-process-exited".to_owned()),
         );
         let SurfaceRecoveryBegin::Existing(replayed) = duplicate else {
             panic!("{platform}: duplicate callback must replay");
@@ -79,6 +81,7 @@ fn surface_recovery_attempts_replay_exactly_and_keep_parent_metadata() {
             "window-1".to_owned(),
             7,
             4,
+            VerifiedProcessTermination::authoritative("renderer-process-exited".to_owned()),
         );
         let SurfaceRecoveryBegin::Started(_, retry_record) = retry else {
             panic!("{platform}: an explicit lifecycle retry must start a new attempt");
@@ -125,6 +128,7 @@ fn owner_close_cancels_the_exact_surface_recovery_without_restart() {
             "window-1".to_owned(),
             7,
             3,
+            VerifiedProcessTermination::authoritative("renderer-process-exited".to_owned()),
         ) else {
             panic!("{platform}: recovery must start");
         };

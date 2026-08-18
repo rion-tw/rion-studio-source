@@ -469,6 +469,7 @@ pub fn run() {
             desktop_e2e::desktop_e2e_window_snapshot,
             desktop_e2e::desktop_e2e_inject_duplicate_role_cookie_checkpoint,
             desktop_e2e::desktop_e2e_arm_indeterminate_macro_input,
+            desktop_e2e::desktop_e2e_inject_page_finish_failure,
             desktop_e2e::desktop_e2e_control_window,
             desktop_e2e::desktop_e2e_runtime_ui_action,
             desktop_e2e::desktop_e2e_input_diagnostics,

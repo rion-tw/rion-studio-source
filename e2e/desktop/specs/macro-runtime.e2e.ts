@@ -6,6 +6,7 @@ import {
   detachTerminatedApplicationSession,
   focusMainApplicationWindow,
   inputDiagnostics,
+  injectPageFinishFailure,
   keyboardInput,
   keyboardInputSession,
   keyboardInputSequence,
@@ -47,6 +48,22 @@ interface Scenario {
   macro: Macro;
   roles: Role[];
   workspace?: LaunchWorkspace;
+}
+
+async function waitForInputFenceEvent(
+  afterSequence: number,
+  expectedEvent: string
+) {
+  let cursor = afterSequence;
+  for (;;) {
+    const observed = await waitEvent({
+      afterSequence: cursor,
+      kind: "input-fence-event",
+      timeoutMs: 45_000
+    });
+    if ((observed.details as { event?: unknown }).event === expectedEvent) return observed;
+    cursor = observed.sequence;
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -526,33 +543,30 @@ async function inputRecoveryPhase(): Promise<void> {
     roleIds: [scenario.roles[0].id]
   });
   const manualControlCursor = (await probe()).latestSequence;
-  expect(await armIndeterminateMacroInput(scenario.roles[0].id, false)).toMatchObject({
-    armed: true,
-    cleanupConfirmed: false,
+  expect(await injectPageFinishFailure(scenario.roles[0].id)).toMatchObject({
+    generation: initialSurfaceGeneration,
+    roleId: scenario.roles[0].id,
+    status: "injected"
+  });
+  const [terminalStatuses, restartRequired] = await Promise.all([
+    waitForMacroProjection({
+      absent: true,
+      afterSequence: manualCursor,
+      macroId: scenario.macro.id
+    }),
+    waitForInputFenceEvent(manualControlCursor, "restart-required")
+  ]);
+  expect(terminalStatuses.some((status) => status.macroId === scenario.macro.id)).toBe(false);
+  expect(restartRequired.details).toMatchObject({
+    event: "restart-required",
+    reason: "page-finish-deadline",
     roleId: scenario.roles[0].id
   });
-  const [manualTerminal, failedStatuses] = await Promise.all([
-    waitEvent({
-      afterSequence: manualControlCursor,
-      kind: "macro-input-recovery-terminal",
-      timeoutMs: 45_000
-    }),
-    waitForMacroProjection({
-      afterSequence: manualCursor,
-      macroId: scenario.macro.id,
-      roleIds: [scenario.roles[0].id],
-      state: "failed"
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: true,
+      roleId: scenario.roles[0].id
     })
-  ]);
-  expect(manualTerminal.details).toMatchObject({
-    failureCode: "SYSTEM_MACRO_INPUT_RECOVERY_NEUTRALITY_UNPROVEN",
-    recoveryMethod: "manual-restart-required",
-    roleId: scenario.roles[0].id,
-    status: "failed"
-  });
-  expect(manualTerminal.generation).toBe(initialSurfaceGeneration);
-  expect(failedStatuses).toEqual(expect.arrayContaining([
-    expect.objectContaining({ macroId: scenario.macro.id, state: "failed" })
   ]));
   const manualSnapshot = await windowSnapshot(tab.windowId);
   expect(manualSnapshot.roleSurfaceGenerations[scenario.roles[0].id])

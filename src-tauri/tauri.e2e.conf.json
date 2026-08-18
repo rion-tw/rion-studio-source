@@ -35,6 +35,7 @@
             "allow-desktop-e2e-window-snapshot",
             "allow-desktop-e2e-inject-duplicate-role-cookie-checkpoint",
             "allow-desktop-e2e-arm-indeterminate-macro-input",
+            "allow-desktop-e2e-inject-page-finish-failure",
             "allow-desktop-e2e-control-window",
             "allow-desktop-e2e-runtime-ui-action",
             "allow-desktop-e2e-input-diagnostics",

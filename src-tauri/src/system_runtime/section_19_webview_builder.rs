@@ -21,8 +21,11 @@ impl SystemRuntimeExecutor {
             .transpose()?;
         let download_app = self.app.clone();
         let download_role_id = role_id.map(str::to_owned);
+        #[cfg(not(target_os = "macos"))]
         let navigation_role_id = role_id.map(str::to_owned);
+        #[cfg(not(target_os = "macos"))]
         let navigation_app = self.app.clone();
+        #[cfg(not(target_os = "macos"))]
         let navigation_label = label.clone();
         let mut builder = WebviewBuilder::new(label, WebviewUrl::External(blank))
             .data_directory(paths.webview2.clone())
@@ -31,6 +34,12 @@ impl SystemRuntimeExecutor {
             .enable_clipboard_access()
             .zoom_hotkeys_enabled(false)
             .on_navigation(move |url| {
+                #[cfg(target_os = "macos")]
+                {
+                    matches!(url.scheme(), "about" | "http" | "https")
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
                 let Some(role_id) = navigation_role_id.as_deref() else {
                     return matches!(url.scheme(), "about" | "http" | "https");
                 };
@@ -43,6 +52,7 @@ impl SystemRuntimeExecutor {
                             url,
                         )
                     })
+                }
             })
             .on_new_window(move |url, features| {
                 let decision = popup_contract_decision(popup_role_id.is_some(), url.scheme());
@@ -103,8 +113,11 @@ impl SystemRuntimeExecutor {
                 };
                 let popup_download_app = popup_app.clone();
                 let popup_download_role_id = role_id.clone();
+                #[cfg(not(target_os = "macos"))]
                 let popup_navigation_app = popup_app.clone();
+                #[cfg(not(target_os = "macos"))]
                 let popup_navigation_role_id = role_id.clone();
+                #[cfg(not(target_os = "macos"))]
                 let popup_navigation_label = label.clone();
                 let popup_page_load_app = popup_app.clone();
                 let popup_builder = WebviewWindowBuilder::new(
@@ -120,6 +133,12 @@ impl SystemRuntimeExecutor {
                 .enable_clipboard_access()
                 .zoom_hotkeys_enabled(false)
                 .on_navigation(move |target| {
+                    #[cfg(target_os = "macos")]
+                    {
+                        matches!(target.scheme(), "about" | "http" | "https")
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
                     popup_navigation_app
                         .try_state::<crate::CoreState>()
                         .is_some_and(|state| {
@@ -129,6 +148,7 @@ impl SystemRuntimeExecutor {
                                 target,
                             )
                         })
+                    }
                 })
                 .on_page_load(move |webview, payload| {
                     if payload.event() == PageLoadEvent::Finished
@@ -195,8 +215,11 @@ impl SystemRuntimeExecutor {
                             match popup_app.try_state::<crate::CoreState>().map(|state| {
                                 state
                                     .runtime
-                                    .install_shared_process_surface_lifecycle_tracker(
+                                    .install_popup_surface_lifecycle_tracker(
                                         window.as_ref(),
+                                        &label,
+                                        role_id,
+                                        generation,
                                     )
                             }) {
                                 Some(Ok(lifecycle)) => lifecycle,

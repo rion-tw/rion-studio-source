@@ -290,6 +290,25 @@ export async function armIndeterminateMacroInput(
   return result as unknown as { armed: true; cleanupConfirmed: boolean; roleId: string };
 }
 
+export async function injectPageFinishFailure(
+  roleId: string
+): Promise<{ generation: number; inputEpoch: number; roleId: string; status: "injected" }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id) => core.invoke(
+      "desktop_e2e_inject_page_finish_failure",
+      { roleId: id, token }
+    ),
+    sessionToken(),
+    roleId
+  );
+  return result as unknown as {
+    generation: number;
+    inputEpoch: number;
+    roleId: string;
+    status: "injected";
+  };
+}
+
 export async function controlWindow(
   windowId: string,
   request: WindowControlRequest

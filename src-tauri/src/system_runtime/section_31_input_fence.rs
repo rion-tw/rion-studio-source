@@ -1,50 +1,132 @@
 impl SystemRuntimeExecutor {
+    #[cfg(feature = "desktop-e2e")]
+    pub(crate) fn desktop_e2e_inject_page_finish_failure(
+        &self,
+        role_id: &str,
+    ) -> Result<Value, String> {
+        let (webview_label, generation) = self
+            .state
+            .lock()
+            .map_err(|_| "The desktop E2E runtime state is unavailable.".to_owned())?
+            .native_resources
+            .tabs
+            .values()
+            .find_map(|tab| {
+                tab.roles.get(role_id).map(|surface| {
+                    (surface.webview.label().to_owned(), surface.generation)
+                })
+            })
+            .ok_or_else(|| "The desktop E2E role has no live surface.".to_owned())?;
+        let input_epoch = self
+            .begin_navigation_input_fence(
+                &webview_label,
+                role_id,
+                NavigationInputFenceSource::MainFrame,
+            )
+            .map_err(|error| error.message)?;
+        self.expire_navigation_input_fence(
+            &webview_label,
+            role_id,
+            input_epoch,
+            generation,
+        );
+        Ok(json!({
+            "generation": generation,
+            "inputEpoch": input_epoch,
+            "roleId": role_id,
+            "status": "injected"
+        }))
+    }
+
     fn quarantine_role_input(&self, role_id: &str, error: &RuntimeError) {
-        let newly_quarantined = self.role_input_lane(role_id).is_ok_and(|lane| {
+        self.require_live_role_restart(
+            role_id,
+            "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+            &error.message,
+            "trusted-input-quarantined",
+        );
+    }
+
+    fn require_live_role_restart(
+        &self,
+        role_id: &str,
+        failure_code: &str,
+        failure_message: &str,
+        reason: &'static str,
+    ) {
+        if let Ok(lane) = self.role_input_lane(role_id) {
             lane.normal_enabled.store(false, Ordering::Release);
-            !lane.quarantined.swap(true, Ordering::AcqRel)
-        });
-        if newly_quarantined {
-            let _ = self.app.emit(
-                "rion://shell-error",
-                json!({
-                    "code": "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
-                    "message": "Automatic input was disabled because native key or pointer cleanup could not be verified. Restart this role before running another macro.",
-                    "reason": error.message,
-                    "roleId": role_id
-                }),
-            );
-            let app = self.app.clone();
-            let core = Arc::clone(&self.core);
-            let role_id = role_id.to_owned();
-            tauri::async_runtime::spawn(async move {
-                let fenced = core.fence_macro_input(&role_id).ok();
-                let Some(fenced) = fenced else {
-                    return;
-                };
+            lane.quarantined.store(true, Ordering::Release);
+        }
+        let app = self.app.clone();
+        let core = Arc::clone(&self.core);
+        let role_id = role_id.to_owned();
+        let failure_code = failure_code.to_owned();
+        let failure_message = failure_message.to_owned();
+        tauri::async_runtime::spawn(async move {
+            let Some(fenced) = core.fence_macro_input(&role_id).ok() else {
                 if let Some(state) = app.try_state::<crate::CoreState>() {
-                    let generation = state.runtime.surface_generation_for_role(&role_id);
-                    let _ = state.runtime.install_role_input_fence(
+                    state.runtime.emit_navigation_input_error(
+                        &failure_code,
+                        &failure_message,
                         &role_id,
-                        fenced.input_epoch,
-                        "trusted-input-quarantined",
-                        generation,
+                        reason,
                     );
                 }
-                let drained = core
-                    .drain_macro_input(&role_id, fenced.input_epoch)
-                    .ok()
-                    .is_some_and(|record| record.current);
-                if drained
-                    && let Some(state) = app.try_state::<crate::CoreState>()
+                return;
+            };
+            let installed = app.try_state::<crate::CoreState>().is_some_and(|state| {
+                let generation = state.runtime.surface_generation_for_role(&role_id);
+                state
+                    .runtime
+                    .install_role_input_fence(
+                        &role_id,
+                        fenced.input_epoch,
+                        reason,
+                        generation,
+                    )
+                    .is_ok()
+            });
+            let drained = core
+                .drain_macro_input(&role_id, fenced.input_epoch)
+                .ok()
+                .is_some_and(|record| record.current);
+            let restart_required = core
+                .require_macro_role_restart_after_navigation_failure(
+                    &role_id,
+                    fenced.input_epoch,
+                )
+                .unwrap_or(false);
+            if let Some(state) = app.try_state::<crate::CoreState>() {
+                if installed
                     && let Ok(mut runtime_state) = state.runtime.state.lock()
                     && let Some(fence) = runtime_state.role_input_fences.get_mut(&role_id)
                     && fence.input_epoch == fenced.input_epoch
                 {
-                    fence.drained = true;
+                    fence.drained = drained;
+                    fence.restart_required = restart_required;
+                    fence.resuming = false;
                 }
-            });
-        }
+                if restart_required {
+                    state.runtime.record_input_fence_event_with_reason(
+                        &role_id,
+                        fenced.input_epoch,
+                        "restart-required",
+                        reason,
+                        LogLevel::Warn,
+                    );
+                }
+                state.runtime.publish_projection();
+                state.runtime.emit_navigation_input_error(
+                    "MACRO_ROLE_INPUT_RESTART_REQUIRED",
+                    &format!(
+                        "{failure_message} The live page was left unchanged; restart this role before running another macro."
+                    ),
+                    &role_id,
+                    reason,
+                );
+            }
+        });
     }
 
     fn set_role_input_fence(&self, role_id: &str, input_epoch: u64) -> RuntimeResult<()> {

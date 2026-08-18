@@ -431,6 +431,8 @@ void rion_runtime_tabs_update_metadata(
     tab.active = input->active;
     tab.audible = input->audible;
     tab.audioMuted = input->audioMuted;
+    tab.automaticInputRestartRequired =
+        input->automaticInputRestartRequired;
     tab.identifier = RionStringFromUTF8(input->identifier) ?: @"";
     tab.name = RionStringFromUTF8(input->name) ?: tab.identifier;
     tab.phase = RionStringFromUTF8(input->phase) ?: @"ready";

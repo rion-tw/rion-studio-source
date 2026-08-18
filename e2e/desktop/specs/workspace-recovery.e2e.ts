@@ -3,6 +3,7 @@ import { $, expect } from "@wdio/globals";
 import type { GameWindow, LaunchWorkspace, Role } from "../../../src/shared/types";
 import {
   detachTerminatedApplicationSession,
+  inputDiagnostics,
   probe,
   rendererCall,
   requireEnvironment,
@@ -15,7 +16,6 @@ import {
   rendererEventCursor,
   waitForCollectionProjection,
   waitForGameWindowProjection,
-  waitForRecoveryAttempt,
   waitForRoleProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
@@ -130,7 +130,7 @@ async function verifyPersistedMutations(): Promise<{
   return { primaryRole, recoveryRole, recoveryWindow, recoveryWorkspace };
 }
 
-async function exercisePartialFailureAndRecovery(
+async function exercisePartialFailureAndManualRestart(
   workspace: LaunchWorkspace,
   primaryRole: Role,
   recoveryRole: Role,
@@ -140,20 +140,21 @@ async function exercisePartialFailureAndRecovery(
     enabled: true,
     roleId: RECOVERY_FIXTURE_ID
   });
-  const cursor = await rendererEventCursor();
+  const controlCursor = (await probe()).latestSequence;
   await navigate("/workspaces");
   await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
   await waitForFixtureEvent(
     `/api/navigation-failures/${RECOVERY_FIXTURE_ID}/attempted`
   );
-  await waitForRecoveryAttempt({
-    afterSequence: cursor,
-    roleId: recoveryRole.id,
-    status: "active"
+  const restartRequired = await waitEvent({
+    afterSequence: controlCursor,
+    kind: "input-fence-event",
+    timeoutMs: 60_000
   });
-  await waitForFixtureEvent(
-    `/api/navigation-failures/${RECOVERY_FIXTURE_ID}/recovery-waiting`
-  );
+  expect(restartRequired.details).toMatchObject({
+    event: "restart-required",
+    roleId: recoveryRole.id
+  });
   await waitForRoleProjection({
     roleId: primaryRole.id,
     state: "running"
@@ -172,26 +173,51 @@ async function exercisePartialFailureAndRecovery(
   const degraded = await windowSnapshot(runtimeTab.windowId);
   const degradedTab = degraded.kernel?.tabs.find((tab) => tab.sourceId === workspace.id);
   expect(degradedTab?.launchPhase).toBe("degraded");
+  const degradedGeneration = degraded.roleSurfaceGenerations[recoveryRole.id];
+  expect(degradedGeneration).toBeGreaterThan(0);
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: true,
+      roleId: recoveryRole.id
+    })
+  ]));
 
-  const recoveryCursor = await rendererEventCursor();
+  await stopWindowFromUi(runtimeTab.windowId);
   await fixturePost("/api/navigation-failure", {
     enabled: false,
     roleId: RECOVERY_FIXTURE_ID
   });
-  await waitForRecoveryAttempt({
-    afterSequence: recoveryCursor,
-    phase: "completed",
-    roleId: recoveryRole.id,
-    status: "applied"
-  });
+  const restartCursor = await rendererEventCursor();
+  await navigate("/workspaces");
+  await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
   await waitForRoleProjection({
+    afterSequence: restartCursor,
     roleId: recoveryRole.id,
     state: "running"
   });
-  const recovered = await windowSnapshot(runtimeTab.windowId);
-  const recoveredTab = recovered.kernel?.tabs.find((tab) => tab.sourceId === workspace.id);
-  expect(recoveredTab).toBeDefined();
-  return runtimeTab.windowId;
+  const restartedRuntime = await waitForRuntimeProjection({
+    afterSequence: restartCursor,
+    roleIds: [primaryRole.id, recoveryRole.id],
+    sourceId: workspace.id
+  });
+  const restartedTab = restartedRuntime.tabs.find((tab) => tab.sourceId === workspace.id);
+  if (!restartedTab) throw new Error("Manually restarted workspace tab is unavailable");
+  const restarted = await windowSnapshot(restartedTab.windowId);
+  expect(restarted.roleSurfaceGenerations[recoveryRole.id]).toBeGreaterThan(0);
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: false,
+      roleId: recoveryRole.id
+    })
+  ]));
+  const cleanupCursor = await rendererEventCursor();
+  await rendererCall("stopGameWindowTab", restartedTab.id);
+  await waitForRuntimeProjection({
+    absent: true,
+    afterSequence: cleanupCursor,
+    sourceId: workspace.id
+  });
+  return expectedWindowId;
 }
 
 async function exerciseLaunchCancellation(
@@ -265,7 +291,7 @@ async function recoveryPhase(): Promise<void> {
     recoveryWindow,
     recoveryWorkspace
   } = await verifyPersistedMutations();
-  const windowId = await exercisePartialFailureAndRecovery(
+  const windowId = await exercisePartialFailureAndManualRestart(
     recoveryWorkspace,
     primaryRole,
     recoveryRole,
@@ -287,7 +313,7 @@ async function recoveryPhase(): Promise<void> {
 }
 
 describe("workspace partial failure and cancellation journey", () => {
-  it("recovers one failed role and cancels a gated relaunch through visible UI", async () => {
+  it("keeps one failed role live until a visible manual restart and cancels a gated relaunch", async () => {
     const phase = requireEnvironment("RION_STUDIO_E2E_PHASE");
     if (phase !== "p1-workspace-recovery") {
       throw new Error(`Unknown workspace recovery phase: ${phase}`);

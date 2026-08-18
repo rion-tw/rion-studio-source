@@ -1,33 +1,23 @@
 impl SystemRuntimeExecutor {
-    fn schedule_surface_recovery(
+    fn schedule_terminated_surface_recovery(
         self: &Arc<Self>,
         role_id: String,
-        reason: String,
+        termination: VerifiedProcessTermination,
         generation: u64,
     ) -> bool {
-        self.schedule_surface_recovery_with_parent(role_id, reason, generation, None)
-    }
-
-    fn schedule_surface_recovery_with_parent(
-        self: &Arc<Self>,
-        role_id: String,
-        reason: String,
-        generation: u64,
-        parent_operation_id: Option<String>,
-    ) -> bool {
-        self.schedule_surface_recovery_internal(
+        self.schedule_terminated_surface_recovery_internal(
             role_id,
-            reason,
+            termination,
             generation,
-            parent_operation_id,
+            None,
             false,
         )
     }
 
-    fn schedule_surface_recovery_internal(
+    fn schedule_terminated_surface_recovery_internal(
         self: &Arc<Self>,
         role_id: String,
-        reason: String,
+        termination: VerifiedProcessTermination,
         generation: u64,
         parent_operation_id: Option<String>,
         retry_terminal: bool,
@@ -35,7 +25,7 @@ impl SystemRuntimeExecutor {
         if !self.application_lifecycle.accepts_native_work() {
             return self.application_lifecycle.defer_surface_recovery(
                 role_id,
-                reason,
+                termination,
                 generation,
                 parent_operation_id,
                 retry_terminal,
@@ -127,6 +117,7 @@ impl SystemRuntimeExecutor {
             window_id.clone(),
             generation,
             context.lifecycle_epoch.unwrap_or_default(),
+            termination.clone(),
         ) {
             SurfaceRecoveryBegin::Started(transaction, record) => (transaction, record),
             SurfaceRecoveryBegin::Existing(record) => {
@@ -162,6 +153,7 @@ impl SystemRuntimeExecutor {
             }
         };
         self.emit_surface_recovery_attempt(&initial_record);
+        let reason = termination.reason.clone();
         let queued = self.effect_sender.get().ok_or(()).and_then(|sender| {
             sender
                 .send(SystemRuntimeWork::RecoverSurface {

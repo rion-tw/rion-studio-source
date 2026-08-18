@@ -518,7 +518,7 @@ impl SystemRuntimeExecutor {
                 "Native layout lost contact with {} System WebView surface(s).",
                 disconnected.len()
             );
-            self.schedule_layout_surface_recovery(
+            self.quarantine_disconnected_layout_surfaces(
                 &role_generations,
                 &disconnected_labels,
                 reason,
@@ -573,7 +573,7 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn schedule_layout_surface_recovery(
+    fn quarantine_disconnected_layout_surfaces(
         &self,
         role_generations: &[(String, String, u64)],
         disconnected_labels: &HashSet<&str>,
@@ -582,14 +582,15 @@ impl SystemRuntimeExecutor {
         let Some(runtime) = self.self_weak.get().and_then(std::sync::Weak::upgrade) else {
             return;
         };
-        for (_, role_id, generation) in role_generations
+        for (_, role_id, _generation) in role_generations
             .iter()
             .filter(|(label, _, _)| disconnected_labels.contains(label.as_str()))
         {
-            runtime.schedule_surface_recovery(
-                role_id.clone(),
-                reason.clone(),
-                *generation,
+            runtime.require_live_role_restart(
+                role_id,
+                "SYSTEM_LAYOUT_SURFACE_DISCONNECTED",
+                &reason,
+                "layout-surface-disconnected",
             );
         }
     }

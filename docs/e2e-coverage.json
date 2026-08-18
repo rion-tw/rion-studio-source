@@ -186,7 +186,7 @@
         "placeholder": "visible-retry",
         "inputFence": "no-late-input"
       },
-      "description": "Fail a shared Role ownership claim, retain retryable placeholders for every occurrence, terminalize its multi-role macro, and visibly retry without disturbing unique Roles."
+      "description": "Fail a shared Role ownership claim, retain its live surface and placeholders, terminalize its multi-role macro, require a manual role restart, and leave unique Roles running."
     },
     {
       "id": "MIXED-TOPOLOGY-CRASH-RECOVERY-006",
@@ -349,7 +349,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Inject confirmed-cleanup and unproven indeterminate trusted-input acknowledgements into a visibly started zero-interval looping macro; prove the eligible root resumes exactly once in place with the same surface generation, then prove the unproven case leaves the page intact and requires a manual role restart."
+      "description": "Inject a confirmed-cleanup trusted-input acknowledgement and a page-finish failure into a visibly started zero-interval looping macro; prove the eligible root resumes exactly once in place, then prove the page-finish failure keeps the same surface generation, pauses automatic input, and requires a manual role restart."
     },
     {
       "id": "MACRO-SHORTCUT-REENTRY-007",
@@ -529,7 +529,7 @@
       "kind": "native",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Restore mixed Role and Workspace topology and isolated sessions, keep crashed macros terminal, and recover a failed shared ownership claim through visible placeholders without late input."
+      "description": "Restore mixed Role and Workspace topology and isolated sessions, keep crashed macros terminal, and preserve a failed shared ownership claim without late input or automatic surface recovery until manual restart."
     },
     {
       "id": "APP-FULL-CRUD-001",
@@ -629,12 +629,13 @@
       "priority": "P1",
       "status": "automated",
       "profile": "full",
+      "phase": "p1-workspace-recovery",
       "spec": "e2e/desktop/specs/workspace-recovery.e2e.ts",
       "platforms": ["macos", "windows"],
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "cancel"],
-      "description": "Launch a two-role Workspace through UI, retain the healthy role through a controlled navigation failure, recover the failed role, and cancel a gated relaunch from Game Windows."
+      "description": "Launch a two-role Workspace through UI, retain the healthy role and failed live surface through a controlled navigation failure, require a visible stop-and-relaunch instead of automatic surface recovery, and cancel a gated relaunch from Game Windows."
     },
     {
       "id": "APP-QUIT-GUARD-002",

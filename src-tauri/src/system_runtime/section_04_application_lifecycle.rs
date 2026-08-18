@@ -40,9 +40,9 @@ struct ApplicationLifecycleSignal {
 struct DeferredSurfaceRecovery {
     generation: u64,
     parent_operation_id: Option<String>,
-    reason: String,
     retry_terminal: bool,
     role_id: String,
+    termination: VerifiedProcessTermination,
 }
 
 const DEFERRED_SURFACE_RECOVERY_CAPACITY: usize = 32;
@@ -162,7 +162,7 @@ impl ApplicationLifecycleCoordinator {
     fn defer_surface_recovery(
         &self,
         role_id: String,
-        reason: String,
+        termination: VerifiedProcessTermination,
         generation: u64,
         parent_operation_id: Option<String>,
         retry_terminal: bool,
@@ -186,9 +186,9 @@ impl ApplicationLifecycleCoordinator {
             DeferredSurfaceRecovery {
                 generation,
                 parent_operation_id,
-                reason,
                 retry_terminal,
                 role_id,
+                termination,
             },
         );
         true
@@ -510,9 +510,9 @@ impl SystemRuntimeExecutor {
             .application_lifecycle
             .take_deferred_surface_recoveries()
         {
-            self.schedule_surface_recovery_internal(
+            self.schedule_terminated_surface_recovery_internal(
                 recovery.role_id,
-                recovery.reason,
+                recovery.termination,
                 recovery.generation,
                 recovery.parent_operation_id,
                 recovery.retry_terminal,

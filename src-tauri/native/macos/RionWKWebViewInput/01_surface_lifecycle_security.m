@@ -40,6 +40,8 @@ enum {
 typedef void (*RionWKSurfaceReleasedCallback)(void *context);
 typedef void (*RionWKSurfaceEventCallback)(void *context, int32_t event);
 typedef void (*RionWKSurfaceContextDestructor)(void *context);
+typedef bool (*RionWKMainFrameNavigationCallback)(void *context,
+                                                   const char *url);
 
 @class RionWKNavigationDelegateProxy;
 
@@ -51,6 +53,8 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
 @property(nonatomic, assign) RionWKSurfaceReleasedCallback releasedCallback;
 @property(nonatomic, assign) RionWKSurfaceEventCallback eventCallback;
 @property(nonatomic, assign) RionWKSurfaceContextDestructor contextDestructor;
+@property(nonatomic, assign) RionWKMainFrameNavigationCallback
+    mainFrameNavigationCallback;
 @property(nonatomic, assign) BOOL quiesceRequested;
 @property(nonatomic, strong) WKNavigation *blankNavigation;
 @property(nonatomic, assign) BOOL isolationConfirmed;
@@ -137,6 +141,7 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
   _releasedCallback = NULL;
   _eventCallback = NULL;
   _contextDestructor = NULL;
+  _mainFrameNavigationCallback = NULL;
   _blankNavigation = nil;
   if (acknowledgeRelease && releasedCallback) releasedCallback(context);
   if (contextDestructor) contextDestructor(context);
@@ -155,6 +160,32 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
 @property(nonatomic, strong) id<WKNavigationDelegate> downstream;
 @end
 
+static BOOL RionWKShouldFenceNavigation(BOOL hasTargetFrame,
+                                        BOOL targetFrameIsMainFrame,
+                                        NSURL *currentURL,
+                                        NSURL *targetURL) {
+  if (!hasTargetFrame || !targetFrameIsMainFrame || !targetURL) return NO;
+  if (currentURL && [currentURL.absoluteString
+                        isEqualToString:targetURL.absoluteString]) {
+    return NO;
+  }
+  if (currentURL) {
+    NSURLComponents *current =
+        [NSURLComponents componentsWithURL:currentURL
+                   resolvingAgainstBaseURL:NO];
+    NSURLComponents *target =
+        [NSURLComponents componentsWithURL:targetURL
+                   resolvingAgainstBaseURL:NO];
+    current.fragment = nil;
+    target.fragment = nil;
+    if (current.URL && target.URL &&
+        [current.URL.absoluteString isEqualToString:target.URL.absoluteString]) {
+      return NO;
+    }
+  }
+  return YES;
+}
+
 @implementation RionWKNavigationDelegateProxy
 - (BOOL)respondsToSelector:(SEL)selector {
   return [super respondsToSelector:selector] ||
@@ -165,6 +196,33 @@ typedef void (*RionWKSurfaceContextDestructor)(void *context);
   return [_downstream respondsToSelector:selector]
       ? _downstream
       : [super forwardingTargetForSelector:selector];
+}
+
+- (void)webView:(WKWebView *)webView
+    decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction
+                    decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+  WKFrameInfo *targetFrame = navigationAction.targetFrame;
+  NSURL *targetURL = navigationAction.request.URL;
+  NSURL *currentURL = navigationAction.sourceFrame.isMainFrame
+      ? navigationAction.sourceFrame.request.URL
+      : webView.backForwardList.currentItem.URL;
+  RionWKSurfaceLease *lease = _lease;
+  if (RionWKShouldFenceNavigation(targetFrame != nil, targetFrame.isMainFrame,
+                                  currentURL, targetURL) &&
+      lease.context && lease.mainFrameNavigationCallback) {
+    const char *url = targetURL.absoluteString.UTF8String;
+    if (!url || !lease.mainFrameNavigationCallback(lease.context, url)) {
+      decisionHandler(WKNavigationActionPolicyCancel);
+      return;
+    }
+  }
+  if ([_downstream respondsToSelector:_cmd]) {
+    [_downstream webView:webView
+        decidePolicyForNavigationAction:navigationAction
+                        decisionHandler:decisionHandler];
+  } else {
+    decisionHandler(WKNavigationActionPolicyAllow);
+  }
 }
 
 - (void)webView:(WKWebView *)webView
@@ -264,11 +322,12 @@ static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
   [lease finishContextAcknowledgingRelease:YES];
 }
 
-uint64_t rion_wk_track_surface(
+static uint64_t RionWKTrackSurface(
     void *rawWebView, void *context,
     RionWKSurfaceEventCallback eventCallback,
     RionWKSurfaceReleasedCallback releasedCallback,
-    RionWKSurfaceContextDestructor contextDestructor) {
+    RionWKSurfaceContextDestructor contextDestructor,
+    RionWKMainFrameNavigationCallback mainFrameNavigationCallback) {
   @autoreleasepool {
     if (!rawWebView) return 0;
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
@@ -279,6 +338,7 @@ uint64_t rion_wk_track_surface(
         contextDestructor);
     RionWKSurfaceLease *lease = [RionWKSurfaceLeases() objectForKey:@(token)];
     if (!lease) return 0;
+    lease.mainFrameNavigationCallback = mainFrameNavigationCallback;
     RionWKNavigationDelegateProxy *proxy =
         [[RionWKNavigationDelegateProxy alloc] init];
     proxy.lease = lease;
@@ -288,6 +348,26 @@ uint64_t rion_wk_track_surface(
     webView.navigationDelegate = proxy;
     return token;
   }
+}
+
+uint64_t rion_wk_track_surface(
+    void *rawWebView, void *context,
+    RionWKSurfaceEventCallback eventCallback,
+    RionWKSurfaceReleasedCallback releasedCallback,
+    RionWKSurfaceContextDestructor contextDestructor) {
+  return RionWKTrackSurface(rawWebView, context, eventCallback, releasedCallback,
+                            contextDestructor, NULL);
+}
+
+uint64_t rion_wk_track_role_surface(
+    void *rawWebView, void *context,
+    RionWKSurfaceEventCallback eventCallback,
+    RionWKSurfaceReleasedCallback releasedCallback,
+    RionWKSurfaceContextDestructor contextDestructor,
+    RionWKMainFrameNavigationCallback mainFrameNavigationCallback) {
+  if (!mainFrameNavigationCallback) return 0;
+  return RionWKTrackSurface(rawWebView, context, eventCallback, releasedCallback,
+                            contextDestructor, mainFrameNavigationCallback);
 }
 
 static bool RionWKQuiesceSurfaceOnMain(uint64_t token) {
@@ -524,6 +604,27 @@ bool rion_wk_surface_lifecycle_self_test(void) {
     return distinct && distinctDataStores && live && isolated && callbacksMatched &&
         firstRemoved && secondRemoved && staleObserved && exactFailureOnce &&
         delegateForwarded && releaseFailureOnce && releaseOnce;
+  }
+}
+
+bool rion_wk_navigation_scope_self_test(void) {
+  @autoreleasepool {
+    NSURL *page = [NSURL URLWithString:@"https://example.test/game?slot=1#old"];
+    NSURL *fragment =
+        [NSURL URLWithString:@"https://example.test/game?slot=1#store"];
+    NSURL *same = [NSURL URLWithString:@"https://example.test/game?slot=1#old"];
+    NSURL *document = [NSURL URLWithString:@"https://example.test/play?slot=1"];
+    BOOL iframeExcluded =
+        !RionWKShouldFenceNavigation(YES, NO, page, document);
+    BOOL newWindowExcluded =
+        !RionWKShouldFenceNavigation(NO, NO, page, document);
+    BOOL sameExcluded = !RionWKShouldFenceNavigation(YES, YES, page, same);
+    BOOL fragmentExcluded =
+        !RionWKShouldFenceNavigation(YES, YES, page, fragment);
+    BOOL documentIncluded =
+        RionWKShouldFenceNavigation(YES, YES, page, document);
+    return iframeExcluded && newWindowExcluded && sameExcluded &&
+        fragmentExcluded && documentIncluded;
   }
 }
 

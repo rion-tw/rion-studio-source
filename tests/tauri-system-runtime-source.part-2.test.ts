@@ -598,7 +598,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     const resizeLayoutStart = runtime.indexOf("fn layout_runtime_tab_inner_with_metrics(");
     const resizeLayout = runtime.slice(
       resizeLayoutStart,
-      runtime.indexOf("fn schedule_layout_surface_recovery(", resizeLayoutStart)
+      runtime.indexOf("fn quarantine_disconnected_layout_surfaces(", resizeLayoutStart)
     );
     const windowsResizeMetricsStart = resizeLayout.indexOf(
       "let metrics = match metrics_override"
@@ -998,14 +998,15 @@ it("keeps macro overlay refresh, app activation, pending routing, and navigation
     expect(navigationPolicy).toContain(".resume_macro_input(role_id, input_epoch)");
     expect(navigationPolicy).toContain("expire_navigation_input_fence(");
     expect(navigationPolicy).toContain('"page-finish-deadline"');
-    expect(navigationPolicy).toContain("schedule_input_fence_recovery(");
+    expect(navigationPolicy).toContain("require_role_restart_after_input_fence_failure(");
+    expect(navigationPolicy).not.toContain("schedule_input_fence_recovery(");
     expect(navigationPolicy).not.toContain("reconcile_navigation_input_fence");
     expect(navigationPolicy).not.toContain("finish_navigation_reconciliation");
     expect(navigationPolicy).not.toContain("document_instance_proves_completed_navigation");
     expect(navigationPolicy).not.toContain("CoreCommand::MacroReleaseRole");
     expect(navigationPolicy).not.toContain("webview.navigate(url)");
     expect(navigationPolicy).not.toContain('"url"');
-    expect(runtime.match(/begin_navigation_input_fence\(/g)).toHaveLength(4);
+    expect(runtime.match(/begin_navigation_input_fence\(/g)).toHaveLength(5);
     expect(runtime).toContain('"operationId": operation_id');
 
     for (const forbiddenDocumentRequestNavigationToken of [

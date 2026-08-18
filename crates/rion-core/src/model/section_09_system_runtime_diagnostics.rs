@@ -281,6 +281,7 @@ pub struct RuntimeTabChromeItemRecord {
     pub muted: bool,
     pub loading: bool,
     pub degraded: bool,
+    pub automatic_input_restart_required: bool,
     pub closable: bool,
     pub source_id: String,
     pub phase: RuntimeTabActivationPhaseRecord,
@@ -536,6 +537,7 @@ pub struct MacroInputRoleDiagnosticRecord {
     pub input_epoch: u64,
     pub stopping: bool,
     pub quiesced: bool,
+    pub restart_required: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]

@@ -7,6 +7,7 @@ fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInput
         drained: false,
         surface_generation,
         recovery_scheduled: false,
+        restart_required: false,
         macro_recovery_id: None,
         pending_macro_restart_count: 0,
         resuming: false,
@@ -130,9 +131,22 @@ fn document_replacement_cannot_complete_a_stale_macro_recovery() {
 }
 
 #[test]
-fn macro_owned_input_fence_failure_never_rebuilds_the_surface() {
-    assert!(!input_fence_recovery_may_rebuild_surface(true));
-    assert!(input_fence_recovery_may_rebuild_surface(false));
+fn every_live_page_input_fence_failure_becomes_restart_required_without_recovery() {
+    let mut fences = HashMap::from([(
+        "role-1".to_owned(),
+        test_role_input_fence(4, 9),
+    )]);
+    assert_eq!(
+        claim_input_fence_restart_required(&mut fences, "role-1", 4),
+        Some(9)
+    );
+    let fence = &fences["role-1"];
+    assert!(fence.restart_required);
+    assert!(!fence.recovery_scheduled);
+    assert_eq!(
+        claim_input_fence_restart_required(&mut fences, "role-1", 4),
+        None
+    );
 }
 
 #[test]
@@ -294,16 +308,18 @@ fn a_drained_popup_close_fence_with_no_page_tickets_is_ready() {
 }
 
 #[test]
-fn deadline_claims_at_most_one_recovery_for_the_current_epoch() {
+fn deadline_claims_at_most_one_restart_requirement_for_the_current_epoch() {
     let mut fences = HashMap::new();
     fences.insert("role-1".to_owned(), test_role_input_fence(7, 11));
 
     assert_eq!(
-        claim_input_fence_recovery(&mut fences, "role-1", 7),
+        claim_input_fence_restart_required(&mut fences, "role-1", 7),
         Some(11)
     );
-    assert_eq!(claim_input_fence_recovery(&mut fences, "role-1", 7), None);
-    assert_eq!(claim_input_fence_recovery(&mut fences, "role-1", 6), None);
+    assert_eq!(claim_input_fence_restart_required(&mut fences, "role-1", 7), None);
+    assert_eq!(claim_input_fence_restart_required(&mut fences, "role-1", 6), None);
+    assert!(fences["role-1"].restart_required);
+    assert!(!fences["role-1"].recovery_scheduled);
 }
 
 #[test]

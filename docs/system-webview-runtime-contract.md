@@ -469,16 +469,26 @@ superseded, or never-accepted session are idempotent no-ops and never surface a
 - Main-frame navigation is the only implicit input-fence transaction boundary.
   Subframe, iframe, document-resource, and other resource requests never create,
   advance, extend, or release a role input fence on either platform.
+- On macOS the native navigation delegate requires a non-null
+  `targetFrame.isMainFrame` and excludes new-window, same-URL, and fragment-only
+  actions. Tauri's generic macOS navigation callback enforces URL-scheme policy
+  only. Windows continues to use WebView2's top-level navigation event.
 - macOS and Windows share the observable ordering: synchronously close Core and
   native input before allowing the main-frame navigation, asynchronously drain
   that epoch once, then wait for the matching generation's page finish and new
   document proof. Platform adapters may use different native APIs to provide it.
 - A navigation deadline belongs to one current deadline-bound main-frame or
-  controlled-reload operation. Recovery is valid only while that operation ID,
-  input epoch, and surface generation remain current; resource activity cannot
-  start or reset it.
+  controlled-reload operation. Failure marks the exact input epoch
+  `restart-required`; it never reloads, navigates, closes, replaces, or otherwise
+  mutates the still-live page. Resource activity cannot start or reset it.
 - Timeouts never silently become success. A newer operation becomes
   `superseded`; an unknown native result becomes `indeterminate`.
+- Page-finish timeout, initial page-ready failure, Core or native input-resume
+  rejection, popup input-fence failure, layout-channel loss, and WebView2
+  renderer unresponsiveness all preserve the current URL, DOM, session, surface
+  identity, and generation. They isolate automatic input and publish a
+  non-blocking restart-required warning; direct player keyboard and pointer
+  input remain available. Only role stop followed by relaunch clears this state.
 - Reload is a navigation operation rather than a bare native command. Every role
   fences and drains macro input before reload, reaches a new HTTP(S) document,
   and resumes only when its generation is still current. Overlapping controlled
@@ -494,9 +504,17 @@ superseded, or never-accepted session are idempotent no-ops and never surface a
   old epoch cannot reassert keys, mark a tab ready, persist success, or overwrite
   the lifecycle terminal receipt.
 
-## Surface recovery
+## Process-death surface recovery
 
-Process failure creates one `SurfaceRecoveryAttemptRecord` and one optionally
+An authoritative native process-termination event is the only legal source of
+automatic surface replacement: `webViewWebContentProcessDidTerminate` on macOS,
+or WebView2 browser/render process-exited on Windows. Renderer unresponsive is
+not process termination and cannot enter this contract. Every recovery request,
+including a retry deferred across sleep/wake, carries the original verified
+termination evidence; no navigation, layout, popup, readiness, input, or generic
+runtime failure may manufacture it.
+
+Verified process death creates one `SurfaceRecoveryAttemptRecord` and one optionally
 parent-linked native operation for the exact `(roleId, surfaceGeneration,
 windowId, lifecycleEpoch)`. At most 32 attempts are active and 40 terminal
 attempts are retained. Duplicate callbacks for the same active or completed

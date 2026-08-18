@@ -902,6 +902,18 @@ impl SystemRuntimeExecutor {
                 )
             })
             .collect::<HashMap<_, _>>();
+        let automatic_input_restart_required_role_ids = self
+            .core
+            .macro_input_diagnostics()
+            .map(|diagnostics| {
+                diagnostics
+                    .roles
+                    .into_iter()
+                    .filter(|role| role.restart_required)
+                    .map(|role| role.role_id)
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
         let persisted_window_name = presentation
             .persisted_name
             .clone()
@@ -972,6 +984,9 @@ impl SystemRuntimeExecutor {
                                         | TabRuntimePhase::Loading
                                 ),
                                 degraded: phase == TabRuntimePhase::Degraded,
+                                automatic_input_restart_required: role_ids.iter().any(|role_id| {
+                                    automatic_input_restart_required_role_ids.contains(role_id)
+                                }),
                                 closable: presented.closable,
                                 source_id: presented.source_id.clone(),
                                 phase: phase.as_record(),

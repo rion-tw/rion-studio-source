@@ -1,7 +1,3 @@
-fn input_fence_recovery_may_rebuild_surface(macro_recovery_owned: bool) -> bool {
-    !macro_recovery_owned
-}
-
 impl SystemRuntimeExecutor {
     fn allow_main_frame_navigation_after_input_fence(
         &self,
@@ -91,11 +87,16 @@ impl SystemRuntimeExecutor {
                     "SYSTEM_NAVIGATION_INPUT_FENCE_FAILED",
                     "Navigation input fencing failed during macro recovery. The page was left unchanged; restart this role before running another macro.",
                 );
-            } else if let Some(state) = self.app.try_state::<crate::CoreState>() {
-                state.runtime.schedule_surface_recovery(
-                    role_id.to_owned(),
-                    "navigation-native-input-fence-failed".to_owned(),
-                    generation,
+            } else {
+                let _ = self
+                    .core
+                    .require_macro_role_restart_after_navigation_failure(role_id, epoch);
+                self.publish_projection();
+                self.emit_navigation_input_error(
+                    "MACRO_ROLE_INPUT_RESTART_REQUIRED",
+                    "Automatic input was paused because the navigation input fence could not be installed. The live page was left unchanged; restart this role before running another macro.",
+                    role_id,
+                    webview_label,
                 );
             }
             self.record_native_operation_receipt(receipt_for_runtime_result(
@@ -150,9 +151,8 @@ impl SystemRuntimeExecutor {
         let deadline_webview_label = webview_label.clone();
         tauri::async_runtime::spawn(async move {
             // DeadlineBound: the exact page-finished event is the only success
-            // path. Elapsed time terminalizes the input fence as failed and
-            // may schedule fenced recovery; it never reads back page state or
-            // infers navigation success.
+            // path. Elapsed time terminalizes automatic input as restart-required;
+            // it never reads back page state or infers navigation success.
             tokio::time::sleep(NAVIGATION_TIMEOUT).await;
             if let Some(state) = deadline_app.try_state::<crate::CoreState>() {
                 state.runtime.expire_navigation_input_fence(
@@ -318,7 +318,7 @@ impl SystemRuntimeExecutor {
             .ok()
             .is_some_and(|record| record.current);
         if !resumed {
-            self.schedule_input_fence_recovery(
+            self.require_role_restart_after_input_fence_failure(
                 role_id,
                 input_epoch,
                 "core-input-resume-rejected",
@@ -368,7 +368,7 @@ impl SystemRuntimeExecutor {
                 self.finish_macro_input_recovery_in_place(role_id, input_epoch);
             }
         } else {
-            self.schedule_input_fence_recovery(
+            self.require_role_restart_after_input_fence_failure(
                 role_id,
                 input_epoch,
                 "native-input-resume-rejected",
@@ -437,6 +437,7 @@ impl SystemRuntimeExecutor {
                     drained: false,
                     surface_generation: generation,
                     recovery_scheduled: false,
+                    restart_required: false,
                     macro_recovery_id,
                     pending_macro_restart_count,
                     resuming: false,
@@ -477,26 +478,36 @@ impl SystemRuntimeExecutor {
             self.record_stale_input_fence_event(role_id, input_epoch);
             return;
         }
-        self.schedule_input_fence_recovery(role_id, input_epoch, "page-finish-deadline");
+        self.require_role_restart_after_input_fence_failure(
+            role_id,
+            input_epoch,
+            "page-finish-deadline",
+        );
     }
 
-    fn schedule_input_fence_recovery(&self, role_id: &str, input_epoch: u64, reason: &str) {
-        let recovery = self.state.lock().ok().and_then(|mut state| {
+    fn require_role_restart_after_input_fence_failure(
+        &self,
+        role_id: &str,
+        input_epoch: u64,
+        reason: &str,
+    ) {
+        let restart = self.state.lock().ok().and_then(|mut state| {
             let generation =
-                claim_input_fence_recovery(&mut state.role_input_fences, role_id, input_epoch)?;
+                claim_input_fence_restart_required(&mut state.role_input_fences, role_id, input_epoch)?;
             let fence = state
                 .role_input_fences
-                .get(role_id)?;
+                .get_mut(role_id)?;
+            fence.reason = reason.to_owned();
             Some((
                 generation,
                 fence.navigation_operation.clone(),
                 fence.macro_recovery_id.is_some(),
             ))
         });
-        let Some((generation, operation, macro_owned)) = recovery else {
+        let Some((_generation, operation, macro_owned)) = restart else {
             return;
         };
-        if !input_fence_recovery_may_rebuild_surface(macro_owned) {
+        if macro_owned {
             if let Some(operation) = operation {
                 self.record_native_operation_receipt(NativeOperationReceipt::with_status(
                     operation,
@@ -512,20 +523,21 @@ impl SystemRuntimeExecutor {
             );
             return;
         }
-        if let Err(error) = self
+        let restart_required = self
             .core
-            .terminalize_macro_runs_after_navigation_failure(role_id)
-        {
+            .require_macro_role_restart_after_navigation_failure(role_id, input_epoch);
+        if !restart_required.as_ref().is_ok_and(|current| *current) {
+            let message = restart_required
+                .err()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "Core rejected an obsolete navigation input epoch.".to_owned());
             self.emit_navigation_input_error(
                 "SYSTEM_NAVIGATION_MACRO_TERMINAL_FAILED",
-                &error.to_string(),
+                &message,
                 role_id,
                 "input-fence",
             );
         }
-        let parent_operation_id = operation
-            .as_ref()
-            .map(|operation| operation.operation_id.clone());
         if let Some(operation) = operation {
             self.record_native_operation_receipt(NativeOperationReceipt::with_status(
                 operation,
@@ -537,45 +549,21 @@ impl SystemRuntimeExecutor {
         self.record_input_fence_event_with_reason(
             role_id,
             input_epoch,
-            "recovery-scheduled",
+            "restart-required",
             reason,
             LogLevel::Warn,
         );
-        let scheduled = self
-            .app
-            .try_state::<crate::CoreState>()
-            .is_some_and(|state| {
-                state.runtime.schedule_surface_recovery_with_parent(
-                    role_id.to_owned(),
-                    "input-fence-timeout".to_owned(),
-                    generation,
-                    parent_operation_id,
-                )
-            });
-        if !scheduled {
-            self.report_system_surface_state_async(
-                role_id.to_owned(),
-                Some("input-fence-recovery-unavailable".to_owned()),
-                false,
-            );
-            self.record_input_fence_event_with_reason(
-                role_id,
-                input_epoch,
-                "recovery-failed",
-                "recovery-not-queued",
-                LogLevel::Warn,
-            );
-            self.emit_navigation_input_error(
-                "SYSTEM_INPUT_FENCE_RECOVERY_FAILED",
-                "Automatic input recovery could not be scheduled. Restart this role to recover safely.",
-                role_id,
-                "input-fence",
-            );
-        }
+        self.publish_projection();
+        self.emit_navigation_input_error(
+            "MACRO_ROLE_INPUT_RESTART_REQUIRED",
+            "Automatic input was paused because navigation did not reach an authoritative input-ready state. The live page was left unchanged; restart this role before running another macro.",
+            role_id,
+            "input-fence",
+        );
     }
 
     fn record_input_fence_event(&self, role_id: &str, input_epoch: u64, event: &str) {
-        let level = if matches!(event, "stale" | "recovery-scheduled" | "recovery-failed") {
+        let level = if matches!(event, "stale" | "restart-required" | "recovery-failed") {
             LogLevel::Warn
         } else {
             LogLevel::Debug

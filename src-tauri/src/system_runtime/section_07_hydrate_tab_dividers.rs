@@ -282,6 +282,7 @@ impl SystemRuntimeExecutor {
                     let generation = transaction.surface_generation;
                     let parent_operation_id =
                         transaction.context.parent_operation_id.clone();
+                    let termination = transaction.termination.clone();
                     if let Ok(mut state) = self.state.lock() {
                         state.recovering_roles.remove(&role_id);
                     }
@@ -302,9 +303,9 @@ impl SystemRuntimeExecutor {
                         }),
                     );
                     if lifecycle_unavailable {
-                        self.schedule_surface_recovery_internal(
+                        self.schedule_terminated_surface_recovery_internal(
                             role_id,
-                            format!("{reason}:lifecycle-retry"),
+                            termination,
                             generation,
                             parent_operation_id,
                             true,

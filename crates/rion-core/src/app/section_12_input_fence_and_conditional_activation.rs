@@ -101,12 +101,21 @@ impl AppCore {
         })
     }
 
-    pub fn terminalize_macro_runs_after_navigation_failure(
+    pub fn require_macro_role_restart_after_navigation_failure(
+        &self,
+        role_id: &str,
+        input_epoch: u64,
+    ) -> CoreResult<bool> {
+        self.macro_runtime
+            .require_role_restart_after_navigation_failure(role_id, input_epoch)
+    }
+
+    pub fn terminalize_macro_runs_after_process_termination(
         &self,
         role_id: &str,
     ) -> CoreResult<()> {
         self.macro_runtime
-            .terminalize_role_after_navigation_failure(role_id)
+            .terminalize_role_after_process_termination(role_id)
     }
 
     pub fn drain_macro_input(

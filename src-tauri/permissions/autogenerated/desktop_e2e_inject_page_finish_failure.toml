@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-e2e-inject-page-finish-failure"
+description = "Enables the desktop_e2e_inject_page_finish_failure command without any pre-configured scope."
+commands.allow = ["desktop_e2e_inject_page_finish_failure"]
+
+[[permission]]
+identifier = "deny-desktop-e2e-inject-page-finish-failure"
+description = "Denies the desktop_e2e_inject_page_finish_failure command without any pre-configured scope."
+commands.deny = ["desktop_e2e_inject_page_finish_failure"]

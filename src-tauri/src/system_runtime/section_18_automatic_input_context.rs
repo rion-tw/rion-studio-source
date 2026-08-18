@@ -200,8 +200,8 @@ fn read_automatic_input_context(
             .ok()
             .and_then(|value| value.pointer("/result/value").cloned())
             .ok_or_else(automatic_input_context_unavailable_error)?;
-        return parse_automatic_input_context(value)
-            .ok_or_else(automatic_input_context_unavailable_error);
+        parse_automatic_input_context(value)
+            .ok_or_else(automatic_input_context_unavailable_error)
     }
     #[cfg(not(windows))]
     {

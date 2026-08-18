@@ -134,12 +134,6 @@ impl SystemRuntimeExecutor {
         if accepted {
             match readback.target {
                 AutomaticInputContextTarget::EmbeddedFrame => {
-                    let recovery_id = format!("input-context-{}", uuid::Uuid::new_v4());
-                    self.schedule_macro_input_recovery(
-                        role_id,
-                        &recovery_id,
-                        &automatic_input_context_blocked_error(),
-                    );
                     self.publish_projection();
                 }
                 AutomaticInputContextTarget::Game => {

@@ -211,7 +211,6 @@ async function stopMacroFromUi(macro: Macro, afterSequence: number): Promise<voi
 
 async function activateTab(windowId: string, tabId: string): Promise<void> {
   const live = await windowSnapshot(windowId);
-  const phase = live.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase;
   const cursor = (await probe()).latestSequence;
   await runtimeUiAction(windowId, {
     action: "activateTab",
@@ -224,7 +223,8 @@ async function activateTab(windowId: string, tabId: string): Promise<void> {
     windowId
   });
   expect(terminal.details).toMatchObject({ error: null, status: "completed", tabId });
-  if (phase !== "ready") {
+  const activated = await windowSnapshot(windowId);
+  if (activated.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase !== "ready") {
     await waitEvent({
       afterSequence: cursor,
       kind: `tab-launch-phase:${tabId}:ready`,
@@ -232,7 +232,7 @@ async function activateTab(windowId: string, tabId: string): Promise<void> {
       windowId
     });
   }
-  expect((await windowSnapshot(windowId)).kernel?.selectedTabId).toBe(tabId);
+  expect(activated.kernel?.selectedTabId).toBe(tabId);
 }
 
 async function closeTab(windowId: string, tabId: string, role?: Role): Promise<void> {

@@ -359,6 +359,7 @@ export async function clickEntityMenuAction(
       .up("left")
       .perform();
   } else {
+    await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
     await browser.action("key").down(Key.Enter).up(Key.Enter).perform();
   }
   const menu = await $("[role='menu']");

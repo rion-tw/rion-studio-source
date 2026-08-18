@@ -264,6 +264,9 @@ describe("desktop E2E build isolation", () => {
     expect(helper).toContain('.down("left")');
     expect(helper).toContain('.up("left")');
     expect(helper).toContain('browser.action("key").down(Key.Enter).up(Key.Enter).perform()');
+    expect(helper.match(/control\.focus/g)).toHaveLength(2);
+    expect(helper.lastIndexOf("control.focus"))
+      .toBeLessThan(helper.indexOf('browser.action("key")'));
     expect(helper).not.toContain("dispatchEvent");
   });
 

@@ -1060,9 +1060,12 @@ async function recoveryPhase(): Promise<void> {
   ]);
   expect(restartRequired.details).toMatchObject({
     event: "restart-required",
-    reason: "page-finish-deadline",
     roleId: sharedRole.id
   });
+  expect([
+    "navigation-page-ready-failed",
+    "page-finish-deadline"
+  ]).toContain((restartRequired.details as { reason?: string }).reason);
   expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
     expect.objectContaining({
       restartRequired: true,

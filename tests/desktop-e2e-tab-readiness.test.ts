@@ -63,4 +63,19 @@ describe("desktop E2E restored tab readiness", () => {
     expect(detachSource.indexOf("const sourcePersistenceCursor ="))
       .toBeLessThan(detachSource.indexOf('action: "moveToNewWindow"'));
   });
+
+  it("accepts either authoritative deadline that can claim navigation restart", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),
+      "utf8"
+    );
+    const recovery = source.slice(
+      source.indexOf("const recoveryMacroCursor ="),
+      source.indexOf("const terminalInput =", source.indexOf("const recoveryMacroCursor ="))
+    );
+
+    expect(recovery).toContain('"navigation-page-ready-failed"');
+    expect(recovery).toContain('"page-finish-deadline"');
+    expect(recovery).toContain("toContain((restartRequired.details as { reason?: string }).reason)");
+  });
 });

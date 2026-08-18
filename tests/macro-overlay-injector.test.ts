@@ -10,6 +10,14 @@ type OverlayController = {
   refresh(): Promise<void>;
 };
 type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
+  macroBadgeTiming(observation: {
+    clientMonotonicMs: number;
+    iteration: number;
+    macroId: string;
+    phase: "animationStart" | "webviewResponse";
+    refreshRoundTripMs: number;
+    startedAt: string;
+  }): Promise<unknown>;
   macroKeyObserved(observation: {
     code: string;
     dispatchId: string;
@@ -149,6 +157,28 @@ describe("Tauri macro overlay injector", () => {
     await binding.macroKeyObserved(observation);
 
     expect(invoke).toHaveBeenCalledWith("rion_macro_key_event_observed", {
+      capability: "test-capability",
+      observation
+    });
+  });
+
+  it("forwards macro badge timing through the authenticated internal command", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => undefined);
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const observation = {
+      clientMonotonicMs: 120,
+      iteration: 3,
+      macroId: "macro-1",
+      phase: "animationStart" as const,
+      refreshRoundTripMs: 8,
+      startedAt: "2026-08-19T00:00:00.000Z"
+    };
+
+    await binding.macroBadgeTiming(observation);
+
+    expect(invoke).toHaveBeenCalledWith("rion_macro_badge_timing", {
       capability: "test-capability",
       observation
     });

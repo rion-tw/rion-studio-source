@@ -36,7 +36,7 @@ use rion_core::{
     GameWindowTabRecord,
     HighRefreshRateDiagnosticStatus, LayoutBounds, LayoutDividerInput,
     LayoutRect, LayoutRoleInput, LogCaptureRecord, LogErrorDetails, LogLevel, LogSource,
-    MacroCoordinateContextRecord, MacroInputDiagnosticsRecord,
+    MacroCoordinateContextRecord, MacroInputDiagnosticsRecord, MacroRunStatus,
     MacosHighRefreshMode,
     OperationCompletionPolicy, PerformanceTargetStatus,
     RuntimeTabMutationRequestRecord,

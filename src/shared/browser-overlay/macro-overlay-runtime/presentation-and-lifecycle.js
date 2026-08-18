@@ -140,6 +140,40 @@
     clickMarkerFlashStates.delete(marker.dataset.markerKey);
   }
 
+  function handleActiveBadgeAnimationStart(event) {
+    if (event.animationName !== "active-badge-border-flash" || event.pseudoElement !== "::after") {
+      return;
+    }
+    const badge = event.target?.closest?.(".active-badge.is-iteration-flash");
+    const macroId = badge?.dataset.macroId;
+    const startedAt = badge?.dataset.startedAt;
+    const iteration = Number(badge?.dataset.iteration) || 0;
+    if (!macroId || !startedAt || iteration === 0) return;
+    const traceKey = [badge.dataset.roleId, macroId, startedAt, iteration].join(":");
+    const response = macroBadgeResponseTimings.get(traceKey);
+    const animationStartedAt = browserMonotonicNowMs();
+    const readTiming = (property) => {
+      const value = Number.parseFloat(badge.style.getPropertyValue(property));
+      return Number.isFinite(value) ? Math.round(value) : undefined;
+    };
+    reportMacroBadgeTiming({
+      animationDelayMs: readTiming("--active-badge-flash-delay"),
+      animationDurationMs: readTiming("--active-badge-flash-duration"),
+      animationElapsedMs: Number.isFinite(event.elapsedTime)
+        ? Math.round(event.elapsedTime * 1000)
+        : undefined,
+      clientMonotonicMs: animationStartedAt,
+      iteration,
+      macroId,
+      phase: "animationStart",
+      refreshRoundTripMs: 0,
+      responseToAnimationMs: response
+        ? Math.max(0, animationStartedAt - response.responseAt)
+        : undefined,
+      startedAt
+    });
+  }
+
   function formatCode(code) {
     return String(code)
       .replace(/^Key/, "")
@@ -311,6 +345,7 @@
     triggerElement = root.querySelector(".trigger");
     actionMenuElement = root.querySelector(".action-menu");
     clickMarkerLayerElement?.addEventListener("animationend", handleClickMarkerAnimationEnd);
+    activeBadgesElement?.addEventListener("animationstart", handleActiveBadgeAnimationStart);
     triggerElement?.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
     });
@@ -417,7 +452,7 @@
     const nextMarkup = (state.macroOverlay.showRunningBadges ? getRunningBadgeMacros() : [])
       .map((macro) => {
         const behavior = formatMacroBehavior(macro);
-        const { delay, duration, iteration } = getMacroIteration(macro.id);
+        const { delay, duration, iteration, status } = getMacroIteration(macro.id);
         const iterationFlashClass = iteration > 0 ? " is-iteration-flash" : "";
         const hasUsableShortcut = macro.trigger && isShortcutMacroId(macro.id);
         const shortcutlessClass = hasUsableShortcut ? "" : " is-shortcutless";
@@ -432,6 +467,12 @@
           shortcutlessClass,
           '" data-iteration="',
           String(iteration),
+          '" data-macro-id="',
+          escapeHtml(macro.id),
+          '" data-role-id="',
+          escapeHtml(status?.roleId ?? ""),
+          '" data-started-at="',
+          escapeHtml(status?.startedAt ?? ""),
           '" style="--active-badge-flash-duration:',
           String(duration),
           'ms;--active-badge-flash-delay:',
@@ -472,12 +513,14 @@
     refreshQueued = false;
     const operation = (async () => {
       const requestVersion = ++state.requestVersion;
+      const requestStartedAt = browserMonotonicNowMs();
       try {
         const nextState = await binding({ type: "list" });
         if (requestVersion !== state.requestVersion || disposeIfDetached(nextState)) {
           return;
         }
         applyState(nextState);
+        reportMacroBadgeSnapshotTimings(requestStartedAt);
         updatePresentation();
       } catch (error) {
         console.warn("Unable to refresh Rion Studio macro shortcuts.", error);
@@ -630,6 +673,7 @@
     clickMarkerEvents.clear();
     clickMarkerFlashStates.clear();
     macroIterationTimings.clear();
+    macroBadgeResponseTimings.clear();
     pendingMacroActions.clear();
     macroActionTails.clear();
     latestCoreStatuses = [];

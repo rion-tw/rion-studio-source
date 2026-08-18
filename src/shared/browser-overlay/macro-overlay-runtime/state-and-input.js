@@ -134,6 +134,7 @@
   const clickMarkerFlashStates = new Map();
   const clickMarkerFlashDurationMs = 120;
   const clickStatusRetentionMs = 180;
+  const macroBadgeResponseTimings = new Map();
   const retainedClickStatuses = new Map();
   const seenClickStatusEvents = new Map();
   let clickStatusRetentionTimer = undefined;
@@ -663,6 +664,43 @@
     state.lastRefreshAt = Date.now();
   }
 
+  function browserMonotonicNowMs() {
+    const now = globalThis.performance?.now?.();
+    return Number.isFinite(now) ? Math.max(0, Math.round(now)) : 0;
+  }
+
+  function reportMacroBadgeTiming(observation) {
+    if (typeof binding.macroBadgeTiming !== "function") return;
+    void binding.macroBadgeTiming(observation).catch(() => undefined);
+  }
+
+  function reportMacroBadgeSnapshotTimings(requestStartedAt) {
+    const responseAt = browserMonotonicNowMs();
+    const activeTraceKeys = new Set();
+    const availableMacroIds = new Set(state.macros.map((macro) => String(macro.id)));
+    state.statuses.forEach((status) => {
+      if (!isMacroRunActive(status) || !availableMacroIds.has(String(status.macroId))) return;
+      const iteration = Number(status.iteration) || 0;
+      const startedAt = String(status.startedAt || "");
+      if (iteration === 0 || startedAt.length === 0) return;
+      const traceKey = [status.roleId, status.macroId, startedAt, iteration].join(":");
+      activeTraceKeys.add(traceKey);
+      if (macroBadgeResponseTimings.has(traceKey)) return;
+      macroBadgeResponseTimings.set(traceKey, { responseAt });
+      reportMacroBadgeTiming({
+        clientMonotonicMs: responseAt,
+        iteration,
+        macroId: String(status.macroId),
+        phase: "webviewResponse",
+        refreshRoundTripMs: Math.max(0, responseAt - requestStartedAt),
+        startedAt
+      });
+    });
+    macroBadgeResponseTimings.forEach((_value, traceKey) => {
+      if (!activeTraceKeys.has(traceKey)) macroBadgeResponseTimings.delete(traceKey);
+    });
+  }
+
   function retainAndApplyClickStatuses() {
     const now = Date.now();
     const statuses = latestCoreStatuses.map((status) => ({ ...status }));
@@ -786,7 +824,7 @@
       startedAt: status?.startedAt,
       timestamp
     });
-    return { delay, duration, iteration };
+    return { delay, duration, iteration, status };
   }
 
   function getMacroClickAnchorBase(anchorValue) {

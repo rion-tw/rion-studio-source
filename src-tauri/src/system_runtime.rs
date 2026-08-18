@@ -7,6 +7,10 @@
 mod native_resource_registry;
 use native_resource_registry::NativeResourceRegistry;
 
+mod macro_badge_timing;
+pub use macro_badge_timing::MacroBadgeTimingObservation;
+use macro_badge_timing::{MacroBadgeTimingPhase, MacroBadgeTimingTracker};
+
 mod native_projection;
 use native_projection::{
     NativeTabProjectionState, NativeTabProjectionStore, SurfacePresentationBinding,

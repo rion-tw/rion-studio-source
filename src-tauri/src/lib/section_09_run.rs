@@ -190,6 +190,9 @@ pub fn run() {
                                     renderer_events.push(CoreEvent::Shutdown);
                                 }
                                 event => {
+                                    if let CoreEvent::MacroStatuses { statuses, .. } = &event {
+                                        effect_runtime.record_macro_badge_statuses(statuses);
+                                    }
                                     #[cfg(feature = "desktop-e2e")]
                                     if let CoreEvent::BrowserStatuses { statuses } = &event {
                                         let input_diagnostics =
@@ -438,6 +441,7 @@ pub fn run() {
             rion_core_invoke,
             rion_browser_font_payload,
             rion_divider_pointer,
+            rion_macro_badge_timing,
             rion_macro_key_event_observed,
             rion_overlay_request,
             rion_overlay_ready,
@@ -454,6 +458,7 @@ pub fn run() {
             rion_core_invoke,
             rion_browser_font_payload,
             rion_divider_pointer,
+            rion_macro_badge_timing,
             rion_macro_key_event_observed,
             rion_overlay_request,
             rion_overlay_ready,

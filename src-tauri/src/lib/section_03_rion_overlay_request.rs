@@ -261,6 +261,23 @@ fn rion_macro_key_event_observed(
 }
 
 #[tauri::command]
+fn rion_macro_badge_timing(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    capability: String,
+    observation: system_runtime::MacroBadgeTimingObservation,
+) -> Result<(), CoreErrorPayload> {
+    let role_id = state
+        .runtime
+        .authorize_overlay_request(webview.label(), &capability)
+        .map_err(|message| shell_error("MACRO_BADGE_TIMING_UNAUTHORIZED", message))?;
+    state
+        .runtime
+        .record_macro_badge_timing(&role_id, webview.label(), observation)
+        .map_err(|message| shell_error("MACRO_BADGE_TIMING_INVALID", message))
+}
+
+#[tauri::command]
 async fn rion_overlay_ready(
     webview: Webview,
     state: State<'_, CoreState>,

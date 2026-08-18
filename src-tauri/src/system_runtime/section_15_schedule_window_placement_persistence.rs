@@ -79,6 +79,7 @@ impl SystemRuntimeExecutor {
     }
 
     pub fn refresh_macro_overlays(&self, role_ids: &[String]) {
+        self.record_macro_badge_overlay_refresh(role_ids);
         let (mut webviews, popup_labels) = {
             let Ok(state) = self.state.lock() else {
                 return;
@@ -106,6 +107,124 @@ impl SystemRuntimeExecutor {
         }
         refresh_macro_overlay_handles(webviews, |webview| {
             webview.eval(MACRO_OVERLAY_REFRESH_SOURCE)
+        });
+    }
+
+    pub fn record_macro_badge_statuses(&self, statuses: &[MacroRunStatus]) {
+        let traces = self
+            .macro_badge_timing
+            .lock()
+            .map(|mut tracker| tracker.observe_statuses(statuses, Instant::now()))
+            .unwrap_or_default();
+        for trace in traces {
+            let trace_id = trace.trace_id();
+            let status_age_ms: Option<u64> = chrono::DateTime::parse_from_rfc3339(&trace.status_updated_at)
+                .ok()
+                .and_then(|updated_at| {
+                    let elapsed_ms = chrono::Utc::now()
+                        .signed_duration_since(updated_at.with_timezone(&chrono::Utc))
+                        .num_milliseconds();
+                    u64::try_from(elapsed_ms.max(0)).ok()
+                });
+            self.capture_macro_badge_timing_log(
+                "macro.badge-core-status-observed",
+                "A macro iteration reached Core status propagation for its in-game badge.",
+                json!({
+                    "coreIterationToStatusObservedMs": status_age_ms,
+                    "iteration": trace.iteration,
+                    "macroId": trace.macro_id,
+                    "roleId": trace.role_id,
+                    "startedAt": trace.started_at,
+                    "statusUpdatedAt": trace.status_updated_at,
+                    "traceId": trace_id,
+                }),
+            );
+        }
+    }
+
+    pub fn record_macro_badge_timing(
+        &self,
+        role_id: &str,
+        webview_label: &str,
+        observation: MacroBadgeTimingObservation,
+    ) -> Result<(), String> {
+        if !observation.is_valid() {
+            return Err("The macro badge timing observation is invalid.".to_owned());
+        }
+        let (event, message) = match observation.phase {
+            MacroBadgeTimingPhase::WebviewResponse => (
+                "macro.badge-webview-response",
+                "The macro badge overlay received the refreshed status snapshot.",
+            ),
+            MacroBadgeTimingPhase::AnimationStart => (
+                "macro.badge-animation-start",
+                "The macro badge border flash reached CSS animationstart.",
+            ),
+        };
+        let trace_id = format!(
+            "{}:{}:{}:{}",
+            role_id, observation.macro_id, observation.started_at, observation.iteration
+        );
+        self.capture_macro_badge_timing_log(
+            event,
+            message,
+            json!({
+                "animationDelayMs": observation.animation_delay_ms,
+                "animationDurationMs": observation.animation_duration_ms,
+                "animationElapsedMs": observation.animation_elapsed_ms,
+                "clientMonotonicMs": observation.client_monotonic_ms,
+                "iteration": observation.iteration,
+                "macroId": observation.macro_id,
+                "refreshRoundTripMs": observation.refresh_round_trip_ms,
+                "responseToAnimationMs": observation.response_to_animation_ms,
+                "roleId": role_id,
+                "startedAt": observation.started_at,
+                "traceId": trace_id,
+                "webviewLabel": webview_label,
+            }),
+        );
+        Ok(())
+    }
+
+    fn record_macro_badge_overlay_refresh(&self, role_ids: &[String]) {
+        let traces = self
+            .macro_badge_timing
+            .lock()
+            .map(|mut tracker| tracker.take_refreshes(role_ids))
+            .unwrap_or_default();
+        for trace in traces {
+            let trace_id = trace.trace_id();
+            self.capture_macro_badge_timing_log(
+                "macro.badge-overlay-refresh-requested",
+                "The native runtime requested a badge overlay refresh for the observed iteration.",
+                json!({
+                    "iteration": trace.iteration,
+                    "macroId": trace.macro_id,
+                    "roleId": trace.role_id,
+                    "startedAt": trace.started_at,
+                    "statusToOverlayRefreshMs": trace.status_observed_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    "traceId": trace_id,
+                }),
+            );
+        }
+    }
+
+    fn capture_macro_badge_timing_log(&self, event: &str, message: &str, context: Value) {
+        let core = Arc::clone(&self.core);
+        let entry = LogCaptureRecord {
+            level: LogLevel::Debug,
+            source: LogSource::Macro,
+            event: event.to_owned(),
+            message: message.to_owned(),
+            context_raw_json: serde_json::to_string(&context).ok(),
+            error: None,
+        };
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![entry],
+                })
+                .await;
         });
     }
 

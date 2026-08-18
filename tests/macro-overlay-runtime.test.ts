@@ -295,6 +295,8 @@ describe("shell-neutral macro overlay runtime", () => {
       requests.push(request);
       return presentation;
     });
+    const timing = vi.fn(async () => undefined);
+    Object.assign(binding, { macroBadgeTiming: timing });
     (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
 
     (0, eval)(await overlayRuntimeSource());
@@ -325,6 +327,26 @@ describe("shell-neutral macro overlay runtime", () => {
     expect(changedBadge).not.toBe(initialBadge);
     expect(changedBadge?.dataset.iteration).toBe("1");
     expect(changedBadge?.classList.contains("is-iteration-flash")).toBe(true);
+    await vi.waitFor(() => expect(timing).toHaveBeenCalledWith(expect.objectContaining({
+      iteration: 1,
+      macroId: macro.id,
+      phase: "webviewResponse",
+      startedAt
+    })));
+
+    const animationStart = new Event("animationstart", { bubbles: true });
+    Object.defineProperties(animationStart, {
+      animationName: { value: "active-badge-border-flash" },
+      elapsedTime: { value: 0 },
+      pseudoElement: { value: "::after" }
+    });
+    changedBadge?.dispatchEvent(animationStart);
+    await vi.waitFor(() => expect(timing).toHaveBeenCalledWith(expect.objectContaining({
+      iteration: 1,
+      macroId: macro.id,
+      phase: "animationStart",
+      startedAt
+    })));
 
     await overlayController().refresh();
     expect(root?.querySelector(".active-badge")).toBe(changedBadge);

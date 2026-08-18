@@ -133,6 +133,7 @@ async function duplicateRole(role: Role): Promise<Role> {
 async function createRecoveryWorkspace(primaryRole: Role, recoveryRole: Role): Promise<LaunchWorkspace> {
   await navigate("/workspaces/new");
   await setEditorName(RECOVERY_WORKSPACE_NAME);
+  await $("#workspace-layout").click();
   await $("[data-workspace-layout-option='two_columns']").click();
   await $(`[data-workspace-role-id='${primaryRole.id}']`).click();
   await $("[data-workspace-slot-index='1']").click();

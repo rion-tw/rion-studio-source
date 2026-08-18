@@ -12,6 +12,8 @@ import { Input } from "../../components/ui/input";
 
 import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/patterns";
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
 
 import type { WorkspaceFormState } from "../../app/types";
@@ -437,43 +439,37 @@ function WorkspaceLayoutFormEditor({
             />
           </FormField>
         </Surface>
-        <Surface className="col-span-full p-4" padding="none" variant="inset">
+        <Surface className="p-4" padding="none" variant="inset">
           <FormField
+            htmlFor="workspace-layout"
             label={t("workspaces.layout")}
             description={t("workspaces.layoutDescription")}
           >
-            <div
-              aria-label={t("workspaces.layout")}
-              className="flex flex-wrap gap-2"
-              data-workspace-layout-options
-              role="group"
+            <Select
+              disabled={isSaving}
+              value={form.template}
+              onValueChange={(template) => handleTemplateChange(template as WorkspaceLayoutTemplate)}
             >
-              {workspaceLayoutTemplates.map((template) => {
-                const Icon = workspaceTemplateIcons[template];
-                const label = t(workspaceTemplateLabelKeys[template]);
-                const isSelected = form.template === template;
+              <SelectTrigger id="workspace-layout" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {workspaceLayoutTemplates.map((template) => {
+                  const Icon = workspaceTemplateIcons[template];
 
-                return (
-                  <button
-                    key={template}
-                    aria-pressed={isSelected}
-                    className={cn(
-                      "glass-control inline-flex h-[var(--control-height)] min-h-[var(--control-min-size)] w-fit max-w-full flex-none items-center gap-1.5 rounded-sm px-2.5 text-left text-caption font-semibold leading-none transition-[background-color,border-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-activity/25 disabled:cursor-not-allowed disabled:opacity-60",
-                      isSelected
-                        ? "macro-role-card-selected text-foreground"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                    data-workspace-layout-option={template}
-                    disabled={isSaving}
-                    type="button"
-                    onClick={() => handleTemplateChange(template)}
-                  >
-                    <Icon className="size-4 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
+                  return (
+                    <SelectItem
+                      key={template}
+                      data-workspace-layout-option={template}
+                      value={template}
+                    >
+                      <Icon className="size-4 shrink-0" aria-hidden="true" />
+                      <span>{t(workspaceTemplateLabelKeys[template])}</span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           </FormField>
         </Surface>
 

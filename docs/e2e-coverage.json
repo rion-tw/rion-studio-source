@@ -558,7 +558,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "cancel"],
-      "description": "Exercise destructive confirmations and reverse-dependency cleanup through the visible UI."
+      "description": "Choose a workspace layout through its visible menu, then exercise destructive confirmations and reverse-dependency cleanup through the visible UI."
     },
     {
       "id": "GAME-WINDOWS-TABS-001",
@@ -637,7 +637,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "cancel", "restart"],
-      "description": "Edit Role, Workspace, and Macro definitions, persist Role and Workspace pointer reorder, and exercise cross-domain bulk deletion through visible UI."
+      "description": "Edit Role, Workspace, and Macro definitions, choose a Workspace layout through its visible menu, persist Role and Workspace pointer reorder, and exercise cross-domain bulk deletion through visible UI."
     },
     {
       "id": "WORKSPACES-RECOVERY-002",

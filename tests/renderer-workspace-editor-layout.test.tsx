@@ -2,6 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
+import userEvent from "@testing-library/user-event";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConfirmationProvider } from "../src/renderer/src/components/ConfirmationDialog";
@@ -13,6 +14,31 @@ import type { Game, LaunchWorkspace, Role } from "../src/shared/types";
 import { workspaceLayoutTemplates } from "../src/shared/workspaceLayout";
 
 beforeAll(() => {
+  if (!("PointerEvent" in window)) {
+    Object.defineProperty(window, "PointerEvent", {
+      configurable: true,
+      value: MouseEvent
+    });
+  }
+
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: {
+      configurable: true,
+      value: () => false
+    },
+    releasePointerCapture: {
+      configurable: true,
+      value: () => undefined
+    },
+    scrollIntoView: {
+      configurable: true,
+      value: () => undefined
+    },
+    setPointerCapture: {
+      configurable: true,
+      value: () => undefined
+    }
+  });
   vi.stubGlobal("ResizeObserver", class ResizeObserver {
     disconnect(): void {}
     observe(): void {}
@@ -32,7 +58,8 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("shows every workspace layout as a compact wrapping single-select option", async () => {
+  it("shows every workspace layout in a single-select menu", async () => {
+    const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
       [
@@ -60,10 +87,7 @@ describe("workspace editor role picker layout", () => {
       </ConfirmationProvider>
     );
 
-    const layoutOptions = container.querySelector<HTMLElement>("[data-workspace-layout-options]");
-    const layoutOptionLabels = container.querySelectorAll<HTMLElement>("[data-workspace-layout-option]");
-    const selectedOption = screen.getByRole("button", { name: "Two columns" });
-    const nineGridOption = screen.getByRole("button", { name: "Nine grid" });
+    const layoutSelect = screen.getByRole("combobox", { name: "Layout" });
     const name = screen.getByRole("textbox", { name: "Workspace name" }) as HTMLInputElement;
 
     expect(screen.getByRole("heading", { level: 1, name: "Edit Workspace" })).toBeTruthy();
@@ -72,28 +96,30 @@ describe("workspace editor role picker layout", () => {
     expect(name.name).toBe("name");
     expect(name.maxLength).toBe(80);
     expect(screen.getByText("Use a recognizable name for this saved layout.")).toBeTruthy();
-    expect(screen.queryByRole("combobox", { name: "Layout" })).toBeNull();
-    expect(layoutOptions?.parentElement?.parentElement?.className).toContain("col-span-full");
-    expect(layoutOptions?.className).toContain("flex-wrap");
-    expect(layoutOptions?.className).not.toContain("grid-cols");
-    expect(layoutOptionLabels).toHaveLength(workspaceLayoutTemplates.length);
-    layoutOptionLabels.forEach((option) => {
-      expect(option.className).toContain("h-[var(--control-height)]");
-      expect(option.className).toContain("w-fit");
-      expect(option.className).toContain("glass-control");
-      expect(option.className).not.toContain("min-h-14");
-    });
-    expect(layoutOptions?.querySelectorAll('[role="checkbox"]')).toHaveLength(0);
-    expect(selectedOption.getAttribute("aria-pressed")).toBe("true");
-    expect(selectedOption.className).toContain("macro-role-card-selected");
-    expect(nineGridOption.getAttribute("aria-pressed")).toBe("false");
-    expect(nineGridOption.className).not.toContain("macro-role-card-selected");
+    expect(layoutSelect.id).toBe("workspace-layout");
+    expect(layoutSelect.className).toContain("w-full");
+    expect(layoutSelect.closest(".glass-inset")?.className).not.toContain("col-span-full");
+    expect(layoutSelect.textContent).toContain("Two columns");
+    expect(layoutSelect.querySelector("svg")).not.toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
 
-    fireEvent.click(nineGridOption);
+    await user.click(layoutSelect);
+
+    const layoutOptions = screen.getAllByRole("option");
+    const selectedOption = screen.getByRole("option", { name: "Two columns" });
+    const nineGridOption = screen.getByRole("option", { name: "Nine grid" });
+
+    expect(layoutOptions).toHaveLength(workspaceLayoutTemplates.length);
+    layoutOptions.forEach((option) => expect(option.querySelector("svg")).not.toBeNull());
+    expect(selectedOption.getAttribute("data-state")).toBe("checked");
+    expect(selectedOption.getAttribute("data-workspace-layout-option")).toBe("two_columns");
+    expect(nineGridOption.getAttribute("data-state")).toBe("unchecked");
+
+    await user.click(nineGridOption);
     fireEvent.change(name, { target: { value: "Renamed workspace" } });
 
-    expect(screen.getByRole("button", { name: "Two columns" }).getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByRole("button", { name: "Nine grid" }).getAttribute("aria-pressed")).toBe("true");
+    expect(layoutSelect.textContent).toContain("Nine grid");
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect(container.querySelectorAll("[data-workspace-slot-index]")).toHaveLength(9);
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

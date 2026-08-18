@@ -27,7 +27,7 @@ import {
   ensureEnglishUi,
   navigate,
   selectEntityItems,
-  setEditorTitle,
+  setEditorName,
   submitEditor
 } from "../support/ui";
 
@@ -92,14 +92,14 @@ async function editNamedEntity(
   collection: "launchWorkspaces" | "macros" | "roles"
 ): Promise<void> {
   await navigate(`/${routePrefix}/${entityId}/edit`);
-  await setEditorTitle(nextName);
+  await setEditorName(nextName);
   await submitEditor(`/${routePrefix}`);
   await waitForCollectionProjection({ collection, names: [nextName] });
 }
 
 async function createGame(name: string, fixtureId: string): Promise<Game> {
   await navigate("/games/new");
-  await setEditorTitle(name);
+  await setEditorName(name);
   await $("#game-launch-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${fixtureId}`
   );
@@ -110,7 +110,7 @@ async function createGame(name: string, fixtureId: string): Promise<Game> {
 
 async function createRole(name: string, game: Game): Promise<Role> {
   await navigate(`/roles/new?gameId=${game.id}`);
-  await setEditorTitle(name);
+  await setEditorName(name);
   await submitEditor("/roles");
   const snapshot = await waitForCollectionProjection({ collection: "roles", names: [name] });
   return requireNamed(snapshot.roles, name);
@@ -132,7 +132,7 @@ async function duplicateRole(role: Role): Promise<Role> {
 
 async function createRecoveryWorkspace(primaryRole: Role, recoveryRole: Role): Promise<LaunchWorkspace> {
   await navigate("/workspaces/new");
-  await setEditorTitle(RECOVERY_WORKSPACE_NAME);
+  await setEditorName(RECOVERY_WORKSPACE_NAME);
   await $("[data-workspace-layout-option='two_columns']").click();
   await $(`[data-workspace-role-id='${primaryRole.id}']`).click();
   await $("[data-workspace-slot-index='1']").click();
@@ -382,12 +382,12 @@ async function cleanupPersistedEntities(): Promise<void> {
 
 async function exerciseUnsavedQuitGuard(): Promise<void> {
   await navigate("/games/new");
-  await setEditorTitle(UNSAVED_GAME_NAME);
+  await setEditorName(UNSAVED_GAME_NAME);
   const control = await probe();
 
   await shutdown(false);
   await clickDialogButton("Keep editing");
-  expect(await $("#app-editor-form [role='textbox'][contenteditable]").getText()).toBe(UNSAVED_GAME_NAME);
+  await expect($("#app-editor-form input[name='name']")).toHaveValue(UNSAVED_GAME_NAME);
   expect(await browser.execute(() => window.location.hash)).toContain("/games/new");
 
   const requestedAfter = new Date().toISOString();

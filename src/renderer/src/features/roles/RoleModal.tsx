@@ -109,12 +109,9 @@ function RoleEditor({
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
-      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("roleForm.saveChanges") : t("roleForm.createRole")}
-      title={form.name}
-      titleAriaLabel={t("roleForm.name")}
-      titlePlaceholder={t("roleForm.namePlaceholder")}
+      title={t(form.id ? "roleForm.title.edit" : "roleForm.title.new")}
       contentClassName="editor-layout editor-layout-role"
     >
       <RoleForm
@@ -183,6 +180,22 @@ function RoleForm({
           <div className="grid gap-4">
             <Surface className="grid gap-3 p-4" padding="none" variant="inset">
               <FormGrid columns={2}>
+                <FormField
+                  htmlFor="role-name"
+                  label={t("roleForm.name")}
+                  description={t("roleForm.nameDescription")}
+                >
+                  <Input
+                    disabled={isSaving}
+                    id="role-name"
+                    maxLength={80}
+                    name="name"
+                    placeholder={t("roleForm.namePlaceholder")}
+                    required
+                    value={form.name}
+                    onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
+                  />
+                </FormField>
                 <FormField
                   htmlFor="role-game"
                   label={t("roleForm.game")}

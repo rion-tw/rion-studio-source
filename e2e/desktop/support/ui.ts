@@ -161,22 +161,12 @@ export async function waitForRoute(path: string): Promise<void> {
   }
 }
 
-export async function setEditorTitle(value: string): Promise<void> {
-  const title = await $("#app-editor-form [role='textbox'][contenteditable]");
-  await title.waitForExist({ timeout: 10_000 });
-  await browser.execute((nextValue) => {
-    const element = document.querySelector<HTMLElement>(
-      "#app-editor-form [role='textbox'][contenteditable]"
-    );
-    if (!element) throw new Error("Editor title is unavailable");
-    element.textContent = nextValue;
-    element.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      data: nextValue,
-      inputType: "insertText"
-    }));
-  }, value);
-  await expect(title).toHaveText(value);
+export async function setEditorName(value: string): Promise<void> {
+  const name = await $("#app-editor-form input[name='name']");
+  await name.waitForExist({ timeout: 10_000 });
+  await name.clearValue();
+  await name.setValue(value);
+  await expect(name).toHaveValue(value);
 }
 
 export async function submitEditor(expectedRoute: string): Promise<void> {

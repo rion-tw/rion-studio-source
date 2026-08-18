@@ -10,7 +10,6 @@ import {
 
 import { Button } from "./ui/button";
 import { Surface } from "./ui/patterns";
-import { normalizeEditorTitle, syncEditorTitle } from "../app/editorTitle";
 import {
   registerWindowControlsScrollSource,
   syncWindowControlsScrollSource
@@ -27,14 +26,10 @@ interface EditorPageProps {
   isSaving: boolean;
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onTitleChange: (title: string) => void;
   saveHint?: string;
   saveIcon: ReactNode;
   saveLabel: string;
   title: string;
-  titleAriaLabel: string;
-  titleDisabled?: boolean;
-  titlePlaceholder: string;
 }
 
 export function EditorPage({
@@ -47,14 +42,10 @@ export function EditorPage({
   isSaving,
   onCancel,
   onSubmit,
-  onTitleChange,
   saveHint,
   saveIcon,
   saveLabel,
-  title,
-  titleAriaLabel,
-  titleDisabled = false,
-  titlePlaceholder
+  title
 }: EditorPageProps): JSX.Element {
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -100,15 +91,7 @@ export function EditorPage({
         <div className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-4">
           <header className="app-editor-header grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-4">
             <div className="min-w-0">
-              <h1 className="app-page-title min-w-0 truncate">
-                <EditableEditorTitle
-                  ariaLabel={titleAriaLabel}
-                  disabled={isSaving || titleDisabled}
-                  placeholder={titlePlaceholder}
-                  value={title}
-                  onChange={onTitleChange}
-                />
-              </h1>
+              <h1 className="app-page-title min-w-0 truncate">{title}</h1>
               <p className="app-page-description truncate">{description}</p>
             </div>
 
@@ -148,150 +131,6 @@ export function EditorPage({
       </form>
     </section>
   );
-}
-
-function EditableEditorTitle({
-  ariaLabel,
-  disabled,
-  onChange,
-  placeholder,
-  value
-}: {
-  ariaLabel: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-  placeholder: string;
-  value: string;
-}): JSX.Element {
-  const titleRef = useRef<HTMLSpanElement>(null);
-
-  useLayoutEffect(() => {
-    if (titleRef.current) {
-      syncEditorTitle(titleRef.current, value);
-    }
-  }, [value]);
-
-  return (
-    <span className="relative inline-block min-w-48 max-w-full align-bottom">
-      {value.trim().length === 0 ? (
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 truncate text-muted-foreground opacity-[0.65]"
-          data-editor-title-placeholder
-        >
-          {placeholder}
-        </span>
-      ) : null}
-      <span
-        ref={titleRef}
-        aria-label={ariaLabel}
-        aria-placeholder={placeholder}
-        aria-required="true"
-        className="app-editor-title relative inline-block min-w-48 max-w-full cursor-text truncate border-b border-transparent align-bottom outline-none transition-colors hover:border-border focus:border-activity data-[disabled=true]:cursor-default data-[disabled=true]:hover:border-transparent"
-        contentEditable={disabled ? false : "plaintext-only"}
-        data-disabled={disabled}
-        role="textbox"
-        spellCheck="false"
-        suppressContentEditableWarning
-        tabIndex={disabled ? -1 : 0}
-        onInput={(event) => {
-          const element = event.currentTarget;
-          const caretOffset = getCaretOffset(element);
-          const nextValue = normalizeEditorTitle(element.textContent ?? "");
-
-          if (element.textContent !== nextValue) {
-            element.textContent = nextValue;
-            setCaretOffset(element, Math.min(caretOffset, nextValue.length));
-          }
-
-          onChange(nextValue);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-          }
-        }}
-      />
-    </span>
-  );
-}
-
-function getCaretOffset(element: HTMLElement): number {
-  const selection = window.getSelection();
-  if (!selection) {
-    return element.textContent?.length ?? 0;
-  }
-
-  if (selection.rangeCount === 0) {
-    return element.textContent?.length ?? 0;
-  }
-
-  const range = selection.getRangeAt(0);
-  const startContainer = range.startContainer;
-  const startOffset = range.startOffset;
-
-  if (!element.contains(startContainer)) {
-    return element.textContent?.length ?? 0;
-  }
-
-  if (startContainer.nodeType === Node.TEXT_NODE) {
-    let offset = 0;
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
-
-    let node = walker.nextNode();
-    while (node) {
-      if (node === startContainer) {
-        return offset + startOffset;
-      }
-      offset += node.textContent?.length ?? 0;
-      node = walker.nextNode();
-    }
-
-    return element.textContent?.length ?? 0;
-  }
-
-  const treeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
-  let totalOffset = 0;
-  let node: Node | null = treeWalker.nextNode();
-  while (node) {
-    totalOffset += node.textContent?.length ?? 0;
-    node = treeWalker.nextNode();
-  }
-
-  return totalOffset;
-}
-
-function setCaretOffset(element: HTMLElement, offset: number): void {
-  const selection = window.getSelection();
-  if (!selection) {
-    return;
-  }
-
-  const text = element.textContent ?? "";
-  const safeOffset = Math.max(0, Math.min(text.length, offset));
-
-  const range = document.createRange();
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
-  let node: Node | null = walker.nextNode();
-
-  let remaining = safeOffset;
-  while (node) {
-    const currentText = node.textContent ?? "";
-    if (remaining <= currentText.length) {
-      range.setStart(node, remaining);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return;
-    }
-    remaining -= currentText.length;
-    node = walker.nextNode();
-  }
-
-  range.selectNodeContents(element);
-  range.collapse(false);
-  selection.removeAllRanges();
-  selection.addRange(range);
 }
 
 export function EditorNotFound({

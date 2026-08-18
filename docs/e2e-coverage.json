@@ -257,7 +257,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Validate, create, edit, persist, and delete a custom game through the UI."
+      "description": "Use the labeled game-name field to validate, create, edit, persist, and delete a custom game through the UI."
     },
     {
       "id": "ROLES-UI-001",
@@ -270,7 +270,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create and persist a role, then launch it from the role card against the deterministic fixture."
+      "description": "Use the labeled role-name field to create and persist a role, then launch it from the role card against the deterministic fixture."
     },
     {
       "id": "WORKSPACES-UI-001",
@@ -283,7 +283,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a role-backed workspace, persist it, and exercise its UI launch admission."
+      "description": "Use the labeled workspace-name field to create a role-backed workspace, persist it, and exercise its UI launch admission."
     },
     {
       "id": "GAME-WINDOWS-UI-001",
@@ -296,7 +296,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create and open a permanent Game Window from the visible Game Windows route."
+      "description": "Create, rename through the labeled standard input, and open a permanent Game Window from the visible Game Windows route."
     },
     {
       "id": "MACROS-UI-001",
@@ -309,7 +309,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a role-assigned macro, verify disabled launch failure, then start and stop it from the UI."
+      "description": "Use the labeled macro-name field to create a role-assigned macro, verify disabled launch failure, then start and stop it from the UI."
     },
     {
       "id": "MACRO-NATIVE-EFFECT-003",

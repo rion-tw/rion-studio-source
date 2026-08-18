@@ -64,7 +64,14 @@ describe("workspace editor role picker layout", () => {
     const layoutOptionLabels = container.querySelectorAll<HTMLElement>("[data-workspace-layout-option]");
     const selectedOption = screen.getByRole("button", { name: "Two columns" });
     const nineGridOption = screen.getByRole("button", { name: "Nine grid" });
+    const name = screen.getByRole("textbox", { name: "Workspace name" }) as HTMLInputElement;
 
+    expect(screen.getByRole("heading", { level: 1, name: "Edit Workspace" })).toBeTruthy();
+    expect(container.querySelector("[contenteditable]")).toBeNull();
+    expect(name.value).toBe("Party");
+    expect(name.name).toBe("name");
+    expect(name.maxLength).toBe(80);
+    expect(screen.getByText("Use a recognizable name for this saved layout.")).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Layout" })).toBeNull();
     expect(layoutOptions?.parentElement?.parentElement?.className).toContain("col-span-full");
     expect(layoutOptions?.className).toContain("flex-wrap");
@@ -83,6 +90,7 @@ describe("workspace editor role picker layout", () => {
     expect(nineGridOption.className).not.toContain("macro-role-card-selected");
 
     fireEvent.click(nineGridOption);
+    fireEvent.change(name, { target: { value: "Renamed workspace" } });
 
     expect(screen.getByRole("button", { name: "Two columns" }).getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByRole("button", { name: "Nine grid" }).getAttribute("aria-pressed")).toBe("true");
@@ -91,6 +99,7 @@ describe("workspace editor role picker layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0][0]).toMatchObject({
+      name: "Renamed workspace",
       template: "nine_grid",
       slots: expect.arrayContaining([
         expect.objectContaining({ roleId: "role-1" }),

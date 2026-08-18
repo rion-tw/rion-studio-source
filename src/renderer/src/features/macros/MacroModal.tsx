@@ -10,6 +10,8 @@ import { moveItemById } from "../../app/reorderItems";
 
 import { Button } from "../../components/ui/button";
 
+import { Input } from "../../components/ui/input";
+
 import { Switch } from "../../components/ui/switch";
 
 import { FormField, HelpPanel, SegmentedControl, Surface } from "../../components/ui/patterns";
@@ -190,13 +192,10 @@ function MacroEditor({
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
-      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveHint={saveHint}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("macroForm.saveChanges") : t("macroForm.createMacro")}
-      title={form.name}
-      titleAriaLabel={t("macroForm.name")}
-      titlePlaceholder={t("macroForm.namePlaceholder")}
+      title={t(form.id ? "macroForm.title.edit" : "macroForm.title.new")}
       contentClassName="editor-layout editor-layout-macro"
     >
       <MacroForm
@@ -334,6 +333,24 @@ function MacroForm({
   return (
     <>
           <aside className="grid content-start gap-4">
+            <Surface className="p-4" padding="none" variant="inset">
+              <FormField
+                htmlFor="macro-name"
+                label={t("macroForm.name")}
+                description={t("macroForm.nameDescription")}
+              >
+                <Input
+                  disabled={isSaving}
+                  id="macro-name"
+                  maxLength={80}
+                  name="name"
+                  placeholder={t("macroForm.namePlaceholder")}
+                  required
+                  value={form.name}
+                  onChange={(event) => update((current) => ({ ...current, name: event.target.value }))}
+                />
+              </FormField>
+            </Surface>
             <Surface className="p-4" padding="none" variant="inset">
               <FormField
                 className="flex-row items-center gap-4"

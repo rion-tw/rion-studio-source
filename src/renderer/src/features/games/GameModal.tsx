@@ -72,13 +72,29 @@ function GameEditor({
       backActionLabel={t("editor.back")} backLabel={t("games.back")} canSubmit={canSubmit}
       description={form.id ? t("games.form.editDescription") : t("games.form.newDescription")}
       isSaving={isSaving} onCancel={() => navigate("/games", { replace: true })} onSubmit={(event) => void submit(event)}
-      onTitleChange={(name) => form.source === "custom" && setForm((current) => ({ ...current, name }))}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />} saveLabel={form.id ? t("games.form.save") : t("games.form.create")}
-      title={form.name} titleAriaLabel={t("games.form.name")} titlePlaceholder={t("games.form.namePlaceholder")}
-      titleDisabled={form.source === "builtin"}
+      title={t(form.id ? "games.form.title.edit" : "games.form.title.new")}
       contentClassName="editor-layout editor-layout-game"
     >
       <div className="grid gap-4">
+        <Surface className="grid gap-3 p-4" variant="inset">
+          <FormField
+            htmlFor="game-name"
+            label={t("games.form.name")}
+            description={t("games.form.nameDescription")}
+          >
+            <Input
+              disabled={isSaving || form.source === "builtin"}
+              id="game-name"
+              maxLength={80}
+              name="name"
+              placeholder={t("games.form.namePlaceholder")}
+              required
+              value={form.name}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            />
+          </FormField>
+        </Surface>
         {form.source === "builtin" ? <Surface className="flex items-center justify-between gap-3 p-4" variant="inset"><p className="text-xs text-muted-foreground">{t("games.form.builtinLocked")}</p><Button type="button" variant="outline" onClick={() => void resetBuiltin()}><RotateCcw size={15} />{t("games.reset.action")}</Button></Surface> : null}
         <Surface className="grid gap-4 p-4" variant="inset">
           <FieldHeader title={t("games.form.urls")} description={t("games.form.urlsDescription")} />

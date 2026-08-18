@@ -17,7 +17,7 @@ import {
   clickEntityMenuAction,
   ensureEnglishUi,
   navigate,
-  setEditorTitle,
+  setEditorName,
   submitEditor,
   waitForRoute
 } from "../support/ui";
@@ -37,6 +37,7 @@ const DELETE_GAME_NAME = "E2E Delete Game";
 const ROLE_NAME = "E2E Smoke Role";
 const WORKSPACE_NAME = "E2E Smoke Workspace";
 const MACRO_NAME = "E2E Smoke Macro";
+const GAME_WINDOW_NAME = "E2E Smoke Game Window";
 const ROLE_FIXTURE_ID = "e2e-smoke-role";
 
 async function fixtureRequest(path: string, body: unknown): Promise<void> {
@@ -158,7 +159,7 @@ async function createAndEditGames(): Promise<Game> {
   await waitForRoute("/games");
   await $("button=New game").click();
   await waitForRoute("/games/new");
-  await setEditorTitle(GAME_NAME);
+  await setEditorName(GAME_NAME);
   const launchUrl = await $("#game-launch-url");
   await launchUrl.setValue("not-a-valid-url");
   await expect($("#app-editor-form button[type='submit']")).toBeDisabled();
@@ -168,13 +169,13 @@ async function createAndEditGames(): Promise<Game> {
 
   await clickEntityMenuAction(game.id, "Game actions", "Edit");
   await waitForRoute(`/games/${game.id}/edit`);
-  await setEditorTitle(GAME_NAME_EDITED);
+  await setEditorName(GAME_NAME_EDITED);
   await submitEditor("/games");
   const edited = await findGame(GAME_NAME_EDITED);
 
   await $("button=New game").click();
   await waitForRoute("/games/new");
-  await setEditorTitle(DELETE_GAME_NAME);
+  await setEditorName(DELETE_GAME_NAME);
   await $("#game-launch-url").setValue(`${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/delete-target`);
   await submitEditor("/games");
   const deleteTarget = await findGame(DELETE_GAME_NAME);
@@ -193,7 +194,7 @@ async function createAndEditGames(): Promise<Game> {
 async function createRole(game: Game): Promise<Role> {
   await clickEntityMenuAction(game.id, "Game actions", "Add role");
   await waitForRoute(`/roles/new?gameId=${game.id}`);
-  await setEditorTitle(ROLE_NAME);
+  await setEditorName(ROLE_NAME);
   await submitEditor("/roles");
   return findRole(ROLE_NAME);
 }
@@ -204,7 +205,7 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await waitForRoute("/workspaces");
   await $("button=Create workspace").click();
   await waitForRoute("/workspaces/new");
-  await setEditorTitle(WORKSPACE_NAME);
+  await setEditorName(WORKSPACE_NAME);
   await $(`[data-workspace-role-id='${role.id}']`).click();
   await submitEditor("/workspaces");
   return findWorkspace(WORKSPACE_NAME);
@@ -215,7 +216,7 @@ async function createMacro(role: Role): Promise<Macro> {
   await sidebar.$("button*=Macros").click();
   await waitForRoute("/macros");
   await navigate(`/macros/new?roleId=${role.id}`);
-  await setEditorTitle(MACRO_NAME);
+  await setEditorName(MACRO_NAME);
   await $("button=Hold until stopped").click();
   await submitEditor("/macros");
   const macro = await findMacro(MACRO_NAME);
@@ -234,10 +235,22 @@ async function createAndShowGameWindow(): Promise<GameWindow> {
     created = windows.find((candidate) => !before.some((existing) => existing.id === candidate.id));
     return Boolean(created);
   }, { timeout: 15_000, timeoutMsg: "Game Window UI did not create a permanent window" });
+  const gameWindow = created as GameWindow;
+  await clickEntityMenuAction(gameWindow.id, "Game window actions", "Rename");
+  const nameInput = await $("#rename-game-window-name");
+  await nameInput.clearValue();
+  await nameInput.setValue(GAME_WINDOW_NAME);
+  const renameDialog = await $("dialog[open]");
+  await renameDialog.$("button=Save").click();
+  await browser.waitUntil(
+    async () => (await rendererCall("listGameWindows"))
+      .some((candidate) => candidate.id === gameWindow.id && candidate.name === GAME_WINDOW_NAME),
+    { timeout: 15_000, timeoutMsg: "Game Window name was not persisted" }
+  );
   const cursor = (await probe()).latestSequence;
-  await $(`[data-selection-id='${created?.id}'] button[aria-label='Show']`).click();
-  await waitEvent({ afterSequence: cursor, kind: "window-context-initialized", windowId: created?.id });
-  return created as GameWindow;
+  await $(`[data-selection-id='${gameWindow.id}'] button[aria-label='Show']`).click();
+  await waitEvent({ afterSequence: cursor, kind: "window-context-initialized", windowId: gameWindow.id });
+  return gameWindow;
 }
 
 async function updateSettings(): Promise<void> {

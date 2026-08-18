@@ -458,6 +458,7 @@ describe("Game Window management", () => {
     const dialog = screen.getByRole("dialog", { name: "Rename Raid window" });
     const input = within(dialog).getByRole("textbox", { name: "Name" }) as HTMLInputElement;
     expect(input.value).toBe("Raid window");
+    expect(within(dialog).getByText("Use a recognizable name to find this window in the list.")).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(input));
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe("Raid window".length);

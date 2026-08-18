@@ -8,7 +8,7 @@ import { EditorPage } from "../src/renderer/src/components/EditorPage";
 afterEach(cleanup);
 
 describe("editor page title", () => {
-  it("keeps an empty localized title visible and clickable", () => {
+  it("renders a static heading without a contenteditable name control", () => {
     render(
       <EditorPage
         backActionLabel="Back"
@@ -17,24 +17,15 @@ describe("editor page title", () => {
         isSaving={false}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
-        onTitleChange={vi.fn()}
         saveIcon={null}
         saveLabel="Save"
-        title=""
-        titleAriaLabel="Item name"
-        titlePlaceholder="Untitled item"
+        title="Edit item"
       >
         <div>Editor content</div>
       </EditorPage>
     );
 
-    const title = screen.getByRole("textbox", { name: "Item name" });
-    const placeholder = screen.getByText("Untitled item");
-
-    expect(title.getAttribute("aria-placeholder")).toBe("Untitled item");
-    expect(title.className).toContain("min-w-48");
-    expect(placeholder.hasAttribute("data-editor-title-placeholder")).toBe(true);
-    expect(placeholder.getAttribute("aria-hidden")).toBe("true");
-    expect(placeholder.className).toContain("pointer-events-none");
+    expect(screen.getByRole("heading", { level: 1, name: "Edit item" })).toBeTruthy();
+    expect(document.querySelector("[contenteditable]")).toBeNull();
   });
 });

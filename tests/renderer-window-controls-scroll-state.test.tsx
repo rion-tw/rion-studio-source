@@ -49,12 +49,9 @@ describe("Windows caption control scroll state", () => {
         isSaving={false}
         onCancel={vi.fn()}
         onSubmit={vi.fn()}
-        onTitleChange={vi.fn()}
         saveIcon={null}
         saveLabel="Save"
         title="Item"
-        titleAriaLabel="Item name"
-        titlePlaceholder="Untitled item"
       >
         <div>Editor content</div>
       </EditorPage>

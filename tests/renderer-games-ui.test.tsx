@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -38,6 +38,38 @@ afterAll(() => {
 });
 
 describe("games cover UI", () => {
+  it("edits a custom game through the labeled name input", async () => {
+    const user = userEvent.setup();
+    const customGame = game({ id: "game-1", name: "Custom game" });
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter([{
+      path: "/games/:id/edit",
+      element: <ConfirmationProvider><GameEditorRoute
+        games={[customGame]}
+        isSaving={false}
+        t={t}
+        onError={vi.fn()}
+        onReset={vi.fn()}
+        onSave={onSave}
+      /></ConfirmationProvider>
+    }], { initialEntries: ["/games/game-1/edit"] });
+
+    const { container } = render(<RouterProvider router={router} />);
+    const name = screen.getByRole("textbox", { name: "Game name" }) as HTMLInputElement;
+
+    expect(screen.getByRole("heading", { level: 1, name: "Edit Game" })).toBeTruthy();
+    expect(container.querySelector("[contenteditable]")).toBeNull();
+    expect(name.value).toBe("Custom game");
+    expect(name.name).toBe("name");
+    expect(name.maxLength).toBe(80);
+    expect(screen.getByText("Use a recognizable name for this game's launch defaults.")).toBeTruthy();
+    await user.clear(name);
+    await user.type(name, "Renamed game");
+    fireEvent.submit(name.closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Renamed game" })));
+  });
+
   it("renders a clean cover section and keeps card actions independent from navigation", async () => {
     const user = userEvent.setup();
     const covered = game({ id: "covered", name: "Covered", coverImageDataUrl: processedCover });
@@ -145,7 +177,12 @@ describe("games cover UI", () => {
     }], { initialEntries: ["/games/builtin-flyff-universe/edit"] });
     const { container } = render(<RouterProvider router={router} />);
 
+    const name = screen.getByRole("textbox", { name: "Game name" }) as HTMLInputElement;
+
     expect(screen.getByText("The packaged cover is used for this built-in game.")).toBeTruthy();
+    expect(name.value).toBe("Flyff Universe");
+    expect(name.disabled).toBe(true);
+    expect(name.maxLength).toBe(80);
     expect(screen.queryByLabelText("Choose cover")).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove cover" })).toBeNull();
     expect(container.querySelector('img[src*="flyff-universe-cover"]')).toBeTruthy();

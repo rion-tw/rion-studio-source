@@ -3,7 +3,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import type { GameWindow } from "../../../../shared/types";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Surface } from "../../components/ui/patterns";
+import { FormField, Surface } from "../../components/ui/patterns";
 import type { Translator } from "../../i18n";
 
 const MAX_GAME_WINDOW_NAME_LENGTH = 80;
@@ -91,8 +91,11 @@ export function RenameGameWindowDialog({
             </p>
           </div>
           <form className="grid gap-4" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-            <label className="grid gap-2 text-body font-semibold" htmlFor="rename-game-window-name">
-              {t("gameWindows.rename.name")}
+            <FormField
+              htmlFor="rename-game-window-name"
+              label={t("gameWindows.rename.name")}
+              description={t("gameWindows.rename.nameDescription")}
+            >
               <Input
                 ref={inputRef}
                 aria-describedby={validationError
@@ -105,7 +108,7 @@ export function RenameGameWindowDialog({
                 value={name}
                 onChange={(event) => setName(event.target.value)}
               />
-            </label>
+            </FormField>
             {validationError ? (
               <p id="rename-game-window-name-error" className="text-control font-medium text-destructive">
                 {validationError}

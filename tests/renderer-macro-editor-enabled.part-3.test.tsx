@@ -50,7 +50,7 @@ it.each([
       routePath: "/macros/new",
       state: "creating"
     }
-  ])("shows complete macro help when $state", ({ entry, macros, routePath }) => {
+  ])("shows complete macro help when $state", ({ entry, macros, routePath, state }) => {
     const router = createMemoryRouter([
       {
         path: routePath,
@@ -70,7 +70,16 @@ it.each([
     );
     const helpList = container.querySelector<HTMLElement>("[data-macro-help-list]");
     const macroHelps = container.querySelectorAll<HTMLElement>("[data-macro-help]");
+    const name = screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement;
 
+    expect(screen.getByRole("heading", {
+      level: 1,
+      name: state === "editing" ? "Edit Macro" : "New Macro"
+    })).toBeTruthy();
+    expect(container.querySelector("[contenteditable]")).toBeNull();
+    expect(name.name).toBe("name");
+    expect(name.maxLength).toBe(80);
+    expect(screen.getByText("Keep the name short enough to identify from the macro list.")).toBeTruthy();
     expect(helpList?.className).toContain("editor-layout-macro-help");
     expect(macroHelps).toHaveLength(3);
     expect(macroHelps[0].getAttribute("data-macro-help")).toBe("activation");

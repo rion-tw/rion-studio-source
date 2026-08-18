@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -27,6 +27,27 @@ beforeAll(() => {
 afterEach(cleanup);
 
 describe("role saved browser data controls", () => {
+  it("edits the name through the first labeled form input", async () => {
+    const user = userEvent.setup();
+    const selectedRole = role();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createRoleRouter(selectedRole, vi.fn().mockResolvedValue(true), onSave);
+    const { container } = render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    const name = screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+
+    expect(screen.getByRole("heading", { level: 1, name: "Edit Role" })).toBeTruthy();
+    expect(container.querySelector("[contenteditable]")).toBeNull();
+    expect(name.value).toBe("Main");
+    expect(name.name).toBe("name");
+    expect(name.maxLength).toBe(80);
+    expect(screen.getByText("Use a recognizable name for this isolated browser session.")).toBeTruthy();
+    await user.clear(name);
+    await user.type(name, "Renamed role");
+    fireEvent.submit(name.closest("form")!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Renamed role" })));
+  });
+
   it("shows the clear action without login or re-login controls", async () => {
     const user = userEvent.setup();
     const selectedRole = role();
@@ -41,7 +62,11 @@ describe("role saved browser data controls", () => {
   });
 });
 
-function createRoleRouter(selectedRole: Role, onClearBrowserData: (role: Role) => Promise<boolean>) {
+function createRoleRouter(
+  selectedRole: Role,
+  onClearBrowserData: (role: Role) => Promise<boolean>,
+  onSave = vi.fn()
+) {
   return createMemoryRouter([{
     path: "/roles/:id/edit",
     element: <RoleEditorRoute
@@ -52,7 +77,7 @@ function createRoleRouter(selectedRole: Role, onClearBrowserData: (role: Role) =
       t={t}
       onClearBrowserData={onClearBrowserData}
       onError={vi.fn()}
-      onSave={vi.fn()}
+      onSave={onSave}
     />
   }], { initialEntries: [`/roles/${selectedRole.id}/edit`] });
 }

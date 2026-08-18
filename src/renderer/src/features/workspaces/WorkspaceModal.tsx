@@ -8,6 +8,8 @@ import { EditorNotFound, EditorPage } from "../../components/EditorPage";
 
 import { Button } from "../../components/ui/button";
 
+import { Input } from "../../components/ui/input";
+
 import { FieldHeader, FormField, HelpPanel, Surface } from "../../components/ui/patterns";
 
 import { areEditorFormsEqual, createNewWorkspaceForm, createWorkspaceFormState } from "../../app/editorFormState";
@@ -144,12 +146,9 @@ function WorkspaceEditor({
       isSaving={isSaving}
       onCancel={handleCancel}
       onSubmit={(event) => void handleSubmit(event)}
-      onTitleChange={(name) => setForm((current) => ({ ...current, name }))}
       saveIcon={form.id ? <Save size={16} /> : <Check size={16} />}
       saveLabel={form.id ? t("workspaceForm.saveChanges") : t("workspaceForm.createWorkspace")}
-      title={form.name}
-      titleAriaLabel={t("workspaceForm.name")}
-      titlePlaceholder={t("workspaceForm.namePlaceholder")}
+      title={t(form.id ? "workspaceForm.title.edit" : "workspaceForm.title.new")}
     >
       <WorkspaceLayoutFormEditor
         form={form}
@@ -420,6 +419,24 @@ function WorkspaceLayoutFormEditor({
   return (
     <div className="grid gap-4">
       <div className="workspace-editor-fields grid gap-4">
+        <Surface className="p-4" padding="none" variant="inset">
+          <FormField
+            htmlFor="workspace-name"
+            label={t("workspaceForm.name")}
+            description={t("workspaceForm.nameDescription")}
+          >
+            <Input
+              disabled={isSaving}
+              id="workspace-name"
+              maxLength={80}
+              name="name"
+              placeholder={t("workspaceForm.namePlaceholder")}
+              required
+              value={form.name}
+              onChange={(event) => onChange({ ...form, name: event.target.value })}
+            />
+          </FormField>
+        </Surface>
         <Surface className="col-span-full p-4" padding="none" variant="inset">
           <FormField
             label={t("workspaces.layout")}

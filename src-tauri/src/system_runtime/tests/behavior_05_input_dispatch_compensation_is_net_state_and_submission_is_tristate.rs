@@ -100,6 +100,35 @@ fn expired_or_replaced_ui_callback_is_rejected_before_submission() {
 }
 
 #[test]
+fn surface_close_fence_drains_an_already_admitted_input_lane() {
+    let lane = Arc::new(RoleInputDispatchLane::default());
+    let worker_lane = Arc::clone(&lane);
+    let (worker_started, worker_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_worker, release_worker_rx) = std::sync::mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        let _guard = worker_lane.sequence.lock().unwrap();
+        worker_started.send(()).unwrap();
+        release_worker_rx.recv().unwrap();
+    });
+    worker_started_rx.recv().unwrap();
+
+    let fence_lane = Arc::clone(&lane);
+    let (fence_advanced, fence_advanced_rx) = std::sync::mpsc::sync_channel(1);
+    let fence = std::thread::spawn(move || {
+        fence_and_drain_input_lane(&fence_lane, || fence_advanced.send(()).unwrap())
+    });
+    fence_advanced_rx.recv().unwrap();
+
+    assert!(!fence.is_finished());
+    assert!(!lane.normal_enabled.load(Ordering::Acquire));
+    assert_eq!(lane.epoch.load(Ordering::Acquire), 1);
+
+    release_worker.send(()).unwrap();
+    worker.join().unwrap();
+    assert_eq!(fence.join().unwrap().unwrap(), 1);
+}
+
+#[test]
 fn submitted_callback_without_completion_is_indeterminate() {
     let lane = Arc::new(RoleInputDispatchLane::default());
     lane.epoch.store(1, Ordering::Release);

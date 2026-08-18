@@ -328,7 +328,7 @@ impl SystemRuntimeExecutor {
             }
         }
         self.surface_recoveries.cancel_active_for_role(role_id);
-        self.advance_role_input_fence_local(role_id)?;
+        self.fence_and_drain_role_input_lane(role_id)?;
         self.discard_role_navigation_input_fences(role_id, "role-closed");
         let result = self.destroy_marked_role_event_bound(role_id, None).await;
         if let Ok(mut state) = self.state.lock() {
@@ -712,7 +712,7 @@ impl SystemRuntimeExecutor {
         }
         for role_id in &role_ids {
             self.surface_recoveries.cancel_active_for_role(role_id);
-            self.advance_role_input_fence_local(role_id)?;
+            self.fence_and_drain_role_input_lane(role_id)?;
             self.discard_role_navigation_input_fences(role_id, "workspace-closed");
         }
         let mut completed_tombstone = None;

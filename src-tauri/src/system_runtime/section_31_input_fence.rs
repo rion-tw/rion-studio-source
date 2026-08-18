@@ -143,6 +143,13 @@ impl SystemRuntimeExecutor {
         Ok(lane.epoch.fetch_add(1, Ordering::AcqRel).saturating_add(1))
     }
 
+    fn fence_and_drain_role_input_lane(&self, role_id: &str) -> RuntimeResult<u64> {
+        let lane = self.role_input_lane(role_id)?;
+        fence_and_drain_input_lane(&lane, || {
+            self.cancel_macro_key_observations_for_role(role_id);
+        })
+    }
+
     fn set_role_input_surface(
         &self,
         role_id: &str,
@@ -235,6 +242,22 @@ impl SystemRuntimeExecutor {
         context.ensure_current()?;
         operation()
     }
+}
+
+fn fence_and_drain_input_lane(
+    lane: &RoleInputDispatchLane,
+    after_fence: impl FnOnce(),
+) -> RuntimeResult<u64> {
+    lane.normal_enabled.store(false, Ordering::Release);
+    let input_epoch = lane.epoch.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+    after_fence();
+    let _guard = lane.sequence.lock().map_err(|_| {
+        RuntimeError::new(
+            "SYSTEM_TRUSTED_INPUT_FAILED",
+            "The role input lane is unavailable.",
+        )
+    })?;
+    Ok(input_epoch)
 }
 
 fn resume_input_lane_after_macro_recovery(

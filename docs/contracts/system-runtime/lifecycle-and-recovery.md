@@ -1,6 +1,6 @@
 # Lifecycle and Recovery
 
-This document is part of [System WebView Runtime Contract version 14](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 15](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Lifecycle and readiness rules
 
@@ -100,6 +100,12 @@ context never resumes automatically. Eligible toggle and loop roots restart
 once from their beginning; while-held roots remain stopped. Multi-role restart
 intent remains deferred until every involved role is input-admissible.
 
+Role, tab, and window teardown advances the native input epoch and drains the
+exact per-role input lane before native surface isolation. An input callback
+that was already admitted must terminalize while its WebView is still attached;
+cleanup from an older Core epoch that has not started is superseded. Native
+surface release never overtakes either outcome.
+
 This context recovery never reloads or replaces the live page, changes surface
 generation, or marks the role restart-required. Main-frame navigation
 supersedes it and invalidates old-document context events. Only a rejected Core
@@ -189,4 +195,3 @@ before any updater drain. It becomes `true` only after the shared shutdown
 receipt is terminal `applied` or `degraded`. A failed or indeterminate drain
 therefore remains recoverable on the next launch instead of being mislabeled as
 a clean exit.
-

@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 14 defines the shared semantics for WKWebView on macOS and
+Contract version 15 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. Rust orchestration owns the contract, while the
 AppKit/WKWebView and Win32/WebView2 adapters implement it. The native APIs may
 differ, but both platforms must expose the same observable contract.
@@ -30,5 +30,5 @@ Read only the parts required by the task:
 Changing a terminal status, completion scope, identity fence,
 popup/security policy, or ordering guarantee requires a contract-version bump
 and matching macOS and Windows behavior tests. Additive fields remain compatible
-within version 14 only when the generated Rust/TypeScript contracts and all
+within version 15 only when the generated Rust/TypeScript contracts and all
 consumers remain aligned.

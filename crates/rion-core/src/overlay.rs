@@ -186,9 +186,23 @@ fn validate_request(request: &MacroOverlayRequestRecord) -> CoreResult<()> {
             }
             Ok(())
         }
+        MacroOverlayRequestRecord::GameInputContext {
+            document_instance_id,
+            revision,
+            target,
+        } => {
+            validate_identifier(document_instance_id, "document instance ID")?;
+            if *revision == 0 || !matches!(target.as_str(), "game" | "embedded-frame" | "document")
+            {
+                return Err(domain(
+                    "MACRO_OVERLAY_REQUEST_INVALID",
+                    "Macro overlay automatic input context is invalid.",
+                ));
+            }
+            Ok(())
+        }
         MacroOverlayRequestRecord::Activate
         | MacroOverlayRequestRecord::CoordinateContext
-        | MacroOverlayRequestRecord::GameInputContext { .. }
         | MacroOverlayRequestRecord::List
         | MacroOverlayRequestRecord::Open => Ok(()),
     }

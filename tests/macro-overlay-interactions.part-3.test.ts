@@ -158,10 +158,10 @@ it("leaves editable controls and operating-system switch shortcuts untouched", a
     expect(windowsSystemShortcut.defaultPrevented).toBe(false);
 
     input.focus();
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "game-input-context",
-      active: false
-    }));
+      target: "document"
+    })));
   });
 
 it("blocks macOS browser navigation while preserving system desktop shortcuts", () => {
@@ -346,10 +346,10 @@ it("preserves Flyff text input focus and ignores keyboard events forwarded to th
     canvas.dispatchEvent(createMouseEvent(window, "pointerdown"));
     input.focus();
     expect(document.activeElement).toBe(input);
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "game-input-context",
-      active: false
-    }));
+      target: "document"
+    })));
 
     const inputs = [
       { code: "KeyA", key: "a" },
@@ -441,7 +441,7 @@ it("sends keyup release before a slow while-held press resolves", async () => {
     const requests: string[] = [];
     let resolvePress: ((value: unknown) => void) | undefined;
     const binding = vi.fn((request: unknown) => {
-      if (!isRecord(request) || request.type === "list") {
+      if (!isRecord(request) || request.type === "list" || request.type === "game-input-context") {
         return Promise.resolve({ macros: [heldMacro], statuses: [] });
       }
       requests.push(String(request.type));

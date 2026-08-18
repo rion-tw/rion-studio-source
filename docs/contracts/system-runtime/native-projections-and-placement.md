@@ -1,6 +1,6 @@
 # Native Projections and Placement
 
-This document is part of [System WebView Runtime Contract version 13](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 14](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Native tab chrome projection
 
@@ -11,6 +11,12 @@ move, select, or hide a tab. The projection also carries the exact window genera
 epoch, semantic projection revision, tab metadata, display state, fullscreen and
 toolbar state, language, and theme. Identical semantic content reuses its
 revision; a topology or active-tab change advances it.
+
+`automaticInputPaused` is an independent orange, non-blocking status for a
+focused embedded-frame input context. It does not change tab phase, cover game
+content, or take focus. `automaticInputRestartRequired` has display and tooltip
+priority when both flags are observed. Both Windows HTML chrome and macOS
+AppKit render the same four-language meaning.
 
 On Windows, every tab-strip document load creates a new renderer instance ID and
 announces `RuntimeTabChromeReadyRecord`. Native code then sends a complete
@@ -158,5 +164,3 @@ A newly observed native drag session supersedes an abandoned macOS session whose
 terminal destination callback was not delivered. Late callbacks for a completed,
 superseded, or never-accepted session are idempotent no-ops and never surface a
 `TAURI_TAB_DRAG_STALE` user error.
-
-

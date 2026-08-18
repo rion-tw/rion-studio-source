@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-16.3";
+  const scriptVersion = "2026-08-18.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -149,6 +149,8 @@
   let clickMarkerLayerElement = null;
   let coordinateMeasureHideTimer = undefined;
   let gameInputContextActive = false;
+  let gameInputContextRevision = 0;
+  let gameInputContextTarget = null;
   let host = null;
   let isDisposed = false;
   let isInstalled = false;
@@ -227,17 +229,41 @@
     return isCanvas(getDeepActiveElement()) || isCanvas(document.pointerLockElement);
   }
 
-  function reportGameInputContext(active) {
-    const nextActive = Boolean(active);
-    if (gameInputContextActive === nextActive) return;
-    gameInputContextActive = nextActive;
-    void Promise.resolve(binding({ type: "game-input-context", active: nextActive })).catch(() => undefined);
+  function resolveGameInputContextTarget() {
+    if (hasActiveGameCanvas()) return "game";
+    const activeElement = getDeepActiveElement();
+    if (typeof HTMLIFrameElement !== "undefined" && activeElement instanceof HTMLIFrameElement) {
+      return "embedded-frame";
+    }
+    return "document";
+  }
+
+  function automaticInputContext() {
+    return {
+      documentInstanceId: String(globalThis.__rionStudioDocumentInstanceId ?? ""),
+      revision: gameInputContextRevision,
+      target: gameInputContextTarget ?? resolveGameInputContextTarget()
+    };
+  }
+
+  function reportGameInputContext(target) {
+    const nextTarget = ["game", "embedded-frame", "document"].includes(target)
+      ? target
+      : resolveGameInputContextTarget();
+    if (gameInputContextTarget === nextTarget) return;
+    gameInputContextTarget = nextTarget;
+    gameInputContextActive = nextTarget === "game";
+    gameInputContextRevision += 1;
+    void Promise.resolve(binding({
+      type: "game-input-context",
+      ...automaticInputContext()
+    })).catch(() => undefined);
   }
 
   function refreshGameInputContext() {
     const activeCanvas = [getDeepActiveElement(), document.pointerLockElement].find(isCanvas);
     if (activeCanvas) rememberMacroGameCanvas(activeCanvas);
-    reportGameInputContext(Boolean(activeCanvas));
+    reportGameInputContext(resolveGameInputContextTarget());
   }
 
   function scheduleGameInputContextRefresh() {
@@ -258,7 +284,7 @@
     const canvas = eventPathCanvas(event);
     if (canvas) {
       rememberMacroGameCanvas(canvas);
-      reportGameInputContext(true);
+      reportGameInputContext("game");
       return;
     }
     scheduleGameInputContextRefresh();
@@ -268,7 +294,7 @@
     const canvas = eventPathCanvas(event);
     if (canvas) rememberMacroGameCanvas(canvas);
     handleMacroGameFocusIn(event);
-    reportGameInputContext(Boolean(canvas) || hasActiveGameCanvas());
+    reportGameInputContext(resolveGameInputContextTarget());
   }
 
   function handleGameSurfaceFocusOut(event) {

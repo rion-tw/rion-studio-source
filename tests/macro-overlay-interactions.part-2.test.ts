@@ -635,13 +635,13 @@ it("does not poll for reconciliation while an event-driven refresh is pending", 
       .mockResolvedValue({ macros: [assignedMacro], statuses: [] });
 
     installOverlay(window, binding);
-    expect(binding).toHaveBeenCalledTimes(1);
+    expect(binding).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(binding).toHaveBeenCalledTimes(1);
+    expect(binding).toHaveBeenCalledTimes(2);
 
     firstResponse.resolve({ macros: [assignedMacro], statuses: [] });
     await vi.advanceTimersByTimeAsync(0);
-    expect(binding).toHaveBeenCalledTimes(1);
+    expect(binding).toHaveBeenCalledTimes(2);
   });
 
 it("starts and stops macros from their in-game shortcuts while updating the badge", async () => {
@@ -790,10 +790,47 @@ it("prevents browser defaults on a focused game canvas without hiding key events
     expect(document.activeElement).toBe(canvas);
     expect(pageKeyDown).toHaveBeenCalledTimes(protectedInputs.length);
     expect(pageKeyUp).toHaveBeenCalledOnce();
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "game-input-context",
-      active: true
+      target: "game"
+    })));
+  });
+
+it("reports a focused iframe as embedded input context and resumes only after Canvas focus", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = 0;
+    const iframe = document.createElement("iframe");
+    iframe.tabIndex = 0;
+    document.body.append(iframe);
+    Object.defineProperty(window, "__rionStudioDocumentInstanceId", {
+      configurable: true,
+      value: "document-iframe-test"
+    });
+    const requests: Array<Record<string, unknown>> = [];
+    const binding = vi.fn(async (request: unknown) => {
+      if (isRecord(request) && request.type === "game-input-context") requests.push(request);
+      return { macros: [assignedMacro], statuses: [] };
+    });
+    installOverlay(window, binding);
+
+    await Promise.resolve();
+    expect(requests.some((request) => request.target === "embedded-frame")).toBe(false);
+
+    iframe.focus();
+    await vi.waitFor(() => expect(requests.at(-1)).toMatchObject({
+      documentInstanceId: "document-iframe-test",
+      target: "embedded-frame",
+      type: "game-input-context"
     }));
+    const embeddedRevision = Number(requests.at(-1)?.revision);
+
+    canvas.focus();
+    await vi.waitFor(() => expect(requests.at(-1)).toMatchObject({
+      documentInstanceId: "document-iframe-test",
+      target: "game",
+      type: "game-input-context"
+    }));
+    expect(Number(requests.at(-1)?.revision)).toBeGreaterThan(embeddedRevision);
   });
 });
 

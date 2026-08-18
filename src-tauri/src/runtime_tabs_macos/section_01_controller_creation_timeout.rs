@@ -69,6 +69,7 @@ struct NativeTabInput {
     active: bool,
     audible: bool,
     audio_muted: bool,
+    automatic_input_paused: bool,
     automatic_input_restart_required: bool,
     identifier: *const c_char,
     name: *const c_char,
@@ -283,6 +284,7 @@ unsafe impl Sync for MacRuntimeTabsControllerInner {}
 #[derive(Clone)]
 pub struct MacRuntimeTabState {
     pub active: bool,
+    pub automatic_input_paused: bool,
     pub automatic_input_restart_required: bool,
     pub audio_muted: bool,
     pub audible: bool,
@@ -838,6 +840,7 @@ fn apply_metadata_update(inner: &MacRuntimeTabsControllerInner, update: PendingM
         active: tab.active,
         audible: tab.audible,
         audio_muted: tab.audio_muted,
+        automatic_input_paused: tab.automatic_input_paused,
         automatic_input_restart_required: tab.automatic_input_restart_required,
         identifier: strings.id.as_ptr(),
         name: strings.name.as_ptr(),

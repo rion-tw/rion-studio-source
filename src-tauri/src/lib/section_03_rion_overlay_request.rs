@@ -138,6 +138,32 @@ async fn rion_overlay_request(
         return serde_json::to_value(context)
             .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()));
     }
+    if payload.get("type").and_then(Value::as_str) == Some("game-input-context") {
+        let request = serde_json::from_value::<rion_core::MacroOverlayRequestRecord>(payload)
+            .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()))?;
+        let rion_core::MacroOverlayRequestRecord::GameInputContext {
+            document_instance_id,
+            revision,
+            target,
+        } = request
+        else {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_INVALID",
+                "The automatic input context payload is invalid.",
+            ));
+        };
+        state
+            .runtime
+            .observe_overlay_automatic_input_context(
+                &role_id,
+                webview.label(),
+                document_instance_id,
+                revision,
+                &target,
+            )
+            .map_err(|error| shell_error(error.code, error.message))?;
+        return Ok(Value::Null);
+    }
     if overlay_request_activates_webview(&payload)
         && state
             .runtime

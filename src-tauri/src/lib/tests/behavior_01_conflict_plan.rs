@@ -647,7 +647,12 @@ use super::*;
             json!({ "type": "toggle", "macroId": "macro-a" }),
             json!({ "type": "press", "macroId": "macro-a", "pressId": "press-a" }),
             json!({ "type": "release", "macroId": "macro-a", "pressId": "press-a" }),
-            json!({ "active": true, "type": "game-input-context" }),
+            json!({
+                "documentInstanceId": "document-1",
+                "revision": 1,
+                "target": "game",
+                "type": "game-input-context"
+            }),
         ] {
             assert!(!overlay_request_activates_webview(&payload));
         }

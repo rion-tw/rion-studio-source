@@ -281,6 +281,7 @@ pub struct RuntimeTabChromeItemRecord {
     pub muted: bool,
     pub loading: bool,
     pub degraded: bool,
+    pub automatic_input_paused: bool,
     pub automatic_input_restart_required: bool,
     pub closable: bool,
     pub source_id: String,
@@ -565,6 +566,15 @@ pub struct SystemRuntimeInputFenceRecord {
     pub native_input_enabled: Option<bool>,
     pub drained: bool,
     pub pending_page_finish_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub input_context_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub document_instance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub input_context_revision: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional, type = "number")]
     pub surface_generation: Option<u64>,

@@ -149,6 +149,33 @@ impl SystemRuntimeExecutor {
         let acknowledgement = arm_webview_macro_key_event_guard(webview, &source, context);
         match acknowledgement {
             Ok(acknowledgement) => {
+                let input_target = if context.is_cleanup() {
+                    AutomaticInputContextTarget::Game
+                } else {
+                    match self.observe_automatic_input_context(
+                        role_id,
+                        webview.label(),
+                        acknowledgement.input_context.clone(),
+                    ) {
+                        Ok(target) => target,
+                        Err(error) => {
+                            self.cancel_macro_key_observation(&waiter.dispatch_id);
+                            let cleanup = self.cleanup_input_context(context);
+                            let _ = cancel_macro_key_event_guard(
+                                webview,
+                                &waiter.dispatch_id,
+                                &cleanup,
+                            );
+                            return Err(error);
+                        }
+                    }
+                };
+                if input_target == AutomaticInputContextTarget::EmbeddedFrame {
+                    self.cancel_macro_key_observation(&waiter.dispatch_id);
+                    let cleanup = self.cleanup_input_context(context);
+                    let _ = cancel_macro_key_event_guard(webview, &waiter.dispatch_id, &cleanup);
+                    return Err(automatic_input_context_blocked_error());
+                }
                 self.record_macro_key_receipt(
                     "macro-key-guard-armed",
                     role_id,
@@ -558,7 +585,7 @@ fn macro_key_guard_arm_script(
     let dispatch_id = serde_json::to_string(dispatch_id)
         .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
     Ok(format!(
-        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextShortcut?.({dispatch_id},{code},{phase}) === true; const physicalModifierCodes = armed ? controller?.physicalModifierCodes?.() : []; return {{ armed, physicalModifierCodes: Array.isArray(physicalModifierCodes) ? physicalModifierCodes : [] }}; }})()"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const inputContext = controller?.automaticInputContext?.(); const armed = controller?.suppressNextShortcut?.({dispatch_id},{code},{phase}) === true; const physicalModifierCodes = armed ? controller?.physicalModifierCodes?.() : []; return {{ armed, inputContext, physicalModifierCodes: Array.isArray(physicalModifierCodes) ? physicalModifierCodes : [] }}; }})()"
     ))
 }
 
@@ -577,7 +604,7 @@ fn macro_modifier_projection_guard_arm_script(
     let dispatch_id = serde_json::to_string(dispatch_id)
         .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
     Ok(format!(
-        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const armed = controller?.suppressNextModifierProjection?.({dispatch_id},{code}) === true; return {{ armed, physicalModifierCodes: [] }}; }})()"
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const inputContext = controller?.automaticInputContext?.(); const armed = controller?.suppressNextModifierProjection?.({dispatch_id},{code}) === true; return {{ armed, inputContext, physicalModifierCodes: [] }}; }})()"
     ))
 }
 
@@ -585,6 +612,7 @@ fn macro_modifier_projection_guard_arm_script(
 #[serde(rename_all = "camelCase")]
 struct MacroKeyGuardAcknowledgement {
     armed: bool,
+    input_context: AutomaticInputContextReadback,
     physical_modifier_codes: Vec<String>,
 }
 
@@ -595,7 +623,11 @@ fn parse_macro_key_guard_acknowledgement(value: Value) -> Option<MacroKeyGuardAc
             .and_then(parse_macro_key_guard_acknowledgement);
     }
     let acknowledgement = serde_json::from_value::<MacroKeyGuardAcknowledgement>(value).ok()?;
-    if !acknowledgement.armed || acknowledgement.physical_modifier_codes.len() > 8 {
+    if !acknowledgement.armed
+        || acknowledgement.input_context.document_instance_id.is_empty()
+        || acknowledgement.input_context.revision == 0
+        || acknowledgement.physical_modifier_codes.len() > 8
+    {
         return None;
     }
     let mut seen = HashSet::new();

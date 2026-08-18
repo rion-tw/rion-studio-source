@@ -21,6 +21,7 @@ const state: RuntimeTabStripState = {
   capturedAt: "2026-08-03T00:00:00Z",
   alwaysHideTabCloseButton: false,
   alwaysShowToolbarInFullScreen: false,
+  automaticInputPausedTabIds: {},
   automaticInputRestartRequiredTabIds: {},
   displayId: 11,
   windowId: "window-1",
@@ -109,6 +110,7 @@ function authoritativeSingleTabProjection(
     projectionRevision,
     topologyRevision,
     tabs: [{
+      automaticInputPaused: false,
       automaticInputRestartRequired: false,
       id: "tab-1",
       name: "Workspace",
@@ -1101,6 +1103,30 @@ it("shows restart-required without changing a ready tab phase", () => {
   expect(tab.dataset.automaticInputRestartRequired).toBe("true");
   expect(tab.title).toContain("自動輸入已暫停，需重啟角色。");
   expect(tab.ariaLabel).toContain("自動輸入已暫停，需重啟角色。");
+});
+
+it("shows the non-blocking input-context pause and gives restart-required priority", () => {
+  window.__rionApplyRuntimeTabState?.({
+    ...stateWithTabs(0),
+    automaticInputPausedTabIds: { "tab-1": true },
+    tabPhases: { "tab-1": "ready" }
+  });
+
+  const tab = document.querySelector<HTMLButtonElement>("[data-tab-id=\"tab-1\"]")!;
+  expect(tab.querySelector<HTMLElement>(".phase-accessory")?.dataset.phase)
+    .toBe("automatic-input-paused");
+  expect(tab.dataset.automaticInputPaused).toBe("true");
+  expect(tab.title).toContain("完成驗證並返回遊戲後將自動恢復");
+
+  window.__rionApplyRuntimeTabState?.({
+    ...stateWithTabs(0),
+    automaticInputPausedTabIds: { "tab-1": true },
+    automaticInputRestartRequiredTabIds: { "tab-1": true },
+    tabPhases: { "tab-1": "ready" }
+  });
+  expect(tab.querySelector<HTMLElement>(".phase-accessory")?.dataset.phase)
+    .toBe("automatic-input-restart-required");
+  expect(tab.title).toContain("需重啟角色");
 });
 
 it("keeps status in the end slot when close controls are hidden", () => {

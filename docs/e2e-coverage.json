@@ -349,7 +349,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Inject a confirmed-cleanup trusted-input acknowledgement and a page-finish failure into a visibly started zero-interval looping macro; prove the eligible root resumes exactly once in place, then prove the page-finish failure keeps the same surface generation, pauses automatic input, and requires a manual role restart."
+      "description": "From visible role content, open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Then inject a page-finish failure to prove a genuinely unresumable role keeps its live surface and becomes restart-required."
     },
     {
       "id": "MACRO-SHORTCUT-REENTRY-007",

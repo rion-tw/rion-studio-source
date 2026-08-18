@@ -984,6 +984,11 @@ impl SystemRuntimeExecutor {
                                         | TabRuntimePhase::Loading
                                 ),
                                 degraded: phase == TabRuntimePhase::Degraded,
+                                automatic_input_paused: role_ids.iter().any(|role_id| {
+                                    state.automatic_input_contexts.get(role_id).is_some_and(|context| {
+                                        context.target == AutomaticInputContextTarget::EmbeddedFrame
+                                    }) && state.macro_input_recoveries.contains_key(role_id)
+                                }),
                                 automatic_input_restart_required: role_ids.iter().any(|role_id| {
                                     automatic_input_restart_required_role_ids.contains(role_id)
                                 }),

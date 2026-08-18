@@ -24,11 +24,41 @@ impl AppCore {
         let (macros, settings) =
             self.with_runtime(|runtime| runtime.state.macro_configuration())?;
         let active_role_ids = self.macro_active_role_ids()?;
+        let tickets = self
+            .macro_runtime
+            .input_recovery_group_tickets(recovery_id)?;
+        if !tickets.iter().any(|ticket| {
+            ticket.recovery_id == recovery_id && ticket.role_id == role_id
+        }) {
+            return Ok(crate::MacroInputRecoveryCompletion {
+                deferred_count: 0,
+                restarted_count: 0,
+                skipped_count: 0,
+            });
+        }
+        let diagnostics = self.macro_runtime.input_diagnostics()?;
+        let deferred = tickets.iter().any(|ticket| {
+            diagnostics.roles.iter().any(|role| {
+                role.role_id == ticket.role_id
+                    && (role.stopping || role.quiesced || role.restart_required)
+            })
+        });
+        if deferred {
+            return Ok(crate::MacroInputRecoveryCompletion {
+                deferred_count: tickets
+                    .iter()
+                    .map(|ticket| ticket.pending_macro_restart_count)
+                    .sum(),
+                restarted_count: 0,
+                skipped_count: 0,
+            });
+        }
         let intents = self
             .macro_runtime
-            .take_input_recovery(recovery_id, role_id)?;
+            .take_input_recovery_group(recovery_id)?;
         if intents.is_empty() {
             return Ok(crate::MacroInputRecoveryCompletion {
+                deferred_count: 0,
                 restarted_count: 0,
                 skipped_count: 0,
             });
@@ -50,6 +80,7 @@ impl AppCore {
             }
         }
         Ok(crate::MacroInputRecoveryCompletion {
+            deferred_count: 0,
             restarted_count,
             skipped_count,
         })

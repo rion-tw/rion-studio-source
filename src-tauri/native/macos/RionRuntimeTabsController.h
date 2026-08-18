@@ -20,6 +20,7 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 @property(nonatomic) BOOL active;
 @property(nonatomic) BOOL audible;
 @property(nonatomic) BOOL audioMuted;
+@property(nonatomic) BOOL automaticInputPaused;
 @property(nonatomic) BOOL automaticInputRestartRequired;
 @property(nonatomic, copy, nullable) NSString *iconDataURL;
 @property(nonatomic, copy) NSString *identifier;
@@ -92,6 +93,7 @@ typedef struct {
   bool active;
   bool audible;
   bool audioMuted;
+  bool automaticInputPaused;
   bool automaticInputRestartRequired;
   const char *identifier;
   const char *name;

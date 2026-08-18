@@ -85,6 +85,7 @@ include!("system_runtime/section_17_rebuild_role_surface.rs");
 mod kernel_facade;
 use kernel_facade::seed_persisted_runtime_windows;
 include!("system_runtime/section_18_session_contract.rs");
+include!("system_runtime/section_18_automatic_input_context.rs");
 include!("system_runtime/section_18_macro_key_guard.rs");
 include!("system_runtime/section_18_coordinate_context.rs");
 include!("system_runtime/section_18_focus_readiness.rs");

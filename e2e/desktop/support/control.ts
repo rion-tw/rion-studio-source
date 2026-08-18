@@ -129,6 +129,7 @@ export type RuntimeUiActionRequest =
       windowGeneration: number;
     }
   | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
+  | { action: "clickRoleContent"; roleId: string; tabId: string; windowGeneration: number }
   | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number }
   | {
       action: "openTabMenu";
@@ -272,22 +273,6 @@ export async function injectDuplicateRoleCookieCheckpoint(
     roleId: string;
     totalCookieCount: number;
   };
-}
-
-export async function armIndeterminateMacroInput(
-  roleId: string,
-  cleanupConfirmed = true
-): Promise<{ armed: true; cleanupConfirmed: boolean; roleId: string }> {
-  const result = await browser.tauri.execute(
-    ({ core }, token, id, confirmed) => core.invoke(
-      "desktop_e2e_arm_indeterminate_macro_input",
-      { cleanupConfirmed: confirmed, roleId: id, token }
-    ),
-    sessionToken(),
-    roleId,
-    cleanupConfirmed
-  );
-  return result as unknown as { armed: true; cleanupConfirmed: boolean; roleId: string };
 }
 
 export async function injectPageFinishFailure(

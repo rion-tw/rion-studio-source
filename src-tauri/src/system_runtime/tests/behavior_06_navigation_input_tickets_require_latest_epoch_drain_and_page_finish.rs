@@ -59,12 +59,13 @@ fn macro_recovery_unquarantines_only_the_exact_epoch_and_surface_generation() {
 #[test]
 fn macro_recovery_evidence_prefers_cleanup_then_exact_document_replacement() {
     let mut tickets = HashMap::new();
+    let input_contexts = HashMap::new();
     assert_eq!(
-        macro_input_recovery_evidence(true, &tickets, "role-1", 4),
+        macro_input_recovery_evidence(true, &tickets, &input_contexts, "role-1", 4),
         MacroInputRecoveryEvidence::CleanupConfirmed
     );
     assert_eq!(
-        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        macro_input_recovery_evidence(false, &tickets, &input_contexts, "role-1", 4),
         MacroInputRecoveryEvidence::Unproven
     );
 
@@ -77,16 +78,16 @@ fn macro_recovery_evidence_prefers_cleanup_then_exact_document_replacement() {
         Some("old-document".to_owned()),
     );
     assert_eq!(
-        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        macro_input_recovery_evidence(false, &tickets, &input_contexts, "role-1", 4),
         MacroInputRecoveryEvidence::DocumentReplacementPending
     );
     mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
     assert_eq!(
-        macro_input_recovery_evidence(false, &tickets, "role-1", 4),
+        macro_input_recovery_evidence(false, &tickets, &input_contexts, "role-1", 4),
         MacroInputRecoveryEvidence::DocumentReplaced
     );
     assert_eq!(
-        macro_input_recovery_evidence(false, &tickets, "role-1", 5),
+        macro_input_recovery_evidence(false, &tickets, &input_contexts, "role-1", 5),
         MacroInputRecoveryEvidence::Unproven
     );
 }

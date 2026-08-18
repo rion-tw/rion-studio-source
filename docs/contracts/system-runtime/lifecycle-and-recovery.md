@@ -1,6 +1,6 @@
 # Lifecycle and Recovery
 
-This document is part of [System WebView Runtime Contract version 13](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 14](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Lifecycle and readiness rules
 
@@ -82,6 +82,28 @@ receipts use the real lifecycle epoch; they never default a live attempt to epoc
 zero.
 
 ### Indeterminate macro-input recovery
+
+An actually focused iframe is a temporary non-game automatic-input context.
+The overlay reports only focus, pointer-lock, and Canvas focus/pointer events as
+the authoritative `game`, `embedded-frame`, or `document` context stream. It
+does not inspect frame URLs, providers, or DOM content, and frame presence alone
+does not pause input. Every event is fenced by role capability, WebView label,
+surface generation, document instance, and monotonic context revision.
+
+Before normal Focus, Key, or Click native submission, the runtime reads the
+same context snapshot. `embedded-frame` fails admission with
+`SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED` before native input is sent; cleanup
+keyup and mouseup remain admissible. Core captures restart intent before the
+blocked action wakes its invocation, drains the old tree, and remains
+event-bound until the same document and generation report `game`. A `document`
+context never resumes automatically. Eligible toggle and loop roots restart
+once from their beginning; while-held roots remain stopped. Multi-role restart
+intent remains deferred until every involved role is input-admissible.
+
+This context recovery never reloads or replaces the live page, changes surface
+generation, or marks the role restart-required. Main-frame navigation
+supersedes it and invalidates old-document context events. Only a rejected Core
+or native resume converts the live role to restart-required.
 
 An indeterminate native key or pointer acknowledgement starts one recovery
 transaction keyed by the failing browser-action request ID and role ID. Core is
@@ -167,5 +189,4 @@ before any updater drain. It becomes `true` only after the shared shutdown
 receipt is terminal `applied` or `degraded`. A failed or indeterminate drain
 therefore remains recoverable on the next launch instead of being mislabeled as
 a clean exit.
-
 

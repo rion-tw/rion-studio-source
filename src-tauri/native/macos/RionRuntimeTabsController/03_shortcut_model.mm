@@ -347,6 +347,7 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   BOOL _hideTabCloseButton;
   BOOL _hovered;
   BOOL _phaseReady;
+  BOOL _automaticInputPaused;
   BOOL _automaticInputRestartRequired;
   NSImageView *_audioView;
   NSImageView *_iconView;
@@ -563,9 +564,10 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
   _titleField.stringValue = tab.name;
   NSString *phase = tab.phase.length > 0 ? tab.phase : @"ready";
   BOOL ready = [phase isEqualToString:@"ready"];
+  _automaticInputPaused = tab.automaticInputPaused;
   _automaticInputRestartRequired = tab.automaticInputRestartRequired;
-  BOOL accessoryHidden = ready && !_automaticInputRestartRequired;
-  BOOL progressing = !_automaticInputRestartRequired &&
+  BOOL accessoryHidden = ready && !_automaticInputRestartRequired && !_automaticInputPaused;
+  BOOL progressing = !_automaticInputRestartRequired && !_automaticInputPaused &&
       ([phase isEqualToString:@"activating"] ||
       [phase isEqualToString:@"attaching"] ||
       [phase isEqualToString:@"loading"]);
@@ -580,14 +582,14 @@ static NSColor *RionRuntimeNeutralColor(BOOL darkAppearance,
     [_phaseProgress stopAnimation:nil];
   }
   if (!accessoryHidden && !progressing) {
-    NSString *symbol = _automaticInputRestartRequired
+    NSString *symbol = (_automaticInputRestartRequired || _automaticInputPaused)
         ? @"exclamationmark.triangle.fill"
         : [phase isEqualToString:@"dormant"]
         ? @"circle.dashed"
         : [phase isEqualToString:@"degraded"]
             ? @"exclamationmark.triangle.fill"
             : @"exclamationmark.circle.fill";
-    NSColor *color = _automaticInputRestartRequired
+    NSColor *color = (_automaticInputRestartRequired || _automaticInputPaused)
         ? NSColor.systemOrangeColor
         : [phase isEqualToString:@"dormant"]
         ? NSColor.secondaryLabelColor

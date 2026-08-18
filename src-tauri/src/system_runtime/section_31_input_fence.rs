@@ -151,6 +151,15 @@ impl SystemRuntimeExecutor {
         advance_input_epoch: bool,
     ) -> RuntimeResult<()> {
         self.cancel_macro_key_observations_for_role(role_id);
+        if let Ok(mut state) = self.state.lock() {
+            let obsolete = state
+                .automatic_input_contexts
+                .get(role_id)
+                .is_some_and(|context| context.surface_generation != surface_generation);
+            if obsolete || advance_input_epoch {
+                state.automatic_input_contexts.remove(role_id);
+            }
+        }
         let lane = self.role_input_lane(role_id)?;
         if advance_input_epoch {
             lane.epoch.fetch_add(1, Ordering::AcqRel);
@@ -165,6 +174,9 @@ impl SystemRuntimeExecutor {
 
     fn retire_role_input_surface(&self, role_id: &str) -> RuntimeResult<()> {
         self.cancel_macro_key_observations_for_role(role_id);
+        if let Ok(mut state) = self.state.lock() {
+            state.automatic_input_contexts.remove(role_id);
+        }
         let lane = self
             .input_dispatch_lanes
             .lock()

@@ -1,6 +1,6 @@
 # Ownership and Activation
 
-This document is part of [System WebView Runtime Contract version 13](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 14](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Window and tab ownership
 
@@ -153,5 +153,4 @@ readback are absent from the public mutation contract. Native chrome mismatch
 is reconciled and logged in the background. A failed surface reparent retains
 the live destination and schedules forward projection; it never moves the tab
 back to an older owner snapshot.
-
 

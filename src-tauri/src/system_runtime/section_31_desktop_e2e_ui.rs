@@ -26,6 +26,11 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
         tab_id: String,
         window_generation: u64,
     },
+    ClickRoleContent {
+        role_id: String,
+        tab_id: String,
+        window_generation: u64,
+    },
     PressRoleSlot {
         role_id: String,
         tab_id: String,
@@ -122,6 +127,65 @@ impl SystemRuntimeExecutor {
         }
 
         match &request {
+            DesktopE2eRuntimeUiActionRequest::ClickRoleContent {
+                role_id, tab_id, ..
+            } => {
+                desktop_e2e_require_selected_tab(&projection, tab_id, "role content")?;
+                let (window, webview) = {
+                    let state = self.state().map_err(|error| error.message)?;
+                    let window = state
+                        .native_resources
+                        .display_hosts
+                        .get(window_id)
+                        .map(|host| host.window.clone())
+                        .ok_or_else(|| "The requested live Game Window was not found.".to_owned())?;
+                    let webview = state
+                        .native_resources
+                        .tabs
+                        .get(tab_id)
+                        .and_then(|tab| tab.roles.get(role_id))
+                        .map(|surface| surface.webview.clone())
+                        .ok_or_else(|| "The requested live role surface was not found.".to_owned())?;
+                    (window, webview)
+                };
+                request_platform_window_show_foreground(&window).map_err(|error| error.message)?;
+                webview.set_focus().map_err(|error| error.to_string())?;
+                let context = self
+                    .current_input_context(role_id, "cleanup")
+                    .map_err(|error| error.message)?;
+                self.with_role_input_lane(role_id, || {
+                    let viewport = self.devtools_viewport(&webview)?;
+                    let point = ClickPoint {
+                        x: (viewport.width / 2.0).round() as i64,
+                        y: (viewport.height / 2.0).round() as i64,
+                    };
+                    let button = validate_mouse_button("left")?;
+                    if let Err(error) = dispatch_mouse_click_sequence(
+                        &webview,
+                        viewport,
+                        point,
+                        button,
+                        &context,
+                        || self.cleanup_input_context(&context),
+                    ) {
+                        if let Some(cleanup_error) = error.cleanup
+                            && cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                        {
+                            return Err(cleanup_error);
+                        }
+                        return Err(error.action);
+                    }
+                    Ok(())
+                })
+                .map_err(|error| error.message)?;
+                crate::desktop_e2e::record_event(
+                    "visible-role-content-click",
+                    Some(window_id),
+                    Some(context.surface_generation),
+                    None,
+                    json!({ "roleId": role_id, "tabId": tab_id }),
+                );
+            }
             DesktopE2eRuntimeUiActionRequest::ActivateTab { tab_id, .. } => {
                 projection
                     .tabs
@@ -683,6 +747,10 @@ fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest)
             window_generation,
             ..
         }
+        | DesktopE2eRuntimeUiActionRequest::ClickRoleContent {
+            window_generation,
+            ..
+        }
         | DesktopE2eRuntimeUiActionRequest::PressRoleSlot {
             window_generation,
             ..
@@ -703,6 +771,7 @@ fn desktop_e2e_runtime_ui_action_name(request: &DesktopE2eRuntimeUiActionRequest
         DesktopE2eRuntimeUiActionRequest::ActivateTab { .. } => "activateTab",
         DesktopE2eRuntimeUiActionRequest::CloseTab { .. } => "closeTab",
         DesktopE2eRuntimeUiActionRequest::DragTab { .. } => "dragTab",
+        DesktopE2eRuntimeUiActionRequest::ClickRoleContent { .. } => "clickRoleContent",
         DesktopE2eRuntimeUiActionRequest::FocusRole { .. } => "focusRole",
         DesktopE2eRuntimeUiActionRequest::PressRoleSlot { .. } => "pressRoleSlot",
         DesktopE2eRuntimeUiActionRequest::OpenTabMenu { .. } => "openTabMenu",
@@ -735,6 +804,7 @@ fn desktop_e2e_runtime_ui_tab_id(
         | DesktopE2eRuntimeUiActionRequest::CloseTab { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::DragTab { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::FocusRole { tab_id, .. }
+        | DesktopE2eRuntimeUiActionRequest::ClickRoleContent { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::PressRoleSlot { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::OpenTabMenu { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::SelectTabMenuItem { tab_id, .. } => Some(tab_id),

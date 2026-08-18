@@ -42,6 +42,7 @@ describe("Windows runtime tab chrome projection", () => {
       topologyRevision: 21,
       tabs: [
         {
+          automaticInputPaused: false,
           automaticInputRestartRequired: false,
           id: "tab-2",
           name: "Second",
@@ -58,6 +59,7 @@ describe("Windows runtime tab chrome projection", () => {
           roleNames: []
         },
         {
+          automaticInputPaused: false,
           automaticInputRestartRequired: false,
           id: "tab-1",
           name: "Renamed Workspace",

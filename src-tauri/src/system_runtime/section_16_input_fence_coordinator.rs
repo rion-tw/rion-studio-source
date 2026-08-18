@@ -130,6 +130,11 @@ impl SystemRuntimeExecutor {
             if let Some(fence) = state.role_input_fences.get_mut(role_id) {
                 fence.navigation_operation = Some(operation.clone());
             }
+            if let Some(recovery) = state.macro_input_recoveries.get_mut(role_id)
+                && recovery.surface_generation == generation
+            {
+                recovery.evidence = MacroInputRecoveryEvidence::DocumentReplacementPending;
+            }
             true
         });
         if !installed {

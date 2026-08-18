@@ -721,7 +721,10 @@ pub enum MacroOverlayRequestRecord {
     Activate,
     CoordinateContext,
     GameInputContext {
-        active: bool,
+        #[ts(rename = "documentInstanceId")]
+        document_instance_id: String,
+        revision: u64,
+        target: String,
     },
     List,
     Open,

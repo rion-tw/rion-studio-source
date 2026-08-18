@@ -138,12 +138,14 @@ function createPhaseSymbol(phase: "dormant" | "degraded" | "failed"): SVGSVGElem
 function patchPhaseAccessory(
   button: HTMLButtonElement,
   phase: RuntimeTabActivationPhaseRecord,
-  automaticInputRestartRequired = false
+  automaticInputRestartRequired = false,
+  automaticInputPaused = false
 ): void {
   button.dataset.phase = phase;
   button.dataset.automaticInputRestartRequired = String(automaticInputRestartRequired);
+  button.dataset.automaticInputPaused = String(automaticInputPaused);
   const current = button.querySelector<HTMLElement>(".phase-accessory");
-  if (phase === "ready" && !automaticInputRestartRequired) {
+  if (phase === "ready" && !automaticInputRestartRequired && !automaticInputPaused) {
     current?.remove();
     removeEmptyTrailingAccessorySlot(button);
     return;
@@ -154,14 +156,14 @@ function patchPhaseAccessory(
   accessory.ariaHidden = "true";
   accessory.dataset.phase = automaticInputRestartRequired
     ? "automatic-input-restart-required"
-    : phase;
+    : automaticInputPaused ? "automatic-input-paused" : phase;
   accessory.replaceChildren();
-  if (!automaticInputRestartRequired && ["activating", "attaching", "loading"].includes(phase)) {
+  if (!automaticInputRestartRequired && !automaticInputPaused && ["activating", "attaching", "loading"].includes(phase)) {
     const spinner = document.createElement("span");
     spinner.className = "phase-spinner";
     accessory.append(spinner);
   } else {
-    accessory.append(createPhaseSymbol(automaticInputRestartRequired
+    accessory.append(createPhaseSymbol(automaticInputRestartRequired || automaticInputPaused
       ? "degraded"
       : phase as "dormant" | "degraded" | "failed"));
   }
@@ -184,13 +186,14 @@ function patchTabButton(
   const status = phaseLabel(phase, labels);
   const automaticInputRestartRequired =
     state.automaticInputRestartRequiredTabIds[tab.id] === true;
+  const automaticInputPaused = state.automaticInputPausedTabIds?.[tab.id] === true;
   const baseTooltip = tab.type === "workspace" && (tab.roleNames?.length ?? 0) > 0
     ? `${tab.name}${state.language.startsWith("zh") ? "：" : ":"}${(tab.roleNames ?? []).join(", ")}`
     : tab.name;
   const phaseTooltip = status ? `${baseTooltip} — ${status}` : baseTooltip;
   button.title = automaticInputRestartRequired
     ? `${phaseTooltip} — ${labels.automaticInputRestartRequired}`
-    : phaseTooltip;
+    : automaticInputPaused ? `${phaseTooltip} — ${labels.automaticInputPaused}` : phaseTooltip;
   button.ariaLabel = button.title;
 
   const workspaceTemplate = workspaceTemplateByTabId.get(tab.id);
@@ -212,7 +215,7 @@ function patchTabButton(
     icon.after(name);
   }
   if (name.textContent !== tab.name) name.textContent = tab.name;
-  patchPhaseAccessory(button, phase, automaticInputRestartRequired);
+  patchPhaseAccessory(button, phase, automaticInputRestartRequired, automaticInputPaused);
 
   const audioSignature = `${tab.audioMuted}\u0000${tab.audible}\u0000${labels.tabMuted}\u0000${labels.playingAudio}`;
   const audio = button.querySelector<HTMLElement>(".audio");
@@ -617,7 +620,12 @@ export function installRuntimeTabStrip(): void {
     button.dataset.sourceId = tab.sourceId;
     const name = button.querySelector<HTMLElement>(".name");
     if (name) name.textContent = tab.name;
-    patchPhaseAccessory(button, tab.phase, tab.automaticInputRestartRequired);
+    patchPhaseAccessory(
+      button,
+      tab.phase,
+      tab.automaticInputRestartRequired,
+      tab.automaticInputPaused
+    );
     const previousIcon = button.querySelector<HTMLElement>(".icon");
     const icon = createTabIcon(
       tab.type,

@@ -10,6 +10,7 @@ export type TranslationDictionary = Record<TranslationKey, string>;
 export const languages: Language[] = ["en", "zh-TW", "zh-CN", "ja"];
 
 type RuntimeTabStripLabels = {
+  automaticInputPaused: string;
   automaticInputRestartRequired: string;
   closeWindow: string;
   closeTab: string;
@@ -31,6 +32,7 @@ type RuntimeTabStripLabels = {
 
 const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
   en: {
+    automaticInputPaused: "Automatic input is paused. Complete verification and return to the game to resume automatically.",
     automaticInputRestartRequired: "Automatic input is paused. Restart the role.",
     closeWindow: "Close window",
     closeTab: "Stop and close tab",
@@ -50,6 +52,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "Window controls"
   },
   "zh-TW": {
+    automaticInputPaused: "自動輸入已暫停，完成驗證並返回遊戲後將自動恢復。",
     automaticInputRestartRequired: "自動輸入已暫停，需重啟角色。",
     closeWindow: "關閉視窗",
     closeTab: "停止並關閉分頁",
@@ -69,6 +72,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "視窗控制項"
   },
   "zh-CN": {
+    automaticInputPaused: "自动输入已暂停，完成验证并返回游戏后将自动恢复。",
     automaticInputRestartRequired: "自动输入已暂停，需要重启角色。",
     closeWindow: "关闭窗口",
     closeTab: "停止并关闭标签页",
@@ -88,6 +92,7 @@ const runtimeTabStripTranslations: Record<Language, RuntimeTabStripLabels> = {
     windowControls: "窗口控件"
   },
   ja: {
+    automaticInputPaused: "自動入力を一時停止しました。認証を完了してゲームに戻ると自動的に再開します。",
     automaticInputRestartRequired: "自動入力を一時停止しました。ロールを再起動してください。",
     closeWindow: "ウインドウを閉じる",
     closeTab: "停止してタブを閉じる",

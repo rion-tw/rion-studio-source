@@ -5,6 +5,7 @@ fn should_project_surface_failure_to_core(macro_input_recovery_active: bool) -> 
 fn macro_input_recovery_evidence(
     cleanup_confirmed: bool,
     tickets: &HashMap<String, MainFrameNavigationInputFence>,
+    automatic_input_contexts: &HashMap<String, RoleAutomaticInputContext>,
     role_id: &str,
     surface_generation: u64,
 ) -> MacroInputRecoveryEvidence {
@@ -18,6 +19,11 @@ fn macro_input_recovery_evidence(
         MacroInputRecoveryEvidence::DocumentReplaced
     } else if matching.next().is_some() {
         MacroInputRecoveryEvidence::DocumentReplacementPending
+    } else if automatic_input_contexts.get(role_id).is_some_and(|context| {
+        context.surface_generation == surface_generation
+            && context.target == AutomaticInputContextTarget::EmbeddedFrame
+    }) {
+        MacroInputRecoveryEvidence::InputContextBlocked
     } else {
         MacroInputRecoveryEvidence::Unproven
     }
@@ -98,6 +104,7 @@ impl SystemRuntimeExecutor {
             let evidence = macro_input_recovery_evidence(
                 error.input_neutrality_confirmed(),
                 &state.main_frame_navigation_input_fences,
+                &state.automatic_input_contexts,
                 role_id,
                 generation,
             );
@@ -116,11 +123,21 @@ impl SystemRuntimeExecutor {
         if !scheduled {
             return;
         }
+        let recovery_reason = if error.code == AUTOMATIC_INPUT_CONTEXT_BLOCKED {
+            "embedded-frame-input-context"
+        } else {
+            "trusted-input-indeterminate"
+        };
+        let recovery_message = if error.code == AUTOMATIC_INPUT_CONTEXT_BLOCKED {
+            "Automatic input is paused. Complete the embedded verification and return focus to the game to resume eligible macros."
+        } else {
+            "Native input acknowledgement was lost. Rion Studio paused automatic input and will resume eligible macros only after the current page is proven safe."
+        };
         let _ = self.app.emit(
             "rion://shell-error",
             json!({
                 "code": "SYSTEM_TRUSTED_INPUT_RECOVERING",
-                "message": "Native input acknowledgement was lost. Rion Studio paused automatic input and will resume eligible macros only after the current page is proven safe.",
+                "message": recovery_message,
                 "reason": error.message,
                 "roleId": role_id
             }),
@@ -165,7 +182,7 @@ impl SystemRuntimeExecutor {
                 .install_role_input_fence(
                     &role_id,
                     ticket.input_epoch,
-                    "trusted-input-indeterminate",
+                    recovery_reason,
                     Some(generation),
                 )
                 .is_err()
@@ -178,15 +195,24 @@ impl SystemRuntimeExecutor {
                 return;
             }
             if let Ok(mut runtime_state) = runtime.state.lock() {
-                let refreshed_evidence = runtime_state
+                let existing_evidence = runtime_state
                     .macro_input_recoveries
                     .get(&role_id)
                     .map(|recovery| recovery.evidence)
-                    .filter(|evidence| *evidence == MacroInputRecoveryEvidence::CleanupConfirmed)
+                    .filter(|evidence| {
+                        matches!(
+                            evidence,
+                            MacroInputRecoveryEvidence::CleanupConfirmed
+                                | MacroInputRecoveryEvidence::InputContextBlocked
+                                | MacroInputRecoveryEvidence::InputContextRestored
+                        )
+                    });
+                let refreshed_evidence = existing_evidence
                     .unwrap_or_else(|| {
                         macro_input_recovery_evidence(
                             false,
                             &runtime_state.main_frame_navigation_input_fences,
+                            &runtime_state.automatic_input_contexts,
                             &role_id,
                             generation,
                         )
@@ -213,7 +239,7 @@ impl SystemRuntimeExecutor {
                 &role_id,
                 ticket.input_epoch,
                 "recovery-scheduled",
-                "trusted-input-indeterminate",
+                recovery_reason,
                 LogLevel::Warn,
             );
             let drained = core
@@ -260,7 +286,15 @@ impl SystemRuntimeExecutor {
     }
 
     fn finish_macro_input_recovery_in_place(&self, role_id: &str, input_epoch: u64) {
-        self.finish_macro_input_recovery(role_id, Some(input_epoch), "in-place");
+        let method = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.macro_input_recoveries.get(role_id).map(|recovery| recovery.evidence))
+            .filter(|evidence| *evidence == MacroInputRecoveryEvidence::InputContextRestored)
+            .map(|_| "input-context")
+            .unwrap_or("in-place");
+        self.finish_macro_input_recovery(role_id, Some(input_epoch), method);
     }
 
     fn finish_macro_input_recovery_after_surface(
@@ -324,6 +358,21 @@ impl SystemRuntimeExecutor {
             })
             .await;
             match completion {
+                Ok(Ok(completion)) if completion.deferred_count > 0 => {
+                    #[cfg(feature = "desktop-e2e")]
+                    crate::desktop_e2e::record_event(
+                        "macro-input-recovery-terminal",
+                        None,
+                        Some(recovery.surface_generation),
+                        None,
+                        json!({
+                            "deferredCount": completion.deferred_count,
+                            "recoveryMethod": recovery_method,
+                            "roleId": role_id,
+                            "status": "deferred"
+                        }),
+                    );
+                }
                 Ok(Ok(completion)) if completion.skipped_count == 0 => {
                     #[cfg(feature = "desktop-e2e")]
                     crate::desktop_e2e::record_event(

@@ -85,6 +85,7 @@ export type RuntimeTabAction =
     };
 
 export interface RuntimeTabStripState extends EmbeddedRuntimeState {
+  automaticInputPausedTabIds: Record<string, boolean>;
   automaticInputRestartRequiredTabIds: Record<string, boolean>;
   alwaysHideTabCloseButton: boolean;
   alwaysShowToolbarInFullScreen: boolean;

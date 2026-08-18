@@ -53,17 +53,47 @@ struct MacroInputRecoveryRuntimeState {
     surface_generation: u64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum AutomaticInputContextTarget {
+    Game,
+    EmbeddedFrame,
+    Document,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct AutomaticInputContextReadback {
+    document_instance_id: String,
+    revision: u64,
+    target: AutomaticInputContextTarget,
+}
+
+#[derive(Clone, Debug)]
+struct RoleAutomaticInputContext {
+    document_instance_id: String,
+    revision: u64,
+    surface_generation: u64,
+    target: AutomaticInputContextTarget,
+    webview_label: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MacroInputRecoveryEvidence {
     CleanupConfirmed,
     DocumentReplacementPending,
     DocumentReplaced,
+    InputContextBlocked,
+    InputContextRestored,
     Unproven,
 }
 
 impl MacroInputRecoveryEvidence {
     const fn permits_in_place_resume(self) -> bool {
-        matches!(self, Self::CleanupConfirmed | Self::DocumentReplaced)
+        matches!(
+            self,
+            Self::CleanupConfirmed | Self::DocumentReplaced | Self::InputContextRestored
+        )
     }
 }
 

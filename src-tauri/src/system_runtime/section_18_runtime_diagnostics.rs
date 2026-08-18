@@ -100,6 +100,10 @@ fn diagnostic_input_fence_state(
         ("orphaned-core", true)
     } else if orphaned_native {
         ("orphaned-native", true)
+    } else if fence.is_some_and(|fence| {
+        fence.reason == "embedded-frame-input-context" && fence.drained
+    }) {
+        ("waiting-game-input-context", false)
     } else if fence.is_some_and(|fence| fence.recovery_scheduled) {
         ("recovering", false)
     } else if fence.is_some_and(|fence| fence.resuming) {
@@ -438,6 +442,7 @@ impl SystemRuntimeExecutor {
                                     && !ticket.page_finished
                             })
                             .count();
+                        let input_context = state.automatic_input_contexts.get(&role_id);
                         SystemRuntimeInputFenceRecord {
                             role_id,
                             input_epoch,
@@ -461,6 +466,15 @@ impl SystemRuntimeExecutor {
                             pending_page_finish_count: runtime_diagnostic_count(
                                 pending_page_finish_count,
                             ),
+                            input_context_target: input_context
+                                .map(|context| match context.target {
+                                    AutomaticInputContextTarget::Game => "game",
+                                    AutomaticInputContextTarget::EmbeddedFrame => "embedded-frame",
+                                    AutomaticInputContextTarget::Document => "document",
+                                }.to_owned()),
+                            document_instance_id: input_context
+                                .map(|context| context.document_instance_id.clone()),
+                            input_context_revision: input_context.map(|context| context.revision),
                             surface_generation: fence.map(|fence| fence.surface_generation),
                             recovery_scheduled: fence
                                 .is_some_and(|fence| fence.recovery_scheduled),

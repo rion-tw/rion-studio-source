@@ -1,5 +1,5 @@
 #[test]
-fn trusted_input_indeterminate_captures_root_before_waking_the_failed_action() {
+fn embedded_frame_context_block_captures_root_before_waking_the_failed_action() {
     let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
     let runtime = MacroRuntime::new(Arc::new(move |batch| {
         let _ = events.send(batch);
@@ -19,8 +19,8 @@ fn trusted_input_indeterminate_captures_root_before_waking_the_failed_action() {
             request_id: request_id.clone(),
             ok: false,
             value_json: None,
-            error_code: Some("SYSTEM_TRUSTED_INPUT_INDETERMINATE".to_owned()),
-            error_message: Some("native acknowledgement missing".to_owned()),
+            error_code: Some("SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED".to_owned()),
+            error_message: Some("embedded frame owns input".to_owned()),
         }])
         .unwrap();
     assert!(starting.join().unwrap().is_err());
@@ -150,6 +150,86 @@ fn repeated_recovery_requests_replay_the_active_role_ticket() {
         .ensure_input_recovery("different-request", "r1")
         .unwrap();
     assert_eq!(replay, first);
+}
+
+#[test]
+fn multi_role_recovery_keeps_and_deduplicates_restart_intent_until_every_role_resumes() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+    let control = new_invocation_control(
+        "macro-invocation-multi".to_owned(),
+        "m1".to_owned(),
+        HashSet::from(["r1".to_owned(), "r2".to_owned()]),
+    );
+    *control.restart_intent.lock().unwrap() = Some(MacroRestartIntent {
+        macro_id: "m1".to_owned(),
+        sequence: 12,
+        source_role_id: None,
+    });
+    runtime
+        .shared
+        .inner
+        .lock()
+        .unwrap()
+        .invocations
+        .insert(control.id.clone(), Arc::clone(&control));
+
+    let first = runtime.ensure_input_recovery("recovery-r1", "r1").unwrap();
+    *control.finished.0.lock().unwrap() = true;
+    let second = runtime.ensure_input_recovery("recovery-r2", "r2").unwrap();
+    let unrelated = new_invocation_control(
+        "macro-invocation-unrelated".to_owned(),
+        "m2".to_owned(),
+        HashSet::from(["r3".to_owned()]),
+    );
+    *unrelated.restart_intent.lock().unwrap() = Some(MacroRestartIntent {
+        macro_id: "m2".to_owned(),
+        sequence: 13,
+        source_role_id: None,
+    });
+    runtime
+        .shared
+        .inner
+        .lock()
+        .unwrap()
+        .invocations
+        .insert(unrelated.id.clone(), Arc::clone(&unrelated));
+    *unrelated.finished.0.lock().unwrap() = true;
+    let unrelated_ticket = runtime.ensure_input_recovery("recovery-r3", "r3").unwrap();
+    assert_eq!(
+        runtime
+            .input_recovery_group_tickets(&first.recovery_id)
+            .unwrap()
+            .len(),
+        2
+    );
+
+    assert!(runtime.drain_role_input("r1", first.input_epoch).unwrap());
+    assert!(runtime.resume_role_input("r1", first.input_epoch).unwrap());
+    assert!(runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .iter()
+        .any(|role| role.role_id == "r2" && role.quiesced));
+    assert!(runtime.drain_role_input("r2", second.input_epoch).unwrap());
+    assert!(runtime.resume_role_input("r2", second.input_epoch).unwrap());
+
+    let intents = runtime
+        .take_input_recovery_group(&second.recovery_id)
+        .unwrap();
+    assert_eq!(intents.len(), 1);
+    assert_eq!(intents[0].sequence, 12);
+    assert!(runtime
+        .input_recovery_group_tickets(&first.recovery_id)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        runtime
+            .input_recovery_group_tickets(&unrelated_ticket.recovery_id)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]

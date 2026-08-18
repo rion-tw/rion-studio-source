@@ -406,6 +406,10 @@ impl SystemRuntimeExecutor {
                     // Native key and mouse delivery targets the role WebView directly. Focus is
                     // therefore an event-fenced page-readiness check, not permission to blur the
                     // game canvas or replace the foreground role's AppKit first responder.
+                    let webview = self.role_webview_for_input(&role_id, &context)?;
+                    if !context.is_cleanup() {
+                        self.preflight_automatic_input_context(&role_id, &webview, &context)?;
+                    }
                     self.wait_for_role_input_focus(&role_id, &context)
                         .map(|()| None)
                 }
@@ -449,7 +453,11 @@ impl SystemRuntimeExecutor {
             })()
         };
         if let Err(error) = result.as_ref()
-            && error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+            && matches!(
+                error.code,
+                "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                    | "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
+            )
         {
             self.schedule_macro_input_recovery(&role_id, &request_id, error);
         }
@@ -768,6 +776,9 @@ impl SystemRuntimeExecutor {
         context: &InputDispatchContext,
     ) -> RuntimeResult<()> {
         let webview = self.role_webview_for_input(role_id, context)?;
+        if !context.is_cleanup() {
+            self.preflight_automatic_input_context(role_id, &webview, context)?;
+        }
         let (viewport, applied_page_zoom) = if click.unit == "reference-px" {
             let zoom_before_viewport = platform_page_zoom(&webview)?;
             context.ensure_current()?;

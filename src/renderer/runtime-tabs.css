@@ -372,6 +372,7 @@ button {
 }
 
 .phase-accessory[data-phase="degraded"],
+.phase-accessory[data-phase="automatic-input-paused"],
 .phase-accessory[data-phase="automatic-input-restart-required"] {
   color: hsl(var(--warning-foreground));
 }

@@ -568,7 +568,7 @@
 
   function handleBlur() {
     runtimeTabShortcutModifierCodes.clear();
-    reportGameInputContext(false);
+    reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
     releasePhysicalGameKeys();
     releaseActiveHeldShortcuts();
@@ -578,7 +578,7 @@
   function handleVisibilityChange() {
     if (document.visibilityState === "hidden") {
       runtimeTabShortcutModifierCodes.clear();
-      reportGameInputContext(false);
+      reportGameInputContext("document");
       cancelPendingPhysicalToggleShortcuts();
       releasePhysicalGameKeys();
       releaseActiveHeldShortcuts();
@@ -598,7 +598,7 @@
     cancelCoordinateMeasureHide();
     destroyCoordinateMeasurement();
     resetCoordinateMeasurementModuleLoader();
-    reportGameInputContext(false);
+    reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
     releaseActiveHeldShortcuts();
     releaseAllForwardedMacroKeys();
@@ -667,6 +667,7 @@
     document.addEventListener("pointerlockchange", refreshGameInputContext, true);
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
     window[controllerKey] = {
+      automaticInputContext,
       clearSuppressedShortcut,
       dispose,
       refresh,

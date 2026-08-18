@@ -129,7 +129,10 @@ it("leaves game pointer events and focus untouched", () => {
     const canvasPointerDown = createMouseEvent(window, "pointerdown");
     expect(canvas.dispatchEvent(canvasPointerDown)).toBe(true);
     expect(canvasPointerDown.defaultPrevented).toBe(false);
-    expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
+    expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "game-input-context",
+      target: "game"
+    }));
     expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "activate"
     )).toHaveLength(0);
@@ -139,7 +142,7 @@ it("leaves game pointer events and focus untouched", () => {
       ([request]) => isRecord(request) && request.type === "activate"
     )).toHaveLength(0);
     expect(binding.mock.calls.filter(
-      ([request]) => isRecord(request) && request.type === "game-input-context" && request.active === true
+      ([request]) => isRecord(request) && request.type === "game-input-context" && request.target === "game"
     )).toHaveLength(1);
     expect(document.activeElement).toBe(button);
   });
@@ -187,7 +190,10 @@ it("requests WebView focus once when a pointer event reaches an unfocused docume
     expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "activate"
     )).toHaveLength(1);
-    expect(binding).toHaveBeenCalledWith({ type: "game-input-context", active: true });
+    expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "game-input-context",
+      target: "game"
+    }));
   });
 
 it("opens the app once from a physical trigger click while keeping the action menu hidden", async () => {

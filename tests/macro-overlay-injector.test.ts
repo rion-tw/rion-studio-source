@@ -233,7 +233,7 @@ describe("Tauri macro overlay injector", () => {
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValue({ macros: [], statuses: [] });
     const controller = await installOverlay(binding);
-    await vi.waitFor(() => expect(binding).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledTimes(2));
 
     const pending = controller.refresh();
     void controller.refresh();

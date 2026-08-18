@@ -39,6 +39,15 @@ fn automatic_input_restart_required_label(language: &str) -> &'static str {
     }
 }
 
+fn automatic_input_paused_label(language: &str) -> &'static str {
+    match language {
+        "zh-TW" => "自動輸入已暫停，完成驗證並返回遊戲後將自動恢復。",
+        "zh-CN" => "自动输入已暂停，完成验证并返回游戏后将自动恢复。",
+        "ja" => "自動入力を一時停止しました。認証を完了してゲームに戻ると自動的に再開します。",
+        _ => "Automatic input is paused. Complete verification and return to the game to resume automatically.",
+    }
+}
+
 fn runtime_tab_loading_accessibility_label(language: &str, tab_name: &str) -> String {
     match language {
         "zh-TW" => format!("正在開啟「{tab_name}」。"),
@@ -264,6 +273,12 @@ impl SystemRuntimeExecutor {
                         let automatic_input_restart_required = role_ids.iter().any(|role_id| {
                             automatic_input_restart_required_role_ids.contains(role_id)
                         });
+                        let automatic_input_paused = !automatic_input_restart_required
+                            && role_ids.iter().any(|role_id| {
+                                state.automatic_input_contexts.get(role_id).is_some_and(|context| {
+                                    context.target == AutomaticInputContextTarget::EmbeddedFrame
+                                }) && state.macro_input_recoveries.contains_key(role_id)
+                            });
                         let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
                         let tooltip = if automatic_input_restart_required {
                             format!(
@@ -271,7 +286,11 @@ impl SystemRuntimeExecutor {
                                 automatic_input_restart_required_label(&language)
                             )
                         } else {
-                            tooltip
+                            if automatic_input_paused {
+                                format!("{tooltip} — {}", automatic_input_paused_label(&language))
+                            } else {
+                                tooltip
+                            }
                         };
                         let active = selected_tabs
                             .get(window_id)
@@ -326,6 +345,7 @@ impl SystemRuntimeExecutor {
                             !presented.closable,
                             crate::runtime_tabs_macos::MacRuntimeTabState {
                                 active,
+                                automatic_input_paused,
                                 automatic_input_restart_required,
                                 audio_muted: presented.audio_muted,
                                 audible: state
@@ -502,6 +522,12 @@ impl SystemRuntimeExecutor {
                         let automatic_input_restart_required = role_ids.iter().any(|role_id| {
                             automatic_input_restart_required_role_ids.contains(role_id)
                         });
+                        let automatic_input_paused = !automatic_input_restart_required
+                            && role_ids.iter().any(|role_id| {
+                                state.automatic_input_contexts.get(role_id).is_some_and(|context| {
+                                    context.target == AutomaticInputContextTarget::EmbeddedFrame
+                                }) && state.macro_input_recoveries.contains_key(role_id)
+                            });
                         let tooltip = runtime_tab_tooltip(base_tooltip, &language, phase);
                         let tooltip = if automatic_input_restart_required {
                             format!(
@@ -509,7 +535,11 @@ impl SystemRuntimeExecutor {
                                 automatic_input_restart_required_label(&language)
                             )
                         } else {
-                            tooltip
+                            if automatic_input_paused {
+                                format!("{tooltip} — {}", automatic_input_paused_label(&language))
+                            } else {
+                                tooltip
+                            }
                         };
                         Some((
                             tab_strip,
@@ -520,6 +550,7 @@ impl SystemRuntimeExecutor {
                                 "workspaceTemplate": presented.workspace_template,
                                 "sourceId": presented.source_id,
                                 "phase": phase.as_str(),
+                                "automaticInputPaused": automatic_input_paused,
                                 "automaticInputRestartRequired": automatic_input_restart_required,
                                 "tooltip": tooltip,
                                 "iconDataUrl": icon_data_url,

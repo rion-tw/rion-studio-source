@@ -673,6 +673,7 @@ struct RuntimeState {
     launch_attempt_generations: HashMap<String, String>,
     main_frame_navigation_input_fences: HashMap<String, MainFrameNavigationInputFence>,
     macro_input_recoveries: HashMap<String, MacroInputRecoveryRuntimeState>,
+    automatic_input_contexts: HashMap<String, RoleAutomaticInputContext>,
     role_input_fences: HashMap<String, RoleInputFence>,
     last_completed_document_ids: HashMap<String, String>,
     last_input_ready_epochs: HashMap<String, u64>,

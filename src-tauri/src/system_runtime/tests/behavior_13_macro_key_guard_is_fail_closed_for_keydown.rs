@@ -12,6 +12,11 @@ fn guarded_key_effect(phase: &str, code: &str, suppress_shortcut: bool) -> Embed
 fn guard_acknowledgement(codes: &[&str]) -> MacroKeyGuardAcknowledgement {
     MacroKeyGuardAcknowledgement {
         armed: true,
+        input_context: AutomaticInputContextReadback {
+            document_instance_id: "document-1".to_owned(),
+            revision: 1,
+            target: AutomaticInputContextTarget::Game,
+        },
         physical_modifier_codes: codes.iter().map(|code| (*code).to_owned()).collect(),
     }
 }
@@ -184,6 +189,7 @@ fn macro_key_guard_script_serializes_dispatch_code_and_phase_without_expiry() {
     assert!(source.contains(r#""KeyA\"\\""#));
     assert!(source.contains(r#""keydown""#));
     assert!(!source.contains("expires"));
+    assert!(source.contains("automaticInputContext"));
     assert!(source.contains("physicalModifierCodes"));
 }
 
@@ -193,6 +199,7 @@ fn modifier_projection_guard_has_its_own_disposition_and_dispatch_id() {
     let source = macro_modifier_projection_guard_arm_script(&effect, "dispatch-shift").unwrap();
 
     assert!(source.contains("suppressNextModifierProjection"));
+    assert!(source.contains("automaticInputContext"));
     assert!(source.contains(r#""dispatch-shift""#));
     assert!(source.contains(r#""ShiftLeft""#));
     assert!(source.contains("physicalModifierCodes: []"));
@@ -220,14 +227,14 @@ fn unknown_keydown_compensation_is_an_exact_non_repeat_keyup() {
 fn macro_key_guard_acknowledgement_validates_modifier_sides() {
     assert_eq!(
         macro_key_guard_acknowledgement(
-            r#"{"armed":true,"physicalModifierCodes":["ShiftRight","ControlLeft"]}"#
+            r#"{"armed":true,"inputContext":{"documentInstanceId":"document-1","revision":1,"target":"game"},"physicalModifierCodes":["ShiftRight","ControlLeft"]}"#
         ),
         Some(guard_acknowledgement(&["ShiftRight", "ControlLeft"]))
     );
     for raw in [
-        r#"{"armed":false,"physicalModifierCodes":[]}"#,
-        r#"{"armed":true,"physicalModifierCodes":["KeyA"]}"#,
-        r#"{"armed":true,"physicalModifierCodes":["ShiftLeft","ShiftLeft"]}"#,
+        r#"{"armed":false,"inputContext":{"documentInstanceId":"document-1","revision":1,"target":"game"},"physicalModifierCodes":[]}"#,
+        r#"{"armed":true,"inputContext":{"documentInstanceId":"document-1","revision":1,"target":"game"},"physicalModifierCodes":["KeyA"]}"#,
+        r#"{"armed":true,"inputContext":{"documentInstanceId":"document-1","revision":1,"target":"game"},"physicalModifierCodes":["ShiftLeft","ShiftLeft"]}"#,
         "true",
         "null",
         "not-json",

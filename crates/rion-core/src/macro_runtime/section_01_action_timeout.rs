@@ -177,6 +177,7 @@ pub struct MacroInputRecoveryTicket {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MacroInputRecoveryCompletion {
+    pub deferred_count: u32,
     pub restarted_count: u32,
     pub skipped_count: u32,
 }

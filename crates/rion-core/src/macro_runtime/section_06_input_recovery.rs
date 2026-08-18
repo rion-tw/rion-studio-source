@@ -82,6 +82,7 @@ impl MacroRuntime {
         Ok(ticket)
     }
 
+    #[cfg(test)]
     pub(crate) fn take_input_recovery(
         &self,
         recovery_id: &str,
@@ -157,6 +158,100 @@ impl MacroRuntime {
                     .get(recovery_id)
                     .map(|recovery| recovery_ticket(recovery_id, recovery))
             }))
+    }
+
+    pub(crate) fn input_recovery_group_tickets(
+        &self,
+        requested_recovery_id: &str,
+    ) -> CoreResult<Vec<MacroInputRecoveryTicket>> {
+        let inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let requested_sequences = inner
+            .input_recoveries
+            .get(requested_recovery_id)
+            .map(|recovery| {
+                recovery
+                    .intents
+                    .iter()
+                    .map(|intent| intent.sequence)
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
+        let mut tickets = inner
+            .input_recoveries
+            .iter()
+            .filter(|(recovery_id, recovery)| {
+                *recovery_id == requested_recovery_id
+                    || recovery
+                        .intents
+                        .iter()
+                        .any(|intent| requested_sequences.contains(&intent.sequence))
+            })
+            .map(|(recovery_id, recovery)| recovery_ticket(recovery_id, recovery))
+            .collect::<Vec<_>>();
+        tickets.sort_by(|left, right| left.recovery_id.cmp(&right.recovery_id));
+        Ok(tickets)
+    }
+
+    pub(crate) fn take_input_recovery_group(
+        &self,
+        requested_recovery_id: &str,
+    ) -> CoreResult<Vec<MacroRestartIntent>> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let requested_sequences = inner
+            .input_recoveries
+            .get(requested_recovery_id)
+            .map(|recovery| {
+                recovery
+                    .intents
+                    .iter()
+                    .map(|intent| intent.sequence)
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
+        let recovery_ids = inner
+            .input_recoveries
+            .iter()
+            .filter_map(|(recovery_id, recovery)| {
+                (recovery_id == requested_recovery_id
+                    || recovery
+                        .intents
+                        .iter()
+                        .any(|intent| requested_sequences.contains(&intent.sequence)))
+                .then_some(recovery_id.clone())
+            })
+            .collect::<Vec<_>>();
+        let recoveries = recovery_ids
+            .into_iter()
+            .filter_map(|recovery_id| {
+                inner
+                    .input_recoveries
+                    .remove(&recovery_id)
+                    .map(|recovery| (recovery_id, recovery))
+            })
+            .collect::<HashMap<_, _>>();
+        let mut intents = recoveries
+            .values()
+            .flat_map(|recovery| recovery.intents.clone())
+            .collect::<Vec<_>>();
+        intents.sort_by_key(|intent| intent.sequence);
+        intents.dedup_by_key(|intent| intent.sequence);
+        for (recovery_id, recovery) in recoveries {
+            inner.input_recovery_by_role.remove(&recovery.role_id);
+            inner.recovering_role_ids.remove(&recovery.role_id);
+            inner.restart_required_role_ids.remove(&recovery.role_id);
+            remove_recovery_statuses(&mut inner, &recovery_id);
+        }
+        drop(inner);
+        self.emit_statuses();
+        Ok(intents)
     }
 
     fn cancel_input_recovery_for_role(&self, role_id: &str) -> CoreResult<bool> {

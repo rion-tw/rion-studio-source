@@ -144,6 +144,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
   const safeRoleId = JSON.stringify(roleId).replaceAll("<", "\\u003c");
   const safeSessionMarker = JSON.stringify(sessionMarker).replaceAll("<", "\\u003c");
   const safeSessionMode = JSON.stringify(sessionMode).replaceAll("<", "\\u003c");
+  const challengeOrigin = `http://localhost:${activePort}`;
+  const safeChallengeOrigin = JSON.stringify(challengeOrigin).replaceAll("<", "\\u003c");
+  const safeChallengeUrl = JSON.stringify(`${challengeOrigin}/challenge/${roleId}`)
+    .replaceAll("<", "\\u003c");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -162,8 +166,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
-    #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; pointer-events: none; }
+    #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
+    #verification-frame { position: fixed; inset: 0; z-index: 4; width: 100vw; height: 100vh; border: 0; background: #10141d; }
+    #verification-frame[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -172,6 +178,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
     <button id="qa-target" type="button">Macro click target</button>
+    <iframe id="verification-frame" title="Robot verification" hidden></iframe>
     <dl>
       <div><dt>click</dt><dd id="click">0</dd></div>
       <div><dt>keydown</dt><dd id="keydown">0</dd></div>
@@ -186,6 +193,10 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const sessionKey = "rion-e2e-session";
     const sessionMarker = ${safeSessionMarker};
     const sessionMode = ${safeSessionMode};
+    const challengeOrigin = ${safeChallengeOrigin};
+    const challengeUrl = ${safeChallengeUrl};
+    const verificationEnabled = roleId === "macro-input-recovery";
+    let verificationComplete = false;
     document.querySelector("#role-id").textContent = roleId;
     const render = (kind) => {
       for (const [key, value] of Object.entries(counts)) {
@@ -207,13 +218,30 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         .then(() => undefined, () => undefined);
     };
     const qaTarget = document.querySelector("#qa-target");
+    if (verificationEnabled) qaTarget.textContent = "Open robot verification";
     qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
     qaTarget.addEventListener("click", (event) => {
       record("click", {
         coordinates: { x: event.clientX, y: event.clientY },
         targetId: event.currentTarget.id
       });
+      if (verificationEnabled && !verificationComplete) {
+        const frame = document.querySelector("#verification-frame");
+        frame.hidden = false;
+        frame.addEventListener("load", () => frame.focus(), { once: true });
+        frame.src = challengeUrl;
+        record("verification-open");
+        return;
+      }
       document.querySelector("#game-input-canvas").focus();
+    });
+    addEventListener("message", (event) => {
+      if (!verificationEnabled || event.origin !== challengeOrigin || event.data !== "verification-complete") return;
+      const frame = document.querySelector("#verification-frame");
+      frame.remove();
+      verificationComplete = true;
+      qaTarget.textContent = "Return to game";
+      record("verification-complete");
     });
     const keyboardDetails = (event) => ({
       code: event.code,
@@ -252,6 +280,13 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     addEventListener("keyup", (event) => record("keyup", keyboardDetails(event)), true);
     addEventListener("keydown", (event) => recordConsumerKeyboard("consumer-keydown", event));
     addEventListener("keyup", (event) => recordConsumerKeyboard("consumer-keyup", event));
+    document.querySelector("#game-input-canvas").addEventListener("click", (event) => {
+      record("game-click", {
+        coordinates: { x: event.clientX, y: event.clientY },
+        targetId: event.currentTarget.id
+      });
+      event.currentTarget.focus();
+    });
     addEventListener("focus", () => record("focus"));
     addEventListener("blur", () => record("blur"));
     document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));
@@ -292,7 +327,40 @@ function sendRolePage(response, roleId, sessionMode = "observe", sessionMarker =
   response.writeHead(200, {
     "cache-control": "no-store",
     "content-length": Buffer.byteLength(body),
-    "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'",
+    "content-security-policy": `default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-src http://localhost:${activePort}`,
+    "content-type": "text/html; charset=utf-8",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(body);
+}
+
+function sendChallengePage(response, roleId) {
+  const safeRoleId = String(roleId).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+  const body = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Verification</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111827eF; color: white; }
+    button { width: 280px; height: 84px; border: 2px solid #f59e0b; border-radius: 14px; background: #1f2937; color: white; font: inherit; font-size: 18px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <button id="verification-complete" type="button">I’m not a robot · ${safeRoleId}</button>
+  <script>
+    document.querySelector("#verification-complete").addEventListener("click", () => {
+      parent.postMessage("verification-complete", "http://127.0.0.1:${activePort}");
+    });
+  </script>
+</body>
+</html>`;
+  response.writeHead(200, {
+    "cache-control": "no-store",
+    "content-length": Buffer.byteLength(body),
+    "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
     "content-type": "text/html; charset=utf-8",
     "x-content-type-options": "nosniff"
   });
@@ -627,6 +695,12 @@ const server = createServer(async (request, response) => {
       gate.waiters.add(response);
       notifyGateObservers(roleId, gate);
       response.once("close", () => gate.waiters.delete(response));
+      return;
+    }
+    const challengeMatch = request.method === "GET"
+      && url.pathname.match(/^\/challenge\/([a-z0-9-]+)$/);
+    if (challengeMatch) {
+      sendChallengePage(response, challengeMatch[1]);
       return;
     }
     json(response, 404, { error: "fixture route not found" });

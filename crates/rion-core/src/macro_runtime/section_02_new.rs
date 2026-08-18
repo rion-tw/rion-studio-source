@@ -702,7 +702,13 @@ impl MacroRuntime {
                 .map_err(|_| CoreError::Internal("macro result lock poisoned".to_owned()))?
                 .remove(&result.request_id);
             if let Some(pending) = pending {
-                if result.error_code.as_deref() == Some("SYSTEM_TRUSTED_INPUT_INDETERMINATE") {
+                if matches!(
+                    result.error_code.as_deref(),
+                    Some(
+                        "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                            | "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
+                    )
+                ) {
                     self.ensure_input_recovery(&result.request_id, &pending.role_id)?;
                 }
                 if let Some(signal) = pending.signal.upgrade() {

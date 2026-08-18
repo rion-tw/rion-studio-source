@@ -1,6 +1,6 @@
 # WebView Policy and Performance
 
-This document is part of [System WebView Runtime Contract version 13](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 14](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## WebGL performance policy
 
@@ -71,5 +71,4 @@ and records a failed receipt.
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and
 `disabled` are explicit states; no feature may infer support solely from the
 operating system name.
-
 

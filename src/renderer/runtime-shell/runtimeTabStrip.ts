@@ -85,6 +85,7 @@ type ProvisionalRuntimeTab = {
 };
 
 type RuntimeTabMetadata = ProvisionalRuntimeTab & {
+  automaticInputPaused?: boolean;
   automaticInputRestartRequired?: boolean;
   audible: boolean;
   audioMuted: boolean;

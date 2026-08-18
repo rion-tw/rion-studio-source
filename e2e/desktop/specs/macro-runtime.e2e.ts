@@ -2,7 +2,6 @@ import { $, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {
-  armIndeterminateMacroInput,
   detachTerminatedApplicationSession,
   focusMainApplicationWindow,
   inputDiagnostics,
@@ -465,8 +464,8 @@ async function inputRecoveryPhase(): Promise<void> {
   const scenario = await createScenario({
     fixtureRoleIds: ["macro-input-recovery"],
     name: "E2E Input Recovery",
-    repeat: { intervalMs: 0, type: "loop" },
-    steps: [{ action: "tap", code: "KeyR", id: "recovery-key", type: "key" }]
+    repeat: { intervalMs: 250, type: "loop" },
+    steps: [{ id: "recovery-click", type: "click", xPercent: 5, yPercent: 5 }]
   });
   const tab = await launchRole(scenario.roles[0], "new-window");
   const initialSnapshot = await windowSnapshot(tab.windowId);
@@ -482,24 +481,26 @@ async function inputRecoveryPhase(): Promise<void> {
 
   const recoveryCursor = await rendererEventCursor();
   const controlCursor = (await probe()).latestSequence;
-  expect(await armIndeterminateMacroInput(scenario.roles[0].id)).toMatchObject({
-    armed: true,
-    cleanupConfirmed: true,
-    roleId: scenario.roles[0].id
+  const fixtureChallengeCursor = await fixtureCursor();
+  await runtimeUiAction(tab.windowId, {
+    action: "clickRoleContent",
+    roleId: scenario.roles[0].id,
+    tabId: tab.id,
+    windowGeneration: initialSnapshot.windowGeneration
   });
-  const [recoveringStatuses, fenceEvent, recoveryTerminal] = await Promise.all([
+  await waitFixtureEvent({
+    afterSequence: fixtureChallengeCursor,
+    kind: "verification-open",
+    roleId: "macro-input-recovery"
+  });
+  const [recoveringStatuses, fenceEvent] = await Promise.all([
     waitForMacroProjection({
       afterSequence: recoveryCursor,
       macroId: scenario.macro.id,
       roleIds: [scenario.roles[0].id],
       state: "recovering"
     }),
-    waitEvent({ afterSequence: controlCursor, kind: "input-fence-event", timeoutMs: 45_000 }),
-    waitEvent({
-      afterSequence: controlCursor,
-      kind: "macro-input-recovery-terminal",
-      timeoutMs: 45_000
-    })
+    waitEvent({ afterSequence: controlCursor, kind: "input-fence-event", timeoutMs: 45_000 })
   ]);
   expect(recoveringStatuses).toEqual(expect.arrayContaining([
     expect.objectContaining({ macroId: scenario.macro.id, state: "recovering" })
@@ -507,10 +508,42 @@ async function inputRecoveryPhase(): Promise<void> {
   expect(fenceEvent.details).toMatchObject({
     event: "recovery-scheduled",
     pendingMacroRestartCount: 1,
+    reason: "embedded-frame-input-context",
     roleId: scenario.roles[0].id
   });
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: false,
+      roleId: scenario.roles[0].id
+    })
+  ]));
+  const verificationCursor = await fixtureCursor();
+  const resumeControlCursor = (await probe()).latestSequence;
+  await runtimeUiAction(tab.windowId, {
+    action: "clickRoleContent",
+    roleId: scenario.roles[0].id,
+    tabId: tab.id,
+    windowGeneration: initialSnapshot.windowGeneration
+  });
+  await waitFixtureEvent({
+    afterSequence: verificationCursor,
+    kind: "verification-complete",
+    roleId: "macro-input-recovery"
+  });
+  const recoveredFixtureCursor = await fixtureCursor();
+  await runtimeUiAction(tab.windowId, {
+    action: "clickRoleContent",
+    roleId: scenario.roles[0].id,
+    tabId: tab.id,
+    windowGeneration: initialSnapshot.windowGeneration
+  });
+  const recoveryTerminal = await waitEvent({
+    afterSequence: resumeControlCursor,
+    kind: "macro-input-recovery-terminal",
+    timeoutMs: 45_000
+  });
   expect(recoveryTerminal.details).toMatchObject({
-    recoveryMethod: "in-place",
+    recoveryMethod: "input-context",
     restartedCount: 1,
     roleId: scenario.roles[0].id,
     skippedCount: 0,
@@ -523,16 +556,21 @@ async function inputRecoveryPhase(): Promise<void> {
     roleIds: [scenario.roles[0].id],
     state: "running"
   });
-  const recoveredFixtureCursor = await fixtureCursor();
-  const recoveredKey = await waitFixtureEvent({
+  const recoveredClick = await waitFixtureEvent({
     afterSequence: recoveredFixtureCursor,
-    kind: "keydown",
+    kind: "game-click",
     roleId: "macro-input-recovery"
   });
-  expect(recoveredKey.code).toBe("KeyR");
+  expect(recoveredClick.targetId).toBe("game-input-canvas");
   const recoveredSnapshot = await windowSnapshot(tab.windowId);
   expect(recoveredSnapshot.roleSurfaceGenerations[scenario.roles[0].id])
     .toBe(initialSurfaceGeneration);
+  expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      restartRequired: false,
+      roleId: scenario.roles[0].id
+    })
+  ]));
 
   await stopMacro(scenario.macro, recoveryCursor);
   const manualCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);

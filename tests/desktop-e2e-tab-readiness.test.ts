@@ -43,4 +43,24 @@ describe("desktop E2E restored tab readiness", () => {
     expect(showSource.indexOf("waitForRuntimeLaunchTerminal"))
       .toBeLessThan(showSource.indexOf("waitForRuntimeProjection({"));
   });
+
+  it("prearms source-window persistence before a detach terminal can overtake it", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),
+      "utf8"
+    );
+    const detachSource = source.slice(
+      source.indexOf("const sourcePersistenceCursor ="),
+      source.indexOf("await waitForActiveTabsReady();", source.indexOf("const sourcePersistenceCursor ="))
+    );
+
+    expect(detachSource).toContain("const sourcePersistenceCursor = (await probe()).latestSequence");
+    expect(detachSource).toContain('action: "moveToNewWindow"');
+    expect(detachSource).toContain("afterSequence: sourcePersistenceCursor");
+    expect(detachSource).not.toContain("afterSequence: sourceRetirement.sequence");
+    expect(detachSource).toContain("afterSequence: sourcePersisted.sequence");
+    expect(detachSource).toContain(".activeTabId !== null");
+    expect(detachSource.indexOf("const sourcePersistenceCursor ="))
+      .toBeLessThan(detachSource.indexOf('action: "moveToNewWindow"'));
+  });
 });

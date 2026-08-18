@@ -653,17 +653,26 @@ async function topologyForcePhase(): Promise<void> {
   liveA = await windowSnapshot(WINDOW_A);
   const lastSourceTab = liveA.kernel?.tabs.find((tab) => !tab.hidden)?.tabId;
   if (!lastSourceTab) throw new Error("A final source tab is required for detach");
-  const sourceRetirement = await tabMenuAction({
+  const sourcePersistenceCursor = (await probe()).latestSequence;
+  await tabMenuAction({
     action: "moveToNewWindow",
     snapshot: liveA,
     tabId: lastSourceTab
   });
-  const sourcePersisted = await waitEvent({
-    afterSequence: sourceRetirement.sequence,
+  let sourcePersisted = await waitEvent({
+    afterSequence: sourcePersistenceCursor,
     kind: "window-state-persisted",
     timeoutMs: 55_000,
     windowId: WINDOW_A
   });
+  while ((sourcePersisted.details as { activeTabId?: string | null }).activeTabId !== null) {
+    sourcePersisted = await waitEvent({
+      afterSequence: sourcePersisted.sequence,
+      kind: "window-state-persisted",
+      timeoutMs: 55_000,
+      windowId: WINDOW_A
+    });
+  }
   expect(sourcePersisted.details).toMatchObject({ activeTabId: null, status: "applied" });
   await waitForActiveTabsReady();
   const detached = (await rendererCall("getEmbeddedRuntimeState")).tabs.find((tab) =>

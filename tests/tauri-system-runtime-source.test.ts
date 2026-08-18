@@ -993,22 +993,6 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(readiness).not.toContain("set_focus");
   });
 
-  it("does not retain the retired role-to-role local storage subsystem", async () => {
-    const runtime = await readFile(
-      new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
-      "utf8"
-    );
-    for (const retired of [
-      "rion_local_storage_sync_changed",
-      "LocalStorageRuntimeConfig",
-      "FLYFF_SETTINGS_INVALID",
-      "local-storage-sync-v1.enc",
-      "local-storage-sync-v2.enc"
-    ]) {
-      expect(runtime).not.toContain(retired);
-    }
-  });
-
   it("fences cleanup by launch generation and poisons health only when release is unverified", async () => {
     const runtime = await readFile(
       new URL("../src-tauri/src/system_runtime.rs", import.meta.url),
@@ -1151,7 +1135,7 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
     expect(hidden).not.toContain("schedule_native_tab_unhide_projection");
   });
 
-  it("checkpoints live role session storage before committing hidden topology", async () => {
+  it("keeps automatic role checkpoints cookie-only and Windows-only", async () => {
     const [hide, session, builder] = await Promise.all([
       readFile(
         new URL(
@@ -1174,14 +1158,26 @@ it("fences and drains role macro input when a tracked popup is destroyed", async
       hide.indexOf("fn schedule_native_tab_hide_projection")
     );
 
-    expect(hideIntent.indexOf("persist_runtime_tab_role_session_checkpoints(tab_id)"))
+    expect(hideIntent.indexOf("persist_runtime_tab_role_cookie_checkpoints(tab_id)"))
       .toBeLessThan(hideIntent.indexOf("commit_live_window_record"));
-    expect(session).toContain("fn persist_runtime_tab_role_session_checkpoints(");
+    expect(session).toContain("fn persist_runtime_tab_role_cookie_checkpoints(");
     expect(session).toContain("self.persist_role_cookie_checkpoint(&webview, &role_id)?;");
-    expect(session).toContain("self.persist_role_local_storage_checkpoint(&webview, &role_id)?;");
-    expect(session).toContain('"surface.session-checkpointed"');
-    expect(session).toContain("sessionStorage.getItem(markerKey)");
-    expect(builder).toContain("role_local_storage_checkpoint_document_start_script(role_id)");
+    expect(session).toContain('#[cfg(windows)]\n    fn persist_runtime_tab_role_cookie_checkpoints');
+    expect(session).toContain('"surface.cookies-checkpointed"');
+    expect(session).toContain("fn local_storage_document_start_script(");
+    expect(session).toContain("globalThis.top !== globalThis");
+    expect(session).toContain("location.origin !== {origin}");
+    for (const retired of [
+      "ROLE_LOCAL_STORAGE_CHECKPOINT",
+      "role_local_storage_checkpoint",
+      "persist_role_local_storage_checkpoint",
+      "__rionRoleLocalStorageCheckpoint",
+      "local-storage-checkpoint.enc"
+    ]) {
+      expect(session).not.toContain(retired);
+      expect(builder).not.toContain(retired);
+      expect(hideIntent).not.toContain(retired);
+    }
   });
 
   it("admits automatic surface replacement only from authoritative process termination", async () => {

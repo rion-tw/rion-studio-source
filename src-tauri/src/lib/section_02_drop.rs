@@ -553,15 +553,15 @@ async fn process_game_window_close_requested(
             return;
         }
     };
-    if let Err(error) = runtime.checkpoint_window_close_role_sessions(&request.tab_ids) {
+    if let Err(error) = runtime.checkpoint_window_close_role_cookies(&request.tab_ids) {
         let receipt = runtime.fail_window_close_operation(
             &operation_id,
-            "windowSessionCheckpointFailed",
+            "windowCookieCheckpointFailed",
             error.code,
         );
         let _ = app.emit("rion://window-lifecycle", receipt);
         eprintln!(
-            "Game Window role session checkpoint failed: window={window_id} error={}",
+            "Game Window role cookie checkpoint failed: window={window_id} error={}",
             error.message
         );
         return;
@@ -770,11 +770,11 @@ async fn execute_game_window_close_transaction(
         };
         if let Err(error) = state
             .runtime
-            .checkpoint_window_close_role_sessions(&request.tab_ids)
+            .checkpoint_window_close_role_cookies(&request.tab_ids)
         {
             let receipt = state.runtime.fail_window_close_operation(
                 &operation.operation_id,
-                "windowSessionCheckpointFailed",
+                "windowCookieCheckpointFailed",
                 error.code,
             );
             let _ = app.emit("rion://window-lifecycle", receipt);

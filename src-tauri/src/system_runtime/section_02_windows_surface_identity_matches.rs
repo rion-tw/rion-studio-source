@@ -79,42 +79,18 @@ fn managed_surface_requires_page_quiesce(platform: &str, kind: ManagedSurfaceKin
     platform != "windows" || kind != ManagedSurfaceKind::Divider
 }
 
-fn managed_surface_close_checkpoints_role_session(
+fn managed_surface_close_checkpoints_role_cookies(
+    platform: &str,
     kind: ManagedSurfaceKind,
     defer_navigation_to_preflight: bool,
-    session_checkpointed_for_close: bool,
+    cookies_checkpointed_for_close: bool,
 ) -> bool {
-    // A regular role release checkpoints cookies before its deferred isolation preflight. Full
-    // application shutdown instead owns the whole persistent native store and must immediately
-    // Stop/Navigate every page: a synchronous live-cookie read from several WebView2 controllers
-    // can otherwise keep the shutdown operation in flight through its exact deadline.
-    kind == ManagedSurfaceKind::Role
+    // WebView2's cookie checkpoint remains a Windows-only compatibility boundary. Ordinary role
+    // LocalStorage is always owned by the native per-role data store on both platforms.
+    platform == "windows"
+        && kind == ManagedSurfaceKind::Role
         && defer_navigation_to_preflight
-        && !session_checkpointed_for_close
-}
-
-fn durable_checkpoint_fallback_is_allowed(
-    retired_recovery_surface: bool,
-    checkpoint_error_code: &str,
-    has_recoverable_session_baseline: bool,
-) -> bool {
-    retired_recovery_surface
-        && checkpoint_error_code == "TAURI_EVALUATION_TIMEOUT"
-        && has_recoverable_session_baseline
-}
-
-fn recovery_session_baseline_is_available(
-    has_durable_checkpoint: bool,
-    committed_page_before_retirement: bool,
-) -> bool {
-    has_durable_checkpoint || !committed_page_before_retirement
-}
-
-fn managed_surface_close_allows_durable_checkpoint_fallback(
-    phase_before_close: ManagedSurfacePhase,
-    kind: ManagedSurfaceKind,
-) -> bool {
-    phase_before_close == ManagedSurfacePhase::Retired && kind == ManagedSurfaceKind::Role
+        && !cookies_checkpointed_for_close
 }
 
 const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
@@ -201,7 +177,7 @@ struct ManagedSurface {
     phase: ManagedSurfacePhase,
     release_boundary: SurfaceReleaseBoundary,
     role_id: Option<String>,
-    session_checkpointed_for_close: bool,
+    cookies_checkpointed_for_close: bool,
     tab_id: Option<String>,
     webview: Webview,
     window_generation: u64,

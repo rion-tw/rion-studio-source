@@ -60,6 +60,20 @@ describe("runtime authority fixture launch gates", () => {
     expect(source).toContain("isTrusted: event.isTrusted");
   });
 
+  it("serves a visible late LocalStorage write without replaying it at load", async () => {
+    const { origin } = await startFixture();
+    const source = await (await fetch(
+      `${origin}/role/test-role?mode=late-write&marker=marker-b`
+    )).text();
+
+    expect(source).toContain('const sessionMode = "late-write"');
+    expect(source).toContain('qaTarget.textContent = "Save role LocalStorage marker"');
+    expect(source).toContain('record("session-local-storage-updated"');
+    expect(source.indexOf('if (sessionMode === "late-write") {'))
+      .toBeLessThan(source.indexOf("localStorage.setItem(sessionKey, sessionMarker);"));
+    expect(source).toContain('sessionMode === "seed" || sessionMode === "late-write"');
+  });
+
   it("seeds and reads persistent session cookies through acknowledged HTTP responses", async () => {
     const { origin } = await startFixture();
     const response = await post(origin, "/api/session-cookie", { marker: "marker-a" });

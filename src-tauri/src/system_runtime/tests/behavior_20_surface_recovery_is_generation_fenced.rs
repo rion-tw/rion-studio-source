@@ -202,22 +202,26 @@ fn full_application_shutdown_uses_the_platform_stop_boundary_without_cookie_pref
         assert!(!windows_surface_quiesce_completes_at_stop(true));
     }
     for platform in ["windows", "macos"] {
-        assert!(managed_surface_close_checkpoints_role_session(
+        assert_eq!(managed_surface_close_checkpoints_role_cookies(
+            platform,
             ManagedSurfaceKind::Role,
             true,
             false,
-        ), "{platform}");
-        assert!(!managed_surface_close_checkpoints_role_session(
+        ), platform == "windows", "{platform}");
+        assert!(!managed_surface_close_checkpoints_role_cookies(
+            platform,
             ManagedSurfaceKind::Role,
             false,
             false,
         ), "{platform}");
-        assert!(!managed_surface_close_checkpoints_role_session(
+        assert!(!managed_surface_close_checkpoints_role_cookies(
+            platform,
             ManagedSurfaceKind::Divider,
             true,
             false,
         ), "{platform}");
-        assert!(!managed_surface_close_checkpoints_role_session(
+        assert!(!managed_surface_close_checkpoints_role_cookies(
+            platform,
             ManagedSurfaceKind::Role,
             true,
             true,
@@ -266,67 +270,5 @@ fn windows_dividers_release_without_a_remote_page_quiesce() {
     ] {
         assert!(managed_surface_requires_page_quiesce("windows", kind));
         assert!(managed_surface_requires_page_quiesce("macos", kind));
-    }
-}
-
-#[test]
-fn only_retired_recovery_surfaces_with_a_recoverable_baseline_can_skip_failed_readback() {
-    for platform in ["windows", "macos"] {
-        assert!(managed_surface_close_allows_durable_checkpoint_fallback(
-            ManagedSurfacePhase::Retired,
-            ManagedSurfaceKind::Role,
-        ), "{platform}");
-        assert!(!managed_surface_close_allows_durable_checkpoint_fallback(
-            ManagedSurfacePhase::CloseRequested,
-            ManagedSurfaceKind::Role,
-        ), "{platform}");
-        assert!(!managed_surface_close_allows_durable_checkpoint_fallback(
-            ManagedSurfacePhase::Retired,
-            ManagedSurfaceKind::Recovery,
-        ), "{platform}");
-        assert!(durable_checkpoint_fallback_is_allowed(
-            true,
-            "TAURI_EVALUATION_TIMEOUT",
-            recovery_session_baseline_is_available(true, true),
-        ), "{platform}");
-        assert!(durable_checkpoint_fallback_is_allowed(
-            true,
-            "TAURI_EVALUATION_TIMEOUT",
-            recovery_session_baseline_is_available(false, false),
-        ), "{platform}");
-        assert!(!durable_checkpoint_fallback_is_allowed(
-            false,
-            "TAURI_EVALUATION_TIMEOUT",
-            recovery_session_baseline_is_available(true, true),
-        ), "{platform}");
-        assert!(!durable_checkpoint_fallback_is_allowed(
-            true,
-            "ROLE_LOCAL_STORAGE_CHECKPOINT_WRITE_FAILED",
-            recovery_session_baseline_is_available(true, true),
-        ), "{platform}");
-        assert!(!durable_checkpoint_fallback_is_allowed(
-            true,
-            "TAURI_EVALUATION_TIMEOUT",
-            recovery_session_baseline_is_available(false, true),
-        ), "{platform}");
-    }
-}
-
-#[test]
-fn close_admission_reads_local_storage_only_after_an_authoritative_page_commit() {
-    let url = Url::parse("https://example.test/role").unwrap();
-    for platform in ["windows", "macos"] {
-        let tracker = NavigationTracker::new_for_platform(platform);
-        tracker.page_event(PageLoadEvent::Started, &url);
-        assert!(!tracker.has_committed_page(), "{platform}");
-        if platform == "windows" {
-            assert!(tracker.native_navigation_started(41), "{platform}");
-        }
-        tracker.page_event(PageLoadEvent::Finished, &url);
-        if platform == "windows" {
-            assert!(!tracker.has_committed_page(), "{platform}");
-            assert!(tracker.native_navigation_completed(41, true, None), "{platform}");
-        }
-        assert!(tracker.has_committed_page(), "{platform}");
     }
 }

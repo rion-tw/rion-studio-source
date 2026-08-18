@@ -58,6 +58,14 @@ and schedules reconciliation. Only failure to prove isolation is
 quarantined, and a second login surface cannot be created. SQLite is not part of
 the stop receipt and can never restore the closed tab.
 
+Ordinary role LocalStorage is durable state owned exclusively by that role's
+WebView2 profile or WKWebsiteDataStore. Tab hide, tab/window close, surface
+replacement, process recovery, and clean restart must not evaluate, enumerate,
+snapshot, clear, forward, or replay page LocalStorage. The user-consented Chrome
+Profile import is the sole exception: it may transfer exact launch-origin
+LocalStorage once with readback and rollback. The independent Windows cookie
+checkpoint remains cookie-only and cannot become a LocalStorage writer.
+
 ## Live window snapshot persistence
 
 One process-wide persistence coordinator keeps only the newest dirty revision

@@ -14,7 +14,7 @@ export interface FixtureEvent {
     after: { cookie: string | null; localStorage: string | null };
     before: { cookie: string | null; localStorage: string | null };
     marker: string;
-    mode: "observe" | "seed";
+    mode: "late-write" | "observe" | "seed";
   };
   targetId?: string;
   timestamp: string;

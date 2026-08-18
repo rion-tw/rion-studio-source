@@ -45,10 +45,12 @@ import {
 // [journey:ROLE-SESSION-ISOLATION-003]
 // [journey:WORKSPACE-SHARED-ROLE-003]
 // [state-combination:WINDOWS-ROLE-CHECKPOINT-COLLISION-002]
+// [state-combination:ROLE-LOCAL-STORAGE-NATIVE-STORE-004]
 
 const SESSION_GAME_NAME = "E2E P1 Session Isolation Game";
 const SESSION_ROLE_A_NAME = "E2E P1 Session Role A";
 const SESSION_ROLE_B_NAME = "E2E P1 Session Role B";
+const SESSION_WORKSPACE_NAME = "E2E P1 Session Isolation Workspace";
 const SESSION_FIXTURE_A = "p1-session-role-a";
 const SESSION_FIXTURE_B = "p1-session-role-b";
 const SESSION_MARKER_A = "session-marker-a";
@@ -70,7 +72,9 @@ function requireNamed<T extends { name: string }>(items: T[], name: string): T {
   return item;
 }
 
-function fixtureUrl(fixtureId: string, mode: "observe" | "seed", marker: string): string {
+type SessionMode = "late-write" | "observe" | "seed";
+
+function fixtureUrl(fixtureId: string, mode: SessionMode, marker: string): string {
   const query = new URLSearchParams({ marker, mode });
   return `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${fixtureId}?${query}`;
 }
@@ -95,92 +99,6 @@ async function shutdownAndWaitForFlush(): Promise<void> {
   detachTerminatedApplicationSession();
 }
 
-async function launchVisibleRole(role: Role, fixtureId: string): Promise<FixtureEvent> {
-  await navigate("/roles");
-  const rendererCursor = await rendererEventCursor();
-  const sessionCursor = await fixtureCursor();
-  await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`).click();
-  const [session] = await Promise.all([
-    waitFixtureEvent({ afterSequence: sessionCursor, kind: "session", roleId: fixtureId }),
-    waitForRoleProjection({
-      afterSequence: rendererCursor,
-      roleId: role.id,
-      state: "running"
-    })
-  ]);
-  return session;
-}
-
-async function stopRole(role: Role): Promise<void> {
-  const control = await probe();
-  const requestedAfter = new Date().toISOString();
-  const cursor = await rendererEventCursor();
-  await browser.execute((roleId) => {
-    void window.rionStudio.stopRole(roleId).catch(() => undefined);
-  }, role.id);
-  const terminal = process.platform === "darwin"
-    ? await waitForTranscriptEvent(
-        control.transcriptPath,
-        (event) => event.kind === `browser-role-stop-terminal:${role.id}`
-          && event.timestamp >= requestedAfter
-      )
-    : await waitEvent({
-        afterSequence: control.latestSequence,
-        kind: `browser-role-stop-terminal:${role.id}`
-      });
-  expect(terminal.details).toMatchObject({ errorCode: null, ok: true, roleId: role.id });
-  await waitForRoleProjection({ afterSequence: cursor, absent: true, roleId: role.id });
-}
-
-async function reopenStoppedRoleFromVisiblePlaceholder(
-  role: Role,
-  fixtureId: string
-): Promise<FixtureEvent> {
-  const before = await rendererCall("getEmbeddedRuntimeState");
-  const tab = before.tabs.find((candidate) => candidate.sourceId === role.id);
-  if (!tab) throw new Error(`Stopped role tab for ${role.name} is unavailable`);
-  const slot = requireRoleSlot(tab, role.id);
-  expect(slot.state).toBe("available");
-  expect(slot.owner).toBeUndefined();
-
-  await waitEvent({
-    afterSequence: 0,
-    kind: `role-placeholder-ready:${tab.id}:${role.id}`,
-    windowId: tab.windowId
-  });
-
-  await navigate("/roles");
-  const selectionCursor = await rendererEventCursor();
-  await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`).click();
-  await waitForRuntimeProjection({
-    activeTabId: tab.id,
-    afterSequence: selectionCursor,
-    windowId: tab.windowId
-  });
-  const selected = await windowSnapshot(tab.windowId);
-  expect(selected.kernel?.selectedTabId).toBe(tab.id);
-
-  const controlCursor = (await probe()).latestSequence;
-  const roleCursor = await rendererEventCursor();
-  const sessionCursor = await fixtureCursor();
-  await runtimeUiAction(tab.windowId, {
-    action: "pressRoleSlot",
-    roleId: role.id,
-    tabId: tab.id,
-    windowGeneration: selected.windowGeneration
-  });
-  const [session] = await Promise.all([
-    waitFixtureEvent({ afterSequence: sessionCursor, kind: "session", roleId: fixtureId }),
-    waitForRoleProjection({ afterSequence: roleCursor, roleId: role.id, state: "running" }),
-    waitEvent({
-      afterSequence: controlCursor,
-      kind: "runtime-ui-action-submitted",
-      windowId: tab.windowId
-    })
-  ]);
-  return session;
-}
-
 async function editRoleUrl(role: Role, launchUrl: string): Promise<Role> {
   await navigate(`/roles/${role.id}/edit`);
   const cursor = await rendererEventCursor();
@@ -198,52 +116,107 @@ async function editRoleUrl(role: Role, launchUrl: string): Promise<Role> {
 
 function expectSession(
   event: FixtureEvent,
-  input: { before: string | null; marker: string; mode: "observe" | "seed" }
+  input: { before: string | null; marker: string; mode: SessionMode }
 ): void {
+  const writesCookie = input.mode === "seed" || input.mode === "late-write";
   expect(event.kind).toBe("session");
   expect(event.session).toMatchObject({
-    after: { cookie: input.mode === "seed" ? input.marker : input.before, localStorage: input.mode === "seed" ? input.marker : input.before },
+    after: {
+      cookie: writesCookie ? input.marker : input.before,
+      localStorage: input.mode === "seed" ? input.marker : input.before
+    },
     before: { cookie: input.before, localStorage: input.before },
     marker: input.marker,
     mode: input.mode
   });
 }
 
+function expectLocalStorageUpdate(event: FixtureEvent, marker: string): void {
+  expect(event.kind).toBe("session-local-storage-updated");
+  expect(event.session).toMatchObject({
+    after: { cookie: marker, localStorage: marker },
+    before: { cookie: marker, localStorage: null },
+    marker,
+    mode: "late-write"
+  });
+}
+
+async function writeVisibleRoleLocalStorage(
+  tab: EmbeddedRuntimeTabSummary,
+  role: Role,
+  fixtureId: string,
+  marker: string
+): Promise<void> {
+  const snapshot = await windowSnapshot(tab.windowId);
+  expect(snapshot.kernel?.selectedTabId).toBe(tab.id);
+  const controlCursor = (await probe()).latestSequence;
+  const fixtureAfter = await fixtureCursor();
+  await runtimeUiAction(tab.windowId, {
+    action: "clickRoleContent",
+    roleId: role.id,
+    tabId: tab.id,
+    windowGeneration: snapshot.windowGeneration
+  });
+  const [updated, submitted] = await Promise.all([
+    waitFixtureEvent({
+      afterSequence: fixtureAfter,
+      kind: "session-local-storage-updated",
+      roleId: fixtureId
+    }),
+    waitEvent({
+      afterSequence: controlCursor,
+      kind: "runtime-ui-action-submitted",
+      windowId: tab.windowId
+    })
+  ]);
+  expectLocalStorageUpdate(updated, marker);
+  expect(submitted.details).toMatchObject({ action: "clickRoleContent" });
+}
+
 async function sessionSeedPhase(): Promise<void> {
   await bootstrap();
   const game = await rendererCall("createGame", {
-    defaultLaunchUrl: fixtureUrl(SESSION_FIXTURE_A, "seed", SESSION_MARKER_A),
+    defaultLaunchUrl: fixtureUrl(SESSION_FIXTURE_A, "late-write", SESSION_MARKER_A),
     name: SESSION_GAME_NAME
   });
   let roleA = await rendererCall("createRole", {
     gameId: game.id,
-    launchUrl: fixtureUrl(SESSION_FIXTURE_A, "seed", SESSION_MARKER_A),
+    launchUrl: fixtureUrl(SESSION_FIXTURE_A, "late-write", SESSION_MARKER_A),
     name: SESSION_ROLE_A_NAME
   });
   let roleB = await rendererCall("createRole", {
     gameId: game.id,
-    launchUrl: fixtureUrl(SESSION_FIXTURE_B, "seed", SESSION_MARKER_B),
+    launchUrl: fixtureUrl(SESSION_FIXTURE_B, "late-write", SESSION_MARKER_B),
     name: SESSION_ROLE_B_NAME
   });
+  const workspace = await rendererCall("createLaunchWorkspace", {
+    name: SESSION_WORKSPACE_NAME,
+    slots: [{ roleId: roleA.id }, { roleId: roleB.id }],
+    template: "two_columns"
+  });
 
-  expectSession(await launchVisibleRole(roleA, SESSION_FIXTURE_A), {
+  let launched = await launchVisibleWorkspace(
+    workspace,
+    [SESSION_FIXTURE_A, SESSION_FIXTURE_B],
+    [
+      { ownedByTargetTab: true, roleId: roleA.id, state: "running" },
+      { ownedByTargetTab: true, roleId: roleB.id, state: "running" }
+    ]
+  );
+  expectSession(launched.sessions[0], {
     before: null,
     marker: SESSION_MARKER_A,
-    mode: "seed"
+    mode: "late-write"
   });
-  expectSession(await launchVisibleRole(roleB, SESSION_FIXTURE_B), {
+  expectSession(launched.sessions[1], {
     before: null,
     marker: SESSION_MARKER_B,
-    mode: "seed"
+    mode: "late-write"
   });
-  await stopRole(roleA);
-  await stopRole(roleB);
-  if (process.platform === "win32") {
-    expect(await injectDuplicateRoleCookieCheckpoint(roleA.id)).toMatchObject({
-      duplicateCount: 2,
-      roleId: roleA.id
-    });
-  }
+  let tab = requireRuntimeTab(launched.runtime, workspace.id);
+  await writeVisibleRoleLocalStorage(tab, roleA, SESSION_FIXTURE_A, SESSION_MARKER_A);
+  await writeVisibleRoleLocalStorage(tab, roleB, SESSION_FIXTURE_B, SESSION_MARKER_B);
+  await closeWorkspaceTab(workspace, [roleA.id, roleB.id]);
 
   roleA = await editRoleUrl(
     roleA,
@@ -254,12 +227,40 @@ async function sessionSeedPhase(): Promise<void> {
     fixtureUrl(SESSION_FIXTURE_B, "observe", SESSION_MARKER_B)
   );
   expect(roleA.launchUrl).not.toBe(roleB.launchUrl);
+
+  launched = await launchVisibleWorkspace(
+    workspace,
+    [SESSION_FIXTURE_A, SESSION_FIXTURE_B],
+    [
+      { ownedByTargetTab: true, roleId: roleA.id, state: "running" },
+      { ownedByTargetTab: true, roleId: roleB.id, state: "running" }
+    ]
+  );
+  expectSession(launched.sessions[0], {
+    before: SESSION_MARKER_A,
+    marker: SESSION_MARKER_A,
+    mode: "observe"
+  });
+  expectSession(launched.sessions[1], {
+    before: SESSION_MARKER_B,
+    marker: SESSION_MARKER_B,
+    mode: "observe"
+  });
+  tab = requireRuntimeTab(launched.runtime, workspace.id);
+  expectOwnedSlot(tab, roleA, tab.id, "running");
+  expectOwnedSlot(tab, roleB, tab.id, "running");
+  await closeWorkspaceTab(workspace, [roleA.id, roleB.id]);
+  if (process.platform === "win32") {
+    expect(await injectDuplicateRoleCookieCheckpoint(roleA.id)).toMatchObject({
+      duplicateCount: 2,
+      roleId: roleA.id
+    });
+  }
   await shutdownAndWaitForFlush();
 }
 
 async function clearRoleDataFromVisibleUi(role: Role): Promise<void> {
   await navigate("/roles");
-  const cursor = await rendererEventCursor();
   await clickEntityMenuAction(
     role.id,
     "Click for actions or drag to reorder",
@@ -284,7 +285,7 @@ async function clearRoleDataFromVisibleUi(role: Role): Promise<void> {
   await expect(completionNotice).toHaveText(
     `Saved browser data for "${role.name}" was cleared.`
   );
-  await waitForRoleProjection({ afterSequence: cursor, absent: true, roleId: role.id });
+  await waitForRoleProjection({ afterSequence: 0, absent: true, roleId: role.id });
   await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`)
     .waitForEnabled({ timeout: 20_000 });
 }
@@ -303,36 +304,55 @@ async function sessionIsolationPhase(): Promise<void> {
   const roles = await rendererCall("listRoles");
   const roleA = requireNamed(roles, SESSION_ROLE_A_NAME);
   const roleB = requireNamed(roles, SESSION_ROLE_B_NAME);
+  const workspace = requireNamed(
+    await rendererCall("listLaunchWorkspaces"),
+    SESSION_WORKSPACE_NAME
+  );
   expect(roleA.launchUrl).toContain("mode=observe");
   expect(roleB.launchUrl).toContain("mode=observe");
 
-  expectSession(await launchVisibleRole(roleA, SESSION_FIXTURE_A), {
+  let launched = await launchVisibleWorkspace(
+    workspace,
+    [SESSION_FIXTURE_A, SESSION_FIXTURE_B],
+    [
+      { ownedByTargetTab: true, roleId: roleA.id, state: "running" },
+      { ownedByTargetTab: true, roleId: roleB.id, state: "running" }
+    ]
+  );
+  expectSession(launched.sessions[0], {
     before: SESSION_MARKER_A,
     marker: SESSION_MARKER_A,
     mode: "observe"
   });
-  expectSession(await launchVisibleRole(roleB, SESSION_FIXTURE_B), {
+  expectSession(launched.sessions[1], {
     before: SESSION_MARKER_B,
     marker: SESSION_MARKER_B,
     mode: "observe"
   });
-
+  await closeWorkspaceTab(workspace, [roleA.id, roleB.id]);
   await clearRoleDataFromVisibleUi(roleA);
-  await waitForRoleProjection({ roleId: roleB.id, state: "running" });
-  expectSession(await reopenStoppedRoleFromVisiblePlaceholder(roleA, SESSION_FIXTURE_A), {
+
+  launched = await launchVisibleWorkspace(
+    workspace,
+    [SESSION_FIXTURE_A, SESSION_FIXTURE_B],
+    [
+      { ownedByTargetTab: true, roleId: roleA.id, state: "running" },
+      { ownedByTargetTab: true, roleId: roleB.id, state: "running" }
+    ]
+  );
+  expectSession(launched.sessions[0], {
     before: null,
     marker: SESSION_MARKER_A,
     mode: "observe"
   });
 
-  await stopRole(roleB);
-  expectSession(await reopenStoppedRoleFromVisiblePlaceholder(roleB, SESSION_FIXTURE_B), {
+  expectSession(launched.sessions[1], {
     before: SESSION_MARKER_B,
     marker: SESSION_MARKER_B,
     mode: "observe"
   });
-  await stopRole(roleA);
-  await stopRole(roleB);
+  await closeWorkspaceTab(workspace, [roleA.id, roleB.id]);
+  await rendererCall("deleteLaunchWorkspace", workspace.id);
   await deleteSessionEntities(game, [roleA, roleB]);
   await shutdownAndWaitForFlush();
 }
@@ -396,7 +416,7 @@ async function launchVisibleWorkspace(
     roleId: string;
     state: "blocked" | "running";
   }>
-): Promise<EmbeddedRuntimeState> {
+): Promise<{ runtime: EmbeddedRuntimeState; sessions: FixtureEvent[] }> {
   await navigate("/workspaces");
   const runtimeCursor = await rendererEventCursor();
   const sessionCursor = await fixtureCursor();
@@ -406,15 +426,15 @@ async function launchVisibleWorkspace(
     kind: "session",
     roleId
   }));
-  const [runtime] = await Promise.all([
+  const [runtime, sessions] = await Promise.all([
     waitForRuntimeProjection({
       afterSequence: runtimeCursor,
       roleSlots,
       sourceId: workspace.id
     }),
-    ...waits
+    Promise.all(waits)
   ]);
-  return runtime;
+  return { runtime, sessions };
 }
 
 function expectOwnedSlot(
@@ -496,7 +516,7 @@ async function sharedOwnershipPhase(): Promise<void> {
   const [shared, uniqueA, uniqueB] = scenario.roles;
   const [workspaceA, workspaceB] = scenario.workspaces;
 
-  let runtime = await launchVisibleWorkspace(
+  let { runtime } = await launchVisibleWorkspace(
     workspaceA,
     [SHARED_FIXTURE, UNIQUE_FIXTURE_A],
     [
@@ -508,14 +528,14 @@ async function sharedOwnershipPhase(): Promise<void> {
   expectOwnedSlot(tabA, shared, tabA.id, "running");
   expectOwnedSlot(tabA, uniqueA, tabA.id, "running");
 
-  runtime = await launchVisibleWorkspace(
+  ({ runtime } = await launchVisibleWorkspace(
     workspaceB,
     [UNIQUE_FIXTURE_B],
     [
       { ownerTabId: tabA.id, roleId: shared.id, state: "blocked" },
       { ownedByTargetTab: true, roleId: uniqueB.id, state: "running" }
     ]
-  );
+  ));
   const tabB = requireRuntimeTab(runtime, workspaceB.id);
   expectOwnedSlot(tabB, shared, tabA.id, "blocked");
   expectOwnedSlot(tabB, uniqueB, tabB.id, "running");

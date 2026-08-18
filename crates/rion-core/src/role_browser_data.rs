@@ -13,8 +13,11 @@ use sha2::{Digest, Sha256};
 
 const REMOVE_RETRIES: usize = 8;
 const REMOVE_RETRY_DELAY: Duration = Duration::from_millis(100);
-const RETIRED_LOCAL_STORAGE_SYNC_CACHE_FILES: [&str; 2] =
-    ["local-storage-sync-v1.enc", "local-storage-sync-v2.enc"];
+const RETIRED_LOCAL_STORAGE_REPLAY_FILES: [&str; 3] = [
+    "local-storage-sync-v1.enc",
+    "local-storage-sync-v2.enc",
+    "local-storage-checkpoint.enc",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeleteQuarantineOutcome {
@@ -75,11 +78,12 @@ pub fn remove(user_data_dir: &Path, role_id: &str) -> CoreResult<()> {
     remove_with_retry(&user_data_dir.join("roles").join(role_id))
 }
 
-/// Removes only the retired role-to-role synchronization cache files. Native
-/// WebView storage, cookies, and every other role file are deliberately left
-/// untouched. Failures are returned as warnings so a transient Windows file
-/// lock cannot prevent application startup; the next startup retries them.
-pub fn retire_local_storage_sync_caches(user_data_dir: &Path) -> Vec<String> {
+/// Removes only retired role-to-role synchronization caches and the automatic
+/// LocalStorage replay checkpoint. Native WebView storage, cookie checkpoints,
+/// and every other role file are deliberately left untouched. Failures are
+/// returned as warnings so a transient Windows file lock cannot prevent
+/// application startup; the next startup retries them.
+pub fn retire_local_storage_replay_artifacts(user_data_dir: &Path) -> Vec<String> {
     let roles_directory = user_data_dir.join("roles");
     let entries = match fs::read_dir(&roles_directory) {
         Ok(entries) => entries,
@@ -109,7 +113,7 @@ pub fn retire_local_storage_sync_caches(user_data_dir: &Path) -> Vec<String> {
         }) {
             continue;
         }
-        for file_name in RETIRED_LOCAL_STORAGE_SYNC_CACHE_FILES {
+        for file_name in RETIRED_LOCAL_STORAGE_REPLAY_FILES {
             let path = system_directory.join(file_name);
             match fs::symlink_metadata(&path) {
                 Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
@@ -383,14 +387,16 @@ mod tests {
     }
 
     #[test]
-    fn retirement_removes_only_exact_sync_cache_files_and_is_idempotent() {
+    fn retirement_removes_only_exact_local_storage_replay_files_and_is_idempotent() {
         let directory = tempdir().unwrap();
         let paths = ensure(directory.path(), "role-1").unwrap();
         let system = Path::new(&paths.system_browser_data_dir);
         let webview2 = Path::new(&paths.webview2_user_data_dir);
         fs::write(system.join("local-storage-sync-v1.enc"), b"v1").unwrap();
         fs::write(system.join("local-storage-sync-v2.enc"), b"v2").unwrap();
+        fs::write(system.join("local-storage-checkpoint.enc"), b"checkpoint").unwrap();
         fs::write(system.join("local-storage-sync-v3.enc"), b"keep").unwrap();
+        fs::write(system.join("cookie-checkpoint.enc"), b"keep").unwrap();
         fs::write(system.join("cookies.enc"), b"keep").unwrap();
         fs::write(webview2.join("Local Storage"), b"keep").unwrap();
         fs::write(
@@ -399,10 +405,12 @@ mod tests {
         )
         .unwrap();
 
-        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(retire_local_storage_replay_artifacts(directory.path()).is_empty());
         assert!(!system.join("local-storage-sync-v1.enc").exists());
         assert!(!system.join("local-storage-sync-v2.enc").exists());
+        assert!(!system.join("local-storage-checkpoint.enc").exists());
         assert!(system.join("local-storage-sync-v3.enc").exists());
+        assert!(system.join("cookie-checkpoint.enc").exists());
         assert!(system.join("cookies.enc").exists());
         assert!(webview2.join("Local Storage").exists());
         assert!(
@@ -410,7 +418,7 @@ mod tests {
                 .join("unrelated")
                 .exists()
         );
-        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(retire_local_storage_replay_artifacts(directory.path()).is_empty());
     }
 
     #[cfg(windows)]
@@ -429,10 +437,10 @@ mod tests {
             .open(&cache)
             .unwrap();
 
-        assert!(!retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(!retire_local_storage_replay_artifacts(directory.path()).is_empty());
         assert!(cache.exists());
         drop(lock);
-        assert!(retire_local_storage_sync_caches(directory.path()).is_empty());
+        assert!(retire_local_storage_replay_artifacts(directory.path()).is_empty());
         assert!(!cache.exists());
     }
 }

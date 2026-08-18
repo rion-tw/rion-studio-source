@@ -82,6 +82,46 @@ use std::{
     }
 
     #[test]
+    fn startup_retires_only_exact_local_storage_replay_artifacts() {
+        let directory = tempfile::tempdir().unwrap();
+        let role_paths = crate::role_browser_data::ensure(directory.path(), "role-1").unwrap();
+        let system = std::path::Path::new(&role_paths.system_browser_data_dir);
+        let webview2 = std::path::Path::new(&role_paths.webview2_user_data_dir);
+        for name in [
+            "local-storage-sync-v1.enc",
+            "local-storage-sync-v2.enc",
+            "local-storage-checkpoint.enc",
+        ] {
+            fs::write(system.join(name), b"retired").unwrap();
+        }
+        fs::write(system.join("cookie-checkpoint.enc"), b"keep").unwrap();
+        fs::write(webview2.join("Local Storage"), b"keep").unwrap();
+        let options = || AppCoreOptions {
+            app_version: "2.1.0-test".to_owned(),
+            platform: "darwin".to_owned(),
+            user_data_dir: directory.path().to_string_lossy().into_owned(),
+            performance_telemetry_path: None,
+        };
+
+        let core = AppCore::create(options()).unwrap();
+        for name in [
+            "local-storage-sync-v1.enc",
+            "local-storage-sync-v2.enc",
+            "local-storage-checkpoint.enc",
+        ] {
+            assert!(!system.join(name).exists());
+        }
+        assert!(system.join("cookie-checkpoint.enc").is_file());
+        assert!(webview2.join("Local Storage").is_file());
+        core.shutdown();
+
+        let restarted = AppCore::create(options()).unwrap();
+        restarted.shutdown();
+        assert!(system.join("cookie-checkpoint.enc").is_file());
+        assert!(webview2.join("Local Storage").is_file());
+    }
+
+    #[test]
     fn runtime_theme_command_accepts_only_resolved_themes() {
         let (_directory, core) = core();
 

@@ -377,20 +377,6 @@ use uuid::Uuid;
         assert!(restore.contains("localStorage.clear()"));
         assert!(restore.contains("__rionSessionRestoreState"));
 
-        let checkpoint = PersistedRoleLocalStorageCheckpoint {
-            checkpoint_id: "checkpoint-1".to_owned(),
-            entries,
-            origin: "https://game.example.test".to_owned(),
-            version: ROLE_LOCAL_STORAGE_CHECKPOINT_VERSION,
-        };
-        let checkpoint_script =
-            role_local_storage_checkpoint_document_start_script(&checkpoint).unwrap();
-        assert!(checkpoint_script.contains("globalThis.top !== globalThis"));
-        assert!(checkpoint_script.contains("location.origin !== \"https://game.example.test\""));
-        assert!(checkpoint_script.contains("sessionStorage.getItem(markerKey)"));
-        assert!(checkpoint_script.contains("sessionStorage.setItem(markerKey, checkpointId)"));
-        assert!(checkpoint_script.contains("localStorage.clear()"));
-        assert!(checkpoint_script.contains("__rionRoleLocalStorageCheckpointState"));
         assert!(validate_transaction_id("../escape").is_err());
         assert!(validate_transaction_id("transaction-1").is_ok());
     }
@@ -622,18 +608,18 @@ use uuid::Uuid;
     }
 
     #[test]
-    fn dormant_tabs_skip_window_session_checkpoint_only_without_native_fences() {
+    fn dormant_tabs_skip_window_cookie_checkpoint_only_without_native_fences() {
         for platform in ["macos", "windows"] {
             assert!(
-                native_absent_tab_can_skip_window_session_checkpoint(false, false),
+                native_absent_tab_can_skip_window_cookie_checkpoint(false, false),
                 "{platform}: a dormant logical tab has no live session to capture"
             );
             assert!(
-                !native_absent_tab_can_skip_window_session_checkpoint(true, false),
+                !native_absent_tab_can_skip_window_cookie_checkpoint(true, false),
                 "{platform}: a registered surface makes native absence stale"
             );
             assert!(
-                !native_absent_tab_can_skip_window_session_checkpoint(false, true),
+                !native_absent_tab_can_skip_window_cookie_checkpoint(false, true),
                 "{platform}: an active close fence must remain authoritative"
             );
         }

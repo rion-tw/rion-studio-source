@@ -138,11 +138,9 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(&window_id)
             .ok_or_else(|| "Live runtime window state is unavailable.".to_owned())?;
-        // Hiding is the final authoritative user boundary before a force-terminated session may
-        // lose recent asynchronous System WebView storage writes. Capture each live role Cookie
-        // and exact-origin LocalStorage set before committing hidden topology; failure leaves the
-        // tab visible and retryable.
-        self.persist_runtime_tab_role_session_checkpoints(tab_id)
+        // WebView2 cookie compatibility state is checkpointed before hidden topology commits on
+        // Windows. Ordinary LocalStorage remains exclusively owned by each native role store.
+        self.persist_runtime_tab_role_cookie_checkpoints(tab_id)
             .map_err(|error| error.message)?;
         let (previous_tab_id, previous_surfaces, next_tab_id, next_surfaces, revision) = {
             let mut live = coordinator.record.clone();

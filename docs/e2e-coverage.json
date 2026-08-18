@@ -140,11 +140,27 @@
       "dimensions": {
         "restart": "process-restart",
         "checkpoint": "duplicate-native-cookie-key",
-        "storage": "encrypted-role-checkpoint",
-        "launchAction": "visible-role-open",
+        "storage": "encrypted-windows-cookie-checkpoint-plus-native-local-storage",
+        "launchAction": "visible-workspace-open",
         "isolation": "distinct-role-runtime-stores"
       },
-      "description": "Inject a duplicate native cookie checkpoint key before restart and prove visible role launch restores one deterministic isolated session."
+      "description": "Inject a duplicate native cookie checkpoint key before restart and prove visible workspace launch restores one deterministic isolated cookie session while LocalStorage remains native-store-owned."
+    },
+    {
+      "id": "ROLE-LOCAL-STORAGE-NATIVE-STORE-004",
+      "profile": "full",
+      "phase": "p1-role-session-isolation",
+      "spec": "e2e/desktop/specs/role-isolation.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "dimensions": {
+        "origin": "same-origin",
+        "windowTopology": "one-two-role-workspace",
+        "writeAction": "visible-late-page-button",
+        "closeAction": "visible-native-tab-close",
+        "continuity": "same-process-reopen-plus-process-restart",
+        "storage": "native-per-role-local-storage"
+      },
+      "description": "Write distinct late LocalStorage markers through visible page buttons in one two-role workspace, close and reopen through visible UI, then prove both native role stores remain persistent and isolated across process restart."
     },
     {
       "id": "ROLE-WORKSPACE-DESTINATION-MATRIX-003",
@@ -433,7 +449,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Seed distinct same-origin Cookie and LocalStorage markers in two native role stores, inject a Windows checkpoint with two values for one WebView2-native cookie key, observe both roles after restart through visible UI, then clear only role A while role B remains intact."
+      "description": "Open two same-origin roles in one workspace, write distinct late LocalStorage markers through visible page buttons, prove native-store continuity after visible close/reopen and process restart, inject a duplicate Windows cookie checkpoint key, then clear only role A while role B remains intact."
     },
     {
       "id": "WORKSPACE-SHARED-ROLE-003",

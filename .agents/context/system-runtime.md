@@ -10,6 +10,9 @@ apply complete desired projections.
 only the contract part it identifies for the current runtime task.
 
 - Do not expose remote debugging or fall back to another browser runtime.
+- Treat the per-role WebView2 profile or WKWebsiteDataStore as the only ordinary
+  LocalStorage writer. Outside the user-consented Chrome Profile import, Runtime
+  must not enumerate, checkpoint, forward, clear, or replay page LocalStorage.
 - Never hold the runtime-state mutex while creating, closing, or calling native
   WebViews; native callbacks may reacquire the same state.
 - Do not synchronously call `AppCore` while applying an effect that AppCore is

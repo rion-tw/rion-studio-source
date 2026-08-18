@@ -219,12 +219,27 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     };
     const qaTarget = document.querySelector("#qa-target");
     if (verificationEnabled) qaTarget.textContent = "Open robot verification";
+    else if (sessionMode === "late-write") qaTarget.textContent = "Save role LocalStorage marker";
     qaTarget.addEventListener("mousedown", (event) => event.preventDefault());
-    qaTarget.addEventListener("click", (event) => {
+    qaTarget.addEventListener("click", async (event) => {
       record("click", {
         coordinates: { x: event.clientX, y: event.clientY },
         targetId: event.currentTarget.id
       });
+      if (sessionMode === "late-write") {
+        const before = {
+          cookie: await readSessionCookie(),
+          localStorage: localStorage.getItem(sessionKey)
+        };
+        localStorage.setItem(sessionKey, sessionMarker);
+        const after = {
+          cookie: await readSessionCookie(),
+          localStorage: localStorage.getItem(sessionKey)
+        };
+        record("session-local-storage-updated", {
+          session: { after, before, marker: sessionMarker, mode: sessionMode }
+        });
+      }
       if (verificationEnabled && !verificationComplete) {
         const frame = document.querySelector("#verification-frame");
         frame.hidden = false;
@@ -300,6 +315,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       const before = { cookie: await readSessionCookie(), localStorage: localStorage.getItem(sessionKey) };
       if (sessionMode === "seed") {
         localStorage.setItem(sessionKey, sessionMarker);
+      }
+      if (sessionMode === "seed" || sessionMode === "late-write") {
         const response = await fetch("/api/session-cookie", {
           body: JSON.stringify({ marker: sessionMarker }),
           credentials: "same-origin",
@@ -309,7 +326,9 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         if (!response.ok) throw new Error("Session cookie seed failed with " + response.status);
       }
       const after = {
-        cookie: sessionMode === "seed" ? await readSessionCookie() : before.cookie,
+        cookie: sessionMode === "seed" || sessionMode === "late-write"
+          ? await readSessionCookie()
+          : before.cookie,
         localStorage: localStorage.getItem(sessionKey)
       };
       record("session", { session: { after, before, marker: sessionMarker, mode: sessionMode } });
@@ -683,7 +702,10 @@ const server = createServer(async (request, response) => {
       }
       const gate = gateState(roleId);
       if (!gate.blocked) {
-        const sessionMode = url.searchParams.get("mode") === "seed" ? "seed" : "observe";
+        const requestedMode = url.searchParams.get("mode");
+        const sessionMode = requestedMode === "seed" || requestedMode === "late-write"
+          ? requestedMode
+          : "observe";
         const marker = url.searchParams.get("marker") ?? roleId;
         if (!/^[a-z0-9-]{1,80}$/.test(marker)) {
           json(response, 400, { error: "invalid fixture session marker" });

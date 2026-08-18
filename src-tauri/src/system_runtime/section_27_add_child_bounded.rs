@@ -418,9 +418,7 @@ impl SystemRuntimeExecutor {
                 &lifecycle,
                 role_id,
                 SurfaceClosePlan {
-                    allow_durable_checkpoint_fallback: false,
-                    checkpoint_role_session: true,
-                    committed_page_before_retirement: true,
+                    checkpoint_role_cookies: current_runtime_platform() == "windows",
                     defer_navigation_to_preflight: true,
                     release_boundary: SurfaceReleaseBoundary::DedicatedStore,
                     requires_page_quiesce: true,

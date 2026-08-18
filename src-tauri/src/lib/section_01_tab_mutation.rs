@@ -98,18 +98,18 @@ async fn execute_tab_stop(
         let checkpoint_tab_id = tab_id.to_owned();
         let checkpoint_failure_code =
             match tauri::async_runtime::spawn_blocking(move || {
-                checkpoint_runtime.checkpoint_tab_close_role_sessions(&checkpoint_tab_id)
+                checkpoint_runtime.checkpoint_tab_close_role_cookies(&checkpoint_tab_id)
             })
             .await
             {
                 Ok(Ok(())) => None,
                 Ok(Err(error)) => Some(error.code),
-                Err(_) => Some("SYSTEM_TAB_CLOSE_SESSION_CHECKPOINT_INTERRUPTED"),
+                Err(_) => Some("SYSTEM_TAB_CLOSE_COOKIE_CHECKPOINT_INTERRUPTED"),
             };
         if let Some(failure_code) = checkpoint_failure_code {
             return Ok(state.runtime.complete_tab_mutation(
                 &operation_id,
-                "tabStopSessionCheckpointFailed",
+                "tabStopCookieCheckpointFailed",
                 RuntimeTabMutationTerminalStatus::Failed,
                 Some(failure_code),
                 0,

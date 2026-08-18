@@ -382,16 +382,10 @@ impl SystemRuntimeExecutor {
         HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
-        let mut builder = self.webview_builder(label, paths, Some(role_id))?;
+        let builder = self.webview_builder(label, paths, Some(role_id))?;
         #[cfg(all(windows, feature = "desktop-e2e"))]
-        {
-            builder = builder.initialization_script(
-                &desktop_e2e_windows_role_viewport_probe_script(role_id),
-            );
-        }
-        if let Some(source) = self.role_local_storage_checkpoint_document_start_script(role_id)? {
-            builder = builder.initialization_script_for_all_frames(&source);
-        }
+        let builder = builder
+            .initialization_script(&desktop_e2e_windows_role_viewport_probe_script(role_id));
         let high_refresh_rate_enabled = if cfg!(target_os = "macos") {
             macos_high_refresh_rate_enabled(
                 self.configuration.macos_high_refresh_mode,
@@ -472,8 +466,7 @@ impl SystemRuntimeExecutor {
             .map(|_| ());
         let _ = window.close();
         result.and(cleanup)?;
-        self.remove_role_cookie_checkpoint(role_id)?;
-        self.remove_role_local_storage_checkpoint(role_id)
+        self.remove_role_cookie_checkpoint(role_id)
     }
 
     fn apply_role_session_transfer(

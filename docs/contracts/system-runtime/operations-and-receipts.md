@@ -62,7 +62,7 @@ shutdown result.
 | Geometry and layout | User move/resize commits placement directly to the live store and queues latest-wins persistence without readback or compensation. Programmatic fullscreen/maximize and surface layout retain generation-fenced native transactions | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
-| Session | Bounded cookie and LocalStorage transfer with readback and rollback | WKWebsiteDataStore / WebView2 profile data |
+| Session | User-consented one-time Chrome Profile cookie and exact-origin LocalStorage transfer with readback and rollback; ordinary role LocalStorage remains native-store-owned | WKWebsiteDataStore / WebView2 profile data |
 | Audio and zoom | Reversible native fan-out followed by a live-state commit; saved-window durability is latest-revision-wins and never compensates the visible UI | Per-view System WebView APIs |
 | Metadata | Native tab metadata batch is submitted or reported degraded | AppKit tab controller / Windows tab-strip WebView evaluation |
 | Performance and capability | Probe result carries evidence and policy mode, never inferred support | Platform runtime probe plus bounded foreground sampling |

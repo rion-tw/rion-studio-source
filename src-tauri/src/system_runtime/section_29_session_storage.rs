@@ -29,8 +29,6 @@ fn role_session_paths(user_data_dir: &Path, role_id: &str) -> RuntimeResult<Sess
 const ROLE_COOKIE_CHECKPOINT_VERSION: u32 = 1;
 #[cfg(any(windows, test))]
 const ROLE_COOKIE_CHECKPOINT_FILE: &str = "cookie-checkpoint.enc";
-const ROLE_LOCAL_STORAGE_CHECKPOINT_VERSION: u32 = 1;
-const ROLE_LOCAL_STORAGE_CHECKPOINT_FILE: &str = "local-storage-checkpoint.enc";
 
 #[cfg(any(windows, test))]
 #[derive(Debug, Deserialize, Serialize)]
@@ -39,15 +37,7 @@ struct PersistedRoleCookieCheckpoint {
     cookies: Vec<SessionCookieRecord>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PersistedRoleLocalStorageCheckpoint {
-    checkpoint_id: String,
-    entries: Vec<rion_core::LocalStorageEntryRecord>,
-    origin: String,
-    version: u32,
-}
-
+#[cfg(any(windows, test))]
 fn role_browser_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<PathBuf> {
     role_session_paths(user_data_dir, role_id)?
         .webview2
@@ -59,30 +49,6 @@ fn role_browser_directory(user_data_dir: &Path, role_id: &str) -> RuntimeResult<
                 "The role browser directory is unavailable.",
             )
         })
-}
-
-fn role_local_storage_checkpoint_path(
-    user_data_dir: &Path,
-    role_id: &str,
-) -> RuntimeResult<PathBuf> {
-    Ok(role_browser_directory(user_data_dir, role_id)?
-        .join("system")
-        .join(ROLE_LOCAL_STORAGE_CHECKPOINT_FILE))
-}
-
-fn read_role_local_storage_checkpoint_blob(
-    user_data_dir: &Path,
-    role_id: &str,
-) -> RuntimeResult<Option<Vec<u8>>> {
-    let path = role_local_storage_checkpoint_path(user_data_dir, role_id)?;
-    match fs::read(path) {
-        Ok(protected) => Ok(Some(protected)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(RuntimeError::new(
-            "ROLE_LOCAL_STORAGE_CHECKPOINT_READ_FAILED",
-            format!("The encrypted role LocalStorage checkpoint is unavailable: {error}"),
-        )),
-    }
 }
 
 #[cfg(any(windows, test))]
@@ -388,28 +354,41 @@ fn deduplicate_role_cookie_checkpoint_records(
 }
 
 impl SystemRuntimeExecutor {
-    pub(crate) fn checkpoint_window_close_role_sessions(
+    pub(crate) fn checkpoint_window_close_role_cookies(
         &self,
         tab_ids: &[String],
     ) -> RuntimeResult<()> {
-        self.checkpoint_close_role_sessions(
+        #[cfg(windows)]
+        return self.checkpoint_close_role_cookies(
             tab_ids,
-            "SYSTEM_WINDOW_CLOSE_SESSION_CHECKPOINT_STALE",
+            "SYSTEM_WINDOW_CLOSE_COOKIE_CHECKPOINT_STALE",
             "window close admission",
-            "The live role Cookie and LocalStorage state was durably checkpointed before window close admission.",
-        )
+            "The live role cookies were durably checkpointed before window close admission.",
+        );
+        #[cfg(not(windows))]
+        {
+            let _ = tab_ids;
+            Ok(())
+        }
     }
 
-    pub(crate) fn checkpoint_tab_close_role_sessions(&self, tab_id: &str) -> RuntimeResult<()> {
-        self.checkpoint_close_role_sessions(
+    pub(crate) fn checkpoint_tab_close_role_cookies(&self, tab_id: &str) -> RuntimeResult<()> {
+        #[cfg(windows)]
+        return self.checkpoint_close_role_cookies(
             &[tab_id.to_owned()],
-            "SYSTEM_TAB_CLOSE_SESSION_CHECKPOINT_STALE",
+            "SYSTEM_TAB_CLOSE_COOKIE_CHECKPOINT_STALE",
             "tab close admission",
-            "The live role Cookie and LocalStorage state was durably checkpointed before tab close admission.",
-        )
+            "The live role cookies were durably checkpointed before tab close admission.",
+        );
+        #[cfg(not(windows))]
+        {
+            let _ = tab_id;
+            Ok(())
+        }
     }
 
-    fn checkpoint_close_role_sessions(
+    #[cfg(windows)]
+    fn checkpoint_close_role_cookies(
         &self,
         tab_ids: &[String],
         stale_code: &'static str,
@@ -429,12 +408,12 @@ impl SystemRuntimeExecutor {
                         .any(|surface| surface.tab_id.as_deref() == Some(tab_id));
                     let has_close_fence = state.close_previews.contains_key(tab_id)
                         || state.close_coordinator.closing_tabs.contains(tab_id);
-                    if native_absent_tab_can_skip_window_session_checkpoint(
+                    if native_absent_tab_can_skip_window_cookie_checkpoint(
                         has_registered_surface,
                         has_close_fence,
                     ) {
                         // Saved windows retain dormant logical tabs that have no native tab or
-                        // page-bearing surface. There is no live session to checkpoint for that
+                        // page-bearing surface. There are no live cookies to checkpoint for that
                         // occurrence; the exact persisted tab still participates in Core close
                         // admission and retirement below.
                         continue;
@@ -467,34 +446,24 @@ impl SystemRuntimeExecutor {
                                 ),
                             )
                         })?;
-                    surfaces.push((managed, Arc::clone(&role_surface.navigation)));
+                    surfaces.push(managed);
                 }
             }
             surfaces
         };
 
-        for (surface, navigation) in &surfaces {
+        for surface in &surfaces {
             let role_id = surface.role_id.as_deref().ok_or_else(|| {
                 RuntimeError::new(
                     stale_code,
-                    "A role session checkpoint surface did not retain its role identity.",
+                    "A role cookie checkpoint surface did not retain its role identity.",
                 )
             })?;
             self.persist_role_cookie_checkpoint(&surface.webview, role_id)?;
-            if navigation.has_committed_page() {
-                self.persist_role_local_storage_checkpoint(&surface.webview, role_id)?;
-            } else {
-                self.record_surface_stage_by_label(
-                    LogLevel::Debug,
-                    "surface.session-local-storage-skipped",
-                    "The role page had not committed, so close admission retained the native cookie checkpoint without waiting for unavailable LocalStorage page state.",
-                    surface.webview.label(),
-                );
-            }
         }
 
         let mut state = self.state()?;
-        let all_current = surfaces.iter().all(|(expected, _)| {
+        let all_current = surfaces.iter().all(|expected| {
             state
                 .native_resources
                 .surface_registry
@@ -511,23 +480,23 @@ impl SystemRuntimeExecutor {
         if !all_current {
             return Err(RuntimeError::new(
                 stale_code,
-                "A role surface changed while its close session checkpoint was being persisted.",
+                "A role surface changed while its close cookie checkpoint was being persisted.",
             ));
         }
-        for (expected, _) in &surfaces {
+        for expected in &surfaces {
             if let Some(current) = state
                 .native_resources
                 .surface_registry
                 .get_mut(&expected.instance_id)
             {
-                current.session_checkpointed_for_close = true;
+                current.cookies_checkpointed_for_close = true;
             }
         }
         drop(state);
-        for (expected, _) in &surfaces {
+        for expected in &surfaces {
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
-                "surface.session-checkpointed",
+                "surface.cookies-checkpointed",
                 checkpoint_message,
                 expected.webview.label(),
             );
@@ -535,7 +504,8 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn persist_runtime_tab_role_session_checkpoints(&self, tab_id: &str) -> RuntimeResult<()> {
+    #[cfg(windows)]
+    fn persist_runtime_tab_role_cookie_checkpoints(&self, tab_id: &str) -> RuntimeResult<()> {
         let role_surfaces = {
             let state = self.state()?;
             state
@@ -552,116 +522,19 @@ impl SystemRuntimeExecutor {
         };
         for (role_id, webview) in role_surfaces {
             self.persist_role_cookie_checkpoint(&webview, &role_id)?;
-            self.persist_role_local_storage_checkpoint(&webview, &role_id)?;
             self.record_surface_stage_by_label(
                 LogLevel::Debug,
-                "surface.session-checkpointed",
-                "The live role Cookie and LocalStorage state was durably checkpointed before the tab became hidden.",
+                "surface.cookies-checkpointed",
+                "The live role cookies were durably checkpointed before the tab became hidden.",
                 webview.label(),
             );
         }
         Ok(())
     }
 
-    fn persist_role_local_storage_checkpoint(
-        &self,
-        webview: &Webview,
-        role_id: &str,
-    ) -> RuntimeResult<()> {
-        let current_url = webview.url().map_err(RuntimeError::tauri)?;
-        if !matches!(current_url.scheme(), "http" | "https") {
-            return Ok(());
-        }
-        let origin = current_url.origin().ascii_serialization();
-        let entries = read_local_storage_entries(webview)?
-            .into_iter()
-            .map(|(key, value)| rion_core::LocalStorageEntryRecord { key, value })
-            .collect::<Vec<_>>();
-        let serialized = serde_json::to_vec(&PersistedRoleLocalStorageCheckpoint {
-            checkpoint_id: uuid::Uuid::new_v4().to_string(),
-            entries,
-            origin,
-            version: ROLE_LOCAL_STORAGE_CHECKPOINT_VERSION,
-        })
-        .map_err(|error| {
-            RuntimeError::new(
-                "ROLE_LOCAL_STORAGE_CHECKPOINT_WRITE_FAILED",
-                error.to_string(),
-            )
-        })?;
-        let protected = rion_platform::protect_session_transfer(current_platform(), &serialized)
-            .map_err(|error| {
-                RuntimeError::new(
-                    "ROLE_LOCAL_STORAGE_CHECKPOINT_WRITE_FAILED",
-                    error.to_string(),
-                )
-            })?;
-        let path = role_local_storage_checkpoint_path(&self.user_data_dir, role_id)?;
-        let directory = path.parent().ok_or_else(|| {
-            RuntimeError::new(
-                "ROLE_LOCAL_STORAGE_CHECKPOINT_PATH_INVALID",
-                "The role LocalStorage checkpoint directory is unavailable.",
-            )
-        })?;
-        write_private_file(directory, ROLE_LOCAL_STORAGE_CHECKPOINT_FILE, &protected).map_err(
-            |error| {
-                RuntimeError::new(
-                    "ROLE_LOCAL_STORAGE_CHECKPOINT_WRITE_FAILED",
-                    error.message,
-                )
-            },
-        )
-    }
-
-    fn role_local_storage_checkpoint_document_start_script(
-        &self,
-        role_id: &str,
-    ) -> RuntimeResult<Option<String>> {
-        let Some(protected) =
-            read_role_local_storage_checkpoint_blob(&self.user_data_dir, role_id)?
-        else {
-            return Ok(None);
-        };
-        let plaintext = rion_platform::unprotect_session_transfer(
-            current_platform(),
-            &protected,
-        )
-        .map_err(|error| {
-            RuntimeError::new(
-                "ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID",
-                error.to_string(),
-            )
-        })?;
-        let checkpoint: PersistedRoleLocalStorageCheckpoint =
-            serde_json::from_slice(&plaintext).map_err(|error| {
-                RuntimeError::new(
-                    "ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID",
-                    error.to_string(),
-                )
-            })?;
-        if checkpoint.version != ROLE_LOCAL_STORAGE_CHECKPOINT_VERSION
-            || checked_web_url(&checkpoint.origin).is_err()
-        {
-            return Err(RuntimeError::new(
-                "ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID",
-                "The role LocalStorage checkpoint version or origin is unsupported.",
-            ));
-        }
-        role_local_storage_checkpoint_document_start_script(&checkpoint).map(Some)
-    }
-
-    fn remove_role_local_storage_checkpoint(&self, role_id: &str) -> RuntimeResult<()> {
-        let path = role_local_storage_checkpoint_path(&self.user_data_dir, role_id)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(RuntimeError::new(
-                "ROLE_LOCAL_STORAGE_CHECKPOINT_CLEAR_FAILED",
-                format!(
-                    "The encrypted role LocalStorage checkpoint could not be removed: {error}"
-                ),
-            )),
-        }
+    #[cfg(not(windows))]
+    fn persist_runtime_tab_role_cookie_checkpoints(&self, _tab_id: &str) -> RuntimeResult<()> {
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -815,7 +688,8 @@ impl SystemRuntimeExecutor {
     }
 }
 
-fn native_absent_tab_can_skip_window_session_checkpoint(
+#[cfg(any(windows, test))]
+fn native_absent_tab_can_skip_window_cookie_checkpoint(
     has_registered_surface: bool,
     has_close_fence: bool,
 ) -> bool {
@@ -903,43 +777,6 @@ fn local_storage_document_start_script(
 }})();"#,
     ))
 }
-
-fn role_local_storage_checkpoint_document_start_script(
-    checkpoint: &PersistedRoleLocalStorageCheckpoint,
-) -> RuntimeResult<String> {
-    let origin = serde_json::to_string(&checkpoint.origin).map_err(|error| {
-        RuntimeError::new("ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID", error.to_string())
-    })?;
-    let checkpoint_id = serde_json::to_string(&checkpoint.checkpoint_id).map_err(|error| {
-        RuntimeError::new("ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID", error.to_string())
-    })?;
-    let entries = serde_json::to_string(&checkpoint.entries).map_err(|error| {
-        RuntimeError::new("ROLE_LOCAL_STORAGE_CHECKPOINT_INVALID", error.to_string())
-    })?;
-    Ok(format!(
-        r#"(() => {{
-  if (globalThis.top !== globalThis || location.origin !== {origin}) return;
-  const checkpointId = {checkpoint_id};
-  const markerKey = "__rionRoleLocalStorageCheckpointV1";
-  if (sessionStorage.getItem(markerKey) === checkpointId) return;
-  const entries = {entries};
-  localStorage.clear();
-  for (const item of entries) localStorage.setItem(item.key, item.value);
-  sessionStorage.setItem(markerKey, checkpointId);
-  Object.defineProperty(globalThis, "__rionRoleLocalStorageCheckpointState", {{
-    configurable: false,
-    value: {{
-      applied: true,
-      checkpointId,
-      origin: location.origin,
-      size: localStorage.length,
-      values: entries.map((item) => [item.key, localStorage.getItem(item.key)])
-    }}
-  }});
-}})();"#,
-    ))
-}
-
 
 fn local_storage_restore_script(
     origin: &str,

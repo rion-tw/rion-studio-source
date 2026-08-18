@@ -81,12 +81,6 @@ impl NavigationTracker {
             .is_some_and(|state| state.owner_close_cancelled)
     }
 
-    fn has_committed_page(&self) -> bool {
-        self.state.lock().ok().is_some_and(|state| {
-            state.finished && state.failure_code.is_none() && state.page_finished
-        })
-    }
-
     #[cfg(windows)]
     fn require_native_completion(&self) -> Result<(), String> {
         let mut state = self

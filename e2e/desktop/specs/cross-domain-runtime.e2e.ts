@@ -982,7 +982,19 @@ async function cleanupScenario(scenario: Scenario): Promise<void> {
   }
   for (const role of scenario.roles) await rendererCall("stopRole", role.id).catch(() => undefined);
   for (const window of scenario.windows) {
-    await rendererCall("stopGameWindow", window.id).catch(() => undefined);
+    const stopCursor = (await probe()).latestSequence;
+    const stopSucceeded = await rendererCall("stopGameWindow", window.id).then(
+      () => true,
+      () => false
+    );
+    if (stopSucceeded) {
+      await waitEvent({
+        afterSequence: stopCursor,
+        kind: "window-destroyed",
+        timeoutMs: 55_000,
+        windowId: window.id
+      });
+    }
     await rendererCall("deleteGameWindow", window.id);
   }
   for (const macro of scenario.macros) await rendererCall("deleteMacro", macro.id);

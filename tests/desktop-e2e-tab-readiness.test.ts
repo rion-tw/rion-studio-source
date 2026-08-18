@@ -78,4 +78,23 @@ describe("desktop E2E restored tab readiness", () => {
     expect(recovery).toContain('"page-finish-deadline"');
     expect(recovery).toContain("toContain((restartRequired.details as { reason?: string }).reason)");
   });
+
+  it("waits for native window destruction before deleting recovery fixtures", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),
+      "utf8"
+    );
+    const cleanup = source.slice(
+      source.indexOf("async function cleanupScenario("),
+      source.indexOf("async function recoveryPhase(")
+    );
+
+    expect(cleanup).toContain("const stopCursor = (await probe()).latestSequence");
+    expect(cleanup).toContain('rendererCall("stopGameWindow", window.id)');
+    expect(cleanup).toContain('kind: "window-destroyed"');
+    expect(cleanup).toContain("afterSequence: stopCursor");
+    expect(cleanup).toContain('rendererCall("deleteGameWindow", window.id)');
+    expect(cleanup.indexOf('kind: "window-destroyed"'))
+      .toBeLessThan(cleanup.indexOf('rendererCall("deleteGameWindow", window.id)'));
+  });
 });

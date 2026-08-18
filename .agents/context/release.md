@@ -1,5 +1,8 @@
 # Build and Release
 
+`docs/updater-transaction-contract.md` is the normative updater installation,
+drain, restart, and recovery contract.
+
 CI validates portable code on Linux plus native Tauri targets on `macos-latest`
 and `windows-latest`. Build/package commands compile and bundle; they do not launch
 the desktop application as validation.

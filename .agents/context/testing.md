@@ -7,6 +7,9 @@
 - Desktop E2E coverage is journey-based and versioned in
   `docs/e2e-coverage.json`; `docs/e2e-strategy.md` defines the smoke, full, and
   extended profiles plus their PR, nightly, and release-candidate gates.
+- Query the coverage manifest by feature or journey ID instead of loading the
+  complete registry for a narrow task. Active native runbooks are indexed by
+  `docs/validation/README.md`; archived evidence is not current validation.
 - Prefer executable behavior tests. Source scans are reserved for forbidden
   imports/tokens, generated-output integrity, and dependency direction.
 - Hand-written source must satisfy `pnpm run check:source-hygiene`; generated

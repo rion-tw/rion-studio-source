@@ -1,7 +1,8 @@
 # Rion Studio Agent Rules
 
-These rules apply to the whole repository. Read `.agents/context.md` first for
-substantial work, then follow the scoped `AGENTS.md` nearest the files you edit.
+These rules apply to the whole repository. For substantial work, read
+`.agents/context.md`, run `pnpm run ai:context` for the task or changed paths,
+then follow the scoped `AGENTS.md` nearest the files you edit.
 
 ## Working Rules
 
@@ -88,8 +89,9 @@ substantial work, then follow the scoped `AGENTS.md` nearest the files you edit.
   authoritative evidence, but must not replace the user action under test.
 - Handoffs must list the macOS and Windows E2E profiles that ran and identify any
   platform still pending CI. Linux is never desktop E2E evidence.
-- Keep P0 automation at 100% and P1 automation at or above 80%. Run
-  `pnpm run check:e2e-coverage` whenever journeys, profiles, or feature routes change.
+- Meet the coverage targets declared by `docs/e2e-coverage.json`; do not lower
+  them without owner approval. Run `pnpm run check:e2e-coverage` whenever
+  journeys, profiles, or feature routes change.
 
 ## Validation
 

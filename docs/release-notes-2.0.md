@@ -1,7 +1,8 @@
 # Rion Studio 2.0
 
-> Historical release note. For the current Tauri-only architecture and upgrade
-> policy, see `docs/system-native-engine-tauri-plan.md`.
+> Historical release note. For the current Tauri-only runtime and upgrade
+> policy, see the [System WebView Runtime Contract](system-webview-runtime-contract.md)
+> and [Updater Install Transaction](updater-transaction-contract.md).
 
 Rion Studio 2.0 moved the non-UI application core to Rust while retaining the legacy shell,
 Chromium, React, existing role browser directories, IPC channels and update artifacts.

@@ -2,9 +2,9 @@
 
 `docs/e2e-coverage.json` is the versioned source of truth for desktop user-journey
 coverage. Coverage is measured by product journeys, not bridge methods or source
-lines. P0 and P1 automation must remain at 100%. Every product feature listed in
-the manifest must have an automated UI happy
-path.
+lines. The targets declared in the manifest are authoritative and must not be
+lowered without owner approval. Every product feature listed in the manifest
+must have an automated UI happy path.
 
 ## Profiles and gates
 
@@ -56,9 +56,9 @@ its E2E in the same change. If E2E is genuinely inapplicable, use exactly one of
 lower-layer evidence. A platform that was not executed locally must be called out
 as pending its required CI gate.
 
-Windows 實機執行與回報格式見
-`.agents/windows-p1-e2e-validation.md`；Windows full 與 mixed-DPI extended 的證據必須
-綁定同一個 exact SHA，且 `BLOCKED` 不得當成跨平台完成。
+Windows native and mixed-DPI procedures are indexed in
+`docs/validation/README.md`. Full and extended evidence must bind to the same
+exact SHA, and `BLOCKED` never establishes cross-platform completion.
 
 P0 and P1 are fully automated. The full profile performs primary actions through
 visible UI and uses the local runtime fixture only to hold or fail exact navigation

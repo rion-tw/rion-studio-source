@@ -6,6 +6,9 @@ lifecycle, operation terminality, and revisioned desired state. Tauri owns
 native handles and input APIs; platform adapters translate native events and
 apply complete desired projections.
 
+`docs/system-webview-runtime-contract.md` is the versioned contract index. Load
+only the contract part it identifies for the current runtime task.
+
 - Do not expose remote debugging or fall back to another browser runtime.
 - Never hold the runtime-state mutex while creating, closing, or calling native
   WebViews; native callbacks may reacquire the same state.

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "path": "docs/validation/archive/2026-08-11-windows-runtime-authority/runbook.md",
+      "sourcePath": ".agents/windows-runtime-authority-validation.md",
+      "capturedAt": "2026-08-11",
+      "sourceCommit": "fdb334096fb4f0d59e457088ad596db6f2fcdca0",
+      "contentSha256": "d7d48479fc296e742e5bd1a8e2b04d3359848d2f2a9f013dec93b05a57c62d1d"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-11-windows-runtime-authority/report.md",
+      "sourcePath": ".agents/windows-runtime-authority-validation-report.md",
+      "capturedAt": "2026-08-11",
+      "testedCommit": "e468b39685016595323dd56a42bf8292ae37890a",
+      "contentSha256": "f161f0dbcde450a2ff8cb5f75f3f9cd438b77cb959b3a3a0116ae913f41d6af1"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-12-windows-game-window-placement/runbook.md",
+      "sourcePath": "docs/windows-game-window-placement-acceptance.md",
+      "capturedAt": "2026-08-12",
+      "sourceCommit": "607fead60c8456dd2ea30a35058cd035dbe660fc",
+      "contentSha256": "9cc9f828fdc851bf1ec3dda473570de51868d2a3c3caef0f278186855f6e5fd5"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-13-webgl-performance/report.md",
+      "sourcePath": "docs/webgl-performance-validation-2026-08-13.md",
+      "capturedAt": "2026-08-13",
+      "sourceCommit": "1a832ad685ff81e9c7af48481b930bb8c9112094",
+      "contentSha256": "414ccab3bbbeb6e1b245bb0fd22a1c9f41959f5220108506049260ae5e641ab4"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-13-windows-p1-e2e/runbook.md",
+      "sourcePath": ".agents/windows-p1-e2e-validation.md",
+      "capturedAt": "2026-08-13",
+      "sourceCommit": "065f5d73e78536ea9afe0664cfb5ab2f8a56eb2e",
+      "contentSha256": "5603525ff420777585f22122880fbd68a24511edb7abe1774547193f71e24daa"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-13-windows-p1-e2e/report.md",
+      "sourcePath": ".agents/windows-p1-e2e-validation-report.md",
+      "capturedAt": "2026-08-13",
+      "testedCommit": "543aff44cf5c6c788e1a542366486d0c659d10fd",
+      "contentSha256": "21f6af520b0a529b6cafbc9b17253e0ea8e2db3623cae3403df644e6b56ebed2"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-15-macos-cross-domain-e2e/runbook.md",
+      "sourcePath": ".agents/macos-cross-domain-e2e-validation.md",
+      "capturedAt": "2026-08-15",
+      "sourceCommit": "338c7b28d7e254a42cd5713203a48b555da50993",
+      "contentSha256": "87ba145caea525476aab65bc1627280139c6ac8701864f275fe29391e3bcdb74"
+    },
+    {
+      "path": "docs/validation/archive/2026-08-15-macos-cross-domain-e2e/report.md",
+      "sourcePath": ".agents/macos-cross-domain-e2e-validation-report.md",
+      "capturedAt": "2026-08-15",
+      "testedCommit": "564319d336240fe62a36f9296f98d606e0a7481e",
+      "contentSha256": "f1d60628fb422fe2dfca65258836b5bd58e6a0dd11d700d2c0d63fc07b2dca48"
+    }
+  ]
+}

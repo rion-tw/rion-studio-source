@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rion Task Router"
+  short_description: "Route Rion tasks to minimal context and checks"
+  default_prompt: "Use $rion-task-router to identify the minimum context and validation for this Rion Studio task."

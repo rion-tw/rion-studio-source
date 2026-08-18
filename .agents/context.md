@@ -1,26 +1,28 @@
 # Rion Studio AI Context Index
 
 Rion Studio is a Tauri desktop launcher and automation host for isolated System
-WebView roles. Use this file as a routing index; read only the topic documents
-needed for the current task.
+WebView roles. For substantial work, use the deterministic router before loading
+topic documents:
 
-| Task area | Required context |
-| --- | --- |
-| Architecture or IPC | `.agents/context/architecture.md` |
-| SQLite, role stores, portable data | `.agents/context/data.md` |
-| WebView launch, tabs, input, native code | `.agents/context/system-runtime.md` |
-| React UI, styling, translations | `.agents/context/renderer.md` |
-| Tests, source hygiene, generated contracts | `.agents/context/testing.md` |
-| CI, packaging, updater, release policy | `.agents/context/release.md` |
+```bash
+pnpm run ai:context -- --list
+pnpm run ai:context -- --intent <area-id> --change-kind unknown
+pnpm run ai:context -- --changed --change-kind <kind>
+```
 
-Repository ownership map:
+`.agents/context-map.json` is the routing authority. Read only the files emitted
+by the router. If the command is unavailable, use this fallback table:
 
-- `crates/rion-core`: domain, SQLite, scheduling, portable data, runtime state.
-- `crates/rion-platform`: operating-system adapters without Tauri UI ownership.
-- `src-tauri`: Tauri commands, native windows, System WebView effects.
-- `src/shared`: generated and hand-written cross-boundary contracts.
-- `src/renderer`: browser-safe React UI and local presentation utilities.
-- `tests`: TypeScript behavior, architecture, and release validation.
+| Task area | Context | Canonical source |
+| --- | --- | --- |
+| Architecture, IPC, shared contracts | `.agents/context/architecture.md` | `docs/system-webview-runtime-contract.md` |
+| SQLite, role stores, portable data | `.agents/context/data.md` | Source schema and transaction tests |
+| WebView, tabs, input, macros, native code | `.agents/context/system-runtime.md` | Relevant part linked by the runtime contract index |
+| React UI, styling, translations | `.agents/context/renderer.md` | `docs/design-system.md` |
+| Tests, E2E, source hygiene | `.agents/context/testing.md` | `docs/e2e-strategy.md` and queried manifest entries |
+| CI, packaging, updater, release | `.agents/context/release.md` | `docs/updater-transaction-contract.md` |
+| AI context or documentation maintenance | `.agents/context/testing.md` | `docs/ai-development.md` |
 
-Global invariants and the owner-locked release decision live in `AGENTS.md` and
-must not be duplicated or weakened in scoped context.
+Repository ownership remains: Core owns domain and persisted state; Tauri owns
+native handles and effects; shared contracts own cross-boundary types; the
+renderer is browser-safe. Global invariants and the owner-locked release decision live in `AGENTS.md`.

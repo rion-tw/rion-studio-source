@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "instructionBudgetBytes": 16384,
+  "contextFileLimits": {
+    "bytes": 12288,
+    "lines": 120
+  },
+  "alwaysContext": [
+    "AGENTS.md",
+    ".agents/context.md"
+  ],
+  "validationProfiles": {
+    "documentation": {
+      "fastChecks": [
+        "pnpm run check:docs",
+        "pnpm run check:ai-context"
+      ],
+      "requiredChecks": [
+        "pnpm run check:hygiene",
+        "pnpm run lint",
+        "pnpm run test",
+        "git diff --check"
+      ]
+    },
+    "renderer": {
+      "fastChecks": [
+        "pnpm run typecheck",
+        "pnpm exec vitest run <adjacent renderer tests>"
+      ],
+      "requiredChecks": [
+        "pnpm run lint",
+        "pnpm run test"
+      ]
+    },
+    "shared-contract": {
+      "fastChecks": [
+        "pnpm run typecheck",
+        "pnpm exec vitest run <adjacent contract tests>"
+      ],
+      "requiredChecks": [
+        "pnpm run lint",
+        "pnpm run test",
+        "pnpm run lint:rust",
+        "pnpm run test:rust",
+        "pnpm run build"
+      ]
+    },
+    "core": {
+      "fastChecks": [
+        "cargo test -p rion-core <adjacent module or test>"
+      ],
+      "requiredChecks": [
+        "pnpm run lint:rust",
+        "pnpm run test:rust"
+      ]
+    },
+    "native-runtime": {
+      "fastChecks": [
+        "cargo test -p rion-tauri <adjacent module or test>"
+      ],
+      "requiredChecks": [
+        "pnpm run lint:rust",
+        "pnpm run test:rust",
+        "pnpm run build"
+      ]
+    },
+    "desktop-e2e": {
+      "fastChecks": [
+        "pnpm run check:e2e-coverage"
+      ],
+      "requiredChecks": [
+        "pnpm run build:e2e:desktop",
+        "pnpm run test:e2e:desktop:smoke",
+        "pnpm run test:e2e:desktop:full",
+        "pnpm run check:desktop-e2e-isolation"
+      ]
+    },
+    "release": {
+      "fastChecks": [
+        "pnpm exec vitest run tests/release-workflows.test.ts"
+      ],
+      "requiredChecks": [
+        "pnpm run check:hygiene",
+        "pnpm run lint",
+        "pnpm run test",
+        "pnpm run build"
+      ]
+    },
+    "tooling": {
+      "fastChecks": [
+        "pnpm exec vitest run <adjacent tooling tests>"
+      ],
+      "requiredChecks": [
+        "pnpm run check:hygiene",
+        "pnpm run lint",
+        "pnpm run test"
+      ]
+    }
+  },
+  "areas": [
+    {
+      "id": "documentation",
+      "intentAliases": ["ai-context", "docs", "documentation"],
+      "pathGlobs": ["AGENTS.md", ".agents/**", "docs/**"],
+      "contextFiles": [".agents/context/testing.md"],
+      "canonicalDocs": ["docs/README.md", "docs/ai-development.md"],
+      "risks": ["context-drift", "source-of-truth"],
+      "platforms": ["portable"],
+      "validationProfiles": ["documentation"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "renderer",
+      "intentAliases": ["react", "renderer", "ui"],
+      "pathGlobs": ["src/renderer/**"],
+      "contextFiles": [".agents/context/renderer.md", ".agents/context/testing.md"],
+      "canonicalDocs": ["docs/design-system.md"],
+      "risks": ["browser-safety", "localization", "responsive-layout"],
+      "platforms": ["macos", "windows"],
+      "validationProfiles": ["renderer"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "shared-contracts",
+      "intentAliases": ["bridge", "contract", "ipc", "shared"],
+      "pathGlobs": ["src/shared/**", "crates/rion-core/src/contract_generation/**"],
+      "contextFiles": [".agents/context/architecture.md", ".agents/context/testing.md"],
+      "canonicalDocs": ["docs/system-webview-runtime-contract.md", "docs/contracts/system-runtime/operations-and-receipts.md"],
+      "risks": ["cross-boundary-contract", "generated-output", "cross-platform"],
+      "platforms": ["macos", "windows"],
+      "validationProfiles": ["shared-contract"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "core-data",
+      "intentAliases": ["core", "data", "database", "portable"],
+      "pathGlobs": ["crates/rion-core/**"],
+      "contextFiles": [".agents/context/architecture.md", ".agents/context/data.md", ".agents/context/testing.md"],
+      "canonicalDocs": [],
+      "risks": ["atomicity", "persistence", "determinism"],
+      "platforms": ["portable", "macos", "windows"],
+      "validationProfiles": ["core"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "macro-runtime",
+      "intentAliases": ["automation", "macro", "macro-runtime"],
+      "pathGlobs": ["crates/rion-core/src/macro_runtime/**", "src/renderer/src/features/macros/**", "src-tauri/src/system_runtime/*macro*", "e2e/desktop/specs/macro-runtime.e2e.ts"],
+      "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
+      "canonicalDocs": ["docs/contracts/system-runtime/lifecycle-and-recovery.md"],
+      "risks": ["input-safety", "event-topology", "terminality"],
+      "platforms": ["macos", "windows"],
+      "validationProfiles": ["core", "native-runtime"],
+      "e2eFeatures": ["macros"]
+    },
+    {
+      "id": "system-runtime-native",
+      "intentAliases": ["native", "system-runtime", "webview"],
+      "pathGlobs": ["crates/rion-platform/**", "crates/rion-core/src/browser_runtime/**", "crates/rion-core/src/operation_actor/**", "crates/rion-core/src/runtime_kernel/**", "src-tauri/**", "src/renderer/runtime-shell/**"],
+      "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
+      "canonicalDocs": ["docs/system-webview-runtime-contract.md"],
+      "risks": ["native-lifecycle", "event-topology", "cross-platform"],
+      "platforms": ["macos", "windows"],
+      "validationProfiles": ["native-runtime"],
+      "e2eFeatures": ["game-windows"]
+    },
+    {
+      "id": "desktop-e2e",
+      "intentAliases": ["desktop-e2e", "e2e", "journey"],
+      "pathGlobs": ["e2e/**", "docs/e2e-coverage.json", "tests/desktop*", "tests/runtimeAuthorityFixture.test.ts"],
+      "contextFiles": [".agents/context/testing.md"],
+      "canonicalDocs": ["docs/e2e-strategy.md", "docs/e2e-coverage.json", "docs/validation/README.md"],
+      "risks": ["journey-coverage", "native-evidence", "debug-isolation"],
+      "platforms": ["macos", "windows"],
+      "validationProfiles": ["desktop-e2e"],
+      "e2eFeatures": []
+    },
+    {
+      "id": "updater-release",
+      "intentAliases": ["release", "updater", "update-transaction"],
+      "pathGlobs": [".github/workflows/*release*", ".github/workflows/*rebuild*", ".github/workflows/*updater*", "release/**", "release.config.mjs", "src-tauri/src/update*", "src-tauri/src/update*/**", "scripts/*Release*", "scripts/*Updater*", "scripts/syncPublicRepositoryDocs*"],
+      "contextFiles": [".agents/context/release.md", ".agents/context/testing.md"],
+      "canonicalDocs": ["docs/updater-transaction-contract.md"],
+      "risks": ["release-integrity", "recovery", "cross-platform"],
+      "platforms": ["linux", "macos", "windows"],
+      "validationProfiles": ["release"],
+      "e2eFeatures": ["settings"]
+    },
+    {
+      "id": "build-ci",
+      "intentAliases": ["build", "ci", "tooling"],
+      "pathGlobs": [".github/**", "scripts/**", "tests/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "tsconfig*.json", "vite.tauri.config.ts", "vitest.config.ts", "eslint.config.mjs", "knip.jsonc"],
+      "contextFiles": [".agents/context/testing.md", ".agents/context/release.md"],
+      "canonicalDocs": ["docs/e2e-strategy.md"],
+      "risks": ["ci-reachability", "tooling-drift"],
+      "platforms": ["linux", "macos", "windows"],
+      "validationProfiles": ["tooling"],
+      "e2eFeatures": []
+    }
+  ],
+  "featurePaths": [
+    { "feature": "app-shell", "pathGlobs": ["src/renderer/src/App*", "src/renderer/src/features/onboarding/**"] },
+    { "feature": "dashboard", "pathGlobs": ["src/renderer/src/features/dashboard/**"] },
+    { "feature": "games", "pathGlobs": ["src/renderer/src/features/games/**"] },
+    { "feature": "roles", "pathGlobs": ["src/renderer/src/features/roles/**", "crates/rion-core/src/session_import/**"] },
+    { "feature": "workspaces", "pathGlobs": ["src/renderer/src/features/workspaces/**", "e2e/desktop/specs/workspace-recovery.e2e.ts"] },
+    { "feature": "game-windows", "pathGlobs": ["src/renderer/src/features/game-windows/**", "src/renderer/runtime-shell/**", "src-tauri/src/system_runtime/**", "src-tauri/native/**"] },
+    { "feature": "macros", "pathGlobs": ["src/renderer/src/features/macros/**", "crates/rion-core/src/macro_runtime/**", "e2e/desktop/specs/macro-runtime.e2e.ts"] },
+    { "feature": "settings", "pathGlobs": ["src/renderer/src/features/settings/**", "src-tauri/src/update*"] }
+  ]
+}

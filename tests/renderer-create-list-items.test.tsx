@@ -163,7 +163,7 @@ describe("create controls at the end of lists", () => {
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
   });
 
-  it("places a dashed create button below the macro table", async () => {
+  it("places a dashed create button below the grouped macro list", async () => {
     const user = userEvent.setup();
     const onNewMacro = vi.fn();
     render(
@@ -205,11 +205,11 @@ describe("create controls at the end of lists", () => {
     expect(headerCreateButton.querySelector("svg")?.getAttribute("width")).toBe("14");
     expect(createButton.closest("table")).toBeNull();
     expect(createButton.closest(".mac-list-surface")).toBeNull();
-    expect(createButton.previousElementSibling?.className).toContain("mac-list-surface");
+    expect(createButton.previousElementSibling?.className).toContain("macro-list-surface");
     await user.click(headerCreateButton);
     await user.click(createButton);
-    expect(onNewMacro).toHaveBeenNthCalledWith(1, "role-1");
-    expect(onNewMacro).toHaveBeenNthCalledWith(2, "role-1");
+    expect(onNewMacro).toHaveBeenNthCalledWith(1, ["role-1"]);
+    expect(onNewMacro).toHaveBeenNthCalledWith(2, ["role-1"]);
   });
 });
 

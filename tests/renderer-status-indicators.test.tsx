@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { Settings } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -196,7 +196,7 @@ describe("renderer status indicators", () => {
 
     expect(screen.queryByRole("switch", { name: "Enable Auto heal" })).toBeNull();
     const actions = screen.getByRole("button", { name: "Macro actions" });
-    const row = actions.closest("tr")!;
+    const row = actions.closest<HTMLElement>("[data-selection-id]")!;
     expect(row.getAttribute("data-macro-disabled")).toBe("true");
     expect(row.className).toContain("opacity-[0.55]");
     expect(screen.getByText("Auto heal").closest("button")?.className).toContain("text-muted-foreground");
@@ -250,6 +250,55 @@ describe("renderer status indicators", () => {
     );
   });
 
+  it("shows ready and not-ready admission states without an offline chip", () => {
+    const roles = [
+      role({ id: "role-ready", name: "Ready role" }),
+      role({ id: "role-offline", name: "Offline role" }),
+      role({ id: "role-pending", name: "Pending role" })
+    ];
+    const macros = [
+      macro({ id: "macro-ready", name: "Ready macro", roleIds: ["role-ready"] }),
+      macro({ id: "macro-offline", name: "Offline macro", roleIds: ["role-offline"] }),
+      macro({ id: "macro-pending", name: "Pending macro", roleIds: ["role-pending"] })
+    ];
+
+    render(
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={macros}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={roles}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map([
+          ["role-ready", { roleId: "role-ready", state: "running", automationState: "ready" }],
+          ["role-pending", { roleId: "role-pending", state: "running" }]
+        ])}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+
+    expect(within(document.querySelector("[data-selection-id='macro-ready']")!).getByText("Macro ready")).toBeTruthy();
+    const offlineRow = within(document.querySelector("[data-selection-id='macro-offline']")!);
+    expect(offlineRow.queryByText("Roles offline")).toBeNull();
+    expect((offlineRow.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(document.querySelector("[data-selection-id='macro-pending']")!).getByText("Not ready")).toBeTruthy();
+  });
+
   it("labels an unassigned macro and disables its start action with an assignment hint", () => {
     render(
       <MacrosRoute
@@ -278,11 +327,12 @@ describe("renderer status indicators", () => {
       />
     );
 
-    expect(screen.getByText("No execution roles")).toBeTruthy();
+    expect(screen.getByText("Unassigned macros")).toBeTruthy();
+    expect(screen.getByText("Unassigned")).toBeTruthy();
     const start = screen.getByRole("button", { name: "Start" }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     expect(start.title).toBe("Assign a role before running this macro.");
-    const row = start.closest("tr")!;
+    const row = start.closest<HTMLElement>("[data-selection-id]")!;
     expect(row.getAttribute("data-macro-unassigned")).toBe("true");
     expect(row.className).toContain("bg-warning/35");
     fireEvent.click(row, { ctrlKey: true });
@@ -328,9 +378,10 @@ describe("renderer status indicators", () => {
     );
 
     const stop = screen.getByRole("button", { name: "Stop" });
-    const row = stop.closest("tr")!;
+    const row = stop.closest<HTMLElement>("[data-selection-id]")!;
     expect(row.getAttribute("data-macro-active")).toBe("true");
     expect(row.className).toContain("bg-activity/[0.08]");
+    expect(within(row).getByText(state === "stopping" ? "Stopping" : "Macro running")).toBeTruthy();
     expect((screen.getByText("Auto heal").closest("button") as HTMLButtonElement).disabled).toBe(true);
     expect((stop as HTMLButtonElement).disabled).toBe(state === "stopping");
     }

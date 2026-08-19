@@ -59,7 +59,7 @@ describe("macro action menu performance", () => {
     fireEvent.click(run);
     expect(onStartMacro).toHaveBeenCalledWith(macro.id);
 
-    const row = screen.getByText(macro.name).closest("tr");
+    const row = screen.getByText(macro.name).closest("[data-selection-id]");
     if (!row) throw new Error("Expected macro row.");
     expect(fireEvent.contextMenu(row, { clientX: 240, clientY: 160 })).toBe(false);
     fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));

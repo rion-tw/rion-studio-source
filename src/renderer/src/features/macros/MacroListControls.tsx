@@ -26,6 +26,7 @@ import { type MacroListSortKey, type MacroListSortState } from "./macroListUtils
 import { createMacroRunKey, isMacroRunActive } from "./macroUtils";
 
 interface MacroSortHeaderProps {
+  className?: string;
   label: string;
   onSort: (key: MacroListSortKey) => void;
   sort: MacroListSortState;
@@ -62,14 +63,14 @@ export function MacroFailureMessage({
   );
 }
 
-export function MacroSortHeader({ label, onSort, sort, sortKey, t }: MacroSortHeaderProps): JSX.Element {
+export function MacroSortHeader({ className, label, onSort, sort, sortKey, t }: MacroSortHeaderProps): JSX.Element {
   const isActive = sort.key === sortKey;
   const DirectionIcon = sort.direction === "asc" ? ArrowUp : ArrowDown;
   const directionLabel = t(sort.direction === "asc" ? "macros.sortAscending" : "macros.sortDescending");
 
   return (
     <th
-      className="px-4 py-1"
+      className={cn("px-3 py-1", className)}
       aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <button
@@ -142,7 +143,7 @@ type MacroRunDisabledReason =
   | "rolesNotRunning"
   | "automationUnavailable";
 
-interface MacroListRunActionState {
+export interface MacroListRunActionState {
   canStart: boolean;
   canStop: boolean;
   disabled: boolean;

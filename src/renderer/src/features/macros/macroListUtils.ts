@@ -10,15 +10,22 @@ import {
 
 export type MacroListSortKey = "name" | "roles" | "shortcut" | "activation" | "repeat" | "steps";
 export type MacroListSortDirection = "asc" | "desc";
+export type MacroListViewMode = "grouped" | "flat";
 
 export interface MacroListSortState {
   direction: MacroListSortDirection;
   key: MacroListSortKey;
 }
 
+export interface MacroListGroup {
+  key: string;
+  macros: Macro[];
+  roleIds: string[];
+}
+
 export const DEFAULT_MACRO_LIST_SORT: MacroListSortState = {
   direction: "asc",
-  key: "roles"
+  key: "name"
 };
 
 interface GetMacroListItemsOptions {
@@ -33,6 +40,42 @@ interface GetMacroListItemsOptions {
 interface IndexedMacro {
   index: number;
   macro: Macro;
+}
+
+export function getMacroListGroups(options: GetMacroListItemsOptions): MacroListGroup[] {
+  const { roles } = options;
+  const roleById = new Map(roles.map((role) => [role.id, role]));
+  const groupsByKey = new Map<string, MacroListGroup>();
+
+  for (const macro of getMacroListItems(options)) {
+    const roleIds = getCanonicalMacroRoleIds(macro.roleIds, roles);
+    const key = createMacroListGroupKey(roleIds);
+    const group = groupsByKey.get(key);
+
+    if (group) {
+      group.macros.push(macro);
+    } else {
+      groupsByKey.set(key, { key, macros: [macro], roleIds });
+    }
+  }
+
+  return [...groupsByKey.values()].sort((a, b) =>
+    compareMacroListGroups(a, b, roles, roleById)
+  );
+}
+
+function getCanonicalMacroRoleIds(roleIds: readonly string[], roles: Role[]): string[] {
+  const roleIndexById = new Map(roles.map((role, index) => [role.id, index]));
+
+  return [...new Set(roleIds)].sort((a, b) => {
+    const aIndex = roleIndexById.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const bIndex = roleIndexById.get(b) ?? Number.MAX_SAFE_INTEGER;
+    return aIndex - bIndex || compareText(a, b);
+  });
+}
+
+function createMacroListGroupKey(roleIds: readonly string[]): string {
+  return roleIds.length === 0 ? "unassigned" : `roles:${JSON.stringify(roleIds)}`;
 }
 
 export function getMacroListItems({
@@ -151,6 +194,25 @@ function compareMacroRoles(a: Macro, b: Macro, roles: Role[], roleById: Map<stri
     getMacroRoleSortIndex(a, roles) - getMacroRoleSortIndex(b, roles) ||
     compareText(formatMacroRoleNames(a, roleById), formatMacroRoleNames(b, roleById))
   );
+}
+
+function compareMacroListGroups(
+  a: MacroListGroup,
+  b: MacroListGroup,
+  roles: Role[],
+  roleById: Map<string, Role>
+): number {
+  if (a.roleIds.length === 0 || b.roleIds.length === 0) {
+    return a.roleIds.length === 0 ? (b.roleIds.length === 0 ? 0 : 1) : -1;
+  }
+
+  const roleIndexById = new Map(roles.map((role, index) => [role.id, index]));
+  const aFirstIndex = roleIndexById.get(a.roleIds[0]) ?? Number.MAX_SAFE_INTEGER;
+  const bFirstIndex = roleIndexById.get(b.roleIds[0]) ?? Number.MAX_SAFE_INTEGER;
+  const aNames = a.roleIds.map((roleId) => roleById.get(roleId)?.name ?? roleId).join("\u0000");
+  const bNames = b.roleIds.map((roleId) => roleById.get(roleId)?.name ?? roleId).join("\u0000");
+
+  return aFirstIndex - bFirstIndex || compareText(aNames, bNames) || a.roleIds.length - b.roleIds.length;
 }
 
 function getMacroRoleSortIndex(macro: Macro, roles: Role[]): number {

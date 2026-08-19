@@ -54,10 +54,13 @@ describe("editor form state", () => {
 
   it("creates macro forms with a valid requested role and clones saved nested values", () => {
     const roles = [role(), role({ id: "role-2", name: "Support" })];
-    const newForm = createNewMacroForm([], roles, t, "role-2");
+    const newForm = createNewMacroForm([], roles, t, ["role-2"]);
     expect(newForm.enabled).toBe(true);
     expect(newForm.roleIds).toEqual(["role-2"]);
-    expect(createNewMacroForm([], roles, t, "missing").roleIds).toEqual(["role-1"]);
+    expect(createNewMacroForm([], roles, t, ["role-2", "role-1"]).roleIds)
+      .toEqual(["role-2", "role-1"]);
+    expect(createNewMacroForm([], roles, t, []).roleIds).toEqual([]);
+    expect(createNewMacroForm([], roles, t, ["missing"]).roleIds).toEqual(["role-1"]);
 
     const saved = macro({ enabled: false });
     const form = createMacroFormState(saved);

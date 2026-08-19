@@ -60,9 +60,9 @@ export function createNewMacroForm(
   macros: Macro[],
   roles: Role[],
   t: Translator,
-  requestedRoleId?: string
+  requestedRoleIds?: readonly string[]
 ): MacroFormState {
-  return createEmptyMacroForm(macros, roles, t, requestedRoleId);
+  return createEmptyMacroForm(macros, roles, t, requestedRoleIds);
 }
 
 export { createMacroFormState };

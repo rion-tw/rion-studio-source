@@ -6,7 +6,11 @@ import type { MacroFormState } from "../app/types";
 import { useConfirmation } from "../components/confirmation";
 import type { Translator } from "../i18n";
 import type { Macro } from "../../../shared/types";
-import { DEFAULT_MACRO_LIST_SORT, type MacroListSortState } from "../features/macros/macroListUtils";
+import {
+  DEFAULT_MACRO_LIST_SORT,
+  type MacroListSortState,
+  type MacroListViewMode
+} from "../features/macros/macroListUtils";
 import { getMacroPartialStartCounts } from "../features/macros/macroUtils";
 import { useBusyIds } from "./useBusyIds";
 
@@ -30,6 +34,10 @@ export function useMacroWorkflow({
   const [query, setQuery] = useState("");
   const [roleFilterId, setRoleFilterId] = useState("");
   const [sort, setSort] = useState<MacroListSortState>(DEFAULT_MACRO_LIST_SORT);
+  const [viewMode, setViewMode] = useState<MacroListViewMode>("grouped");
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
   const isSavingMacroRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
@@ -37,6 +45,18 @@ export function useMacroWorkflow({
     setQuery("");
     setRoleFilterId(roleId);
     listScrollTopRef.current = 0;
+  }, []);
+
+  const toggleMacroGroup = useCallback((groupKey: string): void => {
+    setCollapsedGroupKeys((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
   }, []);
 
   async function saveMacro(form: MacroFormState): Promise<Macro | undefined> {
@@ -278,6 +298,7 @@ export function useMacroWorkflow({
   return {
     busyMacroIds,
     busyRunKeys,
+    collapsedGroupKeys,
     handleCopyMacro,
     handleDeleteMacro,
     handleDeleteMacros,
@@ -297,7 +318,10 @@ export function useMacroWorkflow({
     setQuery,
     setRoleFilterId,
     setSort,
-    sort
+    setViewMode,
+    sort,
+    toggleMacroGroup,
+    viewMode
   };
 }
 

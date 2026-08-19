@@ -25,7 +25,15 @@ export function normalizeAppReturnTo(pathname: string, search = ""): string {
   return getEditorParentPath(pathname) ?? `${pathname}${search}`;
 }
 
+export function readRequestedMacroRoleIds(search: string): string[] | undefined {
+  const parameters = new URLSearchParams(search);
+  if (!parameters.has("roleIds") && !parameters.has("roleId")) {
+    return undefined;
+  }
+
+  return [...new Set(parameters.getAll("roleId").map((roleId) => roleId.trim()).filter(Boolean))];
+}
+
 export function readRequestedMacroRoleId(search: string): string | undefined {
-  const roleId = new URLSearchParams(search).get("roleId")?.trim();
-  return roleId || undefined;
+  return readRequestedMacroRoleIds(search)?.[0];
 }

@@ -91,8 +91,9 @@ export function App(): JSX.Element {
     (workspaceId: string) => navigate(createEditEditorPath("workspaces", workspaceId)),
     [navigate]
   );
-  const navigateToNewMacro = useCallback((roleId?: string) => {
-    const searchParams = roleId ? new URLSearchParams({ roleId }) : undefined;
+  const navigateToNewMacro = useCallback((roleIds?: readonly string[]) => {
+    const searchParams = roleIds === undefined ? undefined : new URLSearchParams({ roleIds: "" });
+    roleIds?.forEach((roleId) => searchParams?.append("roleId", roleId));
     navigate(createNewEditorPath("macros", searchParams));
   }, [navigate]);
   const navigateToEditMacro = useCallback(
@@ -638,6 +639,7 @@ export function App(): JSX.Element {
                   <MacrosRoute
                     busyMacroIds={macroWorkflow.busyMacroIds}
                     busyRunKeys={macroWorkflow.busyRunKeys}
+                    collapsedGroupKeys={macroWorkflow.collapsedGroupKeys}
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}
                     macroStatusByRun={data.macroStatusByRun}
@@ -646,6 +648,7 @@ export function App(): JSX.Element {
                     roles={data.roles}
                     scrollPositionRef={macroWorkflow.listScrollTopRef}
                     sort={macroWorkflow.sort}
+                    viewMode={macroWorkflow.viewMode}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     onCopyMacro={(macro) => void macroWorkflow.handleCopyMacro(macro)}
@@ -662,6 +665,8 @@ export function App(): JSX.Element {
                     onStartMacros={macroWorkflow.handleStartMacros}
                     onStopMacro={(macroId) => void macroWorkflow.handleStopMacro(macroId)}
                     onStopMacros={macroWorkflow.handleStopMacros}
+                    onToggleGroup={macroWorkflow.toggleMacroGroup}
+                    onViewModeChange={macroWorkflow.setViewMode}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +37,10 @@ beforeAll(() => {
       value: () => undefined
     },
     setPointerCapture: {
+      configurable: true,
+      value: () => undefined
+    },
+    scrollIntoView: {
       configurable: true,
       value: () => undefined
     }
@@ -218,8 +222,9 @@ describe("bulk selection UI", () => {
     expectSelectedCardOverlay(card);
   });
 
-  it("keeps macro rows selectable without rendering a checkbox column", async () => {
+  it("keeps table macro rows selectable without rendering a checkbox column", async () => {
     const item = macro("macro-1", "Auto heal");
+    const onSortChange = vi.fn();
     render(
       <MacrosRoute
         busyMacroIds={new Set()}
@@ -241,7 +246,7 @@ describe("bulk selection UI", () => {
         onNewMacro={vi.fn()}
         onQueryChange={vi.fn()}
         onRoleFilterChange={vi.fn()}
-        onSortChange={vi.fn()}
+        onSortChange={onSortChange}
         onStartMacro={vi.fn()}
         onStopMacro={vi.fn()}
       />
@@ -250,9 +255,14 @@ describe("bulk selection UI", () => {
     const macroRow = getSelectionItem(item.id);
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(macroRow.querySelector("[data-macro-selection-control]")).toBeNull();
-    expect(macroRow?.className).toContain("align-middle");
-    expect(macroRow.querySelector("td:first-child")?.className).toContain("py-2");
-    expect(macroRow.querySelector("td:first-child")?.className).toContain("align-middle");
+    expect(macroRow.className).toContain("macro-list-row");
+    expect(macroRow.tagName).toBe("TR");
+    expect(macroRow.closest("table")).not.toBeNull();
+    expect(macroRow.closest("table")?.querySelector("thead")).not.toBeNull();
+    expect(macroRow.closest("tbody")).not.toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Sort macros" })).toBeNull();
+    fireEvent.click(screen.getByTitle("Sort by Name"));
+    expect(onSortChange).toHaveBeenCalledWith({ direction: "desc", key: "name" });
 
     const startButton = screen.getByRole("button", { name: "Start" });
     const nameButton = screen.getByText("Auto heal").closest("button")!;
@@ -261,12 +271,12 @@ describe("bulk selection UI", () => {
     const repeatIndicator = screen.getByRole("img", { name: "Once" });
     const shortcutIndicator = macroRow.querySelector<HTMLElement>("[data-macro-shortcut-indicator]");
     expect(nameLayout).not.toBeNull();
-    expect(nameLayout?.className).toContain("pl-6");
-    expect(runLayout?.className).toContain("absolute");
-    expect(runLayout?.className).toContain("inset-y-0");
-    expect(runLayout?.className).toContain("-ml-1.5");
+    expect(nameLayout?.className).toContain("flex");
+    expect(nameButton.className).toContain("text-body");
+    expect(nameButton.className).not.toContain("text-heading");
+    expect(nameButton.className).not.toContain("text-title");
+    expect(runLayout?.className).toContain("shrink-0");
     expect(runLayout?.className).toContain("items-center");
-    expect(runLayout?.closest("td")?.className).toContain("relative");
     expect(startButton.className).toContain("h-5");
     expect(startButton.className).toContain("w-5");
     expect(runLayout?.querySelector("svg")?.getAttribute("width")).toBe("10");
@@ -278,9 +288,8 @@ describe("bulk selection UI", () => {
     expect(once.className).toContain("text-body");
     expect(once.className).toContain("leading-5");
     const actionLayout = screen.getByRole("button", { name: "Macro actions" }).closest("[data-macro-actions-control]");
-    expect(actionLayout?.className).toContain("absolute");
-    expect(actionLayout?.className).toContain("inset-0");
     expect(actionLayout?.className).toContain("items-center");
+    expect(actionLayout?.className).toContain("justify-end");
     expect(actionLayout?.contains(startButton)).toBe(false);
     const actionsButton = screen.getByRole("button", { name: "Macro actions" });
     expect(actionsButton.className).toContain("h-5");
@@ -289,6 +298,128 @@ describe("bulk selection UI", () => {
     fireEvent.click(macroRow, { ctrlKey: true });
     expect(screen.getByText("1 selected")).toBeTruthy();
     expect(document.querySelector("[data-selection-overlay]")).toBeNull();
+  });
+
+  it("groups macros by exact role assignment in table bodies and switches to the flat table", async () => {
+    const user = userEvent.setup();
+    const main = role("role-main", "Main role");
+    const alt = role("role-alt", "Alt role");
+    const shared = { ...macro("macro-shared", "Shared"), roleIds: [alt.id, main.id] };
+    const single = { ...macro("macro-single", "Single"), roleIds: [main.id] };
+    const unassigned = macro("macro-unassigned", "Unassigned");
+    const onNewMacro = vi.fn();
+    const onViewModeChange = vi.fn();
+    const route = (viewMode: "grouped" | "flat" = "grouped") => (
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        macros={[shared, single, unassigned]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query=""
+        roleFilterId=""
+        roles={[main, alt]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map()}
+        t={t}
+        viewMode={viewMode}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={onNewMacro}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+        onViewModeChange={onViewModeChange}
+      />
+    );
+    const { rerender } = render(route());
+
+    expect(document.querySelector("[data-macro-list-view='grouped']")).not.toBeNull();
+    expect(document.querySelectorAll("[data-macro-group]")).toHaveLength(3);
+    expect(document.querySelectorAll(`[data-selection-id='${shared.id}']`)).toHaveLength(1);
+    const sharedGroup = getSelectionItem(shared.id).closest<HTMLElement>("[data-macro-group]")!;
+    expect(sharedGroup.tagName).toBe("TBODY");
+    const sharedGroupHeading = sharedGroup.querySelector<HTMLElement>("tr:first-child")!;
+    expect(sharedGroupHeading.querySelector("td")?.getAttribute("colspan")).toBe("5");
+    expect(sharedGroupHeading.className).not.toContain("bg-");
+    expect(sharedGroupHeading.className).toContain("border-border/70");
+    const groupHeaderButtons = [...sharedGroupHeading.querySelectorAll("button")];
+    expect(groupHeaderButtons[1]?.getAttribute("aria-label")).toBe("New macro");
+    expect(groupHeaderButtons.at(-1)?.getAttribute("aria-label"))
+      .toBe("Collapse macro group");
+    expect(within(sharedGroup).getByText("Main role")).toBeTruthy();
+    expect(within(sharedGroup).getByText("Alt role")).toBeTruthy();
+    await user.click(within(sharedGroup).getByRole("button", { name: "New macro" }));
+    expect(onNewMacro).toHaveBeenCalledWith([main.id, alt.id]);
+    expect([...document.querySelectorAll("[data-macro-group]")].at(-1)?.textContent).toContain("Unassigned macros");
+    expect(screen.queryByText("1 need attention")).toBeNull();
+
+    const viewSelect = screen.getByRole("combobox", { name: "Macro view" });
+    const roleSelect = screen.getByRole("combobox", { name: "Filter by execution role" });
+    expect(viewSelect.compareDocumentPosition(roleSelect) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    await user.click(viewSelect);
+    await user.click(screen.getByRole("option", { name: "Flat" }));
+    expect(onViewModeChange).toHaveBeenCalledWith("flat");
+    rerender(route("flat"));
+
+    expect(document.querySelector("[data-macro-list-view='flat']")).not.toBeNull();
+    expect(document.querySelector("[data-macro-group]")).toBeNull();
+    expect(getSelectionItem(shared.id).closest("table")).not.toBeNull();
+    expect(getSelectionItem(shared.id).closest("table")?.querySelectorAll("thead th")).toHaveLength(6);
+    expect(within(getSelectionItem(shared.id)).getByText("Main role")).toBeTruthy();
+    expect(within(getSelectionItem(shared.id)).getByText("Alt role")).toBeTruthy();
+  });
+
+  it("selects a whole group and removes hidden selections when that group collapses", async () => {
+    const main = role("role-main", "Main role");
+    const first = { ...macro("macro-first", "First"), roleIds: [main.id] };
+    const second = { ...macro("macro-second", "Second"), roleIds: [main.id] };
+    const route = (collapsedGroupKeys: ReadonlySet<string>, query = "") => (
+      <MacrosRoute
+        busyMacroIds={new Set()}
+        busyRunKeys={new Set()}
+        collapsedGroupKeys={collapsedGroupKeys}
+        macros={[first, second]}
+        macroStatuses={[]}
+        macroStatusByRun={new Map()}
+        query={query}
+        roleFilterId=""
+        roles={[main]}
+        scrollPositionRef={{ current: 0 }}
+        sort={DEFAULT_MACRO_LIST_SORT}
+        statusByRole={new Map()}
+        t={t}
+        onCopyMacro={vi.fn()}
+        onDeleteMacro={vi.fn()}
+        onDeleteMacros={vi.fn().mockResolvedValue(false)}
+        onEditMacro={vi.fn()}
+        onNewMacro={vi.fn()}
+        onQueryChange={vi.fn()}
+        onRoleFilterChange={vi.fn()}
+        onSortChange={vi.fn()}
+        onStartMacro={vi.fn()}
+        onStopMacro={vi.fn()}
+      />
+    );
+    const { rerender } = render(route(new Set()));
+    const group = getSelectionItem(first.id).closest<HTMLElement>("[data-macro-group]")!;
+    const groupKey = group.dataset.macroGroup!;
+
+    fireEvent.click(within(group).getByRole("button", { name: "Select 2" }));
+    expect(screen.getByText("2 selected")).toBeTruthy();
+
+    rerender(route(new Set([groupKey])));
+    await waitFor(() => expect(screen.queryByText("2 selected")).toBeNull());
+    expect(document.querySelector(`[data-selection-id='${first.id}']`)).toBeNull();
+
+    rerender(route(new Set([groupKey]), "First"));
+    expect(getSelectionItem(first.id)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Collapse macro group" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows the loop wait duration beside its timer icon", () => {
@@ -466,7 +597,7 @@ describe("bulk selection UI", () => {
       />
     );
 
-    fireEvent.click(screen.getByText("Main role").closest("[data-selection-id]")!, { ctrlKey: true });
+    fireEvent.click(getSelectionItem(item.id), { ctrlKey: true });
 
     for (const label of ["Run 0", "Stop 0", "Enable 0", "Disable 0"]) {
       expect((screen.getByRole("button", { name: label }) as HTMLButtonElement).disabled).toBe(true);
@@ -505,7 +636,7 @@ describe("bulk selection UI", () => {
       />
     );
 
-    const scrollContainer = document.querySelector<HTMLElement>(".mac-list-surface > .relative");
+    const scrollContainer = document.querySelector<HTMLElement>("[data-macro-list-view]");
     expect(scrollContainer).not.toBeNull();
     setBounds(scrollContainer!, 100, 50, 400, 100);
     setBounds(getSelectionItem("macro-alpha"), 110, 70, 300, 30);

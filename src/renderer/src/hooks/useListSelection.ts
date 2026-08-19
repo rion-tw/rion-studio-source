@@ -71,6 +71,13 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     anchorIdRef.current = orderedIdsRef.current.at(-1) ?? null;
   }, [commitSelection]);
 
+  const selectIds = useCallback((ids: Iterable<string>): void => {
+    const requestedIds = new Set(ids);
+    const visibleIds = orderedIdsRef.current.filter((id) => requestedIds.has(id));
+    commitSelection(visibleIds);
+    anchorIdRef.current = visibleIds.at(-1) ?? null;
+  }, [commitSelection]);
+
   useEffect(() => {
     const visibleIds = new Set(orderedIds);
     const nextSelected = [...selectedIdsRef.current].filter((id) => visibleIds.has(id));
@@ -358,6 +365,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     registerItem,
     selectedIds,
     selectAll,
+    selectIds,
     selectionRect,
     toggleSelection
   }), [
@@ -371,6 +379,7 @@ export function useListSelection({ orderedIds, scrollContainerRef }: UseListSele
     registerItem,
     selectedIds,
     selectAll,
+    selectIds,
     selectionRect,
     toggleSelection
   ]);

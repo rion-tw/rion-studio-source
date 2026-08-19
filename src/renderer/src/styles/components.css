@@ -9,6 +9,31 @@
     flex-direction: column;
   }
 
+  .macro-list-table {
+    min-width: 0;
+  }
+
+  .macro-list-column-name {
+    width: 38%;
+  }
+
+  .macro-list-column-roles {
+    width: 28%;
+  }
+
+  .macro-list-column-repeat {
+    width: 22%;
+  }
+
+  .macro-list-column-actions {
+    width: 2.5rem;
+  }
+
+  .macro-list-column-shortcut,
+  .macro-list-column-steps {
+    display: none;
+  }
+
   @container app-content (max-width: 599px) {
     .collection-grid-games,
     .collection-grid-roles,
@@ -34,6 +59,10 @@
     .page-header-select {
       width: 11rem;
     }
+
+    .macro-view-select {
+      width: 9rem;
+    }
   }
 
   @container app-content (min-width: 660px) {
@@ -49,6 +78,23 @@
       flex-direction: row;
       align-items: center;
       justify-content: space-between;
+    }
+
+    .macro-list-column-name {
+      width: 30%;
+    }
+
+    .macro-list-column-roles {
+      width: 24%;
+    }
+
+    .macro-list-column-shortcut {
+      display: table-cell;
+      width: 22%;
+    }
+
+    .macro-list-column-repeat {
+      width: 16%;
     }
   }
 
@@ -71,6 +117,26 @@
 
     .collection-grid-roles {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .macro-list-column-name {
+      width: 24%;
+    }
+
+    .macro-list-column-roles {
+      width: 20%;
+    }
+
+    .macro-list-column-shortcut {
+      width: 18%;
+    }
+
+    .macro-list-column-repeat {
+      width: 14%;
+    }
+
+    .macro-list-column-steps {
+      display: table-cell;
     }
   }
 

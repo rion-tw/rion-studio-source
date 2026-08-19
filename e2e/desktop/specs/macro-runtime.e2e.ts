@@ -1,4 +1,4 @@
-import { $, expect } from "@wdio/globals";
+import { $, $$, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
 import {
@@ -425,6 +425,13 @@ async function multiRolePhase(): Promise<void> {
   });
   const tab = await launchWorkspace(scenario.workspace!, scenario.roles);
   const live = await windowSnapshot(tab.windowId);
+  await navigate("/macros");
+  await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });
+  const groupedRows = await $$(`[data-selection-id='${scenario.macro.id}']`);
+  expect(groupedRows).toHaveLength(1);
+  const assignmentGroup = await $(`[data-macro-group]:has([data-selection-id='${scenario.macro.id}'])`);
+  await expect(assignmentGroup).toHaveText(expect.stringContaining(scenario.roles[0].name));
+  await expect(assignmentGroup).toHaveText(expect.stringContaining(scenario.roles[1].name));
   const macroCursor = await startMacro(scenario.macro, scenario.roles.map((role) => role.id));
   const firstCursor = await fixtureCursor();
   await Promise.all([

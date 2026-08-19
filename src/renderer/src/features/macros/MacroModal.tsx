@@ -18,7 +18,7 @@ import { FormField, HelpPanel, SegmentedControl, Surface } from "../../component
 
 import { areEditorFormsEqual, createMacroFormState, createNewMacroForm } from "../../app/editorFormState";
 
-import { readRequestedMacroRoleId } from "../../app/editorNavigation";
+import { readRequestedMacroRoleIds } from "../../app/editorNavigation";
 
 import type { MacroFormState } from "../../app/types";
 
@@ -73,11 +73,11 @@ function MacroEditorRoute(props: MacroEditorRouteProps): JSX.Element {
     );
   }
 
-  const requestedRoleId = readRequestedMacroRoleId(location.search);
+  const requestedRoleIds = readRequestedMacroRoleIds(location.search);
   const initialForm = selectedMacro
     ? createMacroFormState(selectedMacro)
-    : createNewMacroForm(props.macros, props.roles, props.t, requestedRoleId);
-  return <MacroEditor key={id ?? `new:${requestedRoleId ?? ""}`} {...props} initialForm={initialForm} />;
+    : createNewMacroForm(props.macros, props.roles, props.t, requestedRoleIds);
+  return <MacroEditor key={id ?? `new:${requestedRoleIds?.join(",") ?? ""}`} {...props} initialForm={initialForm} />;
 }
 
 function MacroEditor({

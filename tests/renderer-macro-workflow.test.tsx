@@ -38,6 +38,29 @@ describe("useMacroWorkflow", () => {
     expect(result.current.sort).toEqual({ direction: "desc", key: "repeat" });
   });
 
+  it("keeps the macro view and collapsed groups for the App work session", () => {
+    const { result } = renderHook(() => useMacroWorkflow({
+      beginErrorOperation: () => vi.fn(),
+      macros: [],
+      setNotice: vi.fn(),
+      t
+    }), { wrapper: ConfirmationWrapper });
+
+    expect(result.current.viewMode).toBe("grouped");
+    expect(result.current.collapsedGroupKeys).toEqual(new Set());
+
+    act(() => {
+      result.current.setViewMode("flat");
+      result.current.toggleMacroGroup("roles:[\"role-1\"]");
+    });
+
+    expect(result.current.viewMode).toBe("flat");
+    expect(result.current.collapsedGroupKeys).toEqual(new Set(["roles:[\"role-1\"]"]));
+
+    act(() => result.current.toggleMacroGroup("roles:[\"role-1\"]"));
+    expect(result.current.collapsedGroupKeys).toEqual(new Set());
+  });
+
   it("keeps the role filter after creating a macro", async () => {
     const savedMacro: Macro = {
       id: "macro-1",

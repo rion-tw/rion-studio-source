@@ -309,7 +309,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Use the labeled macro-name field to create a role-assigned macro, verify disabled launch failure, then start and stop it from the UI."
+      "description": "Create a role-assigned macro, verify its grouped table, count-aware selection and group-prefilled add action, exercise header sorting and grouped/flat switching, then start and stop it from the UI."
     },
     {
       "id": "MACRO-NATIVE-EFFECT-003",
@@ -351,7 +351,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Run one looping macro across two workspace roles and preserve balanced iterations through a visible role focus change."
+      "description": "Show one looping macro exactly once in its combined two-role group, run it across both workspace roles, and preserve balanced iterations through a visible role focus change."
     },
     {
       "id": "MACRO-INPUT-RECOVERY-011",

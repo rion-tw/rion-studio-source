@@ -5,7 +5,8 @@ import {
   createNewEditorPath,
   getEditorParentPath,
   normalizeAppReturnTo,
-  readRequestedMacroRoleId
+  readRequestedMacroRoleId,
+  readRequestedMacroRoleIds
 } from "../src/renderer/src/app/editorNavigation";
 
 describe("editor navigation", () => {
@@ -32,7 +33,12 @@ describe("editor navigation", () => {
 
   it("reads optional macro role selections", () => {
     expect(readRequestedMacroRoleId("?roleId=role-1")).toBe("role-1");
+    expect(readRequestedMacroRoleIds("?roleIds=&roleId=role-1&roleId=role-2&roleId=role-1"))
+      .toEqual(["role-1", "role-2"]);
+    expect(readRequestedMacroRoleIds("?roleIds=")).toEqual([]);
     expect(readRequestedMacroRoleId("?roleId=%20%20")).toBeUndefined();
+    expect(readRequestedMacroRoleIds("?roleId=%20%20")).toEqual([]);
     expect(readRequestedMacroRoleId("")).toBeUndefined();
+    expect(readRequestedMacroRoleIds("")).toBeUndefined();
   });
 });

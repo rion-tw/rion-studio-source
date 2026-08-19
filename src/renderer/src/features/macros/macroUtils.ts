@@ -226,18 +226,20 @@ export function createEmptyMacroForm(
   macros: Macro[],
   roles: Role[],
   t: Translator,
-  requestedRoleId?: string
+  requestedRoleIds?: readonly string[]
 ): MacroFormState {
-  const roleId =
-    requestedRoleId && roles.some((role) => role.id === requestedRoleId)
-      ? requestedRoleId
-      : roles[0]?.id ?? "";
+  const validRoleIds = requestedRoleIds
+    ? [...new Set(requestedRoleIds)].filter((roleId) => roles.some((role) => role.id === roleId))
+    : undefined;
+  const roleIds = requestedRoleIds === undefined || (requestedRoleIds.length > 0 && validRoleIds?.length === 0)
+    ? roles[0] ? [roles[0].id] : []
+    : validRoleIds ?? [];
 
   return {
     enabled: true,
     activationMode: "toggle",
     name: createEmptyMacroFormName(macros, t),
-    roleIds: roleId ? [roleId] : [],
+    roleIds,
     shortcutSourceScope: { type: "all_execution_roles" },
     repeat: { type: "once" },
     steps: []

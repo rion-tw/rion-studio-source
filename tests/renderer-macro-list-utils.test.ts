@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_MACRO_LIST_SORT,
+  getMacroListGroups,
   getMacroListItems,
   type MacroListSortState
 } from "../src/renderer/src/features/macros/macroListUtils";
@@ -80,7 +81,7 @@ describe("renderer macro list helpers", () => {
     expect(listIds({ macros: [unassigned, assigned], roles })).toEqual(["assigned", "unassigned"]);
   });
 
-  it("defaults to role order, then name, created time, and original order", () => {
+  it("defaults to name, then role order, created time, and original order", () => {
     const roles = [role({ id: "role-2", name: "Second" }), role({ id: "role-1", name: "First" })];
     const macros = [
       macro({
@@ -116,9 +117,64 @@ describe("renderer macro list helpers", () => {
     expect(listIds({ macros, roles })).toEqual([
       "role-2-alpha-old",
       "role-2-alpha-new",
-      "role-2-beta",
-      "role-1-alpha"
+      "role-1-alpha",
+      "role-2-beta"
     ]);
+  });
+
+  it("groups by canonical execution-role sets without duplicating multi-role macros", () => {
+    const roles = [role({ id: "role-2", name: "Second" }), role({ id: "role-1", name: "First" })];
+    const macros = [
+      macro({ id: "first", name: "First only", roleIds: ["role-1"] }),
+      macro({ id: "second", name: "Second only", roleIds: ["role-2"] }),
+      macro({ id: "shared-a", name: "Shared A", roleIds: ["role-1", "role-2"] }),
+      macro({ id: "shared-b", name: "Shared B", roleIds: ["role-2", "role-1"] }),
+      macro({ id: "unknown", name: "Unknown", roleIds: ["missing-role"] }),
+      macro({ id: "unassigned", name: "Unassigned", roleIds: [] })
+    ];
+
+    const groups = getMacroListGroups({
+      macros,
+      query: "",
+      roleFilterId: "",
+      roles,
+      sort: DEFAULT_MACRO_LIST_SORT,
+      t
+    });
+
+    expect(groups.map((group) => ({
+      macroIds: group.macros.map((item) => item.id),
+      roleIds: group.roleIds
+    }))).toEqual([
+      { macroIds: ["second"], roleIds: ["role-2"] },
+      { macroIds: ["shared-a", "shared-b"], roleIds: ["role-2", "role-1"] },
+      { macroIds: ["first"], roleIds: ["role-1"] },
+      { macroIds: ["unknown"], roleIds: ["missing-role"] },
+      { macroIds: ["unassigned"], roleIds: [] }
+    ]);
+    expect(groups.flatMap((group) => group.macros).map((item) => item.id)).toHaveLength(macros.length);
+  });
+
+  it("applies role filters and search before grouping", () => {
+    const roles = [role({ id: "role-1", name: "Main" }), role({ id: "role-2", name: "Alt" })];
+    const macros = [
+      macro({ id: "main", name: "Heal", roleIds: ["role-1"] }),
+      macro({ id: "shared", name: "Shared shield", roleIds: ["role-1", "role-2"] }),
+      macro({ id: "alt", name: "Alt attack", roleIds: ["role-2"] })
+    ];
+
+    const groups = getMacroListGroups({
+      macros,
+      query: "shield",
+      roleFilterId: "role-2",
+      roles,
+      sort: DEFAULT_MACRO_LIST_SORT,
+      t
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].roleIds).toEqual(["role-1", "role-2"]);
+    expect(groups[0].macros.map((item) => item.id)).toEqual(["shared"]);
   });
 
   it("sorts by the selected column in ascending or descending order", () => {

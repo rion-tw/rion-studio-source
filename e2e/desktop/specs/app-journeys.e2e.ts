@@ -220,6 +220,33 @@ async function createMacro(role: Role): Promise<Macro> {
   await $("button=Hold until stopped").click();
   await submitEditor("/macros");
   const macro = await findMacro(MACRO_NAME);
+  await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });
+  expect(await $("[data-macro-list-view='grouped'] table thead").isExisting()).toBe(true);
+  const roleGroup = await $(`[data-macro-group]:has([data-selection-id='${macro.id}'])`);
+  expect(await roleGroup.getTagName()).toBe("tbody");
+  expect(await roleGroup.$("tr:first-child > td").getAttribute("colspan")).toBe("5");
+  await expect(roleGroup).toHaveText(expect.stringContaining(role.name));
+  expect(await roleGroup.$("button=Select 1").isExisting()).toBe(true);
+  expect(await roleGroup.getText()).not.toContain("1 macros");
+  await roleGroup.$("button[aria-label='New macro']").click();
+  await $("h1=New Macro").waitForExist({ timeout: 10_000 });
+  expect(await browser.execute(() => {
+    const route = window.location.hash.slice(1);
+    return new URL(route, "https://rion.invalid").searchParams.getAll("roleId");
+  }))
+    .toEqual([role.id]);
+  await navigate("/macros");
+  await $("thead th[aria-sort='ascending'] button[title='Sort by Name']").click();
+  await $("thead th[aria-sort='descending'] button[title='Sort by Name']").waitForExist({ timeout: 10_000 });
+  await $("thead th[aria-sort='descending'] button[title='Sort by Name']").click();
+  await $("thead th[aria-sort='ascending'] button[title='Sort by Name']").waitForExist({ timeout: 10_000 });
+  await $("button[role='combobox'][aria-label='Macro view']").click();
+  await $('//*[@role="option" and normalize-space(.)="Flat"]').click();
+  await $("[data-macro-list-view='flat']").waitForExist({ timeout: 10_000 });
+  expect(await $("[data-macro-list-view='flat'] table tbody").isExisting()).toBe(true);
+  await $("button[role='combobox'][aria-label='Macro view']").click();
+  await $('//*[@role="option" and normalize-space(.)="Grouped"]').click();
+  await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });
   const runButton = await $(`[data-selection-id='${macro.id}'] button[aria-label='Start']`);
   await expect(runButton).toBeDisabled();
   return macro;

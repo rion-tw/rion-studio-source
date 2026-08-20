@@ -173,7 +173,11 @@ impl SystemRuntimeExecutor {
                 tab.roles.iter().map(|(role_id, surface)| {
                     json!({
                         "roleId": role_id,
-                        "url": surface.webview.url().ok().map(|url| url.to_string()),
+                        // Wry's macOS URL accessor unwraps WKWebView.URL even while a
+                        // newly attached surface can still report nil. The runtime's
+                        // intended URL is recorded before native navigation begins and
+                        // is the authoritative, race-free E2E observation here.
+                        "url": surface.current_url.as_ref().map(|url| url.to_string()),
                         "webviewLabel": surface.webview.label(),
                     })
                 })

@@ -293,6 +293,9 @@ describe("Workspace Web surface wiring", () => {
     expect(source).toContain("workspace_contained_fullscreen_script()");
     expect(source).toContain("popupContainedFullscreenPolicyFailed");
     expect(source).toContain("preflight_platform_contained_fullscreen_policy");
+    expect(source).toContain("defer_windows_contained_fullscreen_popup_setup");
+    expect(source).toContain("drop(tauri::async_runtime::spawn_blocking");
+    expect(source).toContain("popup_navigation_ready_for_handler.load(Ordering::Acquire)");
     expect(source).not.toContain("__rion_web_toolbar_host");
   });
 });

@@ -1,3 +1,88 @@
+#[cfg(windows)]
+fn defer_windows_contained_fullscreen_popup_setup(
+    app: AppHandle,
+    window: WebviewWindow,
+    label: String,
+    role_id: String,
+    generation: u64,
+    url: Url,
+    navigation_ready: Arc<AtomicBool>,
+) {
+    // WebView2 delivers ExecuteScript completion on its UI thread. The popup
+    // request callback must return before the DeadlineBound preflight waits for
+    // that acknowledgement, otherwise the callback prevents its own terminal
+    // event from being delivered.
+    drop(tauri::async_runtime::spawn_blocking(move || {
+        let result = (|| -> RuntimeResult<()> {
+            install_platform_contained_fullscreen_policy(window.as_ref())?;
+            preflight_platform_contained_fullscreen_policy(window.as_ref())?;
+            install_platform_security_policy(window.as_ref())?;
+            let state = app.try_state::<crate::CoreState>().ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_RUNTIME_UNAVAILABLE",
+                    "System Runtime stopped while preparing a contained-fullscreen popup.",
+                )
+            })?;
+            let lifecycle = state.runtime.install_popup_surface_lifecycle_tracker(
+                window.as_ref(),
+                &label,
+                &role_id,
+                generation,
+            )?;
+            install_process_failure_monitor(
+                window.as_ref(),
+                app.clone(),
+                SurfaceFailureTarget::Popup {
+                    label: label.clone(),
+                    role_id: role_id.clone(),
+                    generation,
+                },
+            )?;
+            state.runtime.register_popup(
+                window.as_ref(),
+                &lifecycle,
+                label.clone(),
+                role_id.clone(),
+                generation,
+            )?;
+            navigation_ready.store(true, Ordering::Release);
+            window.navigate(url.clone()).map_err(RuntimeError::tauri)?;
+            window.show().map_err(RuntimeError::tauri)
+        })();
+        if let Err(error) = result {
+            let _ = window.close();
+            if let Some(state) = app.try_state::<crate::CoreState>() {
+                state.runtime.revoke_overlay_capability(&label);
+                let stage = match error.code {
+                    "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_FAILED"
+                    | "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_TIMEOUT" => {
+                        "popupContainedFullscreenPreflightFailed"
+                    }
+                    "SYSTEM_SECURITY_POLICY_FAILED" | "SYSTEM_SECURITY_POLICY_TIMEOUT" => {
+                        "popupSecurityFailed"
+                    }
+                    _ => "popupContainedFullscreenPolicyFailed",
+                };
+                state.runtime.record_popup_contract_outcome(
+                    Some(&role_id),
+                    stage,
+                    NativeOperationStatus::Failed,
+                    Some(error.code),
+                );
+            }
+            let _ = app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": error.code,
+                    "message": error.message,
+                    "roleId": role_id,
+                    "url": url
+                }),
+            );
+        }
+    }));
+}
+
 impl SystemRuntimeExecutor {
     fn webview_builder(
         &self,
@@ -143,11 +228,11 @@ impl SystemRuntimeExecutor {
                 let popup_navigation_role_id = role_id.clone();
                 #[cfg(not(target_os = "macos"))]
                 let popup_navigation_label = label.clone();
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 let popup_navigation_ready = Arc::new(AtomicBool::new(
                     !popup_install_contained_fullscreen,
                 ));
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 let popup_navigation_ready_for_handler =
                     Arc::clone(&popup_navigation_ready);
                 let popup_page_load_app = popup_app.clone();
@@ -173,6 +258,13 @@ impl SystemRuntimeExecutor {
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
+                    #[cfg(windows)]
+                    if popup_install_contained_fullscreen
+                        && target.scheme() != "about"
+                        && !popup_navigation_ready_for_handler.load(Ordering::Acquire)
+                    {
+                        return false;
+                    }
                     if !popup_install_role_features {
                         return matches!(target.scheme(), "about" | "http" | "https");
                     }
@@ -241,7 +333,7 @@ impl SystemRuntimeExecutor {
                 #[cfg(target_os = "macos")]
                 let popup_builder =
                     popup_builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
-                #[cfg(target_os = "macos")]
+                #[cfg(any(windows, target_os = "macos"))]
                 let popup_builder = if popup_install_contained_fullscreen {
                     popup_builder.visible(false)
                 } else {
@@ -341,34 +433,30 @@ impl SystemRuntimeExecutor {
                             }
                             return NewWindowResponse::Create { window };
                         }
-                        if popup_install_contained_fullscreen
-                            && let Err(error) = install_platform_contained_fullscreen_policy(
-                                window.as_ref(),
-                            )
-                            .and_then(|()| {
-                                preflight_platform_contained_fullscreen_policy(window.as_ref())
-                            })
-                        {
-                            let _ = window.close();
-                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
-                                state.runtime.revoke_overlay_capability(&label);
-                                state.runtime.record_popup_contract_outcome(
-                                    Some(role_id),
-                                    "popupContainedFullscreenPreflightFailed",
-                                    NativeOperationStatus::Failed,
-                                    Some(error.code),
-                                );
-                            }
-                            let _ = popup_app.emit(
-                                "rion://shell-error",
-                                json!({
-                                    "code": error.code,
-                                    "message": error.message,
-                                    "roleId": role_id,
-                                    "url": url
-                                }),
+                        #[cfg(windows)]
+                        if popup_install_contained_fullscreen {
+                            let generation = popup_app
+                                .try_state::<crate::CoreState>()
+                                .and_then(|state| {
+                                    state.runtime.surface_generation_for_role(role_id)
+                                });
+                            let Some(generation) = generation else {
+                                let _ = window.close();
+                                if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                    state.runtime.revoke_overlay_capability(&label);
+                                }
+                                return NewWindowResponse::Deny;
+                            };
+                            defer_windows_contained_fullscreen_popup_setup(
+                                popup_app.clone(),
+                                window.clone(),
+                                label.clone(),
+                                role_id.clone(),
+                                generation,
+                                url.clone(),
+                                Arc::clone(&popup_navigation_ready),
                             );
-                            return NewWindowResponse::Deny;
+                            return NewWindowResponse::Create { window };
                         }
                         if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();

@@ -185,6 +185,20 @@ describe("desktop E2E build isolation", () => {
     expect(source).toContain('"window-focus-acknowledged"');
   });
 
+  it("reads the recorded role URL without querying a not-yet-ready WKWebView", async () => {
+    const source = await readFile(
+      "src-tauri/src/system_runtime/section_31_desktop_e2e.rs",
+      "utf8"
+    );
+    const snapshot = source.slice(
+      source.indexOf("pub(crate) fn desktop_e2e_window_snapshot"),
+      source.indexOf("pub(crate) fn desktop_e2e_control_window")
+    );
+
+    expect(snapshot).toContain("surface.current_url.as_ref()");
+    expect(snapshot).not.toContain("surface.webview.url()");
+  });
+
   it("focuses the native Game Window before the desktop E2E role surface", async () => {
     const [controlSource, journeySource] = await Promise.all([
       readFile("src-tauri/src/system_runtime/section_31_desktop_e2e_ui.rs", "utf8"),

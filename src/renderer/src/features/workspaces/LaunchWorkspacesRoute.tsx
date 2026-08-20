@@ -54,6 +54,7 @@ import { workspaceTemplateLabelKeys } from "./workspaceConstants";
 import { useListSelection } from "../../hooks/useListSelection";
 import { getPointerDragTargetId, usePointerDrag } from "../../hooks/usePointerDrag";
 import { WorkspaceActionMenu, WorkspaceContextMenuContent } from "./WorkspaceActionMenu";
+import { resolveWorkspaceWebPreset } from "./workspaceWebPresets";
 import { automaticRuntimeLaunchTitle } from "../game-windows/runtimeLaunchDestinationModel";
 
 interface LaunchWorkspacesViewProps {
@@ -622,11 +623,16 @@ function WorkspaceLayoutPreviewSlot({
   t
 }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
+  const webPreset = web ? resolveWorkspaceWebPreset(web.startUrl) : undefined;
   const backgroundStyle = createWorkspaceSlotBackground(role);
   const style = {
     "--workspace-slot-caption-bottom-left-radius": "0px",
     "--workspace-slot-caption-bottom-right-radius": "0px",
-    ...(backgroundStyle?.backgroundColor ? { backgroundColor: backgroundStyle.backgroundColor } : {})
+    ...(webPreset
+      ? { backgroundColor: "hsl(var(--media-black))" }
+      : backgroundStyle?.backgroundColor
+        ? { backgroundColor: backgroundStyle.backgroundColor }
+        : {})
   } as CSSProperties & Record<"--workspace-slot-caption-bottom-left-radius" | "--workspace-slot-caption-bottom-right-radius", string>;
 
   return (
@@ -635,6 +641,7 @@ function WorkspaceLayoutPreviewSlot({
         "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden [contain:paint]",
         role || web ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
+      data-workspace-preview-web-preset-id={webPreset?.id ?? ""}
       style={style}
     >
       {role ? (
@@ -648,6 +655,26 @@ function WorkspaceLayoutPreviewSlot({
           src={getWorkspaceSlotCoverUrl(role)}
         />
       ) : null}
+      {webPreset ? (
+        <img
+          alt=""
+          aria-hidden="true"
+          className={cn(
+            "absolute inset-0 size-full",
+            webPreset.brandImagePresentation === "cover"
+              ? "object-cover"
+              : "object-contain p-[clamp(0.5rem,12%,2.5rem)]"
+          )}
+          data-workspace-web-brand-image
+          decoding="async"
+          draggable={false}
+          loading="lazy"
+          src={webPreset.brandImageUrl}
+        />
+      ) : null}
+      {webPreset ? (
+        <div className="absolute inset-0 bg-gradient-to-t from-media-black/30 via-transparent to-media-black/5" />
+      ) : null}
       <div className="workspace-slot-caption workspace-slot-caption--compact">
         <p className="workspace-slot-caption-title gap-1.5 text-caption font-semibold">
           {role ? (
@@ -658,7 +685,7 @@ function WorkspaceLayoutPreviewSlot({
           ) : web ? (
             <span className="workspace-role-chip-text">
               <span className="flex min-w-0 items-center gap-1.5 truncate">
-                <Globe2 className="size-3.5 shrink-0" aria-hidden="true" />
+                {webPreset ? null : <Globe2 className="size-3.5 shrink-0" aria-hidden="true" />}
                 {web.name}
               </span>
               <span className="workspace-role-game-label min-w-0 truncate">{web.startUrl}</span>

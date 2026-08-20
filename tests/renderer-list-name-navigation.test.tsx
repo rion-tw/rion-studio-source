@@ -353,6 +353,66 @@ describe("list editor navigation", () => {
     expect(onEditWorkspace).toHaveBeenCalledWith(item);
   });
 
+  it("shows known Web App brand images in workspace list previews", () => {
+    const knownWorkspace = {
+      ...workspace(1),
+      slots: [{
+        id: "slot-1",
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+        web: { name: "Watch", startUrl: "https://studio.youtube.com/channel/test" }
+      }]
+    };
+    const customWorkspace = {
+      ...workspace(2),
+      slots: [{
+        id: "slot-2",
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+        web: { name: "Custom", startUrl: "https://custom.example.test/" }
+      }]
+    };
+    const { container } = render(
+      <LaunchWorkspacesView
+        busyWorkspaceIds={new Set()}
+        games={[]}
+        gameWindows={[]}
+        isReordering={false}
+        query=""
+        roles={[]}
+        runtime={emptyRuntime}
+        scrollPositionRef={{ current: 0 }}
+        t={t}
+        workspaces={[knownWorkspace, customWorkspace]}
+        onCopyWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
+        onEditWorkspace={vi.fn()}
+        onLaunchWorkspace={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorderWorkspaces={vi.fn()}
+      />
+    );
+
+    const knownPreview = container.querySelector<HTMLElement>(
+      "[data-workspace-reorder-id='workspace-1'] [data-workspace-preview-web-preset-id]"
+    );
+    const customPreview = container.querySelector<HTMLElement>(
+      "[data-workspace-reorder-id='workspace-2'] [data-workspace-preview-web-preset-id]"
+    );
+    if (!knownPreview || !customPreview) throw new Error("Expected workspace Web App previews.");
+
+    const brandImage = knownPreview.querySelector<HTMLImageElement>("[data-workspace-web-brand-image]");
+    expect(knownPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("youtube");
+    expect(brandImage).not.toBeNull();
+    expect(brandImage?.getAttribute("loading")).toBe("lazy");
+    expect(brandImage?.getAttribute("decoding")).toBe("async");
+    expect(knownPreview.querySelector(".workspace-slot-caption svg")).toBeNull();
+
+    expect(customPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("");
+    expect(customPreview.querySelector("[data-workspace-web-brand-image]")).toBeNull();
+    expect(customPreview.querySelector(".workspace-slot-caption svg")).not.toBeNull();
+  });
+
   it.each(["darwin", "win32"] as const)("reorders roles with pointer dragging on %s", (platform) => {
     document.documentElement.dataset.platform = platform === "darwin" ? "mac" : "windows";
     const roles = [role(1), role(2), role(3)];

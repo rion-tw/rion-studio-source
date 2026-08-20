@@ -511,6 +511,19 @@ async fn rion_shell_invoke(
                 .map_err(error_payload)
         }
         "embeddedRuntimeState" => embedded_runtime_state(&state),
+        "clearGlobalWebProfile" => {
+            let runtime = Arc::clone(&state.runtime);
+            tauri::async_runtime::spawn_blocking(move || runtime.clear_global_web_profile())
+                .await
+                .map_err(|error| {
+                    shell_error(
+                        "GLOBAL_WEB_PROFILE_CLEAR_FAILED",
+                        format!("The shared Web profile worker failed: {error}"),
+                    )
+                })?
+                .map(|()| Value::Null)
+                .map_err(|error| shell_error(error.code, error.message))
+        }
         "startMacro" => {
             let macro_id = string_argument(&args, 0, "Macro ID")?;
             invoke_core_async(

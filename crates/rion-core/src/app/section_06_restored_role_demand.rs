@@ -76,6 +76,7 @@ impl AppCore {
             slots: vec![EmbeddedRoleSlotEffectRecord {
                 slot_id: runtime_slot.slot_id,
                 role: role.clone(),
+                web: None,
                 rect: runtime_slot.rect,
                 zoom_factor,
                 zoom_mode: "fixed".to_owned(),

@@ -616,6 +616,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     deleteRole: (id) => invokeCore({ type: "roleDelete", id }).then(() => undefined),
     deleteRoles: (input) => invokeCore({ type: "rolesDelete", ids: input.ids }),
     clearRoleBrowserData: (id) => invokeCore({ type: "roleBrowserDataClear", roleId: id }),
+    clearGlobalWebProfile: () => invokeShell("clearGlobalWebProfile"),
     getRolePaths: (id) => invokeCore({ type: "rolePathsResolve", id }),
     launchRole: (id, destination) =>
       invokeShell("launchRole", destination ? [id, destination] : [id]),

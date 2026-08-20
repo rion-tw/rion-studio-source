@@ -328,6 +328,9 @@ pub struct EmbeddedLaunchTargetRecord {
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct EmbeddedRoleViewEffectRecord {
     pub role: StateRoleRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub web: Option<WorkspaceWebContentRecord>,
     pub resolved_engine: ResolvedBrowserEngine,
     pub rect: StateNormalizedRectRecord,
     pub zoom_factor: f64,
@@ -341,6 +344,9 @@ pub struct EmbeddedRoleViewEffectRecord {
 pub struct EmbeddedRoleSlotEffectRecord {
     pub slot_id: String,
     pub role: StateRoleRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub web: Option<WorkspaceWebContentRecord>,
     pub rect: StateNormalizedRectRecord,
     pub zoom_factor: f64,
     #[ts(type = "\"adaptive\" | \"fixed\"")]

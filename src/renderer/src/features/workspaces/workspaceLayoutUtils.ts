@@ -154,7 +154,8 @@ export function applyWorkspaceTemplate(
     return {
       id: slot?.id ?? `slot-${index + 1}`,
       ...(slot?.roleId ? { roleId: slot.roleId } : {}),
-      ...(slot?.roleId && slot.browserZoomPercent !== undefined
+      ...(slot?.web ? { web: structuredClone(slot.web) } : {}),
+      ...((slot?.roleId || slot?.web) && slot.browserZoomPercent !== undefined
         ? { browserZoomPercent: slot.browserZoomPercent }
         : {}),
       rect
@@ -185,6 +186,30 @@ export function assignRoleToWorkspaceSlot(
   });
 }
 
+export function assignWebToWorkspaceSlot(
+  slots: LaunchWorkspaceSlot[],
+  slotIndex: number,
+  web: LaunchWorkspaceSlot["web"] | undefined
+): LaunchWorkspaceSlot[] {
+  return slots.map((slot, index) => {
+    if (index !== slotIndex) {
+      return slot;
+    }
+    const {
+      roleId: _roleId,
+      web: _web,
+      browserZoomPercent,
+      ...rest
+    } = slot;
+    const preserveZoom = Boolean(slot.web && web) && browserZoomPercent !== undefined;
+    return {
+      ...rest,
+      ...(web ? { web: structuredClone(web) } : {}),
+      ...(preserveZoom ? { browserZoomPercent } : {})
+    };
+  });
+}
+
 export function swapWorkspaceSlotRoles(
   slots: LaunchWorkspaceSlot[],
   sourceSlotIndex: number,
@@ -196,16 +221,18 @@ export function swapWorkspaceSlotRoles(
 
   const sourceRoleId = slots[sourceSlotIndex].roleId;
   const targetRoleId = slots[targetSlotIndex].roleId;
+  const sourceWeb = slots[sourceSlotIndex].web;
+  const targetWeb = slots[targetSlotIndex].web;
   const sourceZoomPercent = slots[sourceSlotIndex].browserZoomPercent;
   const targetZoomPercent = slots[targetSlotIndex].browserZoomPercent;
 
   return slots.map((slot, index) => {
     if (index === sourceSlotIndex) {
-      return withWorkspaceSlotRole(slot, targetRoleId, targetZoomPercent);
+      return withWorkspaceSlotContent(slot, targetRoleId, targetWeb, targetZoomPercent);
     }
 
     if (index === targetSlotIndex) {
-      return withWorkspaceSlotRole(slot, sourceRoleId, sourceZoomPercent);
+      return withWorkspaceSlotContent(slot, sourceRoleId, sourceWeb, sourceZoomPercent);
     }
 
     return slot;
@@ -217,15 +244,26 @@ function withWorkspaceSlotRole(
   roleId: string | undefined,
   browserZoomPercent?: number
 ): LaunchWorkspaceSlot {
+  return withWorkspaceSlotContent(slot, roleId, undefined, browserZoomPercent);
+}
+
+function withWorkspaceSlotContent(
+  slot: LaunchWorkspaceSlot,
+  roleId: string | undefined,
+  web: LaunchWorkspaceSlot["web"] | undefined,
+  browserZoomPercent?: number
+): LaunchWorkspaceSlot {
   const {
     roleId: _roleId,
+    web: _web,
     browserZoomPercent: _browserZoomPercent,
     ...rest
   } = slot;
   return {
     ...rest,
     ...(roleId ? { roleId } : {}),
-    ...(roleId && browserZoomPercent !== undefined ? { browserZoomPercent } : {})
+    ...(web ? { web: structuredClone(web) } : {}),
+    ...((roleId || web) && browserZoomPercent !== undefined ? { browserZoomPercent } : {})
   };
 }
 

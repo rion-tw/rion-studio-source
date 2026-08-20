@@ -6,6 +6,7 @@ import {
   applyWorkspaceSplits,
   applyWorkspaceTemplate,
   assignRoleToWorkspaceSlot,
+  assignWebToWorkspaceSlot,
   createWorkspaceFormState,
   createWorkspaceSlotBackground,
   getWorkspaceSlotCoverUrl,
@@ -151,6 +152,35 @@ describe("renderer workspace layout helpers", () => {
       { ...slot("slot-1"), roleId: undefined },
       slot("slot-2", "p1")
     ]);
+  });
+
+  it("keeps role and Web slot content mutually exclusive across templates and swaps", () => {
+    const web = { name: "YouTube", startUrl: "https://www.youtube.com/" };
+    const withWeb = assignWebToWorkspaceSlot(
+      [slot("slot-1", "p1"), slot("slot-2")],
+      0,
+      web
+    );
+    expect(withWeb[0]).toEqual({ ...slot("slot-1"), web });
+    expect(assignRoleToWorkspaceSlot(withWeb, 0, "p2")[0]).toEqual(slot("slot-1", "p2"));
+    expect(applyWorkspaceTemplate(withWeb, "two_columns")[0]).toEqual({
+      ...slot("slot-1"),
+      web,
+      rect: getDefaultWorkspaceRects("two_columns")[0]
+    });
+    expect(swapWorkspaceSlotRoles(withWeb, 0, 1)).toEqual([
+      slot("slot-1"),
+      { ...slot("slot-2"), web }
+    ]);
+    expect(assignWebToWorkspaceSlot(
+      [{ ...slot("slot-1"), web, browserZoomPercent: 115 }],
+      0,
+      { ...web, name: "Video" }
+    )[0]).toEqual({
+      ...slot("slot-1"),
+      web: { ...web, name: "Video" },
+      browserZoomPercent: 115
+    });
   });
 
   it("moves and clears browser zoom overrides with role assignments", () => {

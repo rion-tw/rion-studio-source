@@ -1,5 +1,5 @@
 // Focused implementation extracted from WorkspaceModal.tsx.
-import { GripHorizontal, GripVertical, Plus } from "lucide-react";
+import { Globe2, GripHorizontal, GripVertical, Plus } from "lucide-react";
 
 import { type JSX, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
@@ -32,6 +32,7 @@ interface WorkspaceSlotDropZoneProps {
   onClick: () => void;
   onSlotPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   role?: Role;
+  web?: LaunchWorkspaceSlot["web"];
   rect: NormalizedRect;
   resizeIndicator?: string;
   t: Translator;
@@ -47,6 +48,7 @@ export function WorkspaceSlotDropZone({
   onClick,
   onSlotPointerDown,
   role,
+  web,
   rect,
   resizeIndicator,
   t
@@ -67,16 +69,17 @@ export function WorkspaceSlotDropZone({
       <button
         className={cn(
           "group/slot absolute isolate flex min-h-0 flex-col justify-between overflow-hidden rounded-none border bg-cover bg-center p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 [--workspace-slot-radius:0px] [contain:paint]",
-          role
+          role || web
             ? "border-border/70 bg-card/72 shadow-sm"
             : "border-border/40 bg-card/50 shadow-[inset_0_1px_0_hsl(var(--glass-highlight-muted))] hover:border-border/65 hover:bg-card/60",
-          isSelected && cn("border-activity/60 shadow-none", role && "bg-activity/[0.035]"),
-          isDropTarget && cn("border-activity/75 shadow-none", role && "bg-activity/10"),
+          isSelected && cn("border-activity/60 shadow-none", (role || web) && "bg-activity/[0.035]"),
+          isDropTarget && cn("border-activity/75 shadow-none", (role || web) && "bg-activity/10"),
           isDragging && "opacity-50"
         )}
         type="button"
         aria-pressed={isSelected}
         data-workspace-assigned-role-id={role?.id ?? ""}
+        data-workspace-web-url={web?.startUrl ?? ""}
         data-workspace-slot-index={index}
         disabled={isSaving}
         style={{ ...slotInsetStyle, ...createWorkspaceSlotBackground(role) }}
@@ -97,7 +100,7 @@ export function WorkspaceSlotDropZone({
           </p>
         </div>
 
-        {role ? (
+        {role || web ? (
           <span
             data-workspace-slot-drag-handle
             className="glass-popover absolute right-2.5 top-2.5 z-[var(--layer-selection)] grid size-7 touch-none cursor-grab place-items-center rounded-sm text-muted-foreground opacity-0 shadow-sm transition-[opacity,color,transform] hover:text-foreground active:cursor-grabbing active:scale-95 group-hover/slot:opacity-100"
@@ -116,6 +119,24 @@ export function WorkspaceSlotDropZone({
               <span className="workspace-role-chip-text">
                 <span className="min-w-0 truncate">{role.name}</span>
                 <span className="workspace-role-game-label min-w-0 truncate">{resolvedLaunchGameName}</span>
+              </span>
+            </p>
+          </div>
+        ) : web ? (
+          <div className="workspace-slot-caption">
+            <p className="workspace-slot-name-chip flex min-w-0 items-center gap-2 text-sm font-semibold">
+              <Globe2 className="size-4 shrink-0" aria-hidden="true" />
+              <span className="workspace-role-chip-text">
+                <span className="min-w-0 truncate">{web.name}</span>
+                <span className="workspace-role-game-label min-w-0 truncate">
+                  {(() => {
+                    try {
+                      return new URL(web.startUrl).origin;
+                    } catch {
+                      return web.startUrl;
+                    }
+                  })()}
+                </span>
               </span>
             </p>
           </div>

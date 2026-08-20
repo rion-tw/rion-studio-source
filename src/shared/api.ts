@@ -149,6 +149,7 @@ export interface RionStudioApi {
   deleteRole: (id: string) => Promise<void>;
   deleteRoles: (input: BulkDeleteInput) => Promise<BulkDeleteResult>;
   clearRoleBrowserData: (id: string) => Promise<Role>;
+  clearGlobalWebProfile: () => Promise<void>;
   getRolePaths: (id: string) => Promise<RolePaths>;
   launchRole: (
     id: string,

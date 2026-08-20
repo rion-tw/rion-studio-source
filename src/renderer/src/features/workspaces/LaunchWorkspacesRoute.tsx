@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Loader2,
   AppWindow,
+  Globe2,
   Plus,
   Search
 } from "lucide-react";
@@ -115,7 +116,7 @@ function LaunchWorkspacesView({
 
     return workspaces.filter((workspace) => {
       const assignedRoleNames = workspace.slots
-        .map((slot) => (slot.roleId ? roleById.get(slot.roleId)?.name : ""))
+        .map((slot) => (slot.roleId ? roleById.get(slot.roleId)?.name : slot.web?.name ?? ""))
         .filter(Boolean);
 
       return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), ...assignedRoleNames]
@@ -296,7 +297,7 @@ function WorkspaceCard({
   selectionRef,
   workspace
 }: WorkspaceCardProps): JSX.Element {
-  const assignedCount = workspace.slots.filter((slot) => slot.roleId).length;
+  const assignedCount = workspace.slots.filter((slot) => slot.roleId || slot.web).length;
   const isBusy = busyWorkspaceIds.has(workspace.id);
   const primaryActionLabel = automaticRuntimeLaunchTitle(
     gameWindows,
@@ -428,6 +429,7 @@ function WorkspaceLayoutPreview({
         index={index}
         launchGameName={role ? gameNameById.get(role.gameId) : undefined}
         role={role}
+        web={slot.web}
         t={t}
       />
     );
@@ -608,6 +610,7 @@ interface WorkspaceLayoutPreviewSlotProps {
   index: number;
   launchGameName?: string;
   role: Role | undefined;
+  web?: LaunchWorkspaceSlot["web"];
   t: Translator;
 }
 
@@ -615,6 +618,7 @@ function WorkspaceLayoutPreviewSlot({
   index,
   launchGameName,
   role,
+  web,
   t
 }: WorkspaceLayoutPreviewSlotProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
@@ -629,7 +633,7 @@ function WorkspaceLayoutPreviewSlot({
     <div
       className={cn(
         "relative isolate h-full min-h-0 w-full min-w-0 overflow-hidden [contain:paint]",
-        role ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
+        role || web ? "shadow-sm ring-1 ring-inset ring-border/60" : "border border-dashed border-muted-foreground/35 bg-muted/30"
       )}
       style={style}
     >
@@ -651,12 +655,20 @@ function WorkspaceLayoutPreviewSlot({
               <span className="min-w-0 truncate">{role.name}</span>
               <span className="workspace-role-game-label min-w-0 truncate">{resolvedLaunchGameName}</span>
             </span>
+          ) : web ? (
+            <span className="workspace-role-chip-text">
+              <span className="flex min-w-0 items-center gap-1.5 truncate">
+                <Globe2 className="size-3.5 shrink-0" aria-hidden="true" />
+                {web.name}
+              </span>
+              <span className="workspace-role-game-label min-w-0 truncate">{web.startUrl}</span>
+            </span>
           ) : (
             t("workspaces.emptySlot")
           )}
         </p>
       </div>
-      {!role ? (
+      {!role && !web ? (
         <div className="absolute left-2 top-2 bg-background/55 px-1.5 py-0.5 text-micro font-semibold text-muted-foreground">
           {index + 1}
         </div>

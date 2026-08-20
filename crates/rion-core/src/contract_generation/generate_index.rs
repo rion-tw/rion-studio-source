@@ -248,6 +248,7 @@ fn export_bindings_index() {
                 "export type { WorkspaceSlotRequest } from \"./WorkspaceSlotRequest\";\n",
                 "export type { WorkspaceUpdateInputRecord } from \"./WorkspaceUpdateInputRecord\";\n",
                 "export type { WorkspaceUpdateRequest } from \"./WorkspaceUpdateRequest\";\n",
+                "export type { WorkspaceWebContentRecord } from \"./WorkspaceWebContentRecord\";\n",
                 "export type { WindowsGraphicsEventCollectionRecord } from \"./WindowsGraphicsEventCollectionRecord\";\n",
                 "export type { WindowsGraphicsEventRecord } from \"./WindowsGraphicsEventRecord\";\n",
             ),

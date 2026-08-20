@@ -290,6 +290,42 @@ impl SystemRuntimeExecutor {
         result
     }
 
+    fn setup_workspace_web_surface(
+        &self,
+        webview: &Webview,
+        surface_id: &str,
+        generation: u64,
+        navigation: Arc<NavigationTracker>,
+    ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
+        let operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Security,
+            "workspaceWebSurfaceSetup",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_role(surface_id)
+        .with_surface_generation(generation);
+        let result = platform_role_surface_setup(
+            webview,
+            self.app.clone(),
+            SurfaceFailureTarget::Role {
+                role_id: surface_id.to_owned(),
+                generation,
+            },
+            navigation,
+        );
+        let receipt = match result.as_ref() {
+            Ok(_) => NativeOperationReceipt::applied(operation, "securityPolicyInstalled"),
+            Err(failure) => NativeOperationReceipt::with_status(
+                operation,
+                "securityPolicyInstallFailed",
+                NativeOperationStatus::Failed,
+                Some(failure.error.code),
+            ),
+        };
+        self.record_native_operation_receipt(receipt);
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn register_managed_surface(
         &self,

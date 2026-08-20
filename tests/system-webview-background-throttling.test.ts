@@ -22,7 +22,7 @@ describe("System WebView background throttling", () => {
     );
 
     expect(builder.match(/background_throttling\(BackgroundThrottlingPolicy::Throttle\)/gu)).toHaveLength(2);
-    expect(builder).toContain('if role_id.is_some()');
+    expect(builder).toContain("if install_role_features {");
     expect(builder).toContain('#[cfg(target_os = "macos")]');
     expect(presentationBatch).toContain("surface.show()");
     expect(presentationBatch).toContain("surface.hide()");

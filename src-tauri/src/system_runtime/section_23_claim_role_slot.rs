@@ -294,6 +294,7 @@ impl SystemRuntimeExecutor {
                 owner: owner.clone(),
                 rect,
                 role,
+                web: None,
                 slot_id,
                 state: owner.as_ref().map_or_else(
                     || "available".to_owned(),

@@ -114,7 +114,7 @@ pub use model::{
     WorkspaceCreateRequest, WorkspaceDividerDescriptor, WorkspaceDividerResizeInput,
     WorkspaceDividerResizeOutput, WorkspaceLayoutInput, WorkspaceLayoutOutput,
     WorkspaceSlotInputRecord, WorkspaceSlotRequest, WorkspaceUpdateInputRecord,
-    WorkspaceUpdateRequest,
+    WorkspaceUpdateRequest, WorkspaceWebContentRecord,
 };
 pub use portable::PORTABLE_SCHEMA_VERSION;
 pub use runtime_kernel::{

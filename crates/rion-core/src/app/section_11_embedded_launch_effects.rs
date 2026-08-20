@@ -63,6 +63,24 @@ fn full_window_rect() -> StateNormalizedRectRecord {
     }
 }
 
+fn workspace_web_surface_role(
+    tab_id: &str,
+    slot_index: usize,
+    web: &crate::model::WorkspaceWebContentRecord,
+) -> StateRoleRecord {
+    StateRoleRecord {
+        id: format!("web-{tab_id}-{}", slot_index + 1),
+        game_id: "workspace-web".to_owned(),
+        name: web.name.clone(),
+        launch_url: web.start_url.clone(),
+        notes: String::new(),
+        cover_image_data_url: None,
+        cover_image_dominant_color: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+    }
+}
+
 fn unavailable_system_webview_runtime(
     platform: rion_platform::Platform,
 ) -> SystemWebViewRuntimeRegistrationRecord {

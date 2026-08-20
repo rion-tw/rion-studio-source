@@ -1018,6 +1018,7 @@ impl AppCore {
         let role_slot = EmbeddedRoleSlotEffectRecord {
             slot_id: role_slot_input.slot_id,
             role: role.clone(),
+            web: None,
             rect: role_slot_input.rect.clone(),
             zoom_factor: role_zoom_factor,
             zoom_mode: "fixed".to_owned(),
@@ -1043,6 +1044,7 @@ impl AppCore {
             slots: vec![role_slot],
             roles: vec![EmbeddedRoleViewEffectRecord {
                 role: role.clone(),
+                web: None,
                 resolved_engine,
                 rect: role_slot_input.rect,
                 zoom_factor: role_zoom_factor,

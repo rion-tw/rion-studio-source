@@ -300,6 +300,19 @@
       "description": "Use the labeled workspace-name field to create a role-backed workspace, persist it, and exercise its UI launch admission."
     },
     {
+      "id": "WORKSPACE-WEB-SLOT-004",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, launch its System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart."
+    },
+    {
       "id": "GAME-WINDOWS-UI-001",
       "feature": "game-windows",
       "priority": "P0",

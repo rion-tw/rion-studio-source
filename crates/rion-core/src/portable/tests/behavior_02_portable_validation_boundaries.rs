@@ -107,6 +107,41 @@ use crate::MacosHighRefreshMode;
     }
 
     #[test]
+    fn portable_v18_round_trips_workspace_web_slots_and_rejects_conflicts() {
+        let mut source = fixture_value(18);
+        source["launchWorkspaces"][0]["slots"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("roleId");
+        source["launchWorkspaces"][0]["slots"][0]["web"] = json!({
+            "name":"  YouTube  ",
+            "startUrl":"https://www.youtube.com"
+        });
+        let normalized = normalize(&source.to_string()).unwrap();
+        assert_eq!(
+            normalized["launchWorkspaces"][0]["slots"][0]["web"],
+            json!({"name":"YouTube","startUrl":"https://www.youtube.com/"})
+        );
+
+        source["launchWorkspaces"][0]["slots"][0]["roleId"] = json!("r");
+        assert_eq!(
+            normalize(&source.to_string()).unwrap_err().code(),
+            "CORE_INPUT_INVALID"
+        );
+
+        source["launchWorkspaces"][0]["slots"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("roleId");
+        source["launchWorkspaces"][0]["slots"][0]["web"]["startUrl"] =
+            json!("file:///tmp/video");
+        assert_eq!(
+            normalize(&source.to_string()).unwrap_err().code(),
+            "CORE_INPUT_INVALID"
+        );
+    }
+
+    #[test]
     fn portable_browser_preferences_are_normalized_before_preview() {
         {
             let mut source = fixture_value(11);
@@ -678,7 +713,7 @@ use crate::MacosHighRefreshMode;
     }
 
     #[test]
-    fn export_is_v17_and_never_emits_internal_or_retired_sync_fields() {
+    fn export_is_v18_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -694,7 +729,7 @@ use crate::MacosHighRefreshMode;
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 17);
+            assert_eq!(value["schemaVersion"], 18);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

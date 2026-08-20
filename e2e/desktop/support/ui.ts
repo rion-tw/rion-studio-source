@@ -338,6 +338,7 @@ export async function clickEntityMenuAction(
   await trigger.waitForExist({ timeout: 10_000 });
   await trigger.scrollIntoView({ block: "center", inline: "center" });
   await focusMainApplicationWindow();
+  await entity.moveTo();
   await browser.execute((control) => control.focus({ preventScroll: true }), trigger);
   await trigger.waitForDisplayed({ timeout: 10_000 });
   await trigger.moveTo();

@@ -135,8 +135,16 @@ async function createRecoveryWorkspace(primaryRole: Role, recoveryRole: Role): P
   await setEditorName(RECOVERY_WORKSPACE_NAME);
   await $("#workspace-layout").click();
   await $("[data-workspace-layout-option='two_columns']").click();
+  await $("#workspace-slot-content").click();
+  const primaryRoleOption = await $("[role='option']=Role");
+  await primaryRoleOption.waitForExist({ timeout: 10_000 });
+  await primaryRoleOption.click();
   await $(`[data-workspace-role-id='${primaryRole.id}']`).click();
   await $("[data-workspace-slot-index='1']").click();
+  await $("#workspace-slot-content").click();
+  const recoveryRoleOption = await $("[role='option']=Role");
+  await recoveryRoleOption.waitForExist({ timeout: 10_000 });
+  await recoveryRoleOption.click();
   await $(`[data-workspace-role-id='${recoveryRole.id}']`).click();
   await submitEditor("/workspaces");
   const snapshot = await waitForCollectionProjection({

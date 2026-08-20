@@ -187,6 +187,7 @@ impl SystemRuntimeExecutor {
                 role_ids: tab
                     .slots
                     .iter()
+                    .filter(|slot| slot.web.is_none())
                     .map(|slot| slot.role.id.clone())
                     .collect(),
                 role_slots: persisted_role_slots_from_effect(&tab.slots),
@@ -411,13 +412,30 @@ impl SystemRuntimeExecutor {
                 let generation = self.claim_surface_generation(&role_id)?;
                 let navigation = Arc::new(NavigationTracker::default());
                 let callback_navigation = Arc::clone(&navigation);
-                let role_label =
-                    runtime_label("game-role", &format!("{role_id}:generation-{generation}"));
+                let is_workspace_web = role.web.is_some();
+                let role_label = runtime_label(
+                    if is_workspace_web { "workspace-web" } else { "game-role" },
+                    &format!("{role_id}:generation-{generation}"),
+                );
                 let navigation_app = self.app.clone();
-                let paths = role_session_paths(&self.user_data_dir, &role_id)?;
+                let paths = if is_workspace_web {
+                    global_web_session_paths(&self.user_data_dir)
+                } else {
+                    role_session_paths(&self.user_data_dir, &role_id)?
+                };
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
                 let (builder, high_refresh_rate_status, web_gl_configuration) =
-                    self.role_webview_builder(&window, role_label, &paths, &role_id)?;
+                    if let Some(web) = role.web.as_ref() {
+                        self.workspace_webview_builder(
+                            &window,
+                            role_label,
+                            &paths,
+                            &role_id,
+                            web,
+                        )?
+                    } else {
+                        self.role_webview_builder(&window, role_label, &paths, &role_id)?
+                    };
                 let builder = builder.on_page_load(move |webview, payload| {
                     callback_navigation.page_event(payload.event(), payload.url());
                     if payload.event() == PageLoadEvent::Finished
@@ -466,12 +484,22 @@ impl SystemRuntimeExecutor {
                 let setup_started = Instant::now();
                 let setup_stage = format!("native-role-setup:{role_id}");
                 self.record_runtime_stage(&setup_stage, "started", setup_started);
-                let lifecycle = match self.setup_role_surface(
-                    &webview,
-                    &role_id,
-                    generation,
-                    Arc::clone(&navigation),
-                ) {
+                let lifecycle_result = if is_workspace_web {
+                    self.setup_workspace_web_surface(
+                        &webview,
+                        &role_id,
+                        generation,
+                        Arc::clone(&navigation),
+                    )
+                } else {
+                    self.setup_role_surface(
+                        &webview,
+                        &role_id,
+                        generation,
+                        Arc::clone(&navigation),
+                    )
+                };
+                let lifecycle = match lifecycle_result {
                     Ok(lifecycle) => {
                         self.record_runtime_stage(&setup_stage, "completed", setup_started);
                         self.record_runtime_stage(
@@ -538,8 +566,10 @@ impl SystemRuntimeExecutor {
                         },
                     );
                 }
-                self.input_readiness.notify();
-                self.set_role_input_surface(&role_id, generation, true, true)?;
+                if !is_workspace_web {
+                    self.input_readiness.notify();
+                    self.set_role_input_surface(&role_id, generation, true, true)?;
+                }
                 let bound = self.presentation.bind_surface(
                     &target.window_id,
                     &tab.tab_id,

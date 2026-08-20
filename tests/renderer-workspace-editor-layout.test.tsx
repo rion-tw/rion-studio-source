@@ -58,6 +58,49 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
+  it("edits a Web App slot without retaining a role assignment", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const router = createMemoryRouter(
+      [{
+        path: "/workspaces/:id/edit",
+        element: (
+          <WorkspaceEditorRoute
+            games={[game()]}
+            isSaving={false}
+            roles={[role(1), role(2)]}
+            statusByRole={new Map()}
+            t={t}
+            workspaces={[workspace()]}
+            onSave={onSave}
+          />
+        )
+      }],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Content type" }));
+    await user.click(screen.getByRole("option", { name: "Web app" }));
+    await user.clear(screen.getByRole("textbox", { name: "Display name" }));
+    await user.type(screen.getByRole("textbox", { name: "Display name" }), "YouTube");
+    await user.clear(screen.getByRole("textbox", { name: "Start URL" }));
+    await user.type(screen.getByRole("textbox", { name: "Start URL" }), "https://www.youtube.com/");
+
+    expect(container.querySelector("[data-workspace-role-scroll]")).toBeNull();
+    expect(container.querySelector("[data-workspace-web-url='https://www.youtube.com/']")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots[0]).toMatchObject({
+      web: { name: "YouTube", startUrl: "https://www.youtube.com/" }
+    });
+    expect(onSave.mock.calls[0][0].slots[0]).not.toHaveProperty("roleId");
+  });
+
   it("shows every workspace layout in a single-select menu", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);

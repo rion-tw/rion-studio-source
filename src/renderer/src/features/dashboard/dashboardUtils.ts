@@ -149,17 +149,17 @@ export function getDashboardWorkspaceItems({
 }): DashboardWorkspaceItem[] {
   return workspaces
     .map((workspace) => {
-      const assignedRoleIds = workspace.slots.flatMap((slot) => (slot.roleId ? [slot.roleId] : []));
+      const assignedCount = workspace.slots.filter((slot) => slot.roleId || slot.web).length;
       const isRunning = openWorkspaceIds.has(workspace.id);
 
       return {
         action: createWorkspaceActionState({
-          assignedCount: assignedRoleIds.length,
+          assignedCount,
           busyWorkspaceIds,
           isRunning,
           workspaceId: workspace.id
         }),
-        assignedCount: assignedRoleIds.length,
+        assignedCount,
         isRunning,
         workspace
       };

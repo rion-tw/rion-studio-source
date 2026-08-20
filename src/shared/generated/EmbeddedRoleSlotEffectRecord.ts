@@ -2,5 +2,6 @@
 import type { BrowserRuntimeRoleOwnerRecord } from "./BrowserRuntimeRoleOwnerRecord";
 import type { StateNormalizedRectRecord } from "./StateNormalizedRectRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
+import type { WorkspaceWebContentRecord } from "./WorkspaceWebContentRecord";
 
-export type EmbeddedRoleSlotEffectRecord = { slotId: string, role: StateRoleRecord, rect: StateNormalizedRectRecord, zoomFactor: number, zoomMode: "adaptive" | "fixed", state: "launching" | "running" | "stopping" | "blocked" | "available", owner?: BrowserRuntimeRoleOwnerRecord, };
+export type EmbeddedRoleSlotEffectRecord = { slotId: string, role: StateRoleRecord, web?: WorkspaceWebContentRecord, rect: StateNormalizedRectRecord, zoomFactor: number, zoomMode: "adaptive" | "fixed", state: "launching" | "running" | "stopping" | "blocked" | "available", owner?: BrowserRuntimeRoleOwnerRecord, };

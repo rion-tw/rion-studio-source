@@ -69,6 +69,59 @@
             let created = create_workspace(
                 &mut workspaces,
                 workspace_input(json!({
+                    "name":"Web apps",
+                    "slots":[{
+                        "web":{"name":"  YouTube  ","startUrl":"https://www.youtube.com"},
+                        "browserZoomPercent":110
+                    },{}]
+                })),
+            )
+            .unwrap();
+            let web = created.slots[0].web.as_ref().unwrap();
+            assert_eq!(web.name, "YouTube");
+            assert_eq!(web.start_url, "https://www.youtube.com/");
+            assert_eq!(created.slots[0].browser_zoom_percent, Some(110.0));
+
+            let conflict = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Conflict",
+                    "slots":[{
+                        "roleId":"r1",
+                        "web":{"name":"YouTube","startUrl":"https://www.youtube.com/"}
+                    }]
+                })),
+            )
+            .unwrap_err();
+            assert_eq!(conflict.code(), "WORKSPACE_SLOT_CONTENT_CONFLICT");
+
+            let invalid_url = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Invalid URL",
+                    "slots":[{"web":{"name":"Local","startUrl":"file:///tmp/test"}}]
+                })),
+            )
+            .unwrap_err();
+            assert_eq!(invalid_url.code(), "WORKSPACE_WEB_URL_INVALID");
+
+            let outside_layout = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
+                    "name":"Outside",
+                    "template":"single",
+                    "slots":[{}, {"web":{"name":"Video","startUrl":"https://example.com"}}]
+                })),
+            )
+            .unwrap_err();
+            assert_eq!(outside_layout.code(), "WORKSPACE_SLOT_OUTSIDE_LAYOUT");
+        };
+
+        {
+            let mut workspaces = Vec::new();
+            let created = create_workspace(
+                &mut workspaces,
+                workspace_input(json!({
                     "name":"Assigned","slots":[{"roleId":"r1"},{"roleId":"r2"}]
                 })),
             )

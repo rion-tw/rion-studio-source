@@ -14,7 +14,7 @@ import {
   windowSnapshot
 } from "../support/control";
 import { waitForTranscriptEvent } from "../support/transcript";
-import { fixtureCursor, fixtureEvents } from "../support/fixture";
+import { fixtureCursor, fixtureEvents, waitFixtureEvent } from "../support/fixture";
 import {
   acceptLegalAndSkipFirstRun,
   clickConfirmation,
@@ -31,6 +31,7 @@ import {
 // [journey:GAMES-UI-001]
 // [journey:ROLES-UI-001]
 // [journey:WORKSPACES-UI-001]
+// [journey:WORKSPACE-WEB-SLOT-004]
 // [journey:GAME-WINDOWS-UI-001]
 // [journey:MACROS-UI-001]
 // [journey:SETTINGS-PERSIST-001]
@@ -44,6 +45,8 @@ const WORKSPACE_NAME = "E2E Smoke Workspace";
 const MACRO_NAME = "E2E Smoke Macro";
 const GAME_WINDOW_NAME = "E2E Smoke Game Window";
 const ROLE_FIXTURE_ID = "e2e-smoke-role";
+const WEB_FIXTURE_ID = "e2e-workspace-web";
+const WEB_SESSION_MARKER = "e2e-global-web-session";
 
 async function fixtureRequest(path: string, body: unknown): Promise<void> {
   const response = await fetch(`${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}${path}`, {
@@ -211,6 +214,19 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await $("button=Create workspace").click();
   await waitForRoute("/workspaces/new");
   await setEditorName(WORKSPACE_NAME);
+  await $("#workspace-slot-content").click();
+  const webOption = await $("[role='option']=Web app");
+  await webOption.waitForExist({ timeout: 10_000 });
+  await webOption.click();
+  await $("#workspace-web-name").setValue("E2E Web App");
+  await $("#workspace-web-url").setValue(
+    `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}?mode=seed&marker=${WEB_SESSION_MARKER}`
+  );
+  await $("[data-workspace-slot-index='1']").click();
+  await $("#workspace-slot-content").click();
+  const roleOption = await $("[role='option']=Role");
+  await roleOption.waitForExist({ timeout: 10_000 });
+  await roleOption.click();
   await $(`[data-workspace-role-id='${role.id}']`).click();
   await submitEditor("/workspaces");
   return findWorkspace(WORKSPACE_NAME);
@@ -352,6 +368,9 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
+  await navigate("/settings?section=data");
+  await $("button=Clear Web session").click();
+  await $("div=The shared Web session was cleared.").waitForExist({ timeout: 10_000 });
   await navigate("/settings?section=interface");
   for (const label of [
     "Show macro tools button",
@@ -524,14 +543,30 @@ async function launchRoleAndRunMacro(role: Role, macro: Macro): Promise<void> {
   );
 }
 
-async function launchWorkspace(workspace: LaunchWorkspace, role: Role): Promise<void> {
+async function launchWorkspace(
+  workspace: LaunchWorkspace,
+  role: Role,
+  expectedWebSessionBefore: string | null
+): Promise<void> {
   await rendererCall("stopRole", role.id);
   await waitForRoleStatus(role.id, (status) => status === undefined);
+  const webSessionCursor = await fixtureCursor();
   await fixtureRequest("/api/gate", { roleId: ROLE_FIXTURE_ID });
   await navigate("/workspaces");
   await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
   await waitForFixtureNavigation(ROLE_FIXTURE_ID);
   await fixtureRequest("/api/release", { roleId: ROLE_FIXTURE_ID });
+  const webSession = await waitFixtureEvent({
+    afterSequence: webSessionCursor,
+    kind: "session",
+    roleId: WEB_FIXTURE_ID
+  });
+  expect(webSession.session).toMatchObject({
+    after: { cookie: WEB_SESSION_MARKER, localStorage: WEB_SESSION_MARKER },
+    before: { cookie: expectedWebSessionBefore, localStorage: expectedWebSessionBefore },
+    marker: WEB_SESSION_MARKER,
+    mode: "seed"
+  });
   await waitForRoleStatus(role.id, (status) => status?.state === "running");
   await rendererCall("stopRole", role.id);
   await waitForRoleStatus(role.id, (status) => status === undefined);
@@ -549,7 +584,7 @@ async function seedPhase(): Promise<void> {
   await updateSettings();
   await launchAndPinRoleFromQuickAccess(role);
   await launchRoleAndRunMacro(role, macro);
-  await launchWorkspace(workspace, role);
+  await launchWorkspace(workspace, role, null);
   await shutdownAndWaitForFlush();
 }
 
@@ -562,6 +597,9 @@ async function restartPhase(): Promise<void> {
   const macro = await findMacro(MACRO_NAME);
   expect(game.defaultLaunchUrl).toContain(ROLE_FIXTURE_ID);
   expect(workspace.slots.some((slot) => slot.roleId === role.id)).toBe(true);
+  expect(workspace.slots.some((slot) =>
+    slot.web?.name === "E2E Web App" && slot.web.startUrl.includes(WEB_FIXTURE_ID)
+  )).toBe(true);
   expect(macro.roleIds).toContain(role.id);
   expect(await browser.execute(() => document.documentElement.dataset.theme)).toBe("light");
   expect((await rendererCall("getRuntimeWindowPreferences")).alwaysHideTabCloseButton).toBe(true);
@@ -628,6 +666,7 @@ async function restartPhase(): Promise<void> {
     async () => !(await rendererCall("listGameWindows")).some((candidate) => candidate.id === smokeWindow.id),
     { timeout: 15_000, timeoutMsg: "Smoke Game Window remained after UI deletion" }
   );
+  await launchWorkspace(workspace, role, WEB_SESSION_MARKER);
   await shutdownAndWaitForFlush();
 }
 

@@ -22,7 +22,7 @@ use crate::{
         StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,
         StateNormalizedRectRecord, StateRoleRecord, StateWorkspaceSlotRecord,
         WorkspaceAppearanceSettingsRecord, WorkspaceCreateInputRecord, WorkspaceSlotInputRecord,
-        WorkspaceUpdateInputRecord,
+        WorkspaceUpdateInputRecord, WorkspaceWebContentRecord,
     },
 };
 

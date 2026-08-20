@@ -113,6 +113,7 @@ impl AppCore {
                     .map(|slot| crate::model::StateWorkspaceSlotRecord {
                         id: slot.slot_id.clone(),
                         role_id: Some(slot.role_id.clone()),
+                        web: None,
                         browser_zoom_percent: slot.browser_zoom_percent,
                         rect: slot.rect.clone(),
                     })
@@ -299,7 +300,7 @@ impl AppCore {
                 launched_at: None,
             })?;
         }
-        let effect_roles = workspace
+        let mut effect_roles = workspace
             .slots
             .iter()
             .filter_map(|slot| {
@@ -313,6 +314,7 @@ impl AppCore {
             .map(|(slot, role)| {
                 Ok(EmbeddedRoleViewEffectRecord {
                     role,
+                    web: None,
                     resolved_engine: workspace_resolved_engine,
                     rect: slot.rect.clone(),
                     zoom_factor: slot.browser_zoom_percent.unwrap_or(100.0) / 100.0,
@@ -324,6 +326,27 @@ impl AppCore {
                 })
             })
             .collect::<CoreResult<Vec<_>>>()?;
+        effect_roles.extend(
+            workspace
+                .slots
+                .iter()
+                .enumerate()
+                .filter_map(|(index, slot)| {
+                    let web = slot.web.clone()?;
+                    Some(EmbeddedRoleViewEffectRecord {
+                        role: workspace_web_surface_role(&tab_id, index, &web),
+                        web: Some(web),
+                        resolved_engine: workspace_resolved_engine,
+                        rect: slot.rect.clone(),
+                        zoom_factor: slot.browser_zoom_percent.unwrap_or(100.0) / 100.0,
+                        zoom_mode: if slot.browser_zoom_percent.is_some() {
+                            "fixed".to_owned()
+                        } else {
+                            "adaptive".to_owned()
+                        },
+                    })
+                }),
+        );
         let runtime_snapshot = self
             .invoke_browser_runtime(BrowserRuntimeCommand::Snapshot)?
             .snapshot;
@@ -332,7 +355,7 @@ impl AppCore {
             .iter()
             .find(|tab| tab.id == tab_id)
             .ok_or_else(|| CoreError::Internal("workspace runtime tab disappeared".to_owned()))?;
-        let effect_slots = workspace
+        let mut effect_slots = workspace
             .slots
             .iter()
             .filter_map(|slot| {
@@ -345,6 +368,7 @@ impl AppCore {
                 Some(EmbeddedRoleSlotEffectRecord {
                     slot_id: slot.id.clone(),
                     role,
+                    web: None,
                     rect: slot.rect.clone(),
                     zoom_factor: slot.browser_zoom_percent.unwrap_or(100.0) / 100.0,
                     zoom_mode: if slot.browser_zoom_percent.is_some() {
@@ -357,6 +381,29 @@ impl AppCore {
                 })
             })
             .collect::<Vec<_>>();
+        effect_slots.extend(
+            workspace
+                .slots
+                .iter()
+                .enumerate()
+                .filter_map(|(index, slot)| {
+                    let web = slot.web.clone()?;
+                    Some(EmbeddedRoleSlotEffectRecord {
+                        slot_id: slot.id.clone(),
+                        role: workspace_web_surface_role(&tab_id, index, &web),
+                        web: Some(web),
+                        rect: slot.rect.clone(),
+                        zoom_factor: slot.browser_zoom_percent.unwrap_or(100.0) / 100.0,
+                        zoom_mode: if slot.browser_zoom_percent.is_some() {
+                            "fixed".to_owned()
+                        } else {
+                            "adaptive".to_owned()
+                        },
+                        state: "running".to_owned(),
+                        owner: None,
+                    })
+                }),
+        );
         let tab = EmbeddedTabEffectRecord {
             tab_id: tab_id.clone(),
             attempt_generation: Some(launch_attempt_id),
@@ -689,6 +736,7 @@ impl AppCore {
                             slot: Box::new(EmbeddedRoleSlotEffectRecord {
                                 slot_id: slot_id.to_owned(),
                                 role: role.clone(),
+                                web: None,
                                 rect: claimed_slot.rect.clone(),
                                 zoom_factor,
                                 zoom_mode: zoom_mode.clone(),
@@ -697,6 +745,7 @@ impl AppCore {
                             }),
                             role: Box::new(EmbeddedRoleViewEffectRecord {
                                 role: role.clone(),
+                                web: None,
                                 resolved_engine: resolution.resolved_engine,
                                 rect: claimed_slot.rect.clone(),
                                 zoom_factor,

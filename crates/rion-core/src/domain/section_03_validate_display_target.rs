@@ -27,6 +27,7 @@ fn workspace_slot_to_input(slot: StateWorkspaceSlotRecord) -> WorkspaceSlotInput
     WorkspaceSlotInputRecord {
         id: Some(slot.id),
         role_id: slot.role_id,
+        web: slot.web,
         browser_zoom_percent: slot.browser_zoom_percent,
         rect: Some(slot.rect),
     }
@@ -47,10 +48,11 @@ fn normalize_workspace_slots(
         slot.role_id
             .as_deref()
             .is_some_and(|role_id| !role_id.trim().is_empty())
+            || slot.web.is_some()
     }) {
         return Err(domain(
             "WORKSPACE_SLOT_OUTSIDE_LAYOUT",
-            "Launch workspace role is outside the selected layout.",
+            "Launch workspace content is outside the selected layout.",
         ));
     }
     let defaults = default_workspace_rects(template);
@@ -70,7 +72,14 @@ fn normalize_workspace_slots(
                     "A role can only appear once in a launch workspace.",
                 ));
             }
-            let browser_zoom_percent = if role_id.is_some() {
+            let web = source.web.map(normalize_workspace_web).transpose()?;
+            if role_id.is_some() && web.is_some() {
+                return Err(domain(
+                    "WORKSPACE_SLOT_CONTENT_CONFLICT",
+                    "A launch workspace slot cannot contain both a role and a web app.",
+                ));
+            }
+            let browser_zoom_percent = if role_id.is_some() || web.is_some() {
                 source
                     .browser_zoom_percent
                     .map(normalize_workspace_slot_zoom)
@@ -85,6 +94,7 @@ fn normalize_workspace_slots(
                     .filter(|id| !id.is_empty())
                     .unwrap_or_else(|| format!("slot-{}", index + 1)),
                 role_id,
+                web,
                 browser_zoom_percent,
                 rect: normalize_workspace_rect(source.rect, defaults[index].clone())?,
             })
@@ -100,6 +110,19 @@ fn normalize_workspace_slots(
         slot.rect = rect;
     }
     Ok(slots)
+}
+
+fn normalize_workspace_web(
+    web: WorkspaceWebContentRecord,
+) -> CoreResult<WorkspaceWebContentRecord> {
+    Ok(WorkspaceWebContentRecord {
+        name: normalize_name(
+            &web.name,
+            "WORKSPACE_WEB_NAME_REQUIRED",
+            "WORKSPACE_WEB_NAME_TOO_LONG",
+        )?,
+        start_url: normalize_http_url(&web.start_url, "WORKSPACE_WEB_URL_INVALID")?,
+    })
 }
 
 fn normalize_workspace_slot_zoom(value: f64) -> CoreResult<f64> {

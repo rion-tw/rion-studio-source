@@ -143,11 +143,28 @@ fn insert_workspaces(transaction: &Transaction<'_>, values: &[Value]) -> CoreRes
             .ok_or_else(|| CoreError::InvalidInput(format!("workspace {id} has invalid slots")))?;
         for (slot_ordinal, slot) in slots.iter().enumerate() {
             let role_id = slot.get("roleId").and_then(Value::as_str);
+            let web = slot.get("web").and_then(Value::as_object);
+            let content_kind = if role_id.is_some() {
+                "role"
+            } else if web.is_some() {
+                "web"
+            } else {
+                "empty"
+            };
             transaction
                 .execute(
-                    "INSERT INTO workspace_slots(workspace_id, ordinal, role_id, payload_json)
-                     VALUES (?1, ?2, ?3, ?4)",
-                    params![id, slot_ordinal as i64, role_id, serialize_payload(slot)?],
+                    "INSERT INTO workspace_slots(
+                       workspace_id, ordinal, role_id, content_kind, web_name, web_start_url, payload_json
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        id,
+                        slot_ordinal as i64,
+                        role_id,
+                        content_kind,
+                        web.and_then(|value| value.get("name")).and_then(Value::as_str),
+                        web.and_then(|value| value.get("startUrl")).and_then(Value::as_str),
+                        serialize_payload(slot)?
+                    ],
                 )
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
         }
@@ -300,14 +317,27 @@ fn upsert_workspace(
         .iter()
         .enumerate()
     {
+        let role_id = slot.get("roleId").and_then(Value::as_str);
+        let web = slot.get("web").and_then(Value::as_object);
+        let content_kind = if role_id.is_some() {
+            "role"
+        } else if web.is_some() {
+            "web"
+        } else {
+            "empty"
+        };
         transaction
             .execute(
-                "INSERT INTO workspace_slots(workspace_id, ordinal, role_id, payload_json)
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO workspace_slots(
+                   workspace_id, ordinal, role_id, content_kind, web_name, web_start_url, payload_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     id,
                     slot_ordinal as i64,
-                    slot.get("roleId").and_then(Value::as_str),
+                    role_id,
+                    content_kind,
+                    web.and_then(|value| value.get("name")).and_then(Value::as_str),
+                    web.and_then(|value| value.get("startUrl")).and_then(Value::as_str),
                     serialize_payload(slot)?
                 ],
             )

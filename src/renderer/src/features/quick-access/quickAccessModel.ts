@@ -162,7 +162,7 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
     const ref = { kind: "workspace", id: workspace.id } as const;
     const owner = findRuntimeOwner(input.runtime, ref);
     const roleNames = workspace.slots
-      .map((slot) => slot.roleId ? roleById.get(slot.roleId)?.name : undefined)
+      .map((slot) => slot.roleId ? roleById.get(slot.roleId)?.name : slot.web?.name)
       .filter((name): name is string => Boolean(name));
     const ownerName = owner ? windowNameById.get(owner.windowId) ?? owner.tab.name : "";
     return {

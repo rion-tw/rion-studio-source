@@ -35,7 +35,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 17;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 18;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -397,6 +397,24 @@ fn normalize_slot(
 ) -> CoreResult<Value> {
     let source = object(value, "workspace slot")?;
     let role_id = optional_string(source.get("roleId"));
+    let web = source.get("web").map(|value| {
+        let web = object(value, "workspace web slot")?;
+        let name = required_string(web, "name", "workspace web slot")?;
+        if name.chars().count() > 80 {
+            return Err(invalid("portable workspace web slot name is too long"));
+        }
+        let start_url = required_string(web, "startUrl", "workspace web slot")?;
+        let parsed = Url::parse(&start_url)
+            .ok()
+            .filter(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+            .ok_or_else(|| invalid("portable workspace web slot URL is invalid"))?;
+        Ok(json!({ "name": name, "startUrl": parsed.to_string() }))
+    }).transpose()?;
+    if role_id.is_some() && web.is_some() {
+        return Err(invalid(
+            "portable workspace slot cannot contain both a role and a web app",
+        ));
+    }
     if let Some(role_id) = &role_id
         && !role_ids.insert(role_id.clone())
     {
@@ -436,12 +454,16 @@ fn normalize_slot(
     );
     if let Some(role_id) = role_id {
         slot.insert("roleId".to_owned(), json!(role_id));
-        if let Some(zoom) = source.get("browserZoomPercent").and_then(Value::as_f64) {
-            if !(25.0..=500.0).contains(&zoom) {
-                return Err(invalid("portable slot zoom is invalid"));
-            }
-            slot.insert("browserZoomPercent".to_owned(), json!(zoom));
+    } else if let Some(web) = web {
+        slot.insert("web".to_owned(), web);
+    }
+    if (slot.contains_key("roleId") || slot.contains_key("web"))
+        && let Some(zoom) = source.get("browserZoomPercent").and_then(Value::as_f64)
+    {
+        if !(25.0..=500.0).contains(&zoom) {
+            return Err(invalid("portable slot zoom is invalid"));
         }
+        slot.insert("browserZoomPercent".to_owned(), json!(zoom));
     }
     slot.insert(
         "rect".to_owned(),

@@ -25,6 +25,21 @@ fn role_session_paths(user_data_dir: &Path, role_id: &str) -> RuntimeResult<Sess
     })
 }
 
+fn global_web_session_paths(user_data_dir: &Path) -> SessionPaths {
+    let digest = Sha256::digest("rion-studio:wkwebsite-data-store:global-web");
+    let mut identifier = [0_u8; 16];
+    identifier.copy_from_slice(&digest[..16]);
+    identifier[6] = (identifier[6] & 0x0f) | 0x80;
+    identifier[8] = (identifier[8] & 0x3f) | 0x80;
+    SessionPaths {
+        webkit_identifier: identifier,
+        webview2: user_data_dir
+            .join("web-profiles")
+            .join("global-web")
+            .join("webview2"),
+    }
+}
+
 #[cfg(any(windows, test))]
 const ROLE_COOKIE_CHECKPOINT_VERSION: u32 = 1;
 #[cfg(any(windows, test))]

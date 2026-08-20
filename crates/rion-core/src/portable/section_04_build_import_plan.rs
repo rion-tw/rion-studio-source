@@ -171,10 +171,13 @@ fn build_import_plan(
                             .map(|slot| slot.id.clone())
                             .filter(|id| !id.is_empty())
                             .unwrap_or_else(|| format!("slot-{}", index + 1)),
-                        browser_zoom_percent: role_id
-                            .as_ref()
-                            .and_then(|_| source.and_then(|slot| slot.browser_zoom_percent)),
+                        browser_zoom_percent: source.and_then(|slot| {
+                            (role_id.is_some() || slot.web.is_some())
+                                .then_some(slot.browser_zoom_percent)
+                                .flatten()
+                        }),
                         role_id,
+                        web: source.and_then(|slot| slot.web.clone()),
                         rect: repaired_rects
                             .get(index)
                             .map(|rect| StateNormalizedRectRecord {

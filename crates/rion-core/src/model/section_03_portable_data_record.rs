@@ -4,7 +4,7 @@
 pub struct PortableDataRecord {
     #[ts(type = "\"Rion Studio\"")]
     pub app: String,
-    #[ts(type = "17")]
+    #[ts(type = "18")]
     pub schema_version: u32,
     pub exported_at: String,
     pub app_version: String,
@@ -239,6 +239,9 @@ pub struct WorkspaceSlotRequest {
     pub role_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub web: Option<WorkspaceWebContentRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub browser_zoom_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -435,6 +438,9 @@ pub struct WorkspaceSlotInputRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub web: Option<WorkspaceWebContentRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub browser_zoom_percent: Option<f64>,

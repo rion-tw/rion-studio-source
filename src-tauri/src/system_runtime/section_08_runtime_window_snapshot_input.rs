@@ -3,6 +3,7 @@ fn persisted_role_slots_from_effect(
 ) -> Vec<GameWindowRoleSlotRecord> {
     slots
         .iter()
+        .filter(|slot| slot.web.is_none())
         .map(|slot| GameWindowRoleSlotRecord {
             slot_id: slot.slot_id.clone(),
             role_id: slot.role.id.clone(),

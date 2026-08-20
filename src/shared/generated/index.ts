@@ -237,5 +237,6 @@ export type { WorkspaceSlotInputRecord } from "./WorkspaceSlotInputRecord";
 export type { WorkspaceSlotRequest } from "./WorkspaceSlotRequest";
 export type { WorkspaceUpdateInputRecord } from "./WorkspaceUpdateInputRecord";
 export type { WorkspaceUpdateRequest } from "./WorkspaceUpdateRequest";
+export type { WorkspaceWebContentRecord } from "./WorkspaceWebContentRecord";
 export type { WindowsGraphicsEventCollectionRecord } from "./WindowsGraphicsEventCollectionRecord";
 export type { WindowsGraphicsEventRecord } from "./WindowsGraphicsEventRecord";

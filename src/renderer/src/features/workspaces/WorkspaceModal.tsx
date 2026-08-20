@@ -34,7 +34,7 @@ import { formatWorkspaceResizeRatio, snapWorkspaceResizePosition } from "../../.
 
 import { workspaceTemplateIcons, workspaceTemplateLabelKeys } from "./workspaceConstants";
 
-import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot, createWorkspaceSlotBackground, getWorkspaceResizeAffectedSlotIndexes, getWorkspaceSplitRange, getWorkspaceSplits, mergeWorkspaceRoleZoomOverrides, swapWorkspaceSlotRoles, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
+import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot, assignWebToWorkspaceSlot, createWorkspaceSlotBackground, getWorkspaceResizeAffectedSlotIndexes, getWorkspaceSplitRange, getWorkspaceSplits, mergeWorkspaceRoleZoomOverrides, swapWorkspaceSlotRoles, type WorkspaceSplitAxis } from "./workspaceLayoutUtils";
 
 import { WorkspaceHelpSection, WorkspaceResizeHandles, WorkspaceSlotDropZone } from "./WorkspaceLayoutControls";
 
@@ -95,7 +95,18 @@ function WorkspaceEditor({
   const persistedSlotsRef = useRef(persistedSlots ?? initialForm.slots);
   const [form, setForm] = useState(initialForm);
   const isDirty = !areEditorFormsEqual(initialFormRef.current, form);
-  const canSubmit = form.name.trim().length > 0;
+  const canSubmit = form.name.trim().length > 0 && form.slots.every((slot) => {
+    if (!slot.web) {
+      return true;
+    }
+    try {
+      const url = new URL(slot.web.startUrl);
+      const nameLength = slot.web.name.trim().length;
+      return nameLength > 0 && nameLength <= 80 && ["http:", "https:"].includes(url.protocol);
+    } catch {
+      return false;
+    }
+  });
   const confirmationOptions = useMemo(() => ({
     title: t("confirm.unsaved.title"),
     description: t("confirm.unsaved.description"),
@@ -264,8 +275,41 @@ function WorkspaceLayoutFormEditor({
     updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, roleId));
   }
 
+  function handleContentTypeChange(contentType: string): void {
+    if (contentType === "role") {
+      const availableRoleId = roles.find((role) => !assignedSlotByRoleId.has(role.id))?.id
+        ?? roles[0]?.id;
+      updateSlots(assignRoleToWorkspaceSlot(
+        assignWebToWorkspaceSlot(slots, selectedSlotIndex, undefined),
+        selectedSlotIndex,
+        availableRoleId
+      ));
+    } else if (contentType === "web") {
+      updateSlots(assignWebToWorkspaceSlot(
+        slots,
+        selectedSlotIndex,
+        selectedSlot?.web ?? { name: "", startUrl: "https://" }
+      ));
+    } else {
+      updateSlots(assignRoleToWorkspaceSlot(
+        assignWebToWorkspaceSlot(slots, selectedSlotIndex, undefined),
+        selectedSlotIndex,
+        undefined
+      ));
+    }
+  }
+
+  function updateSelectedWeb(patch: Partial<NonNullable<LaunchWorkspaceSlot["web"]>>): void {
+    const current = selectedSlot?.web ?? { name: "", startUrl: "https://" };
+    updateSlots(assignWebToWorkspaceSlot(slots, selectedSlotIndex, { ...current, ...patch }));
+  }
+
   function handleClearSelectedSlot(): void {
-    updateSlots(assignRoleToWorkspaceSlot(slots, selectedSlotIndex, undefined));
+    updateSlots(assignRoleToWorkspaceSlot(
+      assignWebToWorkspaceSlot(slots, selectedSlotIndex, undefined),
+      selectedSlotIndex,
+      undefined
+    ));
   }
 
   function startResize(
@@ -501,6 +545,7 @@ function WorkspaceLayoutFormEditor({
                   isSaving={isSaving}
                   launchGameName={role ? gameNameById.get(role.gameId) : undefined}
                   role={role}
+                  web={slot.web}
                   rect={slot.rect}
                   resizeIndicator={
                     activeResize?.affectedSlotIndexes.includes(index)
@@ -530,8 +575,8 @@ function WorkspaceLayoutFormEditor({
         >
           <div className="flex shrink-0 items-start justify-between gap-3 p-4 pb-3">
             <FieldHeader
-              title={t("workspaces.rolePicker")}
-              description={t("workspaces.rolePickerDescription").replace("{slot}", selectedSlotLabel)}
+              title={t("workspaces.contentPicker")}
+              description={t("workspaces.contentPickerDescription").replace("{slot}", selectedSlotLabel)}
             />
             <Button
               type="button"
@@ -540,11 +585,61 @@ function WorkspaceLayoutFormEditor({
               title={t("workspaces.clearSelectedSlot")}
               aria-label={t("workspaces.clearSelectedSlot")}
               onClick={handleClearSelectedSlot}
-              disabled={isSaving || !selectedSlot?.roleId}
+              disabled={isSaving || (!selectedSlot?.roleId && !selectedSlot?.web)}
             >
               <Eraser size={15} />
             </Button>
           </div>
+          <div className="grid gap-3 px-4 pb-4">
+            <FormField htmlFor="workspace-slot-content" label={t("workspaces.contentType")}>
+              <Select
+                disabled={isSaving}
+                value={selectedSlot?.web ? "web" : selectedSlot?.roleId ? "role" : "empty"}
+                onValueChange={handleContentTypeChange}
+              >
+                <SelectTrigger id="workspace-slot-content" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="empty">{t("workspaces.content.empty")}</SelectItem>
+                  <SelectItem value="role">{t("workspaces.content.role")}</SelectItem>
+                  <SelectItem value="web">{t("workspaces.content.web")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            {selectedSlot?.web ? (
+              <div className="grid gap-3 rounded-lg border border-border/60 bg-background/20 p-3">
+                <FormField htmlFor="workspace-web-name" label={t("workspaces.webName")}>
+                  <Input
+                    id="workspace-web-name"
+                    maxLength={80}
+                    required
+                    disabled={isSaving}
+                    placeholder={t("workspaces.webNamePlaceholder")}
+                    value={selectedSlot.web.name}
+                    onChange={(event) => updateSelectedWeb({ name: event.target.value })}
+                  />
+                </FormField>
+                <FormField
+                  htmlFor="workspace-web-url"
+                  label={t("workspaces.webUrl")}
+                  description={t("workspaces.webUrlDescription")}
+                >
+                  <Input
+                    id="workspace-web-url"
+                    type="url"
+                    pattern="https?://.*"
+                    required
+                    disabled={isSaving}
+                    placeholder="https://www.youtube.com/"
+                    value={selectedSlot.web.startUrl}
+                    onChange={(event) => updateSelectedWeb({ startUrl: event.target.value })}
+                  />
+                </FormField>
+              </div>
+            ) : null}
+          </div>
+          {selectedSlot?.web || (!selectedSlot?.roleId && !selectedSlot?.web) ? null : (
           <div
             data-workspace-role-scroll
             className="workspace-editor-role-list max-h-[clamp(320px,45vh,440px)] overflow-x-hidden overflow-y-auto"
@@ -605,6 +700,7 @@ function WorkspaceLayoutFormEditor({
               )}
             </div>
           </div>
+          )}
         </div>
       </Surface>
 

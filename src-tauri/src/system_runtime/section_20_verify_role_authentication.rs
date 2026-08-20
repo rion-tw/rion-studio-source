@@ -244,7 +244,12 @@ impl SystemRuntimeExecutor {
         let navigation = Arc::new(NavigationTracker::default());
         let callback_navigation = Arc::clone(&navigation);
         let mut builder = self
-            .webview_builder(runtime_label("session-transfer-webview", &suffix), paths, None)?
+            .webview_builder(
+                runtime_label("session-transfer-webview", &suffix),
+                paths,
+                None,
+                false,
+            )?
             .on_page_load(move |_webview, payload| {
                 callback_navigation.page_event(payload.event(), payload.url());
             });

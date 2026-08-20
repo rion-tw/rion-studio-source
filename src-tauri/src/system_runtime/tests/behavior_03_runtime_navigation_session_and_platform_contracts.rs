@@ -510,6 +510,20 @@ use uuid::Uuid;
     }
 
     #[test]
+    fn workspace_web_surfaces_share_one_profile_outside_role_storage() {
+        let root = Path::new("/runtime");
+        let first = global_web_session_paths(root);
+        let second = global_web_session_paths(root);
+        let role = role_session_paths(root, "role-a").unwrap();
+
+        assert_eq!(first.webview2, Path::new("/runtime/web-profiles/global-web/webview2"));
+        assert_eq!(first.webview2, second.webview2);
+        assert_eq!(first.webkit_identifier, second.webkit_identifier);
+        assert_ne!(first.webview2, role.webview2);
+        assert_ne!(first.webkit_identifier, role.webkit_identifier);
+    }
+
+    #[test]
     fn role_cookie_checkpoint_deduplicates_native_keys_with_last_write_wins() {
         let record = |name: &str, value: &str, domain: &str| SessionCookieRecord {
             name: name.to_owned(),

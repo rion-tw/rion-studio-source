@@ -148,6 +148,7 @@ function SettingsViewBase({
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
   const [isQuickAccessClearing, setIsQuickAccessClearing] = useState(false);
+  const [isGlobalWebProfileClearing, setIsGlobalWebProfileClearing] = useState(false);
   const isMacOS = document.documentElement.dataset.platform === "mac";
   const canCheckForUpdates =
     Boolean(updateStatus?.isPackaged) &&
@@ -236,6 +237,18 @@ function SettingsViewBase({
     setPortableExportSelection(createDefaultPortableDataSelection(portableExportAvailability));
     setPortableMessage(null);
     setIsPortableExportOpen(true);
+  }
+
+  function handleClearGlobalWebProfile(): void {
+    if (isGlobalWebProfileClearing) {
+      return;
+    }
+    setIsGlobalWebProfileClearing(true);
+    setPortableMessage(null);
+    void window.rionStudio.clearGlobalWebProfile()
+      .then(() => setPortableMessage(t("settings.globalWebProfileCleared")))
+      .catch(onError)
+      .finally(() => setIsGlobalWebProfileClearing(false));
   }
 
   async function handleExportPortableData(): Promise<void> {
@@ -609,6 +622,21 @@ function SettingsViewBase({
 
         {activeSection === "data" ? (
           <SettingsSection>
+            <SettingsRow
+              title={t("settings.globalWebProfile")}
+              description={t("settings.globalWebProfileDescription")}
+              control={
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isGlobalWebProfileClearing}
+                  onClick={handleClearGlobalWebProfile}
+                >
+                  <RotateCcw className={isGlobalWebProfileClearing ? "spin" : undefined} size={14} />
+                  {t("settings.globalWebProfileClear")}
+                </Button>
+              }
+            />
             <SettingsRow
               title={t("settings.chromeImport")}
               description={t("settings.chromeImportEntryDescription")}

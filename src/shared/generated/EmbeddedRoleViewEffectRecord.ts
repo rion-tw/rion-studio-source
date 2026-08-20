@@ -2,5 +2,6 @@
 import type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
 import type { StateNormalizedRectRecord } from "./StateNormalizedRectRecord";
 import type { StateRoleRecord } from "./StateRoleRecord";
+import type { WorkspaceWebContentRecord } from "./WorkspaceWebContentRecord";
 
-export type EmbeddedRoleViewEffectRecord = { role: StateRoleRecord, resolvedEngine: ResolvedBrowserEngine, rect: StateNormalizedRectRecord, zoomFactor: number, zoomMode: "adaptive" | "fixed", };
+export type EmbeddedRoleViewEffectRecord = { role: StateRoleRecord, web?: WorkspaceWebContentRecord, resolvedEngine: ResolvedBrowserEngine, rect: StateNormalizedRectRecord, zoomFactor: number, zoomMode: "adaptive" | "fixed", };

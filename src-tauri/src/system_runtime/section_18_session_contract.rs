@@ -23,6 +23,29 @@ impl<'a> RoleSessionContractTarget<'a> {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn clear_global_web_profile(&self) -> RuntimeResult<()> {
+        let state = self.state()?;
+        let has_live_surface = state.native_resources.tabs.values().any(|tab| {
+            tab.roles.keys().any(|surface_id| surface_id.starts_with("web-"))
+        }) || state.native_resources.surface_registry.values().any(|surface| {
+            surface
+                .role_id
+                .as_deref()
+                .is_some_and(|surface_id| surface_id.starts_with("web-"))
+        });
+        drop(state);
+        if has_live_surface {
+            return Err(RuntimeError::new(
+                "GLOBAL_WEB_PROFILE_IN_USE",
+                "Close every workspace Web surface and popup before clearing the shared Web profile.",
+            ));
+        }
+        let paths = global_web_session_paths(&self.user_data_dir);
+        let webview2 = paths.webview2.to_string_lossy().into_owned();
+        let webkit = uuid::Uuid::from_bytes(paths.webkit_identifier).to_string();
+        self.clear_role_browser_data("global-web", &webview2, &webkit)
+    }
+
     fn clear_role_browser_data_contract(
         &self,
         role_id: &str,

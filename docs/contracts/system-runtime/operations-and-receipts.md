@@ -1,6 +1,6 @@
 # Operations and Receipts
 
-This document is part of [System WebView Runtime Contract version 15](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 16](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Operation envelope and receipt
 
@@ -62,7 +62,7 @@ shutdown result.
 | Geometry and layout | User move/resize commits placement directly to the live store and queues latest-wins persistence without readback or compensation. Programmatic fullscreen/maximize and surface layout retain generation-fenced native transactions | AppKit content-layout geometry / Win32 window and WebView2 controller bounds |
 | Popup | Owner-scoped, fail-closed policy; only `about`, `http`, and `https` are eligible | WKUIDelegate-backed Tauri callback / WebView2 NewWindowRequested-backed callback |
 | Security | Policy installation succeeds before a role or popup becomes live | WKWebView policy adapter / WebView2 settings and event handlers |
-| Session | User-consented one-time Chrome Profile cookie and exact-origin LocalStorage transfer with readback and rollback; ordinary role LocalStorage remains native-store-owned | WKWebsiteDataStore / WebView2 profile data |
+| Session | User-consented one-time Chrome Profile cookie and exact-origin LocalStorage transfer with readback and rollback; ordinary role LocalStorage remains native-store-owned; workspace Web Apps use one Rion-managed `global-web` profile isolated from roles and the renderer | WKWebsiteDataStore / WebView2 profile data |
 | Audio and zoom | Reversible native fan-out followed by a live-state commit; saved-window durability is latest-revision-wins and never compensates the visible UI | Per-view System WebView APIs |
 | Metadata | Native tab metadata batch is submitted or reported degraded | AppKit tab controller / Windows tab-strip WebView evaluation |
 | Performance and capability | Probe result carries evidence and policy mode, never inferred support | Platform runtime probe plus bounded foreground sampling |
@@ -102,7 +102,7 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 15. The completion policy,
+Additive fields remain compatible within version 16. The completion policy,
 subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
 Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic

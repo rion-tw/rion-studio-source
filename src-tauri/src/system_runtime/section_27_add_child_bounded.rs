@@ -612,6 +612,7 @@ impl SystemRuntimeExecutor {
             owner: None,
             rect,
             role,
+            web: None,
             slot_id,
             state: "available".to_owned(),
             zoom_factor,

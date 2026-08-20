@@ -4,12 +4,14 @@ impl SystemRuntimeExecutor {
         label: String,
         paths: &SessionPaths,
         role_id: Option<&str>,
+        install_role_features: bool,
     ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
         let blank = "about:blank"
             .parse()
             .map_err(|_| RuntimeError::new("TAURI_URL_INVALID", "Invalid blank URL."))?;
         let popup_app = self.app.clone();
         let popup_role_id = role_id.map(str::to_owned);
+        let popup_install_role_features = install_role_features;
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
         #[cfg(windows)]
@@ -17,12 +19,13 @@ impl SystemRuntimeExecutor {
             self.configuration.additional_browser_arguments.clone();
         let popup_base_document_start_script = self.configuration.document_start_script.clone();
         let overlay_document_start_script = role_id
+            .filter(|_| install_role_features)
             .map(|_| self.overlay_document_start_script_for_label(&label))
             .transpose()?;
         let download_app = self.app.clone();
         let download_role_id = role_id.map(str::to_owned);
         #[cfg(not(target_os = "macos"))]
-        let navigation_role_id = role_id.map(str::to_owned);
+        let navigation_role_id = role_id.filter(|_| install_role_features).map(str::to_owned);
         #[cfg(not(target_os = "macos"))]
         let navigation_app = self.app.clone();
         #[cfg(not(target_os = "macos"))]
@@ -81,32 +84,36 @@ impl SystemRuntimeExecutor {
                     .expect("popup contract requires a role owner");
                 let sequence = POPUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let label = runtime_label("game-role-popup", &format!("{role_id}:{sequence}"));
-                let overlay_document_start_script =
-                    match popup_app.try_state::<crate::CoreState>().map(|state| {
-                        state
-                            .runtime
-                            .overlay_document_start_script_for_label(&label)
-                    }) {
-                        Some(Ok(source)) => source,
-                        Some(Err(error)) => {
-                            let _ = popup_app.emit(
-                                "rion://shell-error",
-                                json!({
-                                    "code": error.code,
-                                    "message": error.message,
-                                    "roleId": role_id,
-                                    "url": url
-                                }),
-                            );
-                            return NewWindowResponse::Deny;
-                        }
-                        None => return NewWindowResponse::Deny,
-                    };
-                let popup_document_start_script = [
-                    popup_base_document_start_script.clone(),
-                    overlay_document_start_script,
-                ]
-                .join("\n");
+                let popup_document_start_script = if popup_install_role_features {
+                    let overlay_document_start_script =
+                        match popup_app.try_state::<crate::CoreState>().map(|state| {
+                            state
+                                .runtime
+                                .overlay_document_start_script_for_label(&label)
+                        }) {
+                            Some(Ok(source)) => source,
+                            Some(Err(error)) => {
+                                let _ = popup_app.emit(
+                                    "rion://shell-error",
+                                    json!({
+                                        "code": error.code,
+                                        "message": error.message,
+                                        "roleId": role_id,
+                                        "url": url
+                                    }),
+                                );
+                                return NewWindowResponse::Deny;
+                            }
+                            None => return NewWindowResponse::Deny,
+                        };
+                    [
+                        popup_base_document_start_script.clone(),
+                        overlay_document_start_script,
+                    ]
+                    .join("\n")
+                } else {
+                    popup_base_document_start_script.clone()
+                };
                 let blank = match "about:blank".parse() {
                     Ok(blank) => blank,
                     Err(_) => return NewWindowResponse::Deny,
@@ -139,6 +146,9 @@ impl SystemRuntimeExecutor {
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
+                    if !popup_install_role_features {
+                        return matches!(target.scheme(), "about" | "http" | "https");
+                    }
                     popup_navigation_app
                         .try_state::<crate::CoreState>()
                         .is_some_and(|state| {
@@ -267,8 +277,8 @@ impl SystemRuntimeExecutor {
                             );
                             return NewWindowResponse::Deny;
                         }
-                        if let Err(error) =
-                            install_role_application_shortcut_handler(
+                        if popup_install_role_features
+                            && let Err(error) = install_role_application_shortcut_handler(
                                 window.as_ref(),
                                 popup_app.clone(),
                             )
@@ -346,7 +356,7 @@ impl SystemRuntimeExecutor {
             .on_download(move |_webview, event| {
                 handle_browser_download(&download_app, download_role_id.as_deref(), event)
             });
-        if role_id.is_some() {
+        if install_role_features {
             // This API is main-frame-only. Popup builders and child frames must
             // retain their own scrolling behavior.
             builder = builder.initialization_script(CANVAS_SCROLL_LOCK_INITIALIZATION_SCRIPT);
@@ -363,7 +373,7 @@ impl SystemRuntimeExecutor {
         }
         #[cfg(windows)]
         {
-            if role_id.is_some() {
+            if install_role_features {
                 // Keep the native WebView2 under-page surface transparent so the
                 // selected workspace material remains visible until the game paints.
                 builder = builder.background_color(tauri::utils::config::Color(0, 0, 0, 0));
@@ -385,7 +395,7 @@ impl SystemRuntimeExecutor {
         HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
-        let builder = self.webview_builder(label, paths, Some(role_id))?;
+        let builder = self.webview_builder(label, paths, Some(role_id), true)?;
         #[cfg(all(windows, feature = "desktop-e2e"))]
         let builder = builder
             .initialization_script(&desktop_e2e_windows_role_viewport_probe_script(role_id));
@@ -397,6 +407,58 @@ impl SystemRuntimeExecutor {
         } else {
             false
         };
+        Ok(prepare_platform_role_webview_builder(
+            &self.app,
+            builder,
+            paths.webkit_identifier,
+            high_refresh_rate_enabled,
+        ))
+    }
+
+    fn workspace_webview_builder(
+        &self,
+        window: &Window,
+        label: String,
+        paths: &SessionPaths,
+        surface_id: &str,
+        web: &rion_core::WorkspaceWebContentRecord,
+    ) -> RuntimeResult<(
+        WebviewBuilder<tauri::Wry>,
+        HighRefreshRateDiagnosticStatus,
+        RoleWebGlConfiguration,
+    )> {
+        let home = serde_json::to_string(&web.start_url)
+            .map_err(|error| RuntimeError::new("WORKSPACE_WEB_URL_INVALID", error.to_string()))?;
+        let toolbar_script = format!(
+            r#"(() => {{
+              const home = {home};
+              const install = () => {{
+                if (!document.documentElement || document.getElementById('__rion_web_toolbar_host')) return;
+                const host = document.createElement('div');
+                host.id = '__rion_web_toolbar_host';
+                host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;top:0;left:0;right:0;height:34px;display:block';
+                const root = host.attachShadow({{ mode: 'closed' }});
+                root.innerHTML = `<style>:host{{all:initial}}nav{{box-sizing:border-box;height:34px;display:flex;align-items:center;gap:4px;padding:4px 8px;background:rgba(20,22,27,.96);color:#e8eaf0;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border-bottom:1px solid rgba(255,255,255,.12)}}button{{width:26px;height:24px;border:0;border-radius:5px;background:transparent;color:inherit;font:15px inherit;cursor:pointer}}button:hover{{background:rgba(255,255,255,.12)}}span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.78}}</style><nav><button data-a="back" title="Back">←</button><button data-a="forward" title="Forward">→</button><button data-a="reload" title="Reload">↻</button><button data-a="home" title="Home">⌂</button><span></span></nav>`;
+                const origin = root.querySelector('span');
+                origin.textContent = location.origin;
+                root.querySelector('[data-a=back]').onclick = () => history.back();
+                root.querySelector('[data-a=forward]').onclick = () => history.forward();
+                root.querySelector('[data-a=reload]').onclick = () => location.reload();
+                root.querySelector('[data-a=home]').onclick = () => location.assign(home);
+                document.documentElement.appendChild(host);
+              }};
+              if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {{ once: true }});
+              else install();
+            }})();"#
+        );
+        let builder = self
+            .webview_builder(label, paths, Some(surface_id), false)?
+            .initialization_script(&toolbar_script);
+        let high_refresh_rate_enabled = cfg!(target_os = "macos")
+            && macos_high_refresh_rate_enabled(
+                self.configuration.macos_high_refresh_mode,
+                platform_display_refresh_rate(window),
+            );
         Ok(prepare_platform_role_webview_builder(
             &self.app,
             builder,
@@ -445,6 +507,7 @@ impl SystemRuntimeExecutor {
                     runtime_label("browser-data-clear-webview", role_id),
                     &paths,
                     None,
+                    false,
                 )?,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1.0, 1.0),
@@ -453,22 +516,12 @@ impl SystemRuntimeExecutor {
             .inspect_err(|_| {
                 let _ = window.close();
             })?;
-        let lifecycle = match self.install_surface_lifecycle_tracker(&webview) {
-            Ok(lifecycle) => lifecycle,
-            Err(error) => {
-                let _ = webview.close();
-                let _ = window.close();
-                return Err(error);
-            }
-        };
         let result = webview
             .clear_all_browsing_data()
             .map_err(RuntimeError::tauri);
-        let cleanup = self
-            .close_surface_and_wait(&webview, &lifecycle, role_id)
-            .map(|_| ());
-        let _ = window.close();
-        result.and(cleanup)?;
+        let surface_cleanup = webview.close().map_err(RuntimeError::tauri);
+        let window_cleanup = window.close().map_err(RuntimeError::tauri);
+        result.and(surface_cleanup).and(window_cleanup)?;
         self.remove_role_cookie_checkpoint(role_id)
     }
 

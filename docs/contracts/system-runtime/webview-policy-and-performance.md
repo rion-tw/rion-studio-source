@@ -1,6 +1,6 @@
 # WebView Policy and Performance
 
-This document is part of [System WebView Runtime Contract version 15](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 16](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## WebGL performance policy
 
@@ -60,7 +60,31 @@ an artificial per-frame `gl.flush()`.
 
 ## Popup, security, and capability policy
 
-Popups without a role owner or with an unsupported scheme are denied before a
+### Workspace Web App surfaces
+
+A workspace slot contains exactly one of a Role, a Web App, or nothing. A Web
+App has a display name and an HTTP(S) start URL. Every launch starts at that URL;
+last URL and history are not durable state. Main-frame HTTP(S) navigation may
+cross origins. The surface exposes Back, Forward, Reload, Home, and current
+origin controls, while tab audio and window zoom continue through the shared
+native tab projection.
+
+All workspace Web Apps and their controlled HTTP(S) popups share the single
+Rion-owned `global-web` session. On Windows its WebView2 data directory is
+`web-profiles/global-web/webview2`; on macOS it is the deterministic
+`rion-studio:wkwebsite-data-store:global-web` WKWebsiteDataStore identifier.
+This store is isolated from every Role store and from the renderer. Clearing it
+is rejected while any owning surface or popup is live. Rion does not expose
+profile CRUD or make Chrome profiles a runtime fallback.
+
+Web App surfaces do not receive macro overlay or trusted-input features.
+Permission requests are denied by default, certificate failures are fail-closed,
+and unsupported navigation/popup schemes are denied. YouTube is the baseline
+media compatibility target. Netflix and other DRM services are best-effort:
+availability depends on the operating-system WebView's codec, EME, and account
+policy and is not guaranteed by Rion Studio.
+
+Popups without a managed Role/Web surface owner or with an unsupported scheme are denied before a
 native window is created. A created popup must install security, lifecycle,
 failure-monitor, zoom, ownership, and main-frame navigation handling before
 registration. Popup resource and subframe activity never participates in the

@@ -10,10 +10,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Badge } from "../src/renderer/src/components/ui/badge";
 import { Button } from "../src/renderer/src/components/ui/button";
 import { NavItem } from "../src/renderer/src/components/ui/patterns";
+import { QuickAccessTrigger } from "../src/renderer/src/features/quick-access/QuickAccessTrigger";
+import en from "../src/renderer/src/i18n/en.json";
+import type { Translator } from "../src/renderer/src/i18n";
 import { readSourceTreeSync } from "./helpers/readSourceTree";
 
 const rendererPath = (...segments: string[]): string =>
   path.join(process.cwd(), "src", "renderer", ...segments);
+const t: Translator = (key) => en[key] ?? key;
 
 afterEach(cleanup);
 
@@ -72,6 +76,20 @@ describe("renderer visual foundation", () => {
     expect(count.className).toContain("count-pill");
     expect(count.className).toContain("text-micro");
     expect(count.className).not.toContain("backdrop-blur");
+  });
+
+  it("uses the neutral glass control for Quick Access in sidebars", () => {
+    render(<QuickAccessTrigger shortcutLabel="Ctrl+K" t={t} onOpen={() => undefined} />);
+
+    const trigger = screen.getByRole("button", { name: /Quick Open/ });
+    const shortcut = screen.getByText("Ctrl+K");
+
+    expect(trigger.className).toContain("app-no-drag");
+    expect(trigger.className).toContain("glass-control");
+    expect(trigger.className).not.toContain("bg-sidebar-accent/25");
+    expect(trigger.className).not.toContain("hover:bg-sidebar-accent/50");
+    expect(shortcut.className).toContain("border-border/45");
+    expect(shortcut.className).not.toContain("sidebar-border");
   });
 
   it("keeps on-media launch controls on the dedicated liquid-glass surface", () => {

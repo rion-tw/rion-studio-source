@@ -285,6 +285,7 @@
   "workspaces.content.web": "Web app",
   "workspaces.webPresets": "Popular sites",
   "workspaces.webPresetsDescription": "Choose a site to fill in the name and start URL.",
+  "workspaces.webPresetsPlaceholder": "Select a popular site",
   "workspaces.webPresetsHint": "You can edit the details below after choosing a site.",
   "workspaces.webName": "Display name",
   "workspaces.webNamePlaceholder": "YouTube, Netflix, or another site",

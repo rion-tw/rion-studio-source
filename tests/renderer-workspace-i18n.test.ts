@@ -19,6 +19,7 @@ const workspaceHelpKeys = [
   "workspaces.help.runtimeResource",
   "workspaces.webPresets",
   "workspaces.webPresetsDescription",
+  "workspaces.webPresetsPlaceholder",
   "workspaces.webPresetsHint",
   "runtimeRolePlaceholder.blocked",
   "runtimeRolePlaceholder.unknownTab",

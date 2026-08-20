@@ -601,12 +601,7 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div
-            className={cn(
-              "grid gap-3 px-4 pb-4",
-              selectedSlot?.web && "workspace-editor-web-controls"
-            )}
-          >
+          <div className="grid gap-3 px-4 pb-4">
             <FormField htmlFor="workspace-slot-content" label={t("workspaces.contentType")}>
               <Select
                 disabled={isSaving}
@@ -624,7 +619,7 @@ function WorkspaceLayoutFormEditor({
               </Select>
             </FormField>
             {selectedSlot?.web ? (
-              <div className="workspace-web-editor grid min-h-0 gap-3">
+              <div className="grid gap-3">
                 <WorkspaceWebPresetPicker
                   disabled={isSaving}
                   t={t}

@@ -86,14 +86,11 @@ describe("workspace editor role picker layout", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Content type" }));
     await user.click(screen.getByRole("option", { name: "Web app" }));
-    const presetButtons = container.querySelectorAll<HTMLButtonElement>("[data-workspace-web-preset]");
-    const youtubePreset = container.querySelector<HTMLButtonElement>(
-      "[data-workspace-web-preset='youtube']"
-    );
-    if (!youtubePreset) throw new Error("Expected the YouTube Web App preset.");
-
-    expect(presetButtons).toHaveLength(12);
-    await user.click(youtubePreset);
+    const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
+    expect(presetSelect.textContent).toContain("Select a popular site");
+    await user.click(presetSelect);
+    expect(screen.getAllByRole("option")).toHaveLength(12);
+    await user.click(screen.getByRole("option", { name: "YouTube" }));
 
     const displayName = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
     const startUrl = screen.getByRole("textbox", { name: "Start URL" }) as HTMLInputElement;
@@ -101,13 +98,14 @@ describe("workspace editor role picker layout", () => {
     if (!firstSlot) throw new Error("Expected the selected workspace slot.");
     expect(displayName.value).toBe("YouTube");
     expect(startUrl.value).toBe("https://www.youtube.com/");
-    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+    expect(presetSelect.textContent).toContain("YouTube");
+    expect(presetSelect.querySelector("img")).not.toBeNull();
     expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
     expect(firstSlot.style.backgroundImage).not.toBe("");
 
     await user.clear(displayName);
     await user.type(displayName, "Custom video room");
-    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+    expect(presetSelect.textContent).toContain("YouTube");
 
     await user.clear(startUrl);
     await user.type(startUrl, "https://fixture.example.test/watch");
@@ -116,7 +114,7 @@ describe("workspace editor role picker layout", () => {
     expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
     expect(firstSlot.getAttribute("data-workspace-web-url")).toBe("https://fixture.example.test/watch");
     expect(firstSlot.style.backgroundImage).toBe("");
-    expect(youtubePreset.getAttribute("aria-pressed")).toBe("false");
+    expect(presetSelect.textContent).toContain("Select a popular site");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0][0].slots[0]).toEqual({
@@ -159,19 +157,17 @@ describe("workspace editor role picker layout", () => {
     );
 
     const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
-    const youtubePreset = container.querySelector<HTMLButtonElement>(
-      "[data-workspace-web-preset='youtube']"
-    );
-    if (!firstSlot || !youtubePreset) throw new Error("Expected the known Web App preset state.");
+    const presetSelect = screen.getByRole("combobox", { name: "Popular sites" });
+    if (!firstSlot) throw new Error("Expected the known Web App preset state.");
     expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
-    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+    expect(presetSelect.textContent).toContain("YouTube");
 
     const startUrl = screen.getByRole("textbox", { name: "Start URL" });
     await user.clear(startUrl);
     await user.type(startUrl, "https://custom.example.test/");
 
     expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
-    expect(youtubePreset.getAttribute("aria-pressed")).toBe("false");
+    expect(presetSelect.textContent).toContain("Select a popular site");
   });
 
   it("shows every workspace layout in a single-select menu", async () => {

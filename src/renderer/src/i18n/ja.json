@@ -279,6 +279,7 @@
   "workspaces.content.web": "Web App",
   "workspaces.webPresets": "人気のサイト",
   "workspaces.webPresetsDescription": "サイトを選ぶと、名前と開始 URL が自動入力されます。",
+  "workspaces.webPresetsPlaceholder": "人気のサイトを選択",
   "workspaces.webPresetsHint": "選択後も、下の項目を自由に編集できます。",
   "workspaces.webName": "表示名",
   "workspaces.webNamePlaceholder": "YouTube、Netflix、または別のサイト",

@@ -108,10 +108,6 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .workspace-web-preset-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
     .list-toolbar {
       flex-direction: row;
       align-items: center;
@@ -207,23 +203,6 @@
 
     .workspace-editor-surface {
       grid-template-columns: minmax(0, 1fr) 270px;
-    }
-
-    .workspace-editor-web-controls {
-      min-height: 0;
-      flex: 1;
-      grid-template-rows: auto minmax(0, 1fr);
-      overflow: hidden;
-    }
-
-    .workspace-web-editor {
-      grid-template-rows: minmax(0, 1fr) auto;
-      overflow: hidden;
-    }
-
-    .workspace-web-preset-grid {
-      min-height: 4rem;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .workspace-editor-role-list {

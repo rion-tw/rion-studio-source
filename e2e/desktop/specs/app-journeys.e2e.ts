@@ -230,13 +230,15 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   const webOption = await $("[role='option']=Web app");
   await webOption.waitForExist({ timeout: 10_000 });
   await webOption.click();
-  const youtubePreset = await $("[data-workspace-web-preset='youtube']");
-  await youtubePreset.waitForClickable({ timeout: 10_000 });
+  const webPresetSelect = await $("[data-workspace-web-preset-select]");
+  await webPresetSelect.click();
+  const youtubePreset = await $("[role='option'][data-workspace-web-preset='youtube']");
+  await youtubePreset.waitForDisplayed({ timeout: 10_000 });
   await youtubePreset.click();
   await browser.waitUntil(async () =>
     await $("#workspace-web-name").getValue() === "YouTube" &&
     await $("#workspace-web-url").getValue() === "https://www.youtube.com/" &&
-    await youtubePreset.getAttribute("aria-pressed") === "true"
+    await webPresetSelect.getText() === "YouTube"
   );
   await $("#workspace-web-name").setValue("E2E Web App");
   await $("#workspace-web-url").setValue(

@@ -313,7 +313,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, choose a popular-site brand card, override its editable details with the fixture URL, launch its paired content and external Rion-owned chrome System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
+      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, choose a popular-site menu option, override its editable details with the fixture URL, launch its paired content and external Rion-owned chrome System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
     },
     {
       "id": "WORKSPACE-WEB-FULLSCREEN-005",

@@ -285,6 +285,7 @@
   "workspaces.content.web": "Web App",
   "workspaces.webPresets": "熱門網站",
   "workspaces.webPresetsDescription": "選擇網站即可快速填入名稱與起始網址。",
+  "workspaces.webPresetsPlaceholder": "選擇熱門網站",
   "workspaces.webPresetsHint": "選取網站後，仍可自訂下方欄位。",
   "workspaces.webName": "顯示名稱",
   "workspaces.webNamePlaceholder": "YouTube、Netflix 或其他網站",

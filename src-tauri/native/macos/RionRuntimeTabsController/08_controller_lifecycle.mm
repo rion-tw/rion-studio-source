@@ -183,7 +183,7 @@
   // Remove this controller before tearing down its AppKit hosts so a pending
   // fullscreen policy cannot keep AutoHideToolbar overridden after destroy.
   RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
-                                              NO, YES);
+                                              nil, NO, YES);
   if (_pendingContentLayoutNotification) {
     dispatch_block_cancel(_pendingContentLayoutNotification);
     _pendingContentLayoutNotification = nil;

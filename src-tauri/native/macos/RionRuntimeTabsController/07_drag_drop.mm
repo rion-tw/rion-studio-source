@@ -518,7 +518,7 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
 - (void)updateFullscreenToolbarPresentationPolicy {
   if (_destroyed || !_window) {
     RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
-                                                NO, YES);
+                                                nil, NO, YES);
     return;
   }
 
@@ -527,14 +527,15 @@ static CGFloat RionRuntimeTabItemLayoutWidth(
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
   BOOL active = fullScreen;
   BOOL autoHide = !self.alwaysShowInFullScreen && !self.revealLocked;
-  // Keep the marker armed while always-show is selected even in windowed mode:
+  // Keep the marker armed in windowed mode as well:
   // AppKit can ask the delegate for fullscreen presentation options before it
-  // emits NSWindowWillEnterFullScreenNotification. The marker is consulted
+  // emits NSWindowWillEnterFullScreenNotification. Explicitly add or remove
+  // AutoHideToolbar there because AppKit may replace an earlier process-wide
+  // option while constructing the fullscreen host. The marker is consulted
   // only by that fullscreen callback, so it has no windowed behavior.
-  RionSetFullscreenPresentationPolicyMarker(
-      _window, self.alwaysShowInFullScreen || self.revealLocked, !autoHide);
+  RionSetFullscreenPresentationPolicyMarker(_window, YES, autoHide);
   RionSetFullscreenToolbarPresentationRequest((__bridge const void *)self,
-                                              active, autoHide);
+                                              _window, active, autoHide);
 }
 
 - (void)setAlwaysShowInFullScreen:(BOOL)alwaysShow {

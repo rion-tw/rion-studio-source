@@ -25,6 +25,15 @@ typedef struct {
   bool titleHidden;
   bool valid;
 } RionRuntimeTabsDesktopE2ETitlebarGeometry;
+
+typedef struct {
+  bool alwaysShowInFullScreen;
+  bool fullscreen;
+  bool presentationAutoHideToolbar;
+  bool revealLocked;
+  bool toolbarPinned;
+  bool valid;
+} RionRuntimeTabsDesktopE2EFullscreenToolbarState;
 #endif
 
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
@@ -79,6 +88,8 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
                            beforeTabIdentifier:(NSString *)beforeTabIdentifier;
 - (BOOL)desktopE2ETitlebarGeometry:
     (RionRuntimeTabsDesktopE2ETitlebarGeometry *)geometry;
+- (BOOL)desktopE2EFullscreenToolbarState:
+    (RionRuntimeTabsDesktopE2EFullscreenToolbarState *)state;
 - (NSInteger)statusPresentation;
 #endif
 - (void)hideStatus;
@@ -179,6 +190,9 @@ int rion_runtime_tabs_desktop_e2e_status_presentation(
 bool rion_runtime_tabs_desktop_e2e_titlebar_geometry(
     void * _Nullable controller,
     RionRuntimeTabsDesktopE2ETitlebarGeometry *geometry);
+bool rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
+    void * _Nullable controller,
+    RionRuntimeTabsDesktopE2EFullscreenToolbarState *state);
 #endif
 void rion_runtime_tabs_hide_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(
@@ -210,6 +224,7 @@ bool rion_runtime_tabs_drag_anchor(
     double *windowOffsetY);
 bool rion_runtime_tabs_action_scope_self_test(void);
 bool rion_runtime_tabs_drag_hysteresis_self_test(void);
+bool rion_runtime_tabs_fullscreen_toolbar_policy_self_test(void);
 bool rion_runtime_tabs_overflow_layout_self_test(void);
 bool rion_runtime_tabs_shortcut_self_test(void);
 

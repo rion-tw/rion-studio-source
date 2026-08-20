@@ -527,6 +527,40 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 #if defined(RION_DESKTOP_E2E)
+- (BOOL)desktopE2EFullscreenToolbarState:
+    (RionRuntimeTabsDesktopE2EFullscreenToolbarState *)state {
+  if (!state) return NO;
+  *state = {};
+  if (_destroyed || !_window || !_toolbar) return NO;
+
+  state->alwaysShowInFullScreen = self.alwaysShowInFullScreen;
+  state->fullscreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  state->revealLocked = self.revealLocked;
+  state->toolbarPinned = _toolbar.visible;
+  NSApplicationPresentationOptions options =
+      NSApplication.sharedApplication.presentationOptions;
+  SEL selector = NSSelectorFromString(@"_fullScreenPresentationOptions");
+  NSMethodSignature *signature = [_window methodSignatureForSelector:selector];
+  if (state->fullscreen && [_window respondsToSelector:selector] && signature &&
+      signature.numberOfArguments == 2 &&
+      signature.methodReturnLength ==
+          sizeof(NSApplicationPresentationOptions)) {
+    @try {
+      using GetPresentationOptionsFunction =
+          NSApplicationPresentationOptions (*)(id, SEL);
+      options =
+          reinterpret_cast<GetPresentationOptionsFunction>(objc_msgSend)(
+              _window, selector);
+    } @catch (__unused NSException *exception) {
+    }
+  }
+  state->presentationAutoHideToolbar =
+      (options & NSApplicationPresentationAutoHideToolbar) != 0;
+  state->valid = YES;
+  return YES;
+}
+
 - (BOOL)desktopE2ETitlebarGeometry:
     (RionRuntimeTabsDesktopE2ETitlebarGeometry *)geometry {
   if (!geometry) return NO;

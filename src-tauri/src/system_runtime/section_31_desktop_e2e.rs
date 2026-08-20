@@ -365,6 +365,18 @@ impl SystemRuntimeExecutor {
                 "tabStatusPresentation".to_owned(),
                 Value::String(controller.desktop_e2e_status_presentation().to_owned()),
             );
+            if let Some(toolbar) = controller.desktop_e2e_fullscreen_toolbar_state() {
+                native_object.insert(
+                    "fullscreenToolbar".to_owned(),
+                    json!({
+                        "alwaysShowInFullScreen": toolbar.always_show_in_full_screen,
+                        "fullscreen": toolbar.fullscreen,
+                        "presentationAutoHideToolbar": toolbar.presentation_auto_hide_toolbar,
+                        "revealLocked": toolbar.reveal_locked,
+                        "toolbarPinned": toolbar.toolbar_pinned,
+                    }),
+                );
+            }
             if let Some(geometry) = controller.desktop_e2e_titlebar_geometry() {
                 native_object.insert(
                     "appKitTitlebar".to_owned(),

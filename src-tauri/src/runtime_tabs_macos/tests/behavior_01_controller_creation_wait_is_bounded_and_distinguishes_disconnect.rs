@@ -54,6 +54,11 @@ use std::{sync::mpsc, time::Duration};
     }
 
     #[test]
+    fn native_fullscreen_toolbar_policy_restores_baseline_and_prioritizes_pinned_windows() {
+        assert!(unsafe { super::rion_runtime_tabs_fullscreen_toolbar_policy_self_test() });
+    }
+
+    #[test]
     fn native_control_tab_shortcut_is_scoped_and_does_not_capture_command_tab() {
         assert!(unsafe { super::rion_runtime_tabs_shortcut_self_test() });
     }

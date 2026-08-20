@@ -102,6 +102,18 @@ struct NativeDesktopE2eTitlebarGeometry {
 }
 
 #[cfg(feature = "desktop-e2e")]
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+struct NativeDesktopE2eFullscreenToolbarState {
+    always_show_in_full_screen: bool,
+    fullscreen: bool,
+    presentation_auto_hide_toolbar: bool,
+    reveal_locked: bool,
+    toolbar_pinned: bool,
+    valid: bool,
+}
+
+#[cfg(feature = "desktop-e2e")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MacDesktopE2eTitlebarGeometry {
     pub(crate) root_min_x: f64,
@@ -113,6 +125,16 @@ pub(crate) struct MacDesktopE2eTitlebarGeometry {
     pub(crate) window_name_max_x: f64,
     pub(crate) traffic_lights_max_x: f64,
     pub(crate) title_hidden: bool,
+}
+
+#[cfg(feature = "desktop-e2e")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MacDesktopE2eFullscreenToolbarState {
+    pub(crate) always_show_in_full_screen: bool,
+    pub(crate) fullscreen: bool,
+    pub(crate) presentation_auto_hide_toolbar: bool,
+    pub(crate) reveal_locked: bool,
+    pub(crate) toolbar_pinned: bool,
 }
 
 type ActionCallback = unsafe extern "C" fn(
@@ -188,6 +210,11 @@ unsafe extern "C" {
         controller: *mut c_void,
         geometry: *mut NativeDesktopE2eTitlebarGeometry,
     ) -> bool;
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
+        controller: *mut c_void,
+        state: *mut NativeDesktopE2eFullscreenToolbarState,
+    ) -> bool;
     fn rion_runtime_tabs_hide_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
@@ -240,6 +267,8 @@ unsafe extern "C" {
     fn rion_runtime_tabs_action_scope_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_drag_hysteresis_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_fullscreen_toolbar_policy_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
@@ -561,6 +590,45 @@ impl MacRuntimeTabsController {
             window_name_max_x: geometry.window_name_max_x,
             traffic_lights_max_x: geometry.traffic_lights_max_x,
             title_hidden: geometry.title_hidden,
+        })
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub(crate) fn desktop_e2e_fullscreen_toolbar_state(
+        &self,
+    ) -> Option<MacDesktopE2eFullscreenToolbarState> {
+        let raw = self.inner.raw as usize;
+        let query = move || {
+            let mut state = NativeDesktopE2eFullscreenToolbarState::default();
+            let available = unsafe {
+                rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
+                    raw as *mut c_void,
+                    &mut state,
+                )
+            };
+            (available && state.valid).then_some(state)
+        };
+        let state = if unsafe { rion_runtime_tabs_is_main_thread() } {
+            query()
+        } else {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            self.inner
+                .app
+                .run_on_main_thread(move || {
+                    let _ = sender.send(query());
+                })
+                .ok()?;
+            receiver
+                .recv_timeout(Duration::from_millis(250))
+                .ok()
+                .flatten()
+        }?;
+        Some(MacDesktopE2eFullscreenToolbarState {
+            always_show_in_full_screen: state.always_show_in_full_screen,
+            fullscreen: state.fullscreen,
+            presentation_auto_hide_toolbar: state.presentation_auto_hide_toolbar,
+            reveal_locked: state.reveal_locked,
+            toolbar_pinned: state.toolbar_pinned,
         })
     }
 

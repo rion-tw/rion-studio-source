@@ -482,8 +482,127 @@ RionFullscreenToolbarPresentationRequests(void) {
   return requests;
 }
 
+static NSMapTable<NSValue *, NSWindow *> *
+RionFullscreenToolbarPresentationWindows(void) {
+  static NSMapTable<NSValue *, NSWindow *> *windows;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    windows = [NSMapTable strongToWeakObjectsMapTable];
+  });
+  return windows;
+}
+
 static BOOL RionFullscreenToolbarPresentationBaselineCaptured = NO;
 static BOOL RionFullscreenToolbarPresentationBaselineAutoHide = NO;
+
+static BOOL RionResolveFullscreenToolbarAutoHide(
+    BOOL baselineAutoHide, NSArray<NSNumber *> *requests) {
+  if (requests.count == 0) return baselineAutoHide;
+  for (NSNumber *request in requests) {
+    // A false request represents always-show or reveal-lock. It has priority
+    // over every auto-hide fullscreen runtime window in this process.
+    if (!request.boolValue) return NO;
+  }
+  return YES;
+}
+
+static NSApplicationPresentationOptions
+RionResolveFullscreenToolbarPresentationOptions(
+    NSApplicationPresentationOptions options, NSNumber *autoHide);
+static void RionSetFullscreenPresentationPolicyMarker(NSWindow *window,
+                                                      BOOL active,
+                                                      BOOL autoHide);
+
+static BOOL RionUpdateWindowFullscreenToolbarPresentationOptions(
+    NSWindow *window, BOOL autoHide) {
+  if (!window) return NO;
+  SEL getSelector = NSSelectorFromString(@"_fullScreenPresentationOptions");
+  SEL setSelector = NSSelectorFromString(@"_setFullScreenPresentationOptions:");
+  if (![window respondsToSelector:getSelector] ||
+      ![window respondsToSelector:setSelector]) {
+    return NO;
+  }
+  NSMethodSignature *getSignature =
+      [window methodSignatureForSelector:getSelector];
+  NSMethodSignature *setSignature =
+      [window methodSignatureForSelector:setSelector];
+  if (!getSignature || getSignature.numberOfArguments != 2 ||
+      getSignature.methodReturnLength !=
+          sizeof(NSApplicationPresentationOptions) ||
+      !setSignature || setSignature.numberOfArguments != 3 ||
+      setSignature.methodReturnLength != 0) {
+    return NO;
+  }
+
+  @try {
+    using GetPresentationOptionsFunction =
+        NSApplicationPresentationOptions (*)(id, SEL);
+    using SetPresentationOptionsFunction =
+        void (*)(id, SEL, NSApplicationPresentationOptions);
+    NSApplicationPresentationOptions current =
+        reinterpret_cast<GetPresentationOptionsFunction>(objc_msgSend)(
+            window, getSelector);
+    NSApplicationPresentationOptions desired =
+        RionResolveFullscreenToolbarPresentationOptions(current, @(autoHide));
+    if (desired == current) return NO;
+    reinterpret_cast<SetPresentationOptionsFunction>(objc_msgSend)(
+        window, setSelector, desired);
+    return YES;
+  } @catch (__unused NSException *exception) {
+    return NO;
+  }
+}
+
+static void RionApplyWindowFullscreenToolbarHostPolicy(
+    NSWindow *window, BOOL autoHide) {
+  if (!window || !window.toolbar) return;
+  SEL controllerSelector =
+      NSSelectorFromString(@"_fullScreenContentController");
+  if (![window respondsToSelector:controllerSelector]) return;
+  NSMethodSignature *controllerSignature =
+      [window methodSignatureForSelector:controllerSelector];
+  if (!controllerSignature || controllerSignature.numberOfArguments != 2 ||
+      controllerSignature.methodReturnLength != sizeof(id)) {
+    return;
+  }
+
+  @try {
+    using ObjectGetterFunction = id (*)(id, SEL);
+    id controller =
+        reinterpret_cast<ObjectGetterFunction>(objc_msgSend)(
+            window, controllerSelector);
+    SEL companionSelector =
+        NSSelectorFromString(@"menuBarCompanionController");
+    if (!controller ||
+        ![controller respondsToSelector:companionSelector]) {
+      return;
+    }
+    id companion =
+        reinterpret_cast<ObjectGetterFunction>(objc_msgSend)(
+            controller, companionSelector);
+    if (!companion) return;
+
+    NSArray<NSString *> *selectorNames = autoHide
+        ? @[ @"_enableFullScreenAutohidingForToolbar:",
+             @"_disableFullScreenForceVisibleForToolbar:" ]
+        : @[ @"_disableFullScreenAutohidingForToolbar:",
+             @"_enableFullScreenForceVisibleForToolbar:" ];
+    for (NSString *selectorName in selectorNames) {
+      SEL selector = NSSelectorFromString(selectorName);
+      NSMethodSignature *signature =
+          [companion methodSignatureForSelector:selector];
+      if (![companion respondsToSelector:selector] || !signature ||
+          signature.numberOfArguments != 3 ||
+          signature.methodReturnLength != 0) {
+        continue;
+      }
+      using ToolbarPolicyFunction = void (*)(id, SEL, NSToolbar *);
+      reinterpret_cast<ToolbarPolicyFunction>(objc_msgSend)(
+          companion, selector, window.toolbar);
+    }
+  } @catch (__unused NSException *exception) {
+  }
+}
 
 static void RionApplyFullscreenToolbarPresentationPolicy(void) {
   NSApplication *application = NSApplication.sharedApplication;
@@ -503,14 +622,19 @@ static void RionApplyFullscreenToolbarPresentationPolicy(void) {
         (current & NSApplicationPresentationAutoHideToolbar) != 0;
   }
 
-  BOOL shouldAutoHide = RionFullscreenToolbarPresentationBaselineAutoHide;
-  for (NSNumber *request in requests.objectEnumerator) {
-    // A false request represents always-show or reveal-lock. It has priority
-    // over every auto-hide fullscreen runtime window in this process.
-    if (!request.boolValue) {
-      shouldAutoHide = NO;
-      break;
-    }
+  BOOL shouldAutoHide = RionResolveFullscreenToolbarAutoHide(
+      RionFullscreenToolbarPresentationBaselineAutoHide,
+      requests.allValues);
+
+  NSMapTable<NSValue *, NSWindow *> *windows =
+      RionFullscreenToolbarPresentationWindows();
+  for (NSValue *key in requests) {
+    NSWindow *window = [windows objectForKey:key];
+    if (!window) continue;
+    RionSetFullscreenPresentationPolicyMarker(window, YES, shouldAutoHide);
+    RionUpdateWindowFullscreenToolbarPresentationOptions(window,
+                                                         shouldAutoHide);
+    RionApplyWindowFullscreenToolbarHostPolicy(window, shouldAutoHide);
   }
 
   const NSApplicationPresentationOptions autoHideToolbar =
@@ -534,7 +658,6 @@ static void RionApplyFullscreenToolbarPresentationPolicy(void) {
       // the next controller/event policy pass will retry with the same bit.
     }
   }
-
   if (requests.count == 0 && policyApplied) {
     RionFullscreenToolbarPresentationBaselineCaptured = NO;
     RionFullscreenToolbarPresentationBaselineAutoHide = NO;
@@ -542,15 +665,19 @@ static void RionApplyFullscreenToolbarPresentationPolicy(void) {
 }
 
 static void RionSetFullscreenToolbarPresentationRequest(
-    const void *controller, BOOL active, BOOL autoHide) {
+    const void *controller, NSWindow *window, BOOL active, BOOL autoHide) {
   if (!controller) return;
   NSMutableDictionary<NSValue *, NSNumber *> *requests =
       RionFullscreenToolbarPresentationRequests();
+  NSMapTable<NSValue *, NSWindow *> *windows =
+      RionFullscreenToolbarPresentationWindows();
   NSValue *key = [NSValue valueWithPointer:controller];
   if (active) {
     requests[key] = @(autoHide);
+    if (window) [windows setObject:window forKey:key];
   } else {
     [requests removeObjectForKey:key];
+    [windows removeObjectForKey:key];
   }
   RionApplyFullscreenToolbarPresentationPolicy();
 }
@@ -569,6 +696,16 @@ static IMP RionOriginalFullscreenPresentationOptionsIMPForObject(id object) {
     }
   }
   return nullptr;
+}
+
+static NSApplicationPresentationOptions
+RionResolveFullscreenToolbarPresentationOptions(
+    NSApplicationPresentationOptions options, NSNumber *autoHide) {
+  if (!autoHide) return options;
+  if (autoHide.boolValue) {
+    return options | NSApplicationPresentationAutoHideToolbar;
+  }
+  return options & ~NSApplicationPresentationAutoHideToolbar;
 }
 
 static NSApplicationPresentationOptions
@@ -592,12 +729,9 @@ RionRuntimeFullscreenPresentationOptions(
   // AppKit asks the window delegate for the final presentation options before
   // building NSToolbarFullScreenWindow. Clamp only the Rion-marked window;
   // every other delegate result, including all non-toolbar flags, is kept.
-  NSNumber *alwaysShow = objc_getAssociatedObject(
+  NSNumber *autoHide = objc_getAssociatedObject(
       window, &RionRuntimeFullscreenPresentationPolicyAssociationKey);
-  if (alwaysShow.boolValue) {
-    options &= ~NSApplicationPresentationAutoHideToolbar;
-  }
-  return options;
+  return RionResolveFullscreenToolbarPresentationOptions(options, autoHide);
 }
 
 static BOOL RionInstallFullscreenPresentationOptionsHook(NSWindow *window) {
@@ -646,11 +780,11 @@ static BOOL RionInstallFullscreenPresentationOptionsHook(NSWindow *window) {
 
 static void RionSetFullscreenPresentationPolicyMarker(NSWindow *window,
                                                       BOOL active,
-                                                      BOOL alwaysShow) {
+                                                      BOOL autoHide) {
   if (!window) return;
   objc_setAssociatedObject(
       window, &RionRuntimeFullscreenPresentationPolicyAssociationKey,
-      active && alwaysShow ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+      active ? @(autoHide) : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(

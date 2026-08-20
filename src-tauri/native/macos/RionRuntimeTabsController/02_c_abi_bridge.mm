@@ -349,6 +349,16 @@ bool rion_runtime_tabs_desktop_e2e_titlebar_geometry(
         desktopE2ETitlebarGeometry:geometry];
   }
 }
+
+bool rion_runtime_tabs_desktop_e2e_fullscreen_toolbar_state(
+    void * _Nullable rawController,
+    RionRuntimeTabsDesktopE2EFullscreenToolbarState *state) {
+  @autoreleasepool {
+    if (!rawController || !state) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        desktopE2EFullscreenToolbarState:state];
+  }
+}
 #endif
 
 void rion_runtime_tabs_hide_status(void * _Nullable rawController) {
@@ -583,6 +593,28 @@ bool rion_runtime_tabs_action_scope_self_test(void) {
            launcherProbe.targetWindowID.empty() && moveProbe.called &&
            moveProbe.sourceWindowID == "window-a" &&
            moveProbe.targetWindowID == "window-b";
+  }
+}
+
+bool rion_runtime_tabs_fullscreen_toolbar_policy_self_test(void) {
+  @autoreleasepool {
+    const NSApplicationPresentationOptions unrelated =
+        NSApplicationPresentationFullScreen |
+        NSApplicationPresentationAutoHideMenuBar;
+    const NSApplicationPresentationOptions toolbar =
+        NSApplicationPresentationAutoHideToolbar;
+    return !RionResolveFullscreenToolbarAutoHide(NO, @[]) &&
+        RionResolveFullscreenToolbarAutoHide(YES, @[]) &&
+        RionResolveFullscreenToolbarAutoHide(NO, @[ @YES ]) &&
+        RionResolveFullscreenToolbarAutoHide(YES, @[ @YES, @YES ]) &&
+        !RionResolveFullscreenToolbarAutoHide(NO, @[ @NO ]) &&
+        !RionResolveFullscreenToolbarAutoHide(YES, @[ @YES, @NO ]) &&
+        RionResolveFullscreenToolbarPresentationOptions(unrelated, nil) ==
+            unrelated &&
+        RionResolveFullscreenToolbarPresentationOptions(unrelated, @YES) ==
+            (unrelated | toolbar) &&
+        RionResolveFullscreenToolbarPresentationOptions(
+            unrelated | toolbar, @NO) == unrelated;
   }
 }
 

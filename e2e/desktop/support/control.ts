@@ -74,6 +74,13 @@ export interface DesktopE2eWindowSnapshot {
     }>;
     dpi?: number;
     focused?: boolean;
+    fullscreenToolbar?: {
+      alwaysShowInFullScreen: boolean;
+      fullscreen: boolean;
+      presentationAutoHideToolbar: boolean;
+      revealLocked: boolean;
+      toolbarPinned: boolean;
+    };
     handle: string;
     normalOuterBounds?: WindowBounds;
     outerBounds: WindowBounds;

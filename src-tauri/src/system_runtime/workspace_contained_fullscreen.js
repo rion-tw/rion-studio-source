@@ -231,6 +231,7 @@
     removalObserver?.disconnect();
     removalObserver = null;
     restorePopover();
+    activeElement?.removeEventListener("keydown", handleEscape, true);
     activeElement?.removeEventListener(exitRequestEvent, handleExitRequest, true);
     activeElement?.removeAttribute(activeAttribute);
     for (const ancestor of activeAncestors) ancestor.removeAttribute(ancestorAttribute);
@@ -284,6 +285,7 @@
     }
     document.documentElement?.setAttribute(rootAttribute, "");
     element.setAttribute(activeAttribute, "");
+    element.addEventListener("keydown", handleEscape, true);
     element.addEventListener(exitRequestEvent, handleExitRequest, true);
     applyPresentationStyles();
     openPopover(element);
@@ -453,8 +455,10 @@
     void exitThroughHost().catch(() => undefined);
   };
   const handleEscape = (event) => {
-    const currentDocument = event.currentTarget;
-    const currentFullscreenElement = currentDocument?.querySelector?.(`[${activeAttribute}]`);
+    const currentTarget = event.currentTarget;
+    const currentFullscreenElement = currentTarget?.matches?.(`[${activeAttribute}]`)
+      ? currentTarget
+      : currentTarget?.querySelector?.(`[${activeAttribute}]`);
     if (!currentFullscreenElement || event.key !== "Escape") return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -581,6 +585,6 @@
     configurable: false,
     enumerable: false,
     writable: false,
-    value: Object.freeze({ bindDocument, installed, version: 4 })
+    value: Object.freeze({ bindDocument, installed, version: 5 })
   });
 })();

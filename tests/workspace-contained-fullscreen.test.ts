@@ -186,7 +186,7 @@ describe("Workspace Web contained fullscreen policy", () => {
     }).__rionStudioWorkspaceContainedFullscreen;
 
     installation.bindDocument(navigatedDocument);
-    expect(installation.version).toBe(4);
+    expect(installation.version).toBe(5);
     await target.requestFullscreen();
 
     provisionalDocument.dispatchEvent(
@@ -198,6 +198,26 @@ describe("Workspace Web contained fullscreen policy", () => {
       new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
     );
     await vi.waitFor(() => expect(navigatedDocument.fullscreenElement).toBeNull());
+    dom.window.close();
+  });
+
+  it("handles Escape from the active element when the document binding moved", async () => {
+    const { dom, window } = createDocument();
+    const originalDocument = window.document;
+    const target = originalDocument.querySelector<HTMLElement>("#target")!;
+    const installation = (window as unknown as {
+      __rionStudioWorkspaceContainedFullscreen: {
+        bindDocument(nextDocument: Document): void;
+      };
+    }).__rionStudioWorkspaceContainedFullscreen;
+
+    await target.requestFullscreen();
+    installation.bindDocument(originalDocument.implementation.createHTMLDocument("replacement"));
+    target.dispatchEvent(
+      new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+    );
+
+    await vi.waitFor(() => expect(originalDocument.fullscreenElement).toBeNull());
     dom.window.close();
   });
 

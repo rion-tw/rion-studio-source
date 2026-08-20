@@ -30,10 +30,13 @@ fn quick_access_request_ledger_is_latest_wins_and_resolution_is_idempotent() {
 
 #[test]
 fn quick_access_source_restore_requires_a_completed_native_presentation() {
-    assert_eq!(
-        native_focus_intent_origin("quick-access-cancel"),
-        NativeFocusIntentOrigin::UserGesture
-    );
+    for trigger in ["game-quick-access", "quick-access-cancel"] {
+        assert_eq!(
+            native_focus_intent_origin(trigger),
+            NativeFocusIntentOrigin::UserGesture,
+            "{trigger} must preserve its exact visible user gesture"
+        );
+    }
     assert!(quick_access_restore_completed(
         &SystemRuntimeOperationStatus::Applied
     ));

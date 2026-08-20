@@ -11,7 +11,7 @@ fn native_focus_intent_origin(trigger: &str) -> NativeFocusIntentOrigin {
     match trigger {
         "pointer" | "native-pointer" | "shortcut" | "launch-preview"
         | "renderer-game-window-list" | "overlay-open-macro-page"
-        | "desktop-e2e-main-focus" | "quick-access-cancel" => {
+        | "desktop-e2e-main-focus" | "game-quick-access" | "quick-access-cancel" => {
             NativeFocusIntentOrigin::UserGesture
         }
         "application-activation" | "application-reopen" | "exit-guard"

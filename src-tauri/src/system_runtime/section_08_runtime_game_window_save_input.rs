@@ -297,6 +297,31 @@ impl SystemRuntimeExecutor {
         generation: u64,
         navigation: Arc<NavigationTracker>,
     ) -> Result<Arc<SurfaceLifecycleTracker>, RoleSurfaceSetupFailure> {
+        let policy_operation = NativeOperationContext::new(
+            NativeOperationSubsystem::Security,
+            "workspaceContainedFullscreenPolicy",
+            PLATFORM_CALLBACK_TIMEOUT,
+        )
+        .with_role(surface_id)
+        .with_surface_generation(generation);
+        let policy_result = require_workspace_contained_fullscreen_policy(
+            install_platform_contained_fullscreen_policy(webview),
+        );
+        let policy_receipt = match policy_result.as_ref() {
+            Ok(()) => NativeOperationReceipt::applied(
+                policy_operation,
+                "containedFullscreenPolicyInstalled",
+            ),
+            Err(failure) => NativeOperationReceipt::with_status(
+                policy_operation,
+                "containedFullscreenPolicyInstallFailed",
+                NativeOperationStatus::Failed,
+                Some(failure.error.code),
+            ),
+        };
+        self.record_native_operation_receipt(policy_receipt);
+        policy_result?;
+
         let operation = NativeOperationContext::new(
             NativeOperationSubsystem::Security,
             "workspaceWebSurfaceSetup",

@@ -19,6 +19,7 @@
     "smoke": {
       "gate": "pull-request",
       "phases": [
+        "workspace-contained-fullscreen",
         "smoke-seed",
         "smoke-restart"
       ],
@@ -29,6 +30,7 @@
     "full": {
       "gate": "release-candidate",
       "phases": [
+        "workspace-contained-fullscreen",
         "smoke-seed",
         "smoke-restart",
         "p0-macro-native-effect",
@@ -72,6 +74,7 @@
     "extended": {
       "gate": "nightly",
       "phases": [
+        "workspace-contained-fullscreen",
         "smoke-seed",
         "smoke-restart",
         "p0-macro-native-effect",
@@ -310,7 +313,21 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, launch its System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart."
+      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, launch its System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
+    },
+    {
+      "id": "WORKSPACE-WEB-FULLSCREEN-005",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "phase": "workspace-contained-fullscreen",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Trigger Workspace Web contained fullscreen from visible fixture controls using real platform keyboard input, prove the element fills only its WebView while the toolbar hides and native sibling/window geometry remains unchanged, restore through both the website exit control and Escape, and repeat the same bounded behavior in its controlled popup."
     },
     {
       "id": "GAME-WINDOWS-UI-001",

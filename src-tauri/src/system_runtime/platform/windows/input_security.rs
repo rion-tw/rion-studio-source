@@ -167,6 +167,16 @@ pub(in crate::system_runtime) fn install_platform_security_policy(webview: &Webv
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
+    _webview: &Webview,
+) -> RuntimeResult<()> {
+    // WebView2 keeps HTML fullscreen bounded to the controller by default. The
+    // all-frame document-start policy consumes requests before Wry can promote
+    // ContainsFullScreenElementChanged to the owner window.
+    Ok(())
+}
+
+#[cfg(windows)]
 pub(crate) fn defer_runtime_tab_shortcut(
     app: AppHandle,
     webview_label: String,

@@ -1,6 +1,6 @@
 # Native Projections and Placement
 
-This document is part of [System WebView Runtime Contract version 16](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 17](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Native tab chrome projection
 

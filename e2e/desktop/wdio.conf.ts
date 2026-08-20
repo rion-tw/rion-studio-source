@@ -44,7 +44,8 @@ const specByPhase: Record<string, string> = {
   seed: "e2e/desktop/specs/game-window-lifecycle.e2e.ts",
   "smoke-restart": "e2e/desktop/specs/app-journeys.e2e.ts",
   "smoke-seed": "e2e/desktop/specs/app-journeys.e2e.ts",
-  "system-settings": "e2e/desktop/specs/system-settings.e2e.ts"
+  "system-settings": "e2e/desktop/specs/system-settings.e2e.ts",
+  "workspace-contained-fullscreen": "e2e/desktop/specs/app-journeys.e2e.ts"
 };
 const spec = specByPhase[phase];
 if (!spec) throw new Error(`Unknown desktop E2E phase: ${phase}`);

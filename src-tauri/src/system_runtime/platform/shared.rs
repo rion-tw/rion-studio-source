@@ -387,6 +387,7 @@ fn prepare_platform_role_webview_builder(
     builder: WebviewBuilder<tauri::Wry>,
     _data_store_identifier: [u8; 16],
     _high_refresh_rate_enabled: bool,
+    _contained_fullscreen_enabled: bool,
 ) -> (
     WebviewBuilder<tauri::Wry>,
     HighRefreshRateDiagnosticStatus,

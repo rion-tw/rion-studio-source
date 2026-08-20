@@ -98,6 +98,7 @@ include!("system_runtime/section_18_apply.rs");
 include!("system_runtime/section_18_input_diagnostics.rs");
 include!("system_runtime/section_18_runtime_diagnostics.rs");
 include!("system_runtime/section_18_resize_diagnostics.rs");
+include!("system_runtime/section_19_workspace_contained_fullscreen.rs");
 include!("system_runtime/section_19_webview_builder.rs");
 include!("system_runtime/section_20_verify_role_authentication.rs");
 include!("system_runtime/section_21_runtime_layout.rs");

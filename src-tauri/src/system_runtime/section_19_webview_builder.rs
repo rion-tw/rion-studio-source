@@ -3,29 +3,38 @@ impl SystemRuntimeExecutor {
         &self,
         label: String,
         paths: &SessionPaths,
-        role_id: Option<&str>,
-        install_role_features: bool,
+        owner_id: Option<&str>,
+        surface_policy: WebviewSurfaceFeaturePolicy,
     ) -> RuntimeResult<WebviewBuilder<tauri::Wry>> {
         let blank = "about:blank"
             .parse()
             .map_err(|_| RuntimeError::new("TAURI_URL_INVALID", "Invalid blank URL."))?;
         let popup_app = self.app.clone();
-        let popup_role_id = role_id.map(str::to_owned);
-        let popup_install_role_features = install_role_features;
+        let popup_role_id = owner_id.map(str::to_owned);
+        let popup_surface_generation = owner_id
+            .and_then(|role_id| self.surface_generation_for_role(role_id));
+        let popup_surface_policy = surface_policy;
+        let popup_install_role_features = popup_surface_policy.installs_role_features();
+        let popup_install_contained_fullscreen =
+            popup_surface_policy.installs_contained_fullscreen();
         let popup_webview2_data_directory = paths.webview2.clone();
         let popup_webkit_data_store_identifier = paths.webkit_identifier;
         #[cfg(windows)]
         let popup_additional_browser_arguments =
             self.configuration.additional_browser_arguments.clone();
         let popup_base_document_start_script = self.configuration.document_start_script.clone();
-        let overlay_document_start_script = role_id
+        let install_role_features = surface_policy.installs_role_features();
+        let contained_fullscreen_document_start_script = surface_policy
+            .installs_contained_fullscreen()
+            .then(workspace_contained_fullscreen_script);
+        let overlay_document_start_script = owner_id
             .filter(|_| install_role_features)
             .map(|_| self.overlay_document_start_script_for_label(&label))
             .transpose()?;
         let download_app = self.app.clone();
-        let download_role_id = role_id.map(str::to_owned);
+        let download_role_id = owner_id.map(str::to_owned);
         #[cfg(not(target_os = "macos"))]
-        let navigation_role_id = role_id.filter(|_| install_role_features).map(str::to_owned);
+        let navigation_role_id = owner_id.filter(|_| install_role_features).map(str::to_owned);
         #[cfg(not(target_os = "macos"))]
         let navigation_app = self.app.clone();
         #[cfg(not(target_os = "macos"))]
@@ -111,6 +120,12 @@ impl SystemRuntimeExecutor {
                         overlay_document_start_script,
                     ]
                     .join("\n")
+                } else if popup_install_contained_fullscreen {
+                    [
+                        popup_base_document_start_script.clone(),
+                        workspace_contained_fullscreen_script(),
+                    ]
+                    .join("\n")
                 } else {
                     popup_base_document_start_script.clone()
                 };
@@ -126,6 +141,13 @@ impl SystemRuntimeExecutor {
                 let popup_navigation_role_id = role_id.clone();
                 #[cfg(not(target_os = "macos"))]
                 let popup_navigation_label = label.clone();
+                #[cfg(target_os = "macos")]
+                let popup_navigation_ready = Arc::new(AtomicBool::new(
+                    !popup_install_contained_fullscreen,
+                ));
+                #[cfg(target_os = "macos")]
+                let popup_navigation_ready_for_handler =
+                    Arc::clone(&popup_navigation_ready);
                 let popup_page_load_app = popup_app.clone();
                 let popup_builder = WebviewWindowBuilder::new(
                     &popup_app,
@@ -143,6 +165,9 @@ impl SystemRuntimeExecutor {
                     #[cfg(target_os = "macos")]
                     {
                         matches!(target.scheme(), "about" | "http" | "https")
+                            && (target.scheme() == "about"
+                                || popup_navigation_ready_for_handler
+                                    .load(Ordering::Acquire))
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
@@ -181,14 +206,133 @@ impl SystemRuntimeExecutor {
                     )
                 });
                 #[cfg(target_os = "macos")]
+                let popup_builder = if popup_install_contained_fullscreen {
+                    match platform_contained_fullscreen_popup_configuration(
+                        popup_webkit_data_store_identifier,
+                    ) {
+                        Ok(configuration) =>
+                            popup_builder.with_webview_configuration(configuration),
+                        Err(error) => {
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.record_popup_contract_outcome(
+                                    Some(role_id),
+                                    "popupContainedFullscreenPolicyFailed",
+                                    NativeOperationStatus::Failed,
+                                    Some(error.code),
+                                );
+                            }
+                            let _ = popup_app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": error.code,
+                                    "message": error.message,
+                                    "roleId": role_id,
+                                    "url": url
+                                }),
+                            );
+                            return NewWindowResponse::Deny;
+                        }
+                    }
+                } else {
+                    popup_builder
+                };
+                #[cfg(target_os = "macos")]
                 let popup_builder =
                     popup_builder.background_throttling(BackgroundThrottlingPolicy::Throttle);
+                #[cfg(target_os = "macos")]
+                let popup_builder = if popup_install_contained_fullscreen {
+                    popup_builder.visible(false)
+                } else {
+                    popup_builder
+                };
                 #[cfg(windows)]
                 let popup_builder =
                     popup_builder.additional_browser_args(&popup_additional_browser_arguments);
                 let popup = popup_builder.build();
                 match popup {
                     Ok(window) => {
+                        #[cfg(target_os = "macos")]
+                        if popup_install_contained_fullscreen {
+                            let Some(generation) = popup_surface_generation else {
+                                let _ = window.close();
+                                return NewWindowResponse::Deny;
+                            };
+                            let setup_app = popup_app.clone();
+                            let setup_label = label.clone();
+                            let setup_role_id = role_id.clone();
+                            let setup_url = url.clone();
+                            let setup_window = window.clone();
+                            let setup_navigation_ready = Arc::clone(&popup_navigation_ready);
+                            let setup_result = submit_platform_role_surface_setup_inner(
+                                window.as_ref(),
+                                popup_app.clone(),
+                                SurfaceFailureTarget::Popup {
+                                    label: label.clone(),
+                                    role_id: role_id.clone(),
+                                    generation,
+                                },
+                                move |result| {
+                                    let result = result.and_then(|lifecycle| {
+                                        let state = setup_app
+                                            .try_state::<crate::CoreState>()
+                                            .ok_or_else(|| {
+                                                RuntimeError::new(
+                                                    "SYSTEM_RUNTIME_UNAVAILABLE",
+                                                    "System Runtime stopped while preparing a contained-fullscreen popup.",
+                                                )
+                                            })?;
+                                        state.runtime.register_popup(
+                                            setup_window.as_ref(),
+                                            &lifecycle,
+                                            setup_label.clone(),
+                                            setup_role_id.clone(),
+                                            generation,
+                                        )?;
+                                        setup_navigation_ready.store(true, Ordering::Release);
+                                        setup_window
+                                            .navigate(setup_url.clone())
+                                            .map_err(RuntimeError::tauri)?;
+                                        setup_window.show().map_err(RuntimeError::tauri)
+                                    });
+                                    if let Err(error) = result {
+                                        let _ = setup_window.close();
+                                        if let Some(state) =
+                                            setup_app.try_state::<crate::CoreState>()
+                                        {
+                                            state.runtime.revoke_overlay_capability(&setup_label);
+                                            state.runtime.record_popup_contract_outcome(
+                                                Some(&setup_role_id),
+                                                "popupContainedFullscreenPolicyFailed",
+                                                NativeOperationStatus::Failed,
+                                                Some(error.code),
+                                            );
+                                        }
+                                        let _ = setup_app.emit(
+                                            "rion://shell-error",
+                                            json!({
+                                                "code": error.code,
+                                                "message": error.message,
+                                                "roleId": setup_role_id,
+                                                "url": setup_url
+                                            }),
+                                        );
+                                    }
+                                },
+                            );
+                            if let Err(error) = setup_result {
+                                let _ = window.close();
+                                if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                    state.runtime.record_popup_contract_outcome(
+                                        Some(role_id),
+                                        "popupContainedFullscreenPolicyFailed",
+                                        NativeOperationStatus::Failed,
+                                        Some(error.code),
+                                    );
+                                }
+                                return NewWindowResponse::Deny;
+                            }
+                            return NewWindowResponse::Create { window };
+                        }
                         if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();
                             if let Some(state) = popup_app.try_state::<crate::CoreState>() {
@@ -356,6 +500,9 @@ impl SystemRuntimeExecutor {
             .on_download(move |_webview, event| {
                 handle_browser_download(&download_app, download_role_id.as_deref(), event)
             });
+        if let Some(source) = contained_fullscreen_document_start_script {
+            builder = builder.initialization_script_for_all_frames(&source);
+        }
         if install_role_features {
             // This API is main-frame-only. Popup builders and child frames must
             // retain their own scrolling behavior.
@@ -395,7 +542,12 @@ impl SystemRuntimeExecutor {
         HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
-        let builder = self.webview_builder(label, paths, Some(role_id), true)?;
+        let builder = self.webview_builder(
+            label,
+            paths,
+            Some(role_id),
+            WebviewSurfaceFeaturePolicy::Role,
+        )?;
         #[cfg(all(windows, feature = "desktop-e2e"))]
         let builder = builder
             .initialization_script(&desktop_e2e_windows_role_viewport_probe_script(role_id));
@@ -412,6 +564,7 @@ impl SystemRuntimeExecutor {
             builder,
             paths.webkit_identifier,
             high_refresh_rate_enabled,
+            false,
         ))
     }
 
@@ -452,7 +605,12 @@ impl SystemRuntimeExecutor {
             }})();"#
         );
         let builder = self
-            .webview_builder(label, paths, Some(surface_id), false)?
+            .webview_builder(
+                label,
+                paths,
+                Some(surface_id),
+                WebviewSurfaceFeaturePolicy::WorkspaceWeb,
+            )?
             .initialization_script(&toolbar_script);
         let high_refresh_rate_enabled = cfg!(target_os = "macos")
             && macos_high_refresh_rate_enabled(
@@ -464,6 +622,7 @@ impl SystemRuntimeExecutor {
             builder,
             paths.webkit_identifier,
             high_refresh_rate_enabled,
+            true,
         ))
     }
 
@@ -507,7 +666,7 @@ impl SystemRuntimeExecutor {
                     runtime_label("browser-data-clear-webview", role_id),
                     &paths,
                     None,
-                    false,
+                    WebviewSurfaceFeaturePolicy::Utility,
                 )?,
                 LogicalPosition::new(0.0, 0.0),
                 LogicalSize::new(1.0, 1.0),

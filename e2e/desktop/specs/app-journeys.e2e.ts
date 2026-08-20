@@ -4,6 +4,7 @@ import { Key } from "webdriverio";
 import type { Game, GameWindow, LaunchWorkspace, Macro, Role, RoleStatus } from "../../../src/shared/types";
 import {
   detachTerminatedApplicationSession,
+  keyboardInput,
   keyboardInputSequence,
   probe,
   rendererCall,
@@ -32,6 +33,7 @@ import {
 // [journey:ROLES-UI-001]
 // [journey:WORKSPACES-UI-001]
 // [journey:WORKSPACE-WEB-SLOT-004]
+// [journey:WORKSPACE-WEB-FULLSCREEN-005]
 // [journey:GAME-WINDOWS-UI-001]
 // [journey:MACROS-UI-001]
 // [journey:SETTINGS-PERSIST-001]
@@ -46,7 +48,17 @@ const MACRO_NAME = "E2E Smoke Macro";
 const GAME_WINDOW_NAME = "E2E Smoke Game Window";
 const ROLE_FIXTURE_ID = "e2e-smoke-role";
 const WEB_FIXTURE_ID = "e2e-workspace-web";
+const WEB_POPUP_FIXTURE_ID = "e2e-workspace-popup";
 const WEB_SESSION_MARKER = "e2e-global-web-session";
+const FULLSCREEN_WORKSPACE_NAME = "E2E Contained Fullscreen Workspace";
+const FULLSCREEN_GAME_NAME = "E2E Contained Fullscreen Game";
+const FULLSCREEN_ROLE_NAME = "E2E Contained Fullscreen Role";
+
+function expectWithinCssPixel(actual: number | undefined, expected: number | undefined): void {
+  expect(actual).toBeDefined();
+  expect(expected).toBeDefined();
+  expect(Math.abs((actual ?? Number.NaN) - (expected ?? Number.NaN))).toBeLessThanOrEqual(1);
+}
 
 async function fixtureRequest(path: string, body: unknown): Promise<void> {
   const response = await fetch(`${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}${path}`, {
@@ -230,6 +242,39 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   await $(`[data-workspace-role-id='${role.id}']`).click();
   await submitEditor("/workspaces");
   return findWorkspace(WORKSPACE_NAME);
+}
+
+async function createContainedFullscreenRole(): Promise<Role> {
+  await navigate("/games/new");
+  await setEditorName(FULLSCREEN_GAME_NAME);
+  await $("#game-launch-url").setValue(
+    `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/e2e-fullscreen-sibling-role`
+  );
+  await submitEditor("/games");
+  const game = await findGame(FULLSCREEN_GAME_NAME);
+  await navigate(`/roles/new?gameId=${game.id}`);
+  await setEditorName(FULLSCREEN_ROLE_NAME);
+  await submitEditor("/roles");
+  return findRole(FULLSCREEN_ROLE_NAME);
+}
+
+async function createContainedFullscreenWorkspace(role: Role): Promise<LaunchWorkspace> {
+  await navigate("/workspaces");
+  await $("button=Create workspace").click();
+  await waitForRoute("/workspaces/new");
+  await setEditorName(FULLSCREEN_WORKSPACE_NAME);
+  await $("#workspace-slot-content").click();
+  await $("[role='option']=Web app").click();
+  await $("#workspace-web-name").setValue("Fullscreen fixture");
+  await $("#workspace-web-url").setValue(
+    `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}`
+  );
+  await $("[data-workspace-slot-index='1']").click();
+  await $("#workspace-slot-content").click();
+  await $("[role='option']=Role").click();
+  await $(`[data-workspace-role-id='${role.id}']`).click();
+  await submitEditor("/workspaces");
+  return findWorkspace(FULLSCREEN_WORKSPACE_NAME);
 }
 
 async function createMacro(role: Role): Promise<Macro> {
@@ -568,8 +613,250 @@ async function launchWorkspace(
     mode: "seed"
   });
   await waitForRoleStatus(role.id, (status) => status?.state === "running");
+  await exerciseWorkspaceContainedFullscreen(workspace, role.id);
   await rendererCall("stopRole", role.id);
   await waitForRoleStatus(role.id, (status) => status === undefined);
+}
+
+async function exerciseWorkspaceContainedFullscreen(
+  workspace: LaunchWorkspace,
+  expectedSiblingSurfaceId?: string
+): Promise<void> {
+  const runtime = await rendererCall("getEmbeddedRuntimeState");
+  const tab = runtime.tabs.find((candidate) =>
+    candidate.type === "workspace"
+      && candidate.sourceId === workspace.id
+      && candidate.active
+  );
+  if (!tab) throw new Error("The launched Web workspace has no active runtime tab");
+  const before = await windowSnapshot(tab.windowId);
+  const webSurfaceId = before.native.roleWebviews?.find(
+    (surface) => surface.url?.includes(`/role/${WEB_FIXTURE_ID}`)
+  )?.roleId;
+  if (!webSurfaceId) throw new Error("The launched workspace has no Web surface identity");
+  const beforeSurfaces = before.native.roleSurfaces ?? [];
+  const webSurface = beforeSurfaces.find((surface) => surface.roleId === webSurfaceId);
+  const siblingSurface = beforeSurfaces.find((surface) =>
+    expectedSiblingSurfaceId
+      ? surface.roleId === expectedSiblingSurfaceId
+      : surface.roleId !== webSurfaceId
+  );
+  if (!webSurface || !siblingSurface) {
+    throw new Error("The mixed workspace did not expose both native slot surfaces");
+  }
+  const originalPresentation = before.native.presentation;
+  const originalWebBounds = webSurface.hostBounds;
+  const originalSiblingBounds = siblingSurface.hostBounds;
+  const siblingSurfaceId = siblingSurface.roleId;
+
+  await runtimeUiAction(tab.windowId, {
+    action: "focusRole",
+    roleId: webSurfaceId,
+    tabId: tab.id,
+    windowGeneration: before.windowGeneration
+  });
+
+  const enterAfter = await fixtureCursor();
+  await keyboardInputSequence([
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "Enter", phase: "keyDown" },
+    { code: "Enter", phase: "keyUp" }
+  ]);
+  const entered = await waitFixtureEvent({
+    afterSequence: enterAfter,
+    kind: "contained-fullscreen-enter",
+    roleId: WEB_FIXTURE_ID
+  });
+  expect(entered.fullscreen).toEqual(expect.objectContaining({
+    active: true,
+    targetId: "contained-fullscreen-controls",
+    toolbarHidden: true
+  }));
+  expectWithinCssPixel(entered.fullscreen?.rect.width, entered.fullscreen?.viewport.width);
+  expectWithinCssPixel(entered.fullscreen?.rect.height, entered.fullscreen?.viewport.height);
+  expectWithinCssPixel(entered.fullscreen?.rect.x, 0);
+  expectWithinCssPixel(entered.fullscreen?.rect.y, 0);
+
+  const whileContained = await windowSnapshot(tab.windowId);
+  expect(whileContained.native.presentation).toBe(originalPresentation);
+  expect(whileContained.native.roleSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  )?.hostBounds).toEqual(originalWebBounds);
+  expect(whileContained.native.roleSurfaces?.find(
+    (surface) => surface.roleId === siblingSurfaceId
+  )?.hostBounds).toEqual(originalSiblingBounds);
+
+  const siteExitAfter = await fixtureCursor();
+  await keyboardInputSequence([
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "Enter", phase: "keyDown" },
+    { code: "Enter", phase: "keyUp" }
+  ]);
+  const siteExit = await waitFixtureEvent({
+    afterSequence: siteExitAfter,
+    kind: "contained-fullscreen-exit",
+    roleId: WEB_FIXTURE_ID
+  });
+  expect(siteExit.fullscreen).toEqual(expect.objectContaining({
+    active: false,
+    targetId: null,
+    toolbarHidden: false
+  }));
+
+  const secondEnterAfter = await fixtureCursor();
+  await keyboardInputSequence([
+    { code: "ShiftLeft", phase: "keyDown" },
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "ShiftLeft", phase: "keyUp" },
+    { code: "Enter", phase: "keyDown" },
+    { code: "Enter", phase: "keyUp" }
+  ]);
+  await waitFixtureEvent({
+    afterSequence: secondEnterAfter,
+    kind: "contained-fullscreen-enter",
+    roleId: WEB_FIXTURE_ID
+  });
+
+  const escapeAfter = await fixtureCursor();
+  await keyboardInputSequence([
+    { code: "Escape", phase: "keyDown" },
+    { code: "Escape", phase: "keyUp" }
+  ]);
+  const escapeExit = await waitFixtureEvent({
+    afterSequence: escapeAfter,
+    kind: "contained-fullscreen-exit",
+    roleId: WEB_FIXTURE_ID
+  });
+  expect(escapeExit.fullscreen).toEqual(expect.objectContaining({
+    active: false,
+    toolbarHidden: false
+  }));
+  const restored = await windowSnapshot(tab.windowId);
+  expect(restored.native.presentation).toBe(originalPresentation);
+  expect(restored.native.roleSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  )?.hostBounds).toEqual(originalWebBounds);
+  expect(restored.native.roleSurfaces?.find(
+    (surface) => surface.roleId === siblingSurfaceId
+  )?.hostBounds).toEqual(originalSiblingBounds);
+
+  // WKWebView does not grant transient popup activation to the synthetic
+  // desktop-E2E input stream. The product popup contract remains covered by
+  // native policy tests, while WebView2 CI exercises the visible popup flow.
+  if (process.platform === "darwin") return;
+
+  const popupReadyAfter = await fixtureCursor();
+  await keyboardInputSequence([
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "Tab", phase: "keyDown" },
+    { code: "Tab", phase: "keyUp" },
+    { code: "Enter", phase: "keyDown" },
+    { code: "Enter", phase: "keyUp" }
+  ]);
+  await waitFixtureEvent({
+    afterSequence: popupReadyAfter,
+    kind: "contained-popup-ready",
+    roleId: WEB_POPUP_FIXTURE_ID
+  });
+  const popupBefore = await windowSnapshot(tab.windowId);
+  const popup = popupBefore.native.popupWindows?.find(
+    (candidate) => candidate.roleId === webSurfaceId
+  );
+  if (!popup) throw new Error("The controlled Workspace Web popup was not registered");
+  expect(popup.native.presentation).toBe("normal");
+  const popupBounds = popup.native.outerBounds;
+
+  const popupEnterAfter = await fixtureCursor();
+  await keyboardInput("Enter", "keyDown", false);
+  await keyboardInput("Enter", "keyUp", false);
+  const popupEntered = await waitFixtureEvent({
+    afterSequence: popupEnterAfter,
+    kind: "contained-fullscreen-enter",
+    roleId: WEB_POPUP_FIXTURE_ID
+  });
+  expect(popupEntered.fullscreen).toEqual(expect.objectContaining({
+    active: true,
+    targetId: "contained-fullscreen-controls",
+    toolbarPresent: false
+  }));
+  expectWithinCssPixel(
+    popupEntered.fullscreen?.rect.width,
+    popupEntered.fullscreen?.viewport.width
+  );
+  expectWithinCssPixel(
+    popupEntered.fullscreen?.rect.height,
+    popupEntered.fullscreen?.viewport.height
+  );
+  const popupWhileContained = (await windowSnapshot(tab.windowId)).native.popupWindows?.find(
+    (candidate) => candidate.label === popup.label
+  );
+  expect(popupWhileContained?.native.presentation).toBe("normal");
+  expect(popupWhileContained?.native.outerBounds).toEqual(popupBounds);
+
+  const popupSiteExitAfter = await fixtureCursor();
+  await keyboardInput("Tab", "keyDown", false);
+  await keyboardInput("Tab", "keyUp", false);
+  await keyboardInput("Enter", "keyDown", false);
+  await keyboardInput("Enter", "keyUp", false);
+  await waitFixtureEvent({
+    afterSequence: popupSiteExitAfter,
+    kind: "contained-fullscreen-exit",
+    roleId: WEB_POPUP_FIXTURE_ID
+  });
+
+  const popupSecondEnterAfter = await fixtureCursor();
+  await keyboardInput("ShiftLeft", "keyDown", false);
+  await keyboardInput("Tab", "keyDown", false);
+  await keyboardInput("Tab", "keyUp", false);
+  await keyboardInput("ShiftLeft", "keyUp", false);
+  await keyboardInput("Enter", "keyDown", false);
+  await keyboardInput("Enter", "keyUp", false);
+  await waitFixtureEvent({
+    afterSequence: popupSecondEnterAfter,
+    kind: "contained-fullscreen-enter",
+    roleId: WEB_POPUP_FIXTURE_ID
+  });
+  const popupEscapeAfter = await fixtureCursor();
+  await keyboardInput("Escape", "keyDown", false);
+  await keyboardInput("Escape", "keyUp", false);
+  const popupEscapeExit = await waitFixtureEvent({
+    afterSequence: popupEscapeAfter,
+    kind: "contained-fullscreen-exit",
+    roleId: WEB_POPUP_FIXTURE_ID
+  });
+  expect(popupEscapeExit.fullscreen).toEqual(expect.objectContaining({
+    active: false,
+    toolbarPresent: false
+  }));
+  const popupRestored = (await windowSnapshot(tab.windowId)).native.popupWindows?.find(
+    (candidate) => candidate.label === popup.label
+  );
+  expect(popupRestored?.native.presentation).toBe("normal");
+  expect(popupRestored?.native.outerBounds).toEqual(popupBounds);
+}
+
+async function containedFullscreenPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await acceptLegalAndSkipFirstRun();
+  const role = await createContainedFullscreenRole();
+  const workspace = await createContainedFullscreenWorkspace(role);
+  const primaryAfter = await fixtureCursor();
+  await navigate("/workspaces");
+  await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
+  await waitFixtureEvent({
+    afterSequence: primaryAfter,
+    kind: "session",
+    roleId: WEB_FIXTURE_ID
+  });
+  await waitForRoleStatus(role.id, (status) => status?.state === "running");
+  await exerciseWorkspaceContainedFullscreen(workspace, role.id);
+  await shutdownAndWaitForFlush();
 }
 
 async function seedPhase(): Promise<void> {
@@ -675,6 +962,7 @@ describe("application UI smoke journeys", () => {
     const phase = requireEnvironment("RION_STUDIO_E2E_PHASE");
     if (phase === "smoke-seed") await seedPhase();
     else if (phase === "smoke-restart") await restartPhase();
+    else if (phase === "workspace-contained-fullscreen") await containedFullscreenPhase();
     else throw new Error(`Unknown application journey phase: ${phase}`);
   });
 });

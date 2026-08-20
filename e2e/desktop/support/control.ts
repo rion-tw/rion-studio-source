@@ -65,6 +65,16 @@ export interface DesktopE2eWindowSnapshot {
     normalOuterBounds?: WindowBounds;
     outerBounds: WindowBounds;
     presentation: "fullscreen" | "maximized" | "minimized" | "normal";
+    popupWindows?: Array<{
+      label: string;
+      native: {
+        clientBounds: WindowBounds;
+        outerBounds: WindowBounds;
+        presentation: "fullscreen" | "maximized" | "minimized" | "normal";
+        title: string;
+      };
+      roleId: string;
+    }>;
     roleSurfaces?: Array<{
       controllerBounds: WindowBounds;
       documentViewport?: {
@@ -78,6 +88,7 @@ export interface DesktopE2eWindowSnapshot {
     }>;
     roleWebviews?: Array<{
       roleId: string;
+      url?: string;
       webviewLabel: string;
     }>;
     scaleFactor: number;

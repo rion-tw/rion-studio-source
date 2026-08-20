@@ -43,7 +43,8 @@ static NSNumber *RionDesktopE2EKeyCode(NSString *code) {
       @"KeyL": @37, @"KeyJ": @38, @"KeyK": @40, @"KeyN": @45,
       @"KeyM": @46, @"MetaRight": @54, @"MetaLeft": @55,
       @"ShiftLeft": @56, @"AltLeft": @58, @"ControlLeft": @59,
-      @"ShiftRight": @60, @"AltRight": @61, @"ControlRight": @62
+      @"ShiftRight": @60, @"AltRight": @61, @"ControlRight": @62,
+      @"Enter": @36, @"Escape": @53, @"Tab": @48
     };
   });
   return codes[code];

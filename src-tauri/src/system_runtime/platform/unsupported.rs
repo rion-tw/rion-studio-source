@@ -225,6 +225,13 @@ pub(in crate::system_runtime) fn install_platform_security_policy(
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
+    _webview: &Webview,
+) -> RuntimeResult<()> {
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn install_role_application_shortcut_handler(
     _webview: &Webview,
     _app: AppHandle,

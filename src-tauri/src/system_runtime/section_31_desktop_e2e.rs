@@ -173,6 +173,7 @@ impl SystemRuntimeExecutor {
                 tab.roles.iter().map(|(role_id, surface)| {
                     json!({
                         "roleId": role_id,
+                        "url": surface.webview.url().ok().map(|url| url.to_string()),
                         "webviewLabel": surface.webview.label(),
                     })
                 })
@@ -186,6 +187,74 @@ impl SystemRuntimeExecutor {
             json!(platform_window_is_focused(&window).map_err(|error| error.message)?),
         );
         native_object.insert("roleWebviews".to_owned(), json!(role_webviews));
+        #[cfg(not(windows))]
+        {
+            let role_surfaces = self
+                .state
+                .lock()
+                .map_err(|_| "The runtime state is unavailable.".to_owned())?
+                .native_resources
+                .tabs
+                .iter()
+                .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
+                .flat_map(|(_, tab)| tab.roles.iter())
+                .map(|(role_id, surface)| {
+                    let position = surface
+                        .webview
+                        .position()
+                        .map_err(|error| error.to_string())?;
+                    let size = surface
+                        .webview
+                        .size()
+                        .map_err(|error| error.to_string())?;
+                    let bounds = json!({
+                        "height": size.height,
+                        "width": size.width,
+                        "x": position.x,
+                        "y": position.y,
+                    });
+                    Ok(json!({
+                        "controllerBounds": bounds,
+                        "hostBounds": bounds,
+                        "roleId": role_id,
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            native_object.insert("roleSurfaces".to_owned(), json!(role_surfaces));
+        }
+        let popup_owners = self
+            .state
+            .lock()
+            .map_err(|_| "The runtime state is unavailable.".to_owned())?
+            .native_resources
+            .surface_registry
+            .values()
+            .filter(|surface| {
+                surface.kind == ManagedSurfaceKind::Popup && surface.window_id == window_id
+            })
+            .filter_map(|surface| {
+                let label = surface.webview.label().to_owned();
+                surface.role_id.clone().map(|role_id| (label, role_id))
+            })
+            .collect::<Vec<_>>();
+        let popup_windows = popup_owners
+            .into_iter()
+            .filter_map(|(label, role_id)| {
+                self.app
+                    .get_webview_window(&label)
+                    .map(|popup| (label, role_id, popup.as_ref().window()))
+            })
+            .map(|(label, role_id, popup)| {
+                desktop_e2e_native_window_snapshot(&popup).map(|native| {
+                    json!({
+                        "label": label,
+                        "native": native,
+                        "roleId": role_id,
+                    })
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        native_object.insert("popupWindows".to_owned(), json!(popup_windows));
         let role_surface_generations = self
             .state
             .lock()

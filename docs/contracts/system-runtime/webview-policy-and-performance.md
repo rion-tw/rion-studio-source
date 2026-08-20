@@ -1,6 +1,6 @@
 # WebView Policy and Performance
 
-This document is part of [System WebView Runtime Contract version 16](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 17](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## WebGL performance policy
 
@@ -84,6 +84,26 @@ media compatibility target. Netflix and other DRM services are best-effort:
 availability depends on the operating-system WebView's codec, EME, and account
 policy and is not guaranteed by Rion Studio.
 
+Website-initiated fullscreen on a Workspace Web App or its controlled popup is
+contained to that WebView viewport. A document-start, all-frame policy owns the
+standard Fullscreen API and WebKit compatibility aliases, promotes a requesting
+child frame through an authenticated parent-frame relay, and presents the
+requested element through the browser top layer or a fixed-position fallback.
+While active it hides the Rion Web toolbar and locks document scrolling. Site
+exit, Escape, active-element removal, unload, and navigation restore the prior
+document state from exact DOM events; no timer or polling loop establishes
+fullscreen truth.
+
+Contained fullscreen never changes the owning Rion native window state or the
+geometry of sibling Workspace slots. macOS additionally disables WKWebView's
+native element-fullscreen preference before first navigation and closes the
+provisional surface if that guard cannot be installed. On Windows, interception
+occurs before WebView2 can emit a host fullscreen transition. Role/Game WebViews
+and user-initiated Rion window fullscreen are outside this policy. Sites that
+depend exclusively on the engine's native `:fullscreen` pseudo-class or a
+proprietary DRM fullscreen path remain best-effort and must not fall back to
+owner-window fullscreen.
+
 Popups without a managed Role/Web surface owner or with an unsupported scheme are denied before a
 native window is created. A created popup must install security, lifecycle,
 failure-monitor, zoom, ownership, and main-frame navigation handling before
@@ -94,4 +114,5 @@ and records a failed receipt.
 `capabilityEvidence` reports each capability's runtime probe, policy mode,
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and
 `disabled` are explicit states; no feature may infer support solely from the
-operating system name.
+operating system name. `workspaceContainedFullscreen` uses the
+`webview-bounded` policy mode.

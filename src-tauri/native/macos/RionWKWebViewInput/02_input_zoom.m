@@ -8,6 +8,59 @@ double rion_wk_page_zoom(void * _Nullable rawWebView) {
   }
 }
 
+void * _Nullable rion_wk_create_contained_fullscreen_configuration(
+    const uint8_t * _Nullable dataStoreIdentifierBytes) {
+  @autoreleasepool {
+    if (!dataStoreIdentifierBytes || ![NSThread isMainThread]) return NULL;
+    @try {
+      uuid_t identifierBytes;
+      memcpy(identifierBytes, dataStoreIdentifierBytes, sizeof(identifierBytes));
+      NSUUID *identifier = [[NSUUID alloc] initWithUUIDBytes:identifierBytes];
+      WKWebsiteDataStore *dataStore =
+          [WKWebsiteDataStore dataStoreForIdentifier:identifier];
+      WKWebViewConfiguration *configuration =
+          [[WKWebViewConfiguration alloc] init];
+      configuration.websiteDataStore = dataStore;
+      if (!RionDisableNativeElementFullscreen(configuration.preferences)) {
+        return NULL;
+      }
+      return (__bridge_retained void *)configuration;
+    } @catch (__unused NSException *exception) {
+      return NULL;
+    }
+  }
+}
+
+@interface RionWKContainedFullscreenPreferencesFixture : NSObject
+@property(nonatomic) BOOL fullScreenEnabled;
+@property(nonatomic) BOOL javaScriptCanOpenWindowsAutomatically;
+@end
+
+@implementation RionWKContainedFullscreenPreferencesFixture
+@end
+
+bool rion_wk_install_contained_fullscreen_policy(
+    void * _Nullable rawWebView) {
+  @autoreleasepool {
+    if (!rawWebView || ![NSThread isMainThread]) return false;
+    WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    WKWebViewConfiguration *configuration = webView.configuration;
+    return RionDisableNativeElementFullscreen(configuration.preferences);
+  }
+}
+
+bool rion_wk_contained_fullscreen_policy_self_test(void) {
+  @autoreleasepool {
+    RionWKContainedFullscreenPreferencesFixture *preferences =
+        [[RionWKContainedFullscreenPreferencesFixture alloc] init];
+    preferences.fullScreenEnabled = YES;
+    preferences.javaScriptCanOpenWindowsAutomatically = NO;
+    return RionDisableNativeElementFullscreen(preferences) &&
+        !preferences.fullScreenEnabled &&
+        preferences.javaScriptCanOpenWindowsAutomatically;
+  }
+}
+
 static void RionDenyMediaCapture(
     id delegate, SEL selector, WKWebView * _Nullable webView,
     WKSecurityOrigin * _Nullable origin, WKFrameInfo * _Nullable frame,

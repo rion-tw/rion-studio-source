@@ -248,7 +248,7 @@ impl SystemRuntimeExecutor {
                 runtime_label("session-transfer-webview", &suffix),
                 paths,
                 None,
-                false,
+                WebviewSurfaceFeaturePolicy::Utility,
             )?
             .on_page_load(move |_webview, payload| {
                 callback_navigation.page_event(payload.event(), payload.url());

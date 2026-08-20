@@ -1,6 +1,6 @@
 # Operations and Receipts
 
-This document is part of [System WebView Runtime Contract version 16](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 17](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Operation envelope and receipt
 
@@ -102,7 +102,7 @@ Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
 
-Additive fields remain compatible within version 16. The completion policy,
+Additive fields remain compatible within version 17. The completion policy,
 subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
 Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic

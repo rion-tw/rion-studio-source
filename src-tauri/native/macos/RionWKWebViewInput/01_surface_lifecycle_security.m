@@ -703,9 +703,27 @@ static int32_t RionWKConfigureFeature(
       featureKey, preference != 0);
 }
 
+static bool RionDisableNativeElementFullscreen(id preferences) {
+  @try {
+    [preferences setValue:@NO forKey:@"fullScreenEnabled"];
+    [preferences setValue:@YES
+                   forKey:@"javaScriptCanOpenWindowsAutomatically"];
+    id fullscreenApplied = [preferences valueForKey:@"fullScreenEnabled"];
+    id popupApplied =
+        [preferences valueForKey:@"javaScriptCanOpenWindowsAutomatically"];
+    return [fullscreenApplied respondsToSelector:@selector(boolValue)] &&
+        ![fullscreenApplied boolValue] &&
+        [popupApplied respondsToSelector:@selector(boolValue)] &&
+        [popupApplied boolValue];
+  } @catch (__unused NSException *exception) {
+    return false;
+  }
+}
+
 void *rion_wk_create_role_configuration(
     const uint8_t *dataStoreIdentifierBytes,
     bool highRefreshRateEnabled,
+    bool containedFullscreenEnabled,
     int32_t webGLPreference,
     int32_t domRenderingPreference,
     int32_t canvasRenderingPreference,
@@ -745,6 +763,10 @@ void *rion_wk_create_role_configuration(
       WKWebViewConfiguration *configuration =
           [[WKWebViewConfiguration alloc] init];
       configuration.websiteDataStore = dataStore;
+      if (containedFullscreenEnabled &&
+          !RionDisableNativeElementFullscreen(configuration.preferences)) {
+        return NULL;
+      }
       if (highRefreshRateEnabled && highRefreshRateStatus) {
         *highRefreshRateStatus = RionWKConfigureHighRefreshRate(configuration);
       }

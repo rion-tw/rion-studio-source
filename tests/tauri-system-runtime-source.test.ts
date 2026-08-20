@@ -487,13 +487,15 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(roleRelaunchFence).not.toContain("retired_surface_registry.values()");
     const macRoleSetup = runtime.slice(
       runtime.indexOf(
-        '#[cfg(target_os = "macos")]\npub(in crate::system_runtime) fn platform_role_surface_setup_inner('
+        '#[cfg(target_os = "macos")]\npub(in crate::system_runtime) fn submit_platform_role_surface_setup_inner<'
       ),
       runtime.indexOf('#[cfg(target_os = "macos")]\nunsafe extern "C" fn macos_surface_event(')
     );
     expect(macRoleSetup.match(/\.with_webview\(/g)).toHaveLength(1);
     expect(macRoleSetup).toContain("rion_wk_install_security_policy(native)");
     expect(macRoleSetup).toContain("rion_wk_track_role_surface(");
+    expect(macRoleSetup).toContain("std::sync::mpsc::sync_channel(1)");
+    expect(macRoleSetup).toContain("submit_platform_role_surface_setup_inner(");
     const loadRoles = runtime.slice(
       runtime.indexOf("fn start_role_loads("),
       runtime.indexOf("fn install_overlays(")

@@ -78,7 +78,8 @@ impl DesktopE2eKeyboardInputRequest {
                 | "ShiftLeft"
                 | "ShiftRight"
         );
-        if allowed_alpha || allowed_digit || allowed_modifier {
+        let allowed_navigation = matches!(self.code.as_str(), "Enter" | "Escape" | "Tab");
+        if allowed_alpha || allowed_digit || allowed_modifier || allowed_navigation {
             Ok(())
         } else {
             Err("Desktop E2E keyboard code is not allowlisted.".to_owned())
@@ -674,6 +675,9 @@ fn desktop_e2e_windows_scan_code(code: &str) -> Option<(u16, bool)> {
         "MetaRight" => Some((0x5c, true)),
         "ShiftLeft" => Some((0x2a, false)),
         "ShiftRight" => Some((0x36, false)),
+        "Enter" => Some((0x1c, false)),
+        "Escape" => Some((0x01, false)),
+        "Tab" => Some((0x0f, false)),
         _ => None,
     };
     if fixed.is_some() {
@@ -770,7 +774,16 @@ mod tests {
 
     #[test]
     fn keyboard_input_accepts_only_explicit_phases_and_allowlisted_codes() {
-        for code in ["Digit4", "KeyA", "ShiftLeft", "ControlRight", "MetaLeft"] {
+        for code in [
+            "Digit4",
+            "Enter",
+            "Escape",
+            "KeyA",
+            "ShiftLeft",
+            "ControlRight",
+            "MetaLeft",
+            "Tab",
+        ] {
             assert!(
                 DesktopE2eKeyboardInputRequest {
                     code: code.to_owned(),

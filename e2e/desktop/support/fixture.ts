@@ -7,6 +7,14 @@ export interface FixtureEvent {
   isTrusted?: boolean;
   key?: string;
   kind: string;
+  fullscreen?: {
+    active: boolean;
+    rect: { height: number; width: number; x: number; y: number };
+    targetId: string | null;
+    toolbarHidden: boolean;
+    toolbarPresent: boolean;
+    viewport: { height: number; width: number };
+  };
   modifiers?: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
   roleId: string;
   sequence: number;

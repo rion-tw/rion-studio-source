@@ -67,6 +67,7 @@ function recordFixtureEvent(input) {
     key: typeof input.key === "string" ? input.key : undefined,
     kind: input.kind,
     modifiers: input.modifiers,
+    fullscreen: input.fullscreen,
     roleId: input.roleId,
     sequence: nextEventSequence++,
     session: input.session,
@@ -161,13 +162,16 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     main { position: relative; z-index: 1; width: min(760px, calc(100vw - 40px)); padding: 28px; border: 2px solid #5eead4; border-radius: 18px; background: #182131; box-shadow: 0 24px 80px #0008; }
     h1 { margin: 0 0 8px; color: #5eead4; }
     p { color: #a9b7ce; }
-    button { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; cursor: pointer; }
+    button, #contained-fullscreen-popup { display: block; width: 240px; height: 72px; margin: 28px auto; border: 0; border-radius: 14px; background: #7c3aed; color: white; font: inherit; font-size: 18px; line-height: 72px; text-align: center; text-decoration: none; cursor: pointer; }
     dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
     div { padding: 12px; border-radius: 10px; background: #0e1522; }
     dt { color: #8ea0bc; font-size: 12px; } dd { margin: 5px 0 0; font-size: 22px; }
     #last-event { color: #fbbf24; }
     #game-input-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; outline: 0; }
     #qa-target { position: fixed; left: 50%; top: 50%; z-index: 2; margin: 0; transform: translate(-50%, -50%); }
+    #contained-fullscreen-controls { padding: 18px; border: 1px solid #5eead4; border-radius: 12px; background: #0e1522; }
+    #contained-fullscreen-controls[hidden] { display: none; }
+    #contained-fullscreen-controls button, #contained-fullscreen-controls a { position: static; transform: none; }
     #verification-frame { position: fixed; inset: 0; z-index: 4; width: 100vw; height: 100vh; border: 0; background: #10141d; }
     #verification-frame[hidden] { display: none; }
   </style>
@@ -178,6 +182,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     <h1>[Runtime QA] <span id="role-id"></span></h1>
     <p>Local-only WKWebView/WebView2 lifecycle, focus, input, and macro fixture.</p>
     <button id="qa-target" type="button">Macro click target</button>
+    <section id="contained-fullscreen-controls" hidden>
+      <p>Workspace Web contained fullscreen fixture</p>
+      <button id="contained-fullscreen-enter" type="button">Enter contained fullscreen</button>
+      <button id="contained-fullscreen-exit" type="button">Exit contained fullscreen</button>
+      <a id="contained-fullscreen-popup" href="/role/e2e-workspace-popup" target="rion-contained-fullscreen-popup" hidden>Open fullscreen popup</a>
+    </section>
     <iframe id="verification-frame" title="Robot verification" hidden></iframe>
     <dl>
       <div><dt>click</dt><dd id="click">0</dd></div>
@@ -196,6 +206,9 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const challengeOrigin = ${safeChallengeOrigin};
     const challengeUrl = ${safeChallengeUrl};
     const verificationEnabled = roleId === "macro-input-recovery";
+    const containedFullscreenEnabled = roleId === "e2e-workspace-web"
+      || roleId === "e2e-workspace-popup";
+    const containedFullscreenPopup = roleId === "e2e-workspace-popup";
     let verificationComplete = false;
     document.querySelector("#role-id").textContent = roleId;
     const render = (kind) => {
@@ -250,6 +263,59 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }
       document.querySelector("#game-input-canvas").focus();
     });
+    const containedFullscreenControls = document.querySelector("#contained-fullscreen-controls");
+    if (containedFullscreenEnabled) {
+      let containedFullscreenExitCount = 0;
+      containedFullscreenControls.hidden = false;
+      const popupButton = document.querySelector("#contained-fullscreen-popup");
+      popupButton.hidden = roleId !== "e2e-workspace-web";
+      popupButton.addEventListener("click", (event) => {
+        record("contained-popup-requested", { isTrusted: event.isTrusted });
+      });
+      document.addEventListener("click", (event) => {
+        record("contained-control-click", {
+          coordinates: { x: event.clientX, y: event.clientY },
+          isTrusted: event.isTrusted,
+          targetId: event.target instanceof Element ? event.target.id : undefined
+        });
+      }, true);
+      document.querySelector("#contained-fullscreen-enter").addEventListener("click", () => {
+        void containedFullscreenControls.requestFullscreen().catch((error) => {
+          record("contained-fullscreen-error", { key: error?.name ?? "Error" });
+        });
+      });
+      document.querySelector("#contained-fullscreen-exit").addEventListener("click", () => {
+        void document.exitFullscreen();
+      });
+      document.addEventListener("fullscreenchange", () => {
+        const active = document.fullscreenElement === containedFullscreenControls;
+        if (!active && roleId === "e2e-workspace-web") {
+          containedFullscreenExitCount += 1;
+          if (containedFullscreenExitCount >= 2) {
+            qaTarget.hidden = true;
+            popupButton.style.cssText = "position:fixed;inset:0;z-index:3;width:100vw;height:100vh;margin:0;display:grid;place-items:center";
+          }
+        }
+        const rect = containedFullscreenControls.getBoundingClientRect();
+        const toolbar = document.querySelector("#__rion_web_toolbar_host");
+        record(active ? "contained-fullscreen-enter" : "contained-fullscreen-exit", {
+          fullscreen: {
+            active,
+            rect: { height: rect.height, width: rect.width, x: rect.x, y: rect.y },
+            targetId: document.fullscreenElement?.id ?? null,
+            toolbarHidden: toolbar ? getComputedStyle(toolbar).display === "none" : false,
+            toolbarPresent: Boolean(toolbar),
+            viewport: { height: innerHeight, width: innerWidth }
+          }
+        });
+      });
+      if (containedFullscreenPopup) {
+        addEventListener("load", () => {
+          document.querySelector("#contained-fullscreen-enter").focus();
+          record("contained-popup-ready");
+        }, { once: true });
+      }
+    }
     addEventListener("message", (event) => {
       if (!verificationEnabled || event.origin !== challengeOrigin || event.data !== "verification-complete") return;
       const frame = document.querySelector("#verification-frame");

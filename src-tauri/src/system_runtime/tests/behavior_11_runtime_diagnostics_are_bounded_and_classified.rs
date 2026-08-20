@@ -27,6 +27,19 @@ fn recent_runtime_failures_are_bounded_and_newest_first() {
 }
 
 #[test]
+fn contained_fullscreen_capability_is_supported_and_webview_bounded() {
+    let policies = capability_evidence_policy(true, true, true);
+    let (_, status, stage, mode) = policies
+        .into_iter()
+        .find(|(capability, _, _, _)| *capability == "workspaceContainedFullscreen")
+        .expect("contained fullscreen capability evidence");
+    assert_eq!(status, EngineCapabilityStatus::Supported);
+    assert_eq!(stage, "documentStartAndNativeGuard");
+    assert_eq!(mode, "webview-bounded");
+    assert_eq!(SYSTEM_RUNTIME_CONTRACT_VERSION, 17);
+}
+
+#[test]
 fn recent_input_fence_history_keeps_forty_privacy_safe_events() {
     let mut diagnostics = RuntimeDiagnosticsState::default();
     for index in 0..45 {

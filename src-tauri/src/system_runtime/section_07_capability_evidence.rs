@@ -9,12 +9,69 @@ impl SystemRuntimeExecutor {
         let runtime_available = probe.available;
         let audio_mute_available = runtime_available && probe.audio_mute_available;
         let macro_input_available = runtime_available && probe.macro_input_available;
-        let entries = [
+        let entries = capability_evidence_policy(
+            runtime_available,
+            audio_mute_available,
+            macro_input_available,
+        );
+        entries
+            .into_iter()
+            .map(|(capability, status, evidence_stage, policy_mode)| {
+                EngineCapabilityEvidenceRecord {
+                    capability: capability.to_owned(),
+                    status,
+                    contract_version: SYSTEM_RUNTIME_CONTRACT_VERSION,
+                    probe_result: match status {
+                        EngineCapabilityStatus::Supported => "verified",
+                        EngineCapabilityStatus::Degraded => "partial",
+                        EngineCapabilityStatus::Unsupported => "unsupported",
+                        EngineCapabilityStatus::Disabled => "unavailable",
+                    }
+                    .to_owned(),
+                    policy_mode: policy_mode.to_owned(),
+                    evidence_stage: evidence_stage.to_owned(),
+                    failure_reason: match status {
+                        EngineCapabilityStatus::Supported => None,
+                        EngineCapabilityStatus::Degraded => {
+                            Some("partial-platform-guarantee".to_owned())
+                        }
+                        EngineCapabilityStatus::Unsupported => {
+                            Some("platform-runtime-unsupported".to_owned())
+                        }
+                        EngineCapabilityStatus::Disabled => {
+                            Some("runtime-or-policy-unavailable".to_owned())
+                        }
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+type CapabilityEvidencePolicy = (
+    &'static str,
+    EngineCapabilityStatus,
+    &'static str,
+    &'static str,
+);
+
+fn capability_evidence_policy(
+    runtime_available: bool,
+    audio_mute_available: bool,
+    macro_input_available: bool,
+) -> [CapabilityEvidencePolicy; 14] {
+    [
             (
                 "navigation",
                 supported_if(runtime_available),
                 "runtimeProbe",
                 "allow",
+            ),
+            (
+                "workspaceContainedFullscreen",
+                supported_if(runtime_available),
+                "documentStartAndNativeGuard",
+                "webview-bounded",
             ),
             (
                 "persistentSession",
@@ -88,37 +145,5 @@ impl SystemRuntimeExecutor {
                 "policyInstall",
                 "reject-invalid",
             ),
-        ];
-        entries
-            .into_iter()
-            .map(|(capability, status, evidence_stage, policy_mode)| {
-                EngineCapabilityEvidenceRecord {
-                    capability: capability.to_owned(),
-                    status,
-                    contract_version: SYSTEM_RUNTIME_CONTRACT_VERSION,
-                    probe_result: match status {
-                        EngineCapabilityStatus::Supported => "verified",
-                        EngineCapabilityStatus::Degraded => "partial",
-                        EngineCapabilityStatus::Unsupported => "unsupported",
-                        EngineCapabilityStatus::Disabled => "unavailable",
-                    }
-                    .to_owned(),
-                    policy_mode: policy_mode.to_owned(),
-                    evidence_stage: evidence_stage.to_owned(),
-                    failure_reason: match status {
-                        EngineCapabilityStatus::Supported => None,
-                        EngineCapabilityStatus::Degraded => {
-                            Some("partial-platform-guarantee".to_owned())
-                        }
-                        EngineCapabilityStatus::Unsupported => {
-                            Some("platform-runtime-unsupported".to_owned())
-                        }
-                        EngineCapabilityStatus::Disabled => {
-                            Some("runtime-or-policy-unavailable".to_owned())
-                        }
-                    },
-                }
-            })
-            .collect()
-    }
+        ]
 }

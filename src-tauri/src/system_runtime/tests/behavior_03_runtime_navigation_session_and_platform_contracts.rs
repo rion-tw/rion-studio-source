@@ -639,6 +639,30 @@ use uuid::Uuid;
         }
     }
 
+    #[test]
+    fn workspace_contained_fullscreen_is_scoped_to_web_surfaces_and_their_popups() {
+        assert!(WebviewSurfaceFeaturePolicy::Role.installs_role_features());
+        assert!(!WebviewSurfaceFeaturePolicy::Role.installs_contained_fullscreen());
+        assert!(!WebviewSurfaceFeaturePolicy::WorkspaceWeb.installs_role_features());
+        assert!(WebviewSurfaceFeaturePolicy::WorkspaceWeb.installs_contained_fullscreen());
+        assert!(!WebviewSurfaceFeaturePolicy::Utility.installs_role_features());
+        assert!(!WebviewSurfaceFeaturePolicy::Utility.installs_contained_fullscreen());
+    }
+
+    #[test]
+    fn workspace_contained_fullscreen_native_guard_failure_is_fail_closed() {
+        let failure = require_workspace_contained_fullscreen_policy(Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_POLICY_FAILED",
+            "fixture failure",
+        )))
+        .expect_err("native guard failure must reject provisional setup");
+        assert_eq!(
+            failure.error.code,
+            "SYSTEM_CONTAINED_FULLSCREEN_POLICY_FAILED"
+        );
+        assert!(failure.lifecycle.is_none());
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_security_policy_installs_dialogs_and_denies_undefined_media_permissions() {
@@ -646,6 +670,15 @@ use uuid::Uuid;
             fn rion_wk_security_policy_self_test() -> bool;
         }
         assert!(unsafe { rion_wk_security_policy_self_test() });
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_workspace_web_policy_disables_native_element_fullscreen() {
+        unsafe extern "C" {
+            fn rion_wk_contained_fullscreen_policy_self_test() -> bool;
+        }
+        assert!(unsafe { rion_wk_contained_fullscreen_policy_self_test() });
     }
 
     #[cfg(target_os = "macos")]

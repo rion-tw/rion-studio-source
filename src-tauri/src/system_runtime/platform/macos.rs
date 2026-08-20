@@ -450,6 +450,7 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
     builder: WebviewBuilder<tauri::Wry>,
     data_store_identifier: [u8; 16],
     high_refresh_rate_enabled: bool,
+    contained_fullscreen_enabled: bool,
 ) -> (
     WebviewBuilder<tauri::Wry>,
     HighRefreshRateDiagnosticStatus,
@@ -459,6 +460,7 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
         fn rion_wk_create_role_configuration(
             data_store_identifier_bytes: *const u8,
             high_refresh_rate_enabled: bool,
+            contained_fullscreen_enabled: bool,
             web_gl_preference: i32,
             dom_rendering_preference: i32,
             canvas_rendering_preference: i32,
@@ -485,6 +487,7 @@ pub(in crate::system_runtime) fn prepare_platform_role_webview_builder(
             rion_wk_create_role_configuration(
                 data_store_identifier.as_ptr(),
                 high_refresh_rate_enabled,
+                contained_fullscreen_enabled,
                 web_gl_preference.native_value(),
                 dom_rendering_preference.native_value(),
                 canvas_rendering_preference.native_value(),
@@ -663,6 +666,56 @@ pub(in crate::system_runtime) fn install_platform_security_policy(
 }
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
+    webview: &Webview,
+) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_install_contained_fullscreen_policy(webview: *mut std::ffi::c_void) -> bool;
+    }
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| {
+            let installed =
+                unsafe { rion_wk_install_contained_fullscreen_policy(platform_webview.inner()) };
+            let _ = sender.send(installed);
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_POLICY_FAILED",
+            "WKWebView could not disable native element fullscreen for this Workspace Web surface.",
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_POLICY_TIMEOUT",
+            "WKWebView contained fullscreen policy installation timed out.",
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn platform_contained_fullscreen_popup_configuration(
+    data_store_identifier: [u8; 16],
+) -> RuntimeResult<Retained<WKWebViewConfiguration>> {
+    unsafe extern "C" {
+        fn rion_wk_create_contained_fullscreen_configuration(
+            data_store_identifier_bytes: *const u8,
+        ) -> *mut std::ffi::c_void;
+    }
+
+    let raw_configuration = unsafe {
+        rion_wk_create_contained_fullscreen_configuration(data_store_identifier.as_ptr())
+    } as *mut WKWebViewConfiguration;
+    unsafe { Retained::from_raw(raw_configuration) }.ok_or_else(|| {
+        RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_POLICY_FAILED",
+            "WKWebView could not prepare the contained-fullscreen popup configuration.",
+        )
+    })
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn dispatch_role_zoom_shortcut(
     app: &AppHandle,
     webview_label: &str,
@@ -792,11 +845,15 @@ struct MacosRoleSurfaceContext {
 }
 
 #[cfg(target_os = "macos")]
-pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
+pub(in crate::system_runtime) fn submit_platform_role_surface_setup_inner<F>(
     webview: &Webview,
     app: AppHandle,
     target: SurfaceFailureTarget,
-) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    completion: F,
+) -> RuntimeResult<()>
+where
+    F: FnOnce(RuntimeResult<Arc<SurfaceLifecycleTracker>>) + Send + 'static,
+{
     unsafe extern "C" {
         fn rion_wk_install_security_policy(webview: *mut std::ffi::c_void) -> bool;
         fn rion_wk_track_role_surface(
@@ -823,7 +880,6 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
         tracker: Arc::clone(&tracker),
         webview_label: webview.label().to_owned(),
     })) as usize;
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     if let Err(error) = webview.with_webview(move |platform_webview| {
         let native = platform_webview.inner();
         let security_installed = unsafe { rion_wk_install_security_policy(native) };
@@ -841,34 +897,47 @@ pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
         } else {
             0
         };
-        let _ = sender.send((security_installed, token));
+        if security_installed && token != 0 {
+            tracker.native_token.store(token, Ordering::Release);
+            completion(Ok(tracker));
+        } else {
+            drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
+            completion(Err(RuntimeError::new(
+                if security_installed {
+                    "SYSTEM_SURFACE_LIFECYCLE_FAILED"
+                } else {
+                    "SYSTEM_SECURITY_POLICY_FAILED"
+                },
+                if security_installed {
+                    "WKWebView surface lifecycle registration failed."
+                } else {
+                    "WKWebView could not install the JavaScript dialog and deny-by-default permission policy."
+                },
+            )));
+        }
     }) {
         drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
         return Err(RuntimeError::tauri(error));
     }
-    let (security_installed, token) = receiver.recv().map_err(|_| {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn platform_role_surface_setup_inner(
+    webview: &Webview,
+    app: AppHandle,
+    target: SurfaceFailureTarget,
+) -> RuntimeResult<Arc<SurfaceLifecycleTracker>> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    submit_platform_role_surface_setup_inner(webview, app, target, move |result| {
+        let _ = sender.send(result);
+    })?;
+    receiver.recv().map_err(|_| {
         RuntimeError::new(
             "SYSTEM_ROLE_SETUP_FAILED",
             "WKWebView security and lifecycle setup was cancelled.",
         )
-    })?;
-    if !security_installed || token == 0 {
-        drop(unsafe { Box::from_raw(context as *mut MacosRoleSurfaceContext) });
-        return Err(RuntimeError::new(
-            if security_installed {
-                "SYSTEM_SURFACE_LIFECYCLE_FAILED"
-            } else {
-                "SYSTEM_SECURITY_POLICY_FAILED"
-            },
-            if security_installed {
-                "WKWebView surface lifecycle registration failed."
-            } else {
-                "WKWebView could not install the JavaScript dialog and deny-by-default permission policy."
-            },
-        ));
-    }
-    tracker.native_token.store(token, Ordering::Release);
-    Ok(tracker)
+    })?
 }
 
 #[cfg(target_os = "macos")]

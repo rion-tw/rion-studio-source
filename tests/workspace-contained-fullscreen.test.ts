@@ -172,6 +172,35 @@ describe("Workspace Web contained fullscreen policy", () => {
     dom.window.close();
   });
 
+  it("rebinds Escape handling when a popup replaces its provisional document", async () => {
+    const { dom, window } = createDocument({ url: "about:blank" });
+    const provisionalDocument = window.document;
+    const navigatedDocument = provisionalDocument.implementation.createHTMLDocument("popup");
+    const target = navigatedDocument.createElement("section");
+    navigatedDocument.body.appendChild(target);
+    const installation = (window as unknown as {
+      __rionStudioWorkspaceContainedFullscreen: {
+        bindDocument(nextDocument: Document): void;
+        version: number;
+      };
+    }).__rionStudioWorkspaceContainedFullscreen;
+
+    installation.bindDocument(navigatedDocument);
+    expect(installation.version).toBe(3);
+    await target.requestFullscreen();
+
+    provisionalDocument.dispatchEvent(
+      new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+    );
+    expect(navigatedDocument.fullscreenElement).toBe(target);
+
+    navigatedDocument.dispatchEvent(
+      new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+    );
+    await vi.waitFor(() => expect(navigatedDocument.fullscreenElement).toBeNull());
+    dom.window.close();
+  });
+
   it("supports an event-bound host force-exit when the containing tab leaves", async () => {
     const { dom, transitions, window } = createDocument();
     const target = window.document.querySelector<HTMLElement>("#target")!;

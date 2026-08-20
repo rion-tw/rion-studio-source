@@ -2,7 +2,13 @@
 
 (() => {
   const installationKey = "__rionStudioWorkspaceContainedFullscreen";
-  if (Object.prototype.hasOwnProperty.call(globalThis, installationKey)) return;
+  const existingInstallation = globalThis[installationKey];
+  if (existingInstallation) {
+    // WebView2 popups can preserve this page-world installation while replacing
+    // their provisional about:blank document with the requested document.
+    existingInstallation.bindDocument?.(document);
+    return;
+  }
 
   const channel = "__RION_CONTAINED_FULLSCREEN_CHANNEL__";
   const activeAttribute = "data-rion-contained-fullscreen";
@@ -18,6 +24,7 @@
   let activeStyleSnapshots = new Map();
   let removalObserver = null;
   let childFrameWindow = null;
+  let boundDocument = null;
   let transitionSequence = 0;
   const pendingParentTransitions = new Map();
   const documentNonce = globalThis.crypto?.randomUUID?.()
@@ -368,7 +375,6 @@
   const forceExitFromHost = () => {
     exitLocal();
   };
-  document.addEventListener(hostForceExitEvent, forceExitFromHost, true);
 
   const requestFullscreen = function () {
     return Promise.resolve().then(async () => {
@@ -440,12 +446,21 @@
     }
   }, true);
 
-  document.addEventListener("keydown", (event) => {
+  const handleEscape = (event) => {
     if (!activeElement || event.key !== "Escape") return;
     event.preventDefault();
     event.stopImmediatePropagation();
     void exitThroughHost().catch(() => undefined);
-  }, true);
+  };
+  const bindDocument = (nextDocument) => {
+    if (!nextDocument || boundDocument === nextDocument) return;
+    boundDocument?.removeEventListener(hostForceExitEvent, forceExitFromHost, true);
+    boundDocument?.removeEventListener("keydown", handleEscape, true);
+    boundDocument = nextDocument;
+    boundDocument.addEventListener(hostForceExitEvent, forceExitFromHost, true);
+    boundDocument.addEventListener("keydown", handleEscape, true);
+  };
+  bindDocument(document);
   globalThis.addEventListener("pagehide", () => {
     if (globalThis.parent === globalThis && activeElement) {
       void hostTransition("exit").catch(() => undefined);
@@ -558,6 +573,6 @@
     configurable: false,
     enumerable: false,
     writable: false,
-    value: Object.freeze({ installed, version: 2 })
+    value: Object.freeze({ bindDocument, installed, version: 3 })
   });
 })();

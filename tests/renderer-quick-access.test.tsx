@@ -194,6 +194,7 @@ function PaletteHarness({
   onSetPinned: (item: { kind: "role" | "workspace" | "gameWindow" | "macro"; id: string }, pinned: boolean) => Promise<boolean>;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [restoreFocus, setRestoreFocus] = useState(true);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>Open palette</button>
@@ -205,8 +206,13 @@ function PaletteHarness({
         shortcutLabel="Ctrl+K"
         t={t}
         onExecute={onExecute}
-        onOpenChange={setOpen}
+        onClose={(reason) => {
+          setRestoreFocus(reason === "cancel");
+          setOpen(false);
+        }}
+        onDidClose={() => setRestoreFocus(true)}
         onSetPinned={onSetPinned}
+        restoreDomFocusOnClose={restoreFocus}
       />
     </>
   );

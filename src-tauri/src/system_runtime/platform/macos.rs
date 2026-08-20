@@ -668,6 +668,14 @@ pub(in crate::system_runtime) fn dispatch_role_zoom_shortcut(
     webview_label: &str,
     action: &str,
 ) {
+    if action == "quickAccess" {
+        if let Some(state) = app.try_state::<crate::CoreState>() {
+            let _ = state
+                .runtime
+                .request_quick_access_from_webview(webview_label);
+        }
+        return;
+    }
     let result = app
         .try_state::<crate::CoreState>()
         .ok_or_else(|| "The Rion Studio runtime is unavailable.".to_owned())
@@ -720,7 +728,7 @@ unsafe extern "C" fn drop_macos_role_zoom_shortcut_context(context: *mut std::ff
 }
 
 #[cfg(target_os = "macos")]
-pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
+pub(in crate::system_runtime) fn install_role_application_shortcut_handler(
     webview: &Webview,
     app: AppHandle,
 ) -> RuntimeResult<()> {
@@ -764,13 +772,13 @@ pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
                 drop_macos_role_zoom_shortcut_context(context_address as *mut std::ffi::c_void)
             };
             Err(RuntimeError::new(
-                "SYSTEM_ROLE_ZOOM_SHORTCUT_FAILED",
-                "WKWebView could not install the role zoom shortcut responder.",
+                "SYSTEM_ROLE_APPLICATION_SHORTCUT_FAILED",
+                "WKWebView could not install the role application shortcut responder.",
             ))
         }
         Err(_) => Err(RuntimeError::new(
-            "SYSTEM_ROLE_ZOOM_SHORTCUT_TIMEOUT",
-            "WKWebView role zoom shortcut installation timed out.",
+            "SYSTEM_ROLE_APPLICATION_SHORTCUT_TIMEOUT",
+            "WKWebView role application shortcut installation timed out.",
         )),
     }
 }

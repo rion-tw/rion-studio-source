@@ -33,3 +33,4 @@ include!("behavior_31_restored_foreground_visibility.rs");
 include!("behavior_32_dormant_window_restore_state.rs");
 include!("behavior_33_window_placement_observation.rs");
 include!("behavior_34_automatic_input_context_is_event_fenced.rs");
+include!("behavior_35_quick_access_request_is_latest_and_idempotent.rs");

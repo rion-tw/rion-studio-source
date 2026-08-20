@@ -461,6 +461,10 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
       "rion://macro-page-request",
       ({ payload }) => emit("macroPageRequest", payload)
     ),
+    () => listen<Parameters<Parameters<RionStudioApi["onQuickAccessRequested"]>[0]>[0]>(
+      "rion://quick-access-request",
+      ({ payload }) => emit("quickAccessRequest", payload)
+    ),
     () => listen<Awaited<ReturnType<RionStudioApi["getCurrentWindowState"]>>>(
       "rion://window-state",
       ({ payload }) => emitRevisioned("windowState", payload)
@@ -591,6 +595,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     recordQuickAccessUse: (item) =>
       invokeCore({ type: "quickAccessRecentRecord", item }),
     clearQuickAccessRecent: () => invokeCore({ type: "quickAccessRecentClear" }),
+    consumePendingQuickAccessRequest: () => invokeShell("consumePendingQuickAccessRequest"),
+    presentQuickAccessRequest: (requestId) =>
+      invokeShell("presentQuickAccessRequest", [requestId]),
+    resolveQuickAccessRequest: (requestId, resolution) =>
+      invokeShell("resolveQuickAccessRequest", [requestId, resolution]),
     listGames: () => invokeCore({ type: "gamesList" }),
     createGame: (input) => invokeCore({ type: "gameCreate", input: gameCreateInput(input) }),
     updateGame: (id, input) =>
@@ -732,6 +741,7 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     onMacroStatusChanged: (callback) => on("macroStatuses", callback as Listener),
     onMacrosChanged: (callback) => on("macros", callback as Listener),
     onMacroPageRequested: (callback) => on("macroPageRequest", callback as Listener),
+    onQuickAccessRequested: (callback) => on("quickAccessRequest", callback as Listener),
     onUpdateStatusChanged: (callback) => on("updateStatus", callback as Listener),
     onShellError: (callback) => on("shellError", callback as Listener),
     onLogEntryAdded: (callback) => on("logEntry", callback as Listener),

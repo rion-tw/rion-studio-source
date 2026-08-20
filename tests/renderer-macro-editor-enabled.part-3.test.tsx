@@ -662,6 +662,40 @@ it("adds, validates, resets, duplicates, and saves timed hold steps", async () =
       ]
     })));
   });
+
+it.each([
+  { ctrl: true, meta: false },
+  { ctrl: false, meta: true }
+])("blocks the reserved Quick Access shortcut for $ctrl/$meta primary modifier", (modifiers) => {
+  const selectedMacro = macro({
+    trigger: {
+      code: "KeyK",
+      alt: false,
+      shift: false,
+      ...modifiers
+    }
+  });
+  const router = createMemoryRouter([
+    {
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }
+  ], { initialEntries: ["/macros/macro-1/edit"] });
+
+  render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+
+  expect(screen.getAllByText("Ctrl/Command+K is reserved for Rion Studio Quick Access."))
+    .toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Save changes" }).hasAttribute("disabled"))
+    .toBe(true);
+});
 });
 
 const t: Translator = (key) => en[key];

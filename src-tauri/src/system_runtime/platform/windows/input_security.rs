@@ -263,6 +263,31 @@ enum WindowsApplicationShortcutTarget {
 }
 
 #[cfg(windows)]
+fn defer_windows_quick_access(app: AppHandle, webview_label: String) {
+    let scheduling_app = app.clone();
+    let task_app = app.clone();
+    let scheduling = app.run_on_main_thread(move || {
+        let Some(state) = task_app.try_state::<crate::CoreState>() else {
+            return;
+        };
+        let _ = state
+            .runtime
+            .request_quick_access_from_webview(&webview_label);
+    });
+    if let Err(error) = scheduling {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = scheduling_app.emit(
+                "rion://shell-error",
+                json!({
+                    "code": "TAURI_QUICK_ACCESS_REQUEST_SCHEDULING_FAILED",
+                    "message": error.to_string()
+                }),
+            );
+        });
+    }
+}
+
+#[cfg(windows)]
 fn defer_windows_application_shortcut(
     app: AppHandle,
     target: WindowsApplicationShortcutTarget,
@@ -348,7 +373,7 @@ pub(in crate::system_runtime) fn install_main_application_shortcut_handler(
 }
 
 #[cfg(windows)]
-pub(in crate::system_runtime) fn install_role_zoom_shortcut_handler(
+pub(in crate::system_runtime) fn install_role_application_shortcut_handler(
     webview: &Webview,
     app: AppHandle,
 ) -> RuntimeResult<()> {
@@ -427,6 +452,26 @@ fn install_windows_application_shortcut_handler(
                         );
                         return Ok(());
                     }
+                    if windows_quick_access_shortcut(
+                        virtual_key,
+                        control,
+                        alt,
+                        meta,
+                        shift,
+                        physical_status.WasKeyDown.as_bool(),
+                    ) {
+                        let WindowsApplicationShortcutTarget::RoleWebview(shortcut_label) =
+                            &shortcut_target
+                        else {
+                            return Ok(());
+                        };
+                        args.SetHandled(true)?;
+                        defer_windows_quick_access(
+                            shortcut_app.clone(),
+                            shortcut_label.clone(),
+                        );
+                        return Ok(());
+                    }
                     let command = windows_application_shortcut_command(
                         virtual_key,
                         control,
@@ -458,11 +503,11 @@ fn install_windows_application_shortcut_handler(
         .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
         .map_err(|_| {
             RuntimeError::new(
-                "SYSTEM_ROLE_ZOOM_SHORTCUT_TIMEOUT",
-                "WebView2 role zoom shortcut installation timed out.",
+                "SYSTEM_ROLE_APPLICATION_SHORTCUT_TIMEOUT",
+                "WebView2 role application shortcut installation timed out.",
             )
         })?
-        .map_err(|message| RuntimeError::new("SYSTEM_ROLE_ZOOM_SHORTCUT_FAILED", message))
+        .map_err(|message| RuntimeError::new("SYSTEM_ROLE_APPLICATION_SHORTCUT_FAILED", message))
 }
 
 #[cfg(windows)]

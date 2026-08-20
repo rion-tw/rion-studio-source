@@ -515,6 +515,18 @@ fn windows_application_shortcut_command(
     })
 }
 
+#[cfg(any(windows, test))]
+fn windows_quick_access_shortcut(
+    virtual_key: u32,
+    control: bool,
+    alt: bool,
+    meta: bool,
+    shift: bool,
+    repeat: bool,
+) -> bool {
+    virtual_key == 0x4B && control && !alt && !meta && !shift && !repeat
+}
+
 #[cfg(test)]
 fn macos_role_zoom_action(
     key_code: u16,
@@ -533,6 +545,18 @@ fn macos_role_zoom_action(
         69 if !shift => Some("in"),
         _ => None,
     }
+}
+
+#[cfg(test)]
+fn macos_quick_access_shortcut(
+    key_code: u16,
+    command: bool,
+    control: bool,
+    option: bool,
+    shift: bool,
+    repeat: bool,
+) -> bool {
+    key_code == 40 && command && !control && !option && !shift && !repeat
 }
 
 #[cfg(not(windows))]

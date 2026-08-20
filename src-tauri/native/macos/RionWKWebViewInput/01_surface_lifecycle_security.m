@@ -966,10 +966,12 @@ typedef void (*RionRoleZoomShortcutDestructor)(void *context);
 @property(nonatomic, assign) void *context;
 @property(nonatomic, assign) RionRoleZoomShortcutHandler handler;
 @property(nonatomic, assign) RionRoleZoomShortcutDestructor destructor;
+@property(nonatomic, strong) id monitor;
 @end
 
 @implementation RionRoleZoomShortcutBinding
 - (void)dealloc {
+  if (_monitor) [NSEvent removeMonitor:_monitor];
   if (_context && _destructor) _destructor(_context);
 }
 @end
@@ -977,9 +979,14 @@ typedef void (*RionRoleZoomShortcutDestructor)(void *context);
 static char RionRoleZoomShortcutBindingKey;
 
 static const char *RionRoleZoomActionForKeyCode(
-    unsigned short keyCode, NSEventModifierFlags modifierFlags) {
+    unsigned short keyCode, NSEventModifierFlags modifierFlags, BOOL isRepeat) {
   NSEventModifierFlags flags = modifierFlags &
       NSEventModifierFlagDeviceIndependentFlagsMask;
+  if (keyCode == 40) {  // Physical K key.
+    return !isRepeat && flags == NSEventModifierFlagCommand
+        ? "quickAccess"
+        : NULL;
+  }
   if ((flags & NSEventModifierFlagCommand) == 0 ||
       (flags & (NSEventModifierFlagControl | NSEventModifierFlagOption |
                 NSEventModifierFlagFunction)) != 0) {
@@ -1004,30 +1011,16 @@ static const char *RionRoleZoomActionForKeyCode(
 
 static RionRoleZoomShortcutBinding *
 RionRoleZoomBindingForResponder(NSResponder *responder) {
-  if (![responder isKindOfClass:NSView.class]) return nil;
-  for (NSView *view = (NSView *)responder; view; view = view.superview) {
-    RionRoleZoomShortcutBinding *binding =
-        objc_getAssociatedObject(view, &RionRoleZoomShortcutBindingKey);
-    if (binding) return binding;
+  for (NSResponder *candidate = responder; candidate;
+       candidate = candidate.nextResponder) {
+    if (![candidate isKindOfClass:NSView.class]) continue;
+    for (NSView *view = (NSView *)candidate; view; view = view.superview) {
+      RionRoleZoomShortcutBinding *binding =
+          objc_getAssociatedObject(view, &RionRoleZoomShortcutBindingKey);
+      if (binding) return binding;
+    }
   }
   return nil;
-}
-
-static void RionInstallRoleZoomShortcutMonitor(void) {
-  static dispatch_once_t onceToken;
-  dispatch_once(&onceToken, ^{
-    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
-                                          handler:^NSEvent *(NSEvent *event) {
-      RionRoleZoomShortcutBinding *binding =
-          RionRoleZoomBindingForResponder(event.window.firstResponder);
-      if (!binding || !binding.context || !binding.handler) return event;
-      const char *action =
-          RionRoleZoomActionForKeyCode(event.keyCode, event.modifierFlags);
-      if (!action) return event;
-      binding.handler(binding.context, action);
-      return nil;
-    }];
-  });
 }
 
 bool rion_wk_install_role_zoom_shortcut(
@@ -1041,29 +1034,54 @@ bool rion_wk_install_role_zoom_shortcut(
     binding.context = context;
     binding.handler = handler;
     binding.destructor = destructor;
+    __weak WKWebView *weakWebView = webView;
+    __weak RionRoleZoomShortcutBinding *weakBinding = binding;
+    binding.monitor = [NSEvent
+        addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown
+                                  handler:^NSEvent *(NSEvent *event) {
+      WKWebView *strongWebView = weakWebView;
+      RionRoleZoomShortcutBinding *strongBinding = weakBinding;
+      if (!strongWebView || !strongBinding ||
+          event.window != strongWebView.window || strongWebView.hidden ||
+          strongWebView.isHiddenOrHasHiddenAncestor) {
+        return event;
+      }
+      RionRoleZoomShortcutBinding *responderBinding =
+          RionRoleZoomBindingForResponder(event.window.firstResponder);
+      if (responderBinding && responderBinding != strongBinding) return event;
+      const char *action =
+          RionRoleZoomActionForKeyCode(event.keyCode, event.modifierFlags,
+                                       event.isARepeat);
+      if (!action) return event;
+      strongBinding.handler(strongBinding.context, action);
+      return nil;
+    }];
     objc_setAssociatedObject(webView, &RionRoleZoomShortcutBindingKey, binding,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    RionInstallRoleZoomShortcutMonitor();
-    return true;
+    return binding.monitor != nil;
   }
 }
 
 bool rion_wk_role_zoom_shortcut_self_test(void) {
   NSEventModifierFlags command = NSEventModifierFlagCommand;
-  const char *reset = RionRoleZoomActionForKeyCode(29, command);
+  const char *reset = RionRoleZoomActionForKeyCode(29, command, NO);
   const char *zoomIn = RionRoleZoomActionForKeyCode(
-      24, command | NSEventModifierFlagShift);
+      24, command | NSEventModifierFlagShift, NO);
   const char *keypadIn = RionRoleZoomActionForKeyCode(
-      69, command | NSEventModifierFlagNumericPad);
-  const char *zoomOut = RionRoleZoomActionForKeyCode(78, command);
+      69, command | NSEventModifierFlagNumericPad, NO);
+  const char *zoomOut = RionRoleZoomActionForKeyCode(78, command, NO);
+  const char *quickAccess = RionRoleZoomActionForKeyCode(40, command, NO);
   return reset && strcmp(reset, "reset") == 0 && zoomIn &&
       strcmp(zoomIn, "in") == 0 && keypadIn &&
       strcmp(keypadIn, "in") == 0 && zoomOut &&
-      strcmp(zoomOut, "out") == 0 &&
-      !RionRoleZoomActionForKeyCode(29, command | NSEventModifierFlagShift) &&
-      !RionRoleZoomActionForKeyCode(69, command | NSEventModifierFlagShift) &&
-      !RionRoleZoomActionForKeyCode(27, command | NSEventModifierFlagControl) &&
-      !RionRoleZoomActionForKeyCode(24, NSEventModifierFlagControl);
+      strcmp(zoomOut, "out") == 0 && quickAccess &&
+      strcmp(quickAccess, "quickAccess") == 0 &&
+      !RionRoleZoomActionForKeyCode(40, command | NSEventModifierFlagShift, NO) &&
+      !RionRoleZoomActionForKeyCode(40, command, YES) &&
+      !RionRoleZoomActionForKeyCode(29, command | NSEventModifierFlagShift, NO) &&
+      !RionRoleZoomActionForKeyCode(69, command | NSEventModifierFlagShift, NO) &&
+      !RionRoleZoomActionForKeyCode(27, command | NSEventModifierFlagControl, NO) &&
+      !RionRoleZoomActionForKeyCode(24, NSEventModifierFlagControl, NO);
 }
 
 bool rion_wk_window_content_layout_metrics(void *rawWindow, double *width,

@@ -153,7 +153,39 @@ impl SystemRuntimeExecutor {
             .snapshot()
             .map_err(|error| error.to_string())?
             .native_projection(window_id);
-        let native = desktop_e2e_native_window_snapshot(&window)?;
+        let mut native = desktop_e2e_native_window_snapshot(&window)?;
+        let selected_tab_id = projection.as_ref().and_then(|projection| {
+            projection
+                .tabs
+                .iter()
+                .find(|tab| tab.selected)
+                .map(|tab| tab.tab_id.clone())
+        });
+        let role_webviews = self
+            .state
+            .lock()
+            .map_err(|_| "The runtime state is unavailable.".to_owned())?
+            .native_resources
+            .tabs
+            .iter()
+            .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
+            .flat_map(|(_, tab)| {
+                tab.roles.iter().map(|(role_id, surface)| {
+                    json!({
+                        "roleId": role_id,
+                        "webviewLabel": surface.webview.label(),
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        let native_object = native
+            .as_object_mut()
+            .ok_or_else(|| "The native window snapshot is invalid.".to_owned())?;
+        native_object.insert(
+            "focused".to_owned(),
+            json!(platform_window_is_focused(&window).map_err(|error| error.message)?),
+        );
+        native_object.insert("roleWebviews".to_owned(), json!(role_webviews));
         let role_surface_generations = self
             .state
             .lock()
@@ -212,13 +244,6 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let native = {
             let mut native = native;
-            let selected_tab_id = projection.as_ref().and_then(|projection| {
-                projection
-                    .tabs
-                    .iter()
-                    .find(|tab| tab.selected)
-                    .map(|tab| tab.tab_id.clone())
-            });
             let selected_tab_is_ready = selected_tab_id.as_ref().is_some_and(|tab_id| {
                 self.presentation.statuses.launch_phase(tab_id) == Some(LaunchPhase::Ready)
             });

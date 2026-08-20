@@ -403,6 +403,11 @@ use crate::MacosHighRefreshMode;
                     "id":"reserved","name":"Reserved","roleIds":["r1"],
                     "trigger":{"code":"KeyM","ctrl":true,"alt":false,"shift":true,"meta":false},
                     "repeat":{"type":"once"},"steps":[{"id":"three","type":"key","code":"F3"}]
+                },
+                {
+                    "id":"reserved-quick","name":"Reserved Quick Access","roleIds":["r1"],
+                    "trigger":{"code":"KeyK","ctrl":true,"alt":false,"shift":false,"meta":false},
+                    "repeat":{"type":"once"},"steps":[{"id":"four","type":"key","code":"F4"}]
                 }
             ]);
             let mut runtime = PortableRuntime::default();
@@ -420,6 +425,10 @@ use crate::MacosHighRefreshMode;
             assert!(preview.warnings.iter().any(|warning| {
                 warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
                     && warning.item_name.as_deref() == Some("Reserved")
+            }));
+            assert!(preview.warnings.iter().any(|warning| {
+                warning.code == "MACRO_SHORTCUT_CLEARED_RESERVED"
+                    && warning.item_name.as_deref() == Some("Reserved Quick Access")
             }));
             let prepared = runtime
                 .prepare_apply(

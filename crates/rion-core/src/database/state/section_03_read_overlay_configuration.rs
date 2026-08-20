@@ -96,7 +96,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
         })
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
 
-    if (19..=24).contains(&current_version) {
+    if (19..=25).contains(&current_version) {
         connection
             .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
@@ -128,10 +128,19 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                     )
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             }
-            migrate_game_window_role_slots(connection)?;
+            if current_version <= 24 {
+                migrate_game_window_role_slots(connection)?;
+                connection
+                    .execute(
+                        "INSERT INTO schema_migrations(version, applied_at) VALUES (25, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                        [],
+                    )
+                    .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+            }
+            migrate_reserved_quick_access_shortcuts(connection)?;
             connection
                 .execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (25, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                    "INSERT INTO schema_migrations(version, applied_at) VALUES (26, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                     [],
                 )
                 .map(|_| ())
@@ -247,7 +256,7 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
                  );
                  CREATE INDEX operation_journal_kind_phase_idx ON operation_journal(kind, phase);
                  INSERT INTO schema_migrations(version, applied_at)
-                 VALUES (25, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+                 VALUES (26, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
                  COMMIT;",
             )
             .map_err(|error| CoreError::StateDatabase(error.to_string()))?;

@@ -83,3 +83,15 @@ export function isReservedRuntimeTabSwitchMacroTrigger(
       !trigger.meta
   );
 }
+
+export function isReservedQuickAccessMacroTrigger(
+  trigger: MacroTrigger | null | undefined
+): boolean {
+  return Boolean(
+    trigger &&
+      trigger.code === "KeyK" &&
+      !trigger.alt &&
+      !trigger.shift &&
+      trigger.ctrl !== trigger.meta
+  );
+}

@@ -571,7 +571,7 @@ fn build_import_plan(
         let mut directly_affected = Vec::new();
         for item in planned {
             let mut trigger = item.macro_record.trigger.clone();
-            if trigger.as_ref().is_some_and(is_overlay_trigger) {
+            if trigger.as_ref().is_some_and(is_reserved_macro_trigger) {
                 warnings.push(warning(
                     "MACRO_SHORTCUT_CLEARED_RESERVED",
                     Some(item.name.clone()),

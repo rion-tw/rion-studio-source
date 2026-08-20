@@ -271,7 +271,7 @@
       "kind": "ui",
       "risk": "persistence",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Open Quick Open from the visible sidebar and fixed keyboard shortcut, search and launch a Role, pin it, verify the pin survives restart, then clear its local recent-use history from Settings."
+      "description": "Open Quick Open from the visible sidebar, main-window shortcut, and an actual managed game WebView; verify the game never receives K, Escape restores the exact source tab, successful actions retain their destination focus, then verify pin/recent persistence and clearing."
     },
     {
       "id": "ROLES-UI-001",
@@ -323,7 +323,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a role-assigned macro, verify its grouped table shares the Game Windows table material and uses inset hierarchy separators, exercise count-aware selection, group-prefilled creation, header sorting and grouped/flat switching, then start and stop it from the UI."
+      "description": "Create a role-assigned macro, verify Ctrl/Command+K is rejected with the dedicated reserved-shortcut message, exercise grouped/flat table behavior and selection, then start and stop it from the UI."
     },
     {
       "id": "MACRO-NATIVE-EFFECT-003",

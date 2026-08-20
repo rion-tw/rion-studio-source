@@ -515,6 +515,27 @@
             windows_application_shortcut_command(0x7A, false, true, false, false, false),
             None
         );
+        assert!(windows_quick_access_shortcut(
+            0x4B, true, false, false, false, false
+        ));
+        assert!(!windows_quick_access_shortcut(
+            0x4B, true, false, false, false, true
+        ));
+        assert!(!windows_quick_access_shortcut(
+            0x4B, true, false, false, true, false
+        ));
+        assert!(!windows_quick_access_shortcut(
+            0x4B, false, false, false, false, false
+        ));
+        assert!(macos_quick_access_shortcut(
+            40, true, false, false, false, false
+        ));
+        assert!(!macos_quick_access_shortcut(
+            40, true, false, false, false, true
+        ));
+        assert!(!macos_quick_access_shortcut(
+            40, true, false, false, true, false
+        ));
     }
 
     #[cfg(target_os = "macos")]

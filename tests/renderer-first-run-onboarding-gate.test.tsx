@@ -129,12 +129,16 @@ beforeEach(() => {
   state.onboardingVisible = true;
   const unsubscribe = (): void => undefined;
   window.rionStudio = {
+    consumePendingQuickAccessRequest: vi.fn().mockResolvedValue(null),
     consumePendingMacroPageRequest: vi.fn().mockResolvedValue(null),
     getGameBrowserSettings: vi.fn().mockResolvedValue({}),
     getMacroSettings: vi.fn().mockResolvedValue({}),
     getRuntimeWindowPreferences: vi.fn().mockResolvedValue({}),
     onMacroPageRequested: vi.fn().mockReturnValue(unsubscribe),
-    reportRendererLog: vi.fn()
+    onQuickAccessRequested: vi.fn().mockReturnValue(unsubscribe),
+    presentQuickAccessRequest: vi.fn().mockResolvedValue(false),
+    reportRendererLog: vi.fn(),
+    resolveQuickAccessRequest: vi.fn().mockResolvedValue(undefined)
   } as unknown as RionStudioApi;
 });
 

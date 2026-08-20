@@ -111,6 +111,7 @@ fn desktop_e2e_windows_role_surface_snapshot(
         "controllerBounds": controller_bounds,
         "hostBounds": host_bounds,
         "roleId": role_id,
+        "webviewLabel": webview.label(),
     });
     if let Some(viewport) = document_viewport {
         snapshot["documentViewport"] = json!({

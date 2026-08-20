@@ -43,6 +43,7 @@ import {
   filterQuickAccessItems,
   type QuickAccessItem
 } from "./quickAccessModel";
+import type { QuickAccessCloseReason } from "./useQuickAccessPresentation";
 
 interface QuickAccessPaletteProps {
   catalog: readonly QuickAccessItem[];
@@ -55,8 +56,10 @@ interface QuickAccessPaletteProps {
     item: QuickAccessItem,
     destination?: RuntimeLaunchDestination
   ) => Promise<boolean>;
-  onOpenChange: (open: boolean) => void;
+  onClose: (reason: QuickAccessCloseReason) => void;
+  onDidClose: () => void;
   onSetPinned: (item: QuickAccessItemRef, pinned: boolean) => Promise<boolean>;
+  restoreDomFocusOnClose: boolean;
 }
 
 const GROUP_LABEL_KEYS = {
@@ -73,9 +76,11 @@ export function QuickAccessPalette({
   runtime,
   shortcutLabel,
   t,
+  onClose,
+  onDidClose,
   onExecute,
-  onOpenChange,
-  onSetPinned
+  onSetPinned,
+  restoreDomFocusOnClose
 }: QuickAccessPaletteProps): JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -108,10 +113,11 @@ export function QuickAccessPalette({
       setQuery("");
       setSelectedIndex(0);
       setIsExecuting(false);
-      restoreFocusRef.current?.focus();
+      if (restoreDomFocusOnClose) restoreFocusRef.current?.focus();
       restoreFocusRef.current = null;
+      onDidClose();
     }
-  }, [open]);
+  }, [onDidClose, open, restoreDomFocusOnClose]);
 
   useEffect(() => {
     setSelectedIndex((current) => Math.min(current, Math.max(0, items.length - 1)));
@@ -125,7 +131,7 @@ export function QuickAccessPalette({
     setIsExecuting(true);
     const succeeded = await onExecute(item, destination);
     if (succeeded) {
-      onOpenChange(false);
+      onClose("complete");
     } else {
       setIsExecuting(false);
       inputRef.current?.focus();
@@ -145,7 +151,7 @@ export function QuickAccessPalette({
       data-testid="quick-access-palette"
       onCancel={(event) => {
         event.preventDefault();
-        onOpenChange(false);
+        onClose("cancel");
       }}
     >
       <Surface className="overflow-hidden" radius="lg" variant="modal">
@@ -177,7 +183,7 @@ export function QuickAccessPalette({
                 void execute(items[selectedIndex]);
               } else if (event.key === "Escape") {
                 event.preventDefault();
-                onOpenChange(false);
+                onClose("cancel");
               }
             }}
           />

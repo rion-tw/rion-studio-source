@@ -30,7 +30,7 @@ import type { Translator } from "../../i18n";
 
 import { cn } from "../../lib/utils";
 
-import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroShortcutSourcesOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
+import { areMacroTriggersEqual, isReservedBrowserZoomMacroTrigger, isReservedQuickAccessMacroTrigger, isReservedRuntimeTabSwitchMacroTrigger, macroShortcutSourcesOverlap, MACRO_OVERLAY_TRIGGER } from "../../../../shared/macroShortcuts";
 
 import { DEFAULT_MACRO_SETTINGS, isValidMacroKeyHoldDuration } from "../../../../shared/macroSettings";
 
@@ -106,6 +106,9 @@ function MacroEditor({
     }
     if (isReservedRuntimeTabSwitchMacroTrigger(form.trigger)) {
       return t("macroForm.shortcutRuntimeTabReserved");
+    }
+    if (isReservedQuickAccessMacroTrigger(form.trigger)) {
+      return t("macroForm.shortcutQuickAccessReserved");
     }
 
     const conflictingMacro = macros.find(

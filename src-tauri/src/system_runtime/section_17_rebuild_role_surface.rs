@@ -194,7 +194,7 @@ impl SystemRuntimeExecutor {
         let preparation = (|| -> RuntimeResult<()> {
             // The replacement remains about:blank until the old native surface is gone.
             webview.hide().map_err(RuntimeError::tauri)?;
-            install_role_zoom_shortcut_handler(&webview, self.app.clone())?;
+            install_role_application_shortcut_handler(&webview, self.app.clone())?;
             webview
                 .set_zoom(effective_zoom_factor(zoom_factor, window_zoom_factor))
                 .map_err(RuntimeError::tauri)?;

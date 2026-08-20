@@ -678,6 +678,7 @@ struct RuntimeState {
     last_completed_document_ids: HashMap<String, String>,
     last_input_ready_epochs: HashMap<String, u64>,
     pending_macro_page_request: Option<Value>,
+    quick_access_requests: QuickAccessRequestLedger,
     close_previews: HashMap<String, TabCloseTombstone>,
     completed_failed_launch_cleanups: HashSet<(String, String)>,
     failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,

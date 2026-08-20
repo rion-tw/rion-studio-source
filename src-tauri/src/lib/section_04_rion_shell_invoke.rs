@@ -624,6 +624,33 @@ async fn rion_shell_invoke(
             .runtime
             .take_macro_page_request()
             .unwrap_or(Value::Null)),
+        "consumePendingQuickAccessRequest" => Ok(state
+            .runtime
+            .take_quick_access_request()
+            .unwrap_or(Value::Null)),
+        "presentQuickAccessRequest" => {
+            let request_id = string_argument(&args, 0, "Quick Access request ID")?;
+            state
+                .runtime
+                .present_quick_access_request(&request_id)
+                .map(Value::Bool)
+                .map_err(|error| shell_error("TAURI_QUICK_ACCESS_PRESENT_FAILED", error))
+        }
+        "resolveQuickAccessRequest" => {
+            let request_id = string_argument(&args, 0, "Quick Access request ID")?;
+            let resolution = string_argument(&args, 1, "Quick Access resolution")?;
+            if !matches!(resolution.as_str(), "cancel" | "complete" | "ignored") {
+                return Err(shell_error(
+                    "TAURI_QUICK_ACCESS_RESOLUTION_INVALID",
+                    format!("Unsupported Quick Access resolution {resolution}."),
+                ));
+            }
+            state
+                .runtime
+                .resolve_quick_access_request(&request_id, &resolution)
+                .map(|()| Value::Null)
+                .map_err(|error| shell_error("TAURI_QUICK_ACCESS_RESOLVE_FAILED", error))
+        }
         _ => Err(shell_error(
             "TAURI_SHELL_OPERATION_UNAVAILABLE",
             format!(

@@ -268,7 +268,10 @@ impl SystemRuntimeExecutor {
                             return NewWindowResponse::Deny;
                         }
                         if let Err(error) =
-                            install_role_zoom_shortcut_handler(window.as_ref(), popup_app.clone())
+                            install_role_application_shortcut_handler(
+                                window.as_ref(),
+                                popup_app.clone(),
+                            )
                         {
                             let _ = window.close();
                             if let Some(state) = popup_app.try_state::<crate::CoreState>() {

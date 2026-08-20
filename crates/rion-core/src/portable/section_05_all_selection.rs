@@ -487,10 +487,6 @@ fn triggers_equal(left: &MacroTrigger, right: &MacroTrigger) -> bool {
         && left.meta == right.meta
 }
 
-fn is_overlay_trigger(trigger: &MacroTrigger) -> bool {
-    trigger.code == "KeyM" && trigger.ctrl && !trigger.alt && trigger.shift && !trigger.meta
-}
-
 fn roles_overlap(left: &[String], right: &[String]) -> bool {
     let right = right.iter().collect::<HashSet<_>>();
     left.iter().any(|role_id| right.contains(role_id))

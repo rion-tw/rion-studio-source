@@ -4,14 +4,17 @@ import { Key } from "webdriverio";
 import type { Game, GameWindow, LaunchWorkspace, Macro, Role, RoleStatus } from "../../../src/shared/types";
 import {
   detachTerminatedApplicationSession,
+  keyboardInputSequence,
   probe,
   rendererCall,
   requireEnvironment,
+  runtimeUiAction,
   shutdown,
   waitEvent,
   windowSnapshot
 } from "../support/control";
 import { waitForTranscriptEvent } from "../support/transcript";
+import { fixtureCursor, fixtureEvents } from "../support/fixture";
 import {
   acceptLegalAndSkipFirstRun,
   clickConfirmation,
@@ -219,6 +222,18 @@ async function createMacro(role: Role): Promise<Macro> {
   await waitForRoute("/macros");
   await navigate(`/macros/new?roleId=${role.id}`);
   await setEditorName(MACRO_NAME);
+  await $("button[aria-label='Record']").click();
+  await browser.action("key")
+    .down(Key.Ctrl)
+    .down("k")
+    .up("k")
+    .up(Key.Ctrl)
+    .perform();
+  const shortcutError = await $("p.text-destructive");
+  await shortcutError.waitForExist({ timeout: 10_000 });
+  await expect(shortcutError).toHaveText("Ctrl/Command+K is reserved for Rion Studio Quick Access.");
+  await expect($("button=Create macro")).toBeDisabled();
+  await $("button=Clear").click();
   await $("button=Hold until stopped").click();
   await submitEditor("/macros");
   const macro = await findMacro(MACRO_NAME);
@@ -395,6 +410,95 @@ async function launchAndPinRoleFromQuickAccess(role: Role): Promise<void> {
     role.id,
     (status) => status?.state === "running" && status.automationState !== "unavailable"
   );
+  await exerciseInGameQuickAccess(role);
+}
+
+async function exerciseInGameQuickAccess(role: Role): Promise<void> {
+  const runtime = await rendererCall("getEmbeddedRuntimeState");
+  const sourceTab = runtime.tabs.find((tab) => tab.roleIds.includes(role.id));
+  if (!sourceTab) throw new Error("The launched smoke role has no runtime tab");
+  await waitForSelectedRuntimeTabReady(sourceTab.windowId);
+  const snapshot = await windowSnapshot(sourceTab.windowId);
+  const roleWebview = snapshot.native.roleWebviews?.find((surface) => surface.roleId === role.id);
+  if (!roleWebview) throw new Error("The launched smoke role has no native WebView label");
+  expect(snapshot.native.focused).toBe(true);
+
+  const fixtureAfter = await fixtureCursor();
+  const nativeRequestAfter = (await probe()).latestSequence;
+  await submitInGameQuickAccessShortcut(
+    sourceTab.windowId,
+    snapshot.windowGeneration,
+    sourceTab.id,
+    role.id
+  );
+  const nativeRequest = await waitEvent({
+    afterSequence: nativeRequestAfter,
+    kind: "game-quick-access-requested",
+    windowId: sourceTab.windowId
+  });
+  expect(nativeRequest.details).toEqual(expect.objectContaining({
+    origin: "runtimeTab",
+    tabId: sourceTab.id,
+    webviewLabel: roleWebview.webviewLabel
+  }));
+  const palette = await $("[data-testid='quick-access-palette'][open]");
+  await palette.waitForExist({ timeout: 10_000 });
+  expect((await fixtureEvents({ afterSequence: fixtureAfter, roleId: ROLE_FIXTURE_ID }))
+    .some((event) => event.code === "KeyK" && event.kind.includes("keydown"))).toBe(false);
+
+  await browser.keys(Key.Escape);
+  await palette.waitForExist({ reverse: true, timeout: 10_000 });
+  await browser.waitUntil(async () => {
+    const restored = await windowSnapshot(sourceTab.windowId);
+    return restored.native.focused === true && restored.kernel?.selectedTabId === sourceTab.id;
+  }, { timeout: 10_000, timeoutMsg: "Cancelling Quick Access did not restore the source game tab" });
+
+  const secondRequestAfter = (await probe()).latestSequence;
+  const restoredSnapshot = await windowSnapshot(sourceTab.windowId);
+  await submitInGameQuickAccessShortcut(
+    sourceTab.windowId,
+    restoredSnapshot.windowGeneration,
+    sourceTab.id,
+    role.id
+  );
+  await waitEvent({
+    afterSequence: secondRequestAfter,
+    kind: "game-quick-access-requested",
+    windowId: sourceTab.windowId
+  });
+  await $("[data-testid='quick-access-palette'][open]").waitForExist({ timeout: 10_000 });
+  await $("#quick-access-option-route-settings").click();
+  await waitForRoute("/settings");
+  await browser.waitUntil(async () => (
+    await windowSnapshot(sourceTab.windowId)
+  ).native.focused === false, {
+    timeout: 10_000,
+    timeoutMsg: "A successful Quick Access action incorrectly restored the source game window"
+  });
+}
+
+async function submitInGameQuickAccessShortcut(
+  windowId: string,
+  windowGeneration: number,
+  tabId: string,
+  roleId: string
+): Promise<void> {
+  // Tauri WebDriver exposes only the main WebviewWindow handle; managed game
+  // WKWebView/WebView2 children are native surfaces. Focus the exact child,
+  // then submit real platform keyboard input through the desktop driver.
+  await runtimeUiAction(windowId, {
+    action: "focusRole",
+    roleId,
+    tabId,
+    windowGeneration
+  });
+  const modifier = process.platform === "darwin" ? "MetaLeft" : "ControlLeft";
+  await keyboardInputSequence([
+    { code: modifier, phase: "keyDown" },
+    { code: "KeyK", phase: "keyDown" },
+    { code: "KeyK", phase: "keyUp" },
+    { code: modifier, phase: "keyUp" }
+  ]);
 }
 
 async function launchRoleAndRunMacro(role: Role, macro: Macro): Promise<void> {

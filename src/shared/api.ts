@@ -48,7 +48,9 @@ import type {
   PortableImportPreview,
   PortableImportResult,
   QuickAccessItemRef,
+  QuickAccessPresentationRequest,
   QuickAccessPreferences,
+  QuickAccessRequestResolution,
   ReorderItemsInput,
   RestoreSavedGameWindowsInput,
   ResolvedTheme,
@@ -128,6 +130,12 @@ export interface RionStudioApi {
   ) => Promise<QuickAccessPreferences>;
   recordQuickAccessUse: (item: QuickAccessItemRef) => Promise<QuickAccessPreferences>;
   clearQuickAccessRecent: () => Promise<QuickAccessPreferences>;
+  consumePendingQuickAccessRequest: () => Promise<QuickAccessPresentationRequest | null>;
+  presentQuickAccessRequest: (requestId: string) => Promise<boolean>;
+  resolveQuickAccessRequest: (
+    requestId: string,
+    resolution: QuickAccessRequestResolution
+  ) => Promise<void>;
   listGames: () => Promise<Game[]>;
   createGame: (input: CreateGameInput) => Promise<Game>;
   updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;
@@ -227,6 +235,9 @@ export interface RionStudioApi {
   onMacroStatusChanged: (callback: (statuses: MacroRunStatus[]) => void) => () => void;
   onMacrosChanged: (callback: (macros: Macro[]) => void) => () => void;
   onMacroPageRequested: (callback: (request: MacroPageRequest) => void) => () => void;
+  onQuickAccessRequested: (
+    callback: (request: QuickAccessPresentationRequest) => void
+  ) => () => void;
   onUpdateStatusChanged: (callback: (status: AppUpdateStatus) => void) => () => void;
   onShellError: (callback: (error: CoreErrorPayload) => void) => () => void;
   onLogEntryAdded: (callback: (entry: LogEntry) => void) => () => void;

@@ -9,6 +9,7 @@ import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { FirstRunOnboardingGate } from "./features/onboarding/FirstRunOnboardingGate";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
 import { QuickAccessPalette } from "./features/quick-access/QuickAccessPalette";
+import { useQuickAccessPresentation } from "./features/quick-access/useQuickAccessPresentation";
 import {
   createQuickAccessCatalog,
   isQuickAccessShortcut,
@@ -62,7 +63,6 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
-  const [isQuickAccessOpen, setIsQuickAccessOpen] = useState(false);
   const [quickAccessPreferences, setQuickAccessPreferences] = useState<QuickAccessPreferences>(
     data.quickAccessPreferences ?? EMPTY_QUICK_ACCESS_PREFERENCES
   );
@@ -286,6 +286,18 @@ export function App(): JSX.Element {
     data.initialLoadState === "ready" &&
     legal.status?.isAccepted === true &&
     !firstRunOnboarding.isVisible;
+  const quickAccessPresentation = useQuickAccessPresentation({
+    enabled: quickAccessEnabled,
+    hasBridge,
+    onError: data.setError
+  });
+  const {
+    close: closeQuickAccess,
+    didClose: didCloseQuickAccess,
+    isOpen: isQuickAccessOpen,
+    openFromMainWindow: openQuickAccess,
+    restoreDomFocusOnClose: restoreQuickAccessDomFocus
+  } = quickAccessPresentation;
   const quickAccessShortcutLabel = isMacOS ? "⌘K" : "Ctrl+K";
   const quickAccessCatalog = useMemo(() => createQuickAccessCatalog({
     busyMacroIds: macroWorkflow.busyMacroIds,
@@ -323,32 +335,22 @@ export function App(): JSX.Element {
     setQuickAccessPreferences(data.quickAccessPreferences ?? EMPTY_QUICK_ACCESS_PREFERENCES);
   }, [data.quickAccessPreferences]);
 
-  const openQuickAccess = useCallback((): void => {
-    if (!quickAccessEnabled) return;
-    if (document.querySelector("dialog[open]")) return;
-    setIsQuickAccessOpen(true);
-  }, [quickAccessEnabled]);
-
   useEffect(() => {
-    if (!quickAccessEnabled) {
-      setIsQuickAccessOpen(false);
-      return;
-    }
+    if (!quickAccessEnabled) return;
     function handleQuickAccessShortcut(event: KeyboardEvent): void {
       if (!isQuickAccessShortcut(event, isMacOS ? "mac" : "windows")) return;
       if (isQuickAccessOpen) {
         event.preventDefault();
-        setIsQuickAccessOpen(false);
+        closeQuickAccess("cancel");
         return;
       }
-      if (document.querySelector("dialog[open], [aria-modal=\"true\"]")) return;
       event.preventDefault();
-      setIsQuickAccessOpen(true);
+      openQuickAccess();
     }
 
     window.addEventListener("keydown", handleQuickAccessShortcut);
     return () => window.removeEventListener("keydown", handleQuickAccessShortcut);
-  }, [isMacOS, isQuickAccessOpen, quickAccessEnabled]);
+  }, [closeQuickAccess, isMacOS, isQuickAccessOpen, openQuickAccess, quickAccessEnabled]);
 
   const setQuickAccessPinned = useCallback(async (
     item: QuickAccessItemRef,
@@ -905,8 +907,10 @@ export function App(): JSX.Element {
         shortcutLabel={quickAccessShortcutLabel}
         t={preferences.t}
         onExecute={executeQuickAccessItem}
-        onOpenChange={setIsQuickAccessOpen}
+        onClose={closeQuickAccess}
+        onDidClose={didCloseQuickAccess}
         onSetPinned={setQuickAccessPinned}
+        restoreDomFocusOnClose={restoreQuickAccessDomFocus}
       />
     </div>
   );

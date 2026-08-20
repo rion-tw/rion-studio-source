@@ -856,7 +856,8 @@ impl SystemRuntimeExecutor {
             if !current {
                 continue;
             }
-            let shortcut_status = install_role_zoom_shortcut_handler(&webview, self.app.clone());
+            let shortcut_status =
+                install_role_application_shortcut_handler(&webview, self.app.clone());
             degraded |= shortcut_status.is_err();
             self.record_runtime_stage(
                 format!("optional-hydration:{tab_id}:{role_id}"),

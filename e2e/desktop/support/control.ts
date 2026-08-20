@@ -60,6 +60,7 @@ export interface DesktopE2eWindowSnapshot {
     clientBounds: WindowBounds;
     displayId?: number;
     dpi?: number;
+    focused?: boolean;
     handle: string;
     normalOuterBounds?: WindowBounds;
     outerBounds: WindowBounds;
@@ -73,6 +74,11 @@ export interface DesktopE2eWindowSnapshot {
       };
       hostBounds: WindowBounds;
       roleId: string;
+      webviewLabel?: string;
+    }>;
+    roleWebviews?: Array<{
+      roleId: string;
+      webviewLabel: string;
     }>;
     scaleFactor: number;
     tabStatusPresentation?: "failed" | "hidden" | "loading";

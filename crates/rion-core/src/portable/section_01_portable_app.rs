@@ -12,8 +12,9 @@ use uuid::Uuid;
 
 use crate::{
     domain::{
-        macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
-        validate_game_browser_settings, validate_macro_settings,
+        is_reserved_macro_trigger, macro_shortcut_source_role_ids,
+        normalize_game_browser_settings, normalize_macro_settings, validate_game_browser_settings,
+        validate_macro_settings,
     },
     error::{CoreError, CoreResult},
     layout::normalize_rect_edges,

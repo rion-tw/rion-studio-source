@@ -77,7 +77,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version IN (24, 25);
+                "DELETE FROM schema_migrations WHERE version IN (24, 25, 26);
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  INSERT INTO legacy_session_restores(id) VALUES ('retired');
@@ -94,7 +94,7 @@
                     0
                 ))
                 .unwrap(),
-            25
+            26
         );
         assert_eq!(
             connection
@@ -161,7 +161,7 @@
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
                 .unwrap(),
-            25
+            26
         );
     }
 
@@ -289,7 +289,7 @@
             connection
                 .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| row.get::<_, u32>(0))
                 .unwrap(),
-            25
+            26
         );
     }
 
@@ -299,7 +299,7 @@
         create_schema(&connection, false).unwrap();
         connection
             .execute_batch(
-                "DELETE FROM schema_migrations WHERE version IN (24, 25);
+                "DELETE FROM schema_migrations WHERE version IN (24, 25, 26);
                  INSERT INTO schema_migrations(version, applied_at) VALUES (19, 'current');
                  CREATE TABLE legacy_session_restores(id TEXT PRIMARY KEY);
                  CREATE TRIGGER reject_schema_twenty BEFORE INSERT ON schema_migrations
@@ -418,7 +418,7 @@
                         row.get::<_, u32>(0)
                     })
                     .unwrap(),
-                25
+                26
             );
             for game_id in ["builtin-flyff-universe", "custom-game"] {
                 let migrated_game: Value = serde_json::from_str(

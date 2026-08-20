@@ -40,6 +40,7 @@ use native_executor::{
 include!("system_runtime/section_04_live_window_tab_store.rs");
 include!("system_runtime/section_04_test_topology_move.rs");
 include!("system_runtime/section_04_focus_broker.rs");
+include!("system_runtime/section_04_quick_access_request.rs");
 include!("system_runtime/section_04_main_window_actor.rs");
 include!("system_runtime/section_04_window_close_ledger.rs");
 include!("system_runtime/section_04_tab_chrome_ack.rs");

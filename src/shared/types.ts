@@ -285,6 +285,12 @@ export interface MacroPageRequest {
   roleId: string;
 }
 
+export interface QuickAccessPresentationRequest {
+  requestId: string;
+}
+
+export type QuickAccessRequestResolution = "cancel" | "complete" | "ignored";
+
 export type MacroRunState = "running" | "recovering" | "stopping" | "failed" | "cancelled";
 
 export interface MacroRunStatus {

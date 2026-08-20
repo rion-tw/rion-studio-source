@@ -21,6 +21,13 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
         topology_revision: u64,
         window_generation: u64,
     },
+    DragDivider {
+        delta_ratio: f64,
+        divider_index: u32,
+        tab_id: String,
+        topology_revision: u64,
+        window_generation: u64,
+    },
     FocusRole {
         role_id: String,
         tab_id: String,
@@ -237,6 +244,55 @@ impl SystemRuntimeExecutor {
                     target_window_id,
                     *target_window_generation,
                     before_tab_id,
+                )?;
+            }
+            DesktopE2eRuntimeUiActionRequest::DragDivider {
+                delta_ratio,
+                divider_index,
+                tab_id,
+                ..
+            } => {
+                desktop_e2e_require_selected_tab(&projection, tab_id, "workspace divider")?;
+                if !delta_ratio.is_finite() || !(0.02..=0.25).contains(&delta_ratio.abs()) {
+                    return Err(
+                        "Desktop E2E divider drag ratio must be between 0.02 and 0.25."
+                            .to_owned(),
+                    );
+                }
+                let (window, divider, axis) = {
+                    let state = self.state().map_err(|error| error.message)?;
+                    let host = state
+                        .native_resources
+                        .display_hosts
+                        .get(window_id)
+                        .ok_or_else(|| {
+                            "The requested live Game Window was not found.".to_owned()
+                        })?;
+                    let divider = state
+                        .native_resources
+                        .tabs
+                        .get(tab_id)
+                        .and_then(|tab| {
+                            tab.dividers
+                                .iter()
+                                .find(|divider| divider.index == *divider_index)
+                        })
+                        .ok_or_else(|| {
+                            "The requested visible workspace divider was not found.".to_owned()
+                        })?;
+                    (
+                        host.window.clone(),
+                        divider.webview.clone(),
+                        divider.descriptor.axis.clone(),
+                    )
+                };
+                request_platform_window_show_foreground(&window)
+                    .map_err(|error| error.message)?;
+                desktop_e2e_drag_workspace_divider(
+                    &window,
+                    &divider,
+                    &axis,
+                    *delta_ratio,
                 )?;
             }
             DesktopE2eRuntimeUiActionRequest::FocusRole {
@@ -743,6 +799,10 @@ fn desktop_e2e_runtime_ui_generation(request: &DesktopE2eRuntimeUiActionRequest)
             window_generation,
             ..
         }
+        | DesktopE2eRuntimeUiActionRequest::DragDivider {
+            window_generation,
+            ..
+        }
         | DesktopE2eRuntimeUiActionRequest::FocusRole {
             window_generation,
             ..
@@ -771,6 +831,7 @@ fn desktop_e2e_runtime_ui_action_name(request: &DesktopE2eRuntimeUiActionRequest
         DesktopE2eRuntimeUiActionRequest::ActivateTab { .. } => "activateTab",
         DesktopE2eRuntimeUiActionRequest::CloseTab { .. } => "closeTab",
         DesktopE2eRuntimeUiActionRequest::DragTab { .. } => "dragTab",
+        DesktopE2eRuntimeUiActionRequest::DragDivider { .. } => "dragDivider",
         DesktopE2eRuntimeUiActionRequest::ClickRoleContent { .. } => "clickRoleContent",
         DesktopE2eRuntimeUiActionRequest::FocusRole { .. } => "focusRole",
         DesktopE2eRuntimeUiActionRequest::PressRoleSlot { .. } => "pressRoleSlot",
@@ -784,6 +845,9 @@ fn desktop_e2e_runtime_ui_topology_revision(
 ) -> Option<u64> {
     match request {
         DesktopE2eRuntimeUiActionRequest::DragTab {
+            topology_revision, ..
+        }
+        | DesktopE2eRuntimeUiActionRequest::DragDivider {
             topology_revision, ..
         }
         | DesktopE2eRuntimeUiActionRequest::OpenTabMenu {
@@ -803,6 +867,7 @@ fn desktop_e2e_runtime_ui_tab_id(
         DesktopE2eRuntimeUiActionRequest::ActivateTab { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::CloseTab { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::DragTab { tab_id, .. }
+        | DesktopE2eRuntimeUiActionRequest::DragDivider { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::FocusRole { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::ClickRoleContent { tab_id, .. }
         | DesktopE2eRuntimeUiActionRequest::PressRoleSlot { tab_id, .. }

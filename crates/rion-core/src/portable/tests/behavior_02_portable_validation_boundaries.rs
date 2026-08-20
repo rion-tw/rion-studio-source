@@ -142,6 +142,75 @@ use crate::MacosHighRefreshMode;
     }
 
     #[test]
+    fn portable_v18_upgrades_mixed_game_window_layout_and_remaps_its_role_subset() {
+        let mut source = fixture_value(18);
+        source["launchWorkspaces"][0]["template"] = json!("two_columns");
+        source["launchWorkspaces"][0]["slots"] = json!([
+            {
+                "id":"slot-role","roleId":"r1",
+                "rect":{"x":0.0,"y":0.0,"width":0.5,"height":1.0}
+            },
+            {
+                "id":"slot-web",
+                "web":{"name":"Fixture","startUrl":"https://example.test/web"},
+                "rect":{"x":0.5,"y":0.0,"width":0.5,"height":1.0}
+            }
+        ]);
+        source["gameWindows"] = json!([{
+            "id":uuid::Uuid::new_v4().to_string(),
+            "name":"Mixed window",
+            "targetDisplay":{"id":0},
+            "placement":{
+                "normalBounds":{"x":0,"y":0,"width":1280,"height":720},
+                "savedWorkArea":{"x":0,"y":0,"width":1920,"height":1080},
+                "presentation":"normal"
+            },
+            "tabs":[{
+                "id":uuid::Uuid::new_v4().to_string(),
+                "tabType":"workspace",
+                "sourceId":"w1",
+                "name":"Mixed workspace",
+                "roleSlots":[{
+                    "slotId":"slot-role","roleId":"r1",
+                    "rect":{"x":0.0,"y":0.0,"width":0.6,"height":1.0}
+                }],
+                "hidden":false,
+                "audioMuted":false
+            }]
+        }]);
+
+        let normalized = normalize(&source.to_string()).unwrap();
+        assert_eq!(normalized["schemaVersion"], 19);
+        let slots = normalized["gameWindows"][0]["tabs"][0]["workspaceSlots"]
+            .as_array()
+            .unwrap();
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0]["rect"]["width"], 0.6);
+        assert_eq!(slots[1]["web"]["startUrl"], "https://example.test/web");
+
+        let mut runtime = PortableRuntime::default();
+        let preview = runtime
+            .preview(
+                &source.to_string(),
+                "/tmp/mixed-workspace-window.json".to_owned(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let prepared = runtime
+            .prepare_apply(
+                &preview.import_id,
+                all_selection(),
+                Vec::new(),
+                empty_snapshot(),
+            )
+            .unwrap();
+        let tab = &prepared.snapshot.game_windows[0].tabs[0];
+        assert_eq!(tab.workspace_slots.len(), 2);
+        assert_eq!(tab.workspace_slots[0].role_id, Some(tab.role_slots[0].role_id.clone()));
+        assert!(tab.workspace_slots[1].web.is_some());
+    }
+
+    #[test]
     fn portable_browser_preferences_are_normalized_before_preview() {
         {
             let mut source = fixture_value(11);
@@ -713,7 +782,7 @@ use crate::MacosHighRefreshMode;
     }
 
     #[test]
-    fn export_is_v18_and_never_emits_internal_or_retired_sync_fields() {
+    fn export_is_v19_and_never_emits_internal_or_retired_sync_fields() {
         let snapshot = serde_json::from_value::<CoreStateSnapshotRecord>(json!({
             "games": [{"id":"g","source":"custom","name":"Game","defaultLaunchUrl":"https://example.test/play","browserLaunchMode":"inherit","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
             "roles": [{"id":"r","gameId":"g","name":"Role","launchUrl":"https://example.test/play","notes":"","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}],
@@ -729,7 +798,7 @@ use crate::MacosHighRefreshMode;
         let exported = export(snapshot, None, all_selection(), "2.0.0").unwrap();
         let value = serde_json::to_value(exported).unwrap();
         {
-            assert_eq!(value["schemaVersion"], 18);
+            assert_eq!(value["schemaVersion"], 19);
             assert!(
                 value["launchWorkspaces"][0]
                     .get("browserZoomMode")

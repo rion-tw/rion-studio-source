@@ -187,6 +187,35 @@ impl SystemRuntimeExecutor {
             json!(platform_window_is_focused(&window).map_err(|error| error.message)?),
         );
         native_object.insert("roleWebviews".to_owned(), json!(role_webviews));
+        let divider_surfaces = self
+            .state
+            .lock()
+            .map_err(|_| "The runtime state is unavailable.".to_owned())?
+            .native_resources
+            .tabs
+            .iter()
+            .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
+            .flat_map(|(_, tab)| tab.dividers.iter())
+            .map(|divider| {
+                let position = divider
+                    .webview
+                    .position()
+                    .map_err(|error| error.to_string())?;
+                let size = divider.webview.size().map_err(|error| error.to_string())?;
+                Ok(json!({
+                    "axis": divider.descriptor.axis,
+                    "bounds": {
+                        "height": size.height,
+                        "width": size.width,
+                        "x": position.x,
+                        "y": position.y,
+                    },
+                    "dividerIndex": divider.index,
+                    "webviewLabel": divider.webview.label(),
+                }))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        native_object.insert("dividerSurfaces".to_owned(), json!(divider_surfaces));
         #[cfg(not(windows))]
         {
             let role_surfaces = self
@@ -470,6 +499,7 @@ impl SystemRuntimeExecutor {
                     "tabId": tab.tab_id,
                     "tabType": tab.tab_type,
                     "title": tab.title,
+                    "workspaceSlots": tab.workspace_slots,
                 })).collect::<Vec<_>>(),
                 "targetDisplay": projection.target_display,
                 "windowGeneration": projection.window_generation,

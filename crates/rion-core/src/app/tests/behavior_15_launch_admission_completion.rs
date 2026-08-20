@@ -394,6 +394,7 @@ fn app_snapshot_projects_state_statuses_and_logical_topology_in_one_envelope() {
                         persistable: true,
                         role_ids: vec!["role-a".to_owned()],
                         role_slots: Vec::new(),
+                        workspace_slots: Vec::new(),
                         source_id: "role-a".to_owned(),
                         tab_type: "role".to_owned(),
                         title: "Role A".to_owned(),

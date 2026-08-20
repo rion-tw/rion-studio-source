@@ -2,6 +2,7 @@
 pub(crate) struct DormantTabActivationRequest {
     pub(crate) audio_muted: bool,
     pub(crate) role_slots: Vec<GameWindowRoleSlotRecord>,
+    pub(crate) workspace_slots: Vec<StateWorkspaceSlotRecord>,
     pub(crate) source_id: String,
     pub(crate) tab_id: String,
     pub(crate) tab_type: String,
@@ -222,6 +223,7 @@ impl SystemRuntimeExecutor {
         Ok((true, Some(DormantTabActivationRequest {
             audio_muted: tab.audio_muted,
             role_slots: tab.role_slots,
+            workspace_slots: tab.workspace_slots,
             source_id: tab.source_id,
             tab_id: tab.id,
             tab_type: tab.tab_type,

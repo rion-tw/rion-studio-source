@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::model::RuntimeOperationTraceRecord;
 use crate::model::{
     BrowserRuntimeResult, BrowserRuntimeSnapshot, DisplayTargetRecord, GameWindowPlacementRecord,
-    GameWindowRoleSlotRecord, RuntimeTabActivationPhaseRecord,
+    GameWindowRoleSlotRecord, RuntimeTabActivationPhaseRecord, StateWorkspaceSlotRecord,
 };
 
 macro_rules! identity_type {
@@ -55,6 +55,7 @@ pub struct RuntimeLiveTabRecord {
     pub persistable: bool,
     pub role_ids: Vec<String>,
     pub role_slots: Vec<GameWindowRoleSlotRecord>,
+    pub workspace_slots: Vec<StateWorkspaceSlotRecord>,
     pub source_id: String,
     pub tab_type: String,
     pub title: String,
@@ -263,6 +264,13 @@ pub enum RuntimeIntent {
         tab_id: String,
         window_id: String,
     },
+    ReplaceTabWorkspaceSlots {
+        expected_revision: Option<u64>,
+        operation_id: String,
+        tab_id: String,
+        window_id: String,
+        workspace_slots: Vec<StateWorkspaceSlotRecord>,
+    },
     SetWindowZoomFactor {
         expected_revision: Option<u64>,
         operation_id: String,
@@ -334,6 +342,7 @@ impl RuntimeIntent {
             | Self::SetTabAudioMuted { operation_id, .. }
             | Self::SetRoleZoom { operation_id, .. }
             | Self::ReplaceTabRoleSlots { operation_id, .. }
+            | Self::ReplaceTabWorkspaceSlots { operation_id, .. }
             | Self::SetWindowZoomFactor { operation_id, .. }
             | Self::SeedDormantTabs { operation_id, .. }
             | Self::SetTabActivationPhase { operation_id, .. }

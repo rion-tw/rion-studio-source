@@ -40,6 +40,13 @@ export interface DesktopE2eWindowSnapshot {
       tabId: string;
       tabType: string;
       title: string;
+      workspaceSlots: Array<{
+        browserZoomPercent?: number;
+        id: string;
+        rect: Required<WindowBounds>;
+        roleId?: string;
+        web?: { name: string; startUrl: string };
+      }>;
     }>;
     targetDisplay?: { id: number };
     windowGeneration: number;
@@ -59,6 +66,12 @@ export interface DesktopE2eWindowSnapshot {
     };
     clientBounds: WindowBounds;
     displayId?: number;
+    dividerSurfaces?: Array<{
+      axis: "horizontal" | "vertical";
+      bounds: WindowBounds;
+      dividerIndex: number;
+      webviewLabel: string;
+    }>;
     dpi?: number;
     focused?: boolean;
     handle: string;
@@ -160,6 +173,14 @@ export type RuntimeUiActionRequest =
       tabId: string;
       targetWindowGeneration: number;
       targetWindowId: string;
+      topologyRevision: number;
+      windowGeneration: number;
+    }
+  | {
+      action: "dragDivider";
+      deltaRatio: number;
+      dividerIndex: number;
+      tabId: string;
       topologyRevision: number;
       windowGeneration: number;
     }

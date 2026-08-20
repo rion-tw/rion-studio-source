@@ -14,6 +14,9 @@ fn intent_trace_identity(intent: &RuntimeIntent) -> (&'static str, &'static str)
         RuntimeIntent::SetTabAudioMuted { .. } => ("setTabAudioMuted", "command"),
         RuntimeIntent::SetRoleZoom { .. } => ("setRoleZoom", "command"),
         RuntimeIntent::ReplaceTabRoleSlots { .. } => ("replaceTabRoleSlots", "command"),
+        RuntimeIntent::ReplaceTabWorkspaceSlots { .. } => {
+            ("replaceTabWorkspaceSlots", "command")
+        }
         RuntimeIntent::SetWindowZoomFactor { .. } => ("setWindowZoomFactor", "command"),
         RuntimeIntent::SeedDormantTabs { .. } => ("seedDormantTabs", "restore"),
         RuntimeIntent::ActivateTab { .. } => ("activateTab", "command"),
@@ -100,7 +103,8 @@ fn intent_trace_context(intent: &RuntimeIntent) -> RuntimeTraceContext {
         },
         RuntimeIntent::SetTabAudioMuted { tab_id, .. }
         | RuntimeIntent::SetRoleZoom { tab_id, .. }
-        | RuntimeIntent::ReplaceTabRoleSlots { tab_id, .. } => RuntimeTraceContext {
+        | RuntimeIntent::ReplaceTabRoleSlots { tab_id, .. }
+        | RuntimeIntent::ReplaceTabWorkspaceSlots { tab_id, .. } => RuntimeTraceContext {
             tab_id: Some(tab_id.clone()),
             ..RuntimeTraceContext::default()
         },

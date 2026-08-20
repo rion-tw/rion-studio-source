@@ -601,7 +601,8 @@ async function launchRoleAndRunMacro(role: Role, macro: Macro): Promise<void> {
 async function launchWorkspace(
   workspace: LaunchWorkspace,
   role: Role,
-  expectedWebSessionBefore: string | null
+  expectedWebSessionBefore: string | null,
+  preserveForRestart = false
 ): Promise<void> {
   await rendererCall("stopRole", role.id);
   await waitForRoleStatus(role.id, (status) => status === undefined);
@@ -624,8 +625,133 @@ async function launchWorkspace(
   });
   await waitForRoleStatus(role.id, (status) => status?.state === "running");
   await exerciseWorkspaceContainedFullscreen(workspace, role.id);
-  await rendererCall("stopRole", role.id);
-  await waitForRoleStatus(role.id, (status) => status === undefined);
+  await exerciseWorkspaceDivider(workspace, role.id);
+  if (!preserveForRestart) {
+    await rendererCall("stopRole", role.id);
+    await waitForRoleStatus(role.id, (status) => status === undefined);
+  }
+}
+
+async function exerciseWorkspaceDivider(
+  workspace: LaunchWorkspace,
+  roleId: string
+): Promise<void> {
+  const runtime = await rendererCall("getEmbeddedRuntimeState");
+  const tab = runtime.tabs.find((candidate) =>
+    candidate.type === "workspace"
+      && candidate.sourceId === workspace.id
+      && candidate.active
+  );
+  if (!tab) throw new Error("The mixed workspace has no active runtime tab for divider drag");
+  await waitForSelectedRuntimeTabReady(tab.windowId);
+  const before = await windowSnapshot(tab.windowId);
+  const beforeKernelTab = before.kernel?.tabs.find((candidate) => candidate.tabId === tab.id);
+  const divider = before.native.dividerSurfaces?.find((candidate) =>
+    candidate.axis === "vertical"
+  );
+  const beforeRoleSlot = beforeKernelTab?.workspaceSlots.find((slot) => slot.roleId === roleId);
+  const beforeWebSlot = beforeKernelTab?.workspaceSlots.find((slot) => slot.web !== undefined);
+  const webSurfaceId = before.native.roleWebviews?.find(
+    (surface) => surface.url?.includes(`/role/${WEB_FIXTURE_ID}`)
+  )?.roleId;
+  const beforeRoleSurface = before.native.roleSurfaces?.find(
+    (surface) => surface.roleId === roleId
+  );
+  const beforeWebSurface = before.native.roleSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  const beforeChrome = before.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  if (!before.kernel || !beforeKernelTab || !divider || !beforeRoleSlot || !beforeWebSlot ||
+      !webSurfaceId || !beforeRoleSurface || !beforeWebSurface || !beforeChrome) {
+    throw new Error("The mixed workspace divider did not expose complete authoritative evidence");
+  }
+
+  await runtimeUiAction(tab.windowId, {
+    action: "dragDivider",
+    deltaRatio: 0.08,
+    dividerIndex: divider.dividerIndex,
+    tabId: tab.id,
+    topologyRevision: before.kernel.revision,
+    windowGeneration: before.windowGeneration
+  });
+  let after: Awaited<ReturnType<typeof windowSnapshot>> | undefined;
+  await browser.waitUntil(async () => {
+    const candidate = await windowSnapshot(tab.windowId);
+    const candidateTab = candidate.kernel?.tabs.find((item) => item.tabId === tab.id);
+    const roleSlot = candidateTab?.workspaceSlots.find((slot) => slot.roleId === roleId);
+    if ((candidate.kernel?.windowRevision ?? 0) <= before.kernel!.windowRevision ||
+        !roleSlot || roleSlot.rect.x <= beforeRoleSlot.rect.x + 0.03) {
+      return false;
+    }
+    after = candidate;
+    return true;
+  }, {
+    timeout: 15_000,
+    timeoutMsg: "The visible mixed-workspace divider drag did not advance Kernel layout"
+  });
+  if (!after) throw new Error("The mixed-workspace divider drag produced no snapshot");
+  const afterKernelTab = after.kernel?.tabs.find((candidate) => candidate.tabId === tab.id);
+  const afterRoleSlot = afterKernelTab?.workspaceSlots.find((slot) => slot.roleId === roleId);
+  const afterWebSlot = afterKernelTab?.workspaceSlots.find((slot) => slot.web !== undefined);
+  const afterRoleSurface = after.native.roleSurfaces?.find((surface) => surface.roleId === roleId);
+  const afterWebSurface = after.native.roleSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  const afterChrome = after.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  if (!afterRoleSlot || !afterWebSlot || !afterRoleSurface || !afterWebSurface || !afterChrome) {
+    throw new Error("The resized mixed workspace lost authoritative or native slot evidence");
+  }
+  expect(afterWebSlot.rect.width).toBeGreaterThan(beforeWebSlot.rect.width + 0.03);
+  expect(afterRoleSlot.rect.x).toBeGreaterThan(beforeRoleSlot.rect.x + 0.03);
+  expect(afterWebSlot.rect.x + afterWebSlot.rect.width).toBeCloseTo(afterRoleSlot.rect.x, 5);
+  expect(afterWebSurface.hostBounds.width).toBeGreaterThan(beforeWebSurface.hostBounds.width + 10);
+  expect(afterRoleSurface.hostBounds.x ?? 0).toBeGreaterThan(
+    (beforeRoleSurface.hostBounds.x ?? 0) + 10
+  );
+  expect(afterChrome.bounds.width).toBeGreaterThan(beforeChrome.bounds.width + 10);
+  expectWithinCssPixel(afterChrome.bounds.x, afterWebSurface.hostBounds.x);
+  expectWithinCssPixel(afterChrome.bounds.width, afterWebSurface.hostBounds.width);
+}
+
+async function verifyRestoredWorkspaceDivider(
+  windowId: string,
+  workspace: LaunchWorkspace,
+  roleId: string
+): Promise<void> {
+  await waitForSelectedRuntimeTabReady(windowId);
+  const restored = await windowSnapshot(windowId);
+  const tab = restored.kernel?.tabs.find((candidate) =>
+    candidate.sourceId === workspace.id && candidate.tabType === "workspace"
+  );
+  const roleSlot = tab?.workspaceSlots.find((slot) => slot.roleId === roleId);
+  const webSlot = tab?.workspaceSlots.find((slot) => slot.web !== undefined);
+  if (!tab || !roleSlot || !webSlot) {
+    throw new Error("The restarted Game Window did not restore its complete mixed workspace layout");
+  }
+  expect(restored.kernel?.selectedTabId).toBe(tab.tabId);
+  expect(roleSlot.rect.x).toBeGreaterThan(0.53);
+  expect(webSlot.rect.width).toBeGreaterThan(0.53);
+  expect(webSlot.rect.x + webSlot.rect.width).toBeCloseTo(roleSlot.rect.x, 5);
+  const webSurfaceId = restored.native.roleWebviews?.find(
+    (surface) => surface.url?.includes(`/role/${WEB_FIXTURE_ID}`)
+  )?.roleId;
+  const roleSurface = restored.native.roleSurfaces?.find((surface) => surface.roleId === roleId);
+  const webSurface = restored.native.roleSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  const chrome = restored.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  if (!roleSurface || !webSurface || !chrome) {
+    throw new Error("The restarted mixed workspace did not restore all native surfaces");
+  }
+  expect(roleSurface.hostBounds.x ?? 0).toBeGreaterThan(webSurface.hostBounds.x ?? 0);
+  expectWithinCssPixel(chrome.bounds.x, webSurface.hostBounds.x);
+  expectWithinCssPixel(chrome.bounds.width, webSurface.hostBounds.width);
 }
 
 async function exerciseWorkspaceContainedFullscreen(
@@ -907,7 +1033,7 @@ async function seedPhase(): Promise<void> {
   await updateSettings();
   await launchAndPinRoleFromQuickAccess(role);
   await launchRoleAndRunMacro(role, macro);
-  await launchWorkspace(workspace, role, null);
+  await launchWorkspace(workspace, role, null, true);
   await shutdownAndWaitForFlush();
 }
 
@@ -980,7 +1106,7 @@ async function restartPhase(): Promise<void> {
       windowId: smokeWindow.id
     });
   }
-  await waitForSelectedRuntimeTabReady(smokeWindow.id);
+  await verifyRestoredWorkspaceDivider(smokeWindow.id, workspace, role.id);
   const cursor = (await probe()).latestSequence;
   await clickEntityMenuAction(smokeWindow.id, "Game window actions", "Delete window");
   await clickConfirmation("Delete");

@@ -289,6 +289,26 @@ fn build_import_plan(
                         })
                     })
                     .collect::<Vec<_>>();
+                let workspace_slots = tab
+                    .workspace_slots
+                    .iter()
+                    .map(|slot| {
+                        let role_id = slot
+                            .role_id
+                            .as_ref()
+                            .and_then(|role_id| role_id_map.get(role_id))
+                            .cloned();
+                        StateWorkspaceSlotRecord {
+                            id: slot.id.clone(),
+                            browser_zoom_percent: (role_id.is_some() || slot.web.is_some())
+                                .then_some(slot.browser_zoom_percent)
+                                .flatten(),
+                            role_id,
+                            web: slot.web.clone(),
+                            rect: slot.rect.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 let source_key = format!("{}:{source_id}", tab.tab_type);
                 if role_slots.is_empty() || claimed_sources.contains(&source_key) {
                     warnings.push(warning(
@@ -314,6 +334,7 @@ fn build_import_plan(
                     source_id,
                     name: tab.name.clone(),
                     role_slots,
+                    workspace_slots,
                     hidden: tab.hidden,
                     audio_muted: tab.audio_muted,
                 });

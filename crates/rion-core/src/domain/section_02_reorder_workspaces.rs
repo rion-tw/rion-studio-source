@@ -327,6 +327,76 @@ fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateG
                 ));
             }
         }
+        if tab.tab_type == "role" && !tab.workspace_slots.is_empty() {
+            return Err(domain(
+                "GAME_WINDOW_TAB_LAYOUT_INVALID",
+                "A role tab cannot contain workspace slots.",
+            ));
+        }
+        if !tab.workspace_slots.is_empty() {
+            if tab.workspace_slots.len() > 9 {
+                return Err(domain(
+                    "GAME_WINDOW_TAB_LAYOUT_INVALID",
+                    "A saved workspace layout cannot contain more than 9 slots.",
+                ));
+            }
+            let mut workspace_slot_ids = HashSet::new();
+            let mut workspace_role_ids = HashSet::new();
+            let mut derived_role_slots = Vec::new();
+            for slot in &mut tab.workspace_slots {
+                slot.id = slot.id.trim().to_owned();
+                slot.role_id = slot.role_id.take().and_then(|role_id| {
+                    let role_id = role_id.trim().to_owned();
+                    (!role_id.is_empty()).then_some(role_id)
+                });
+                slot.web = slot.web.take().map(normalize_workspace_web).transpose()?;
+                let rect = &slot.rect;
+                if slot.id.is_empty()
+                    || slot.id.len() > 256
+                    || !workspace_slot_ids.insert(slot.id.clone())
+                    || (slot.role_id.is_some() && slot.web.is_some())
+                    || slot.role_id.as_ref().is_some_and(|role_id| {
+                        role_id.len() > 128 || !workspace_role_ids.insert(role_id.clone())
+                    })
+                    || !rect.x.is_finite()
+                    || !rect.y.is_finite()
+                    || !rect.width.is_finite()
+                    || !rect.height.is_finite()
+                    || rect.x < 0.0
+                    || rect.y < 0.0
+                    || rect.width <= 0.0
+                    || rect.height <= 0.0
+                    || rect.x + rect.width > 1.000_001
+                    || rect.y + rect.height > 1.000_001
+                    || (slot.role_id.is_none()
+                        && slot.web.is_none()
+                        && slot.browser_zoom_percent.is_some())
+                {
+                    return Err(domain(
+                        "GAME_WINDOW_TAB_LAYOUT_INVALID",
+                        "Game window workspace slots are invalid or duplicated.",
+                    ));
+                }
+                slot.browser_zoom_percent = slot
+                    .browser_zoom_percent
+                    .map(normalize_workspace_slot_zoom)
+                    .transpose()?;
+                if let Some(role_id) = &slot.role_id {
+                    derived_role_slots.push(GameWindowRoleSlotRecord {
+                        slot_id: slot.id.clone(),
+                        role_id: role_id.clone(),
+                        rect: slot.rect.clone(),
+                        browser_zoom_percent: slot.browser_zoom_percent,
+                    });
+                }
+            }
+            if derived_role_slots != tab.role_slots {
+                return Err(domain(
+                    "GAME_WINDOW_TAB_LAYOUT_INVALID",
+                    "Game window workspace slots do not match their role-slot subset.",
+                ));
+            }
+        }
         if tab.role_slots.is_empty()
             || (tab.tab_type == "role"
                 && (tab.role_slots.len() != 1

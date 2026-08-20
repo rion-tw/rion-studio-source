@@ -387,6 +387,8 @@ pub struct EmbeddedTabEffectRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub workspace_template: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_slots: Vec<StateWorkspaceSlotRecord>,
     pub workspace_appearance: WorkspaceAppearanceSettingsRecord,
     pub target: EmbeddedLaunchTargetRecord,
     pub slots: Vec<EmbeddedRoleSlotEffectRecord>,

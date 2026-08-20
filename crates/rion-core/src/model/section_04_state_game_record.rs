@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameRecord {
@@ -134,6 +134,8 @@ pub struct GameWindowTabRecord {
     pub source_id: String,
     pub name: String,
     pub role_slots: Vec<GameWindowRoleSlotRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspace_slots: Vec<StateWorkspaceSlotRecord>,
     pub hidden: bool,
     pub audio_muted: bool,
 }
@@ -152,6 +154,8 @@ impl<'de> Deserialize<'de> for GameWindowTabRecord {
             name: String,
             #[serde(default)]
             role_slots: Vec<GameWindowRoleSlotRecord>,
+            #[serde(default)]
+            workspace_slots: Vec<StateWorkspaceSlotRecord>,
             #[serde(default)]
             role_ids: Vec<String>,
             #[serde(default)]
@@ -195,13 +199,14 @@ impl<'de> Deserialize<'de> for GameWindowTabRecord {
             source_id: input.source_id,
             name: input.name,
             role_slots,
+            workspace_slots: input.workspace_slots,
             hidden: input.hidden,
             audio_muted: input.audio_muted,
         })
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateGameWindowRecord {
@@ -325,7 +330,7 @@ pub struct GameWindowDisplayRemapRecord {
     pub input: GameWindowUpdateInputRecord,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct WorkspaceWebContentRecord {
@@ -333,7 +338,7 @@ pub struct WorkspaceWebContentRecord {
     pub start_url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct StateWorkspaceSlotRecord {

@@ -628,6 +628,7 @@ mod window_state_persistence_tests {
                 },
                 browser_zoom_percent: None,
             }],
+            workspace_slots: Vec::new(),
             source_id: source_id.to_owned(),
             tab_type: "role".to_owned(),
             title: source_id.to_owned(),
@@ -679,5 +680,59 @@ mod window_state_persistence_tests {
             coordinator.cached_target_display("window-a", 7).unwrap().id,
             7
         );
+    }
+
+    #[test]
+    fn live_workspace_snapshot_preserves_role_web_and_empty_slot_layout() {
+        let mut tab = live_tab("tab-workspace", "role-a");
+        tab.tab_type = "workspace".to_owned();
+        tab.source_id = "workspace-a".to_owned();
+        tab.workspace_slots = vec![
+            StateWorkspaceSlotRecord {
+                id: "slot-role-a".to_owned(),
+                role_id: Some("role-a".to_owned()),
+                web: None,
+                browser_zoom_percent: None,
+                rect: tab.role_slots[0].rect.clone(),
+            },
+            StateWorkspaceSlotRecord {
+                id: "slot-web".to_owned(),
+                role_id: None,
+                web: Some(WorkspaceWebContentRecord {
+                    name: "Fixture".to_owned(),
+                    start_url: "https://example.test/".to_owned(),
+                }),
+                browser_zoom_percent: Some(115.0),
+                rect: StateNormalizedRectRecord {
+                    x: 0.5,
+                    y: 0.0,
+                    width: 0.5,
+                    height: 1.0,
+                },
+            },
+            StateWorkspaceSlotRecord {
+                id: "slot-empty".to_owned(),
+                role_id: None,
+                web: None,
+                browser_zoom_percent: None,
+                rect: StateNormalizedRectRecord {
+                    x: 0.75,
+                    y: 0.0,
+                    width: 0.25,
+                    height: 1.0,
+                },
+            },
+        ];
+        let live = LiveWindowRecord {
+            tabs: vec![tab],
+            ..LiveWindowRecord::default()
+        };
+
+        let tabs = SystemRuntimeExecutor::live_game_window_tabs(&live);
+
+        assert_eq!(tabs[0].workspace_slots.len(), 3);
+        assert!(tabs[0].workspace_slots[1].web.is_some());
+        assert!(tabs[0].workspace_slots[2].role_id.is_none());
+        assert!(tabs[0].workspace_slots[2].web.is_none());
     }
 }

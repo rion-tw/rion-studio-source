@@ -630,16 +630,11 @@ impl AppCore {
         let completion_permit = self.launch_completion.try_reserve()?;
         for _ in 0..4 {
             let workspace = self.state_workspace(&workspace_id)?;
-            let expected_role_ids = restore_role_slots
-                .as_ref()
-                .map(|slots| slots.iter().map(|slot| slot.role_id.clone()).collect())
-                .unwrap_or_else(|| {
-                    workspace
-                        .slots
-                        .iter()
-                        .filter_map(|slot| slot.role_id.clone())
-                        .collect::<Vec<_>>()
-                });
+            let expected_role_ids = workspace
+                .slots
+                .iter()
+                .filter_map(|slot| slot.role_id.clone())
+                .collect::<Vec<_>>();
             let core = Arc::clone(self);
             let workspace_id = workspace_id.clone();
             let start_workspace_id = workspace_id.clone();

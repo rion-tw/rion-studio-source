@@ -138,6 +138,7 @@ impl SystemRuntimeExecutor {
                     Vec::new()
                 },
                 role_slots: Vec::new(),
+                workspace_slots: Vec::new(),
                 source_id: source_id.to_owned(),
                 tab_type: tab_type.to_owned(),
                 title: placeholder_name.to_owned(),
@@ -512,6 +513,7 @@ impl SystemRuntimeExecutor {
                         Vec::new()
                     },
                     role_slots: Vec::new(),
+                    workspace_slots: Vec::new(),
                     source_id: completion.source_id.clone(),
                     tab_type: completion.tab_type.clone(),
                     title: completion.title.clone(),

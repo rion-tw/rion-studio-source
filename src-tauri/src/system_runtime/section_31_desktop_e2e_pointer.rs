@@ -696,6 +696,141 @@ fn desktop_e2e_windows_submit_mouse(
 }
 
 #[cfg(windows)]
+fn desktop_e2e_windows_webview_screen_rect(
+    webview: &Webview,
+) -> Result<DesktopE2eTabScreenRect, String> {
+    use windows::Win32::{
+        Foundation::{HWND, POINT, RECT},
+        Graphics::Gdi::ClientToScreen,
+    };
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let controller = platform_webview.controller();
+            let mut parent = HWND::default();
+            let mut bounds = RECT::default();
+            let result = (|| -> Result<DesktopE2eTabScreenRect, String> {
+                controller
+                    .ParentWindow(&mut parent)
+                    .map_err(|error| error.to_string())?;
+                controller
+                    .Bounds(&mut bounds)
+                    .map_err(|error| error.to_string())?;
+                let mut origin = POINT::default();
+                ClientToScreen(parent, &mut origin)
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+                Ok(DesktopE2eTabScreenRect {
+                    bottom: origin.y + bounds.bottom,
+                    left: origin.x + bounds.left,
+                    parent: parent.0 as usize,
+                    right: origin.x + bounds.right,
+                    top: origin.y + bounds.top,
+                })
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The WebView2 divider bounds readback did not complete.".to_owned())?
+}
+
+#[cfg(windows)]
+fn desktop_e2e_drag_workspace_divider(
+    window: &Window,
+    divider: &Webview,
+    axis: &str,
+    delta_ratio: f64,
+) -> Result<(), String> {
+    use windows::Win32::Foundation::POINT;
+
+    let rect = desktop_e2e_windows_webview_screen_rect(divider)?;
+    let content = window.inner_size().map_err(|error| error.to_string())?;
+    let delta = if axis == "vertical" {
+        (f64::from(content.width) * delta_ratio).round() as i32
+    } else if axis == "horizontal" {
+        (f64::from(content.height) * delta_ratio).round() as i32
+    } else {
+        return Err("The runtime divider axis is invalid.".to_owned());
+    };
+    let start = POINT {
+        x: (rect.left + rect.right) / 2,
+        y: (rect.top + rect.bottom) / 2,
+    };
+    let end = if axis == "vertical" {
+        POINT {
+            x: start.x + delta,
+            y: start.y,
+        }
+    } else {
+        POINT {
+            x: start.x,
+            y: start.y + delta,
+        }
+    };
+    desktop_e2e_windows_submit_mouse(
+        window,
+        start,
+        rect.parent,
+        Some(end),
+        false,
+        None,
+        None,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_e2e_drag_workspace_divider(
+    _window: &Window,
+    divider: &Webview,
+    axis: &str,
+    delta_ratio: f64,
+) -> Result<(), String> {
+    unsafe extern "C" {
+        fn rion_desktop_e2e_drag_webview(
+            webview: *mut std::ffi::c_void,
+            vertical: bool,
+            delta_ratio: f64,
+        ) -> bool;
+    }
+    let vertical = match axis {
+        "vertical" => true,
+        "horizontal" => false,
+        _ => return Err("The runtime divider axis is invalid.".to_owned()),
+    };
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    divider
+        .with_webview(move |platform_webview| {
+            let accepted = unsafe {
+                rion_desktop_e2e_drag_webview(
+                    platform_webview.inner(),
+                    vertical,
+                    delta_ratio,
+                )
+            };
+            let _ = sender.send(accepted);
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+        .map_err(|_| "The AppKit divider pointer dispatch did not complete.".to_owned())?
+        .then_some(())
+        .ok_or_else(|| "AppKit rejected the visible divider pointer drag.".to_owned())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn desktop_e2e_drag_workspace_divider(
+    _window: &Window,
+    _divider: &Webview,
+    _axis: &str,
+    _delta_ratio: f64,
+) -> Result<(), String> {
+    Err("Desktop E2E divider dragging requires macOS or Windows.".to_owned())
+}
+
+#[cfg(windows)]
 fn desktop_e2e_windows_click_runtime_tab(
     window: &Window,
     tab_strip: &Webview,

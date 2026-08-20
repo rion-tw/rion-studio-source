@@ -20,6 +20,7 @@ use super::{
 
 mod generation_restore;
 mod window_context;
+mod workspace_layout;
 
 fn tab(id: &str, source_id: &str) -> RuntimeLiveTabRecord {
     RuntimeLiveTabRecord {
@@ -30,6 +31,7 @@ fn tab(id: &str, source_id: &str) -> RuntimeLiveTabRecord {
         persistable: true,
         role_ids: vec![source_id.to_owned()],
         role_slots: Vec::new(),
+        workspace_slots: Vec::new(),
         source_id: source_id.to_owned(),
         tab_type: "role".to_owned(),
         title: source_id.to_owned(),

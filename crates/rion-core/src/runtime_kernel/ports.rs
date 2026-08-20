@@ -1,4 +1,7 @@
-use crate::model::{DisplayTargetRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord};
+use crate::model::{
+    DisplayTargetRecord, GameWindowPlacementRecord, GameWindowRoleSlotRecord,
+    StateWorkspaceSlotRecord,
+};
 
 use super::{
     LaunchAttemptId, OperationId, RuntimeSnapshot, RuntimeSurfaceGeneration,
@@ -14,6 +17,7 @@ pub struct RuntimeNativeTabProjection {
     pub persistable: bool,
     pub role_ids: Vec<String>,
     pub role_slots: Vec<GameWindowRoleSlotRecord>,
+    pub workspace_slots: Vec<StateWorkspaceSlotRecord>,
     pub selected: bool,
     pub source_id: String,
     pub tab_id: String,
@@ -60,6 +64,7 @@ impl RuntimeSnapshot {
                 persistable: tab.persistable,
                 role_ids: tab.role_ids.clone(),
                 role_slots: tab.role_slots.clone(),
+                workspace_slots: tab.workspace_slots.clone(),
                 selected: window.selected_tab_id.as_deref() == Some(tab.id.as_str()),
                 source_id: tab.source_id.clone(),
                 tab_id: tab.id.clone(),

@@ -131,6 +131,7 @@ impl LiveWindowTabStore {
         })
     }
 
+    #[cfg(test)]
     fn commit_tab_role_slots(
         &self,
         expected_revision: u64,
@@ -145,6 +146,32 @@ impl LiveWindowTabStore {
                 role_slots,
                 tab_id: tab_id.to_owned(),
                 window_id: window_id.to_owned(),
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(LiveWindowPlacementCommitReceipt {
+            revision: commit.revision,
+            status: if commit.status == RuntimeCommitStatus::Applied {
+                LiveTopologyCommitStatus::Applied
+            } else {
+                LiveTopologyCommitStatus::Superseded
+            },
+        })
+    }
+
+    fn commit_tab_workspace_slots(
+        &self,
+        expected_revision: u64,
+        tab_id: &str,
+        window_id: &str,
+        workspace_slots: Vec<StateWorkspaceSlotRecord>,
+    ) -> Result<LiveWindowPlacementCommitReceipt, String> {
+        let commit = self
+            .apply(RuntimeIntent::ReplaceTabWorkspaceSlots {
+                expected_revision: Some(expected_revision),
+                operation_id: uuid::Uuid::new_v4().to_string(),
+                tab_id: tab_id.to_owned(),
+                window_id: window_id.to_owned(),
+                workspace_slots,
             })
             .map_err(|error| error.to_string())?;
         Ok(LiveWindowPlacementCommitReceipt {

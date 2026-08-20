@@ -90,7 +90,7 @@ fn schema_twenty_five_clears_only_quick_access_triggers_and_preserves_macro_data
                 row.get::<_, u32>(0)
             })
             .unwrap(),
-        27
+        28
     );
     for id in ["ctrl-k", "meta-k"] {
         let payload: Value = serde_json::from_str(

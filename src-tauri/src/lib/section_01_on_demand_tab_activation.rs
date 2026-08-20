@@ -44,6 +44,15 @@ async fn activate_runtime_tab_on_demand_at_revision(
         .runtime
         .prepare_restored_tab_role_slots(&launch.tab_id, &launch.role_slots)
         .map_err(|message| shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", message))?;
+    if let Err(message) = state
+        .runtime
+        .prepare_restored_tab_workspace_slots(&launch.tab_id, &launch.workspace_slots)
+    {
+        state
+            .runtime
+            .discard_prepared_tab_role_slots(&launch.tab_id);
+        return Err(shell_error("TAURI_RESTORE_LAYOUT_PREPARE_FAILED", message));
+    }
     let admission = match invoke_runtime_source_launch(
         state,
         &launch.source_id,

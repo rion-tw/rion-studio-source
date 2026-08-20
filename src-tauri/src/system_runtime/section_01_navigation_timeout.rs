@@ -45,6 +45,7 @@ use rion_core::{
     RuntimeRestoreWindowRecord, RuntimeRoleSlotRecord, SessionCookieRecord,
     SessionTransferPayloadRecord, StateGameRecord,
     StateGameWindowRecord, StateNormalizedRectRecord, StatePixelBoundsRecord, StateRoleRecord,
+    StateWorkspaceSlotRecord,
     StateWebGraphicsRecord, SystemRuntimeDiagnosticsRecord, SystemRuntimeFailureRecord,
     SystemRuntimeInputFenceEventRecord, SystemRuntimeInputFenceRecord,
     SystemRuntimeOperationCompletionScope, SystemRuntimeOperationStatus,
@@ -65,6 +66,8 @@ use rion_core::{
     WebGlExecutionPath, WorkspaceAppearanceSettingsRecord, WorkspaceDividerDescriptor,
     WorkspaceDividerResizeInput, WorkspaceLayoutInput,
 };
+#[cfg(test)]
+use rion_core::WorkspaceWebContentRecord;
 #[cfg(any(windows, test))]
 use rion_core::{
     RuntimeTabChromeAcknowledgementRecord, RuntimeTabChromeProjectionRecord,

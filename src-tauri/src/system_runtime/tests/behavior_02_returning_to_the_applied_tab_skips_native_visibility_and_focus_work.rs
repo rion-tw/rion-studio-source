@@ -515,6 +515,7 @@
                     persistable: false,
                     role_ids: vec!["role-a".to_owned()],
                     role_slots: Vec::new(),
+                    workspace_slots: Vec::new(),
                     source_id: "role-a".to_owned(),
                     tab_type: "role".to_owned(),
                     title: "Loading".to_owned(),

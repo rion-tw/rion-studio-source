@@ -71,6 +71,7 @@ impl AppCore {
             name: role.name.clone(),
             workspace_id: None,
             workspace_template: None,
+            workspace_slots: Vec::new(),
             workspace_appearance: settings.workspace,
             target,
             slots: vec![EmbeddedRoleSlotEffectRecord {

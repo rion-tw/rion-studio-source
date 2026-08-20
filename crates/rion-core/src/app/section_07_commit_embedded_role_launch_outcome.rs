@@ -108,16 +108,15 @@ impl AppCore {
                 )?)
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
             if let Some(role_slots) = &restore_role_slots {
-                workspace.slots = role_slots
-                    .iter()
-                    .map(|slot| crate::model::StateWorkspaceSlotRecord {
-                        id: slot.slot_id.clone(),
-                        role_id: Some(slot.role_id.clone()),
-                        web: None,
-                        browser_zoom_percent: slot.browser_zoom_percent,
-                        rect: slot.rect.clone(),
-                    })
-                    .collect();
+                for saved in role_slots {
+                    if let Some(slot) = workspace.slots.iter_mut().find(|slot| {
+                        slot.id == saved.slot_id
+                            || slot.role_id.as_deref() == Some(saved.role_id.as_str())
+                    }) {
+                        slot.rect = saved.rect.clone();
+                        slot.browser_zoom_percent = saved.browser_zoom_percent;
+                    }
+                }
             }
             let role_ids = workspace
                 .slots
@@ -132,7 +131,7 @@ impl AppCore {
                 .iter()
                 .map(String::as_str)
                 .collect::<std::collections::HashSet<_>>();
-            if restore_role_slots.is_none() && current != expected {
+            if current != expected {
                 return Err(CoreError::Domain {
                     code: "WORKSPACE_DATA_CHANGED",
                     message: "The launch workspace roles changed while launch was waiting."
@@ -412,6 +411,7 @@ impl AppCore {
             name: workspace.name.clone(),
             workspace_id: Some(workspace.id.clone()),
             workspace_template: Some(workspace.template.clone()),
+            workspace_slots: workspace.slots.clone(),
             workspace_appearance: settings.workspace,
             target,
             slots: effect_slots,

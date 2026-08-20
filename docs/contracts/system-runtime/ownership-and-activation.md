@@ -61,13 +61,16 @@ or appends the source as the foreground tab before event-bound hydration. Empty
 saved windows are valid targets. Missing, stale, recovering, restoring, or
 failed targets reject with a stable error and never fall back silently.
 
-### Role slot and native-surface ownership
+### Workspace slot and native-surface ownership
 
-A runtime tab owns a stable list of role slots. Every slot keeps its slot ID,
-role ID, normalized rectangle, and zoom policy for the lifetime of the tab,
-whether it currently contains a role surface or a local placeholder. Layout is
-always computed from the full slot list, so stopping or moving one role never
-reflows the remaining slots.
+A runtime Workspace tab owns a stable complete list of Workspace slots. Every
+slot keeps its slot ID, Role or Web App content, normalized rectangle, and zoom
+policy; empty slots remain part of the layout. Its role-slot list is the exact
+Role-backed subset used for ownership and compatibility, while Web App surface
+identities never become managed Role IDs. Divider commits resolve native Role
+and synthetic Web surfaces through their stable slot IDs and atomically replace
+the complete Workspace layout. A Role tab continues to own exactly one role
+slot and no Workspace slots.
 
 At most one native role WebView may exist for a role. Core stores that global
 surface owner as `{ windowId, tabId, slotId, generation }`; all other slots for

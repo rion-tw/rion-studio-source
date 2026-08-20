@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#include <math.h>
 
 typedef struct {
   double content_height;
@@ -109,6 +110,51 @@ bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
     return true;
+  }
+}
+
+bool rion_desktop_e2e_drag_webview(void *rawWebview, bool vertical,
+                                   double deltaRatio) {
+  @autoreleasepool {
+    NSView *view = (__bridge NSView *)rawWebview;
+    NSWindow *window = view.window;
+    if (!view || !window || !isfinite(deltaRatio) || fabs(deltaRatio) < 0.02 ||
+        fabs(deltaRatio) > 0.25) {
+      return false;
+    }
+    [window makeKeyAndOrderFront:nil];
+    const NSRect viewInWindow = [view convertRect:view.bounds toView:nil];
+    const NSRect screenRect = [window convertRectToScreen:viewInWindow];
+    const NSRect contentRect = window.contentLayoutRect;
+    CGPoint start = CGPointMake(NSMidX(screenRect), RionDesktopTop() - NSMidY(screenRect));
+    CGPoint end = start;
+    if (vertical) {
+      end.x += contentRect.size.width * deltaRatio;
+    } else {
+      end.y += contentRect.size.height * deltaRatio;
+    }
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!source) return false;
+    const CGEventType types[] = {
+      kCGEventMouseMoved,
+      kCGEventLeftMouseDown,
+      kCGEventLeftMouseDragged,
+      kCGEventLeftMouseUp,
+    };
+    const CGPoint points[] = {start, start, end, end};
+    bool accepted = true;
+    for (NSUInteger index = 0; index < 4; index += 1) {
+      CGEventRef event = CGEventCreateMouseEvent(
+          source, types[index], points[index], kCGMouseButtonLeft);
+      if (!event) {
+        accepted = false;
+        break;
+      }
+      CGEventPost(kCGHIDEventTap, event);
+      CFRelease(event);
+    }
+    CFRelease(source);
+    return accepted;
   }
 }
 

@@ -191,6 +191,7 @@ impl SystemRuntimeExecutor {
                     .map(|slot| slot.role.id.clone())
                     .collect(),
                 role_slots: persisted_role_slots_from_effect(&tab.slots),
+                workspace_slots: persisted_workspace_slots_from_effect(&tab),
                 source_id: tab.source_id.clone(),
                 tab_type: tab_type.to_owned(),
                 title: tab.name.clone(),

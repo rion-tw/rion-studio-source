@@ -1,3 +1,32 @@
+fn workspace_slots_after_divider_resize(
+    previous: &[StateWorkspaceSlotRecord],
+    resized_roles: &[LayoutRoleInput],
+    slot_ids_by_role: &HashMap<String, String>,
+) -> Result<Vec<StateWorkspaceSlotRecord>, String> {
+    let mut desired = previous.to_vec();
+    for role in resized_roles {
+        let slot_id = slot_ids_by_role.get(&role.role_id).ok_or_else(|| {
+            format!(
+                "Runtime divider surface {} has no native slot identity.",
+                role.role_id
+            )
+        })?;
+        let Some(slot) = desired.iter_mut().find(|slot| &slot.id == slot_id) else {
+            return Err(format!(
+                "Runtime divider slot {} has no authoritative workspace layout.",
+                slot_id
+            ));
+        };
+        slot.rect = StateNormalizedRectRecord {
+            x: role.rect.x,
+            y: role.rect.y,
+            width: role.rect.width,
+            height: role.rect.height,
+        };
+    }
+    Ok(desired)
+}
+
 impl SystemRuntimeExecutor {
     pub fn handle_divider_pointer(
         &self,
@@ -51,11 +80,15 @@ impl SystemRuntimeExecutor {
                     .values()
                     .map(runtime_role_slot_input)
                     .collect::<Vec<_>>(),
+                tab.slots
+                    .values()
+                    .map(|slot| (slot.role.id.clone(), slot.slot_id.clone()))
+                    .collect::<HashMap<_, _>>(),
                 window_id,
                 previous,
                 tab.active_divider_resize.clone(),
             );
-            let host = state.native_resources.display_hosts.get(&tab_context.5).ok_or_else(|| {
+            let host = state.native_resources.display_hosts.get(&tab_context.6).ok_or_else(|| {
                 "runtime display host was not found for divider WebView".to_owned()
             })?;
             #[cfg(windows)]
@@ -69,9 +102,10 @@ impl SystemRuntimeExecutor {
                 tab_context.3,
                 tab_context.4,
                 tab_context.5,
-                host.window.clone(),
                 tab_context.6,
                 tab_context.7,
+                tab_context.8,
+                host.window.clone(),
                 toolbar_revealed,
             )
         };
@@ -81,10 +115,11 @@ impl SystemRuntimeExecutor {
             divider,
             dividers,
             roles,
+            slot_ids_by_role,
             window_id,
-            window,
             previous,
             previous_active_resize,
+            window,
             _toolbar_revealed,
         ) = context;
         let requested_position = if payload.phase == "reset" {
@@ -137,35 +172,22 @@ impl SystemRuntimeExecutor {
             .presentation
             .existing(&window_id)
             .ok_or_else(|| "Runtime divider topology is unavailable.".to_owned())?;
-        let previous_role_slots = live
+        let previous_workspace_slots = live
             .tabs
             .iter()
             .find(|tab| tab.id == tab_id)
-            .map(|tab| tab.role_slots.clone())
+            .map(|tab| tab.workspace_slots.clone())
             .ok_or_else(|| "Runtime divider tab topology is unavailable.".to_owned())?;
-        let mut desired_role_slots = previous_role_slots.clone();
-        for role in &result.roles {
-            let Some(slot) = desired_role_slots
-                .iter_mut()
-                .find(|slot| slot.role_id == role.role_id)
-            else {
-                return Err(format!(
-                    "Runtime divider role {} has no authoritative slot.",
-                    role.role_id
-                ));
-            };
-            slot.rect = StateNormalizedRectRecord {
-                x: role.rect.x,
-                y: role.rect.y,
-                width: role.rect.width,
-                height: role.rect.height,
-            };
-        }
-        let desired = self.presentation.live.commit_tab_role_slots(
+        let desired_workspace_slots = workspace_slots_after_divider_resize(
+            &previous_workspace_slots,
+            &result.roles,
+            &slot_ids_by_role,
+        )?;
+        let desired = self.presentation.live.commit_tab_workspace_slots(
             live.revision,
             &tab_id,
             &window_id,
-            desired_role_slots,
+            desired_workspace_slots,
         )?;
         if desired.status == LiveTopologyCommitStatus::Superseded {
             return Err("Runtime divider update was superseded before native projection."
@@ -216,11 +238,11 @@ impl SystemRuntimeExecutor {
             Ok(())
         })();
         if let Err(error) = projection_state_commit {
-            let compensation = self.presentation.live.commit_tab_role_slots(
+            let compensation = self.presentation.live.commit_tab_workspace_slots(
                 desired.revision,
                 &tab_id,
                 &window_id,
-                previous_role_slots,
+                previous_workspace_slots,
             );
             if compensation.is_err()
                 || compensation
@@ -274,11 +296,11 @@ impl SystemRuntimeExecutor {
                         error.message
                     ));
                 }
-                let compensation = self.presentation.live.commit_tab_role_slots(
+                let compensation = self.presentation.live.commit_tab_workspace_slots(
                     desired.revision,
                     &tab_id,
                     &window_id,
-                    previous_role_slots,
+                    previous_workspace_slots,
                 );
                 if compensation.is_err()
                     || compensation.is_ok_and(|receipt| {

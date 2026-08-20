@@ -2,6 +2,7 @@
 import type { EmbeddedLaunchTargetRecord } from "./EmbeddedLaunchTargetRecord";
 import type { EmbeddedRoleSlotEffectRecord } from "./EmbeddedRoleSlotEffectRecord";
 import type { EmbeddedRoleViewEffectRecord } from "./EmbeddedRoleViewEffectRecord";
+import type { StateWorkspaceSlotRecord } from "./StateWorkspaceSlotRecord";
 import type { WorkspaceAppearanceSettingsRecord } from "./WorkspaceAppearanceSettingsRecord";
 
-export type EmbeddedTabEffectRecord = { tabId: string, attemptGeneration?: string, launchPreviewId?: string, sourceId: string, name: string, workspaceId?: string, workspaceTemplate?: string, workspaceAppearance: WorkspaceAppearanceSettingsRecord, target: EmbeddedLaunchTargetRecord, slots: Array<EmbeddedRoleSlotEffectRecord>, roles: Array<EmbeddedRoleViewEffectRecord>, };
+export type EmbeddedTabEffectRecord = { tabId: string, attemptGeneration?: string, launchPreviewId?: string, sourceId: string, name: string, workspaceId?: string, workspaceTemplate?: string, workspaceSlots?: Array<StateWorkspaceSlotRecord>, workspaceAppearance: WorkspaceAppearanceSettingsRecord, target: EmbeddedLaunchTargetRecord, slots: Array<EmbeddedRoleSlotEffectRecord>, roles: Array<EmbeddedRoleViewEffectRecord>, };

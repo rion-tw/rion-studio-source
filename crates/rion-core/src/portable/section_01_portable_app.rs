@@ -35,7 +35,7 @@ use crate::{
 };
 
 const PORTABLE_APP: &str = "Rion Studio";
-pub const PORTABLE_SCHEMA_VERSION: u64 = 18;
+pub const PORTABLE_SCHEMA_VERSION: u64 = 19;
 const MAX_SLOTS: usize = 9;
 const MAX_STEPS: usize = 100;
 const MAX_PENDING_IMPORTS: usize = 8;
@@ -106,7 +106,13 @@ fn normalize_value(source: Value) -> CoreResult<Value> {
     let (games, recovered_roles) = recover_games(input_games, roles)?;
     roles = recovered_roles;
     let macros = normalize_macros(object, true, schema)?;
-    let game_windows = normalize_array(object, "gameWindows", normalize_game_window)?;
+    let game_windows = object
+        .get("gameWindows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("portable gameWindows must be an array"))?
+        .iter()
+        .map(|value| normalize_game_window(value, schema, &workspaces))
+        .collect::<CoreResult<Vec<_>>>()?;
     ensure_unique_ids(&games, "id", "game")?;
     ensure_unique_ids(&roles, "id", "role")?;
     ensure_unique_ids(&workspaces, "id", "workspace")?;
@@ -239,7 +245,7 @@ fn normalize_role(value: &Value) -> CoreResult<Value> {
     Ok(Value::Object(role))
 }
 
-fn normalize_game_window(value: &Value) -> CoreResult<Value> {
+fn normalize_game_window(value: &Value, schema: u64, workspaces: &[Value]) -> CoreResult<Value> {
     let mut window = serde_json::from_value::<PortableGameWindowRecord>(value.clone())
         .map_err(|error| invalid(format!("portable game window is invalid: {error}")))?;
     window.id = window.id.trim().to_owned();
@@ -249,6 +255,52 @@ fn normalize_game_window(value: &Value) -> CoreResult<Value> {
     }
     if window.name.is_empty() || window.name.chars().count() > 80 {
         return Err(invalid("portable game window name is invalid"));
+    }
+    for tab in &mut window.tabs {
+        if tab.tab_type != "workspace" || !tab.workspace_slots.is_empty() {
+            continue;
+        }
+        if schema >= 19 {
+            return Err(invalid(
+                "portable workspace game-window tab requires workspaceSlots",
+            ));
+        }
+        let workspace = workspaces
+            .iter()
+            .find(|workspace| workspace.get("id").and_then(Value::as_str) == Some(&tab.source_id))
+            .cloned()
+            .map(serde_json::from_value::<PortableLaunchWorkspaceRecord>)
+            .transpose()
+            .map_err(|error| invalid(format!("portable workspace is invalid: {error}")))?;
+        let Some(workspace) = workspace else {
+            continue;
+        };
+        tab.workspace_slots = workspace.slots;
+        for slot in &mut tab.workspace_slots {
+            let Some(role_id) = slot.role_id.as_deref() else {
+                continue;
+            };
+            if let Some(saved) = tab
+                .role_slots
+                .iter()
+                .find(|saved| saved.slot_id == slot.id || saved.role_id == role_id)
+            {
+                slot.rect = saved.rect.clone();
+                slot.browser_zoom_percent = saved.browser_zoom_percent;
+            }
+        }
+        tab.role_slots = tab
+            .workspace_slots
+            .iter()
+            .filter_map(|slot| {
+                Some(crate::model::GameWindowRoleSlotRecord {
+                    slot_id: slot.id.clone(),
+                    role_id: slot.role_id.clone()?,
+                    rect: slot.rect.clone(),
+                    browser_zoom_percent: slot.browser_zoom_percent,
+                })
+            })
+            .collect();
     }
     let now = chrono::Utc::now().to_rfc3339();
     crate::domain::validate_game_window_collection(&[StateGameWindowRecord {

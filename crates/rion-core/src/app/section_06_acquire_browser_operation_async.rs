@@ -84,6 +84,7 @@ impl AppCore {
                         source_id: tab.source_id.clone(),
                         name: tab.title.clone(),
                         role_slots: tab.role_slots.clone(),
+                        workspace_slots: tab.workspace_slots.clone(),
                         hidden: window.hidden_tab_ids.contains(&tab.id),
                         audio_muted: tab.audio_muted,
                     })
@@ -1039,6 +1040,7 @@ impl AppCore {
             name: role.name.clone(),
             workspace_id: None,
             workspace_template: None,
+            workspace_slots: Vec::new(),
             workspace_appearance: settings.workspace,
             target,
             slots: vec![role_slot],

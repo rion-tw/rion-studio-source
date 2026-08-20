@@ -7,6 +7,7 @@ fn topology_tab(id: &str) -> LiveTabRecord {
         persistable: true,
         role_ids: vec![format!("role-{id}")],
         role_slots: Vec::new(),
+        workspace_slots: Vec::new(),
         source_id: format!("source-{id}"),
         tab_type: "role".to_owned(),
         title: id.to_owned(),
@@ -399,4 +400,152 @@ fn reorder_known_tabs_uses_stable_keys_for_memory_and_persistence_snapshots() {
         live.all_tab_ids(),
         ["tab-c", "tab-a", "tab-d", "tab-b"]
     );
+}
+
+#[test]
+fn mixed_workspace_divider_maps_synthetic_web_surface_through_its_stable_slot_id() {
+    let previous = vec![
+        StateWorkspaceSlotRecord {
+            id: "slot-role".to_owned(),
+            role_id: Some("role-a".to_owned()),
+            web: None,
+            browser_zoom_percent: None,
+            rect: StateNormalizedRectRecord {
+                x: 0.0,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            },
+        },
+        StateWorkspaceSlotRecord {
+            id: "slot-web".to_owned(),
+            role_id: None,
+            web: Some(WorkspaceWebContentRecord {
+                name: "Fixture".to_owned(),
+                start_url: "https://example.test/".to_owned(),
+            }),
+            browser_zoom_percent: None,
+            rect: StateNormalizedRectRecord {
+                x: 0.5,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            },
+        },
+    ];
+    let resized = vec![
+        LayoutRoleInput {
+            role_id: "role-a".to_owned(),
+            rect: LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.6,
+                height: 1.0,
+            },
+        },
+        LayoutRoleInput {
+            role_id: "web-tab-a-2".to_owned(),
+            rect: LayoutRect {
+                x: 0.6,
+                y: 0.0,
+                width: 0.4,
+                height: 1.0,
+            },
+        },
+    ];
+    let mapped = workspace_slots_after_divider_resize(
+        &previous,
+        &resized,
+        &HashMap::from([
+            ("role-a".to_owned(), "slot-role".to_owned()),
+            ("web-tab-a-2".to_owned(), "slot-web".to_owned()),
+        ]),
+    )
+    .unwrap();
+
+    assert_eq!(mapped[0].rect.width, 0.6);
+    assert_eq!(mapped[1].rect.x, 0.6);
+    assert_eq!(mapped[1].rect.width, 0.4);
+    assert!(mapped[1].role_id.is_none());
+    assert!(mapped[1].web.is_some());
+}
+
+#[test]
+fn mixed_workspace_divider_projection_failure_compensates_the_kernel_layout() {
+    let store = LiveWindowTabStore::default();
+    let mut tab = topology_tab("tab-a");
+    tab.tab_type = "workspace".to_owned();
+    tab.source_id = "workspace-a".to_owned();
+    tab.role_slots = vec![GameWindowRoleSlotRecord {
+        slot_id: "slot-role".to_owned(),
+        role_id: "role-tab-a".to_owned(),
+        rect: StateNormalizedRectRecord {
+            x: 0.0,
+            y: 0.0,
+            width: 0.5,
+            height: 1.0,
+        },
+        browser_zoom_percent: None,
+    }];
+    tab.workspace_slots = vec![
+        StateWorkspaceSlotRecord {
+            id: "slot-role".to_owned(),
+            role_id: Some("role-tab-a".to_owned()),
+            web: None,
+            browser_zoom_percent: None,
+            rect: tab.role_slots[0].rect.clone(),
+        },
+        StateWorkspaceSlotRecord {
+            id: "slot-web".to_owned(),
+            role_id: None,
+            web: Some(WorkspaceWebContentRecord {
+                name: "Fixture".to_owned(),
+                start_url: "https://example.test/".to_owned(),
+            }),
+            browser_zoom_percent: None,
+            rect: StateNormalizedRectRecord {
+                x: 0.5,
+                y: 0.0,
+                width: 0.5,
+                height: 1.0,
+            },
+        },
+    ];
+    let previous = tab.workspace_slots.clone();
+    let seeded = store
+        .commit(LiveTopologyCommitInput {
+            commit_id: "seed-mixed-workspace".to_owned(),
+            source: "command",
+            primary_window_id: "window-a".to_owned(),
+            windows: vec![LiveWindowTopologyCommit {
+                active_tab_id: Some("tab-a".to_owned()),
+                hidden_tab_ids: HashSet::new(),
+                tabs: vec![tab],
+                ui_sequence: 1,
+                window_generation: 1,
+                window_id: "window-a".to_owned(),
+            }],
+        })
+        .unwrap();
+    let mut moved = previous.clone();
+    moved[0].rect.width = 0.6;
+    moved[1].rect.x = 0.6;
+    moved[1].rect.width = 0.4;
+    let desired = store
+        .commit_tab_workspace_slots(seeded.revision, "tab-a", "window-a", moved)
+        .unwrap();
+    assert_eq!(desired.status, LiveTopologyCommitStatus::Applied);
+
+    let compensated = store
+        .commit_tab_workspace_slots(
+            desired.revision,
+            "tab-a",
+            "window-a",
+            previous.clone(),
+        )
+        .unwrap();
+    assert_eq!(compensated.status, LiveTopologyCommitStatus::Applied);
+    let window = store.kernel.snapshot_window("window-a").unwrap().unwrap();
+    assert_eq!(window.tabs[0].workspace_slots, previous);
+    assert_eq!(window.tabs[0].role_slots[0].rect.width, 0.5);
 }

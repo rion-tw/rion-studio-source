@@ -683,6 +683,7 @@ struct RuntimeState {
     completed_failed_launch_cleanups: HashSet<(String, String)>,
     failed_launch_diagnostics: HashMap<String, RuntimeErrorDiagnostic>,
     pending_restore_role_slots: HashMap<String, Vec<GameWindowRoleSlotRecord>>,
+    pending_restore_workspace_slots: HashMap<String, Vec<StateWorkspaceSlotRecord>>,
     pending_window_tab_restores: HashMap<String, PendingWindowTabRestore>,
     pending_role_zoom_writes: HashMap<(String, String), u64>,
     #[cfg(not(windows))]

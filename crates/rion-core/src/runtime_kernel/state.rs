@@ -281,35 +281,45 @@ fn apply_to_candidate(
             let Some(current) = state.windows.get(&window_id) else {
                 return Ok(superseded_commit(state, operation_id, vec![window_id]));
             };
-            let Some(slot) = current
-                .tabs
-                .iter()
-                .find(|tab| tab.id == tab_id)
-                .and_then(|tab| tab.role_slots.iter().find(|slot| slot.role_id == role_id))
-            else {
+            let Some(tab) = current.tabs.iter().find(|tab| tab.id == tab_id) else {
+                return Ok(superseded_commit(state, operation_id, vec![window_id]));
+            };
+            let Some(slot) = tab.role_slots.iter().find(|slot| slot.role_id == role_id) else {
                 return Ok(superseded_commit(state, operation_id, vec![window_id]));
             };
             if expected_revision.is_some_and(|expected| current.revision != expected) {
                 return Ok(superseded_commit(state, operation_id, vec![window_id]));
             }
-            let changed = slot.browser_zoom_percent != browser_zoom_percent;
+            let workspace_zoom = tab
+                .workspace_slots
+                .iter()
+                .find(|slot| slot.role_id.as_deref() == Some(role_id.as_str()))
+                .map(|slot| slot.browser_zoom_percent);
+            let changed = slot.browser_zoom_percent != browser_zoom_percent
+                || workspace_zoom.is_some_and(|zoom| zoom != browser_zoom_percent);
             if changed {
                 let revision = next_revision(state);
                 let window = state
                     .windows
                     .get_mut(&window_id)
                     .expect("role zoom candidate was validated");
-                window
+                let tab = window
                     .tabs
                     .iter_mut()
                     .find(|tab| tab.id == tab_id)
-                    .and_then(|tab| {
-                        tab.role_slots
-                            .iter_mut()
-                            .find(|slot| slot.role_id == role_id)
-                    })
+                    .expect("role zoom tab was validated");
+                tab.role_slots
+                    .iter_mut()
+                    .find(|slot| slot.role_id == role_id)
                     .expect("role zoom slot was validated")
                     .browser_zoom_percent = browser_zoom_percent;
+                if let Some(workspace_slot) = tab
+                    .workspace_slots
+                    .iter_mut()
+                    .find(|slot| slot.role_id.as_deref() == Some(role_id.as_str()))
+                {
+                    workspace_slot.browser_zoom_percent = browser_zoom_percent;
+                }
                 window.revision = revision;
             }
             basic_commit(state, false, vec![window_id])
@@ -329,6 +339,7 @@ fn apply_to_candidate(
                 return Ok(superseded_commit(state, operation_id, vec![window_id]));
             };
             if expected_revision.is_some_and(|expected| current.revision != expected)
+                || !tab.workspace_slots.is_empty()
                 || role_slots
                     .iter()
                     .any(|slot| !tab.role_ids.contains(&slot.role_id))
@@ -352,6 +363,43 @@ fn apply_to_candidate(
                     .find(|tab| tab.id == tab_id)
                     .expect("role slot tab was validated")
                     .role_slots = role_slots;
+                window.revision = revision;
+            }
+            basic_commit(state, false, vec![window_id])
+        }
+        RuntimeIntent::ReplaceTabWorkspaceSlots {
+            expected_revision,
+            tab_id,
+            window_id,
+            workspace_slots,
+            ..
+        } => {
+            let Some(current) = state.windows.get(&window_id) else {
+                return Ok(superseded_commit(state, operation_id, vec![window_id]));
+            };
+            let Some(tab) = current.tabs.iter().find(|tab| tab.id == tab_id) else {
+                return Ok(superseded_commit(state, operation_id, vec![window_id]));
+            };
+            let role_slots = validate_workspace_slots(&workspace_slots, &tab.role_ids)?;
+            if expected_revision.is_some_and(|expected| current.revision != expected)
+                || tab.tab_type != "workspace"
+            {
+                return Ok(superseded_commit(state, operation_id, vec![window_id]));
+            }
+            let changed = tab.workspace_slots != workspace_slots || tab.role_slots != role_slots;
+            if changed {
+                let revision = next_revision(state);
+                let window = state
+                    .windows
+                    .get_mut(&window_id)
+                    .expect("workspace slot candidate was validated");
+                let tab = window
+                    .tabs
+                    .iter_mut()
+                    .find(|tab| tab.id == tab_id)
+                    .expect("workspace slot tab was validated");
+                tab.role_slots = role_slots;
+                tab.workspace_slots = workspace_slots;
                 window.revision = revision;
             }
             basic_commit(state, false, vec![window_id])
@@ -1464,131 +1512,4 @@ fn validate_candidate_ownership(
     Ok(())
 }
 
-fn validate_state(state: &RuntimeKernelState) -> CoreResult<()> {
-    validate_candidate_ownership(&state.windows, &HashSet::new())?;
-    for (tab_id, activation) in &state.tab_activations {
-        if activation.tab_id.as_str() != tab_id
-            || !state
-                .windows
-                .values()
-                .any(|window| window.contains_tab(tab_id))
-        {
-            return Err(CoreError::Internal(
-                "runtime tab activation references missing topology".to_owned(),
-            ));
-        }
-    }
-    for (tab_id, tombstone) in &state.tombstones {
-        if state
-            .windows
-            .values()
-            .any(|window| window.contains_tab(tab_id))
-        {
-            return Err(CoreError::Internal(format!(
-                "closed runtime tab {} is still present in live topology at revision {}",
-                tab_id, tombstone.revision
-            )));
-        }
-        if !state
-            .operations
-            .contains_key(tombstone.operation_id.as_str())
-        {
-            return Err(CoreError::Internal(
-                "runtime tab tombstone references a missing close operation".to_owned(),
-            ));
-        }
-    }
-    for surface in state.logical_surfaces.values() {
-        if state.tombstones.contains_key(surface.tab_id.as_str())
-            && surface.lifecycle != RuntimeSurfaceLifecycle::Closing
-        {
-            return Err(CoreError::Internal(
-                "closed runtime tab retained a non-teardown logical surface".to_owned(),
-            ));
-        }
-    }
-    for window in state.windows.values() {
-        validate_window(window)?;
-        if window.revision > state.revision {
-            return Err(CoreError::Internal(
-                "runtime window revision exceeds aggregate revision".to_owned(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_window(window: &RuntimeLiveWindowRecord) -> CoreResult<()> {
-    let tab_ids = window
-        .tabs
-        .iter()
-        .map(|tab| &tab.id)
-        .collect::<HashSet<_>>();
-    if tab_ids.len() != window.tabs.len() {
-        return Err(CoreError::Domain {
-            code: "RUNTIME_TAB_DUPLICATE",
-            message: "A runtime window contains duplicate tab identities.".to_owned(),
-        });
-    }
-    if window
-        .selected_tab_id
-        .as_ref()
-        .is_some_and(|tab_id| !tab_ids.contains(tab_id) || window.hidden_tab_ids.contains(tab_id))
-        || window
-            .hidden_tab_ids
-            .iter()
-            .any(|tab_id| !tab_ids.contains(tab_id))
-    {
-        return Err(CoreError::Domain {
-            code: "RUNTIME_WINDOW_SELECTION_INVALID",
-            message: "Runtime window selection or hidden membership is invalid.".to_owned(),
-        });
-    }
-    if window
-        .window_zoom_factor
-        .is_some_and(|zoom_factor| !zoom_factor.is_finite() || !(0.25..=5.0).contains(&zoom_factor))
-    {
-        return Err(CoreError::InvalidInput(
-            "runtime window zoom factor is invalid".to_owned(),
-        ));
-    }
-    for tab in &window.tabs {
-        validate_role_slots(&tab.role_slots)?;
-    }
-    Ok(())
-}
-
-fn validate_role_zoom(browser_zoom_percent: Option<f64>) -> CoreResult<()> {
-    if browser_zoom_percent
-        .is_some_and(|percent| !percent.is_finite() || !(25.0..=500.0).contains(&percent))
-    {
-        return Err(CoreError::InvalidInput(
-            "runtime role zoom percent is invalid".to_owned(),
-        ));
-    }
-    Ok(())
-}
-
-fn validate_role_slots(role_slots: &[crate::model::GameWindowRoleSlotRecord]) -> CoreResult<()> {
-    let mut slot_ids = HashSet::new();
-    let mut role_ids = HashSet::new();
-    for slot in role_slots {
-        let rect = &slot.rect;
-        if slot.slot_id.trim().is_empty()
-            || slot.role_id.trim().is_empty()
-            || !slot_ids.insert(slot.slot_id.as_str())
-            || !role_ids.insert(slot.role_id.as_str())
-            || [rect.x, rect.y, rect.width, rect.height]
-                .iter()
-                .any(|value| !value.is_finite())
-            || rect.width <= 0.0
-            || rect.height <= 0.0
-        {
-            return Err(CoreError::InvalidInput(
-                "runtime role slot is invalid or duplicated".to_owned(),
-            ));
-        }
-        validate_role_zoom(slot.browser_zoom_percent)?;
-    }
-    Ok(())
-}
+include!("state/validation.rs");

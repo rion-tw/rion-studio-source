@@ -250,7 +250,7 @@ fn failed_shared_role_target_load_releases_owner_and_preserves_both_slots() {
 }
 
 #[test]
-fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() {
+fn restored_workspace_overlays_saved_layout_onto_the_current_definition() {
     let (_directory, core) = core();
     let game_id = first_game_id(&core);
     let current_role_id = create_role(&core, &game_id, 1);
@@ -304,7 +304,7 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
             },
             launch_preview_id: None,
             restore_role_slots: Some(vec![GameWindowRoleSlotRecord {
-                slot_id: "saved-slot".to_owned(),
+                slot_id: "slot-1".to_owned(),
                 role_id: saved_role_id.clone(),
                 rect: saved_rect.clone(),
                 browser_zoom_percent: Some(137.0),
@@ -322,11 +322,11 @@ fn restored_workspace_uses_saved_role_slots_instead_of_the_current_definition() 
         .find(|tab| tab.source_id == workspace_id)
         .unwrap();
     assert_eq!(tab.slots.len(), 1);
-    assert_eq!(tab.slots[0].slot_id, "saved-slot");
-    assert_eq!(tab.slots[0].role_id, saved_role_id);
+    assert_eq!(tab.slots[0].slot_id, "slot-1");
+    assert_eq!(tab.slots[0].role_id, current_role_id);
     assert_eq!(tab.slots[0].rect, saved_rect);
     assert_eq!(tab.slots[0].browser_zoom_percent, Some(137.0));
-    assert!(snapshot.roles.iter().all(|role| role.role_id != current_role_id));
+    assert!(snapshot.roles.iter().all(|role| role.role_id != saved_role_id));
     core.shutdown();
 }
 

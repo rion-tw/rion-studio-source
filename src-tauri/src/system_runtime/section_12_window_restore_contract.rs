@@ -232,6 +232,7 @@ impl SystemRuntimeExecutor {
                     .map(|slot| slot.role_id.clone())
                     .collect(),
                 role_slots: tab.role_slots.clone(),
+                workspace_slots: tab.workspace_slots.clone(),
                 source_id: tab.source_id.clone(),
                 tab_type: tab.tab_type.clone(),
                 title: tab.name.clone(),
@@ -252,6 +253,7 @@ impl SystemRuntimeExecutor {
                     Vec::new()
                 },
                 role_slots: Vec::new(),
+                workspace_slots: Vec::new(),
                 source_id: source_id.clone(),
                 tab_type: tab_type.clone(),
                 title: "Loading…".to_owned(),

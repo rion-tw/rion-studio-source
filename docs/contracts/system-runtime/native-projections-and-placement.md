@@ -70,8 +70,9 @@ checkpoint remains cookie-only and cannot become a LocalStorage writer.
 
 One process-wide persistence coordinator keeps only the newest dirty revision
 for each saved live window. A 200 ms debounce coalesces revisions and writes the
-current set of dirty windows in one SQLite transaction: placement,
-ordered tabs, active tab, role-slot demand, zoom, hidden state, and audio state.
+current set of dirty windows in one SQLite transaction: placement, ordered tabs,
+active tab, complete Role/Web/empty Workspace layouts, role-slot demand, zoom,
+hidden state, and audio state.
 Runtime role ownership is never serialized. Core compares
 `(windowId, windowGeneration, revision)` and returns `superseded` for an older or
 duplicate write.
@@ -86,10 +87,11 @@ then bounded exponential backoff up to 30 s. Failure never mutates
 `LiveWindowTabStore` or native chrome. Snapshot construction reads only the
 already-committed in-memory live tab and runtime metadata; it does not query
 Core, SQLite, AppKit, or a WebView. `LiveWindowTabStore` itself retains complete
-persistable tab and role-slot metadata, so teardown never reconstructs topology
-from Core or a native host. Window close immediately enqueues that final live
-revision before teardown, continues closing without waiting, and retains the
-captured input so retries do not depend on a native window handle. Application
+persistable tab, Workspace-slot, and role-slot metadata, so teardown never
+reconstructs topology from Core or a native host. Window close immediately
+enqueues that final live revision before teardown, continues closing without
+waiting, and retains the captured input so retries do not depend on a native
+window handle. Application
 exit makes one immediate dirty-revision enqueue and records any remaining
 revision without blocking shutdown.
 
@@ -106,6 +108,11 @@ still prioritize the saved active tab for first paint and role ownership, but
 that owner-priority sequence is never observable as tab-strip insertion order.
 Each later create replaces the matching reserved presentation item in place;
 there is no final corrective reorder after the window becomes visible.
+
+Legacy saved Workspace tabs that predate complete Workspace-slot snapshots merge
+their saved Role geometry onto the current source Workspace by slot ID, then
+Role ID. Existing Web and empty slots are retained; a missing source Workspace
+never causes Web content to be fabricated.
 
 ## Display topology and tab dragging
 

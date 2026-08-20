@@ -344,9 +344,12 @@ describe("bulk selection UI", () => {
     expect(document.querySelectorAll(`[data-selection-id='${shared.id}']`)).toHaveLength(1);
     const sharedGroup = getSelectionItem(shared.id).closest<HTMLElement>("[data-macro-group]")!;
     expect(sharedGroup.tagName).toBe("TBODY");
+    expect(sharedGroup.className).toBe("macro-list-group");
     const sharedGroupHeading = sharedGroup.querySelector<HTMLElement>("tr:first-child")!;
     expect(sharedGroupHeading.querySelector("td")?.getAttribute("colspan")).toBe("5");
     expect(sharedGroupHeading.className).not.toContain("bg-");
+    expect(sharedGroupHeading.className).toContain("border-t");
+    expect(sharedGroupHeading.className).not.toContain("border-y");
     expect(sharedGroupHeading.className).toContain("border-border/70");
     const groupHeaderButtons = [...sharedGroupHeading.querySelectorAll("button")];
     expect(groupHeaderButtons[1]?.getAttribute("aria-label")).toBe("New macro");
@@ -409,6 +412,7 @@ describe("bulk selection UI", () => {
     const { rerender } = render(route(new Set()));
     const group = getSelectionItem(first.id).closest<HTMLElement>("[data-macro-group]")!;
     const groupKey = group.dataset.macroGroup!;
+    expect(group.querySelectorAll(":scope > .macro-list-row")).toHaveLength(2);
 
     fireEvent.click(within(group).getByRole("button", { name: "Select 2" }));
     expect(screen.getByText("2 selected")).toBeTruthy();
@@ -662,7 +666,7 @@ describe("bulk selection UI", () => {
     expect(alpha.className).not.toContain("border-activity");
     expect(beta.className).not.toContain("border-activity");
     expect(gamma.className).not.toContain("border-activity");
-    expect(alpha.closest("tbody")?.className).toContain("divide-y");
+    expect(alpha.closest("tbody")?.className).toBe("macro-list-group");
   });
 });
 

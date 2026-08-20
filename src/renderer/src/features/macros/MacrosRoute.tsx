@@ -530,8 +530,8 @@ function MacroGroup({
   const contentId = `macro-group-${encodeURIComponent(group.key)}`;
 
   return (
-    <tbody id={contentId} className="macro-list-group divide-y divide-border/45" data-macro-group={group.key}>
-      <tr className="macro-list-group-heading border-y border-border/70">
+    <tbody id={contentId} className="macro-list-group" data-macro-group={group.key}>
+      <tr className="macro-list-group-heading border-t border-border/70">
         <td className="p-0" colSpan={5}>
           <div className="flex min-w-0 flex-wrap items-center gap-2 px-2 py-1.5">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">

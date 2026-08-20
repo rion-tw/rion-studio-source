@@ -228,6 +228,25 @@ async function createMacro(role: Role): Promise<Macro> {
   await expect(roleGroup).toHaveText(expect.stringContaining(role.name));
   expect(await roleGroup.$("button=Select 1").isExisting()).toBe(true);
   expect(await roleGroup.getText()).not.toContain("1 macros");
+  const groupedRowSpacing = await browser.execute((macroId) => {
+    const row = document.querySelector(`[data-selection-id="${CSS.escape(macroId)}"]`);
+    const cells = row?.querySelectorAll("td");
+    const heading = row?.closest("[data-macro-group]")?.querySelector(".macro-list-group-heading");
+    if (!cells || cells.length === 0 || !heading) {
+      return null;
+    }
+    const headingStyle = getComputedStyle(heading);
+    return {
+      headingBorderBottom: Number.parseFloat(headingStyle.borderBottomWidth),
+      headingSeparator: headingStyle.backgroundImage,
+      left: Number.parseFloat(getComputedStyle(cells[0]).paddingLeft),
+      right: Number.parseFloat(getComputedStyle(cells[cells.length - 1]).paddingRight)
+    };
+  }, macro.id);
+  expect(groupedRowSpacing?.headingBorderBottom).toBe(0);
+  expect(groupedRowSpacing?.headingSeparator).not.toBe("none");
+  expect(groupedRowSpacing?.left).toBeGreaterThanOrEqual(16);
+  expect(groupedRowSpacing?.right).toBeGreaterThanOrEqual(16);
   await roleGroup.$("button[aria-label='New macro']").click();
   await $("h1=New Macro").waitForExist({ timeout: 10_000 });
   expect(await browser.execute(() => {

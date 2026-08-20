@@ -267,10 +267,8 @@ impl SystemRuntimeExecutor {
         let mut publish = false;
         let mut history_source = None;
         let mut restore = None;
-        #[cfg(windows)]
-        let mut restore_tab_id = None;
         if let Ok(mut state) = self.state.lock() {
-            for tab in state.native_resources.tabs.values_mut() {
+            for (tab_id, tab) in &mut state.native_resources.tabs {
                 let Some(surface) = tab
                     .roles
                     .values_mut()
@@ -287,11 +285,8 @@ impl SystemRuntimeExecutor {
                         workspace.document_nonce = None;
                         if workspace.fullscreen {
                             workspace.fullscreen = false;
-                            #[cfg(windows)]
-                            {
-                                restore_tab_id = Some(tab.tab_id.clone());
-                            }
                             restore = Some((
+                                tab_id.clone(),
                                 surface.webview.clone(),
                                 workspace.chrome.webview.clone(),
                                 workspace.slot_bounds,
@@ -307,7 +302,7 @@ impl SystemRuntimeExecutor {
                 break;
             }
         }
-        if let Some((content, chrome, slot_bounds)) = restore {
+        if let Some((tab_id, content, chrome, slot_bounds)) = restore {
             let (chrome_bounds, content_bounds) =
                 workspace_web_surface_bounds(slot_bounds, false);
             let _ = content.set_bounds(tauri::Rect {
@@ -319,10 +314,10 @@ impl SystemRuntimeExecutor {
                 size: LogicalSize::new(chrome_bounds.width, chrome_bounds.height.max(1.0)).into(),
             });
             let _ = chrome.show();
-        }
-        #[cfg(windows)]
-        if let Some(tab_id) = restore_tab_id {
+            #[cfg(windows)]
             let _ = self.layout_runtime_tab_inner(&tab_id);
+            #[cfg(not(windows))]
+            let _ = tab_id;
         }
         if let Some(content) = history_source
             && let Ok((can_go_back, can_go_forward)) =

@@ -11,6 +11,7 @@ impl SystemRuntimeExecutor {
             .map_err(|_| RuntimeError::new("TAURI_URL_INVALID", "Invalid blank URL."))?;
         let popup_app = self.app.clone();
         let popup_role_id = owner_id.map(str::to_owned);
+        #[cfg(target_os = "macos")]
         let popup_surface_generation = owner_id
             .and_then(|role_id| self.surface_generation_for_role(role_id));
         let popup_surface_policy = surface_policy;

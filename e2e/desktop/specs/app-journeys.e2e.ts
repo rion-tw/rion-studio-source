@@ -639,6 +639,7 @@ async function exerciseWorkspaceContainedFullscreen(
       && candidate.active
   );
   if (!tab) throw new Error("The launched Web workspace has no active runtime tab");
+  await waitForSelectedRuntimeTabReady(tab.windowId);
   const before = await windowSnapshot(tab.windowId);
   const webSurfaceId = before.native.roleWebviews?.find(
     (surface) => surface.url?.includes(`/role/${WEB_FIXTURE_ID}`)

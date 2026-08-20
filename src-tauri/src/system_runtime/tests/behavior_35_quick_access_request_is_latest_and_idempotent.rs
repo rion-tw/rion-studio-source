@@ -27,3 +27,25 @@ fn quick_access_request_ledger_is_latest_wins_and_resolution_is_idempotent() {
     );
     assert_eq!(ledger.resolve(&latest_id), None);
 }
+
+#[test]
+fn quick_access_source_restore_requires_a_completed_native_presentation() {
+    assert_eq!(
+        native_focus_intent_origin("quick-access-cancel"),
+        NativeFocusIntentOrigin::UserGesture
+    );
+    assert!(quick_access_restore_completed(
+        &SystemRuntimeOperationStatus::Applied
+    ));
+    assert!(quick_access_restore_completed(
+        &SystemRuntimeOperationStatus::Degraded
+    ));
+    for status in [
+        SystemRuntimeOperationStatus::Cancelled,
+        SystemRuntimeOperationStatus::Failed,
+        SystemRuntimeOperationStatus::Indeterminate,
+        SystemRuntimeOperationStatus::Superseded,
+    ] {
+        assert!(!quick_access_restore_completed(&status));
+    }
+}

@@ -189,18 +189,22 @@ impl SystemRuntimeExecutor {
                     return Ok(());
                 }
                 let window_id = self.resolve_live_presentation_tab_owner(&tab_id)?;
-                let Some(window) = self.window_for_id(&window_id) else {
+                if self.window_for_id(&window_id).is_none() {
                     return Ok(());
-                };
-                request_platform_window_show_foreground(&window)
-                    .map_err(|error| error.message)?;
-                self.request_tab_presentation_with_window_visibility(
+                }
+                let (_, _, operation_id) = self.request_tab_presentation_with_window_visibility(
                     &tab_id,
-                    NativePresentationFocus::ContentOnly,
+                    NativePresentationFocus::WindowAndContent,
                     "quick-access-cancel",
                     Some(true),
-                )
-                .map(|_| ())
+                )?;
+                let receipt = self.wait_native_operation_summary(&operation_id)?;
+                if quick_access_restore_completed(&receipt.status) {
+                    Ok(())
+                } else {
+                    Err("The Quick Access source focus was superseded before it completed."
+                        .to_owned())
+                }
             }
             QuickAccessOrigin::Popup {
                 role_id,
@@ -225,4 +229,11 @@ impl SystemRuntimeExecutor {
             }
         }
     }
+}
+
+fn quick_access_restore_completed(status: &SystemRuntimeOperationStatus) -> bool {
+    matches!(
+        status,
+        SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+    )
 }

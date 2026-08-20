@@ -13,6 +13,8 @@ import { createWorkspaceSlotBackground, getWorkspaceHorizontalResizeHandles, get
 
 import type { WorkspaceActiveResize } from "./WorkspaceModal";
 
+import { resolveWorkspaceWebPreset } from "./workspaceWebPresets";
+
 export function WorkspaceHelpSection({ children, title }: { children: ReactNode; title: string }): JSX.Element {
   return (
     <section className="grid max-w-[72ch] gap-1 text-xs leading-5 text-muted-foreground">
@@ -54,6 +56,14 @@ export function WorkspaceSlotDropZone({
   t
 }: WorkspaceSlotDropZoneProps): JSX.Element {
   const resolvedLaunchGameName = launchGameName ?? role?.launchUrl ?? "";
+  const webPreset = web ? resolveWorkspaceWebPreset(web.startUrl) : undefined;
+  const webPresetBackground = webPreset ? {
+    backgroundColor: "hsl(var(--media-black))",
+    backgroundImage: `url("${webPreset.brandImageUrl}")`,
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: webPreset.brandImagePresentation === "cover" ? "cover" : "min(40%, 8rem) auto"
+  } : {};
   const slotInsetStyle = {
     top: rect.y > 0 ? 10 : 0,
     right: rect.x + rect.width < 0.999 ? 10 : 0,
@@ -79,13 +89,20 @@ export function WorkspaceSlotDropZone({
         type="button"
         aria-pressed={isSelected}
         data-workspace-assigned-role-id={role?.id ?? ""}
+        data-workspace-web-preset-id={webPreset?.id ?? ""}
         data-workspace-web-url={web?.startUrl ?? ""}
         data-workspace-slot-index={index}
         disabled={isSaving}
-        style={{ ...slotInsetStyle, ...createWorkspaceSlotBackground(role) }}
+        style={{
+          ...slotInsetStyle,
+          ...createWorkspaceSlotBackground(role),
+          ...webPresetBackground
+        }}
         onClick={onClick}
       >
-        {role?.coverImageDataUrl ? <div className="absolute inset-0 bg-media-black/10" /> : null}
+        {role?.coverImageDataUrl || webPreset ? (
+          <div className="absolute inset-0 bg-gradient-to-t from-media-black/35 via-media-black/5 to-media-black/10" />
+        ) : null}
         {resizeIndicator ? (
           <span
             className="glass-popover pointer-events-none absolute left-1/2 top-2.5 z-[var(--layer-selection)] -translate-x-1/2 whitespace-nowrap rounded-full border border-activity/35 px-2 py-1 text-micro font-semibold leading-none text-foreground shadow-md backdrop-blur-md"
@@ -125,7 +142,7 @@ export function WorkspaceSlotDropZone({
         ) : web ? (
           <div className="workspace-slot-caption">
             <p className="workspace-slot-name-chip flex min-w-0 items-center gap-2 text-sm font-semibold">
-              <Globe2 className="size-4 shrink-0" aria-hidden="true" />
+              {webPreset ? null : <Globe2 className="size-4 shrink-0" aria-hidden="true" />}
               <span className="workspace-role-chip-text">
                 <span className="min-w-0 truncate">{web.name}</span>
                 <span className="workspace-role-game-label min-w-0 truncate">

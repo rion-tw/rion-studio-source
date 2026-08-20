@@ -38,6 +38,10 @@ import { applyWorkspaceSplits, applyWorkspaceTemplate, assignRoleToWorkspaceSlot
 
 import { WorkspaceHelpSection, WorkspaceResizeHandles, WorkspaceSlotDropZone } from "./WorkspaceLayoutControls";
 
+import { WorkspaceWebPresetPicker } from "./WorkspaceWebPresetPicker";
+
+import type { WorkspaceWebPreset } from "./workspaceWebPresets";
+
 interface WorkspaceEditorRouteProps {
   games: Game[];
   isSaving: boolean;
@@ -302,6 +306,13 @@ function WorkspaceLayoutFormEditor({
   function updateSelectedWeb(patch: Partial<NonNullable<LaunchWorkspaceSlot["web"]>>): void {
     const current = selectedSlot?.web ?? { name: "", startUrl: "https://" };
     updateSlots(assignWebToWorkspaceSlot(slots, selectedSlotIndex, { ...current, ...patch }));
+  }
+
+  function handleWebPresetSelect(preset: WorkspaceWebPreset): void {
+    updateSelectedWeb({
+      name: preset.name,
+      startUrl: preset.startUrl
+    });
   }
 
   function handleClearSelectedSlot(): void {
@@ -590,7 +601,12 @@ function WorkspaceLayoutFormEditor({
               <Eraser size={15} />
             </Button>
           </div>
-          <div className="grid gap-3 px-4 pb-4">
+          <div
+            className={cn(
+              "grid gap-3 px-4 pb-4",
+              selectedSlot?.web && "workspace-editor-web-controls"
+            )}
+          >
             <FormField htmlFor="workspace-slot-content" label={t("workspaces.contentType")}>
               <Select
                 disabled={isSaving}
@@ -608,34 +624,42 @@ function WorkspaceLayoutFormEditor({
               </Select>
             </FormField>
             {selectedSlot?.web ? (
-              <div className="grid gap-3 rounded-lg border border-border/60 bg-background/20 p-3">
-                <FormField htmlFor="workspace-web-name" label={t("workspaces.webName")}>
-                  <Input
-                    id="workspace-web-name"
-                    maxLength={80}
-                    required
-                    disabled={isSaving}
-                    placeholder={t("workspaces.webNamePlaceholder")}
-                    value={selectedSlot.web.name}
-                    onChange={(event) => updateSelectedWeb({ name: event.target.value })}
-                  />
-                </FormField>
-                <FormField
-                  htmlFor="workspace-web-url"
-                  label={t("workspaces.webUrl")}
-                  description={t("workspaces.webUrlDescription")}
-                >
-                  <Input
-                    id="workspace-web-url"
-                    type="url"
-                    pattern="https?://.*"
-                    required
-                    disabled={isSaving}
-                    placeholder="https://www.youtube.com/"
-                    value={selectedSlot.web.startUrl}
-                    onChange={(event) => updateSelectedWeb({ startUrl: event.target.value })}
-                  />
-                </FormField>
+              <div className="workspace-web-editor grid min-h-0 gap-3">
+                <WorkspaceWebPresetPicker
+                  disabled={isSaving}
+                  t={t}
+                  web={selectedSlot.web}
+                  onSelect={handleWebPresetSelect}
+                />
+                <div className="grid shrink-0 gap-3 rounded-lg border border-border/60 bg-background/20 p-3">
+                  <FormField htmlFor="workspace-web-name" label={t("workspaces.webName")}>
+                    <Input
+                      id="workspace-web-name"
+                      maxLength={80}
+                      required
+                      disabled={isSaving}
+                      placeholder={t("workspaces.webNamePlaceholder")}
+                      value={selectedSlot.web.name}
+                      onChange={(event) => updateSelectedWeb({ name: event.target.value })}
+                    />
+                  </FormField>
+                  <FormField
+                    htmlFor="workspace-web-url"
+                    label={t("workspaces.webUrl")}
+                    description={t("workspaces.webUrlDescription")}
+                  >
+                    <Input
+                      id="workspace-web-url"
+                      type="url"
+                      pattern="https?://.*"
+                      required
+                      disabled={isSaving}
+                      placeholder="https://www.youtube.com/"
+                      value={selectedSlot.web.startUrl}
+                      onChange={(event) => updateSelectedWeb({ startUrl: event.target.value })}
+                    />
+                  </FormField>
+                </div>
               </div>
             ) : null}
           </div>

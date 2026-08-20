@@ -58,7 +58,7 @@ afterEach(() => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe("workspace editor role picker layout", () => {
-  it("edits a Web App slot without retaining a role assignment", async () => {
+  it("selects a Web App preset, keeps its fields editable, and clears the role assignment", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
@@ -86,19 +86,92 @@ describe("workspace editor role picker layout", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Content type" }));
     await user.click(screen.getByRole("option", { name: "Web app" }));
-    await user.clear(screen.getByRole("textbox", { name: "Display name" }));
-    await user.type(screen.getByRole("textbox", { name: "Display name" }), "YouTube");
-    await user.clear(screen.getByRole("textbox", { name: "Start URL" }));
-    await user.type(screen.getByRole("textbox", { name: "Start URL" }), "https://www.youtube.com/");
+    const presetButtons = container.querySelectorAll<HTMLButtonElement>("[data-workspace-web-preset]");
+    const youtubePreset = container.querySelector<HTMLButtonElement>(
+      "[data-workspace-web-preset='youtube']"
+    );
+    if (!youtubePreset) throw new Error("Expected the YouTube Web App preset.");
+
+    expect(presetButtons).toHaveLength(12);
+    await user.click(youtubePreset);
+
+    const displayName = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
+    const startUrl = screen.getByRole("textbox", { name: "Start URL" }) as HTMLInputElement;
+    const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
+    if (!firstSlot) throw new Error("Expected the selected workspace slot.");
+    expect(displayName.value).toBe("YouTube");
+    expect(startUrl.value).toBe("https://www.youtube.com/");
+    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
+    expect(firstSlot.style.backgroundImage).not.toBe("");
+
+    await user.clear(displayName);
+    await user.type(displayName, "Custom video room");
+    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+
+    await user.clear(startUrl);
+    await user.type(startUrl, "https://fixture.example.test/watch");
 
     expect(container.querySelector("[data-workspace-role-scroll]")).toBeNull();
-    expect(container.querySelector("[data-workspace-web-url='https://www.youtube.com/']")).not.toBeNull();
+    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
+    expect(firstSlot.getAttribute("data-workspace-web-url")).toBe("https://fixture.example.test/watch");
+    expect(firstSlot.style.backgroundImage).toBe("");
+    expect(youtubePreset.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
-    expect(onSave.mock.calls[0][0].slots[0]).toMatchObject({
-      web: { name: "YouTube", startUrl: "https://www.youtube.com/" }
+    expect(onSave.mock.calls[0][0].slots[0]).toEqual({
+      id: "slot-1",
+      rect: { x: 0, y: 0, width: 0.5, height: 1 },
+      web: { name: "Custom video room", startUrl: "https://fixture.example.test/watch" }
     });
     expect(onSave.mock.calls[0][0].slots[0]).not.toHaveProperty("roleId");
+  });
+
+  it("restores a known brand image while editing and keeps custom sites generic", async () => {
+    const user = userEvent.setup();
+    const selectedWorkspace = workspace();
+    selectedWorkspace.slots[0] = {
+      id: "slot-1",
+      rect: { x: 0, y: 0, width: 0.5, height: 1 },
+      web: { name: "My watch list", startUrl: "https://studio.youtube.com/channel/test" }
+    };
+    const router = createMemoryRouter(
+      [{
+        path: "/workspaces/:id/edit",
+        element: (
+          <WorkspaceEditorRoute
+            games={[game()]}
+            isSaving={false}
+            roles={[role(1), role(2)]}
+            statusByRole={new Map()}
+            t={t}
+            workspaces={[selectedWorkspace]}
+            onSave={vi.fn()}
+          />
+        )
+      }],
+      { initialEntries: ["/workspaces/workspace-1/edit"] }
+    );
+    const { container } = render(
+      <ConfirmationProvider>
+        <RouterProvider router={router} />
+      </ConfirmationProvider>
+    );
+
+    const firstSlot = container.querySelector<HTMLElement>("[data-workspace-slot-index='0']");
+    const youtubePreset = container.querySelector<HTMLButtonElement>(
+      "[data-workspace-web-preset='youtube']"
+    );
+    if (!firstSlot || !youtubePreset) throw new Error("Expected the known Web App preset state.");
+    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("youtube");
+    expect(youtubePreset.getAttribute("aria-pressed")).toBe("true");
+
+    const startUrl = screen.getByRole("textbox", { name: "Start URL" });
+    await user.clear(startUrl);
+    await user.type(startUrl, "https://custom.example.test/");
+
+    expect(firstSlot.getAttribute("data-workspace-web-preset-id")).toBe("");
+    expect(youtubePreset.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("shows every workspace layout in a single-select menu", async () => {

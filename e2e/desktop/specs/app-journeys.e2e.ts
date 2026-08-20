@@ -230,6 +230,14 @@ async function createWorkspace(role: Role): Promise<LaunchWorkspace> {
   const webOption = await $("[role='option']=Web app");
   await webOption.waitForExist({ timeout: 10_000 });
   await webOption.click();
+  const youtubePreset = await $("[data-workspace-web-preset='youtube']");
+  await youtubePreset.waitForClickable({ timeout: 10_000 });
+  await youtubePreset.click();
+  await browser.waitUntil(async () =>
+    await $("#workspace-web-name").getValue() === "YouTube" &&
+    await $("#workspace-web-url").getValue() === "https://www.youtube.com/" &&
+    await youtubePreset.getAttribute("aria-pressed") === "true"
+  );
   await $("#workspace-web-name").setValue("E2E Web App");
   await $("#workspace-web-url").setValue(
     `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${WEB_FIXTURE_ID}?mode=seed&marker=${WEB_SESSION_MARKER}`

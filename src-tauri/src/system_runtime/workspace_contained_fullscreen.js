@@ -17,6 +17,7 @@
   const styleId = "__rion_contained_fullscreen_style";
   const messageKey = "__rionContainedFullscreen";
   const hostForceExitEvent = "__rionWorkspaceContainedFullscreenForceExit";
+  const exitRequestEvent = "__rionWorkspaceContainedFullscreenExitRequest";
   let activeElement = null;
   let activePopover = null;
   let addedPopoverAttribute = false;
@@ -230,6 +231,7 @@
     removalObserver?.disconnect();
     removalObserver = null;
     restorePopover();
+    activeElement?.removeEventListener(exitRequestEvent, handleExitRequest, true);
     activeElement?.removeAttribute(activeAttribute);
     for (const ancestor of activeAncestors) ancestor.removeAttribute(ancestorAttribute);
     restoreInlineStyles();
@@ -282,6 +284,7 @@
     }
     document.documentElement?.setAttribute(rootAttribute, "");
     element.setAttribute(activeAttribute, "");
+    element.addEventListener(exitRequestEvent, handleExitRequest, true);
     applyPresentationStyles();
     openPopover(element);
     removalObserver = new MutationObserver(() => {
@@ -446,23 +449,16 @@
     }
   }, true);
 
+  const handleExitRequest = () => {
+    void exitThroughHost().catch(() => undefined);
+  };
   const handleEscape = (event) => {
     const currentDocument = event.currentTarget;
-    const currentFullscreenElement = currentDocument?.fullscreenElement
-      ?? currentDocument?.webkitFullscreenElement
-      ?? currentDocument?.webkitCurrentFullScreenElement;
+    const currentFullscreenElement = currentDocument?.querySelector?.(`[${activeAttribute}]`);
     if (!currentFullscreenElement || event.key !== "Escape") return;
-    const exitCurrentFullscreen = currentDocument.exitFullscreen
-      ?? currentDocument.webkitExitFullscreen
-      ?? currentDocument.webkitCancelFullScreen;
-    if (typeof exitCurrentFullscreen !== "function") return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    try {
-      void Promise.resolve(exitCurrentFullscreen.call(currentDocument)).catch(() => undefined);
-    } catch {
-      // The current document's policy owns the terminal fullscreen error.
-    }
+    currentFullscreenElement.dispatchEvent(new Event(exitRequestEvent));
   };
   const bindDocument = (nextDocument) => {
     if (!nextDocument || boundDocument === nextDocument) return;
@@ -585,6 +581,6 @@
     configurable: false,
     enumerable: false,
     writable: false,
-    value: Object.freeze({ bindDocument, installed, version: 3 })
+    value: Object.freeze({ bindDocument, installed, version: 4 })
   });
 })();

@@ -21,7 +21,9 @@
         "main-local-only",
         "runtime-native-shell-local-only",
         "runtime-role-placeholder-local-only",
+        "runtime-workspace-web-chrome-local-only",
         "system-role-overlay-remote",
+        "workspace-web-contained-fullscreen-remote",
         {
           "identifier": "desktop-e2e-debug-only",
           "description": "Debug-only WebDriver and native window evidence control plane.",

@@ -161,3 +161,71 @@ pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> Runtim
         })??;
     validate_applied_page_zoom(zoom_factor)
 }
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn platform_workspace_web_history_state(
+    webview: &Webview,
+) -> RuntimeResult<(bool, bool)> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let result = platform_webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core: ICoreWebView2| {
+                    let mut can_go_back = windows::core::BOOL::default();
+                    let mut can_go_forward = windows::core::BOOL::default();
+                    core.CanGoBack(&mut can_go_back)?;
+                    core.CanGoForward(&mut can_go_forward)?;
+                    Ok((can_go_back.as_bool(), can_go_forward.as_bool()))
+                })
+                .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(Ok(state)) => Ok(state),
+        Ok(Err(error)) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_HISTORY_UNAVAILABLE",
+            error,
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_HISTORY_TIMEOUT",
+            "WebView2 navigation history acknowledgement timed out.",
+        )),
+    }
+}
+
+#[cfg(windows)]
+pub(in crate::system_runtime) fn request_platform_workspace_web_navigation(
+    webview: &Webview,
+    action: WorkspaceWebNativeNavigationAction,
+) -> RuntimeResult<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let result = platform_webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core: ICoreWebView2| match action {
+                    WorkspaceWebNativeNavigationAction::Back => core.GoBack(),
+                    WorkspaceWebNativeNavigationAction::Forward => core.GoForward(),
+                    WorkspaceWebNativeNavigationAction::Reload => core.Reload(),
+                })
+                .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(RuntimeError::new("WORKSPACE_WEB_NAVIGATION_FAILED", error)),
+        Err(_) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_NAVIGATION_TIMEOUT",
+            "WebView2 navigation acknowledgement timed out.",
+        )),
+    }
+}

@@ -52,21 +52,50 @@ pub(in crate::system_runtime) fn windows_live_resize_resolve_bounds(
         x: 0,
         y: 0,
     });
+    let mut chrome_bounds = Vec::new();
     for role in &plan.roles {
         let resolved = output
             .roles
             .iter()
             .find(|candidate| candidate.role_id == role.input.role_id)
             .ok_or(())?;
+        let slot = resolved.bounds.clone();
+        let chrome_height = WORKSPACE_WEB_CHROME_HEIGHT
+            .round()
+            .min(f64::from((slot.height - 1).max(0))) as i32;
+        let content = if role.chrome_label.is_some() && !role.fullscreen {
+            LayoutBounds {
+                y: slot.y + chrome_height,
+                height: (slot.height - chrome_height).max(1),
+                ..slot.clone()
+            }
+        } else {
+            slot.clone()
+        };
         bounds.push(windows_live_resize_physical_bounds(
-            resolved.bounds.clone(),
+            content,
             logical_width,
             logical_height,
             physical_width as i32,
             physical_height as i32,
             scale,
         ));
+        if role.chrome_label.is_some() {
+            let chrome = LayoutBounds {
+                height: chrome_height.max(1),
+                ..slot
+            };
+            chrome_bounds.push(windows_live_resize_physical_bounds(
+                chrome,
+                logical_width,
+                logical_height,
+                physical_width as i32,
+                physical_height as i32,
+                scale,
+            ));
+        }
     }
+    bounds.extend(chrome_bounds);
     for divider in &plan.dividers {
         let resolved = output
             .dividers

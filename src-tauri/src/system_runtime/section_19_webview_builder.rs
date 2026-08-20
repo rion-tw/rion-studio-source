@@ -123,6 +123,7 @@ impl SystemRuntimeExecutor {
                 } else if popup_install_contained_fullscreen {
                     [
                         popup_base_document_start_script.clone(),
+                        "Object.defineProperty(globalThis, '__rionWorkspaceWebContainedPopup', { configurable: false, enumerable: false, writable: false, value: true });".to_owned(),
                         workspace_contained_fullscreen_script(),
                     ]
                     .join("\n")
@@ -273,6 +274,12 @@ impl SystemRuntimeExecutor {
                                 },
                                 move |result| {
                                     let result = result.and_then(|lifecycle| {
+                                        install_platform_contained_fullscreen_policy(
+                                            setup_window.as_ref(),
+                                        )?;
+                                        preflight_platform_contained_fullscreen_policy(
+                                            setup_window.as_ref(),
+                                        )?;
                                         let state = setup_app
                                             .try_state::<crate::CoreState>()
                                             .ok_or_else(|| {
@@ -332,6 +339,35 @@ impl SystemRuntimeExecutor {
                                 return NewWindowResponse::Deny;
                             }
                             return NewWindowResponse::Create { window };
+                        }
+                        if popup_install_contained_fullscreen
+                            && let Err(error) = install_platform_contained_fullscreen_policy(
+                                window.as_ref(),
+                            )
+                            .and_then(|()| {
+                                preflight_platform_contained_fullscreen_policy(window.as_ref())
+                            })
+                        {
+                            let _ = window.close();
+                            if let Some(state) = popup_app.try_state::<crate::CoreState>() {
+                                state.runtime.revoke_overlay_capability(&label);
+                                state.runtime.record_popup_contract_outcome(
+                                    Some(role_id),
+                                    "popupContainedFullscreenPreflightFailed",
+                                    NativeOperationStatus::Failed,
+                                    Some(error.code),
+                                );
+                            }
+                            let _ = popup_app.emit(
+                                "rion://shell-error",
+                                json!({
+                                    "code": error.code,
+                                    "message": error.message,
+                                    "roleId": role_id,
+                                    "url": url
+                                }),
+                            );
+                            return NewWindowResponse::Deny;
                         }
                         if let Err(error) = install_platform_security_policy(window.as_ref()) {
                             let _ = window.close();
@@ -574,35 +610,20 @@ impl SystemRuntimeExecutor {
         label: String,
         paths: &SessionPaths,
         surface_id: &str,
-        web: &rion_core::WorkspaceWebContentRecord,
+        capability_token: &str,
+        generation: u64,
     ) -> RuntimeResult<(
         WebviewBuilder<tauri::Wry>,
         HighRefreshRateDiagnosticStatus,
         RoleWebGlConfiguration,
     )> {
-        let home = serde_json::to_string(&web.start_url)
-            .map_err(|error| RuntimeError::new("WORKSPACE_WEB_URL_INVALID", error.to_string()))?;
-        let toolbar_script = format!(
-            r#"(() => {{
-              const home = {home};
-              const install = () => {{
-                if (!document.documentElement || document.getElementById('__rion_web_toolbar_host')) return;
-                const host = document.createElement('div');
-                host.id = '__rion_web_toolbar_host';
-                host.style.cssText = 'all:initial;position:fixed;z-index:2147483647;top:0;left:0;right:0;height:34px;display:block';
-                const root = host.attachShadow({{ mode: 'closed' }});
-                root.innerHTML = `<style>:host{{all:initial}}nav{{box-sizing:border-box;height:34px;display:flex;align-items:center;gap:4px;padding:4px 8px;background:rgba(20,22,27,.96);color:#e8eaf0;font:12px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border-bottom:1px solid rgba(255,255,255,.12)}}button{{width:26px;height:24px;border:0;border-radius:5px;background:transparent;color:inherit;font:15px inherit;cursor:pointer}}button:hover{{background:rgba(255,255,255,.12)}}span{{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.78}}</style><nav><button data-a="back" title="Back">←</button><button data-a="forward" title="Forward">→</button><button data-a="reload" title="Reload">↻</button><button data-a="home" title="Home">⌂</button><span></span></nav>`;
-                const origin = root.querySelector('span');
-                origin.textContent = location.origin;
-                root.querySelector('[data-a=back]').onclick = () => history.back();
-                root.querySelector('[data-a=forward]').onclick = () => history.forward();
-                root.querySelector('[data-a=reload]').onclick = () => location.reload();
-                root.querySelector('[data-a=home]').onclick = () => location.assign(home);
-                document.documentElement.appendChild(host);
-              }};
-              if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {{ once: true }});
-              else install();
-            }})();"#
+        let identity = serde_json::to_string(&json!({
+            "capabilityToken": capability_token,
+            "generation": generation,
+        }))
+        .map_err(|error| RuntimeError::new("WORKSPACE_WEB_IDENTITY_INVALID", error.to_string()))?;
+        let identity_script = format!(
+            "Object.defineProperty(globalThis, '__rionWorkspaceWebIdentity', {{ configurable: false, enumerable: false, writable: false, value: Object.freeze({identity}) }});"
         );
         let builder = self
             .webview_builder(
@@ -611,7 +632,7 @@ impl SystemRuntimeExecutor {
                 Some(surface_id),
                 WebviewSurfaceFeaturePolicy::WorkspaceWeb,
             )?
-            .initialization_script(&toolbar_script);
+            .initialization_script(&identity_script);
         let high_refresh_rate_enabled = cfg!(target_os = "macos")
             && macos_high_refresh_rate_enabled(
                 self.configuration.macos_high_refresh_mode,

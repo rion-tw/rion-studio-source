@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "runtime-workspace-web-chrome-local-only",
+  "description": "Allows only the registered bundled Workspace Web chrome surface to issue generation-fenced navigation actions.",
+  "local": true,
+  "webviews": ["workspace-web-chrome-*"],
+  "permissions": ["allow-rion-workspace-web-chrome-action"]
+}

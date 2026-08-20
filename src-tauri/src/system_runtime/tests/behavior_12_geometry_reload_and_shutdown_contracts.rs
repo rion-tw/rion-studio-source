@@ -300,6 +300,8 @@ fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
         revision: 11,
         roles: vec![
             WindowsLiveResizeRolePlan {
+                chrome_label: None,
+                fullscreen: false,
                 input: LayoutRoleInput {
                     role_id: "left".to_owned(),
                     rect: LayoutRect {
@@ -312,6 +314,8 @@ fn two_column_live_resize_plan() -> WindowsLiveResizePlan {
                 label: "left".to_owned(),
             },
             WindowsLiveResizeRolePlan {
+                chrome_label: None,
+                fullscreen: false,
                 input: LayoutRoleInput {
                     role_id: "right".to_owned(),
                     rect: LayoutRect {

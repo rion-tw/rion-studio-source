@@ -88,7 +88,13 @@ impl SystemRuntimeExecutor {
                     let mut surfaces = runtime_tab
                         .roles
                         .values()
-                        .map(|role| role.webview.clone())
+                        .flat_map(|role| {
+                            std::iter::once(role.webview.clone()).chain(
+                                role.workspace_web
+                                    .as_ref()
+                                    .map(|workspace| workspace.chrome.webview.clone()),
+                            )
+                        })
                         .collect::<Vec<_>>();
                     surfaces.extend(
                         runtime_tab

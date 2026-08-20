@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-workspace-web-chrome-action"
+description = "Enables the rion_workspace_web_chrome_action command without any pre-configured scope."
+commands.allow = ["rion_workspace_web_chrome_action"]
+
+[[permission]]
+identifier = "deny-rion-workspace-web-chrome-action"
+description = "Denies the rion_workspace_web_chrome_action command without any pre-configured scope."
+commands.deny = ["rion_workspace_web_chrome_action"]

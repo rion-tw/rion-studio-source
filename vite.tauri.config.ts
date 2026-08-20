@@ -21,7 +21,8 @@ export default defineConfig({
         runtimeDivider: resolve(import.meta.dirname, "src/renderer/runtime-divider.html"),
         runtimeRolePlaceholder: resolve(import.meta.dirname, "src/renderer/runtime-role-placeholder.html"),
         runtimeTabStatus: resolve(import.meta.dirname, "src/renderer/runtime-tab-status.html"),
-        runtimeTabs: resolve(import.meta.dirname, "src/renderer/runtime-tabs.html")
+        runtimeTabs: resolve(import.meta.dirname, "src/renderer/runtime-tabs.html"),
+        runtimeWebChrome: resolve(import.meta.dirname, "src/renderer/runtime-web-chrome.html")
       },
       output: {
         codeSplitting: {

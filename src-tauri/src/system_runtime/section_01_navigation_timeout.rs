@@ -464,6 +464,7 @@ struct RoleSurface {
     rect: rion_core::StateNormalizedRectRecord,
     surface_instance_id: String,
     webview: Webview,
+    workspace_web: Option<WorkspaceWebSurface>,
     zoom_factor: f64,
 }
 

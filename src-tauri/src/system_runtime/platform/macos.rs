@@ -63,6 +63,82 @@ pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> Runtim
 }
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn platform_workspace_web_history_state(
+    webview: &Webview,
+) -> RuntimeResult<(bool, bool)> {
+    unsafe extern "C" {
+        fn rion_wk_workspace_navigation_state(
+            webview: *mut std::ffi::c_void,
+            can_go_back: *mut bool,
+            can_go_forward: *mut bool,
+        ) -> bool;
+    }
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| {
+            let mut can_go_back = false;
+            let mut can_go_forward = false;
+            let applied = unsafe {
+                rion_wk_workspace_navigation_state(
+                    platform_webview.inner(),
+                    &mut can_go_back,
+                    &mut can_go_forward,
+                )
+            };
+            let _ = sender.send(applied.then_some((can_go_back, can_go_forward)));
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(Some(state)) => Ok(state),
+        Ok(None) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_HISTORY_UNAVAILABLE",
+            "WKWebView could not read the native navigation history state.",
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_HISTORY_TIMEOUT",
+            "WKWebView navigation history acknowledgement timed out.",
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn request_platform_workspace_web_navigation(
+    webview: &Webview,
+    action: WorkspaceWebNativeNavigationAction,
+) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_workspace_navigation_action(webview: *mut std::ffi::c_void, action: i32)
+        -> bool;
+    }
+
+    let action = match action {
+        WorkspaceWebNativeNavigationAction::Back => 0,
+        WorkspaceWebNativeNavigationAction::Forward => 1,
+        WorkspaceWebNativeNavigationAction::Reload => 2,
+    };
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| {
+            let applied =
+                unsafe { rion_wk_workspace_navigation_action(platform_webview.inner(), action) };
+            let _ = sender.send(applied);
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_NAVIGATION_FAILED",
+            "WKWebView rejected the native Workspace Web navigation action.",
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "WORKSPACE_WEB_NAVIGATION_TIMEOUT",
+            "WKWebView navigation acknowledgement timed out.",
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn request_platform_window_hide(
     window: &Window,
 ) -> RuntimeResult<()> {
@@ -685,11 +761,79 @@ pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
         Ok(true) => Ok(()),
         Ok(false) => Err(RuntimeError::new(
             "SYSTEM_CONTAINED_FULLSCREEN_POLICY_FAILED",
-            "WKWebView could not disable native element fullscreen for this Workspace Web surface.",
+            "WKWebView could not preserve element-fullscreen capability for the contained Workspace Web policy.",
         )),
         Err(_) => Err(RuntimeError::new(
             "SYSTEM_CONTAINED_FULLSCREEN_POLICY_TIMEOUT",
             "WKWebView contained fullscreen policy installation timed out.",
+        )),
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn macos_contained_fullscreen_preflight_completed(
+    context: *mut std::ffi::c_void,
+    passed: bool,
+) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if context.is_null() {
+            return;
+        }
+        let sender = unsafe { Box::from_raw(context.cast::<std::sync::mpsc::SyncSender<bool>>()) };
+        let _ = sender.send(passed);
+    }));
+}
+
+#[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn preflight_platform_contained_fullscreen_policy(
+    webview: &Webview,
+) -> RuntimeResult<()> {
+    unsafe extern "C" {
+        fn rion_wk_preflight_contained_fullscreen_policy(
+            webview: *mut std::ffi::c_void,
+            script: *const std::os::raw::c_char,
+            context: *mut std::ffi::c_void,
+            callback: unsafe extern "C" fn(context: *mut std::ffi::c_void, passed: bool),
+        );
+    }
+
+    let script = std::ffi::CString::new(format!(
+        "{}\n;globalThis.__rionWorkspaceContainedFullscreenPreflight?.() === true",
+        workspace_contained_fullscreen_script()
+    ))
+    .map_err(|error| {
+        RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_FAILED",
+            error.to_string(),
+        )
+    })?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let context_address = Box::into_raw(Box::new(sender)) as usize;
+    let scheduling = webview.with_webview(move |platform_webview| unsafe {
+        rion_wk_preflight_contained_fullscreen_policy(
+            platform_webview.inner(),
+            script.as_ptr(),
+            context_address as *mut std::ffi::c_void,
+            macos_contained_fullscreen_preflight_completed,
+        );
+    });
+    if let Err(error) = scheduling {
+        unsafe {
+            drop(Box::from_raw(
+                context_address as *mut std::sync::mpsc::SyncSender<bool>,
+            ));
+        }
+        return Err(RuntimeError::tauri(error));
+    }
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_FAILED",
+            "WKWebView did not prove the page-world contained-fullscreen wrappers while native fullscreen remained inactive.",
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_TIMEOUT",
+            "WKWebView contained-fullscreen page-world preflight timed out.",
         )),
     }
 }
@@ -840,6 +984,7 @@ pub(in crate::system_runtime) fn install_role_application_shortcut_handler(
 struct MacosRoleSurfaceContext {
     app: AppHandle,
     role_id: String,
+    target: SurfaceFailureTarget,
     tracker: Arc<SurfaceLifecycleTracker>,
     webview_label: String,
 }
@@ -867,16 +1012,22 @@ where
                 *const std::ffi::c_char,
             ) -> bool,
         ) -> u64;
+        fn rion_wk_bind_contained_fullscreen_failure_callback(
+            webview: *mut std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            callback: unsafe extern "C" fn(*mut std::ffi::c_void, i32),
+        );
     }
 
     let tracker = Arc::new(SurfaceLifecycleTracker::default());
-    let role_id = match target {
+    let role_id = match &target {
         SurfaceFailureTarget::Role { role_id, .. }
-        | SurfaceFailureTarget::Popup { role_id, .. } => role_id,
+        | SurfaceFailureTarget::Popup { role_id, .. } => role_id.clone(),
     };
     let context = Box::into_raw(Box::new(MacosRoleSurfaceContext {
         app,
         role_id,
+        target,
         tracker: Arc::clone(&tracker),
         webview_label: webview.label().to_owned(),
     })) as usize;
@@ -898,6 +1049,13 @@ where
             0
         };
         if security_installed && token != 0 {
+            unsafe {
+                rion_wk_bind_contained_fullscreen_failure_callback(
+                    native,
+                    context as *mut std::ffi::c_void,
+                    macos_role_surface_event,
+                );
+            }
             tracker.native_token.store(token, Ordering::Release);
             completion(Ok(tracker));
         } else {
@@ -997,6 +1155,42 @@ unsafe extern "C" fn macos_role_surface_event(context: *mut std::ffi::c_void, ev
             return;
         }
         let context = unsafe { &*(context.cast::<MacosRoleSurfaceContext>()) };
+        if event == 11 {
+            if let Some(state) = context.app.try_state::<crate::CoreState>() {
+                let (role_id, generation) = match &context.target {
+                    SurfaceFailureTarget::Role {
+                        role_id,
+                        generation,
+                    }
+                    | SurfaceFailureTarget::Popup {
+                        role_id,
+                        generation,
+                        ..
+                    } => (role_id, *generation),
+                };
+                let operation = NativeOperationContext::new(
+                    NativeOperationSubsystem::Security,
+                    "workspaceContainedFullscreenGuard",
+                    PLATFORM_CALLBACK_TIMEOUT,
+                )
+                .with_role(role_id)
+                .with_surface_generation(generation);
+                state
+                    .runtime
+                    .record_native_operation_receipt(NativeOperationReceipt::with_status(
+                        operation,
+                        "unexpectedNativeFullscreenIsolated",
+                        NativeOperationStatus::Failed,
+                        Some("SYSTEM_UNEXPECTED_NATIVE_FULLSCREEN"),
+                    ));
+                state.runtime.handle_surface_process_failure(
+                    context.target.clone(),
+                    "unexpected-native-fullscreen".to_owned(),
+                    SurfaceFailureScope::Renderer,
+                );
+            }
+            return;
+        }
         handle_macos_surface_event(&context.tracker, event);
     }));
 }

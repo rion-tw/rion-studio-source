@@ -48,6 +48,7 @@ enum ManagedSurfaceKind {
     Popup,
     Recovery,
     Role,
+    WorkspaceChrome,
 }
 
 impl ManagedSurfaceKind {
@@ -57,13 +58,14 @@ impl ManagedSurfaceKind {
             Self::Popup => "popup",
             Self::Recovery => "recovery",
             Self::Role => "role",
+            Self::WorkspaceChrome => "workspaceChrome",
         }
     }
 
     const fn release_boundary(self) -> SurfaceReleaseBoundary {
         match self {
             Self::Role => SurfaceReleaseBoundary::DedicatedStore,
-            Self::Divider | Self::Popup | Self::Recovery => {
+            Self::Divider | Self::Popup | Self::Recovery | Self::WorkspaceChrome => {
                 SurfaceReleaseBoundary::SharedBrowserProcess
             }
         }
@@ -76,7 +78,8 @@ fn managed_surface_requires_page_quiesce(platform: &str, kind: ManagedSurfaceKin
     // application-shutdown boundary even though Controller::Close is the authoritative release
     // acknowledgement. WKWebView's lease contract still requires its native blank-navigation
     // confirmation before release, and every page-bearing surface keeps the full quiesce path.
-    platform != "windows" || kind != ManagedSurfaceKind::Divider
+    platform != "windows"
+        || !matches!(kind, ManagedSurfaceKind::Divider | ManagedSurfaceKind::WorkspaceChrome)
 }
 
 fn managed_surface_close_checkpoints_role_cookies(
@@ -98,7 +101,8 @@ const fn managed_surface_close_priority(kind: ManagedSurfaceKind) -> u8 {
         ManagedSurfaceKind::Popup => 0,
         ManagedSurfaceKind::Recovery => 1,
         ManagedSurfaceKind::Role => 2,
-        ManagedSurfaceKind::Divider => 3,
+        ManagedSurfaceKind::WorkspaceChrome => 3,
+        ManagedSurfaceKind::Divider => 4,
     }
 }
 

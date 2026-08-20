@@ -646,6 +646,18 @@ async function exerciseWorkspaceContainedFullscreen(
   }
   const originalPresentation = before.native.presentation;
   const originalWebBounds = webSurface.hostBounds;
+  const originalChrome = before.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  );
+  if (!originalChrome) {
+    throw new Error("The Workspace Web slot did not expose its sibling chrome surface");
+  }
+  const originalSlotBounds = {
+    height: originalChrome.bounds.height + originalWebBounds.height,
+    width: originalWebBounds.width,
+    x: originalWebBounds.x,
+    y: originalChrome.bounds.y
+  };
   const originalSiblingBounds = siblingSurface.hostBounds;
   const siblingSurfaceId = siblingSurface.roleId;
 
@@ -673,7 +685,7 @@ async function exerciseWorkspaceContainedFullscreen(
   expect(entered.fullscreen).toEqual(expect.objectContaining({
     active: true,
     targetId: "contained-fullscreen-controls",
-    toolbarHidden: true
+    toolbarPresent: false
   }));
   expectWithinCssPixel(entered.fullscreen?.rect.width, entered.fullscreen?.viewport.width);
   expectWithinCssPixel(entered.fullscreen?.rect.height, entered.fullscreen?.viewport.height);
@@ -684,7 +696,13 @@ async function exerciseWorkspaceContainedFullscreen(
   expect(whileContained.native.presentation).toBe(originalPresentation);
   expect(whileContained.native.roleSurfaces?.find(
     (surface) => surface.roleId === webSurfaceId
-  )?.hostBounds).toEqual(originalWebBounds);
+  )?.hostBounds).toEqual(originalSlotBounds);
+  expect(whileContained.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  )).toEqual(expect.objectContaining({
+    fullscreen: true,
+    visible: false
+  }));
   expect(whileContained.native.roleSurfaces?.find(
     (surface) => surface.roleId === siblingSurfaceId
   )?.hostBounds).toEqual(originalSiblingBounds);
@@ -704,7 +722,7 @@ async function exerciseWorkspaceContainedFullscreen(
   expect(siteExit.fullscreen).toEqual(expect.objectContaining({
     active: false,
     targetId: null,
-    toolbarHidden: false
+    toolbarPresent: false
   }));
 
   const secondEnterAfter = await fixtureCursor();
@@ -734,7 +752,7 @@ async function exerciseWorkspaceContainedFullscreen(
   });
   expect(escapeExit.fullscreen).toEqual(expect.objectContaining({
     active: false,
-    toolbarHidden: false
+    toolbarPresent: false
   }));
   const restored = await windowSnapshot(tab.windowId);
   expect(restored.native.presentation).toBe(originalPresentation);
@@ -744,6 +762,13 @@ async function exerciseWorkspaceContainedFullscreen(
   expect(restored.native.roleSurfaces?.find(
     (surface) => surface.roleId === siblingSurfaceId
   )?.hostBounds).toEqual(originalSiblingBounds);
+  expect(restored.native.workspaceWebChromeSurfaces?.find(
+    (surface) => surface.roleId === webSurfaceId
+  )).toEqual(expect.objectContaining({
+    bounds: originalChrome.bounds,
+    fullscreen: false,
+    visible: true
+  }));
 
   // WKWebView does not grant transient popup activation to the synthetic
   // desktop-E2E input stream. The product popup contract remains covered by

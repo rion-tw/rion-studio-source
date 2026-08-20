@@ -34,7 +34,7 @@ fn contained_fullscreen_capability_is_supported_and_webview_bounded() {
         .find(|(capability, _, _, _)| *capability == "workspaceContainedFullscreen")
         .expect("contained fullscreen capability evidence");
     assert_eq!(status, EngineCapabilityStatus::Supported);
-    assert_eq!(stage, "documentStartAndNativeGuard");
+    assert_eq!(stage, "documentStartPreflightHostGeometryAndNativeGuard");
     assert_eq!(mode, "webview-bounded");
     assert_eq!(SYSTEM_RUNTIME_CONTRACT_VERSION, 17);
 }

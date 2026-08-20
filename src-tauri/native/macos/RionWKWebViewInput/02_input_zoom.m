@@ -1,10 +1,59 @@
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void (*RionWKContainedFullscreenPreflightCallback)(
+    void *context, bool passed);
+
 double rion_wk_page_zoom(void * _Nullable rawWebView) {
   @autoreleasepool {
     if (!rawWebView || ![NSThread isMainThread]) return NAN;
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
     return webView.pageZoom;
+  }
+}
+
+bool rion_wk_workspace_navigation_state(
+    void * _Nullable rawWebView, bool * _Nullable canGoBack,
+    bool * _Nullable canGoForward) {
+  @autoreleasepool {
+    if (!rawWebView || !canGoBack || !canGoForward ||
+        ![NSThread isMainThread]) {
+      return false;
+    }
+    @try {
+      WKWebView *webView = (__bridge WKWebView *)rawWebView;
+      *canGoBack = webView.canGoBack;
+      *canGoForward = webView.canGoForward;
+      return true;
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
+  }
+}
+
+bool rion_wk_workspace_navigation_action(void * _Nullable rawWebView,
+                                         int32_t action) {
+  @autoreleasepool {
+    if (!rawWebView || ![NSThread isMainThread]) return false;
+    @try {
+      WKWebView *webView = (__bridge WKWebView *)rawWebView;
+      switch (action) {
+        case 0:
+          if (!webView.canGoBack) return true;
+          [webView goBack];
+          return true;
+        case 1:
+          if (!webView.canGoForward) return true;
+          [webView goForward];
+          return true;
+        case 2:
+          [webView reload];
+          return true;
+        default:
+          return false;
+      }
+    } @catch (__unused NSException *exception) {
+      return false;
+    }
   }
 }
 
@@ -21,7 +70,7 @@ void * _Nullable rion_wk_create_contained_fullscreen_configuration(
       WKWebViewConfiguration *configuration =
           [[WKWebViewConfiguration alloc] init];
       configuration.websiteDataStore = dataStore;
-      if (!RionDisableNativeElementFullscreen(configuration.preferences)) {
+      if (!RionEnableContainedElementFullscreen(configuration.preferences)) {
         return NULL;
       }
       return (__bridge_retained void *)configuration;
@@ -32,12 +81,87 @@ void * _Nullable rion_wk_create_contained_fullscreen_configuration(
 }
 
 @interface RionWKContainedFullscreenPreferencesFixture : NSObject
-@property(nonatomic) BOOL fullScreenEnabled;
+@property(nonatomic, getter=isElementFullscreenEnabled) BOOL elementFullscreenEnabled;
 @property(nonatomic) BOOL javaScriptCanOpenWindowsAutomatically;
 @end
 
 @implementation RionWKContainedFullscreenPreferencesFixture
 @end
+
+static char RionWKContainedFullscreenGuardKey;
+
+@interface RionWKContainedFullscreenGuard : NSObject
+@property(nonatomic, weak) WKWebView *webView;
+@property(nonatomic, assign) void * _Nullable failureContext;
+@property(nonatomic, assign) RionWKSurfaceEventCallback _Nullable failureCallback;
+@end
+
+@implementation RionWKContainedFullscreenGuard
+- (void)observeValueForKeyPath:(NSString * _Nullable)keyPath
+                      ofObject:(id _Nullable)object
+                        change:(NSDictionary<NSKeyValueChangeKey, id> * _Nullable)change
+                       context:(void * _Nullable)context {
+  (void)change;
+  (void)context;
+  WKWebView *webView = self.webView;
+  if (![keyPath isEqualToString:@"fullscreenState"] || object != webView ||
+      !webView || webView.fullscreenState == WKFullscreenStateNotInFullscreen) {
+    return;
+  }
+  NSLog(@"Rion Studio isolated a Workspace Web surface after an unexpected native fullscreen transition.");
+  [webView closeAllMediaPresentationsWithCompletionHandler:nil];
+  [webView stopLoading];
+  webView.hidden = YES;
+  RionWKSurfaceEventCallback callback = self.failureCallback;
+  void *callbackContext = self.failureContext;
+  self.failureCallback = NULL;
+  self.failureContext = NULL;
+  if (callback && callbackContext) {
+    callback(callbackContext, RionWKSurfaceUnexpectedNativeFullscreen);
+  }
+}
+@end
+
+static bool RionInstallContainedFullscreenGuard(WKWebView *webView) {
+  if (!webView || webView.fullscreenState != WKFullscreenStateNotInFullscreen) {
+    return false;
+  }
+  if (objc_getAssociatedObject(webView, &RionWKContainedFullscreenGuardKey)) {
+    return true;
+  }
+  RionWKContainedFullscreenGuard *guard =
+      [[RionWKContainedFullscreenGuard alloc] init];
+  guard.webView = webView;
+  [webView addObserver:guard
+            forKeyPath:@"fullscreenState"
+               options:NSKeyValueObservingOptionNew
+               context:NULL];
+  objc_setAssociatedObject(webView, &RionWKContainedFullscreenGuardKey, guard,
+                           OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  return true;
+}
+
+void rion_wk_bind_contained_fullscreen_failure_callback(
+    void * _Nullable rawWebView, void * _Nullable context,
+    RionWKSurfaceEventCallback _Nullable callback) {
+  if (!rawWebView || !context || !callback || ![NSThread isMainThread]) return;
+  WKWebView *webView = (__bridge WKWebView *)rawWebView;
+  RionWKContainedFullscreenGuard *guard =
+      objc_getAssociatedObject(webView, &RionWKContainedFullscreenGuardKey);
+  if (!guard) return;
+  guard.failureContext = context;
+  guard.failureCallback = callback;
+}
+
+void rion_wk_unbind_contained_fullscreen_failure_callback(
+    void * _Nullable rawWebView) {
+  if (!rawWebView || ![NSThread isMainThread]) return;
+  WKWebView *webView = (__bridge WKWebView *)rawWebView;
+  RionWKContainedFullscreenGuard *guard =
+      objc_getAssociatedObject(webView, &RionWKContainedFullscreenGuardKey);
+  guard.failureContext = NULL;
+  guard.failureCallback = NULL;
+}
 
 bool rion_wk_install_contained_fullscreen_policy(
     void * _Nullable rawWebView) {
@@ -45,7 +169,39 @@ bool rion_wk_install_contained_fullscreen_policy(
     if (!rawWebView || ![NSThread isMainThread]) return false;
     WKWebView *webView = (__bridge WKWebView *)rawWebView;
     WKWebViewConfiguration *configuration = webView.configuration;
-    return RionDisableNativeElementFullscreen(configuration.preferences);
+    return RionEnableContainedElementFullscreen(configuration.preferences) &&
+        RionInstallContainedFullscreenGuard(webView);
+  }
+}
+
+void rion_wk_preflight_contained_fullscreen_policy(
+    void * _Nullable rawWebView, const char * _Nullable rawScript,
+    void * _Nullable context,
+    RionWKContainedFullscreenPreflightCallback _Nullable callback) {
+  @autoreleasepool {
+    if (!callback) return;
+    if (!rawWebView || !rawScript || ![NSThread isMainThread]) {
+      callback(context, false);
+      return;
+    }
+    WKWebView *webView = (__bridge WKWebView *)rawWebView;
+    NSString *script = [NSString stringWithUTF8String:rawScript];
+    if (!script || webView.fullscreenState != WKFullscreenStateNotInFullscreen) {
+      callback(context, false);
+      return;
+    }
+    @try {
+      [webView
+          evaluateJavaScript:script
+          completionHandler:^(id _Nullable result, NSError * _Nullable error) {
+        bool passed = !error && [result respondsToSelector:@selector(boolValue)] &&
+            [result boolValue] &&
+            webView.fullscreenState == WKFullscreenStateNotInFullscreen;
+        callback(context, passed);
+      }];
+    } @catch (__unused NSException *exception) {
+      callback(context, false);
+    }
   }
 }
 
@@ -53,10 +209,10 @@ bool rion_wk_contained_fullscreen_policy_self_test(void) {
   @autoreleasepool {
     RionWKContainedFullscreenPreferencesFixture *preferences =
         [[RionWKContainedFullscreenPreferencesFixture alloc] init];
-    preferences.fullScreenEnabled = YES;
+    preferences.elementFullscreenEnabled = NO;
     preferences.javaScriptCanOpenWindowsAutomatically = NO;
-    return RionDisableNativeElementFullscreen(preferences) &&
-        !preferences.fullScreenEnabled &&
+    return RionEnableContainedElementFullscreen(preferences) &&
+        preferences.elementFullscreenEnabled &&
         preferences.javaScriptCanOpenWindowsAutomatically;
   }
 }

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "workspace-web-contained-fullscreen-remote",
+  "description": "Allows only Workspace Web content surfaces to request capability-token and document-fenced contained-fullscreen geometry transitions.",
+  "remote": {
+    "urls": ["http://*", "http://*:*", "https://*", "https://*:*"]
+  },
+  "local": false,
+  "webviews": ["workspace-web-*"],
+  "permissions": ["allow-rion-workspace-web-fullscreen-transition"]
+}

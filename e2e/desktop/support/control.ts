@@ -91,6 +91,13 @@ export interface DesktopE2eWindowSnapshot {
       url?: string;
       webviewLabel: string;
     }>;
+    workspaceWebChromeSurfaces?: Array<{
+      bounds: WindowBounds;
+      fullscreen: boolean;
+      roleId: string;
+      visible: boolean;
+      webviewLabel: string;
+    }>;
     scaleFactor: number;
     tabStatusPresentation?: "failed" | "hidden" | "loading";
     tabStripBounds?: WindowBounds;

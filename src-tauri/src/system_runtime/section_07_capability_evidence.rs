@@ -70,7 +70,7 @@ fn capability_evidence_policy(
             (
                 "workspaceContainedFullscreen",
                 supported_if(runtime_available),
-                "documentStartAndNativeGuard",
+                "documentStartPreflightHostGeometryAndNativeGuard",
                 "webview-bounded",
             ),
             (

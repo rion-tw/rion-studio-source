@@ -35,6 +35,7 @@ enum {
   RionWKSurfaceReleaseFailed = 8,
   RionWKSurfaceLeaseDestroyed = 9,
   RionWKSurfaceStaleEvent = 10,
+  RionWKSurfaceUnexpectedNativeFullscreen = 11,
 };
 
 typedef void (*RionWKSurfaceReleasedCallback)(void *context);
@@ -42,6 +43,9 @@ typedef void (*RionWKSurfaceEventCallback)(void *context, int32_t event);
 typedef void (*RionWKSurfaceContextDestructor)(void *context);
 typedef bool (*RionWKMainFrameNavigationCallback)(void *context,
                                                    const char *url);
+
+void rion_wk_unbind_contained_fullscreen_failure_callback(
+    void *rawWebView);
 
 @class RionWKNavigationDelegateProxy;
 
@@ -307,6 +311,8 @@ static void RionWKFinishSurfaceLease(RionWKSurfaceLease *lease) {
   WKWebView *webView = lease.webView;
   uint64_t token = lease.token;
   if (webView) {
+    rion_wk_unbind_contained_fullscreen_failure_callback(
+        (__bridge void *)webView);
     RionWKNavigationDelegateProxy *proxy =
         objc_getAssociatedObject(webView, &RionWKNavigationDelegateProxyKey);
     if (proxy && [webView respondsToSelector:@selector(navigationDelegate)] &&
@@ -703,16 +709,17 @@ static int32_t RionWKConfigureFeature(
       featureKey, preference != 0);
 }
 
-static bool RionDisableNativeElementFullscreen(id preferences) {
+static bool RionEnableContainedElementFullscreen(id preferences) {
   @try {
-    [preferences setValue:@NO forKey:@"fullScreenEnabled"];
+    if (![preferences respondsToSelector:@selector(setElementFullscreenEnabled:)]) {
+      return false;
+    }
+    [preferences setElementFullscreenEnabled:YES];
     [preferences setValue:@YES
                    forKey:@"javaScriptCanOpenWindowsAutomatically"];
-    id fullscreenApplied = [preferences valueForKey:@"fullScreenEnabled"];
     id popupApplied =
         [preferences valueForKey:@"javaScriptCanOpenWindowsAutomatically"];
-    return [fullscreenApplied respondsToSelector:@selector(boolValue)] &&
-        ![fullscreenApplied boolValue] &&
+    return [preferences isElementFullscreenEnabled] &&
         [popupApplied respondsToSelector:@selector(boolValue)] &&
         [popupApplied boolValue];
   } @catch (__unused NSException *exception) {
@@ -764,7 +771,7 @@ void *rion_wk_create_role_configuration(
           [[WKWebViewConfiguration alloc] init];
       configuration.websiteDataStore = dataStore;
       if (containedFullscreenEnabled &&
-          !RionDisableNativeElementFullscreen(configuration.preferences)) {
+          !RionEnableContainedElementFullscreen(configuration.preferences)) {
         return NULL;
       }
       if (highRefreshRateEnabled && highRefreshRateStatus) {

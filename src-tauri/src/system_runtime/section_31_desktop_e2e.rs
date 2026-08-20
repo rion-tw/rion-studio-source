@@ -221,6 +221,46 @@ impl SystemRuntimeExecutor {
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             native_object.insert("roleSurfaces".to_owned(), json!(role_surfaces));
+            let workspace_web_chrome_surfaces = self
+                .state
+                .lock()
+                .map_err(|_| "The runtime state is unavailable.".to_owned())?
+                .native_resources
+                .tabs
+                .iter()
+                .filter(|(tab_id, _)| selected_tab_id.as_deref() == Some(tab_id.as_str()))
+                .flat_map(|(_, tab)| tab.roles.iter())
+                .filter_map(|(role_id, surface)| {
+                    surface.workspace_web.as_ref().map(|workspace| {
+                        let position = workspace
+                            .chrome
+                            .webview
+                            .position()
+                            .map_err(|error| error.to_string())?;
+                        let size = workspace
+                            .chrome
+                            .webview
+                            .size()
+                            .map_err(|error| error.to_string())?;
+                        Ok(json!({
+                            "bounds": {
+                                "height": size.height,
+                                "width": size.width,
+                                "x": position.x,
+                                "y": position.y,
+                            },
+                            "fullscreen": workspace.fullscreen,
+                            "roleId": role_id,
+                            "visible": !workspace.fullscreen,
+                            "webviewLabel": workspace.chrome.webview.label(),
+                        }))
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            native_object.insert(
+                "workspaceWebChromeSurfaces".to_owned(),
+                json!(workspace_web_chrome_surfaces),
+            );
         }
         let popup_owners = self
             .state
@@ -316,7 +356,7 @@ impl SystemRuntimeExecutor {
             let selected_tab_is_ready = selected_tab_id.as_ref().is_some_and(|tab_id| {
                 self.presentation.statuses.launch_phase(tab_id) == Some(LaunchPhase::Ready)
             });
-            let (tab_strip, tab_status_presentation, mut role_webviews) = {
+            let (tab_strip, tab_status_presentation, mut role_webviews, workspace_chrome) = {
                 let state = self
                     .state
                     .lock()
@@ -338,6 +378,24 @@ impl SystemRuntimeExecutor {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
+                let workspace_chrome = selected_tab_id
+                    .as_ref()
+                    .and_then(|tab_id| state.native_resources.tabs.get(tab_id))
+                    .map(|tab| {
+                        tab.roles
+                            .iter()
+                            .filter_map(|(role_id, surface)| {
+                                surface.workspace_web.as_ref().map(|workspace| {
+                                    (
+                                        role_id.clone(),
+                                        workspace.chrome.webview.clone(),
+                                        workspace.fullscreen,
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 (
                     host.tab_strip.clone(),
                     host.tab_status
@@ -345,6 +403,7 @@ impl SystemRuntimeExecutor {
                         .map(|status| status.presentation)
                         .unwrap_or(RuntimeTabStatusPresentation::Hidden),
                     roles,
+                    workspace_chrome,
                 )
             };
             let (tab_strip_bounds, tab_strip_host_bounds) =
@@ -369,6 +428,27 @@ impl SystemRuntimeExecutor {
             native_object.insert("tabStripBounds".to_owned(), tab_strip_bounds);
             native_object.insert("tabStripHostBounds".to_owned(), tab_strip_host_bounds);
             native_object.insert("roleSurfaces".to_owned(), json!(role_surfaces));
+            let workspace_web_chrome_surfaces = workspace_chrome
+                .iter()
+                .map(|(role_id, webview, fullscreen)| {
+                    desktop_e2e_windows_role_surface_snapshot(
+                        role_id,
+                        webview,
+                        include_document_viewport && !fullscreen,
+                    )
+                    .map(|snapshot| json!({
+                        "bounds": snapshot.get("hostBounds"),
+                        "fullscreen": fullscreen,
+                        "roleId": role_id,
+                        "visible": !fullscreen,
+                        "webviewLabel": webview.label(),
+                    }))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            native_object.insert(
+                "workspaceWebChromeSurfaces".to_owned(),
+                json!(workspace_web_chrome_surfaces),
+            );
             native_object.insert(
                 "tabStatusPresentation".to_owned(),
                 Value::String(tab_status_presentation.as_str().to_owned()),

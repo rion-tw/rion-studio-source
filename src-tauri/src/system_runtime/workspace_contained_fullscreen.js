@@ -10,6 +10,7 @@
   const rootAttribute = "data-rion-contained-fullscreen-active";
   const styleId = "__rion_contained_fullscreen_style";
   const messageKey = "__rionContainedFullscreen";
+  const hostForceExitEvent = "__rionWorkspaceContainedFullscreenForceExit";
   let activeElement = null;
   let activePopover = null;
   let addedPopoverAttribute = false;
@@ -17,6 +18,11 @@
   let activeStyleSnapshots = new Map();
   let removalObserver = null;
   let childFrameWindow = null;
+  let transitionSequence = 0;
+  const pendingParentTransitions = new Map();
+  const documentNonce = globalThis.crypto?.randomUUID?.()
+    ?? `${channel}-${Math.random().toString(36).slice(2)}`;
+  let hostTransitionLane = Promise.resolve();
 
   const fullscreenStyles = Object.freeze({
     "animation": "none",
@@ -99,9 +105,6 @@
         overflow: hidden !important;
         overscroll-behavior: none !important;
       }
-      html[${rootAttribute}] #__rion_web_toolbar_host {
-        display: none !important;
-      }
       [${ancestorAttribute}] {
         contain: none !important;
         filter: none !important;
@@ -153,9 +156,9 @@
     }
   };
 
-  const sendToParent = (type) => {
+  const sendToParent = (type, requestId) => {
     if (globalThis.parent === globalThis) return;
-    globalThis.parent.postMessage({ [messageKey]: channel, type }, "*");
+    globalThis.parent.postMessage({ [messageKey]: channel, requestId, type }, "*");
   };
 
   const sendToChild = (type) => {
@@ -227,14 +230,13 @@
     document.documentElement?.removeAttribute(rootAttribute);
   };
 
-  const exitLocal = ({ notifyChild = true, notifyParent = true } = {}) => {
+  const exitLocal = ({ notifyChild = true } = {}) => {
     const exiting = activeElement;
     const hadActiveElement = Boolean(exiting);
     if (notifyChild) sendToChild("exit");
     childFrameWindow = null;
     clearPresentation();
     activeElement = null;
-    if (notifyParent) sendToParent("exit");
     if (hadActiveElement) dispatch(exiting, "fullscreenchange");
     return hadActiveElement;
   };
@@ -257,12 +259,12 @@
     }
   };
 
-  const enterLocal = (element, { notifyParent = true } = {}) => {
+  const enterLocal = (element) => {
     if (!(element instanceof Element) || !element.isConnected) {
       throw createError("TypeError", "The fullscreen element must be connected.");
     }
     if (activeElement === element) return;
-    if (activeElement) exitLocal({ notifyChild: true, notifyParent: false });
+    if (activeElement) exitLocal({ notifyChild: true });
     installStyle();
     activeElement = element;
     activeAncestors = [];
@@ -277,7 +279,7 @@
     openPopover(element);
     removalObserver = new MutationObserver(() => {
       if (activeElement && !activeElement.isConnected) {
-        exitLocal();
+        void exitThroughHost().catch(() => exitLocal());
       } else {
         applyPresentationStyles();
       }
@@ -288,7 +290,6 @@
       childList: true,
       subtree: true
     });
-    if (notifyParent) sendToParent("enter");
     dispatch(element, "fullscreenchange");
     // A site's fullscreenchange handler may synchronously rewrite the same
     // geometry (YouTube does this while updating player state). Reassert the
@@ -296,10 +297,83 @@
     applyPresentationStyles();
   };
 
+  const hostTransition = (phase) => {
+    if (globalThis.parent !== globalThis) {
+      return Promise.reject(createError("NotAllowedError", "Only the top document can resize the Workspace Web surface."));
+    }
+    if (globalThis.__rionWorkspaceWebContainedPopup === true) {
+      return Promise.resolve({ fullscreen: phase === "enter" });
+    }
+    const internals = globalThis.__TAURI_INTERNALS__;
+    const hostIdentity = globalThis.__rionWorkspaceWebIdentity;
+    if (!hostIdentity || !internals || typeof internals.invoke !== "function") {
+      return Promise.reject(createError("NotAllowedError", "The Workspace Web fullscreen host policy is unavailable."));
+    }
+    const sequence = phase === "ready" ? 0 : ++transitionSequence;
+    const invoke = () => internals.invoke("rion_workspace_web_fullscreen_transition", {
+      transition: {
+        capabilityToken: hostIdentity.capabilityToken,
+        documentNonce,
+        generation: hostIdentity.generation,
+        phase,
+        sequence
+      }
+    });
+    const result = hostTransitionLane.then(invoke, invoke);
+    hostTransitionLane = result.catch(() => undefined);
+    return result;
+  };
+
+  let hostReady = null;
+  const ensureHostReady = () => {
+    if (globalThis.parent !== globalThis) return Promise.resolve();
+    hostReady ??= hostTransition("ready");
+    return hostReady;
+  };
+
+  const requestParentTransition = (type) => new Promise((resolve, reject) => {
+    const requestId = `${documentNonce}:${++transitionSequence}`;
+    pendingParentTransitions.set(requestId, { reject, resolve });
+    sendToParent(type, requestId);
+  });
+
+  const enterThroughHost = async (element) => {
+    if (globalThis.parent === globalThis) {
+      await ensureHostReady();
+      await hostTransition("enter");
+    } else {
+      await requestParentTransition("enter");
+    }
+    try {
+      enterLocal(element);
+    } catch (error) {
+      if (globalThis.parent === globalThis) await hostTransition("exit").catch(() => undefined);
+      else await requestParentTransition("exit").catch(() => undefined);
+      throw error;
+    }
+  };
+
+  const exitThroughHost = async () => {
+    const hadActiveElement = Boolean(activeElement);
+    if (!hadActiveElement) return;
+    if (globalThis.parent === globalThis) {
+      await ensureHostReady();
+      await hostTransition("exit");
+    } else {
+      await requestParentTransition("exit");
+    }
+    exitLocal();
+  };
+
+  const forceExitFromHost = () => {
+    exitLocal();
+  };
+  document.addEventListener(hostForceExitEvent, forceExitFromHost, true);
+
   const requestFullscreen = function () {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       try {
-        enterLocal(this);
+        await enterThroughHost(this);
       } catch (error) {
         dispatch(this, "fullscreenerror");
         throw error;
@@ -307,9 +381,7 @@
     });
   };
 
-  const exitFullscreen = () => Promise.resolve().then(() => {
-    if (activeElement) exitLocal();
-  });
+  const exitFullscreen = () => Promise.resolve().then(exitThroughHost);
 
   const locateChildFrame = (source) => Array.from(
     document.querySelectorAll("iframe,frame")
@@ -323,29 +395,48 @@
       .some((entry) => entry.trim().startsWith("fullscreen"));
   };
 
-  globalThis.addEventListener("message", (event) => {
+  globalThis.addEventListener("message", async (event) => {
     const payload = event.data;
     if (!payload || payload[messageKey] !== channel) return;
     event.stopImmediatePropagation();
-    if (payload.type === "exit") {
-      if (event.source === childFrameWindow) exitLocal({ notifyChild: false });
+    if (payload.type === "ack" || payload.type === "deny") {
+      const pending = pendingParentTransitions.get(payload.requestId);
+      if (!pending) return;
+      pendingParentTransitions.delete(payload.requestId);
+      if (payload.type === "ack") pending.resolve();
+      else pending.reject(createError("NotAllowedError", "The parent frame denied contained fullscreen."));
       return;
     }
-    if (payload.type === "deny") {
-      exitLocal({ notifyChild: false });
+    if (payload.type === "exit") {
+      if (event.source !== childFrameWindow) return;
+      try {
+        if (globalThis.parent === globalThis) await hostTransition("exit");
+        else await requestParentTransition("exit");
+        exitLocal({ notifyChild: false });
+        event.source?.postMessage({ [messageKey]: channel, requestId: payload.requestId, type: "ack" }, "*");
+      } catch {
+        event.source?.postMessage({ [messageKey]: channel, requestId: payload.requestId, type: "deny" }, "*");
+      }
       return;
     }
     if (payload.type !== "enter") return;
     const frame = locateChildFrame(event.source);
     if (!frame || !frameAllowsFullscreen(frame, event.origin)) {
-      event.source?.postMessage({ [messageKey]: channel, type: "deny" }, "*");
+      event.source?.postMessage({ [messageKey]: channel, requestId: payload.requestId, type: "deny" }, "*");
       return;
     }
     childFrameWindow = event.source;
     try {
+      if (globalThis.parent === globalThis) {
+        await ensureHostReady();
+        await hostTransition("enter");
+      } else {
+        await requestParentTransition("enter");
+      }
       enterLocal(frame);
+      event.source?.postMessage({ [messageKey]: channel, requestId: payload.requestId, type: "ack" }, "*");
     } catch {
-      event.source?.postMessage({ [messageKey]: channel, type: "deny" }, "*");
+      event.source?.postMessage({ [messageKey]: channel, requestId: payload.requestId, type: "deny" }, "*");
     }
   }, true);
 
@@ -353,14 +444,19 @@
     if (!activeElement || event.key !== "Escape") return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    exitLocal();
+    void exitThroughHost().catch(() => undefined);
   }, true);
-  globalThis.addEventListener("pagehide", () => exitLocal(), { once: true });
+  globalThis.addEventListener("pagehide", () => {
+    if (globalThis.parent === globalThis && activeElement) {
+      void hostTransition("exit").catch(() => undefined);
+    }
+    exitLocal();
+  }, { once: true });
 
   const fullscreenElement = { get: () => activeElement };
   const fullscreenEnabled = { get: () => true };
   const fullscreenActive = { get: () => Boolean(activeElement) };
-  const installed = [
+  const installations = [
     define(Element.prototype, "requestFullscreen", { value: requestFullscreen, writable: true }),
     define(Element.prototype, "webkitRequestFullscreen", { value: requestFullscreen, writable: true }),
     define(Element.prototype, "webkitRequestFullScreen", { value: requestFullscreen, writable: true }),
@@ -374,35 +470,94 @@
     define(Document.prototype, "webkitFullscreenEnabled", fullscreenEnabled),
     define(Document.prototype, "fullscreen", fullscreenActive),
     define(Document.prototype, "webkitIsFullScreen", fullscreenActive)
-  ].every(Boolean);
-
+  ];
   if (globalThis.HTMLVideoElement) {
-    define(HTMLVideoElement.prototype, "webkitEnterFullscreen", {
+    installations.push(define(HTMLVideoElement.prototype, "webkitEnterFullscreen", {
       value: requestFullscreen,
       writable: true
-    });
-    define(HTMLVideoElement.prototype, "webkitEnterFullScreen", {
+    }));
+    installations.push(define(HTMLVideoElement.prototype, "webkitEnterFullScreen", {
       value: requestFullscreen,
       writable: true
-    });
-    define(HTMLVideoElement.prototype, "webkitExitFullscreen", {
+    }));
+    installations.push(define(HTMLVideoElement.prototype, "webkitExitFullscreen", {
       value: exitFullscreen,
       writable: true
-    });
-    define(HTMLVideoElement.prototype, "webkitExitFullScreen", {
+    }));
+    installations.push(define(HTMLVideoElement.prototype, "webkitExitFullScreen", {
       value: exitFullscreen,
       writable: true
-    });
-    define(HTMLVideoElement.prototype, "webkitDisplayingFullscreen", {
+    }));
+    installations.push(define(HTMLVideoElement.prototype, "webkitDisplayingFullscreen", {
       get() { return activeElement === this; }
-    });
-    define(HTMLVideoElement.prototype, "webkitSupportsFullscreen", fullscreenEnabled);
+    }));
+    installations.push(define(
+      HTMLVideoElement.prototype,
+      "webkitSupportsFullscreen",
+      fullscreenEnabled
+    ));
   }
+  const installed = installations.every((result) => result === true);
+
+  const runPreflight = () => {
+    if (globalThis.location.href !== "about:blank" || !installed) return false;
+    const videoAliasesInstalled = !globalThis.HTMLVideoElement || [
+      "webkitEnterFullscreen",
+      "webkitEnterFullScreen",
+      "webkitExitFullscreen",
+      "webkitExitFullScreen",
+      "webkitDisplayingFullscreen",
+      "webkitSupportsFullscreen"
+    ].every((property) => property in HTMLVideoElement.prototype);
+    const wrappersInstalled = Element.prototype.requestFullscreen === requestFullscreen
+      && Element.prototype.webkitRequestFullscreen === requestFullscreen
+      && Element.prototype.webkitRequestFullScreen === requestFullscreen
+      && Document.prototype.exitFullscreen === exitFullscreen
+      && Document.prototype.webkitExitFullscreen === exitFullscreen
+      && Document.prototype.webkitCancelFullScreen === exitFullscreen
+      && videoAliasesInstalled;
+    const parent = document.body ?? document.documentElement;
+    if (!wrappersInstalled || !parent) return false;
+    const target = document.createElement("div");
+    parent.appendChild(target);
+    try {
+      enterLocal(target);
+      const entered = document.fullscreenElement === target
+        && document.webkitFullscreenElement === target
+        && document.fullscreen === true
+        && target.hasAttribute(activeAttribute);
+      exitLocal();
+      return entered
+        && document.fullscreenElement === null
+        && document.webkitFullscreenElement === null
+        && document.fullscreen === false
+        && !target.hasAttribute(activeAttribute);
+    } catch {
+      exitLocal();
+      return false;
+    } finally {
+      target.remove();
+    }
+  };
+
+  Object.defineProperty(globalThis, "__rionWorkspaceContainedFullscreenForceExit", {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: forceExitFromHost
+  });
+
+  Object.defineProperty(globalThis, "__rionWorkspaceContainedFullscreenPreflight", {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: runPreflight
+  });
 
   Object.defineProperty(globalThis, installationKey, {
     configurable: false,
     enumerable: false,
     writable: false,
-    value: Object.freeze({ installed, version: 1 })
+    value: Object.freeze({ installed, version: 2 })
   });
 })();

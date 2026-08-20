@@ -674,7 +674,7 @@ use uuid::Uuid;
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_workspace_web_policy_disables_native_element_fullscreen() {
+    fn macos_workspace_web_policy_preserves_element_fullscreen_capability() {
         unsafe extern "C" {
             fn rion_wk_contained_fullscreen_policy_self_test() -> bool;
         }

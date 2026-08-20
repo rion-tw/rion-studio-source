@@ -62,6 +62,8 @@ function recordFixtureEvent(input) {
   const event = {
     code: typeof input.code === "string" ? input.code : undefined,
     coordinates: input.coordinates,
+    errorCode: typeof input.errorCode === "string" ? input.errorCode : undefined,
+    errorMessage: typeof input.errorMessage === "string" ? input.errorMessage : undefined,
     hidden: typeof input.hidden === "boolean" ? input.hidden : undefined,
     isTrusted: typeof input.isTrusted === "boolean" ? input.isTrusted : undefined,
     key: typeof input.key === "string" ? input.key : undefined,
@@ -281,7 +283,11 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       }, true);
       document.querySelector("#contained-fullscreen-enter").addEventListener("click", () => {
         void containedFullscreenControls.requestFullscreen().catch((error) => {
-          record("contained-fullscreen-error", { key: error?.name ?? "Error" });
+          record("contained-fullscreen-error", {
+            errorCode: error?.code ?? error?.error?.code ?? "UNKNOWN",
+            errorMessage: error?.message ?? error?.error?.message ?? String(error),
+            key: error?.name ?? "Error",
+          });
         });
       });
       document.querySelector("#contained-fullscreen-exit").addEventListener("click", () => {
@@ -297,14 +303,12 @@ function rolePage(roleId, sessionMode, sessionMarker) {
           }
         }
         const rect = containedFullscreenControls.getBoundingClientRect();
-        const toolbar = document.querySelector("#__rion_web_toolbar_host");
         record(active ? "contained-fullscreen-enter" : "contained-fullscreen-exit", {
           fullscreen: {
             active,
             rect: { height: rect.height, width: rect.width, x: rect.x, y: rect.y },
             targetId: document.fullscreenElement?.id ?? null,
-            toolbarHidden: toolbar ? getComputedStyle(toolbar).display === "none" : false,
-            toolbarPresent: Boolean(toolbar),
+            toolbarPresent: Boolean(document.querySelector("#__rion_web_toolbar_host")),
             viewport: { height: innerHeight, width: innerWidth }
           }
         });

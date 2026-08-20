@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rion-workspace-web-fullscreen-transition"
+description = "Enables the rion_workspace_web_fullscreen_transition command without any pre-configured scope."
+commands.allow = ["rion_workspace_web_fullscreen_transition"]
+
+[[permission]]
+identifier = "deny-rion-workspace-web-fullscreen-transition"
+description = "Denies the rion_workspace_web_fullscreen_transition command without any pre-configured scope."
+commands.deny = ["rion_workspace_web_fullscreen_transition"]

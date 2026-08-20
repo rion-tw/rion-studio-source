@@ -166,6 +166,7 @@ impl SystemRuntimeExecutor {
                         rect: role.rect.clone(),
                         surface_instance_id: instance_id.clone(),
                         webview: webview.clone(),
+                        workspace_web: None,
                         zoom_factor: role_zoom_factor,
                     },
                 );

@@ -594,6 +594,12 @@ impl SystemRuntimeExecutor {
                 .surfaces(&window_id, previous_tab_id.as_deref());
             (previous_tab_id, previous_surfaces, revision)
         };
+        if let Some(previous_tab_id) = previous_tab_id.as_deref()
+            && previous_tab_id != tab_id
+        {
+            self.force_restore_workspace_web_fullscreen_for_tab(previous_tab_id)
+                .map_err(|error| error.message)?;
+        }
         if trigger == "native-pointer" {
             self.remember_native_active_style(&window_id, Some(tab_id));
         } else if trigger != "surface-attached" {
@@ -846,6 +852,12 @@ impl SystemRuntimeExecutor {
             )
             .map_err(|error| error.message)?;
             self.schedule_live_window_state_persistence(&window_id);
+        }
+        if let Some(previous_tab_id) = previous_tab_id.as_deref()
+            && previous_tab_id != tab_id
+        {
+            self.force_restore_workspace_web_fullscreen_for_tab(previous_tab_id)
+                .map_err(|error| error.message)?;
         }
         if trigger == "native-pointer" {
             self.remember_native_active_style(&window_id, Some(tab_id));

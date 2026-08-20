@@ -65,9 +65,12 @@ an artificial per-frame `gl.flush()`.
 A workspace slot contains exactly one of a Role, a Web App, or nothing. A Web
 App has a display name and an HTTP(S) start URL. Every launch starts at that URL;
 last URL and history are not durable state. Main-frame HTTP(S) navigation may
-cross origins. The surface exposes Back, Forward, Reload, Home, and current
-origin controls, while tab audio and window zoom continue through the shared
-native tab projection.
+cross origins. Each Web App owns a separate 34 logical-pixel local chrome WebView
+above its website WebView. That sibling surface exposes Back, Forward, Reload,
+Home, and an editable full HTTP(S) URL. A missing scheme becomes `https://`;
+arbitrary search text and non-HTTP(S) schemes are rejected. The website DOM never
+contains the Rion chrome, while tab audio and window zoom continue through the
+shared native tab projection.
 
 All workspace Web Apps and their controlled HTTP(S) popups share the single
 Rion-owned `global-web` session. On Windows its WebView2 data directory is
@@ -89,16 +92,24 @@ contained to that WebView viewport. A document-start, all-frame policy owns the
 standard Fullscreen API and WebKit compatibility aliases, promotes a requesting
 child frame through an authenticated parent-frame relay, and presents the
 requested element through the browser top layer or a fixed-position fallback.
-While active it hides the Rion Web toolbar and locks document scrolling. Site
+The request Promise waits for the System Runtime to hide the sibling chrome and
+expand the website WebView from its content bounds to the complete slot envelope.
+While active it locks document scrolling. Site
 exit, Escape, active-element removal, unload, and navigation restore the prior
 document state from exact DOM events; no timer or polling loop establishes
 fullscreen truth.
 
 Contained fullscreen never changes the owning Rion native window state or the
-geometry of sibling Workspace slots. macOS additionally disables WKWebView's
-native element-fullscreen preference before first navigation and closes the
-provisional surface if that guard cannot be installed. On Windows, interception
-occurs before WebView2 can emit a host fullscreen transition. Role/Game WebViews
+geometry of sibling Workspace slots. macOS keeps
+`isElementFullscreenEnabled` enabled so sites such as YouTube activate their own
+fullscreen layout, while the document-start interposition prevents the request
+from reaching native presentation. Before the first remote navigation, the
+provisional `about:blank` document must pass a page-world wrapper and synthetic
+enter/exit preflight while the native fullscreen state remains inactive. A
+`WKWebView.fullscreenState` guard closes
+unexpected media presentation and isolates the surface if an unintercepted path
+enters native fullscreen. On Windows, interception occurs before WebView2 can
+emit a host fullscreen transition. Role/Game WebViews
 and user-initiated Rion window fullscreen are outside this policy. Sites that
 depend exclusively on the engine's native `:fullscreen` pseudo-class or a
 proprietary DRM fullscreen path remain best-effort and must not fall back to
@@ -115,4 +126,5 @@ and records a failed receipt.
 evidence stage, and failure reason. `supported`, `degraded`, `unsupported`, and
 `disabled` are explicit states; no feature may infer support solely from the
 operating system name. `workspaceContainedFullscreen` uses the
-`webview-bounded` policy mode.
+`webview-bounded` policy mode and the
+`documentStartPreflightHostGeometryAndNativeGuard` evidence stage.

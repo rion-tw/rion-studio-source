@@ -1,0 +1,92 @@
+@import "../shared/designTokens.css";
+
+:root {
+  color-scheme: dark;
+  font-family: var(--font-ui);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+nav {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid hsl(var(--border));
+  padding: var(--space-1) var(--space-2);
+}
+
+button {
+  display: grid;
+  width: 25px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+button:hover:not(:disabled) {
+  background: hsl(var(--glass-control-hover));
+  color: hsl(var(--foreground));
+}
+
+button:active:not(:disabled) {
+  background: hsl(var(--glass-control-selected));
+}
+
+button:disabled {
+  opacity: 0.35;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.75);
+  outline-offset: -2px;
+}
+
+button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+#location-form {
+  min-width: 0;
+  flex: 1;
+}
+
+#location {
+  width: 100%;
+  height: 24px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--foreground));
+  font: 12px/1 var(--font-ui);
+}
+
+#location[aria-invalid="true"] {
+  border-color: hsl(var(--destructive));
+}

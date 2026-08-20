@@ -19,6 +19,8 @@ pub(in crate::system_runtime) const WM_RION_GEOMETRY_FLUSH: u32 = WM_APP + 0x52;
 
 #[derive(Clone, Debug)]
 pub(in crate::system_runtime) struct WindowsLiveResizeRolePlan {
+    pub(in crate::system_runtime) chrome_label: Option<String>,
+    pub(in crate::system_runtime) fullscreen: bool,
     pub(in crate::system_runtime) input: LayoutRoleInput,
     pub(in crate::system_runtime) label: String,
 }
@@ -383,6 +385,10 @@ pub(in crate::system_runtime) fn windows_live_resize_invalidate_surface_plans(
 pub(in crate::system_runtime) fn windows_live_resize_plan_contains_label(plan: &WindowsLiveResizePlan, label: &str) -> bool {
     plan.tab_strip_label == label
         || plan.roles.iter().any(|role| role.label == label)
+        || plan
+            .roles
+            .iter()
+            .any(|role| role.chrome_label.as_deref() == Some(label))
         || plan.dividers.iter().any(|divider| divider.label == label)
 }
 
@@ -1071,6 +1077,7 @@ pub(in crate::system_runtime) fn windows_live_resize_collect_surfaces(
     // other attached controller) from accepting the current native frame.
     let labels = std::iter::once(plan.tab_strip_label.as_str())
         .chain(plan.roles.iter().map(|role| role.label.as_str()))
+        .chain(plan.roles.iter().filter_map(|role| role.chrome_label.as_deref()))
         .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
     let surfaces = labels
         .filter_map(|label| registry.surfaces.get(label).cloned())
@@ -1085,6 +1092,7 @@ pub(in crate::system_runtime) fn windows_live_resize_project_available_bounds(
 ) -> Option<Vec<WindowsLiveResizeBounds>> {
     let planned_labels = std::iter::once(plan.tab_strip_label.as_str())
         .chain(plan.roles.iter().map(|role| role.label.as_str()))
+        .chain(plan.roles.iter().filter_map(|role| role.chrome_label.as_deref()))
         .chain(plan.dividers.iter().map(|divider| divider.label.as_str()))
         .collect::<Vec<_>>();
     if surface_labels.is_empty() || planned_labels.len() != resolved_bounds.len() {
@@ -1107,6 +1115,7 @@ pub(in crate::system_runtime) fn windows_live_resize_plan_surfaces_available(
 ) -> bool {
     let labels = std::iter::once(plan.tab_strip_label.as_str())
         .chain(plan.roles.iter().map(|role| role.label.as_str()))
+        .chain(plan.roles.iter().filter_map(|role| role.chrome_label.as_deref()))
         .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
     labels.into_iter().all(|label| registry.surfaces.contains_key(label))
 }

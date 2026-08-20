@@ -305,12 +305,13 @@ impl SystemRuntimeExecutor {
         .with_role(surface_id)
         .with_surface_generation(generation);
         let policy_result = require_workspace_contained_fullscreen_policy(
-            install_platform_contained_fullscreen_policy(webview),
+            install_platform_contained_fullscreen_policy(webview)
+                .and_then(|()| preflight_platform_contained_fullscreen_policy(webview)),
         );
         let policy_receipt = match policy_result.as_ref() {
             Ok(()) => NativeOperationReceipt::applied(
                 policy_operation,
-                "containedFullscreenPolicyInstalled",
+                "containedFullscreenPreflightPassed",
             ),
             Err(failure) => NativeOperationReceipt::with_status(
                 policy_operation,
@@ -457,6 +458,7 @@ impl SystemRuntimeExecutor {
                 ManagedSurfaceKind::Popup => "popupSurfaceRegistered",
                 ManagedSurfaceKind::Recovery => "recoverySurfaceRegistered",
                 ManagedSurfaceKind::Role => "roleSurfaceRegistered",
+                ManagedSurfaceKind::WorkspaceChrome => "workspaceChromeSurfaceRegistered",
             },
             &result,
         ));

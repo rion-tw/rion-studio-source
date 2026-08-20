@@ -18,6 +18,27 @@ pub(in crate::system_runtime) fn platform_page_zoom(_webview: &Webview) -> Runti
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
+pub(in crate::system_runtime) fn platform_workspace_web_history_state(
+    _webview: &Webview,
+) -> RuntimeResult<(bool, bool)> {
+    Err(RuntimeError::new(
+        "WORKSPACE_WEB_HISTORY_UNAVAILABLE",
+        "Native Workspace Web navigation history is unavailable on this platform.",
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(in crate::system_runtime) fn request_platform_workspace_web_navigation(
+    _webview: &Webview,
+    _action: WorkspaceWebNativeNavigationAction,
+) -> RuntimeResult<()> {
+    Err(RuntimeError::new(
+        "WORKSPACE_WEB_NAVIGATION_UNAVAILABLE",
+        "Native Workspace Web navigation is unavailable on this platform.",
+    ))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn request_platform_window_hide(
     window: &Window,
 ) -> RuntimeResult<()> {
@@ -226,6 +247,13 @@ pub(in crate::system_runtime) fn install_platform_security_policy(
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
+    _webview: &Webview,
+) -> RuntimeResult<()> {
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(in crate::system_runtime) fn preflight_platform_contained_fullscreen_policy(
     _webview: &Webview,
 ) -> RuntimeResult<()> {
     Ok(())

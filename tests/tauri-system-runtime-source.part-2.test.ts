@@ -847,8 +847,9 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(macInput).toContain("__rionPrepareForNativeClose");
     expect(macInput).toContain("rion_wk_release_surface");
     expect(macInput).toContain("[webView removeFromSuperview]");
-    expect(macInput).not.toContain("addObserver:");
-    expect(macInput).not.toContain("observeValueForKeyPath:");
+    expect(macInput).toContain('"fullscreenState"');
+    expect(macInput).toContain("observeValueForKeyPath:");
+    expect(macInput).toContain("closeAllMediaPresentations");
     expect(macInput).not.toContain("rion_wk_surface_quiesced");
     expect(macInput).not.toContain("rion_wk_surface_released");
     expect(macInput).not.toContain("webView.loading");

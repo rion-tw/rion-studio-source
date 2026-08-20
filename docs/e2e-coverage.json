@@ -313,7 +313,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, launch its System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
+      "description": "Create a mixed Web App and Role workspace through visible slot-content controls, launch its paired content and external Rion-owned chrome System WebViews, and verify the configured HTTP(S) start URL plus the Rion-managed Web session persist across restart; contained fullscreen behavior is covered by WORKSPACE-WEB-FULLSCREEN-005."
     },
     {
       "id": "WORKSPACE-WEB-FULLSCREEN-005",
@@ -327,7 +327,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Trigger Workspace Web contained fullscreen from visible fixture controls using real platform keyboard input, prove the element fills only its WebView while the toolbar hides and native sibling/window geometry remains unchanged, restore through both the website exit control and Escape, and repeat the same bounded behavior in its controlled popup."
+      "description": "Trigger Workspace Web contained fullscreen from visible fixture controls using real platform keyboard input, prove the element and content WebView expand to the slot envelope while the sibling chrome surface hides and native sibling/window geometry remains unchanged, restore through both the website exit control and Escape, and repeat the same bounded behavior in its controlled popup."
     },
     {
       "id": "GAME-WINDOWS-UI-001",

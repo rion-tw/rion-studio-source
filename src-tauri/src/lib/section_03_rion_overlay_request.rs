@@ -306,6 +306,30 @@ async fn rion_runtime_audio_state(
 }
 
 #[tauri::command]
+async fn rion_workspace_web_chrome_action(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    action: system_runtime::WorkspaceWebChromeAction,
+) -> Result<system_runtime::WorkspaceWebChromeState, CoreErrorPayload> {
+    state
+        .runtime
+        .workspace_web_chrome_action(webview.label(), action)
+        .map_err(|error| shell_error(error.code, error.message))
+}
+
+#[tauri::command]
+async fn rion_workspace_web_fullscreen_transition(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    transition: system_runtime::WorkspaceWebFullscreenTransition,
+) -> Result<system_runtime::WorkspaceWebFullscreenReceipt, CoreErrorPayload> {
+    state
+        .runtime
+        .workspace_web_fullscreen_transition(webview.label(), transition)
+        .map_err(|error| shell_error(error.code, error.message))
+}
+
+#[tauri::command]
 async fn rion_runtime_role_slot_action(
     webview: Webview,
     state: State<'_, CoreState>,

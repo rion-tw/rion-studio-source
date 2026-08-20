@@ -292,6 +292,10 @@ impl SystemRuntimeExecutor {
                         {
                             return None;
                         }
+                        let workspace = tab
+                            .roles
+                            .get(&slot.role.id)
+                            .and_then(|surface| surface.workspace_web.as_ref());
                         Some((
                             slot.role.id.clone(),
                             webview,
@@ -299,6 +303,8 @@ impl SystemRuntimeExecutor {
                             zoom_mode,
                             role_surface,
                             runtime_role_slot_input(slot),
+                            workspace.map(|workspace| workspace.chrome.webview.clone()),
+                            workspace.is_some_and(|workspace| workspace.fullscreen),
                         ))
                     })
                     .collect::<Vec<_>>(),
@@ -332,7 +338,7 @@ impl SystemRuntimeExecutor {
         let role_views = role_views
             .into_iter()
             .map(
-                |(role_id, webview, projected_zoom, _projected_mode, role_surface, input)| {
+                |(role_id, webview, projected_zoom, _projected_mode, role_surface, input, chrome, fullscreen)| {
                     let (zoom_factor, adaptive) = self.runtime_role_zoom_contract(
                         &window_id,
                         tab_id,
@@ -346,6 +352,8 @@ impl SystemRuntimeExecutor {
                         if adaptive { "adaptive" } else { "fixed" }.to_owned(),
                         role_surface,
                         input,
+                        chrome,
+                        fullscreen,
                     )
                 },
             )
@@ -365,7 +373,7 @@ impl SystemRuntimeExecutor {
             .unwrap_or_else(|| runtime_window_content_metrics(&window))?;
         let role_inputs = role_views
             .iter()
-            .map(|(_, _, _, _, _, input)| input.clone())
+            .map(|(_, _, _, _, _, input, _, _)| input.clone())
             .collect::<Vec<_>>();
         #[cfg(windows)]
         let is_active_tab = self
@@ -403,7 +411,9 @@ impl SystemRuntimeExecutor {
                     revision,
                     roles: role_views
                         .iter()
-                        .map(|(_, webview, _, _, _, input)| WindowsLiveResizeRolePlan {
+                        .map(|(_, webview, _, _, _, input, chrome, fullscreen)| WindowsLiveResizeRolePlan {
+                            chrome_label: chrome.as_ref().map(|chrome| chrome.label().to_owned()),
+                            fullscreen: *fullscreen,
                             input: input.clone(),
                             label: webview.label().to_owned(),
                         })
@@ -418,7 +428,7 @@ impl SystemRuntimeExecutor {
         #[cfg(windows)]
         let _ = (&divider_bounds, skip_active_bounds);
         let mut zoom_updates = Vec::with_capacity(role_views.len());
-        for (role_id, webview, current_zoom, zoom_mode, role_surface, _) in &role_views {
+        for (role_id, webview, current_zoom, zoom_mode, role_surface, _, _, _) in &role_views {
             let Some(bounds) = role_bounds.get(role_id) else {
                 continue;
             };
@@ -444,13 +454,25 @@ impl SystemRuntimeExecutor {
         let _ = tab_strip;
         #[cfg(not(windows))]
         if !skip_active_bounds {
-            for (role_id, webview, _, _, _, _) in &role_views {
+            for (role_id, webview, _, _, _, _, chrome, fullscreen) in &role_views {
                 if let Some(bounds) = role_bounds.get(role_id) {
+                    let (chrome_bounds, content_bounds) = if chrome.is_some() {
+                        workspace_web_surface_bounds(*bounds, *fullscreen)
+                    } else {
+                        (*bounds, *bounds)
+                    };
                     mutations.push(native_layout_bounds_mutation(
                         webview.clone(),
-                        LogicalPosition::new(bounds.x, bounds.y),
-                        LogicalSize::new(bounds.width, bounds.height),
+                        LogicalPosition::new(content_bounds.x, content_bounds.y),
+                        LogicalSize::new(content_bounds.width, content_bounds.height),
                     ));
+                    if let Some(chrome) = chrome {
+                        mutations.push(native_layout_bounds_mutation(
+                            chrome.clone(),
+                            LogicalPosition::new(chrome_bounds.x, chrome_bounds.y),
+                            LogicalSize::new(chrome_bounds.width, chrome_bounds.height.max(1.0)),
+                        ));
+                    }
                 }
             }
         }
@@ -548,6 +570,16 @@ impl SystemRuntimeExecutor {
             for (role_id, _, base_zoom, _, _) in &zoom_updates {
                 if let Some(surface) = tab.roles.get_mut(role_id) {
                     surface.zoom_factor = *base_zoom;
+                }
+            }
+            for (role_id, _, _, _, _, _, _, _) in &role_views {
+                if let Some(bounds) = role_bounds.get(role_id)
+                    && let Some(workspace) = tab
+                        .roles
+                        .get_mut(role_id)
+                        .and_then(|surface| surface.workspace_web.as_mut())
+                {
+                    workspace.slot_bounds = *bounds;
                 }
             }
             Ok(())

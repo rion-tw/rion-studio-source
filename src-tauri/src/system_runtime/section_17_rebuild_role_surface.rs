@@ -450,6 +450,7 @@ impl SystemRuntimeExecutor {
                     rect,
                     surface_instance_id: replacement_instance_id.clone(),
                     webview,
+                    workspace_web: None,
                     zoom_factor,
                 },
             );

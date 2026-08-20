@@ -413,6 +413,8 @@ impl SystemRuntimeExecutor {
                 let navigation = Arc::new(NavigationTracker::default());
                 let callback_navigation = Arc::clone(&navigation);
                 let is_workspace_web = role.web.is_some();
+                let workspace_capability_token = is_workspace_web
+                    .then(|| uuid::Uuid::new_v4().to_string());
                 let role_label = runtime_label(
                     if is_workspace_web { "workspace-web" } else { "game-role" },
                     &format!("{role_id}:generation-{generation}"),
@@ -425,19 +427,29 @@ impl SystemRuntimeExecutor {
                 };
                 fs::create_dir_all(&paths.webview2).map_err(RuntimeError::io)?;
                 let (builder, high_refresh_rate_status, web_gl_configuration) =
-                    if let Some(web) = role.web.as_ref() {
+                    if role.web.is_some() {
                         self.workspace_webview_builder(
                             &window,
                             role_label,
                             &paths,
                             &role_id,
-                            web,
+                            workspace_capability_token
+                                .as_deref()
+                                .expect("Workspace Web capability token exists"),
+                            generation,
                         )?
                     } else {
                         self.role_webview_builder(&window, role_label, &paths, &role_id)?
                     };
                 let builder = builder.on_page_load(move |webview, payload| {
                     callback_navigation.page_event(payload.event(), payload.url());
+                    if let Some(state) = navigation_app.try_state::<crate::CoreState>() {
+                        state.runtime.workspace_web_navigation_event(
+                            webview.label(),
+                            payload.event(),
+                            payload.url(),
+                        );
+                    }
                     if payload.event() == PageLoadEvent::Finished
                         && let Some(state) = navigation_app.try_state::<crate::CoreState>()
                     {
@@ -451,6 +463,11 @@ impl SystemRuntimeExecutor {
                 // divider and adaptive-zoom layout runs after every role controller has attached,
                 // so Core layout work can no longer delay the first native game viewport.
                 let bounds = role_bounds_for_content(content_metrics, &role.rect);
+                let (_, initial_content_bounds) = if is_workspace_web {
+                    workspace_web_surface_bounds(bounds, false)
+                } else {
+                    (bounds, bounds)
+                };
                 let (base_zoom_factor, _) = self.runtime_role_zoom_contract(
                     &target.window_id,
                     &tab.tab_id,
@@ -461,8 +478,8 @@ impl SystemRuntimeExecutor {
                     self.add_child_bounded(
                         &window,
                         builder,
-                        LogicalPosition::new(bounds.x, bounds.y),
-                        LogicalSize::new(bounds.width, bounds.height),
+                        LogicalPosition::new(initial_content_bounds.x, initial_content_bounds.y),
+                        LogicalSize::new(initial_content_bounds.width, initial_content_bounds.height),
                         &role_id,
                     )
                 })?;
@@ -542,6 +559,22 @@ impl SystemRuntimeExecutor {
                     .last_mut()
                     .expect("role surface was just registered")
                     .3 = Some(surface_instance_id.clone());
+                let workspace_web_surface = if let Some(web) = role.web.as_ref() {
+                    Some(self.create_workspace_web_chrome_surface(
+                        &window,
+                        &target.window_id,
+                        &tab.tab_id,
+                        &role_id,
+                        generation,
+                        workspace_capability_token
+                            .clone()
+                            .expect("Workspace Web capability token exists"),
+                        checked_workspace_chrome_url(&web.start_url)?,
+                        bounds,
+                    )?)
+                } else {
+                    None
+                };
                 {
                     let mut state = self.state()?;
                     let runtime_tab = state.native_resources.tabs.get_mut(&tab.tab_id).ok_or_else(|| {
@@ -562,6 +595,7 @@ impl SystemRuntimeExecutor {
                             rect: role.rect.clone(),
                             surface_instance_id: surface_instance_id.clone(),
                             webview: webview.clone(),
+                            workspace_web: workspace_web_surface,
                             zoom_factor: base_zoom_factor,
                         },
                     );
@@ -596,6 +630,9 @@ impl SystemRuntimeExecutor {
                     launch_started,
                 );
                 self.reconcile_surface_membership(&target.window_id, "surface-attached");
+                if is_workspace_web {
+                    self.publish_workspace_web_chrome_state(webview.label());
+                }
                 webview
                     .set_zoom(effective_zoom_factor(base_zoom_factor, window_zoom_factor))
                     .map_err(RuntimeError::tauri)?;
@@ -664,18 +701,22 @@ impl SystemRuntimeExecutor {
                         )
                     })?;
                     if let Some(surface) = runtime_tab.roles.get(&slot.role.id) {
-                        Some((surface.webview.clone(), surface.zoom_factor))
+                        Some((
+                            surface.webview.clone(),
+                            surface.workspace_web.as_ref().map(|workspace| workspace.chrome.webview.clone()),
+                            surface.zoom_factor,
+                        ))
                     } else {
                         runtime_tab
                             .slots
                             .get(&slot.slot_id)
                             .and_then(|runtime_slot| runtime_slot.placeholder.as_ref())
                             .map(|placeholder| {
-                                (placeholder.webview.clone(), slot.zoom_factor.clamp(0.25, 3.0))
+                                (placeholder.webview.clone(), None, slot.zoom_factor.clamp(0.25, 3.0))
                             })
                     }
                 };
-                let Some((webview, projected_zoom_factor)) = surface else {
+                let Some((webview, chrome, projected_zoom_factor)) = surface else {
                     return Err(RuntimeError::new(
                         "TAURI_RUNTIME_ROLE_NOT_FOUND",
                         "Runtime role slot was not found after native attachment.",
@@ -701,9 +742,20 @@ impl SystemRuntimeExecutor {
                 {
                     surface.zoom_factor = base_zoom_factor;
                 }
+                let (chrome_bounds, content_bounds) = if chrome.is_some() {
+                    workspace_web_surface_bounds(bounds, false)
+                } else {
+                    (bounds, bounds)
+                };
+                if let Some(chrome) = chrome {
+                    chrome
+                        .set_position(LogicalPosition::new(chrome_bounds.x, chrome_bounds.y))
+                        .and_then(|()| chrome.set_size(LogicalSize::new(chrome_bounds.width, chrome_bounds.height.max(1.0))))
+                        .map_err(RuntimeError::tauri)?;
+                }
                 webview
-                    .set_position(LogicalPosition::new(bounds.x, bounds.y))
-                    .and_then(|()| webview.set_size(LogicalSize::new(bounds.width, bounds.height)))
+                    .set_position(LogicalPosition::new(content_bounds.x, content_bounds.y))
+                    .and_then(|()| webview.set_size(LogicalSize::new(content_bounds.width, content_bounds.height)))
                     .and_then(|()| {
                         if adaptive {
                             webview.set_zoom(effective_zoom_factor(
@@ -715,6 +767,16 @@ impl SystemRuntimeExecutor {
                         }
                     })
                     .map_err(RuntimeError::tauri)?;
+                if let Ok(mut state) = self.state.lock()
+                    && let Some(workspace) = state
+                        .native_resources
+                        .tabs
+                        .get_mut(&tab.tab_id)
+                        .and_then(|runtime_tab| runtime_tab.roles.get_mut(&slot.role.id))
+                        .and_then(|surface| surface.workspace_web.as_mut())
+                {
+                    workspace.slot_bounds = bounds;
+                }
             }
             // The initial exact bounds above do not establish the Win32 live-resize plan.
             // Publish it only after every initial controller is registered so the first WM_SIZE

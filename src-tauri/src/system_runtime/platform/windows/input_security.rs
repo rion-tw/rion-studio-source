@@ -177,6 +177,93 @@ pub(in crate::system_runtime) fn install_platform_contained_fullscreen_policy(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn preflight_platform_contained_fullscreen_policy(
+    webview: &Webview,
+) -> RuntimeResult<()> {
+    use webview2_com::{
+        ContainsFullScreenElementChangedEventHandler, ExecuteScriptCompletedHandler,
+        Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    };
+    use windows::core::{BOOL, HSTRING};
+
+    let script = format!(
+        "{}\n;globalThis.__rionWorkspaceContainedFullscreenPreflight?.() === true",
+        workspace_contained_fullscreen_script()
+    );
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    webview
+        .with_webview(move |platform_webview| unsafe {
+            let result = (|| -> Result<(), String> {
+                let core: ICoreWebView2 = platform_webview
+                    .controller()
+                    .CoreWebView2()
+                    .map_err(|error| error.to_string())?;
+                let native_event_observed = std::sync::Arc::new(
+                    std::sync::atomic::AtomicBool::new(false),
+                );
+                let event_observed = std::sync::Arc::clone(&native_event_observed);
+                let event_handler = ContainsFullScreenElementChangedEventHandler::create(
+                    Box::new(move |_sender, _args| {
+                        event_observed.store(true, std::sync::atomic::Ordering::Release);
+                        Ok(())
+                    }),
+                );
+                let mut event_token = 0;
+                core.add_ContainsFullScreenElementChanged(&event_handler, &mut event_token)
+                    .map_err(|error| error.to_string())?;
+
+                let completion_core = core.clone();
+                let completion_sender = sender.clone();
+                let completion_observed = std::sync::Arc::clone(&native_event_observed);
+                let completion = ExecuteScriptCompletedHandler::create(Box::new(
+                    move |status, raw| {
+                        let mut contains_fullscreen = BOOL::default();
+                        let property_result = completion_core
+                            .ContainsFullScreenElement(&mut contains_fullscreen);
+                        let _ = completion_core
+                            .remove_ContainsFullScreenElementChanged(event_token);
+                        let passed = status.is_ok()
+                            && property_result.is_ok()
+                            && serde_json::from_str::<bool>(&raw.to_string())
+                                .is_ok_and(|value| value)
+                            && !contains_fullscreen.as_bool()
+                            && !completion_observed
+                                .load(std::sync::atomic::Ordering::Acquire);
+                        let _ = completion_sender.send(Ok(passed));
+                        Ok(())
+                    },
+                ));
+                if let Err(error) =
+                    core.ExecuteScript(&HSTRING::from(script), &completion)
+                {
+                    let _ = core.remove_ContainsFullScreenElementChanged(event_token);
+                    return Err(error.to_string());
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                let _ = sender.send(Err(error));
+            }
+        })
+        .map_err(RuntimeError::tauri)?;
+    match receiver.recv_timeout(PLATFORM_CALLBACK_TIMEOUT) {
+        Ok(Ok(true)) => Ok(()),
+        Ok(Ok(false)) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_FAILED",
+            "WebView2 did not prove the page-world wrappers without a native fullscreen transition.",
+        )),
+        Ok(Err(message)) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_FAILED",
+            message,
+        )),
+        Err(_) => Err(RuntimeError::new(
+            "SYSTEM_CONTAINED_FULLSCREEN_PREFLIGHT_TIMEOUT",
+            "WebView2 contained-fullscreen page-world preflight timed out.",
+        )),
+    }
+}
+
+#[cfg(windows)]
 pub(crate) fn defer_runtime_tab_shortcut(
     app: AppHandle,
     webview_label: String,

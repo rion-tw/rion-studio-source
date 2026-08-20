@@ -1,5 +1,5 @@
 import { JSDOM } from "jsdom";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { readSourceTree as readFile } from "./helpers/readSourceTree";
 
@@ -18,15 +18,29 @@ beforeAll(async () => {
   ).replaceAll("__RION_CONTAINED_FULLSCREEN_CHANNEL__", channel);
 });
 
-function createDocument(options: { popover?: boolean } = {}) {
+function createDocument(options: { popover?: boolean; url?: string } = {}) {
   const dom = new JSDOM(
-    "<!doctype html><html><head></head><body><div id='__rion_web_toolbar_host'></div><main><section id='target'><video></video></section></main></body></html>",
+    "<!doctype html><html><head></head><body><main><section id='target'><video></video></section></main></body></html>",
     {
       runScripts: "outside-only",
-      url: "https://workspace.rion.test/fixture",
+      url: options.url ?? "https://workspace.rion.test/fixture",
     }
   );
   const { window } = dom;
+  const transitions: Array<{ phase: string; sequence: number }> = [];
+  Object.defineProperty(window, "__rionWorkspaceWebIdentity", {
+    configurable: true,
+    value: { capabilityToken: "capability", generation: 7 }
+  });
+  Object.defineProperty(window, "__TAURI_INTERNALS__", {
+    configurable: true,
+    value: {
+      invoke: (_command: string, payload: { transition: { phase: string; sequence: number } }) => {
+        transitions.push(payload.transition);
+        return window.Promise.resolve({ documentEpoch: 1, fullscreen: payload.transition.phase === "enter" });
+      }
+    }
+  });
   const popovers = new WeakSet<Element>();
   if (options.popover) {
     const nativeMatches = window.Element.prototype.matches;
@@ -53,16 +67,25 @@ function createDocument(options: { popover?: boolean } = {}) {
     });
   }
   window.eval(policySource);
-  return { dom, popovers, window };
+  return { dom, popovers, transitions, window };
 }
 
 describe("Workspace Web contained fullscreen policy", () => {
-  it("implements the standard promise, getters, events, toolbar hiding, and exit", async () => {
-    const { dom, window } = createDocument();
+  it("passes the about:blank page-world preflight without a host transition", () => {
+    const { dom, transitions, window } = createDocument({ url: "about:blank" });
+    const preflight = (window as unknown as {
+      __rionWorkspaceContainedFullscreenPreflight(): boolean;
+    }).__rionWorkspaceContainedFullscreenPreflight;
+
+    expect(preflight()).toBe(true);
+    expect(window.document.fullscreenElement).toBeNull();
+    expect(transitions).toEqual([]);
+    dom.window.close();
+  });
+
+  it("waits for host geometry, implements the standard getters and events, and exits", async () => {
+    const { dom, transitions, window } = createDocument();
     const target = window.document.querySelector<HTMLElement>("#target")!;
-    const toolbar = window.document.querySelector<HTMLElement>(
-      "#__rion_web_toolbar_host"
-    )!;
     const ancestor = target.parentElement!;
     target.style.position = "relative";
     ancestor.style.setProperty("transform", "translateX(10px)", "important");
@@ -90,17 +113,17 @@ describe("Workspace Web contained fullscreen policy", () => {
     expect(window.document.documentElement.dataset).toHaveProperty(
       "rionContainedFullscreenActive"
     );
-    expect(window.getComputedStyle(toolbar).display).toBe("none");
+    expect(window.document.querySelector("#__rion_web_toolbar_host")).toBeNull();
     expect(target.style.getPropertyValue("position")).toBe("fixed");
     expect(target.style.getPropertyValue("width")).toBe("100vw");
     expect(target.style.getPropertyPriority("width")).toBe("important");
     expect(ancestor.style.getPropertyValue("transform")).toBe("none");
     expect(events).toEqual(["fullscreenchange", "webkitfullscreenchange"]);
+    expect(transitions.map(({ phase }) => phase)).toEqual(["ready", "enter"]);
 
     await window.document.exitFullscreen();
     expect(window.document.fullscreenElement).toBeNull();
     expect(target.hasAttribute("data-rion-contained-fullscreen")).toBe(false);
-    expect(window.getComputedStyle(toolbar).display).not.toBe("none");
     expect(target.style.position).toBe("relative");
     expect(target.style.width).toBe("");
     expect(ancestor.style.getPropertyValue("transform")).toBe("translateX(10px)");
@@ -111,6 +134,7 @@ describe("Workspace Web contained fullscreen policy", () => {
       "fullscreenchange",
       "webkitfullscreenchange",
     ]);
+    expect(transitions.map(({ phase }) => phase)).toEqual(["ready", "enter", "exit"]);
     await expect(window.document.exitFullscreen()).resolves.toBeUndefined();
     dom.window.close();
   });
@@ -137,15 +161,32 @@ describe("Workspace Web contained fullscreen policy", () => {
     window.document.dispatchEvent(
       new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
     );
-    expect(window.document.fullscreenElement).toBeNull();
+    await vi.waitFor(() => expect(window.document.fullscreenElement).toBeNull());
 
     await target.requestFullscreen();
     target.remove();
-    await Promise.resolve();
-    expect(window.document.fullscreenElement).toBeNull();
+    await vi.waitFor(() => expect(window.document.fullscreenElement).toBeNull());
     expect(window.document.documentElement.hasAttribute(
       "data-rion-contained-fullscreen-active"
     )).toBe(false);
+    dom.window.close();
+  });
+
+  it("supports an event-bound host force-exit when the containing tab leaves", async () => {
+    const { dom, transitions, window } = createDocument();
+    const target = window.document.querySelector<HTMLElement>("#target")!;
+    const events: string[] = [];
+    target.addEventListener("fullscreenchange", () => events.push("change"));
+
+    await target.requestFullscreen();
+    window.document.dispatchEvent(
+      new window.Event("__rionWorkspaceContainedFullscreenForceExit")
+    );
+
+    expect(window.document.fullscreenElement).toBeNull();
+    expect(target.hasAttribute("data-rion-contained-fullscreen")).toBe(false);
+    expect(events).toEqual(["change", "change"]);
+    expect(transitions.map(({ phase }) => phase)).toEqual(["ready", "enter"]);
     dom.window.close();
   });
 
@@ -174,7 +215,7 @@ describe("Workspace Web contained fullscreen policy", () => {
     dom.window.close();
   });
 
-  it("relays an allowed cross-origin child frame to its parent iframe boundary", () => {
+  it("relays an allowed cross-origin child frame after the top host acknowledges geometry", async () => {
     const { dom, window } = createDocument();
     const frame = window.document.createElement("iframe");
     frame.setAttribute("allow", "fullscreen");
@@ -183,24 +224,24 @@ describe("Workspace Web contained fullscreen policy", () => {
 
     window.dispatchEvent(
       new window.MessageEvent("message", {
-        data: { __rionContainedFullscreen: channel, type: "enter" },
+        data: { __rionContainedFullscreen: channel, requestId: "child:1", type: "enter" },
         origin: "https://player.rion.test",
         source,
       })
     );
-    expect(window.document.fullscreenElement).toBe(frame);
+    await vi.waitFor(() => expect(window.document.fullscreenElement).toBe(frame));
     expect(frame.style.getPropertyValue("position")).toBe("fixed");
     expect(frame.style.getPropertyValue("width")).toBe("100vw");
     expect(frame.style.getPropertyPriority("width")).toBe("important");
 
     window.dispatchEvent(
       new window.MessageEvent("message", {
-        data: { __rionContainedFullscreen: channel, type: "exit" },
+        data: { __rionContainedFullscreen: channel, requestId: "child:2", type: "exit" },
         origin: "https://player.rion.test",
         source,
       })
     );
-    expect(window.document.fullscreenElement).toBeNull();
+    await vi.waitFor(() => expect(window.document.fullscreenElement).toBeNull());
     dom.window.close();
   });
 
@@ -224,6 +265,18 @@ describe("Workspace Web contained fullscreen policy", () => {
 });
 
 describe("Workspace Web surface wiring", () => {
+  it("binds the macOS native fullscreen guard to a fenced failure receipt", async () => {
+    const [native, runtime] = await Promise.all([
+      readFile(new URL("../src-tauri/native/macos/RionWKWebViewInput/02_input_zoom.m", import.meta.url), "utf8"),
+      readFile(new URL("../src-tauri/src/system_runtime/platform/macos.rs", import.meta.url), "utf8")
+    ]);
+
+    expect(native).toContain("rion_wk_bind_contained_fullscreen_failure_callback");
+    expect(native).toContain("RionWKSurfaceUnexpectedNativeFullscreen");
+    expect(runtime).toContain("unexpectedNativeFullscreenIsolated");
+    expect(runtime).toContain("SYSTEM_UNEXPECTED_NATIVE_FULLSCREEN");
+  });
+
   it("injects containment only for Workspace Web and carries the policy into popups", async () => {
     const source = await readFile(
       new URL(
@@ -239,5 +292,7 @@ describe("Workspace Web surface wiring", () => {
     expect(source).toContain("popup_install_contained_fullscreen");
     expect(source).toContain("workspace_contained_fullscreen_script()");
     expect(source).toContain("popupContainedFullscreenPolicyFailed");
+    expect(source).toContain("preflight_platform_contained_fullscreen_policy");
+    expect(source).not.toContain("__rion_web_toolbar_host");
   });
 });

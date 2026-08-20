@@ -11,6 +11,7 @@ import {
   waitEvent,
   windowSnapshot
 } from "../support/control";
+import { expectAppKitTabsFitTitlebar } from "../support/geometry";
 import {
   installRendererEventJournal,
   rendererEventCursor,
@@ -171,6 +172,7 @@ async function exercisePartialFailureAndManualRestart(
   if (!runtimeTab) throw new Error("Recovery workspace runtime tab is unavailable");
   expect(runtimeTab.windowId).toBe(expectedWindowId);
   const degraded = await windowSnapshot(runtimeTab.windowId);
+  expectAppKitTabsFitTitlebar(degraded);
   const degradedTab = degraded.kernel?.tabs.find((tab) => tab.sourceId === workspace.id);
   expect(degradedTab?.launchPhase).toBe("degraded");
   const degradedGeneration = degraded.roleSurfaceGenerations[recoveryRole.id];
@@ -203,6 +205,7 @@ async function exercisePartialFailureAndManualRestart(
   const restartedTab = restartedRuntime.tabs.find((tab) => tab.sourceId === workspace.id);
   if (!restartedTab) throw new Error("Manually restarted workspace tab is unavailable");
   const restarted = await windowSnapshot(restartedTab.windowId);
+  expectAppKitTabsFitTitlebar(restarted);
   expect(restarted.roleSurfaceGenerations[recoveryRole.id]).toBeGreaterThan(0);
   expect((await inputDiagnostics()).roles).toEqual(expect.arrayContaining([
     expect.objectContaining({

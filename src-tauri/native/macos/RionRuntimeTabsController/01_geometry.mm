@@ -106,6 +106,20 @@ static CGFloat RionRuntimeTrailingControlOriginX(
       : targetOriginX;
 }
 
+static void RionRuntimeLayoutTabClusterViews(
+    NSView *viewport, NSView *effectContainer, NSView *content,
+    NSRect viewportFrame) {
+  if (!viewport || !effectContainer || !content) return;
+  // NSGlassEffectContainerView elevates its descendants into a private
+  // presentation hierarchy. Keep that AppKit-owned effect host at local zero
+  // and let an ordinary clipping viewport own the titlebar-relative origin.
+  // This also keeps the non-glass fallback from resetting its own origin by
+  // assigning its bounds back to its frame.
+  viewport.frame = viewportFrame;
+  effectContainer.frame = viewport.bounds;
+  if (content != effectContainer) content.frame = effectContainer.bounds;
+}
+
 static NSString *RionRuntimeTabDragPayload(NSString *sourceWindowID,
                                            NSString *tabIdentifier,
                                            NSString *sessionIdentifier,

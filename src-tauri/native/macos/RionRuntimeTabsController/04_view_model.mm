@@ -192,6 +192,7 @@ NS_ASSUME_NONNULL_BEGIN
   RionRuntimeAddButton *_scrollRightButton;
   NSView *_clusterContainer;
   RionRuntimeDraggableView *_clusterContent;
+  NSView *_clusterEffectContainer;
   NSString *_windowID;
   NSView *_insertionIndicator;
   NSString *_dragPlaceholderTabIdentifier;
@@ -341,24 +342,29 @@ NS_ASSUME_NONNULL_BEGIN
   _titlebarBackdrop.material = NSVisualEffectMaterialHeaderView;
   _titlebarBackdrop.state = NSVisualEffectStateFollowsWindowActiveState;
   [root addSubview:_titlebarBackdrop];
-  _clusterContent = [[RionRuntimeDraggableView alloc] initWithFrame:root.bounds];
+  _clusterContainer =
+      [[RionRuntimeDraggableView alloc] initWithFrame:NSZeroRect];
+  _clusterContainer.clipsToBounds = YES;
+  _clusterContent =
+      [[RionRuntimeDraggableView alloc] initWithFrame:NSZeroRect];
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
   if (@available(macOS 26.0, *)) {
     NSGlassEffectContainerView *glassContainer =
-        [[NSGlassEffectContainerView alloc] initWithFrame:root.bounds];
+        [[NSGlassEffectContainerView alloc] initWithFrame:NSZeroRect];
     glassContainer.spacing = kRionTabSpacing;
     glassContainer.contentView = _clusterContent;
-    _clusterContainer = glassContainer;
+    _clusterEffectContainer = glassContainer;
   } else
 #endif
   {
-    _clusterContainer = _clusterContent;
+    _clusterEffectContainer = _clusterContent;
   }
-  // This container is laid out to the outer edges of the scroll arrows. Its
-  // own bounds are the final hard stop for glass surfaces, while the area
-  // beneath the arrows remains available for Liquid Glass merging.
-  _clusterContainer.clipsToBounds = YES;
+  // The ordinary outer viewport owns the titlebar-relative position and the
+  // hard clipping edge. The Liquid Glass container remains at local zero so
+  // AppKit cannot strand its elevated descendants at a stale titlebar origin
+  // while a background window receives its first tab.
+  [_clusterContainer addSubview:_clusterEffectContainer];
   [root addSubview:_clusterContainer];
 
   _tabScrollView = [[RionRuntimeHorizontalScrollView alloc] initWithFrame:NSZeroRect];

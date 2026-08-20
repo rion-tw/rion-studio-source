@@ -12,6 +12,21 @@ typedef struct {
 
 typedef void (^RionRuntimeContentLayoutHandler)(RionRuntimeContentLayout layout);
 
+#if defined(RION_DESKTOP_E2E)
+typedef struct {
+  double rootMinX;
+  double rootWidth;
+  double tabMinX;
+  double tabMinY;
+  double tabMaxX;
+  double tabMaxY;
+  double windowNameMaxX;
+  double trafficLightsMaxX;
+  bool titleHidden;
+  bool valid;
+} RionRuntimeTabsDesktopE2ETitlebarGeometry;
+#endif
+
 RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
     NSRect contentBounds, NSRect contentLayoutRect, BOOL contentViewFlipped);
 
@@ -62,6 +77,8 @@ RionRuntimeContentLayout RionRuntimeContentLayoutForRects(
 - (BOOL)performDesktopE2EDragForTabIdentifier:(NSString *)tabIdentifier
                              targetController:(RionRuntimeTabsController *)targetController
                            beforeTabIdentifier:(NSString *)beforeTabIdentifier;
+- (BOOL)desktopE2ETitlebarGeometry:
+    (RionRuntimeTabsDesktopE2ETitlebarGeometry *)geometry;
 - (NSInteger)statusPresentation;
 #endif
 - (void)hideStatus;
@@ -159,6 +176,9 @@ bool rion_runtime_tabs_desktop_e2e_select_menu_item(
     int action, unsigned long targetRank);
 int rion_runtime_tabs_desktop_e2e_status_presentation(
     void * _Nullable controller);
+bool rion_runtime_tabs_desktop_e2e_titlebar_geometry(
+    void * _Nullable controller,
+    RionRuntimeTabsDesktopE2ETitlebarGeometry *geometry);
 #endif
 void rion_runtime_tabs_hide_status(void * _Nullable controller);
 void rion_runtime_tabs_ensure(

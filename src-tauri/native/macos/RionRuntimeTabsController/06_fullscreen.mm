@@ -527,6 +527,56 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 }
 
 #if defined(RION_DESKTOP_E2E)
+- (BOOL)desktopE2ETitlebarGeometry:
+    (RionRuntimeTabsDesktopE2ETitlebarGeometry *)geometry {
+  if (!geometry) return NO;
+  *geometry = {};
+  if (_destroyed || !_window || !_accessoryController.view.window ||
+      _tabSurfaces.count == 0) {
+    return NO;
+  }
+
+  NSView *root = _accessoryController.view;
+  RionRuntimeSurfaceView *surface = _tabSurfaces.firstObject;
+  if (!root.superview || !surface.superview) return NO;
+  NSRect rootFrame = [root.superview convertRect:root.frame toView:nil];
+  CALayer *presentationLayer = (CALayer *)surface.layer.presentationLayer;
+  NSRect visibleSurfaceFrame = presentationLayer
+      ? NSRectFromCGRect(presentationLayer.frame)
+      : surface.frame;
+  NSRect tabFrame =
+      [surface.superview convertRect:visibleSurfaceFrame toView:nil];
+  NSRect windowNameFrame = _windowNameField.hidden
+      ? NSZeroRect
+      : [_windowNameField.superview convertRect:_windowNameField.frame
+                                         toView:nil];
+  CGFloat trafficLightsMaxX = 0;
+  for (NSNumber *buttonType in @[
+         @(NSWindowCloseButton),
+         @(NSWindowMiniaturizeButton),
+         @(NSWindowZoomButton)
+       ]) {
+    NSButton *button =
+        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    if (!button || !button.superview || button.hidden) continue;
+    NSRect frame = [button.superview convertRect:button.frame toView:nil];
+    trafficLightsMaxX = MAX(trafficLightsMaxX, NSMaxX(frame));
+  }
+
+  geometry->rootMinX = NSMinX(rootFrame);
+  geometry->rootWidth = NSWidth(rootFrame);
+  geometry->tabMinX = NSMinX(tabFrame);
+  geometry->tabMinY = NSMinY(tabFrame);
+  geometry->tabMaxX = NSMaxX(tabFrame);
+  geometry->tabMaxY = NSMaxY(tabFrame);
+  geometry->windowNameMaxX = NSMaxX(windowNameFrame);
+  geometry->trafficLightsMaxX = trafficLightsMaxX;
+  geometry->titleHidden = _window.titleVisibility == NSWindowTitleHidden;
+  geometry->valid = NSWidth(rootFrame) > 0 && NSWidth(tabFrame) > 0 &&
+      NSHeight(tabFrame) > 0;
+  return geometry->valid;
+}
+
 - (NSInteger)statusPresentation {
   if (_destroyed || !_statusBackdrop || _statusBackdrop.hidden) return 0;
   if (_statusLoadingProgress && !_statusLoadingProgress.hidden) return 1;

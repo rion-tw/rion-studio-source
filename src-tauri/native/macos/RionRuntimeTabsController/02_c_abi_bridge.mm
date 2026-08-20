@@ -339,6 +339,16 @@ int rion_runtime_tabs_desktop_e2e_status_presentation(
         statusPresentation];
   }
 }
+
+bool rion_runtime_tabs_desktop_e2e_titlebar_geometry(
+    void * _Nullable rawController,
+    RionRuntimeTabsDesktopE2ETitlebarGeometry *geometry) {
+  @autoreleasepool {
+    if (!rawController || !geometry) return false;
+    return [(__bridge RionRuntimeTabsController *)rawController
+        desktopE2ETitlebarGeometry:geometry];
+  }
+}
 #endif
 
 void rion_runtime_tabs_hide_status(void * _Nullable rawController) {
@@ -605,6 +615,19 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
         longWindowNameWidth - kRionWindowNameTrailingSpacing -
         kRionRootTrailingDraggableWidth - kRionTabHeight -
         kRionAddButtonSpacing;
+    NSView *glassViewport = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *glassContainer = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *glassContent = [[NSView alloc] initWithFrame:NSZeroRect];
+    [glassViewport addSubview:glassContainer];
+    [glassContainer addSubview:glassContent];
+    NSRect clusterFrame = NSMakeRect(244.0, 6.0, 248.0, kRionTabHeight);
+    RionRuntimeLayoutTabClusterViews(
+        glassViewport, glassContainer, glassContent, clusterFrame);
+    NSView *fallbackViewport = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *fallbackContent = [[NSView alloc] initWithFrame:NSZeroRect];
+    [fallbackViewport addSubview:fallbackContent];
+    RionRuntimeLayoutTabClusterViews(
+        fallbackViewport, fallbackContent, fallbackContent, clusterFrame);
     NSRect controlRow = NSMakeRect(-120.0, 80.0, 640.0, kRionTitlebarHeight);
     return !RionRuntimeTabsOverflow(400.5, 400.0) &&
            RionRuntimeTabsOverflow(402.0, 400.0) &&
@@ -645,6 +668,11 @@ bool rion_runtime_tabs_overflow_layout_self_test(void) {
            RionRuntimeTabEdgeFadeAlpha(425.0, 450.0, 25.0) == 1.0 &&
            RionRuntimeTabEdgeFadeAlpha(437.5, 450.0, 25.0) == 0.5 &&
            RionRuntimeTabEdgeFadeAlpha(450.0, 450.0, 25.0) == 0.0 &&
+           NSEqualRects(glassViewport.frame, clusterFrame) &&
+           NSEqualRects(glassContainer.frame, glassViewport.bounds) &&
+           NSEqualRects(glassContent.frame, glassContainer.bounds) &&
+           NSEqualRects(fallbackViewport.frame, clusterFrame) &&
+           NSEqualRects(fallbackContent.frame, fallbackViewport.bounds) &&
            NSEqualRects(RionRuntimeTabEdgeEffectVisibleRect(
                             144.0, 28.0, -50.0, 450.0, 11.0),
                         NSMakeRect(61.0, 0.0, 83.0, 28.0)) &&

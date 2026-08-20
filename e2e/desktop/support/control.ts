@@ -46,6 +46,17 @@ export interface DesktopE2eWindowSnapshot {
     windowRevision: number;
   };
   native: {
+    appKitTitlebar?: {
+      rootMinX: number;
+      rootWidth: number;
+      tabMaxX: number;
+      tabMaxY: number;
+      tabMinX: number;
+      tabMinY: number;
+      titleHidden: boolean;
+      trafficLightsMaxX: number;
+      windowNameMaxX: number;
+    };
     clientBounds: WindowBounds;
     displayId?: number;
     dpi?: number;

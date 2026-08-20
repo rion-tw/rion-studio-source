@@ -686,9 +686,10 @@ NS_ASSUME_NONNULL_BEGIN
   CGFloat canvasWidth = tabsWidth + 2.0 * fusionInset;
   CGFloat viewportWidth = MIN(canvasWidth, availableWithoutScrollControls);
   CGFloat verticalInset = MAX(0, (rootHeight - kRionTabHeight) / 2.0);
-  _clusterContainer.frame = NSMakeRect(
-      leadingInset, verticalInset, viewportWidth, kRionTabHeight);
-  _clusterContent.frame = _clusterContainer.bounds;
+  RionRuntimeLayoutTabClusterViews(
+      _clusterContainer, _clusterEffectContainer, _clusterContent,
+      NSMakeRect(leadingInset, verticalInset, viewportWidth,
+                 kRionTabHeight));
   _scrollLeftSurface.hidden = !overflowing;
   _scrollRightSurface.hidden = !overflowing;
   if (overflowing) {

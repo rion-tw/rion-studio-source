@@ -85,6 +85,36 @@ struct NativeTabInput {
     workspace_template: *const c_char,
 }
 
+#[cfg(feature = "desktop-e2e")]
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+struct NativeDesktopE2eTitlebarGeometry {
+    root_min_x: f64,
+    root_width: f64,
+    tab_min_x: f64,
+    tab_min_y: f64,
+    tab_max_x: f64,
+    tab_max_y: f64,
+    window_name_max_x: f64,
+    traffic_lights_max_x: f64,
+    title_hidden: bool,
+    valid: bool,
+}
+
+#[cfg(feature = "desktop-e2e")]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MacDesktopE2eTitlebarGeometry {
+    pub(crate) root_min_x: f64,
+    pub(crate) root_width: f64,
+    pub(crate) tab_min_x: f64,
+    pub(crate) tab_min_y: f64,
+    pub(crate) tab_max_x: f64,
+    pub(crate) tab_max_y: f64,
+    pub(crate) window_name_max_x: f64,
+    pub(crate) traffic_lights_max_x: f64,
+    pub(crate) title_hidden: bool,
+}
+
 type ActionCallback = unsafe extern "C" fn(
     *mut c_void,
     *const c_char,
@@ -153,6 +183,11 @@ unsafe extern "C" {
     ) -> bool;
     #[cfg(feature = "desktop-e2e")]
     fn rion_runtime_tabs_desktop_e2e_status_presentation(controller: *mut c_void) -> i32;
+    #[cfg(feature = "desktop-e2e")]
+    fn rion_runtime_tabs_desktop_e2e_titlebar_geometry(
+        controller: *mut c_void,
+        geometry: *mut NativeDesktopE2eTitlebarGeometry,
+    ) -> bool;
     fn rion_runtime_tabs_hide_status(controller: *mut c_void);
     fn rion_runtime_tabs_set_window_name(controller: *mut c_void, window_name: *const c_char);
     fn rion_runtime_tabs_ensure(
@@ -480,6 +515,53 @@ impl MacRuntimeTabsController {
             2 => "failed",
             _ => "hidden",
         }
+    }
+
+    #[cfg(feature = "desktop-e2e")]
+    pub(crate) fn desktop_e2e_titlebar_geometry(
+        &self,
+    ) -> Option<MacDesktopE2eTitlebarGeometry> {
+        let raw = self.inner.raw as usize;
+        let query = move || {
+            let mut geometry = NativeDesktopE2eTitlebarGeometry::default();
+            let available = unsafe {
+                rion_runtime_tabs_desktop_e2e_titlebar_geometry(
+                    raw as *mut c_void,
+                    &mut geometry,
+                )
+            };
+            (available && geometry.valid).then_some(geometry)
+        };
+        let geometry = if unsafe { rion_runtime_tabs_is_main_thread() } {
+            query()
+        } else {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            if self
+                .inner
+                .app
+                .run_on_main_thread(move || {
+                    let _ = sender.send(query());
+                })
+                .is_err()
+            {
+                return None;
+            }
+            receiver
+                .recv_timeout(Duration::from_millis(250))
+                .ok()
+                .flatten()
+        }?;
+        Some(MacDesktopE2eTitlebarGeometry {
+            root_min_x: geometry.root_min_x,
+            root_width: geometry.root_width,
+            tab_min_x: geometry.tab_min_x,
+            tab_min_y: geometry.tab_min_y,
+            tab_max_x: geometry.tab_max_x,
+            tab_max_y: geometry.tab_max_y,
+            window_name_max_x: geometry.window_name_max_x,
+            traffic_lights_max_x: geometry.traffic_lights_max_x,
+            title_hidden: geometry.title_hidden,
+        })
     }
 
     pub fn update_metadata(

@@ -79,3 +79,28 @@ export function expectTabStripFitsClient(snapshot: DesktopE2eWindowSnapshot): vo
     bounds.height + LOGICAL_PIXEL_TOLERANCE
   );
 }
+
+export function expectAppKitTabsFitTitlebar(snapshot: DesktopE2eWindowSnapshot): void {
+  if (process.platform !== "darwin") return;
+  const geometry = snapshot.native.appKitTitlebar;
+  if (!geometry) {
+    throw new Error(`AppKit titlebar geometry is unavailable for ${snapshot.windowId}`);
+  }
+  expect(geometry.titleHidden).toBe(true);
+  expect(geometry.rootMinX).toBeGreaterThanOrEqual(-LOGICAL_PIXEL_TOLERANCE);
+  expect(geometry.rootMinX).toBeLessThanOrEqual(LOGICAL_PIXEL_TOLERANCE);
+  expect(geometry.rootWidth).toBeGreaterThan(0);
+  expect(geometry.tabMinX).toBeGreaterThanOrEqual(
+    geometry.trafficLightsMaxX - LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(geometry.tabMinX).toBeGreaterThanOrEqual(
+    geometry.windowNameMaxX - LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(geometry.tabMinY).toBeGreaterThanOrEqual(-LOGICAL_PIXEL_TOLERANCE);
+  expect(geometry.tabMaxY).toBeLessThanOrEqual(
+    snapshot.native.outerBounds.height + LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(geometry.tabMaxX).toBeLessThanOrEqual(
+    geometry.rootMinX + geometry.rootWidth + LOGICAL_PIXEL_TOLERANCE
+  );
+}

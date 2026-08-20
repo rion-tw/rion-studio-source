@@ -191,6 +191,22 @@ impl SystemRuntimeExecutor {
                 "tabStatusPresentation".to_owned(),
                 Value::String(controller.desktop_e2e_status_presentation().to_owned()),
             );
+            if let Some(geometry) = controller.desktop_e2e_titlebar_geometry() {
+                native_object.insert(
+                    "appKitTitlebar".to_owned(),
+                    json!({
+                        "rootMinX": geometry.root_min_x,
+                        "rootWidth": geometry.root_width,
+                        "tabMinX": geometry.tab_min_x,
+                        "tabMinY": geometry.tab_min_y,
+                        "tabMaxX": geometry.tab_max_x,
+                        "tabMaxY": geometry.tab_max_y,
+                        "windowNameMaxX": geometry.window_name_max_x,
+                        "trafficLightsMaxX": geometry.traffic_lights_max_x,
+                        "titleHidden": geometry.title_hidden,
+                    }),
+                );
+            }
             native
         };
         #[cfg(windows)]

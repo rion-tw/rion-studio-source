@@ -63,6 +63,26 @@ use super::*;
     }
 
     #[test]
+    fn application_shutdown_quiesces_automatic_input_before_native_hosts_close() {
+        let activation = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/lib/section_01_activation.rs"
+        ));
+        let worker = activation
+            .split_once("tauri::async_runtime::spawn_blocking(move ||")
+            .expect("application shutdown owns a blocking terminal worker")
+            .1;
+        let input_quiesce = worker
+            .find("core.quiesce_automatic_input_for_shutdown();")
+            .expect("automatic input is quiesced during shutdown");
+        let native_close = worker
+            .find("runtime.close_all();")
+            .expect("native hosts close during shutdown");
+
+        assert!(input_quiesce < native_close);
+    }
+
+    #[test]
     fn game_window_close_confirmation_is_limited_to_active_work() {
         for platform in ["darwin", "win32"] {
             let ordinary = GameWindowClosePreview {

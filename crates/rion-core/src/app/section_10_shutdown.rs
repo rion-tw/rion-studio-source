@@ -1,11 +1,15 @@
 impl AppCore {
+    pub fn quiesce_automatic_input_for_shutdown(&self) {
+        self.macro_runtime.shutdown();
+    }
+
     pub fn shutdown(&self) {
         if self.shutdown_started.swap(true, Ordering::AcqRel) {
             return;
         }
         self.launch_completion.shutdown();
         self.browser_operations.shutdown();
-        self.macro_runtime.shutdown();
+        self.quiesce_automatic_input_for_shutdown();
         self.browser_action_effects.shutdown();
         self.operation_actor.shutdown();
         let core_effects = self.operation_actor.metrics();

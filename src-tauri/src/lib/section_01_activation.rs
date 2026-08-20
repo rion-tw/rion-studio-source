@@ -126,6 +126,7 @@ fn start_application_shutdown(app_handle: &AppHandle, state: &CoreState) {
     let core = Arc::clone(&state.core);
     let app = app_handle.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        core.quiesce_automatic_input_for_shutdown();
         let receipt = runtime.close_all();
         #[cfg(feature = "desktop-e2e")]
         desktop_e2e::record_event(

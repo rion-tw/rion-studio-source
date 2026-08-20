@@ -309,7 +309,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Create a role-assigned macro, verify its grouped table with inset item and hierarchy separators, count-aware selection and group-prefilled add action, exercise header sorting and grouped/flat switching, then start and stop it from the UI."
+      "description": "Create a role-assigned macro, verify its grouped table shares the Game Windows table material and uses inset hierarchy separators, exercise count-aware selection, group-prefilled creation, header sorting and grouped/flat switching, then start and stop it from the UI."
     },
     {
       "id": "MACRO-NATIVE-EFFECT-003",

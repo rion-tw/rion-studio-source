@@ -25,8 +25,8 @@
     background-image: linear-gradient(
       to right,
       transparent 1rem,
-      color-mix(in srgb, var(--color-border) 45%, transparent) 1rem,
-      color-mix(in srgb, var(--color-border) 45%, transparent) calc(100% - 1rem),
+      hsl(var(--border) / 0.45) 1rem,
+      hsl(var(--border) / 0.45) calc(100% - 1rem),
       transparent calc(100% - 1rem)
     );
     background-position: bottom;
@@ -38,8 +38,8 @@
     background-image: linear-gradient(
       to right,
       transparent 1rem,
-      color-mix(in srgb, var(--color-border) 70%, transparent) 1rem,
-      color-mix(in srgb, var(--color-border) 70%, transparent) calc(100% - 1rem),
+      hsl(var(--border) / 0.45) 1rem,
+      hsl(var(--border) / 0.45) calc(100% - 1rem),
       transparent calc(100% - 1rem)
     );
     background-position: bottom;

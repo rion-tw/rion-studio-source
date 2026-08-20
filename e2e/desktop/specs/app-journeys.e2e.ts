@@ -228,6 +228,30 @@ async function createMacro(role: Role): Promise<Macro> {
   await expect(roleGroup).toHaveText(expect.stringContaining(role.name));
   expect(await roleGroup.$("button=Select 1").isExisting()).toBe(true);
   expect(await roleGroup.getText()).not.toContain("1 macros");
+  const listSurfaceAppearance = await browser.execute(() => {
+    const macroSurface = document.querySelector(".macro-list-surface");
+    if (!macroSurface) {
+      return null;
+    }
+    const windowSurfaceReference = document.createElement("div");
+    windowSurfaceReference.className = "game-window-list-surface glass-panel";
+    document.body.append(windowSurfaceReference);
+    const readAppearance = (element: Element) => {
+      const style = getComputedStyle(element);
+      return {
+        background: style.background,
+        borderColor: style.borderColor,
+        boxShadow: style.boxShadow
+      };
+    };
+    const appearance = {
+      macro: readAppearance(macroSurface),
+      window: readAppearance(windowSurfaceReference)
+    };
+    windowSurfaceReference.remove();
+    return appearance;
+  });
+  expect(listSurfaceAppearance?.macro).toEqual(listSurfaceAppearance?.window);
   const groupedRowSpacing = await browser.execute((macroId) => {
     const row = document.querySelector(`[data-selection-id="${CSS.escape(macroId)}"]`);
     const cells = row?.querySelectorAll("td");

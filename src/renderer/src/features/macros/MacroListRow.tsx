@@ -89,8 +89,10 @@ export function MacroListRow({
           )}
           data-macro-active={isActive ? "true" : undefined}
           data-macro-disabled={!macro.enabled ? "true" : undefined}
+          data-macro-id={macro.id}
           data-macro-unassigned={macro.roleIds.length === 0 ? "true" : undefined}
           data-selection-id={macro.id}
+          tabIndex={-1}
           onClickCapture={onSelectionClick}
         >
           <td className="macro-list-column-name px-3 py-2 align-middle">

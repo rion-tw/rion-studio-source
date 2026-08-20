@@ -38,12 +38,21 @@ export function useMacroWorkflow({
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<ReadonlySet<string>>(
     () => new Set()
   );
+  const [focusedMacroId, setFocusedMacroId] = useState<string | null>(null);
   const isSavingMacroRef = useRef(false);
   const listScrollTopRef = useRef(0);
 
   const openListForRole = useCallback((roleId: string): void => {
     setQuery("");
     setRoleFilterId(roleId);
+    listScrollTopRef.current = 0;
+  }, []);
+
+  const openListForMacro = useCallback((macroId: string): void => {
+    setQuery("");
+    setRoleFilterId("");
+    setCollapsedGroupKeys(new Set());
+    setFocusedMacroId(macroId);
     listScrollTopRef.current = 0;
   }, []);
 
@@ -167,15 +176,15 @@ export function useMacroWorkflow({
     }
   }
 
-  async function handleStartMacros(selectedMacros: Macro[]): Promise<void> {
+  async function handleStartMacros(selectedMacros: Macro[]): Promise<boolean> {
     const targets = uniqueMacros(selectedMacros);
     if (targets.length === 0) {
-      return;
+      return false;
     }
 
     const finishBusy = beginBusyMany(targets.map((macro) => macro.id));
     if (!finishBusy) {
-      return;
+      return false;
     }
 
     const reportError = beginErrorOperation();
@@ -211,16 +220,18 @@ export function useMacroWorkflow({
       }
 
       reportMacroOperationFailures(successful.length, results, reportError, setNotice, t);
+      return successful.length > 0;
     } finally {
       finishBusy();
     }
   }
 
-  async function handleStartMacro(macroId: string): Promise<void> {
+  async function handleStartMacro(macroId: string): Promise<boolean> {
     const macro = macros.find((candidate) => candidate.id === macroId);
     if (macro) {
-      await handleStartMacros([macro]);
+      return handleStartMacros([macro]);
     }
+    return false;
   }
 
   async function handleSetMacrosEnabled(selectedMacros: Macro[], enabled: boolean): Promise<void> {
@@ -299,6 +310,7 @@ export function useMacroWorkflow({
     busyMacroIds,
     busyRunKeys,
     collapsedGroupKeys,
+    focusedMacroId,
     handleCopyMacro,
     handleDeleteMacro,
     handleDeleteMacros,
@@ -311,11 +323,13 @@ export function useMacroWorkflow({
     isSavingMacro,
     listScrollTopRef,
     openListForRole,
+    openListForMacro,
     query,
     resetListState,
     roleFilterId,
     saveMacro,
     setQuery,
+    setFocusedMacroId,
     setRoleFilterId,
     setSort,
     setViewMode,

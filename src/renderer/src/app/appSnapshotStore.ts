@@ -22,7 +22,11 @@ export const EMPTY_APP_SNAPSHOT: AppSnapshot = Object.freeze({
     displays: []
   }),
   macros: [],
-  macroStatuses: []
+  macroStatuses: [],
+  quickAccessPreferences: Object.freeze({
+    pinnedItems: [],
+    recentItems: []
+  })
 });
 
 export class AppSnapshotStore {

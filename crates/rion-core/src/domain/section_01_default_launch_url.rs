@@ -16,6 +16,7 @@ use crate::{
         MacroCreateInputRecord, MacroOverlaySettingsRecord, MacroRepeat, MacroSettingsRecord, MacroStepDefinition,
         MacroShortcutSourceScope, MacroStepInputRecord, MacroTrigger, MacroUpdateInputRecord,
         RoleCreateInputRecord,
+        QuickAccessItemRefRecord, QuickAccessPreferencesRecord,
         RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeRestoreSessionRecord,
         RuntimeRestoreTabRecord, RuntimeRestoreWindowRecord, RuntimeWindowPreferencesRecord,
         StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord, StateMacroRecord,

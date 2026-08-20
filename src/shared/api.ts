@@ -47,6 +47,8 @@ import type {
   PortableImportInput,
   PortableImportPreview,
   PortableImportResult,
+  QuickAccessItemRef,
+  QuickAccessPreferences,
   ReorderItemsInput,
   RestoreSavedGameWindowsInput,
   ResolvedTheme,
@@ -120,6 +122,12 @@ export interface RionStudioApi {
   updateRuntimeWindowPreferences: (
     preferences: RuntimeWindowPreferences
   ) => Promise<RuntimeWindowPreferences>;
+  setQuickAccessPinned: (
+    item: QuickAccessItemRef,
+    pinned: boolean
+  ) => Promise<QuickAccessPreferences>;
+  recordQuickAccessUse: (item: QuickAccessItemRef) => Promise<QuickAccessPreferences>;
+  clearQuickAccessRecent: () => Promise<QuickAccessPreferences>;
   listGames: () => Promise<Game[]>;
   createGame: (input: CreateGameInput) => Promise<Game>;
   updateGame: (id: string, input: UpdateGameInput) => Promise<Game>;

@@ -63,6 +63,8 @@ interface MacrosRouteProps {
   busyMacroIds: ReadonlySet<string>;
   busyRunKeys: ReadonlySet<string>;
   collapsedGroupKeys?: ReadonlySet<string>;
+  focusedMacroId?: string | null;
+  isFocusBlocked?: boolean;
   macroStatusByRun: Map<string, MacroRunStatus>;
   macroStatuses: MacroRunStatus[];
   macros: Macro[];
@@ -82,11 +84,12 @@ interface MacrosRouteProps {
   onSetMacrosEnabled?: (macros: Macro[], enabled: boolean) => Promise<void>;
   onSortChange: (sort: MacroListSortState) => void;
   onStartMacro: (macroId: string) => void;
-  onStartMacros?: (macros: Macro[]) => Promise<void>;
+  onStartMacros?: (macros: Macro[]) => Promise<unknown>;
   onStopMacro: (macroId: string) => void;
   onStopMacros?: (macros: Macro[]) => Promise<void>;
   onToggleGroup?: (groupKey: string) => void;
   onViewModeChange?: (viewMode: MacroListViewMode) => void;
+  onMacroFocused?: () => void;
   roles: Role[];
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
@@ -96,6 +99,8 @@ function MacrosRoute({
   busyMacroIds,
   busyRunKeys,
   collapsedGroupKeys = new Set(),
+  focusedMacroId,
+  isFocusBlocked = false,
   macroStatusByRun,
   macroStatuses,
   macros,
@@ -120,6 +125,7 @@ function MacrosRoute({
   onStopMacros,
   onToggleGroup,
   onViewModeChange,
+  onMacroFocused,
   roles,
   statusByRole,
   t
@@ -172,6 +178,17 @@ function MacrosRoute({
     [collapsedGroupKeys, filteredMacros, forceGroupsExpanded, groups, viewMode]
   );
   const visibleMacroIds = useMemo(() => visibleMacros.map((macro) => macro.id), [visibleMacros]);
+
+  useEffect(() => {
+    if (!focusedMacroId || isFocusBlocked) return;
+    const row = pageRef.current?.querySelector<HTMLElement>(
+      `[data-macro-id="${CSS.escape(focusedMacroId)}"]`
+    );
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    row.focus({ preventScroll: true });
+    onMacroFocused?.();
+  }, [focusedMacroId, isFocusBlocked, onMacroFocused, visibleMacroIds]);
   const selection = useListSelection({
     orderedIds: visibleMacroIds,
     scrollContainerRef: pageRef

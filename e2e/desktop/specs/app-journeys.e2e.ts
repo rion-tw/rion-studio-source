@@ -1,4 +1,5 @@
 import { $, browser, expect } from "@wdio/globals";
+import { Key } from "webdriverio";
 
 import type { Game, GameWindow, LaunchWorkspace, Macro, Role, RoleStatus } from "../../../src/shared/types";
 import {
@@ -30,6 +31,7 @@ import {
 // [journey:GAME-WINDOWS-UI-001]
 // [journey:MACROS-UI-001]
 // [journey:SETTINGS-PERSIST-001]
+// [journey:QUICK-ACCESS-UI-001]
 
 const GAME_NAME = "E2E Smoke Game";
 const GAME_NAME_EDITED = "E2E Smoke Game Edited";
@@ -360,16 +362,46 @@ async function updateSettings(): Promise<void> {
   });
 }
 
-async function launchRoleAndRunMacro(role: Role, macro: Macro): Promise<void> {
+async function openQuickAccessWithKeyboard(): Promise<void> {
+  await browser.action("key")
+    .down(Key.Ctrl)
+    .down("k")
+    .up("k")
+    .up(Key.Ctrl)
+    .perform();
+  await $("[data-testid='quick-access-palette'][open]").waitForExist({ timeout: 10_000 });
+}
+
+async function launchAndPinRoleFromQuickAccess(role: Role): Promise<void> {
+  await navigate("/dashboard");
+  await $("[data-testid='quick-access-trigger']").click();
+  const palette = await $("[data-testid='quick-access-palette'][open]");
+  await palette.waitForExist({ timeout: 10_000 });
+  await browser.keys(Key.Escape);
+  await palette.waitForExist({ reverse: true, timeout: 10_000 });
+
   await fixtureRequest("/api/gate", { roleId: ROLE_FIXTURE_ID });
-  await navigate("/roles");
-  await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`).click();
+  await openQuickAccessWithKeyboard();
+  const search = await $("[data-testid='quick-access-palette'][open] input[role='combobox']");
+  await search.setValue(role.name);
+  const option = await $(`#quick-access-option-role-${role.id}`);
+  await option.waitForDisplayed({ timeout: 10_000 });
+  await $(`button[aria-label='Pin ${role.name}']`).click();
+  await $(`button[aria-label='Unpin ${role.name}']`).waitForExist({ timeout: 10_000 });
+  await option.click();
   await waitForFixtureNavigation(ROLE_FIXTURE_ID);
   await fixtureRequest("/api/release", { roleId: ROLE_FIXTURE_ID });
   await waitForRoleStatus(
     role.id,
     (status) => status?.state === "running" && status.automationState !== "unavailable"
   );
+}
+
+async function launchRoleAndRunMacro(role: Role, macro: Macro): Promise<void> {
+  const running = (await rendererCall("listRoleStatuses")).find((status) =>
+    status.roleId === role.id && status.state === "running"
+  );
+  if (!running) throw new Error("Quick Access did not launch the smoke role");
 
   await navigate("/macros");
   const start = await $(`[data-selection-id='${macro.id}'] button[aria-label='Start']`);
@@ -411,6 +443,7 @@ async function seedPhase(): Promise<void> {
   const macro = await createMacro(role);
   await createAndShowGameWindow();
   await updateSettings();
+  await launchAndPinRoleFromQuickAccess(role);
   await launchRoleAndRunMacro(role, macro);
   await launchWorkspace(workspace, role);
   await shutdownAndWaitForFlush();
@@ -433,6 +466,16 @@ async function restartPhase(): Promise<void> {
     showRunningBadges: false,
     showToolButton: false
   });
+  await navigate("/dashboard");
+  await $("[data-testid='quick-access-trigger']").click();
+  await $(`#quick-access-option-role-${role.id}`).waitForDisplayed({ timeout: 10_000 });
+  await $(`button[aria-label='Unpin ${role.name}']`).waitForExist({ timeout: 10_000 });
+  await browser.keys(Key.Escape);
+  await navigate("/settings?section=preferences");
+  const clearRecent = await $("button=Clear recent");
+  await clearRecent.waitForEnabled({ timeout: 10_000 });
+  await clearRecent.click();
+  await clearRecent.waitForEnabled({ reverse: true, timeout: 10_000 });
   await navigate("/settings?section=interface");
   expect(await $("button[role='switch'][aria-label='Maximum WebGL performance']").isExisting())
     .toBe(false);

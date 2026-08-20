@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router";
 import appIconUrl from "../assets/app-icon.png";
 import { normalizeAppReturnTo } from "../app/editorNavigation";
 import type { Translator } from "../i18n";
+import { QuickAccessTrigger } from "../features/quick-access/QuickAccessTrigger";
 import { NavItem } from "./ui/patterns";
 import { WindowDragHandle } from "./WindowDragHandle";
 
@@ -14,11 +15,13 @@ interface AppSidebarProps {
   gameWindowCount: number;
   macroCount: number;
   roleCount: number;
+  shortcutLabel?: string;
   t: Translator;
   workspaceCount: number;
+  onOpenQuickAccess?: () => void;
 }
 
-export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, t, workspaceCount }: AppSidebarProps): JSX.Element {
+export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCount, roleCount, shortcutLabel = "Ctrl+K", t, workspaceCount, onOpenQuickAccess = () => undefined }: AppSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -35,6 +38,10 @@ export function AppSidebar({ gameCount, gameWindowCount, hasUpdateBadge, macroCo
           <span className="min-w-0 truncate text-heading font-semibold">Rion Studio</span>
         </div>
       </WindowDragHandle>
+
+      <div className="pb-4">
+        <QuickAccessTrigger shortcutLabel={shortcutLabel} t={t} onOpen={onOpenQuickAccess} />
+      </div>
 
       <nav className="grid gap-1" aria-label={t("app.primaryNavigation")}>
         <NavItem

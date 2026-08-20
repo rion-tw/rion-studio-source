@@ -699,6 +699,7 @@ use super::*;
 
         assert!(exported.get("runtimeRestoreSession").is_none());
         assert!(exported.get("runtimeWindowPreferences").is_none());
+        assert!(exported.get("quickAccessPreferences").is_none());
     }
 
     #[test]

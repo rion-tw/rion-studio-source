@@ -150,6 +150,7 @@ export function useAppData() {
     macros: snapshot.macros,
     macroStatuses: snapshot.macroStatuses,
     macroStatusByRun,
+    quickAccessPreferences: snapshot.quickAccessPreferences,
     roles: snapshot.roles,
     roleStats,
     setError,

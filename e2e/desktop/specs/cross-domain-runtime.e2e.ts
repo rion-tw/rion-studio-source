@@ -237,37 +237,26 @@ async function showSavedWindow(windowId: string): Promise<DesktopE2eWindowSnapsh
 }
 
 async function visibleDestinationLaunch(input: {
-  destinationLabel: string;
+  destinationTestId: string;
   id: string;
+  sourceLabel: string;
   sourceType: "role" | "workspace";
 }): Promise<EmbeddedRuntimeState> {
-  await navigate(input.sourceType === "role" ? "/roles" : "/workspaces");
+  await navigate("/dashboard");
   const control = await probe();
   const cursor = await rendererEventCursor();
-  const card = await $(`[data-selection-id='${input.id}']`);
-  await card.waitForDisplayed({ timeout: 10_000 });
-  await browser.execute((sourceId) => {
-    const item = document.querySelector<HTMLElement>(
-      `[data-selection-id='${CSS.escape(sourceId)}']`
-    );
-    if (!item) throw new Error(`Visible launch source ${sourceId} is unavailable`);
-    const rect = item.getBoundingClientRect();
-    item.dispatchEvent(new MouseEvent("contextmenu", {
-      bubbles: true,
-      button: 2,
-      buttons: 2,
-      cancelable: true,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
-      view: window
-    }));
-  }, input.id);
-  const openIn = await $(`//*[@role='menuitem' and contains(normalize-space(.), 'Open in')]`);
-  await openIn.waitForDisplayed({ timeout: 10_000 });
-  await openIn.click();
-  const destination = await $(
-    `//*[@role='menuitem'][.//*[normalize-space(.)='${input.destinationLabel}']]`
+  await $("[data-testid='quick-access-trigger']").click();
+  const palette = await $("[data-testid='quick-access-palette'][open]");
+  await palette.waitForExist({ timeout: 10_000 });
+  await palette.$("input[role='combobox']").setValue(input.sourceLabel);
+  const option = await $(`#quick-access-option-${input.sourceType}-${input.id}`);
+  await option.waitForDisplayed({ timeout: 10_000 });
+  const openIn = await $(
+    `[data-testid='quick-access-destination-${input.sourceType}-${input.id}']`
   );
+  await openIn.waitForClickable({ timeout: 10_000 });
+  await openIn.click();
+  const destination = await $(`[data-testid='${input.destinationTestId}']`);
   await destination.waitForClickable({ timeout: 10_000 });
   await destination.click();
   await waitForRuntimeLaunchTerminal(control, input.id, input.sourceType);
@@ -339,31 +328,38 @@ async function seedPhase(): Promise<void> {
   const scenario = await createScenario();
   await showSavedWindow(WINDOW_A);
   await visibleDestinationLaunch({
-    destinationLabel: "New Game Window",
+    destinationTestId: "quick-access-destination-option-new-window",
     id: scenario.roles[0].id,
+    sourceLabel: scenario.roles[0].name,
     sourceType: "role"
   });
   await visibleDestinationLaunch({
-    destinationLabel: scenario.windows[0].name,
+    destinationTestId: `quick-access-destination-option-window-${scenario.windows[0].id}`,
     id: scenario.roles[1].id,
+    sourceLabel: scenario.roles[1].name,
     sourceType: "role"
   });
   await visibleDestinationLaunch({
-    destinationLabel: scenario.windows[1].name,
+    destinationTestId: `quick-access-destination-option-window-${scenario.windows[1].id}`,
     id: scenario.workspaces[0].id,
+    sourceLabel: scenario.workspaces[0].name,
     sourceType: "workspace"
   });
   await visibleDestinationLaunch({
-    destinationLabel: scenario.windows[0].name,
+    destinationTestId: `quick-access-destination-option-window-${scenario.windows[0].id}`,
     id: scenario.workspaces[1].id,
+    sourceLabel: scenario.workspaces[1].name,
     sourceType: "workspace"
   });
 
   const beforeDuplicate = await rendererCall("getEmbeddedRuntimeState");
-  await navigate("/roles");
+  await navigate("/dashboard");
   const duplicateControl = await probe();
   const duplicateCursor = await rendererEventCursor();
-  await $(`[data-selection-id='${scenario.roles[1].id}'] button[aria-label='Open']`).click();
+  await $("[data-testid='quick-access-trigger']").click();
+  const duplicatePalette = await $("[data-testid='quick-access-palette'][open]");
+  await duplicatePalette.$("input[role='combobox']").setValue(scenario.roles[1].name);
+  await $(`#quick-access-option-role-${scenario.roles[1].id}`).click();
   await waitForRuntimeLaunchTerminal(duplicateControl, scenario.roles[1].id, "role");
   const afterDuplicate = await waitForRuntimeProjection({
     afterSequence: duplicateCursor,

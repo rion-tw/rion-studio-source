@@ -158,7 +158,7 @@ describe("useMacroWorkflow", () => {
       t
     }), { wrapper: ConfirmationWrapper });
 
-    let pending!: Promise<void>;
+    let pending!: Promise<boolean>;
     act(() => {
       pending = result.current.handleStartMacros([first, first, second]);
     });

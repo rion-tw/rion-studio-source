@@ -586,6 +586,11 @@ export async function installTauriBridgeIfNeeded(): Promise<void> {
     getRuntimeWindowPreferences: () => invokeCore({ type: "runtimeWindowPreferencesGet" }),
     updateRuntimeWindowPreferences: (preferences) =>
       invokeCore({ type: "runtimeWindowPreferencesReplace", preferences }),
+    setQuickAccessPinned: (item, pinned) =>
+      invokeCore({ type: "quickAccessPinSet", item, pinned }),
+    recordQuickAccessUse: (item) =>
+      invokeCore({ type: "quickAccessRecentRecord", item }),
+    clearQuickAccessRecent: () => invokeCore({ type: "quickAccessRecentClear" }),
     listGames: () => invokeCore({ type: "gamesList" }),
     createGame: (input) => invokeCore({ type: "gameCreate", input: gameCreateInput(input) }),
     updateGame: (id, input) =>

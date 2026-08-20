@@ -10,4 +10,5 @@ include!("section_04_browser_runtime_record.rs");
 include!("section_05_game_browser_settings_record.rs");
 include!("section_06_browser_action_request.rs");
 include!("section_07_macro_overlay_start_summary_record.rs");
+include!("section_08_quick_access.rs");
 include!("section_09_system_runtime_diagnostics.rs");

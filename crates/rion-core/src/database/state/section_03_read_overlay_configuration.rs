@@ -350,6 +350,7 @@ fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
         .map_err(|error| CoreError::StateDatabase(error.to_string()))?
         .and_then(|payload| serde_json::from_str::<RuntimeWindowPreferencesRecord>(&payload).ok())
         .unwrap_or_else(default_runtime_window_preferences);
+    let quick_access_preferences = read_quick_access_preferences(connection)?;
     for (key, payload) in [
         (
             "gameBrowserSettings",
@@ -364,6 +365,11 @@ fn repair_required_settings(connection: &Connection) -> CoreResult<()> {
         (
             "runtimeWindowPreferences",
             serde_json::to_string(&window_preferences)
+                .map_err(|error| CoreError::StateDatabase(error.to_string()))?,
+        ),
+        (
+            "quickAccessPreferences",
+            serde_json::to_string(&quick_access_preferences)
                 .map_err(|error| CoreError::StateDatabase(error.to_string()))?,
         ),
     ] {
@@ -432,6 +438,7 @@ fn read_scalar(connection: &Connection, key: &str) -> CoreResult<Option<Value>> 
         "gameBrowserSettings"
             | "macroSettings"
             | "runtimeWindowPreferences"
+            | "quickAccessPreferences"
             | "runtimeRestoreSession"
             | "logLevel"
     ) {
@@ -543,6 +550,7 @@ fn replace_scalar(connection: &mut Connection, key: &str, value: Value) -> CoreR
         "gameBrowserSettings"
             | "macroSettings"
             | "runtimeWindowPreferences"
+            | "quickAccessPreferences"
             | "runtimeRestoreSession"
             | "legalAcceptance"
             | "logLevel"
@@ -623,6 +631,7 @@ fn replace_snapshot_transaction(transaction: &Transaction<'_>, snapshot: &Value)
         "gameBrowserSettings",
         "macroSettings",
         "runtimeWindowPreferences",
+        "quickAccessPreferences",
         "runtimeRestoreSession",
         "logLevel",
     ] {

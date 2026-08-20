@@ -40,6 +40,7 @@ function snapshot(gameId: string): AppSnapshot {
     launchWorkspaces: [],
     macroStatuses: [],
     macros: [],
+    quickAccessPreferences: { pinnedItems: [], recentItems: [] },
     roleStatuses: [],
     roles: []
   };

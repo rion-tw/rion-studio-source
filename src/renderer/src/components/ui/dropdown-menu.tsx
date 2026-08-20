@@ -21,11 +21,15 @@ export const DropdownMenuTrigger = forwardRef<
 
 DropdownMenuTrigger.displayName = DropdownMenuPrimitive.Trigger.displayName;
 
+type DropdownMenuContentProps = React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
+  portalContainer?: HTMLElement | null;
+};
+
 export const DropdownMenuContent = forwardRef<
   React.ComponentRef<typeof DropdownMenuPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => (
-  <DropdownMenuPrimitive.Portal>
+  DropdownMenuContentProps
+>(({ className, portalContainer, sideOffset = 4, ...props }, ref) => (
+  <DropdownMenuPrimitive.Portal container={portalContainer ?? undefined}>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}

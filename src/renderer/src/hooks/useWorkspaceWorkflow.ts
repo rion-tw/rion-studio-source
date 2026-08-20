@@ -162,16 +162,16 @@ export function useWorkspaceWorkflow({
   async function handleLaunchWorkspace(
     workspace: LaunchWorkspace,
     destination?: RuntimeLaunchDestination
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (launchInProgressRef.current) {
-      return;
+      return false;
     }
 
     launchInProgressRef.current = true;
     const finishBusy = beginBusy(workspace.id);
     if (!finishBusy) {
       launchInProgressRef.current = false;
-      return;
+      return false;
     }
 
     const reportError = beginErrorOperation();
@@ -185,8 +185,10 @@ export function useWorkspaceWorkflow({
       if (notice) {
         setNotice?.(notice);
       }
+      return true;
     } catch (launchError) {
       reportError(launchError);
+      return false;
     } finally {
       launchInProgressRef.current = false;
       finishBusy();

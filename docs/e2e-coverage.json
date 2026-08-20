@@ -12,6 +12,7 @@
     "workspaces",
     "game-windows",
     "macros",
+    "quick-access",
     "settings"
   ],
   "profiles": {
@@ -174,7 +175,7 @@
         "destinations": "temporary-live-dormant",
         "deduplication": "source-owner-tab-surface"
       },
-      "description": "Launch Roles and overlapping Workspaces through visible destination menus into a temporary window, a live permanent window, and a dormant saved window without duplicating source ownership."
+      "description": "Launch Roles and overlapping Workspaces through the visible Quick Open destination menu into a temporary window, a live permanent window, and a dormant saved window without duplicating source ownership."
     },
     {
       "id": "MIXED-TAB-MUTATION-MACRO-004",
@@ -260,6 +261,19 @@
       "description": "Use the labeled game-name field to validate, create, edit, persist, and delete a custom game through the UI."
     },
     {
+      "id": "QUICK-ACCESS-UI-001",
+      "feature": "quick-access",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "persistence",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Open Quick Open from the visible sidebar and fixed keyboard shortcut, search and launch a Role, pin it, verify the pin survives restart, then clear its local recent-use history from Settings."
+    },
+    {
       "id": "ROLES-UI-001",
       "feature": "roles",
       "priority": "P0",
@@ -270,7 +284,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Use the labeled role-name field to create and persist a role, then launch it from the role card against the deterministic fixture."
+      "description": "Use the labeled role-name field to create and persist a role, then launch it through Quick Open against the deterministic fixture."
     },
     {
       "id": "WORKSPACES-UI-001",
@@ -503,7 +517,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Open isolated Roles and overlapping Workspaces through visible destination menus into new, live, and dormant Game Windows, then focus rather than duplicate repeated sources."
+      "description": "Open isolated Roles and overlapping Workspaces through Quick Open destination menus into new, live, and dormant Game Windows, then use its primary action to focus rather than duplicate repeated sources."
     },
     {
       "id": "RUNTIME-TAB-TOPOLOGY-009",

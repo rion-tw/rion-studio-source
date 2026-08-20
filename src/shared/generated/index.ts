@@ -194,6 +194,8 @@ export type { PortableMacroConflictResolutionRecord } from "./PortableMacroConfl
 export type { PortableMacroRecord } from "./PortableMacroRecord";
 export type { PortablePreferencesRecord } from "./PortablePreferencesRecord";
 export type { PortableRoleRecord } from "./PortableRoleRecord";
+export type { QuickAccessItemRefRecord } from "./QuickAccessItemRefRecord";
+export type { QuickAccessPreferencesRecord } from "./QuickAccessPreferencesRecord";
 export type { PerformanceTelemetryRecord } from "./PerformanceTelemetryRecord";
 export type { ResolvedBrowserEngine } from "./ResolvedBrowserEngine";
 export type { RoleCreateInputRecord } from "./RoleCreateInputRecord";

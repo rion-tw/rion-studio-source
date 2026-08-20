@@ -138,6 +138,11 @@ fn apply_domain_mutation(
                 if let Some(operation_id) = operation_id {
                     set_operation_journal_phase(&transaction, &operation_id, "committed")?;
                 }
+                prune_quick_access_items(
+                    &transaction,
+                    "role",
+                    std::slice::from_ref(&id),
+                )?;
                 Ok(json!({ "deleted": true }))
             }
             StateMutation::RolesDelete { ids, operation_ids } => {
@@ -187,6 +192,7 @@ fn apply_domain_mutation(
                 }
                 sync_workspaces(&transaction, &workspaces)?;
                 sync_macros(&transaction, &macros)?;
+                prune_quick_access_items(&transaction, "role", &deleted_ids)?;
                 Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
             }
             StateMutation::RoleBrowserDataReset { id, operation_id } => {
@@ -254,6 +260,11 @@ fn apply_domain_mutation(
                 transaction
                     .execute("DELETE FROM workspaces WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                prune_quick_access_items(
+                    &transaction,
+                    "workspace",
+                    std::slice::from_ref(&id),
+                )?;
                 Ok(json!({ "deleted": true }))
             }
             StateMutation::WorkspacesDelete { ids } => {
@@ -281,6 +292,7 @@ fn apply_domain_mutation(
                         .execute("DELETE FROM workspaces WHERE id=?1", params![id])
                         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
                 }
+                prune_quick_access_items(&transaction, "workspace", &deleted_ids)?;
                 Ok(json!({ "deletedIds": deleted_ids, "skipped": skipped }))
             }
             StateMutation::WorkspaceClearRole { role_id } => {
@@ -433,6 +445,11 @@ fn apply_domain_mutation(
                 transaction
                     .execute("DELETE FROM game_windows WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                prune_quick_access_items(
+                    &transaction,
+                    "gameWindow",
+                    std::slice::from_ref(&id),
+                )?;
                 Ok(json!({ "deleted": true }))
             }
             StateMutation::MacroCreate(input) => {
@@ -458,6 +475,11 @@ fn apply_domain_mutation(
                 transaction
                     .execute("DELETE FROM macros WHERE id=?1", params![id])
                     .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
+                prune_quick_access_items(
+                    &transaction,
+                    "macro",
+                    std::slice::from_ref(&id),
+                )?;
                 Ok(json!({ "deleted": true }))
             }
             StateMutation::MacrosDelete { ids } => {
@@ -468,6 +490,7 @@ fn apply_domain_mutation(
                         .execute("DELETE FROM macros WHERE id=?1", params![id])
                         .map_err(|error| CoreError::StateDatabase(error.to_string()))?;
                 }
+                prune_quick_access_items(&transaction, "macro", &deleted_ids)?;
                 Ok(json!({
                     "deletedIds": deleted_ids,
                     "skipped": skipped.into_iter().map(|(id, reason, related_names)| json!({
@@ -482,6 +505,18 @@ fn apply_domain_mutation(
                 clear_macro_role(&mut macros, &role_id);
                 sync_macros(&transaction, &macros)?;
                 Ok(json!({ "cleared": true }))
+            }
+            StateMutation::QuickAccessPinSet { item, pinned } => {
+                let preferences = mutate_quick_access_pin(&transaction, item, pinned)?;
+                serde_json::to_value(preferences)
+            }
+            StateMutation::QuickAccessRecentRecord { item } => {
+                let preferences = mutate_quick_access_recent(&transaction, item)?;
+                serde_json::to_value(preferences)
+            }
+            StateMutation::QuickAccessRecentClear => {
+                let preferences = clear_quick_access_recent(&transaction)?;
+                serde_json::to_value(preferences)
             }
         }
         .map_err(|error| CoreError::Internal(error.to_string()))?;

@@ -102,4 +102,18 @@ describe("AppSnapshotStore", () => {
     expect(store.commit({ ...snapshot(10), gameWindows: [] })).toBe(false);
     expect(store.getSnapshot().gameWindows).toHaveLength(1);
   });
+
+  it("projects quick access preferences from the authoritative snapshot revision", () => {
+    const store = new AppSnapshotStore();
+    const next = snapshot(12);
+    next.quickAccessPreferences = {
+      pinnedItems: [{ kind: "role", id: "role-12" }],
+      recentItems: [{ kind: "macro", id: "macro-1" }]
+    };
+
+    expect(store.commit(next)).toBe(true);
+    expect(store.getSnapshot().quickAccessPreferences).toEqual(next.quickAccessPreferences);
+    expect(Object.isFrozen(store.getSnapshot().quickAccessPreferences)).toBe(true);
+    expect(Object.isFrozen(store.getSnapshot().quickAccessPreferences.pinnedItems)).toBe(true);
+  });
 });

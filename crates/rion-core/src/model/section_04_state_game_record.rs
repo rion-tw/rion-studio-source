@@ -419,6 +419,9 @@ pub struct CoreStateSnapshotRecord {
     pub runtime_window_preferences: Option<RuntimeWindowPreferencesRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub quick_access_preferences: Option<QuickAccessPreferencesRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub runtime_restore_session: Option<RuntimeRestoreSessionRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]

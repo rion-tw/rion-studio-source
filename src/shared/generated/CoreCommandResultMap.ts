@@ -30,6 +30,7 @@ import type { PerformanceTelemetryRecord } from "./PerformanceTelemetryRecord";
 import type { PortableExportResultRecord } from "./PortableExportResultRecord";
 import type { PortableImportPreviewRecord } from "./PortableImportPreviewRecord";
 import type { PortableImportResultRecord } from "./PortableImportResultRecord";
+import type { QuickAccessPreferencesRecord } from "./QuickAccessPreferencesRecord";
 import type { RolePathsRecord } from "./RolePathsRecord";
 import type { RuntimeWindowPersistenceReceiptRecord } from "./RuntimeWindowPersistenceReceiptRecord";
 import type { RuntimeWindowPreferencesRecord } from "./RuntimeWindowPreferencesRecord";
@@ -111,6 +112,9 @@ type TypedCoreCommandResultMap = {
   macroSettingsReplace: MacroSettingsRecord;
   runtimeWindowPreferencesGet: RuntimeWindowPreferencesRecord;
   runtimeWindowPreferencesReplace: RuntimeWindowPreferencesRecord;
+  quickAccessPinSet: QuickAccessPreferencesRecord;
+  quickAccessRecentRecord: QuickAccessPreferencesRecord;
+  quickAccessRecentClear: QuickAccessPreferencesRecord;
   runtimeRestoreSessionGet: RuntimeRestoreSessionRecord;
   runtimeRestoreSessionReplace: RuntimeRestoreSessionRecord;
   legalAcceptanceStatus: LegalAcceptanceStatusRecord;

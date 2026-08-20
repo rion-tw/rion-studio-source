@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 
 import { WindowDragHandle } from "../../components/WindowDragHandle";
 import { NavItem } from "../../components/ui/patterns";
+import { QuickAccessTrigger } from "../quick-access/QuickAccessTrigger";
 import type { TranslationKey, Translator } from "../../i18n";
 import {
   readSettingsReturnTo,
@@ -13,7 +14,9 @@ import {
 } from "./settingsNavigation";
 
 interface SettingsSidebarProps {
+  shortcutLabel?: string;
   t: Translator;
+  onOpenQuickAccess?: () => void;
 }
 
 const generalSectionItems = [
@@ -37,7 +40,7 @@ const systemSectionItems = [
   value: SettingsSectionId;
 }>;
 
-export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
+export function SettingsSidebar({ shortcutLabel = "Ctrl+K", t, onOpenQuickAccess = () => undefined }: SettingsSidebarProps): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const activeSection = readSettingsSection(new URLSearchParams(location.search).get("section"));
@@ -60,6 +63,10 @@ export function SettingsSidebar({ t }: SettingsSidebarProps): JSX.Element {
         <ArrowLeft size={15} />
         <span className="truncate">{t("settings.backToApp")}</span>
       </button>
+
+      <div className="pt-4">
+        <QuickAccessTrigger shortcutLabel={shortcutLabel} t={t} onOpen={onOpenQuickAccess} />
+      </div>
 
       <p className="px-2 pb-2 pt-6 text-caption font-semibold uppercase text-sidebar-foreground/42">
         {t("settings.general")}

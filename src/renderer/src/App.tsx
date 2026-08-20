@@ -1,5 +1,5 @@
 import { AlertCircle } from "lucide-react";
-import { Suspense, type JSX, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, type JSX, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import { AppSidebar } from "./components/AppSidebar";
 import { UpdateReadyBanner } from "./components/UpdateReadyBanner";
@@ -8,7 +8,13 @@ import { Surface } from "./components/ui/patterns";
 import { LegalOnboarding } from "./features/legal/LegalOnboarding";
 import { FirstRunOnboardingGate } from "./features/onboarding/FirstRunOnboardingGate";
 import { SettingsSidebar } from "./features/settings/SettingsSidebar";
-import { createEditEditorPath, createNewEditorPath } from "./app/editorNavigation";
+import { QuickAccessPalette } from "./features/quick-access/QuickAccessPalette";
+import {
+  createQuickAccessCatalog,
+  isQuickAccessShortcut,
+  type QuickAccessItem
+} from "./features/quick-access/quickAccessModel";
+import { createEditEditorPath, createNewEditorPath, normalizeAppReturnTo } from "./app/editorNavigation";
 import { getBrowserEngineStatusTitle } from "./app/browserEnginePresentation";
 import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
@@ -27,11 +33,15 @@ import { useSystemRuntimeWarnings } from "./hooks/useSystemRuntimeWarnings";
 import { localizeErrorMessage } from "./i18n";
 import { DEFAULT_GAME_BROWSER_SETTINGS } from "../../shared/browserFonts";
 import { DEFAULT_MACRO_SETTINGS } from "../../shared/macroSettings";
-import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
+import type { GameBrowserSettings, GameBrowserSettingsPatch, MacroSettings, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, QuickAccessItemRef, QuickAccessPreferences, RuntimeLaunchDestination, RuntimeWindowPreferences, SystemFontFamily } from "../../shared/types";
 import { BootLoadingScreen, BridgeUnavailable, RouteFallback } from "./app/AppScreens";
 import { DashboardRoute, GameEditorRoute, GameWindowsRoute, GamesRoute, LaunchWorkspacesRoute, MacroEditorRoute, MacrosRoute, RoleEditorRoute, RolesRoute, SettingsRoute, WorkspaceEditorRoute } from "./app/lazyRoutes";
 
 const TOAST_DISMISS_MS = 4000;
+const EMPTY_QUICK_ACCESS_PREFERENCES: QuickAccessPreferences = {
+  pinnedItems: [],
+  recentItems: []
+};
 
 export function App(): JSX.Element {
   const location = useLocation();
@@ -52,6 +62,10 @@ export function App(): JSX.Element {
       restoreGameWindowsOnStartup: true
     });
   const [notice, setNotice] = useState<string | null>(null);
+  const [isQuickAccessOpen, setIsQuickAccessOpen] = useState(false);
+  const [quickAccessPreferences, setQuickAccessPreferences] = useState<QuickAccessPreferences>(
+    data.quickAccessPreferences ?? EMPTY_QUICK_ACCESS_PREFERENCES
+  );
   useSystemRuntimeWarnings(setNotice);
   const notifiedEngineIssues = useRef(new Map<string, string>());
   const [systemFonts, setSystemFonts] = useState<SystemFontFamily[]>([]);
@@ -265,8 +279,158 @@ export function App(): JSX.Element {
   });
   const busyRoleIds = roleWorkflow.busyRoleIds;
   const { openListForRole } = macroWorkflow;
-  const { initialLoadState, loadData, setError } = data;
+  const { beginErrorOperation, initialLoadState, loadData, setError } = data;
   const { reload: reloadLegal } = legal;
+  const isMacOS = document.documentElement.dataset.platform === "mac";
+  const quickAccessEnabled = hasBridge &&
+    data.initialLoadState === "ready" &&
+    legal.status?.isAccepted === true &&
+    !firstRunOnboarding.isVisible;
+  const quickAccessShortcutLabel = isMacOS ? "⌘K" : "Ctrl+K";
+  const quickAccessCatalog = useMemo(() => createQuickAccessCatalog({
+    busyMacroIds: macroWorkflow.busyMacroIds,
+    busyRoleIds,
+    busyRunKeys: macroWorkflow.busyRunKeys,
+    busyWorkspaceIds: workspaceWorkflow.busyWorkspaceIds,
+    gameWindows: data.gameWindows,
+    games: data.games,
+    macros: data.macros,
+    macroStatusByRun: data.macroStatusByRun,
+    preferences: quickAccessPreferences,
+    roles: data.roles,
+    runtime: data.embeddedRuntime,
+    statusByRole: data.statusByRole,
+    t: preferences.t,
+    workspaces: data.workspaces
+  }), [
+    busyRoleIds,
+    data.embeddedRuntime,
+    data.gameWindows,
+    data.games,
+    data.macros,
+    data.macroStatusByRun,
+    data.roles,
+    data.statusByRole,
+    data.workspaces,
+    macroWorkflow.busyMacroIds,
+    macroWorkflow.busyRunKeys,
+    preferences.t,
+    quickAccessPreferences,
+    workspaceWorkflow.busyWorkspaceIds
+  ]);
+
+  useEffect(() => {
+    setQuickAccessPreferences(data.quickAccessPreferences ?? EMPTY_QUICK_ACCESS_PREFERENCES);
+  }, [data.quickAccessPreferences]);
+
+  const openQuickAccess = useCallback((): void => {
+    if (!quickAccessEnabled) return;
+    if (document.querySelector("dialog[open]")) return;
+    setIsQuickAccessOpen(true);
+  }, [quickAccessEnabled]);
+
+  useEffect(() => {
+    if (!quickAccessEnabled) {
+      setIsQuickAccessOpen(false);
+      return;
+    }
+    function handleQuickAccessShortcut(event: KeyboardEvent): void {
+      if (!isQuickAccessShortcut(event, isMacOS ? "mac" : "windows")) return;
+      if (isQuickAccessOpen) {
+        event.preventDefault();
+        setIsQuickAccessOpen(false);
+        return;
+      }
+      if (document.querySelector("dialog[open], [aria-modal=\"true\"]")) return;
+      event.preventDefault();
+      setIsQuickAccessOpen(true);
+    }
+
+    window.addEventListener("keydown", handleQuickAccessShortcut);
+    return () => window.removeEventListener("keydown", handleQuickAccessShortcut);
+  }, [isMacOS, isQuickAccessOpen, quickAccessEnabled]);
+
+  const setQuickAccessPinned = useCallback(async (
+    item: QuickAccessItemRef,
+    pinned: boolean
+  ): Promise<boolean> => {
+    const reportError = beginErrorOperation();
+    try {
+      const next = await window.rionStudio.setQuickAccessPinned(item, pinned);
+      setQuickAccessPreferences(next);
+      return true;
+    } catch (error) {
+      reportError(error);
+      return false;
+    }
+  }, [beginErrorOperation]);
+
+  const recordQuickAccessUse = useCallback(async (item: QuickAccessItemRef): Promise<void> => {
+    const reportError = beginErrorOperation();
+    try {
+      const next = await window.rionStudio.recordQuickAccessUse(item);
+      setQuickAccessPreferences(next);
+    } catch (error) {
+      reportError(error);
+    }
+  }, [beginErrorOperation]);
+
+  const clearQuickAccessRecent = useCallback(async (): Promise<void> => {
+    const next = await window.rionStudio.clearQuickAccessRecent();
+    setQuickAccessPreferences(next);
+  }, []);
+
+  const executeQuickAccessItem = useCallback(async (
+    item: QuickAccessItem,
+    destination?: RuntimeLaunchDestination
+  ): Promise<boolean> => {
+    let succeeded = false;
+    if (item.kind === "role") {
+      succeeded = Boolean(await roleWorkflow.handleLaunch(item.role.id, destination));
+    } else if (item.kind === "workspace") {
+      succeeded = await workspaceWorkflow.handleLaunchWorkspace(item.workspace, destination);
+    } else if (item.kind === "gameWindow") {
+      const reportError = beginErrorOperation();
+      try {
+        await window.rionStudio.showGameWindow(item.gameWindow.id);
+        succeeded = true;
+      } catch (error) {
+        reportError(error);
+      }
+    } else if (item.kind === "macro") {
+      if (item.active) {
+        macroWorkflow.openListForMacro(item.macro.id);
+        navigateToMacros();
+        succeeded = true;
+      } else {
+        succeeded = await macroWorkflow.handleStartMacro(item.macro.id);
+      }
+    } else {
+      if (item.routeId === "settings") {
+        navigate(item.path, {
+          state: { returnTo: normalizeAppReturnTo(location.pathname, location.search) }
+        });
+      } else {
+        navigate(item.path);
+      }
+      succeeded = true;
+    }
+
+    if (succeeded && item.kind !== "route") {
+      await recordQuickAccessUse(item.ref);
+    }
+    return succeeded;
+  }, [
+    beginErrorOperation,
+    location.pathname,
+    location.search,
+    macroWorkflow,
+    navigate,
+    navigateToMacros,
+    recordQuickAccessUse,
+    roleWorkflow,
+    workspaceWorkflow
+  ]);
 
   useEffect(() => {
     if (
@@ -440,7 +604,11 @@ export function App(): JSX.Element {
   return (
     <div className="liquid-app-shell flex h-screen overflow-hidden text-foreground">
       {location.pathname === "/settings" ? (
-        <SettingsSidebar t={preferences.t} />
+        <SettingsSidebar
+          shortcutLabel={quickAccessShortcutLabel}
+          t={preferences.t}
+          onOpenQuickAccess={openQuickAccess}
+        />
       ) : (
         <AppSidebar
           gameCount={data.games.length}
@@ -448,8 +616,10 @@ export function App(): JSX.Element {
           hasUpdateBadge={shouldShowUpdateBadge(updates.status)}
           macroCount={data.macros.length}
           roleCount={data.roles.length}
+          shortcutLabel={quickAccessShortcutLabel}
           t={preferences.t}
           workspaceCount={data.workspaces.length}
+          onOpenQuickAccess={openQuickAccess}
         />
       )}
 
@@ -640,6 +810,8 @@ export function App(): JSX.Element {
                     busyMacroIds={macroWorkflow.busyMacroIds}
                     busyRunKeys={macroWorkflow.busyRunKeys}
                     collapsedGroupKeys={macroWorkflow.collapsedGroupKeys}
+                    focusedMacroId={macroWorkflow.focusedMacroId}
+                    isFocusBlocked={isQuickAccessOpen}
                     macros={data.macros}
                     macroStatuses={data.macroStatuses}
                     macroStatusByRun={data.macroStatusByRun}
@@ -667,6 +839,7 @@ export function App(): JSX.Element {
                     onStopMacros={macroWorkflow.handleStopMacros}
                     onToggleGroup={macroWorkflow.toggleMacroGroup}
                     onViewModeChange={macroWorkflow.setViewMode}
+                    onMacroFocused={() => macroWorkflow.setFocusedMacroId(null)}
                   />
                 ) : (
                   <BridgeUnavailable t={preferences.t} />
@@ -684,6 +857,7 @@ export function App(): JSX.Element {
                   roles={data.roles}
                   language={preferences.language}
                   macroSettings={macroSettings}
+                  quickAccessPreferences={quickAccessPreferences}
                   runtimeWindowPreferences={runtimeWindowPreferences}
                   portableDataCounts={{
                     gameCount: data.games.length,
@@ -705,6 +879,7 @@ export function App(): JSX.Element {
                   onGameBrowserSettingsChange={updateGameBrowserSettings}
                   onGameBrowserSettingsPatch={patchGameBrowserSettings}
                   onMacroSettingsChange={updateMacroSettings}
+                  onClearQuickAccessRecent={clearQuickAccessRecent}
                   onRuntimeWindowPreferencesChange={updateRuntimeWindowPreferences}
                   onLoadSystemFonts={loadSystemFonts}
                   onPreviewPortableImport={previewPortableImport}
@@ -722,6 +897,17 @@ export function App(): JSX.Element {
           </Routes>
         </Suspense>
       </main>
+      <QuickAccessPalette
+        catalog={quickAccessCatalog}
+        gameWindows={data.gameWindows}
+        open={isQuickAccessOpen}
+        runtime={data.embeddedRuntime}
+        shortcutLabel={quickAccessShortcutLabel}
+        t={preferences.t}
+        onExecute={executeQuickAccessItem}
+        onOpenChange={setIsQuickAccessOpen}
+        onSetPinned={setQuickAccessPinned}
+      />
     </div>
   );
 }

@@ -15,7 +15,8 @@ use crate::database::{join_worker_if_finished, portable_recovery};
 use crate::domain::{
     assign_role_game_ids, clear_macro_role, clear_workspace_role, create_game, create_game_window,
     create_macro, create_role, create_workspace, default_game_browser_settings,
-    default_macro_settings, default_runtime_window_preferences, delete_game, delete_game_window,
+    default_macro_settings, default_quick_access_preferences, default_runtime_window_preferences,
+    delete_game, delete_game_window,
         delete_macro, delete_macros, delete_workspace,
     macro_shortcut_source_role_ids, normalize_game_browser_settings, normalize_macro_settings,
     reorder_game_windows, reorder_roles,
@@ -32,7 +33,8 @@ use crate::model::{
     GameWindowUpdateInputRecord,
     LogLevel, MacroBadgePositionRecord, MacroCreateInputRecord, MacroDefinition,
     MacroOverlaySettingsRecord, MacroRuntimeSettings, MacroSettingsRecord, MacroUpdateInputRecord, RoleCreateInputRecord,
-    RoleGameAssignmentRecord, RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
+    QuickAccessItemRefRecord, QuickAccessPreferencesRecord, RoleGameAssignmentRecord,
+    RoleUpdateInputRecord, RuntimeWindowPreferencesRecord,
     StateCollection, StateGameRecord, StateGameWindowRecord, StateLaunchWorkspaceRecord,
     StateMacroRecord, StateRoleRecord, WorkspaceCreateInputRecord, WorkspaceUpdateInputRecord,
 };
@@ -170,6 +172,14 @@ pub(crate) enum StateMutation {
     MacrosClearRole {
         role_id: String,
     },
+    QuickAccessPinSet {
+        item: QuickAccessItemRefRecord,
+        pinned: bool,
+    },
+    QuickAccessRecentRecord {
+        item: QuickAccessItemRefRecord,
+    },
+    QuickAccessRecentClear,
 }
 
 impl StateMutation {
@@ -209,6 +219,9 @@ impl StateMutation {
             | Self::MacroDelete { .. }
             | Self::MacrosDelete { .. }
             | Self::MacrosClearRole { .. } => vec![Macros],
+            Self::QuickAccessPinSet { .. }
+            | Self::QuickAccessRecentRecord { .. }
+            | Self::QuickAccessRecentClear => Vec::new(),
         }
     }
 }

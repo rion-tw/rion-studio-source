@@ -26,7 +26,7 @@ import { normalizeGameBrowserSettings, workspaceGapSizes } from "../../../../sha
 
 import { getLegalDocumentVersion, LEGAL_PROVIDER_NAME } from "../../../../shared/legal";
 
-import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacosHighRefreshMode, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
+import type { AppUpdateStatus, BrowserPerformanceSettings, GameBrowserSettings, GameBrowserSettingsPatch, Game, MacosHighRefreshMode, MacroSettings, PortableDataSelection, PortableExportInput, PortableExportResult, PortableImportInput, PortableImportPreview, PortableImportResult, PortableMacroConflictResolution, QuickAccessPreferences, RuntimeWindowPreferences, Role, SystemFontFamily, WorkspaceAppearanceSettings, WorkspaceBackgroundStyle, WorkspaceGapSize } from "../../../../shared/types";
 
 import { MacroSettingsSection } from "./MacroSettingsSection";
 
@@ -60,6 +60,7 @@ interface SettingsViewProps {
   roles?: Role[];
   language: Language;
   macroSettings: MacroSettings;
+  quickAccessPreferences?: QuickAccessPreferences;
   runtimeWindowPreferences: RuntimeWindowPreferences;
   portableDataCounts: PortableDataCounts;
   resolvedTheme: ResolvedTheme;
@@ -74,6 +75,7 @@ interface SettingsViewProps {
   onGameBrowserSettingsChange: (settings: GameBrowserSettings) => Promise<GameBrowserSettings>;
   onGameBrowserSettingsPatch?: (patch: GameBrowserSettingsPatch) => Promise<GameBrowserSettings>;
   onMacroSettingsChange: (settings: MacroSettings) => Promise<MacroSettings>;
+  onClearQuickAccessRecent?: () => Promise<void>;
   onRuntimeWindowPreferencesChange: (
     preferences: RuntimeWindowPreferences
   ) => Promise<RuntimeWindowPreferences>;
@@ -100,6 +102,7 @@ function SettingsViewBase({
   roles = [],
   language,
   macroSettings,
+  quickAccessPreferences = { pinnedItems: [], recentItems: [] },
   runtimeWindowPreferences,
   portableDataCounts,
   resolvedTheme,
@@ -114,6 +117,7 @@ function SettingsViewBase({
   onGameBrowserSettingsChange,
   onGameBrowserSettingsPatch,
   onMacroSettingsChange,
+  onClearQuickAccessRecent = async () => undefined,
   onRuntimeWindowPreferencesChange,
   onLoadSystemFonts,
   onPreviewPortableImport,
@@ -143,6 +147,7 @@ function SettingsViewBase({
   const [isFontSmoothingSaving, setIsFontSmoothingSaving] = useState(false);
   const [isRuntimeWindowPreferencesSaving, setIsRuntimeWindowPreferencesSaving] =
     useState(false);
+  const [isQuickAccessClearing, setIsQuickAccessClearing] = useState(false);
   const isMacOS = document.documentElement.dataset.platform === "mac";
   const canCheckForUpdates =
     Boolean(updateStatus?.isPackaged) &&
@@ -434,6 +439,37 @@ function SettingsViewBase({
 
         {activeSection === "preferences" ? (
           <>
+            <SettingsSection title={t("settings.quickAccess")}>
+              <SettingsRow
+                title={t("settings.quickAccessShortcut")}
+                description={t("settings.quickAccessShortcutDescription")}
+                control={<ReadOnlyValue value={isMacOS ? "⌘K" : "Ctrl+K"} />}
+              />
+              <SettingsRow
+                showDivider={false}
+                title={t("settings.quickAccessRecent")}
+                description={t("settings.quickAccessRecentDescription").replace(
+                  "{count}",
+                  String(quickAccessPreferences.recentItems.length)
+                )}
+                control={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={isQuickAccessClearing || quickAccessPreferences.recentItems.length === 0}
+                    onClick={() => {
+                      setIsQuickAccessClearing(true);
+                      void onClearQuickAccessRecent()
+                        .catch(onError)
+                        .finally(() => setIsQuickAccessClearing(false));
+                    }}
+                  >
+                    {t("settings.quickAccessClearRecent")}
+                  </Button>
+                }
+              />
+            </SettingsSection>
+
             <SettingsSection title={t("settings.gameWindows")}>
               <SettingsRow
                 title={t("settings.alwaysHideTabCloseButton")}

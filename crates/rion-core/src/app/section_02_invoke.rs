@@ -320,6 +320,15 @@ impl AppCore {
                 serde_json::to_value(preferences)
                     .map_err(|error| CoreError::Internal(error.to_string()))
             }
+            CoreCommand::QuickAccessPinSet { item, pinned } => {
+                self.mutate_state(StateMutation::QuickAccessPinSet { item, pinned })
+            }
+            CoreCommand::QuickAccessRecentRecord { item } => {
+                self.mutate_state(StateMutation::QuickAccessRecentRecord { item })
+            }
+            CoreCommand::QuickAccessRecentClear => {
+                self.mutate_state(StateMutation::QuickAccessRecentClear)
+            }
             CoreCommand::RuntimeRestoreSessionGet => {
                 let session = self
                     .read_optional_scalar_state::<RuntimeRestoreSessionRecord>(

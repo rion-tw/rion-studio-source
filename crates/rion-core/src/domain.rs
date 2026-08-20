@@ -7,6 +7,7 @@ include!("domain/section_02_reorder_workspaces.rs");
 include!("domain/section_03_validate_display_target.rs");
 include!("domain/section_04_is_reserved_macro_trigger.rs");
 include!("domain/section_05_decode.rs");
+include!("domain/section_06_quick_access.rs");
 
 #[cfg(test)]
 mod tests;

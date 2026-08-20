@@ -55,6 +55,8 @@ import type {
   PortableImportWarningRecord,
   PortableMacroConflictResolutionRecord,
   PortablePreferencesRecord,
+  QuickAccessItemRefRecord,
+  QuickAccessPreferencesRecord,
   StateGameRecord,
   StateGameWindowRecord,
   StateLaunchWorkspaceRecord,
@@ -230,6 +232,10 @@ export interface EmbeddedRuntimeState {
 
 export type RuntimeWindowPreferences = RuntimeWindowPreferencesRecord;
 
+export type QuickAccessItemRef = QuickAccessItemRefRecord;
+
+export type QuickAccessPreferences = QuickAccessPreferencesRecord;
+
 export type RuntimeLaunchDestination = RuntimeLaunchDestinationRequest;
 
 export type RestoreSavedGameWindowsInput =
@@ -337,6 +343,7 @@ export interface AppSnapshot {
   displayTopology: DisplayTopology;
   macros: Macro[];
   macroStatuses: MacroRunStatus[];
+  quickAccessPreferences: QuickAccessPreferences;
 }
 
 export interface RoleLaunchResult {

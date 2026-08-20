@@ -209,6 +209,14 @@ pub enum CoreCommand {
     RuntimeWindowPreferencesReplace {
         preferences: RuntimeWindowPreferencesRecord,
     },
+    QuickAccessPinSet {
+        item: QuickAccessItemRefRecord,
+        pinned: bool,
+    },
+    QuickAccessRecentRecord {
+        item: QuickAccessItemRefRecord,
+    },
+    QuickAccessRecentClear,
     RuntimeRestoreSessionGet,
     RuntimeRestoreSessionReplace {
         session: RuntimeRestoreSessionRecord,

@@ -898,6 +898,7 @@ fn app_snapshot(state: &CoreState, window: &WebviewWindow) -> Result<Value, Core
         "launchWorkspaces": snapshot.state.launch_workspaces,
         "displayTopology": display_topology(state, window, "snapshot")?,
         "macros": snapshot.state.macros,
-        "macroStatuses": snapshot.macro_statuses
+        "macroStatuses": snapshot.macro_statuses,
+        "quickAccessPreferences": snapshot.state.quick_access_preferences.unwrap_or_default()
     }))
 }

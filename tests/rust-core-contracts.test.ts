@@ -103,6 +103,27 @@ describe("generated Rust core contracts", () => {
     }
   });
 
+  it("generates stable quick access refs, preferences, commands, and snapshot projection", async () => {
+    const [item, preferences, command, resultMap, snapshot, shell] = await Promise.all([
+      readFile("src/shared/generated/QuickAccessItemRefRecord.ts", "utf8"),
+      readFile("src/shared/generated/QuickAccessPreferencesRecord.ts", "utf8"),
+      readFile("src/shared/generated/CoreCommand.ts", "utf8"),
+      readFile("src/shared/generated/CoreCommandResultMap.ts", "utf8"),
+      readFile("src/shared/generated/CoreStateSnapshotRecord.ts", "utf8"),
+      readFile("src-tauri/src/lib/section_03_rion_overlay_request.rs", "utf8")
+    ]);
+
+    expect(item).toContain('kind: "role" | "workspace" | "gameWindow" | "macro"');
+    expect(preferences).toContain("pinnedItems: Array<QuickAccessItemRefRecord>");
+    expect(preferences).toContain("recentItems: Array<QuickAccessItemRefRecord>");
+    expect(command).toContain('{ "type": "quickAccessPinSet"');
+    expect(command).toContain('{ "type": "quickAccessRecentRecord"');
+    expect(command).toContain('{ "type": "quickAccessRecentClear" }');
+    expect(resultMap).toContain("quickAccessPinSet: QuickAccessPreferencesRecord");
+    expect(snapshot).toContain("quickAccessPreferences?: QuickAccessPreferencesRecord");
+    expect(shell).toContain('"quickAccessPreferences"');
+  });
+
   it("omits the removed workspace resource policy from every generated boundary", async () => {
     const contracts = await Promise.all([
       readFile("src/shared/generated/WorkspaceCreateInputRecord.ts", "utf8"),

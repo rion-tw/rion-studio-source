@@ -447,10 +447,22 @@
   }, true);
 
   const handleEscape = (event) => {
-    if (!activeElement || event.key !== "Escape") return;
+    const currentDocument = event.currentTarget;
+    const currentFullscreenElement = currentDocument?.fullscreenElement
+      ?? currentDocument?.webkitFullscreenElement
+      ?? currentDocument?.webkitCurrentFullScreenElement;
+    if (!currentFullscreenElement || event.key !== "Escape") return;
+    const exitCurrentFullscreen = currentDocument.exitFullscreen
+      ?? currentDocument.webkitExitFullscreen
+      ?? currentDocument.webkitCancelFullScreen;
+    if (typeof exitCurrentFullscreen !== "function") return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    void exitThroughHost().catch(() => undefined);
+    try {
+      void Promise.resolve(exitCurrentFullscreen.call(currentDocument)).catch(() => undefined);
+    } catch {
+      // The current document's policy owns the terminal fullscreen error.
+    }
   };
   const bindDocument = (nextDocument) => {
     if (!nextDocument || boundDocument === nextDocument) return;

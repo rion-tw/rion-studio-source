@@ -428,15 +428,22 @@ pub(in crate::system_runtime) fn platform_window_is_focused(window: &Window) -> 
 #[cfg(windows)]
 pub(in crate::system_runtime) fn request_platform_webview_window_show(window: &WebviewWindow) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        IsWindow, SW_SHOWNOACTIVATE, ShowWindowAsync,
+        IsWindow, IsWindowVisible, SW_SHOWNOACTIVATE, ShowWindow,
     };
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
         return Err("The Win32 main-window handle is no longer valid.".to_owned());
     }
-    let _ = unsafe { ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE) };
-    Ok(())
+    // The main-window actor invokes this on the HWND's owning UI thread and
+    // immediately reads visibility as the native acknowledgement. Apply the
+    // show synchronously so that readback cannot race a queued async request.
+    let _ = unsafe { ShowWindow(hwnd, SW_SHOWNOACTIVATE) };
+    if unsafe { IsWindowVisible(hwnd) }.as_bool() {
+        Ok(())
+    } else {
+        Err("Windows did not acknowledge the main window as visible.".to_owned())
+    }
 }
 
 #[cfg(windows)]

@@ -93,7 +93,16 @@ describe("native tab scroll viewport", () => {
     expect(layout).toContain("BOOL overflowing = widthLayout.overflowing;");
     expect(layout).toContain("overflowing ? kRionTabScrollFusionInset : 0");
     expect(layout).toContain("tabsWidth + 2.0 * fusionInset");
-    expect(layout).toContain("_clusterContainer.frame = NSMakeRect(");
+    expect(geometry).toContain("static void RionRuntimeLayoutTabClusterViews(");
+    expect(geometry).toContain("viewport.frame = viewportFrame;");
+    expect(geometry).toContain("effectContainer.frame = viewport.bounds;");
+    expect(geometry).toContain(
+      "if (content != effectContainer) content.frame = effectContainer.bounds;"
+    );
+    expect(layout).toContain("RionRuntimeLayoutTabClusterViews(");
+    expect(layout).toContain(
+      "_clusterContainer, _clusterEffectContainer, _clusterContent,"
+    );
     expect(layout).toContain("_tabScrollView.frame = _clusterContent.bounds;");
     expect(layout).toContain("CGFloat x = fusionInset;");
     expect(layout).toContain("[self updateTabEdgeFadeMasks]");

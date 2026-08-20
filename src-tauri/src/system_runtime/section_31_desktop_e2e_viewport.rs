@@ -137,8 +137,12 @@ fn desktop_e2e_windows_document_viewport(
 #[cfg(windows)]
 fn desktop_e2e_windows_webview_geometry(webview: &Webview) -> Result<(Value, Value), String> {
     use windows::Win32::{
-        Foundation::{HWND, RECT},
-        UI::{HiDpi::GetDpiForWindow, WindowsAndMessaging::GetClientRect},
+        Foundation::{HWND, POINT, RECT},
+        Graphics::Gdi::{ClientToScreen, ScreenToClient},
+        UI::{
+            HiDpi::GetDpiForWindow,
+            WindowsAndMessaging::{GetAncestor, GetClientRect, GA_ROOT},
+        },
     };
 
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -156,7 +160,18 @@ fn desktop_e2e_windows_webview_geometry(webview: &Webview) -> Result<(Value, Val
                     .Bounds(&mut bounds)
                     .map_err(|error| error.to_string())?;
                 GetClientRect(parent, &mut host_bounds).map_err(|error| error.to_string())?;
-                let scale = f64::from(GetDpiForWindow(parent).max(96)) / 96.0;
+                let root = GetAncestor(parent, GA_ROOT);
+                if root.is_invalid() {
+                    return Err("The WebView2 role-surface root window is unavailable.".to_owned());
+                }
+                let mut host_origin = POINT::default();
+                ClientToScreen(parent, &mut host_origin)
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+                ScreenToClient(root, &mut host_origin)
+                    .ok()
+                    .map_err(|error| error.to_string())?;
+                let scale = f64::from(GetDpiForWindow(root).max(96)) / 96.0;
                 let logical = |value: i32| f64::from(value) / scale;
                 Ok((
                     json!({
@@ -168,8 +183,8 @@ fn desktop_e2e_windows_webview_geometry(webview: &Webview) -> Result<(Value, Val
                     json!({
                         "height": logical(host_bounds.bottom - host_bounds.top),
                         "width": logical(host_bounds.right - host_bounds.left),
-                        "x": logical(host_bounds.left),
-                        "y": logical(host_bounds.top),
+                        "x": logical(host_origin.x),
+                        "y": logical(host_origin.y),
                     }),
                 ))
             })();

@@ -681,8 +681,21 @@ async function exerciseWorkspaceDivider(
     const candidate = await windowSnapshot(tab.windowId);
     const candidateTab = candidate.kernel?.tabs.find((item) => item.tabId === tab.id);
     const roleSlot = candidateTab?.workspaceSlots.find((slot) => slot.roleId === roleId);
+    const roleSurface = candidate.native.roleSurfaces?.find(
+      (surface) => surface.roleId === roleId
+    );
+    const webSurface = candidate.native.roleSurfaces?.find(
+      (surface) => surface.roleId === webSurfaceId
+    );
+    const chrome = candidate.native.workspaceWebChromeSurfaces?.find(
+      (surface) => surface.roleId === webSurfaceId
+    );
     if ((candidate.kernel?.windowRevision ?? 0) <= before.kernel!.windowRevision ||
-        !roleSlot || roleSlot.rect.x <= beforeRoleSlot.rect.x + 0.03) {
+        !roleSlot || roleSlot.rect.x <= beforeRoleSlot.rect.x + 0.03 ||
+        !roleSurface || (roleSurface.hostBounds.x ?? 0) <=
+          (beforeRoleSurface.hostBounds.x ?? 0) + 10 ||
+        !webSurface || webSurface.hostBounds.width <= beforeWebSurface.hostBounds.width + 10 ||
+        !chrome || chrome.bounds.width <= beforeChrome.bounds.width + 10) {
       return false;
     }
     after = candidate;

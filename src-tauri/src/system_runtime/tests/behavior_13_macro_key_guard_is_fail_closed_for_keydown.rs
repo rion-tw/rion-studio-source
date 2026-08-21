@@ -54,6 +54,26 @@ fn exact_observation() -> MacroKeyEventObservation {
 }
 
 #[test]
+fn macro_readiness_projection_skips_workspace_web_surface() {
+    assert_eq!(
+        macro_readiness_projection_role_id([
+            ("web-tab-1-3", true),
+            ("role-a", false),
+            ("role-b", false),
+        ]),
+        Some("role-a")
+    );
+    assert_eq!(
+        macro_readiness_projection_role_id([("role-a", false), ("role-b", false)]),
+        Some("role-a")
+    );
+    assert_eq!(
+        macro_readiness_projection_role_id([("web-tab-1-1", true), ("web-tab-1-2", true)]),
+        None
+    );
+}
+
+#[test]
 fn macro_key_observation_is_identity_fenced_and_one_shot() {
     let (observations, lane, _receiver) = observation_fixture();
     let pending = claim_macro_key_observation(

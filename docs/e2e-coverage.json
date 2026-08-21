@@ -395,7 +395,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Show one looping macro exactly once in its combined two-role group, run it across both workspace roles, and preserve balanced iterations through a visible role focus change."
+      "description": "Launch a mixed three-slot Workspace containing two Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles, and preserve balanced iterations through a visible role focus change."
     },
     {
       "id": "MACRO-INPUT-RECOVERY-011",

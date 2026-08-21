@@ -571,16 +571,14 @@ impl SystemRuntimeExecutor {
         let changed = self.presentation.statuses.set_launch_phase(tab_id, phase);
         let ready_role_id = (changed && phase == LaunchPhase::EssentialReady)
             .then(|| {
-                self.state
-                    .lock()
-                    .ok()?
-                    .native_resources
-                    .tabs
-                    .get(tab_id)?
-                    .roles
-                    .keys()
-                    .next()
-                    .cloned()
+                let state = self.state.lock().ok()?;
+                let tab = state.native_resources.tabs.get(tab_id)?;
+                macro_readiness_projection_role_id(tab.roles.iter().map(
+                    |(role_id, surface)| {
+                        (role_id.as_str(), surface.workspace_web.is_some())
+                    },
+                ))
+                .map(str::to_owned)
             })
             .flatten();
         let activation_phase = match phase {
@@ -907,4 +905,12 @@ impl SystemRuntimeExecutor {
         }
     }
 
+}
+
+fn macro_readiness_projection_role_id<'a>(
+    surfaces: impl IntoIterator<Item = (&'a str, bool)>,
+) -> Option<&'a str> {
+    surfaces
+        .into_iter()
+        .find_map(|(role_id, is_workspace_web)| (!is_workspace_web).then_some(role_id))
 }

@@ -81,6 +81,7 @@ async function createScenario(input: {
   steps: MacroStep[];
   trigger?: Macro["trigger"];
   workspace?: boolean;
+  workspaceWebFixtureId?: string;
 }): Promise<Scenario> {
   const origin = requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN");
   const game = await rendererCall("createGame", {
@@ -108,8 +109,18 @@ async function createScenario(input: {
   const workspace = input.workspace
     ? await rendererCall("createLaunchWorkspace", {
         name: `${input.name} Workspace`,
-        slots: roles.map((role) => ({ roleId: role.id })),
-        template: "two_columns"
+        slots: [
+          ...roles.map((role) => ({ roleId: role.id })),
+          ...(input.workspaceWebFixtureId
+            ? [{
+                web: {
+                  name: `${input.name} Web App`,
+                  startUrl: `${origin}/role/${input.workspaceWebFixtureId}`
+                }
+              }]
+            : [])
+        ],
+        template: input.workspaceWebFixtureId ? "three_columns" : "two_columns"
       })
     : undefined;
   return { game, macro, roles, workspace };
@@ -161,6 +172,7 @@ async function launchWorkspace(workspace: LaunchWorkspace, roles: Role[]) {
   await rendererCall("launchWorkspace", workspace.id, { kind: "new-window" });
   await Promise.all(roles.map((role) => waitForRoleProjection({
     afterSequence: cursor,
+    automationState: "ready",
     roleId: role.id,
     state: "running"
   })));
@@ -421,10 +433,12 @@ async function multiRolePhase(): Promise<void> {
     name: "E2E Multi Role",
     repeat: { intervalMs: 120, type: "loop" },
     steps: [{ action: "tap", code: "KeyM", id: "multirole-key", type: "key" }],
-    workspace: true
+    workspace: true,
+    workspaceWebFixtureId: "macro-multirole-web"
   });
   const tab = await launchWorkspace(scenario.workspace!, scenario.roles);
   const live = await windowSnapshot(tab.windowId);
+  expect(live.native.workspaceWebChromeSurfaces?.length).toBeGreaterThan(0);
   await navigate("/macros");
   await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });
   const groupedRows = await $$(`[data-selection-id='${scenario.macro.id}']`);

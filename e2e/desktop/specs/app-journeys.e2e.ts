@@ -323,15 +323,18 @@ async function exerciseMacroMindMapFocus(): Promise<void> {
   };
 
   await rootNode.scrollIntoView({ block: "center", inline: "center" });
-  if (process.platform === "win32") await rootNode.moveTo();
-  else await rootNode.click();
+  await rootNode.click();
   await waitForSingleActiveNode(rootNodeId);
-  if (process.platform === "win32") await stepNode.moveTo();
-  else await stepNode.click();
+  await stepNode.click();
   await waitForSingleActiveNode(stepNodeId);
-  if (process.platform === "win32") await settingsNode.moveTo();
-  else await settingsNode.click();
+  await settingsNode.click();
   await waitForSingleActiveNode(settingsNodeId);
+  await browser.waitUntil(
+    async () => await browser.execute(() => (
+      document.querySelectorAll("[class~='macro-mind-map-edge-focused']").length > 0
+    )),
+    { timeout: 10_000, timeoutMsg: "Macro mind map did not focus the settings edge" }
+  );
 
   const frames = await browser.executeAsync(
     (done: (frames: MacroMindMapFocusFrame[]) => void) => {

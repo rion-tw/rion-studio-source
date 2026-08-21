@@ -533,11 +533,33 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
   *state = {};
   if (_destroyed || !_window || !_toolbar) return NO;
 
+  NSView *accessory = _accessoryController.view;
+  state->accessoryVisibleHeight =
+      RionVisibleScreenHeightForView(accessory);
   state->alwaysShowInFullScreen = self.alwaysShowInFullScreen;
+  state->accessoryOnScreen = state->accessoryVisibleHeight > 0.5;
   state->fullscreen = _fullscreenTransitionActive ||
       (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  state->fullscreenHostReady = _fullscreenHostReady;
   state->revealLocked = self.revealLocked;
+  for (RionRuntimeSurfaceView *surface in _tabSurfaces) {
+    if (RionVisibleScreenHeightForView(surface) > 0.5) {
+      state->tabStripOnScreen = true;
+      break;
+    }
+  }
   state->toolbarPinned = _toolbar.visible;
+  for (NSNumber *buttonType in @[
+         @(NSWindowCloseButton),
+         @(NSWindowMiniaturizeButton),
+         @(NSWindowZoomButton)
+       ]) {
+    NSButton *button =
+        [_window standardWindowButton:(NSWindowButton)buttonType.integerValue];
+    if (RionVisibleScreenHeightForView(button) > 0.5) {
+      state->visibleTrafficLightCount += 1;
+    }
+  }
   NSApplicationPresentationOptions options =
       NSApplication.sharedApplication.presentationOptions;
   SEL selector = NSSelectorFromString(@"_fullScreenPresentationOptions");

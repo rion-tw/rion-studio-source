@@ -343,6 +343,19 @@
       "description": "Create, rename through the labeled standard input, and open a permanent Game Window from the visible Game Windows route."
     },
     {
+      "id": "GAME-WINDOWS-FULLSCREEN-TOOLBAR-012",
+      "feature": "game-windows",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "restart"],
+      "description": "Toggle the visible fullscreen-toolbar preference, use real pointer movement and platform fullscreen shortcuts to prove the Game Window tab row is off screen over live role content when auto-hide is selected, reveals with native window controls at the macOS screen edge, remains pinned when always-show is selected, updates immediately in both directions, and restores its persisted baseline after restart."
+    },
+    {
       "id": "MACROS-UI-001",
       "feature": "macros",
       "priority": "P0",
@@ -533,7 +546,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Fence native placement, presentation, and tab/control geometry across resize and maximize; on macOS, toggle the visible fullscreen-toolbar preference and use the real Ctrl+Cmd+F shortcut to prove auto-hide, pinned, live-update, and baseline-restoration behavior; prove the active tab shows its native loading status while navigation is gated and hides it only after the authoritative ready event; verify visible Game Window chrome remains draggable, minimizable, and closable after role content becomes ready; preserve tab-strip bounds while minimized; and preserve persistence, clean restart, and forced termination by generation and revision."
+      "description": "Fence native placement, presentation, and tab/control geometry across resize and maximize; prove the active tab shows its native loading status while navigation is gated and hides it only after the authoritative ready event; verify visible Game Window chrome remains draggable, minimizable, and closable after role content becomes ready; preserve tab-strip bounds while minimized; and preserve persistence, clean restart, and forced termination by generation and revision."
     },
     {
       "id": "RUNTIME-LAUNCH-DESTINATIONS-008",

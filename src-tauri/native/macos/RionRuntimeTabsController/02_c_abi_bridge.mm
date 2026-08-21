@@ -603,7 +603,23 @@ bool rion_runtime_tabs_fullscreen_toolbar_policy_self_test(void) {
         NSApplicationPresentationAutoHideMenuBar;
     const NSApplicationPresentationOptions toolbar =
         NSApplicationPresentationAutoHideToolbar;
-    return !RionResolveFullscreenToolbarAutoHide(NO, @[]) &&
+    return !RionShouldPinFullscreenToolbar(NO, NO) &&
+        RionShouldPinFullscreenToolbar(YES, NO) &&
+        RionShouldPinFullscreenToolbar(NO, YES) &&
+        RionShouldPinFullscreenToolbar(YES, YES) &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       YES) == 40 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 1000, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       YES) == 0 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), NO,
+                                       YES) == 0 &&
+        RionResolveVisibleScreenHeight(NSMakeRect(0, 960, 1200, 40),
+                                       NSMakeRect(0, 0, 1200, 1000), YES,
+                                       NO) == 0 &&
+        !RionResolveFullscreenToolbarAutoHide(NO, @[]) &&
         RionResolveFullscreenToolbarAutoHide(YES, @[]) &&
         RionResolveFullscreenToolbarAutoHide(NO, @[ @YES ]) &&
         RionResolveFullscreenToolbarAutoHide(YES, @[ @YES, @YES ]) &&

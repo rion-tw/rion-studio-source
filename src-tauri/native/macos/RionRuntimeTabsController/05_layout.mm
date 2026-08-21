@@ -523,6 +523,25 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)displayTitlebarHostIfNeeded {
   if (_destroyed || !_window || !_toolbar || !_accessoryController) return;
 
+  NSWindow *titlebarHost = _accessoryController.view.window;
+  BOOL fullScreen = _fullscreenTransitionActive ||
+      (_window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+  if (fullScreen && _toolbar.visible && titlebarHost &&
+      titlebarHost != _window && !titlebarHost.isVisible) {
+    // Auto-hide orders AppKit's auxiliary toolbar host out. A later live
+    // switch to pinned must explicitly restore that same host; redrawing its
+    // views alone does not make the window visible again.
+    [titlebarHost orderFront:nil];
+    _fullscreenTitlebarHostWindow = titlebarHost;
+  }
+  if (fullScreen && _toolbar.visible) {
+    // AppKit retains the accessory controller while its auto-hide host is
+    // offscreen, but may leave one of the private clip/container ancestors
+    // hidden after the preference changes to pinned. Reveal the existing
+    // hierarchy in place; detaching would discard AppKit's fullscreen clip
+    // view and recreate the blank titlebar row.
+    RionRevealViewHierarchyInHost(_accessoryController.view, titlebarHost);
+  }
   [_toolbar validateVisibleItems];
   if (_toolbar.visible) [self orderToolbarBelowAccessory];
   NSView *toolbarView = [self toolbarHostView];
@@ -532,6 +551,13 @@ NS_ASSUME_NONNULL_BEGIN
   [toolbarView displayIfNeeded];
   [_accessoryController.view displayIfNeeded];
   [_window displayIfNeeded];
+  if (fullScreen && _toolbar.visible) {
+    // Force-visible policy alone leaves AppKit's companion reveal fraction at
+    // zero after returning from another Space. Pin the existing native host;
+    // auto-hide continues to own future top-edge reveal when toolbar.visible
+    // is false.
+    RionPresentFullscreenToolbarReveal(_window);
+  }
 }
 
 - (BOOL)orderToolbarBelowAccessory {

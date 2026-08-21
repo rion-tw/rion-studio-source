@@ -5,6 +5,7 @@
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum DesktopE2eWindowControlRequest {
+    ActivateFullscreenSpace,
     ClickVisibleClose,
     ClickVisibleMinimize,
     Close,
@@ -14,6 +15,8 @@ pub(crate) enum DesktopE2eWindowControlRequest {
     },
     Focus,
     Minimize,
+    MovePointerToRoleContent,
+    MovePointerToFullscreenToolbar,
     PermitCloseConfirmation,
     MoveResize {
         height: i32,
@@ -369,11 +372,16 @@ impl SystemRuntimeExecutor {
                 native_object.insert(
                     "fullscreenToolbar".to_owned(),
                     json!({
+                        "accessoryOnScreen": toolbar.accessory_on_screen,
+                        "accessoryVisibleHeight": toolbar.accessory_visible_height,
                         "alwaysShowInFullScreen": toolbar.always_show_in_full_screen,
                         "fullscreen": toolbar.fullscreen,
+                        "fullscreenHostReady": toolbar.fullscreen_host_ready,
                         "presentationAutoHideToolbar": toolbar.presentation_auto_hide_toolbar,
                         "revealLocked": toolbar.reveal_locked,
+                        "tabStripOnScreen": toolbar.tab_strip_on_screen,
                         "toolbarPinned": toolbar.toolbar_pinned,
+                        "visibleTrafficLightCount": toolbar.visible_traffic_light_count,
                     }),
                 );
             }
@@ -679,12 +687,17 @@ fn desktop_e2e_windows_tab_strip_geometry(tab_strip: &Webview) -> Result<(Value,
 
 fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> &'static str {
     match request {
+        DesktopE2eWindowControlRequest::ActivateFullscreenSpace => "activateFullscreenSpace",
         DesktopE2eWindowControlRequest::ClickVisibleClose => "clickVisibleClose",
         DesktopE2eWindowControlRequest::ClickVisibleMinimize => "clickVisibleMinimize",
         DesktopE2eWindowControlRequest::Close => "close",
         DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => "dragVisibleChrome",
         DesktopE2eWindowControlRequest::Focus => "focus",
         DesktopE2eWindowControlRequest::Minimize => "minimize",
+        DesktopE2eWindowControlRequest::MovePointerToRoleContent => "movePointerToRoleContent",
+        DesktopE2eWindowControlRequest::MovePointerToFullscreenToolbar => {
+            "movePointerToFullscreenToolbar"
+        }
         DesktopE2eWindowControlRequest::PermitCloseConfirmation => "permitCloseConfirmation",
         DesktopE2eWindowControlRequest::MoveResize { .. } => "moveResize",
         DesktopE2eWindowControlRequest::SetPresentation { presentation } => match presentation.as_str() {
@@ -745,6 +758,9 @@ fn desktop_e2e_apply_native_window_control(
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
     match request {
+        DesktopE2eWindowControlRequest::ActivateFullscreenSpace => {
+            Err("Fullscreen-Space activation is macOS-only.".to_owned())
+        }
         DesktopE2eWindowControlRequest::ClickVisibleClose => desktop_e2e_windows_visible_chrome_pointer(
             window,
             tab_strip,
@@ -772,6 +788,12 @@ fn desktop_e2e_apply_native_window_control(
         },
         DesktopE2eWindowControlRequest::Minimize => {
             request_platform_window_minimize(window)
+        }
+        DesktopE2eWindowControlRequest::MovePointerToRoleContent => {
+            Err("Role-content pointer movement is currently macOS-only.".to_owned())
+        }
+        DesktopE2eWindowControlRequest::MovePointerToFullscreenToolbar => {
+            Err("Fullscreen-toolbar pointer movement is currently macOS-only.".to_owned())
         }
         DesktopE2eWindowControlRequest::DragVisibleChrome { delta_x, delta_y } => {
             desktop_e2e_windows_visible_chrome_pointer(
@@ -1042,6 +1064,7 @@ fn desktop_e2e_apply_native_window_control(
         }
     }
     let action = match request {
+        DesktopE2eWindowControlRequest::ActivateFullscreenSpace => 8,
         DesktopE2eWindowControlRequest::ClickVisibleClose
         | DesktopE2eWindowControlRequest::ClickVisibleMinimize
         | DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => {
@@ -1059,6 +1082,8 @@ fn desktop_e2e_apply_native_window_control(
             _ => return Err("presentation must be normal, maximized, or fullscreen".to_owned()),
         },
         DesktopE2eWindowControlRequest::Minimize => 3,
+        DesktopE2eWindowControlRequest::MovePointerToRoleContent => 7,
+        DesktopE2eWindowControlRequest::MovePointerToFullscreenToolbar => 6,
         DesktopE2eWindowControlRequest::PermitCloseConfirmation => return Ok(()),
         DesktopE2eWindowControlRequest::Close => 5,
     };

@@ -27,11 +27,16 @@ typedef struct {
 } RionRuntimeTabsDesktopE2ETitlebarGeometry;
 
 typedef struct {
+  double accessoryVisibleHeight;
   bool alwaysShowInFullScreen;
+  bool accessoryOnScreen;
   bool fullscreen;
+  bool fullscreenHostReady;
   bool presentationAutoHideToolbar;
   bool revealLocked;
+  bool tabStripOnScreen;
   bool toolbarPinned;
+  uint32_t visibleTrafficLightCount;
   bool valid;
 } RionRuntimeTabsDesktopE2EFullscreenToolbarState;
 #endif

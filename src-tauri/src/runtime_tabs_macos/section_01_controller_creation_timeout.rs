@@ -105,11 +105,16 @@ struct NativeDesktopE2eTitlebarGeometry {
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 struct NativeDesktopE2eFullscreenToolbarState {
+    accessory_visible_height: f64,
     always_show_in_full_screen: bool,
+    accessory_on_screen: bool,
     fullscreen: bool,
+    fullscreen_host_ready: bool,
     presentation_auto_hide_toolbar: bool,
     reveal_locked: bool,
+    tab_strip_on_screen: bool,
     toolbar_pinned: bool,
+    visible_traffic_light_count: u32,
     valid: bool,
 }
 
@@ -130,11 +135,16 @@ pub(crate) struct MacDesktopE2eTitlebarGeometry {
 #[cfg(feature = "desktop-e2e")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MacDesktopE2eFullscreenToolbarState {
+    pub(crate) accessory_visible_height: f64,
     pub(crate) always_show_in_full_screen: bool,
+    pub(crate) accessory_on_screen: bool,
     pub(crate) fullscreen: bool,
+    pub(crate) fullscreen_host_ready: bool,
     pub(crate) presentation_auto_hide_toolbar: bool,
     pub(crate) reveal_locked: bool,
+    pub(crate) tab_strip_on_screen: bool,
     pub(crate) toolbar_pinned: bool,
+    pub(crate) visible_traffic_light_count: u32,
 }
 
 type ActionCallback = unsafe extern "C" fn(
@@ -624,11 +634,16 @@ impl MacRuntimeTabsController {
                 .flatten()
         }?;
         Some(MacDesktopE2eFullscreenToolbarState {
+            accessory_visible_height: state.accessory_visible_height,
             always_show_in_full_screen: state.always_show_in_full_screen,
+            accessory_on_screen: state.accessory_on_screen,
             fullscreen: state.fullscreen,
+            fullscreen_host_ready: state.fullscreen_host_ready,
             presentation_auto_hide_toolbar: state.presentation_auto_hide_toolbar,
             reveal_locked: state.reveal_locked,
+            tab_strip_on_screen: state.tab_strip_on_screen,
             toolbar_pinned: state.toolbar_pinned,
+            visible_traffic_light_count: state.visible_traffic_light_count,
         })
     }
 

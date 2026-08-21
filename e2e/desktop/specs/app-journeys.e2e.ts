@@ -16,6 +16,7 @@ import {
 } from "../support/control";
 import { waitForTranscriptEvent } from "../support/transcript";
 import { fixtureCursor, fixtureEvents, waitFixtureEvent } from "../support/fixture";
+import { exerciseFullscreenToolbarPreference } from "../support/fullscreen-toolbar";
 import {
   acceptLegalAndSkipFirstRun,
   clickConfirmation,
@@ -35,6 +36,7 @@ import {
 // [journey:WORKSPACE-WEB-SLOT-004]
 // [journey:WORKSPACE-WEB-FULLSCREEN-005]
 // [journey:GAME-WINDOWS-UI-001]
+// [journey:GAME-WINDOWS-FULLSCREEN-TOOLBAR-012]
 // [journey:MACROS-UI-001]
 // [journey:SETTINGS-PERSIST-001]
 // [journey:QUICK-ACCESS-UI-001]
@@ -335,7 +337,6 @@ async function exerciseMacroMindMapFocus(): Promise<void> {
     )),
     { timeout: 10_000, timeoutMsg: "Macro mind map did not focus the settings edge" }
   );
-
   const frames = await browser.executeAsync(
     (done: (frames: MacroMindMapFocusFrame[]) => void) => {
       const samples: MacroMindMapFocusFrame[] = [];
@@ -573,6 +574,7 @@ async function launchAndPinRoleFromQuickAccess(role: Role): Promise<void> {
     role.id,
     (status) => status?.state === "running" && status.automationState !== "unavailable"
   );
+  await exerciseFullscreenToolbarPreference(role.id);
   await exerciseInGameQuickAccess(role);
 }
 
@@ -1153,7 +1155,12 @@ async function restartPhase(): Promise<void> {
   )).toBe(true);
   expect(macro.roleIds).toContain(role.id);
   expect(await browser.execute(() => document.documentElement.dataset.theme)).toBe("light");
-  expect((await rendererCall("getRuntimeWindowPreferences")).alwaysHideTabCloseButton).toBe(true);
+  expect(await rendererCall("getRuntimeWindowPreferences")).toEqual(
+    expect.objectContaining({
+      alwaysHideTabCloseButton: true,
+      alwaysShowToolbarInFullScreen: false
+    })
+  );
   expect((await rendererCall("getGameBrowserSettings")).macroOverlay).toEqual({
     showClickMarkers: false,
     showRunningBadges: false,

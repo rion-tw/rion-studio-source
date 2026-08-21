@@ -506,6 +506,75 @@ static BOOL RionResolveFullscreenToolbarAutoHide(
   return YES;
 }
 
+static BOOL RionShouldPinFullscreenToolbar(BOOL alwaysShow,
+                                           BOOL revealLocked) {
+  return alwaysShow || revealLocked;
+}
+
+static void RionRevealViewHierarchyInHost(NSView *view, NSWindow *host) {
+  if (!view || !host) return;
+  for (NSView *candidate = view;
+       candidate && candidate.window == host;
+       candidate = candidate.superview) {
+    candidate.hidden = NO;
+    candidate.alphaValue = 1.0;
+    candidate.needsLayout = YES;
+    candidate.needsDisplay = YES;
+  }
+  [host.contentView layoutSubtreeIfNeeded];
+  [host.contentView displayIfNeeded];
+}
+
+static CGFloat RionResolveVisibleScreenHeight(NSRect viewScreenRect,
+                                              NSRect screenFrame,
+                                              BOOL hostVisible,
+                                              BOOL viewVisible) {
+  if (!hostVisible || !viewVisible || NSIsEmptyRect(viewScreenRect) ||
+      NSIsEmptyRect(screenFrame)) {
+    return 0;
+  }
+  return MAX(0, NSHeight(NSIntersectionRect(viewScreenRect, screenFrame)));
+}
+
+#if defined(RION_DESKTOP_E2E)
+static BOOL RionWindowServerReportsOnScreen(NSWindow *window) {
+  if (!window || window.windowNumber <= 0) return NO;
+  CFArrayRef windows = CGWindowListCopyWindowInfo(
+      kCGWindowListOptionIncludingWindow,
+      (CGWindowID)window.windowNumber);
+  if (!windows) return NO;
+  BOOL onScreen = NO;
+  if (CFArrayGetCount(windows) > 0) {
+    CFDictionaryRef information =
+        (CFDictionaryRef)CFArrayGetValueAtIndex(windows, 0);
+    CFBooleanRef value =
+        (CFBooleanRef)CFDictionaryGetValue(information, kCGWindowIsOnscreen);
+    onScreen = value && CFGetTypeID(value) == CFBooleanGetTypeID() &&
+        CFBooleanGetValue(value);
+  }
+  CFRelease(windows);
+  return onScreen;
+}
+
+static CGFloat RionVisibleScreenHeightForView(NSView *view) {
+  if (!view || [view isHiddenOrHasHiddenAncestor] || view.alphaValue <= 0) {
+    return 0;
+  }
+  NSWindow *host = view.window;
+  NSScreen *screen = host.screen;
+  if (!host || !screen) return 0;
+
+  NSRect windowRect = [view convertRect:view.bounds toView:nil];
+  NSRect screenRect = [host convertRectToScreen:windowRect];
+  return RionResolveVisibleScreenHeight(
+      screenRect, screen.frame,
+      host.isVisible && host.alphaValue > 0 &&
+          RionWindowServerReportsOnScreen(host),
+      YES);
+}
+
+#endif
+
 static NSApplicationPresentationOptions
 RionResolveFullscreenToolbarPresentationOptions(
     NSApplicationPresentationOptions options, NSNumber *autoHide);
@@ -553,17 +622,16 @@ static BOOL RionUpdateWindowFullscreenToolbarPresentationOptions(
   }
 }
 
-static void RionApplyWindowFullscreenToolbarHostPolicy(
-    NSWindow *window, BOOL autoHide) {
-  if (!window || !window.toolbar) return;
+static id RionFullscreenToolbarCompanionController(NSWindow *window) {
+  if (!window || !window.toolbar) return nil;
   SEL controllerSelector =
       NSSelectorFromString(@"_fullScreenContentController");
-  if (![window respondsToSelector:controllerSelector]) return;
+  if (![window respondsToSelector:controllerSelector]) return nil;
   NSMethodSignature *controllerSignature =
       [window methodSignatureForSelector:controllerSelector];
   if (!controllerSignature || controllerSignature.numberOfArguments != 2 ||
       controllerSignature.methodReturnLength != sizeof(id)) {
-    return;
+    return nil;
   }
 
   @try {
@@ -575,13 +643,32 @@ static void RionApplyWindowFullscreenToolbarHostPolicy(
         NSSelectorFromString(@"menuBarCompanionController");
     if (!controller ||
         ![controller respondsToSelector:companionSelector]) {
-      return;
+      return nil;
     }
-    id companion =
-        reinterpret_cast<ObjectGetterFunction>(objc_msgSend)(
-            controller, companionSelector);
-    if (!companion) return;
+    return reinterpret_cast<ObjectGetterFunction>(objc_msgSend)(
+        controller, companionSelector);
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
 
+static void RionApplyWindowFullscreenToolbarHostPolicy(
+    NSWindow *window, BOOL autoHide) {
+  id companion = RionFullscreenToolbarCompanionController(window);
+  if (!companion) return;
+
+  @try {
+    NSToolbar *toolbar = window.toolbar;
+    SEL toolbarSelector = NSSelectorFromString(@"toolbar");
+    NSMethodSignature *toolbarSignature =
+        [companion methodSignatureForSelector:toolbarSelector];
+    if ([companion respondsToSelector:toolbarSelector] && toolbarSignature &&
+        toolbarSignature.numberOfArguments == 2 &&
+        toolbarSignature.methodReturnLength == sizeof(id)) {
+      using ToolbarGetterFunction = NSToolbar *(*)(id, SEL);
+      toolbar = reinterpret_cast<ToolbarGetterFunction>(objc_msgSend)(
+          companion, toolbarSelector) ?: toolbar;
+    }
     NSArray<NSString *> *selectorNames = autoHide
         ? @[ @"_enableFullScreenAutohidingForToolbar:",
              @"_disableFullScreenForceVisibleForToolbar:" ]
@@ -598,10 +685,86 @@ static void RionApplyWindowFullscreenToolbarHostPolicy(
       }
       using ToolbarPolicyFunction = void (*)(id, SEL, NSToolbar *);
       reinterpret_cast<ToolbarPolicyFunction>(objc_msgSend)(
-          companion, selector, window.toolbar);
+          companion, selector, toolbar);
+    }
+    if (!autoHide) {
+      for (NSString *selectorName in @[
+             @"establishAutohideBehavior",
+             @"_forceUpdateSpaceAndMenubarCompanionWindowAutohideHeight"
+           ]) {
+        SEL selector = NSSelectorFromString(selectorName);
+        NSMethodSignature *signature =
+            [companion methodSignatureForSelector:selector];
+        if ([companion respondsToSelector:selector] && signature &&
+            signature.numberOfArguments == 2 &&
+            signature.methodReturnLength == 0) {
+          using VoidFunction = void (*)(id, SEL);
+          reinterpret_cast<VoidFunction>(objc_msgSend)(companion, selector);
+        }
+      }
     }
   } @catch (__unused NSException *exception) {
   }
+}
+
+static void RionSetFullscreenToolbarReveal(NSWindow *window,
+                                           double toolbarReveal) {
+  id companion = RionFullscreenToolbarCompanionController(window);
+  if (!companion) return;
+  double reveal = MIN(1.0, MAX(0.0, toolbarReveal));
+  @try {
+    SEL revealSelector = NSSelectorFromString(@"setToolbarWindowReveal:");
+    NSMethodSignature *revealSignature =
+        [companion methodSignatureForSelector:revealSelector];
+    if ([companion respondsToSelector:revealSelector] && revealSignature &&
+        revealSignature.numberOfArguments == 3 &&
+        revealSignature.methodReturnLength == 0 &&
+        strcmp([revealSignature getArgumentTypeAtIndex:2], @encode(double)) ==
+            0) {
+      using RevealSetterFunction = void (*)(id, SEL, double);
+      reinterpret_cast<RevealSetterFunction>(objc_msgSend)(
+          companion, revealSelector, reveal);
+    }
+
+    SEL updateSelector =
+        NSSelectorFromString(@"_updateMenuBarReveal:toolbarReveal:");
+    NSMethodSignature *updateSignature =
+        [companion methodSignatureForSelector:updateSelector];
+    if ([companion respondsToSelector:updateSelector] && updateSignature &&
+        updateSignature.numberOfArguments == 4 &&
+        updateSignature.methodReturnLength == 0 &&
+        strcmp([updateSignature getArgumentTypeAtIndex:2], @encode(double)) ==
+            0 &&
+        strcmp([updateSignature getArgumentTypeAtIndex:3], @encode(double)) ==
+            0) {
+      using RevealUpdateFunction = void (*)(id, SEL, double, double);
+      reinterpret_cast<RevealUpdateFunction>(objc_msgSend)(
+          companion, updateSelector, 0.0, reveal);
+    }
+
+    for (NSString *selectorName in @[
+           @"updateContentViewForReveal", @"reshapeToolbarWindowFrame"
+         ]) {
+      SEL selector = NSSelectorFromString(selectorName);
+      NSMethodSignature *signature =
+          [companion methodSignatureForSelector:selector];
+      if ([companion respondsToSelector:selector] && signature &&
+          signature.numberOfArguments == 2 &&
+          signature.methodReturnLength == 0) {
+        using VoidFunction = void (*)(id, SEL);
+        reinterpret_cast<VoidFunction>(objc_msgSend)(companion, selector);
+      }
+    }
+  } @catch (__unused NSException *exception) {
+  }
+}
+
+static void RionDismissFullscreenToolbarReveal(NSWindow *window) {
+  RionSetFullscreenToolbarReveal(window, 0.0);
+}
+
+static void RionPresentFullscreenToolbarReveal(NSWindow *window) {
+  RionSetFullscreenToolbarReveal(window, 1.0);
 }
 
 static void RionApplyFullscreenToolbarPresentationPolicy(void) {

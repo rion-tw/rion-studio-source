@@ -70,6 +70,7 @@
   for (NSButton *button in _observedTrafficLightButtons) {
     button.hidden = NO;
     button.alphaValue = 1.0;
+    RionRevealViewHierarchyInHost(button, button.window);
   }
   _enforcingTrafficLightVisibility = NO;
 }
@@ -98,6 +99,7 @@
     if (!button) continue;
     button.hidden = NO;
     button.alphaValue = 1.0;
+    RionRevealViewHierarchyInHost(button, button.window);
     button.needsDisplay = YES;
     button.superview.needsLayout = YES;
     button.superview.needsDisplay = YES;

@@ -7,7 +7,6 @@ import {
   closeWindowAndWait,
   controlWindow,
   detachTerminatedApplicationSession,
-  keyboardInputSequence,
   probe,
   rendererCall,
   requireEnvironment,
@@ -521,180 +520,6 @@ async function modeTransition(
   return windowSnapshot(snapshot.windowId);
 }
 
-async function setFullscreenToolbarPreference(alwaysShow: boolean): Promise<void> {
-  await navigate("/settings?section=preferences");
-  const toggle = await $(
-    "button[role='switch'][aria-label='Always show the toolbar in full screen']"
-  );
-  await toggle.waitForExist({ timeout: 10_000 });
-  const expectedState = alwaysShow ? "checked" : "unchecked";
-  if ((await toggle.getAttribute("data-state")) !== expectedState) {
-    await toggle.waitForEnabled({ timeout: 10_000 });
-    await toggle.click();
-  }
-  await browser.waitUntil(
-    async () => {
-      const preferences = await rendererCall("getRuntimeWindowPreferences");
-      return preferences.alwaysShowToolbarInFullScreen === alwaysShow
-        && (await toggle.getAttribute("data-state")) === expectedState;
-    },
-    {
-      timeout: 10_000,
-      timeoutMsg: `Fullscreen toolbar preference did not become ${expectedState}`
-    }
-  );
-  await toggle.waitForEnabled({ timeout: 10_000 });
-}
-
-async function waitForFullscreenToolbarState(
-  windowId: string,
-  expected: Partial<NonNullable<DesktopE2eWindowSnapshot["native"]["fullscreenToolbar"]>>
-): Promise<DesktopE2eWindowSnapshot> {
-  let observed: DesktopE2eWindowSnapshot | undefined;
-  await browser.waitUntil(
-    async () => {
-      observed = await windowSnapshot(windowId);
-      const toolbar = observed.native.fullscreenToolbar;
-      return toolbar !== undefined && Object.entries(expected).every(
-        ([key, value]) => toolbar[key as keyof typeof toolbar] === value
-      );
-    },
-    {
-      interval: 50,
-      timeout: 10_000,
-      timeoutMsg: `Fullscreen toolbar state did not converge: ${JSON.stringify(expected)}`
-    }
-  );
-  if (!observed) throw new Error("Fullscreen toolbar snapshot is unavailable");
-  return observed;
-}
-
-async function focusGameWindowRole(
-  snapshot: DesktopE2eWindowSnapshot,
-  roleId: string,
-  tabId: string
-): Promise<void> {
-  await runtimeUiAction(snapshot.windowId, {
-    action: "focusRole",
-    roleId,
-    tabId,
-    windowGeneration: snapshot.windowGeneration
-  });
-}
-
-async function toggleFullscreenWithVisibleShortcut(
-  snapshot: DesktopE2eWindowSnapshot,
-  roleId: string,
-  tabId: string,
-  presentation: "fullscreen" | "normal"
-): Promise<DesktopE2eWindowSnapshot> {
-  await focusGameWindowRole(snapshot, roleId, tabId);
-  const cursor = (await probe()).latestSequence;
-  await keyboardInputSequence([
-    { code: "ControlLeft", phase: "keyDown" },
-    { code: "MetaLeft", phase: "keyDown" },
-    { code: "KeyF", phase: "keyDown" },
-    { code: "KeyF", phase: "keyUp" },
-    { code: "MetaLeft", phase: "keyUp" },
-    { code: "ControlLeft", phase: "keyUp" }
-  ]);
-  await waitEvent({
-    afterSequence: cursor,
-    kind: "placement-accepted",
-    minimumGeneration: snapshot.windowGeneration,
-    presentation,
-    timeoutMs: 45_000,
-    windowId: snapshot.windowId
-  });
-  return windowSnapshot(snapshot.windowId);
-}
-
-async function exerciseMacFullscreenToolbarPreference(
-  snapshot: DesktopE2eWindowSnapshot,
-  roleId: string,
-  tabId: string
-): Promise<DesktopE2eWindowSnapshot> {
-  const originalPreferences = await rendererCall("getRuntimeWindowPreferences");
-  const initial = await waitForFullscreenToolbarState(snapshot.windowId, {
-    fullscreen: false,
-    revealLocked: false
-  });
-  const baselineAutoHide = initial.native.fullscreenToolbar
-    ?.presentationAutoHideToolbar;
-  if (baselineAutoHide === undefined) {
-    throw new Error("Initial fullscreen toolbar baseline is unavailable");
-  }
-
-  let current = initial;
-  try {
-    await setFullscreenToolbarPreference(false);
-    current = await toggleFullscreenWithVisibleShortcut(
-      current,
-      roleId,
-      tabId,
-      "fullscreen"
-    );
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      alwaysShowInFullScreen: false,
-      fullscreen: true,
-      presentationAutoHideToolbar: true,
-      revealLocked: false,
-      toolbarPinned: false
-    });
-
-    await setFullscreenToolbarPreference(true);
-    await focusGameWindowRole(current, roleId, tabId);
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      alwaysShowInFullScreen: true,
-      fullscreen: true,
-      presentationAutoHideToolbar: false,
-      revealLocked: false,
-      toolbarPinned: true
-    });
-    current = await toggleFullscreenWithVisibleShortcut(current, roleId, tabId, "normal");
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      fullscreen: false,
-      presentationAutoHideToolbar: baselineAutoHide
-    });
-
-    current = await toggleFullscreenWithVisibleShortcut(
-      current,
-      roleId,
-      tabId,
-      "fullscreen"
-    );
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      alwaysShowInFullScreen: true,
-      fullscreen: true,
-      presentationAutoHideToolbar: false,
-      toolbarPinned: true
-    });
-    await setFullscreenToolbarPreference(false);
-    await focusGameWindowRole(current, roleId, tabId);
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      alwaysShowInFullScreen: false,
-      fullscreen: true,
-      presentationAutoHideToolbar: true,
-      revealLocked: false,
-      toolbarPinned: false
-    });
-    current = await toggleFullscreenWithVisibleShortcut(current, roleId, tabId, "normal");
-    current = await waitForFullscreenToolbarState(current.windowId, {
-      fullscreen: false,
-      presentationAutoHideToolbar: baselineAutoHide
-    });
-  } finally {
-    await setFullscreenToolbarPreference(
-      originalPreferences.alwaysShowToolbarInFullScreen
-    );
-  }
-  return waitForFullscreenToolbarState(current.windowId, {
-    alwaysShowInFullScreen: originalPreferences.alwaysShowToolbarInFullScreen,
-    fullscreen: false,
-    presentationAutoHideToolbar: baselineAutoHide
-  });
-}
-
 async function restartPhase(): Promise<void> {
   const state = await primaryScenario();
   await waitEvent({ afterSequence: 0, kind: "window-context-initialized", windowId: WINDOW_A });
@@ -933,13 +758,6 @@ async function forceTerminatePhase(): Promise<void> {
     kind: "click",
     roleId: "e2e-gamma"
   });
-  if (process.platform === "darwin") {
-    await exerciseMacFullscreenToolbarPreference(
-      liveC,
-      focusedRoleId,
-      activeC.id
-    );
-  }
   await forceTerminateCurrentProcess();
 }
 

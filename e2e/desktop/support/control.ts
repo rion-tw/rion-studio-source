@@ -75,11 +75,16 @@ export interface DesktopE2eWindowSnapshot {
     dpi?: number;
     focused?: boolean;
     fullscreenToolbar?: {
+      accessoryOnScreen: boolean;
+      accessoryVisibleHeight: number;
       alwaysShowInFullScreen: boolean;
       fullscreen: boolean;
+      fullscreenHostReady: boolean;
       presentationAutoHideToolbar: boolean;
       revealLocked: boolean;
+      tabStripOnScreen: boolean;
       toolbarPinned: boolean;
+      visibleTrafficLightCount: number;
     };
     handle: string;
     normalOuterBounds?: WindowBounds;
@@ -153,6 +158,7 @@ interface WindowPlacement {
 export type WindowControlRequest =
   | {
       action:
+        | "activateFullscreenSpace"
         | "clickVisibleClose"
         | "clickVisibleMinimize"
         | "close"
@@ -161,6 +167,8 @@ export type WindowControlRequest =
         | "permitCloseConfirmation";
     }
   | { action: "dragVisibleChrome"; deltaX: number; deltaY: number }
+  | { action: "movePointerToRoleContent" }
+  | { action: "movePointerToFullscreenToolbar" }
   | {
       action: "moveResize";
       height: number;

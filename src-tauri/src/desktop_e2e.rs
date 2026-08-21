@@ -78,7 +78,7 @@ impl DesktopE2eKeyboardInputRequest {
                 | "ShiftLeft"
                 | "ShiftRight"
         );
-        let allowed_navigation = matches!(self.code.as_str(), "Enter" | "Escape" | "Tab");
+        let allowed_navigation = matches!(self.code.as_str(), "Enter" | "Escape" | "F11" | "Tab");
         if allowed_alpha || allowed_digit || allowed_modifier || allowed_navigation {
             Ok(())
         } else {
@@ -677,6 +677,7 @@ fn desktop_e2e_windows_scan_code(code: &str) -> Option<(u16, bool)> {
         "ShiftRight" => Some((0x36, false)),
         "Enter" => Some((0x1c, false)),
         "Escape" => Some((0x01, false)),
+        "F11" => Some((0x57, false)),
         "Tab" => Some((0x0f, false)),
         _ => None,
     };
@@ -778,6 +779,7 @@ mod tests {
             "Digit4",
             "Enter",
             "Escape",
+            "F11",
             "KeyA",
             "ShiftLeft",
             "ControlRight",

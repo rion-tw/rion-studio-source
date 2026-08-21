@@ -1,5 +1,6 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#include <dlfcn.h>
 #include <math.h>
 
 typedef struct {
@@ -92,6 +93,69 @@ static CGEventFlags RionDesktopE2EUpdateModifierFlags(NSString *code, bool keyDo
     }
     return flags;
   }
+}
+
+static bool RionDesktopE2EActivateFullscreenSpace(NSWindow *window) {
+  if ((window.styleMask & NSWindowStyleMaskFullScreen) == 0) return false;
+  NSScreen *screen = window.screen ?: NSScreen.mainScreen;
+  NSNumber *screenNumber = screen.deviceDescription[@"NSScreenNumber"];
+  if (!screenNumber) return false;
+  const NSInteger windowNumber = window.windowNumber;
+  const CGDirectDisplayID displayID = screenNumber.unsignedIntValue;
+  NSWindow *targetWindow = window;
+  dispatch_async(
+      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @autoreleasepool {
+      void *skyLight = dlopen(
+          "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+          RTLD_LAZY | RTLD_LOCAL);
+      if (!skyLight) return;
+      typedef int32_t (*RionMainConnectionFn)(void);
+      typedef CFArrayRef (*RionCopySpacesForWindowsFn)(
+          int32_t, int32_t, CFArrayRef);
+      typedef int32_t (*RionSetCurrentSpaceFn)(
+          int32_t, CFStringRef, uint64_t);
+      RionMainConnectionFn mainConnection =
+          (RionMainConnectionFn)dlsym(skyLight, "CGSMainConnectionID");
+      RionCopySpacesForWindowsFn copySpaces =
+          (RionCopySpacesForWindowsFn)dlsym(
+              skyLight, "CGSCopySpacesForWindows");
+      RionSetCurrentSpaceFn setCurrentSpace =
+          (RionSetCurrentSpaceFn)dlsym(
+              skyLight, "CGSManagedDisplaySetCurrentSpace");
+      if (!mainConnection || !copySpaces || !setCurrentSpace) {
+        dlclose(skyLight);
+        return;
+      }
+
+      const int32_t connection = mainConnection();
+      NSArray<NSNumber *> *windowNumbers = @[@(windowNumber)];
+      CFArrayRef spaces = copySpaces(
+          connection, 7, (__bridge CFArrayRef)windowNumbers);
+      NSNumber *spaceNumber = spaces && CFArrayGetCount(spaces) > 0
+          ? (__bridge NSNumber *)CFArrayGetValueAtIndex(spaces, 0)
+          : nil;
+      CFUUIDRef displayUUID = CGDisplayCreateUUIDFromDisplayID(displayID);
+      CFStringRef displayUUIDString = displayUUID
+          ? CFUUIDCreateString(kCFAllocatorDefault, displayUUID)
+          : nil;
+      const bool switched = spaceNumber && displayUUIDString
+          && setCurrentSpace(
+              connection,
+              displayUUIDString,
+              spaceNumber.unsignedLongLongValue) == 0;
+      if (displayUUIDString) CFRelease(displayUUIDString);
+      if (displayUUID) CFRelease(displayUUID);
+      if (spaces) CFRelease(spaces);
+      dlclose(skyLight);
+      if (!switched) return;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [NSApp activateIgnoringOtherApps:YES];
+        [targetWindow makeKeyWindow];
+      });
+    }
+  });
+  return true;
 }
 
 bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
@@ -216,6 +280,43 @@ bool rion_desktop_e2e_control_window(void *rawWindow, int32_t action,
     case 5:
       [window performClose:nil];
       return true;
+    case 6: {
+      if ((window.styleMask & NSWindowStyleMaskFullScreen) == 0) return false;
+      [NSApp activateIgnoringOtherApps:YES];
+      [window makeKeyAndOrderFront:nil];
+      const NSRect frame = window.frame;
+      const CGPoint point = CGPointMake(
+          NSMidX(frame), RionDesktopTop() - NSMaxY(frame) + 1.0);
+      CGEventSourceRef source =
+          CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+      if (!source) return false;
+      CGEventRef event = CGEventCreateMouseEvent(
+          source, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+      CFRelease(source);
+      if (!event) return false;
+      CGEventPost(kCGHIDEventTap, event);
+      CFRelease(event);
+      return true;
+    }
+    case 7: {
+      [NSApp activateIgnoringOtherApps:YES];
+      [window makeKeyAndOrderFront:nil];
+      const NSRect frame = window.frame;
+      const CGPoint point = CGPointMake(
+          NSMidX(frame), RionDesktopTop() - NSMidY(frame));
+      CGEventSourceRef source =
+          CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+      if (!source) return false;
+      CGEventRef event = CGEventCreateMouseEvent(
+          source, kCGEventMouseMoved, point, kCGMouseButtonLeft);
+      CFRelease(source);
+      if (!event) return false;
+      CGEventPost(kCGHIDEventTap, event);
+      CFRelease(event);
+      return true;
+    }
+    case 8:
+      return RionDesktopE2EActivateFullscreenSpace(window);
     default:
       return false;
   }

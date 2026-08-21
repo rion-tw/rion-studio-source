@@ -84,8 +84,8 @@ it.each([
     expect(macroHelps[1].textContent).toContain("Running other macros");
     expect(macroHelps[1].textContent).toContain("uses its own assigned roles");
     expect(macroHelps[1].textContent).toContain("Wait for completion runs the child macro once");
-    expect(macroHelps[1].textContent).toContain("Interrupting the parent stops its triggered descendants");
-    expect(macroHelps[1].textContent).toContain("when the parent completes normally");
+    expect(macroHelps[1].textContent).toContain("The parent run group remains active");
+    expect(macroHelps[1].textContent).toContain("group completes after every descendant finishes");
     expect(macroHelps[1].textContent).toContain("already running does not start or create another run");
     expect(macroHelps[2].textContent).toContain("Stopping and held keys");
     expect(macroHelps[2].textContent).toContain("Timed holds release automatically");

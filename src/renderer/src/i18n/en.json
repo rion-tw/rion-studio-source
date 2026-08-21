@@ -420,7 +420,7 @@
   "macroForm.help.callsTitle": "Running other macros",
   "macroForm.help.callsRequirements": "A called macro uses its own assigned roles. Every called macro must be enabled and assigned, and macro calls cannot form a cycle.",
   "macroForm.help.callsWait": "Wait for completion runs the child macro once and resumes the parent after it finishes. Keys held until stopped are released at the end of that run.",
-  "macroForm.help.callsTrigger": "Trigger and continue uses the child macro's repeat setting without making the parent wait. Interrupting the parent stops its triggered descendants; when the parent completes normally, they continue running.",
+  "macroForm.help.callsTrigger": "Trigger and continue uses the child macro's repeat setting without blocking the parent's next step. The parent run group remains active while triggered descendants run, so stopping the parent at any time stops them; the group completes after every descendant finishes.",
   "macroForm.help.callsDuplicate": "Triggering a child macro that is already running does not start or create another run.",
   "macroForm.help.stopTitle": "Stopping and held keys",
   "macroForm.help.stopRun": "Timed holds release automatically when their duration ends. Stopping or cancelling a macro releases both timed holds and keys held until stopped.",

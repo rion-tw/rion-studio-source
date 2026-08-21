@@ -420,7 +420,7 @@
   "macroForm.help.callsTitle": "執行其他巨集",
   "macroForm.help.callsRequirements": "子巨集使用自己的指派角色；每個被呼叫的巨集都必須已啟用、完成角色指派，且不能形成循環呼叫。",
   "macroForm.help.callsWait": "「等待完成」只執行子巨集一輪，父巨集等待完成後繼續；持續按住的按鍵會在該輪結束時釋放。",
-  "macroForm.help.callsTrigger": "「觸發後繼續」依子巨集自己的重複設定執行，父巨集不會等待；父巨集中止時會停止其觸發的子孫，父巨集自然完成時子巨集繼續執行。",
+  "macroForm.help.callsTrigger": "「觸發後繼續」依子巨集自己的重複設定執行，不會阻塞父巨集的下一個步驟；觸發的子孫仍在執行時，父執行群組會保持啟用，因此隨時停止父巨集都會停止它們，所有子孫結束後整組才完成。",
   "macroForm.help.callsDuplicate": "以「觸發後繼續」呼叫已在執行的子巨集時，不會再次啟動或建立第二份執行。",
   "macroForm.help.stopTitle": "停止與按鍵",
   "macroForm.help.stopRun": "定時按住會在時間結束時自動釋放；停止或取消巨集時，也會釋放定時按住及按住直到停止的按鍵。",

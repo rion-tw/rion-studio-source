@@ -414,7 +414,7 @@
   "macroForm.help.callsTitle": "执行其他宏",
   "macroForm.help.callsRequirements": "子宏使用自己的指派角色；每个被调用的宏都必须已启用、完成角色指派，且不能形成循环调用。",
   "macroForm.help.callsWait": "“等待完成”只执行子宏一轮，父宏等待完成后继续；持续按住的按键会在该轮结束时释放。",
-  "macroForm.help.callsTrigger": "“触发后继续”按子宏自己的重复设置执行，父宏不会等待；父宏中止时会停止其触发的子孙，父宏自然完成时子宏继续执行。",
+  "macroForm.help.callsTrigger": "“触发后继续”按子宏自己的重复设置执行，不会阻塞父宏的下一个步骤；触发的子孙仍在运行时，父运行组会保持启用，因此随时停止父宏都会停止它们，所有子孙结束后整组才完成。",
   "macroForm.help.callsDuplicate": "以“触发后继续”调用已在执行的子宏时，不会再次启动或创建第二份执行。",
   "macroForm.help.stopTitle": "停止与按键",
   "macroForm.help.stopRun": "定时按住会在时间结束时自动释放；停止或取消宏时，也会释放定时按住及按住直到停止的按键。",

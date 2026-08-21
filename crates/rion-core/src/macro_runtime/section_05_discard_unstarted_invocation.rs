@@ -32,16 +32,52 @@ fn discard_unstarted_invocation(shared: &Arc<Shared>, control: &Arc<InvocationCo
     if let Ok(mut outcome) = control.outcome.lock() {
         *outcome = Some(Err("macro invocation did not start".to_owned()));
     }
+    control.execution_finished.store(true, Ordering::Release);
     if let Ok(mut finished) = control.finished.0.lock() {
         *finished = true;
         control.finished.1.notify_all();
     }
 }
 
-fn detach_owned_children(control: &Arc<InvocationControl>) {
-    if let Ok(mut children) = control.children.0.lock() {
-        children.ids.clear();
-        control.children.1.notify_all();
+fn record_execution_outcome(
+    control: &Arc<InvocationControl>,
+    execution_result: &Result<(), String>,
+) {
+    if let Ok(mut outcome) = control.outcome.lock() {
+        *outcome = Some(execution_result.clone());
+    }
+    control.execution_finished.store(true, Ordering::Release);
+    if let Some(owner) = control
+        .owner_signal
+        .lock()
+        .ok()
+        .and_then(|owner| owner.as_ref().and_then(Weak::upgrade))
+    {
+        let _owner_guard = owner.wake.0.lock().ok();
+        owner.wake.1.notify_all();
+    }
+}
+
+fn wait_for_owned_children(control: &Arc<InvocationControl>) -> Result<bool, String> {
+    let mut children = control
+        .children
+        .0
+        .lock()
+        .map_err(|_| "macro child registry lock poisoned".to_owned())?;
+    loop {
+        if control.cancelled.load(Ordering::Acquire)
+            || control.stop_after_first_iteration.load(Ordering::Acquire)
+        {
+            return Ok(false);
+        }
+        if children.pending_starts == 0 && children.ids.is_empty() {
+            return Ok(true);
+        }
+        children = control
+            .children
+            .1
+            .wait(children)
+            .map_err(|_| "macro child registry lock poisoned".to_owned())?;
     }
 }
 
@@ -208,6 +244,7 @@ fn cancel_control(control: &InvocationControl) {
     drop(_wake);
     control.start_ready.1.notify_all();
     control.first_iteration_roles.1.notify_all();
+    control.children.1.notify_all();
     if let Ok(barriers) = control.barriers.lock() {
         for barrier in barriers.values() {
             if let Ok(_state) = barrier.state.lock() {

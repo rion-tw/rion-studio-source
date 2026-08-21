@@ -654,14 +654,32 @@ fn check_role_cancelled(context: &ExecutionContext, role_id: &str) -> Result<(),
 fn finish_invocation(
     shared: &Arc<Shared>,
     control: &Arc<InvocationControl>,
-    result: Result<(), String>,
+    execution_result: Result<(), String>,
 ) {
-    if result.is_ok() {
-        control.finished_naturally.store(true, Ordering::Release);
-        detach_owned_children(control);
-    } else {
+    record_execution_outcome(control, &execution_result);
+    let mut terminal_result = execution_result;
+    if terminal_result.is_err()
+        || control.cancelled.load(Ordering::Acquire)
+        || control.stop_after_first_iteration.load(Ordering::Acquire)
+    {
         control.terminating.store(true, Ordering::Release);
         cancel_owned_children(shared, control);
+    } else {
+        match wait_for_owned_children(control) {
+            Ok(true) => control.finished_naturally.store(true, Ordering::Release),
+            Ok(false) => {
+                control.terminating.store(true, Ordering::Release);
+                cancel_owned_children(shared, control);
+                if control.cancelled.load(Ordering::Acquire) {
+                    terminal_result = Err("macro run cancelled".to_owned());
+                }
+            }
+            Err(error) => {
+                terminal_result = Err(error);
+                control.terminating.store(true, Ordering::Release);
+                cancel_owned_children(shared, control);
+            }
+        }
     }
     if let Ok(mut inner) = shared.inner.lock() {
         let cancelled = control.cancelled.load(Ordering::Acquire);
@@ -672,7 +690,7 @@ fn finish_invocation(
             .and_then(|error| error.clone());
         let prefix = format!("{}|", control.id);
         if let Some(error) = cancellation_error
-            && result.is_err()
+            && terminal_result.is_err()
         {
             let now = Utc::now().to_rfc3339();
             for (key, status) in &mut inner.statuses {
@@ -682,7 +700,7 @@ fn finish_invocation(
                     status.error = Some(error.clone());
                 }
             }
-        } else if let Err(ref error) = result
+        } else if let Err(ref error) = terminal_result
             && (!cancelled
                 || control
                     .failed_role_id
@@ -713,7 +731,7 @@ fn finish_invocation(
                     });
                 }
             }
-        } else if cancelled || result.is_ok() {
+        } else if cancelled || terminal_result.is_ok() {
             inner.statuses.retain(|key, _| !key.starts_with(&prefix));
         }
         inner.invocations.remove(&control.id);
@@ -725,9 +743,6 @@ fn finish_invocation(
             .retain(|_, lease| lease.invocation_id != control.id);
     }
     emit_statuses(shared, true);
-    if let Ok(mut outcome) = control.outcome.lock() {
-        *outcome = Some(result);
-    }
     if let Ok(mut finished) = control.finished.0.lock() {
         *finished = true;
         control.finished.1.notify_all();
@@ -738,6 +753,7 @@ fn finish_invocation(
         .ok()
         .and_then(|owner| owner.as_ref().and_then(Weak::upgrade))
     {
+        remove_owned_child(&owner, &control.id);
         let _owner_guard = owner.wake.0.lock().ok();
         owner.wake.1.notify_all();
     }
@@ -754,6 +770,7 @@ fn new_invocation_control(
         cancellation_error: Mutex::new(None),
         cancelled_role_ids: Mutex::new(HashSet::new()),
         children: (Mutex::new(ChildInvocations::default()), Condvar::new()),
+        execution_finished: AtomicBool::new(false),
         failed_role_id: Mutex::new(None),
         first_iteration_completed: AtomicBool::new(false),
         first_iteration_roles: (Mutex::new(HashSet::new()), Condvar::new()),

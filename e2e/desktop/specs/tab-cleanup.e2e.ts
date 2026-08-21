@@ -183,6 +183,22 @@ async function createLoopMacro(role: Role, name: string, code: string): Promise<
   });
 }
 
+async function createTriggeredParentMacro(role: Role, child: Macro): Promise<Macro> {
+  return rendererCall("createMacro", {
+    activationMode: "toggle",
+    enabled: true,
+    name: "E2E Cleanup Parent Macro",
+    repeat: { type: "once" },
+    roleIds: [role.id],
+    steps: [{
+      callMode: "trigger",
+      id: "cleanup-trigger-child",
+      macroId: child.id,
+      type: "macro"
+    }]
+  });
+}
+
 async function startMacro(macro: Macro, role: Role): Promise<number> {
   await navigate("/macros");
   const cursor = await rendererEventCursor();
@@ -202,11 +218,19 @@ async function startMacro(macro: Macro, role: Role): Promise<number> {
   return cursor;
 }
 
-async function stopMacroFromUi(macro: Macro, afterSequence: number): Promise<void> {
+async function stopMacroFromUi(
+  macro: Macro,
+  afterSequence: number,
+  descendantMacroIds: string[] = []
+): Promise<void> {
   const stop = await $(`[data-selection-id='${macro.id}'] button[aria-label='Stop']`);
   await stop.waitForEnabled({ timeout: 20_000 });
   await stop.click();
-  await waitForMacroProjection({ afterSequence, absent: true, macroId: macro.id });
+  await Promise.all(
+    [macro.id, ...descendantMacroIds].map((macroId) =>
+      waitForMacroProjection({ afterSequence, absent: true, macroId })
+    )
+  );
 }
 
 async function activateTab(windowId: string, tabId: string): Promise<void> {
@@ -284,15 +308,24 @@ async function cleanupPhase(): Promise<void> {
   const roles = await Promise.all(fixtureIds.map((id, index) =>
     createRole(game, `E2E Cleanup Role ${index + 1}`, id)
   ));
-  const macros = await Promise.all(roles.map((role, index) =>
-    createLoopMacro(role, `E2E Cleanup Macro ${index + 1}`, `Digit${index + 1}`)
+  const stopChild = await createLoopMacro(roles[0], "E2E Cleanup Child Macro", "Digit1");
+  const stopParent = await createTriggeredParentMacro(roles[0], stopChild);
+  const remainingMacros = await Promise.all(roles.slice(1).map((role, index) =>
+    createLoopMacro(role, `E2E Cleanup Macro ${index + 2}`, `Digit${index + 2}`)
   ));
+  const macros = [stopParent, ...remainingMacros];
   await createWindow(CLEANUP_WINDOW_ID, "E2E Macro Cleanup Window");
   await showWindowFromUi(CLEANUP_WINDOW_ID);
 
   const stopTab = await launchRole(roles[0], CLEANUP_WINDOW_ID);
   const stopCursor = await startMacro(macros[0], roles[0]);
-  await stopMacroFromUi(macros[0], stopCursor);
+  await waitForMacroProjection({
+    afterSequence: stopCursor,
+    macroId: stopChild.id,
+    minimumIteration: 1,
+    roleIds: [roles[0].id]
+  });
+  await stopMacroFromUi(macros[0], stopCursor, [stopChild.id]);
   const stopTerminalCount = inputCount(await fixtureState(), fixtureIds[0]);
   const stopDiagnostic = (await inputDiagnostics()).roles.find((item) => item.roleId === roles[0].id);
   expect(stopDiagnostic).toMatchObject({ quiesced: false, stopping: false });

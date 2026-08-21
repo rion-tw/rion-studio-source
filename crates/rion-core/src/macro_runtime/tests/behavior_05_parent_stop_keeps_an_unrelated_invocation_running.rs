@@ -167,7 +167,7 @@
     }
 
     #[test]
-    fn triggered_child_keeps_its_configured_loop_after_parent_completion() {
+    fn triggered_child_keeps_its_parent_group_stoppable_after_parent_execution_completes() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
         let runtime = MacroRuntime::new(Arc::new(move |batch| {
             let _ = events.send(batch);
@@ -217,23 +217,19 @@
             let wait_started = std::time::Instant::now();
             loop {
                 let statuses = runtime.statuses().unwrap();
-                if statuses.iter().any(|status| status.macro_id == "child")
-                    && statuses.iter().all(|status| status.macro_id != "m1")
+                if statuses.iter().any(|status| {
+                    status.macro_id == "child" && status.state == "running"
+                }) && statuses.iter().any(|status| {
+                    status.macro_id == "m1"
+                        && status.state == "running"
+                        && status.iteration == Some(1)
+                })
                 {
                     break;
                 }
                 assert!(wait_started.elapsed() < Duration::from_secs(2));
                 thread::yield_now();
             }
-        };
-        {
-            assert!(
-                runtime
-                    .statuses()
-                    .unwrap()
-                    .iter()
-                    .any(|status| status.macro_id == "child" && status.state == "running")
-            );
         };
         {
             assert_eq!(
@@ -246,7 +242,7 @@
                 1
             );
         };
-        runtime.stop_macro("child").unwrap();
+        runtime.stop_macro("m1").unwrap();
         assert!(runtime.statuses().unwrap().is_empty());
     }
 

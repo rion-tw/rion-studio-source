@@ -564,13 +564,7 @@ fn run_synchronous_child(
             wait_result.map_err(|error| error.to_string())?;
             return Err("macro run cancelled".to_owned());
         }
-        if child
-            .finished
-            .0
-            .lock()
-            .map_err(|_| "child macro completion lock poisoned".to_owned())?
-            .to_owned()
-        {
+        if child.execution_finished.load(Ordering::Acquire) {
             break;
         }
         drop(
@@ -582,7 +576,6 @@ fn run_synchronous_child(
                 .map_err(|_| "macro wait lock poisoned".to_owned())?,
         );
     }
-    remove_owned_child(&context.control, &child.id);
     match child
         .outcome
         .lock()
@@ -645,7 +638,6 @@ fn spawn_triggered_macro(
                 cancel_control(&child);
             }
             let _ = wait_finished(&child);
-            remove_owned_child(&context.control, &child.id);
         });
     finish_pending_child_start_after_spawn(&pending_control, &spawn);
 }

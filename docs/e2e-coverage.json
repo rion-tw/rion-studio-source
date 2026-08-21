@@ -465,7 +465,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Terminalize looping macros through visible Stop, native tab close, native window close, and application shutdown while proving input fences and final-flush cleanup."
+      "description": "Keep a one-shot parent visibly stoppable after it triggers a looping child, stop the owned group through the parent's visible Stop action, and terminalize independent loops through native tab close, native window close, and application shutdown while proving input fences and final-flush cleanup."
     },
     {
       "id": "TABS-VISIBLE-ACTIVATION-003",

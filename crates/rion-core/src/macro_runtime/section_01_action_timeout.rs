@@ -99,6 +99,7 @@ struct InvocationControl {
     cancellation_error: Mutex<Option<String>>,
     cancelled_role_ids: Mutex<HashSet<String>>,
     children: (Mutex<ChildInvocations>, Condvar),
+    execution_finished: AtomicBool,
     failed_role_id: Mutex<Option<String>>,
     first_iteration_completed: AtomicBool,
     first_iteration_roles: (Mutex<HashSet<String>>, Condvar),

@@ -115,6 +115,14 @@ export function MacroMindMapPanel({
     setFitRevision((current) => current + 1);
   }, []);
 
+  const enterNode = useCallback((nodeId: string): void => {
+    setHoveredNodeId((current) => current === nodeId ? current : nodeId);
+  }, []);
+
+  const leaveNode = useCallback((nodeId: string): void => {
+    setHoveredNodeId((current) => current === nodeId ? undefined : current);
+  }, []);
+
   const recordNodeHeights = useCallback((measurements: readonly NodeHeightMeasurement[]): void => {
     setNodeHeights((current) => {
       const next = new Map(current);
@@ -139,7 +147,8 @@ export function MacroMindMapPanel({
       selectedStepId={selectedStepId}
       t={t}
       onCollapseAll={collapseAll}
-      onHoverNode={setHoveredNodeId}
+      onEnterNode={enterNode}
+      onLeaveNode={leaveNode}
       onNodeHeightsChange={recordNodeHeights}
       onPaneClick={() => {
         setHoveredNodeId(undefined);
@@ -159,7 +168,8 @@ interface MindMapFrameProps {
   fitRevision: number;
   model: MacroMindMapModel;
   onCollapseAll: () => void;
-  onHoverNode: (nodeId: string | undefined) => void;
+  onEnterNode: (nodeId: string) => void;
+  onLeaveNode: (nodeId: string) => void;
   onNodeHeightsChange: (measurements: readonly NodeHeightMeasurement[]) => void;
   onPaneClick: () => void;
   onResetView: () => void;
@@ -176,7 +186,8 @@ function MindMapFrame({
   fitRevision,
   model,
   onCollapseAll,
-  onHoverNode,
+  onEnterNode,
+  onLeaveNode,
   onNodeHeightsChange,
   onPaneClick,
   onResetView,
@@ -260,8 +271,9 @@ function MindMapFrame({
           selectedNodeId={selectedNodeId}
           selectedStepId={selectedStepId}
           t={t}
-          onHoverNode={onHoverNode}
+          onEnterNode={onEnterNode}
           onInit={setInstance}
+          onLeaveNode={onLeaveNode}
           onNodeHeightsChange={onNodeHeightsChange}
           onPaneClick={onPaneClick}
           onSelectNode={onSelectNode}
@@ -278,8 +290,9 @@ function MindMapCanvas({
   fitRevision,
   instance,
   model,
-  onHoverNode,
+  onEnterNode,
   onInit,
+  onLeaveNode,
   onNodeHeightsChange,
   onPaneClick,
   onSelectNode,
@@ -293,8 +306,9 @@ function MindMapCanvas({
   fitRevision: number;
   instance: ReactFlowInstance<MacroMindMapCanvasNode, BuiltInEdge> | null;
   model: MacroMindMapModel;
-  onHoverNode: (nodeId: string | undefined) => void;
+  onEnterNode: (nodeId: string) => void;
   onInit: (instance: ReactFlowInstance<MacroMindMapCanvasNode, BuiltInEdge>) => void;
+  onLeaveNode: (nodeId: string) => void;
   onNodeHeightsChange: (measurements: readonly NodeHeightMeasurement[]) => void;
   onPaneClick: () => void;
   onSelectNode: (nodeId: string | undefined) => void;
@@ -435,8 +449,8 @@ function MindMapCanvas({
             onSelectStep(node.data.currentStepId);
           }
         }}
-        onNodeMouseEnter={(_event, node) => onHoverNode(node.id)}
-        onNodeMouseLeave={() => onHoverNode(undefined)}
+        onNodeMouseEnter={(_event, node) => onEnterNode(node.id)}
+        onNodeMouseLeave={(_event, node) => onLeaveNode(node.id)}
         onPaneClick={() => {
           onSelectNode(undefined);
           onPaneClick();

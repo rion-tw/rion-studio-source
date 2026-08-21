@@ -286,6 +286,10 @@ describe("macro mind map focus", () => {
       "root:step:first",
       "root:macro"
     ]);
+    expect([...focus?.edgeIds ?? []]).toEqual([
+      "root:step:first->root:step:second",
+      "root:macro->root:step:first"
+    ]);
     expect(focus?.nodeIds.has("root:step:third")).toBe(false);
     expect(focus?.nodeIds.has("root:settings")).toBe(false);
   });

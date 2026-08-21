@@ -54,6 +54,13 @@ const FULLSCREEN_WORKSPACE_NAME = "E2E Contained Fullscreen Workspace";
 const FULLSCREEN_GAME_NAME = "E2E Contained Fullscreen Game";
 const FULLSCREEN_ROLE_NAME = "E2E Contained Fullscreen Role";
 
+interface MacroMindMapFocusFrame {
+  activeNodeIds: string[];
+  focusedEdgeFilters: string[];
+  focusedEdgeIds: string[];
+  nodeFilters: string[];
+}
+
 function expectWithinCssPixel(actual: number | undefined, expected: number | undefined): void {
   expect(actual).toBeDefined();
   expect(expected).toBeDefined();
@@ -287,6 +294,84 @@ async function createContainedFullscreenWorkspace(role: Role): Promise<LaunchWor
   return findWorkspace(FULLSCREEN_WORKSPACE_NAME);
 }
 
+async function exerciseMacroMindMapFocus(): Promise<void> {
+  const rootSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroRoot'])";
+  const stepSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroStep'])";
+  const settingsSelector = ".react-flow__node:has([data-macro-mind-map-node-kind='macroSettings'])";
+  const rootNode = await $(rootSelector);
+  const stepNode = await $(stepSelector);
+  const settingsNode = await $(settingsSelector);
+  await rootNode.waitForExist({ timeout: 10_000 });
+  await stepNode.waitForExist({ timeout: 10_000 });
+  await settingsNode.waitForExist({ timeout: 10_000 });
+  const rootNodeId = await rootNode.getAttribute("data-id");
+  const stepNodeId = await stepNode.getAttribute("data-id");
+  const settingsNodeId = await settingsNode.getAttribute("data-id");
+  if (!rootNodeId || !stepNodeId || !settingsNodeId) {
+    throw new Error("Macro mind map focus nodes must expose data-id");
+  }
+  const waitForSingleActiveNode = async (expectedNodeId: string): Promise<void> => {
+    await browser.waitUntil(
+      async () => {
+        const activeNodeIds = await browser.execute(() => [
+          ...document.querySelectorAll<HTMLElement>(".macro-mind-map-node-active")
+        ].map((node) => node.dataset.id ?? ""));
+        return activeNodeIds.length === 1 && activeNodeIds[0] === expectedNodeId;
+      },
+      { timeout: 10_000, timeoutMsg: `Macro mind map did not focus only ${expectedNodeId}` }
+    );
+  };
+
+  await rootNode.scrollIntoView({ block: "center", inline: "center" });
+  if (process.platform === "win32") await rootNode.moveTo();
+  else await rootNode.click();
+  await waitForSingleActiveNode(rootNodeId);
+  if (process.platform === "win32") await stepNode.moveTo();
+  else await stepNode.click();
+  await waitForSingleActiveNode(stepNodeId);
+  if (process.platform === "win32") await settingsNode.moveTo();
+  else await settingsNode.click();
+  await waitForSingleActiveNode(settingsNodeId);
+
+  const frames = await browser.executeAsync(
+    (done: (frames: MacroMindMapFocusFrame[]) => void) => {
+      const samples: MacroMindMapFocusFrame[] = [];
+      const sample = (): void => {
+        const map = document.querySelector<HTMLElement>("[data-macro-mind-map='inline']");
+        const activeNodes = [...(map?.querySelectorAll<HTMLElement>(".macro-mind-map-node-active") ?? [])];
+        const focusedEdges = [
+          ...document.querySelectorAll<SVGGElement>("[class~='macro-mind-map-edge-focused']")
+        ];
+        samples.push({
+          activeNodeIds: activeNodes.map((node) => node.dataset.id ?? ""),
+          focusedEdgeFilters: focusedEdges.map((edge) => {
+            const path = edge.querySelector<SVGPathElement>("[class~='react-flow__edge-path']");
+            return path ? getComputedStyle(path).filter : "missing";
+          }),
+          focusedEdgeIds: focusedEdges.map((edge) => edge.dataset.id ?? ""),
+          nodeFilters: [...(map?.querySelectorAll<HTMLElement>(".react-flow__node") ?? [])]
+            .map((node) => getComputedStyle(node).filter)
+        });
+        if (samples.length === 12) {
+          done(samples);
+          return;
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }
+  ) as MacroMindMapFocusFrame[];
+
+  expect(frames).toHaveLength(12);
+  expect(frames[0]?.focusedEdgeIds.length).toBeGreaterThan(0);
+  for (const frame of frames) {
+    expect(frame.activeNodeIds).toEqual([settingsNodeId]);
+    expect(frame.nodeFilters.every((filter) => filter === "none")).toBe(true);
+    expect(frame.focusedEdgeFilters.every((filter) => filter === "none")).toBe(true);
+    expect(frame).toEqual(frames[0]);
+  }
+}
+
 async function createMacro(role: Role): Promise<Macro> {
   const sidebar = await $(".app-main-sidebar");
   await sidebar.$("button*=Macros").click();
@@ -306,6 +391,7 @@ async function createMacro(role: Role): Promise<Macro> {
   await expect($("button=Create macro")).toBeDisabled();
   await $("button=Clear").click();
   await $("button=Hold until stopped").click();
+  await exerciseMacroMindMapFocus();
   await submitEditor("/macros");
   const macro = await findMacro(MACRO_NAME);
   await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });

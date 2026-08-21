@@ -51,7 +51,6 @@
 
 [data-macro-mind-map] .react-flow__node {
   border-radius: 0.5rem;
-  transition: opacity 140ms ease, filter 140ms ease;
 }
 
 [data-macro-mind-map] .react-flow__node:focus-visible {
@@ -143,20 +142,10 @@
 
 [data-macro-mind-map] .react-flow__node.macro-mind-map-node-dimmed {
   opacity: 0.38;
-  filter: saturate(0.25);
 }
 
 [data-macro-mind-map] .react-flow__edge {
   pointer-events: none;
-  transition: opacity 140ms ease;
-}
-
-[data-macro-mind-map] .react-flow__edge .react-flow__edge-path {
-  transition: stroke 140ms ease, stroke-width 140ms ease;
-}
-
-[data-macro-mind-map] .react-flow__edge.macro-mind-map-edge-focused .react-flow__edge-path {
-  filter: drop-shadow(0 0 3px hsl(var(--foreground) / 0.16));
 }
 
 [data-macro-mind-map] .react-flow__edge.macro-mind-map-edge-dimmed {
@@ -178,10 +167,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-macro-mind-map] .react-flow__node,
-  [data-macro-mind-map] .macro-mind-map-card,
-  [data-macro-mind-map] .react-flow__edge,
-  [data-macro-mind-map] .react-flow__edge .react-flow__edge-path {
+  [data-macro-mind-map] .macro-mind-map-card {
     transition: none;
   }
 }

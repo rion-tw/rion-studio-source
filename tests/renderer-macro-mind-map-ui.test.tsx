@@ -127,7 +127,7 @@ describe("macro mind map UI", () => {
     expect(inlineMap.querySelector(".react-flow__controls")).toBeNull();
   });
 
-  it("lets hover override selection focus and clears focus from the pane", async () => {
+  it("keeps the newest hover focus when an older node leaves and clears focus from the pane", async () => {
     const root = macro({
       steps: [
         { id: "first", type: "key", code: "F1" },
@@ -156,7 +156,13 @@ describe("macro mind map UI", () => {
     expect(settingsNode.className).toContain("macro-mind-map-node-dimmed");
     expect(secondNode.className).toContain("macro-mind-map-node-active");
 
+    fireEvent.mouseEnter(settingsNode);
+    await waitFor(() => expect(settingsNode.className).toContain("macro-mind-map-node-active"));
     fireEvent.mouseLeave(secondNode);
+    await waitFor(() => expect(settingsNode.className).toContain("macro-mind-map-node-active"));
+    expect(secondNode.className).toContain("macro-mind-map-node-dimmed");
+
+    fireEvent.mouseLeave(settingsNode);
     await waitFor(() => expect(thirdNode.className).not.toContain("macro-mind-map-node-dimmed"));
 
     fireEvent.click(secondNode);

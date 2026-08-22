@@ -55,6 +55,8 @@ const WEB_SESSION_MARKER = "e2e-global-web-session";
 const FULLSCREEN_WORKSPACE_NAME = "E2E Contained Fullscreen Workspace";
 const FULLSCREEN_GAME_NAME = "E2E Contained Fullscreen Game";
 const FULLSCREEN_ROLE_NAME = "E2E Contained Fullscreen Role";
+const FULLSCREEN_TOOLBAR_GAME_NAME = "E2E Fullscreen Toolbar Game";
+const FULLSCREEN_TOOLBAR_ROLE_NAME = "E2E Fullscreen Toolbar Role";
 
 interface MacroMindMapFocusFrame {
   activeNodeIds: string[];
@@ -574,7 +576,6 @@ async function launchAndPinRoleFromQuickAccess(role: Role): Promise<void> {
     role.id,
     (status) => status?.state === "running" && status.automationState !== "unavailable"
   );
-  await exerciseFullscreenToolbarPreference(role.id);
   await exerciseInGameQuickAccess(role);
 }
 
@@ -1125,6 +1126,45 @@ async function containedFullscreenPhase(): Promise<void> {
   await shutdownAndWaitForFlush();
 }
 
+async function fullscreenToolbarPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await acceptLegalAndSkipFirstRun();
+  await navigate("/games/new");
+  await setEditorName(FULLSCREEN_TOOLBAR_GAME_NAME);
+  await $("#game-launch-url").setValue(
+    `${requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN")}/role/${ROLE_FIXTURE_ID}`
+  );
+  await submitEditor("/games");
+  const game = await findGame(FULLSCREEN_TOOLBAR_GAME_NAME);
+  await navigate(`/roles/new?gameId=${game.id}`);
+  await setEditorName(FULLSCREEN_TOOLBAR_ROLE_NAME);
+  await submitEditor("/roles");
+  const role = await findRole(FULLSCREEN_TOOLBAR_ROLE_NAME);
+  await fixtureRequest("/api/gate", { roleId: ROLE_FIXTURE_ID });
+  await navigate("/roles");
+  await $(`[data-selection-id='${role.id}'] button[aria-label='Open']`).click();
+  await waitForFixtureNavigation(ROLE_FIXTURE_ID);
+  await fixtureRequest("/api/release", { roleId: ROLE_FIXTURE_ID });
+  await waitForRoleStatus(role.id, (status) => status?.state === "running");
+  await exerciseFullscreenToolbarPreference(role.id);
+  await shutdownAndWaitForFlush();
+}
+
+async function fullscreenToolbarRestartPhase(): Promise<void> {
+  await ensureEnglishUi();
+  await acceptLegalAndSkipFirstRun();
+  await navigate("/settings?section=preferences");
+  const toggle = await $(
+    "button[role='switch'][aria-label='Always show the toolbar in full screen']"
+  );
+  await toggle.waitForExist({ timeout: 10_000 });
+  expect(await toggle.getAttribute("data-state")).toBe("unchecked");
+  expect(await rendererCall("getRuntimeWindowPreferences")).toEqual(
+    expect.objectContaining({ alwaysShowToolbarInFullScreen: false })
+  );
+  await shutdownAndWaitForFlush();
+}
+
 async function seedPhase(): Promise<void> {
   await ensureEnglishUi();
   await acceptLegalAndSkipFirstRun();
@@ -1233,6 +1273,8 @@ describe("application UI smoke journeys", () => {
     const phase = requireEnvironment("RION_STUDIO_E2E_PHASE");
     if (phase === "smoke-seed") await seedPhase();
     else if (phase === "smoke-restart") await restartPhase();
+    else if (phase === "fullscreen-toolbar") await fullscreenToolbarPhase();
+    else if (phase === "fullscreen-toolbar-restart") await fullscreenToolbarRestartPhase();
     else if (phase === "workspace-contained-fullscreen") await containedFullscreenPhase();
     else throw new Error(`Unknown application journey phase: ${phase}`);
   });

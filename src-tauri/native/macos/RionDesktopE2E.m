@@ -158,6 +158,85 @@ static bool RionDesktopE2EActivateFullscreenSpace(NSWindow *window) {
   return true;
 }
 
+static id RionDesktopE2EApplicationMenuTrackingObserver = nil;
+
+static void RionDesktopE2EClearApplicationMenuTrackingObserver(
+    NSNotificationCenter *center) {
+  @synchronized(center) {
+    id observer = RionDesktopE2EApplicationMenuTrackingObserver;
+    RionDesktopE2EApplicationMenuTrackingObserver = nil;
+    if (observer) [center removeObserver:observer];
+  }
+}
+
+static bool RionDesktopE2EClickFullscreenToolbarMenu(NSWindow *window) {
+  if (!window ||
+      (window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+    return false;
+  }
+  [NSApp activateIgnoringOtherApps:YES];
+  [window makeKeyAndOrderFront:nil];
+  NSMenu *mainMenu = NSApp.mainMenu;
+  if (!mainMenu || mainMenu.numberOfItems < 3) return false;
+  NSMenuItem *viewMenuItem = [mainMenu itemAtIndex:2];
+  NSMenu *viewMenu = viewMenuItem.submenu;
+  if (!viewMenu || viewMenu.numberOfItems == 0) return false;
+
+  NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+  RionDesktopE2EClearApplicationMenuTrackingObserver(center);
+  @synchronized(center) {
+    __weak NSNotificationCenter *weakCenter = center;
+    RionDesktopE2EApplicationMenuTrackingObserver =
+        [center addObserverForName:NSMenuDidBeginTrackingNotification
+                            object:nil
+                             queue:nil
+                        usingBlock:^(__unused NSNotification *notification) {
+      NSNotificationCenter *callbackCenter = weakCenter;
+      if (!callbackCenter) return;
+      RionDesktopE2EClearApplicationMenuTrackingObserver(callbackCenter);
+      NSMenuItem *toolbarItem = [viewMenu itemAtIndex:0];
+      [toolbarItem accessibilityPerformPress];
+    }];
+  }
+  if (!RionDesktopE2EApplicationMenuTrackingObserver) return false;
+  const NSRect menuItemFrame = viewMenuItem.accessibilityFrame;
+  if (NSIsEmptyRect(menuItemFrame)) {
+    RionDesktopE2EClearApplicationMenuTrackingObserver(center);
+    return false;
+  }
+  const CGFloat menuItemMidY = NSMidY(menuItemFrame);
+  const CGFloat desktopTop = RionDesktopTop();
+  const CGPoint point = CGPointMake(
+      NSMidX(menuItemFrame), MIN(menuItemMidY, desktopTop - menuItemMidY));
+  CGEventSourceRef source =
+      CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+  if (!source) {
+    RionDesktopE2EClearApplicationMenuTrackingObserver(center);
+    return false;
+  }
+  const CGEventType types[] = {
+    kCGEventMouseMoved,
+    kCGEventLeftMouseDown,
+    kCGEventLeftMouseUp,
+  };
+  bool accepted = true;
+  for (NSUInteger index = 0; index < 3; index += 1) {
+    CGEventRef event = CGEventCreateMouseEvent(
+        source, types[index], point, kCGMouseButtonLeft);
+    if (!event) {
+      accepted = false;
+      break;
+    }
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+  }
+  CFRelease(source);
+  if (!accepted) {
+    RionDesktopE2EClearApplicationMenuTrackingObserver(center);
+  }
+  return accepted;
+}
+
 bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
   @autoreleasepool {
     if (!rawCode) return false;
@@ -317,6 +396,46 @@ bool rion_desktop_e2e_control_window(void *rawWindow, int32_t action,
     }
     case 8:
       return RionDesktopE2EActivateFullscreenSpace(window);
+    case 9: {
+      if ((window.styleMask & NSWindowStyleMaskFullScreen) != 0 ||
+          window.miniaturized) {
+        return false;
+      }
+      [NSApp activateIgnoringOtherApps:YES];
+      [window makeKeyAndOrderFront:nil];
+      NSButton *button = [window standardWindowButton:NSWindowZoomButton];
+      if (!button || button.hidden || button.alphaValue <= 0 || !button.enabled ||
+          !button.window) {
+        return false;
+      }
+      const NSRect buttonWindowRect = [button convertRect:button.bounds toView:nil];
+      const NSRect buttonScreenRect = [window convertRectToScreen:buttonWindowRect];
+      const CGPoint point = CGPointMake(
+          NSMidX(buttonScreenRect), RionDesktopTop() - NSMidY(buttonScreenRect));
+      CGEventSourceRef source =
+          CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+      if (!source) return false;
+      const CGEventType types[] = {
+        kCGEventMouseMoved,
+        kCGEventLeftMouseDown,
+        kCGEventLeftMouseUp,
+      };
+      bool accepted = true;
+      for (NSUInteger index = 0; index < 3; index += 1) {
+        CGEventRef event = CGEventCreateMouseEvent(
+            source, types[index], point, kCGMouseButtonLeft);
+        if (!event) {
+          accepted = false;
+          break;
+        }
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+      }
+      CFRelease(source);
+      return accepted;
+    }
+    case 10:
+      return RionDesktopE2EClickFullscreenToolbarMenu(window);
     default:
       return false;
   }

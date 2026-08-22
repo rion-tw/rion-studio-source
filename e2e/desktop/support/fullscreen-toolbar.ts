@@ -41,6 +41,29 @@ async function setFullscreenToolbarPreference(alwaysShow: boolean): Promise<void
   );
 }
 
+async function setFullscreenToolbarPreferenceFromVisibleNativeMenu(
+  snapshot: DesktopE2eWindowSnapshot,
+  alwaysShow: boolean
+): Promise<void> {
+  if (process.platform !== "darwin") {
+    await setFullscreenToolbarPreference(alwaysShow);
+    return;
+  }
+  await controlWindow(snapshot.windowId, {
+    action: "clickVisibleFullscreenToolbarMenu"
+  });
+  await browser.waitUntil(
+    async () => {
+      const preferences = await rendererCall("getRuntimeWindowPreferences");
+      return preferences.alwaysShowToolbarInFullScreen === alwaysShow;
+    },
+    {
+      timeout: 10_000,
+      timeoutMsg: `Native fullscreen toolbar menu preference did not become ${alwaysShow}`
+    }
+  );
+}
+
 async function returnToFullscreenGameWindow(
   snapshot: DesktopE2eWindowSnapshot
 ): Promise<DesktopE2eWindowSnapshot> {
@@ -134,6 +157,44 @@ async function toggleFullscreenWithVisibleShortcut(
     const observed = await windowSnapshot(snapshot.windowId);
     throw new Error(
       `Fullscreen shortcut did not reach ${presentation}: observed=${JSON.stringify(observed.native)}`,
+      { cause: error }
+    );
+  }
+  return windowSnapshot(snapshot.windowId);
+}
+
+async function enterFullscreenWithVisibleControl(
+  snapshot: DesktopE2eWindowSnapshot,
+  roleId: string,
+  tabId: string
+): Promise<DesktopE2eWindowSnapshot> {
+  if (process.platform !== "darwin") {
+    return toggleFullscreenWithVisibleShortcut(snapshot, roleId, tabId, "fullscreen");
+  }
+  await clickRoleContent(snapshot, roleId, tabId);
+  await browser.waitUntil(
+    async () => (await windowSnapshot(snapshot.windowId)).native.focused,
+    {
+      interval: 50,
+      timeout: 10_000,
+      timeoutMsg: "Game Window did not become the focused fullscreen-control target"
+    }
+  );
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, { action: "clickVisibleFullscreen" });
+  try {
+    await waitEvent({
+      afterSequence: cursor,
+      kind: "placement-accepted",
+      minimumGeneration: snapshot.windowGeneration,
+      presentation: "fullscreen",
+      timeoutMs: 45_000,
+      windowId: snapshot.windowId
+    });
+  } catch (error) {
+    const observed = await windowSnapshot(snapshot.windowId);
+    throw new Error(
+      `Visible fullscreen control did not enter fullscreen: observed=${JSON.stringify(observed.native)}`,
       { cause: error }
     );
   }
@@ -265,7 +326,7 @@ export async function exerciseFullscreenToolbarPreference(roleId: string): Promi
   let failure: unknown;
   try {
     await setFullscreenToolbarPreference(false);
-    current = await toggleFullscreenWithVisibleShortcut(current, roleId, tab.id, "fullscreen");
+    current = await enterFullscreenWithVisibleControl(current, roleId, tab.id);
     current = await waitForFullscreenToolbarState(current.windowId, {
       baselineHeight,
       fullscreen: true,
@@ -281,8 +342,10 @@ export async function exerciseFullscreenToolbarPreference(roleId: string): Promi
       });
     }
 
-    await setFullscreenToolbarPreference(true);
-    current = await returnToFullscreenGameWindow(current);
+    await setFullscreenToolbarPreferenceFromVisibleNativeMenu(current, true);
+    if (process.platform !== "darwin") {
+      current = await returnToFullscreenGameWindow(current);
+    }
     await clickRoleContent(current, roleId, tab.id);
     current = await waitForFullscreenToolbarState(current.windowId, {
       baselineHeight,
@@ -302,14 +365,16 @@ export async function exerciseFullscreenToolbarPreference(roleId: string): Promi
       visible: true
     });
 
-    current = await toggleFullscreenWithVisibleShortcut(current, roleId, tab.id, "fullscreen");
+    current = await enterFullscreenWithVisibleControl(current, roleId, tab.id);
     current = await waitForFullscreenToolbarState(current.windowId, {
       baselineHeight,
       fullscreen: true,
       visible: true
     });
-    await setFullscreenToolbarPreference(false);
-    current = await returnToFullscreenGameWindow(current);
+    await setFullscreenToolbarPreferenceFromVisibleNativeMenu(current, false);
+    if (process.platform !== "darwin") {
+      current = await returnToFullscreenGameWindow(current);
+    }
     await clickRoleContent(current, roleId, tab.id);
     current = await waitForFullscreenToolbarState(current.windowId, {
       baselineHeight,

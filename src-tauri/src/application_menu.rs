@@ -290,6 +290,7 @@ fn toggle_toolbar_preference(app: &AppHandle, state: &crate::CoreState) -> Resul
         .core
         .invoke(CoreCommand::RuntimeWindowPreferencesReplace { preferences: value })
         .map_err(|error| error.to_string())?;
+    state.runtime.refresh_projection_metadata()?;
     state.runtime.publish_projection();
     let language = state
         .menu_language

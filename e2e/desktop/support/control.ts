@@ -160,6 +160,8 @@ export type WindowControlRequest =
       action:
         | "activateFullscreenSpace"
         | "clickVisibleClose"
+        | "clickVisibleFullscreen"
+        | "clickVisibleFullscreenToolbarMenu"
         | "clickVisibleMinimize"
         | "close"
         | "focus"

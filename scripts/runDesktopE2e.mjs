@@ -34,6 +34,7 @@ if (phaseArgument && !configuredPhases.includes(phaseArgument)) {
   throw new Error(`Desktop E2E phase ${phaseArgument} is not part of profile ${profile}.`);
 }
 const focusedPhaseDependencies = new Map([
+  ["fullscreen-toolbar-restart", ["fullscreen-toolbar"]],
   ["restart", ["seed"]],
   ["p1-role-session-isolation", ["p1-role-session-seed"]],
   ["p1-mutations", ["smoke-seed", "smoke-restart"]],
@@ -76,6 +77,8 @@ const phases = phaseArgument
   ? [...(focusedPhaseDependencies.get(phaseArgument) ?? []), phaseArgument]
   : configuredPhases;
 const phaseNamespaces = new Map([
+  ["fullscreen-toolbar", "fullscreen-toolbar-lifecycle"],
+  ["fullscreen-toolbar-restart", "fullscreen-toolbar-lifecycle"],
   ["smoke-seed", "app-entity-lifecycle"],
   ["smoke-restart", "app-entity-lifecycle"],
   ["p1-role-session-seed", "role-session-lifecycle"],

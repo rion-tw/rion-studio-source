@@ -7,6 +7,8 @@
 pub(crate) enum DesktopE2eWindowControlRequest {
     ActivateFullscreenSpace,
     ClickVisibleClose,
+    ClickVisibleFullscreen,
+    ClickVisibleFullscreenToolbarMenu,
     ClickVisibleMinimize,
     Close,
     DragVisibleChrome {
@@ -689,6 +691,10 @@ fn desktop_e2e_window_control_name(request: &DesktopE2eWindowControlRequest) -> 
     match request {
         DesktopE2eWindowControlRequest::ActivateFullscreenSpace => "activateFullscreenSpace",
         DesktopE2eWindowControlRequest::ClickVisibleClose => "clickVisibleClose",
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreen => "clickVisibleFullscreen",
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreenToolbarMenu => {
+            "clickVisibleFullscreenToolbarMenu"
+        }
         DesktopE2eWindowControlRequest::ClickVisibleMinimize => "clickVisibleMinimize",
         DesktopE2eWindowControlRequest::Close => "close",
         DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => "dragVisibleChrome",
@@ -766,6 +772,12 @@ fn desktop_e2e_apply_native_window_control(
             tab_strip,
             DesktopE2eVisibleChromePointer::Close,
         ),
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreen => {
+            Err("Visible fullscreen control is currently macOS-only.".to_owned())
+        }
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreenToolbarMenu => {
+            Err("The native fullscreen-toolbar menu is currently macOS-only.".to_owned())
+        }
         DesktopE2eWindowControlRequest::ClickVisibleMinimize => {
             desktop_e2e_windows_visible_chrome_pointer(
                 window,
@@ -1070,6 +1082,8 @@ fn desktop_e2e_apply_native_window_control(
         | DesktopE2eWindowControlRequest::DragVisibleChrome { .. } => {
             return Err("Visible chrome pointer controls are Windows-only.".to_owned());
         }
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreen => 9,
+        DesktopE2eWindowControlRequest::ClickVisibleFullscreenToolbarMenu => 10,
         DesktopE2eWindowControlRequest::MoveResize { .. } => 0,
         DesktopE2eWindowControlRequest::Focus => {
             return request_platform_window_show_foreground(window)

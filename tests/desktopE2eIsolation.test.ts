@@ -61,6 +61,10 @@ describe("desktop E2E build isolation", () => {
 
   it("projects held macOS modifier sides onto every debug keyboard event", async () => {
     const source = await readFile("src-tauri/native/macos/RionDesktopE2E.m", "utf8");
+    const keyboardInput = source.slice(
+      source.indexOf("bool rion_desktop_e2e_keyboard_input"),
+      source.indexOf("bool rion_desktop_e2e_drag_webview")
+    );
 
     expect(source).toContain("RionDesktopE2EHeldModifierCodes");
     expect(source).toContain('isEqualToString:@"ShiftLeft"');
@@ -69,8 +73,8 @@ describe("desktop E2E build isolation", () => {
     expect(source).toContain(
       "CGEventSetFlags(event, RionDesktopE2EUpdateModifierFlags(code, keyDown))"
     );
-    expect(source.indexOf("RionDesktopE2EUpdateModifierFlags(code, keyDown)"))
-      .toBeLessThan(source.indexOf("CGEventPost(kCGHIDEventTap, event)"));
+    expect(keyboardInput.indexOf("RionDesktopE2EUpdateModifierFlags(code, keyDown)"))
+      .toBeLessThan(keyboardInput.indexOf("CGEventPost(kCGHIDEventTap, event)"));
   });
 
   it("grants native runtime evidence commands only in the desktop E2E capability", async () => {

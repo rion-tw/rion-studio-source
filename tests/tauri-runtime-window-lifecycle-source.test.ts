@@ -3,6 +3,62 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
+  it("refreshes Windows toolbar geometry after exact fullscreen and preference terminals", async () => {
+    const [windowControl, metadata, layout] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_12_handle_divider_pointer.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_13_window_zoom_indicator_label.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_11_provisionally_move_tab_with_visibility.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const fullscreen = windowControl.slice(
+      windowControl.indexOf("pub fn toggle_runtime_window_fullscreen("),
+      windowControl.indexOf("fn collect_browser_performance_diagnostics(")
+    );
+    const refreshMetadata = metadata.slice(
+      metadata.indexOf("pub(crate) fn refresh_projection_metadata("),
+      metadata.indexOf("fn projection_metadata(")
+    );
+    const refreshLayout = layout.slice(
+      layout.indexOf("fn refresh_windows_active_window_layout("),
+      layout.indexOf("pub fn set_windows_toolbar_revealed(")
+    );
+
+    expect(fullscreen).toContain("let summary = self.wait_native_operation_summary(&operation_id)?");
+    expect(fullscreen).toContain("SystemRuntimeOperationStatus::Applied");
+    expect(fullscreen).toContain("SystemRuntimeOperationStatus::Degraded");
+    expect(fullscreen).toContain("self.refresh_windows_active_window_layout(window_id)");
+    expect(fullscreen.indexOf("wait_native_operation_summary"))
+      .toBeLessThan(fullscreen.indexOf("refresh_windows_active_window_layout"));
+    expect(refreshMetadata).toContain("always_show_toolbar_in_full_screen");
+    expect(refreshMetadata).toContain("!= next_metadata");
+    expect(refreshMetadata).toContain("if refresh_windows_layout");
+    expect(refreshMetadata).toContain("drop(metadata)");
+    expect(refreshMetadata).toContain("window.is_fullscreen().unwrap_or(false)");
+    expect(refreshMetadata).toContain("self.refresh_windows_active_window_layout(&window_id)");
+    expect(refreshMetadata.indexOf("*metadata = next_metadata"))
+      .toBeLessThan(refreshMetadata.indexOf("refresh_windows_active_window_layout"));
+    expect(refreshLayout).toContain("window.selected_tab_id.clone()");
+    expect(refreshLayout).toContain("windows_active_tab_is_materialized");
+    expect(refreshLayout).toContain("self.layout_runtime_tab(&tab_id)");
+  });
+
   it("keeps active-tab selection entirely outside Core", async () => {
     const [selection, core] = await Promise.all([
       readFile(new URL("../src-tauri/src/lib/section_01_activation.rs", import.meta.url), "utf8"),

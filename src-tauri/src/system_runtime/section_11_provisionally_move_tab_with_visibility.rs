@@ -469,6 +469,38 @@ impl SystemRuntimeExecutor {
     }
 
     #[cfg(windows)]
+    fn windows_active_tab_is_materialized(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+    ) -> Result<bool, String> {
+        let state = self.state().map_err(|error| error.message)?;
+        Ok(state.native_resources.display_hosts.contains_key(window_id)
+            && state.native_resources.tabs.contains_key(tab_id))
+    }
+
+    #[cfg(windows)]
+    fn refresh_windows_active_window_layout(&self, window_id: &str) -> Result<(), String> {
+        let Some(tab_id) = self
+            .presentation
+            .existing(window_id)
+            .and_then(|window| window.selected_tab_id.clone())
+        else {
+            return Ok(());
+        };
+        if !self.windows_active_tab_is_materialized(window_id, &tab_id)? {
+            return Ok(());
+        }
+        if let Err(error) = self.layout_runtime_tab(&tab_id) {
+            if !self.windows_active_tab_is_materialized(window_id, &tab_id)? {
+                return Ok(());
+            }
+            return Err(error.message);
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
     pub fn set_windows_toolbar_revealed(
         &self,
         window_id: &str,

@@ -1,11 +1,41 @@
 impl SystemRuntimeExecutor {
     pub(crate) fn refresh_projection_metadata(&self) -> Result<(), String> {
         let snapshot = self.core.app_snapshot().map_err(|error| error.to_string())?;
+        let next_metadata = RuntimeProjectionMetadata::from_app_snapshot(&snapshot);
         let mut metadata = self
             .projection_metadata
             .write()
             .map_err(|_| "Runtime projection metadata lock poisoned.".to_owned())?;
-        *metadata = RuntimeProjectionMetadata::from_app_snapshot(&snapshot);
+        #[cfg(windows)]
+        let refresh_windows_layout = metadata
+            .window_preferences
+            .always_show_toolbar_in_full_screen
+            != next_metadata
+                .window_preferences
+                .always_show_toolbar_in_full_screen;
+        *metadata = next_metadata;
+        drop(metadata);
+        #[cfg(windows)]
+        if refresh_windows_layout {
+            let windows = {
+                let state = self.state().map_err(|error| error.message)?;
+                state
+                    .native_resources
+                    .display_hosts
+                    .iter()
+                    .map(|(window_id, host)| (window_id.clone(), host.window.clone()))
+                    .collect::<Vec<_>>()
+            };
+            for (window_id, window) in windows {
+                if window.is_fullscreen().unwrap_or(false)
+                    && let Err(error) = self.refresh_windows_active_window_layout(&window_id)
+                {
+                    eprintln!(
+                        "Windows fullscreen preference layout refresh failed for {window_id}: {error}"
+                    );
+                }
+            }
+        }
         Ok(())
     }
 

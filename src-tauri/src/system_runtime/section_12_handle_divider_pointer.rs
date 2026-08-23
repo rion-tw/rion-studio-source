@@ -407,7 +407,20 @@ impl SystemRuntimeExecutor {
             )
             .map_err(|error| error.message)?;
         self.wait_for_presentation_paint_barrier(window_id, revision);
-        self.wait_native_operation_summary(&operation_id)
+        let summary = self.wait_native_operation_summary(&operation_id)?;
+        #[cfg(windows)]
+        if matches!(
+            summary.status,
+            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+        ) {
+            if let Err(error) = self.refresh_windows_active_window_layout(window_id) {
+                eprintln!(
+                    "Windows fullscreen toolbar layout refresh failed for {window_id}: {error}"
+                );
+            }
+            self.publish_projection();
+        }
+        Ok(summary)
     }
 
     fn collect_browser_performance_diagnostics(

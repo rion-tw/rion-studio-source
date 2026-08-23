@@ -629,25 +629,45 @@
     #[test]
     fn fails_an_unacknowledged_input_with_the_original_timeout_error() {
         let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+        // Keep the 1 ms timeout scoped to the intentionally hung key, not the
+        // startup focus round trip. The deadline starts after this sink returns.
+        let focus_barrier = Arc::new(std::sync::Barrier::new(2));
+        let event_focus_barrier = Arc::clone(&focus_barrier);
         let runtime = MacroRuntime::new_with_waiter_and_timeout(
             Arc::new(move |batch| {
+                let wait_for_focus_result = matches!(
+                    batch.as_slice(),
+                    [CoreEvent::BrowserActions { actions }]
+                        if !actions.is_empty()
+                            && actions
+                                .iter()
+                                .all(|request| matches!(&request.action, BrowserAction::Focus))
+                );
                 let _ = events.send(batch);
+                if wait_for_focus_result {
+                    event_focus_barrier.wait();
+                }
             }),
             Arc::new(default_wait),
             Duration::from_millis(1),
         );
-        let _ = start_and_ack_focus(
-            &runtime,
-            &receiver,
-            request(vec![MacroStepDefinition::Key {
-                id: "hung".to_owned(),
-                code: "KeyA".to_owned(),
-                modifiers: None,
-                action: Some("tap".to_owned()),
-                label: None,
-                duration_ms: None,
-            }]),
-        );
+        let starting_runtime = runtime.clone();
+        let start = thread::spawn(move || {
+            starting_runtime
+                .start(request(vec![MacroStepDefinition::Key {
+                    id: "hung".to_owned(),
+                    code: "KeyA".to_owned(),
+                    modifiers: None,
+                    action: Some("tap".to_owned()),
+                    label: None,
+                    duration_ms: None,
+                }]))
+                .unwrap()
+        });
+        let focus = next_browser_actions(&receiver);
+        runtime.dispatch_results(success_results(focus)).unwrap();
+        focus_barrier.wait();
+        let _ = start.join().unwrap();
         let hung_hold = next_browser_actions(&receiver);
         assert!(matches!(
             hung_hold[0].action,

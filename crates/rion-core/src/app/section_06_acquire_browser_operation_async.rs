@@ -516,6 +516,16 @@ impl AppCore {
         games: &std::collections::HashMap<String, StateGameRecord>,
         settings: &GameBrowserSettingsRecord,
     ) -> CoreResult<crate::model::BrowserEngineResolutionRecord> {
+        let registration_issue = if roles.is_empty() {
+            let runtime = self.system_webview_runtime()?;
+            (!runtime.available).then_some(
+                runtime
+                    .failure_reason
+                    .unwrap_or(crate::model::SystemWebViewIssueReason::RuntimeCreationFailed),
+            )
+        } else {
+            None
+        };
         let resolutions = roles
             .iter()
             .map(|role| {
@@ -533,9 +543,11 @@ impl AppCore {
         Ok(crate::model::BrowserEngineResolutionRecord {
             resolved_engine: system_engine,
             host_kind: crate::model::BrowserHostKind::SystemNative,
-            issue_reason: resolutions
-                .iter()
-                .find_map(|resolution| resolution.issue_reason),
+            issue_reason: registration_issue.or_else(|| {
+                resolutions
+                    .iter()
+                    .find_map(|resolution| resolution.issue_reason)
+            }),
         })
     }
 

@@ -494,6 +494,10 @@ NS_ASSUME_NONNULL_BEGIN
       addLocalMonitorForEventsMatchingMask:(NSEventMaskKeyDown |
                                              NSEventMaskFlagsChanged)
                                 handler:^NSEvent *(NSEvent *event) {
+    // Direct macro input has already reached its explicit WKWebView target.
+    // WebKit may resend the same marked event through NSApp; consume that
+    // fallback before a native popup menu or another runtime window can see it.
+    if (RionRuntimeIsMacroKeyEvent(event)) return nil;
     RionRuntimeTabsController *strongSelf = weakShortcutSelf;
     if (!strongSelf || strongSelf->_destroyed || event.window != strongSelf->_window) {
       return event;

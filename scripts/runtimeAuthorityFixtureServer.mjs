@@ -484,7 +484,9 @@ function gateState(roleId) {
 function releaseGate(roleId) {
   const gate = gateState(roleId);
   gate.blocked = false;
-  for (const response of gate.waiters) sendRolePage(response, roleId);
+  for (const waiter of gate.waiters) {
+    sendRolePage(waiter.response, roleId, waiter.sessionMode, waiter.marker);
+  }
   gate.waiters.clear();
   for (const response of gate.observers) {
     json(response, 200, { released: true, roleId, waiterCount: 0 });
@@ -770,23 +772,24 @@ const server = createServer(async (request, response) => {
         response.once("close", () => failure.recoveryWaiters.delete(response));
         return;
       }
+      const requestedMode = url.searchParams.get("mode");
+      const sessionMode = requestedMode === "seed" || requestedMode === "late-write"
+        ? requestedMode
+        : "observe";
+      const marker = url.searchParams.get("marker") ?? roleId;
+      if (!/^[a-z0-9-]{1,80}$/.test(marker)) {
+        json(response, 400, { error: "invalid fixture session marker" });
+        return;
+      }
       const gate = gateState(roleId);
       if (!gate.blocked) {
-        const requestedMode = url.searchParams.get("mode");
-        const sessionMode = requestedMode === "seed" || requestedMode === "late-write"
-          ? requestedMode
-          : "observe";
-        const marker = url.searchParams.get("marker") ?? roleId;
-        if (!/^[a-z0-9-]{1,80}$/.test(marker)) {
-          json(response, 400, { error: "invalid fixture session marker" });
-          return;
-        }
         sendRolePage(response, roleId, sessionMode, marker);
         return;
       }
-      gate.waiters.add(response);
+      const waiter = { marker, response, sessionMode };
+      gate.waiters.add(waiter);
       notifyGateObservers(roleId, gate);
-      response.once("close", () => gate.waiters.delete(response));
+      response.once("close", () => gate.waiters.delete(waiter));
       return;
     }
     const challengeMatch = request.method === "GET"

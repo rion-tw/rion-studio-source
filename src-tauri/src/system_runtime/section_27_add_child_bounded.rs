@@ -674,12 +674,19 @@ impl SystemRuntimeExecutor {
         let Some(window_id) = window_id else {
             return Ok(());
         };
-        let (role_ids, window_id) = {
+        let (role_ids, navigation_trackers, window_id) = {
             let state = self.state()?;
             let Some(tab) = state.native_resources.tabs.get(tab_id) else {
                 return Ok(());
             };
-            (tab.roles.keys().cloned().collect::<Vec<_>>(), window_id)
+            (
+                tab.roles.keys().cloned().collect::<Vec<_>>(),
+                tab.roles
+                    .values()
+                    .map(|surface| Arc::clone(&surface.navigation))
+                    .collect::<Vec<_>>(),
+                window_id,
+            )
         };
         let tab_group_surfaces = {
             let state = self.state()?;
@@ -708,6 +715,12 @@ impl SystemRuntimeExecutor {
                 .close_coordinator
                 .closing_roles
                 .extend(role_ids.iter().cloned());
+        }
+        // Closing is an authoritative cancellation boundary for initial navigation waits.
+        // Resetting the exact trackers wakes their async operations as superseded, so a late
+        // page-finished callback cannot advance a reopened tab that reuses persisted identity.
+        for navigation in navigation_trackers {
+            navigation.reset();
         }
         for role_id in &role_ids {
             self.surface_recoveries.cancel_active_for_role(role_id);

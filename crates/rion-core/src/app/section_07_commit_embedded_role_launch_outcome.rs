@@ -85,12 +85,6 @@ impl AppCore {
             launch_attempt_id,
             restore_role_slots,
         } = request;
-        if expected_role_ids.is_empty() {
-            return Err(CoreError::Domain {
-                code: "WORKSPACE_ROLES_REQUIRED",
-                message: "The launch workspace has no roles.".to_owned(),
-            });
-        }
         let mut operation_role_ids = expected_role_ids.to_vec();
         operation_role_ids.push(workspace_operation_key(workspace_id));
         let lease = self.browser_operations.acquire(BrowserOperationRequest {
@@ -117,6 +111,16 @@ impl AppCore {
                         slot.browser_zoom_percent = saved.browser_zoom_percent;
                     }
                 }
+            }
+            if !workspace
+                .slots
+                .iter()
+                .any(|slot| slot.role_id.is_some() || slot.web.is_some())
+            {
+                return Err(CoreError::Domain {
+                    code: "WORKSPACE_CONTENT_REQUIRED",
+                    message: "The launch workspace has no roles or web apps.".to_owned(),
+                });
             }
             let role_ids = workspace
                 .slots

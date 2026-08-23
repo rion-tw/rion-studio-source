@@ -61,6 +61,13 @@ or appends the source as the foreground tab before event-bound hydration. Empty
 saved windows are valid targets. Missing, stale, recovering, restoring, or
 failed targets reject with a stable error and never fall back silently.
 
+A Workspace is launchable when its latest leased source contains at least one
+Role or Web App. A completely empty Workspace remains a valid saved draft, but
+every renderer launch entry disables it and Core rejects direct or stale calls
+with `WORKSPACE_CONTENT_REQUIRED` before any native effect. A Web App-only
+Workspace follows the same automatic, new-window, live-window, and dormant
+saved-window destination policy as a Role-backed Workspace.
+
 ### Workspace slot and native-surface ownership
 
 A runtime Workspace tab owns a stable complete list of Workspace slots. Every
@@ -69,8 +76,12 @@ policy; empty slots remain part of the layout. Its role-slot list is the exact
 Role-backed subset used for ownership and compatibility, while Web App surface
 identities never become managed Role IDs. Divider commits resolve native Role
 and synthetic Web surfaces through their stable slot IDs and atomically replace
-the complete Workspace layout. A Role tab continues to own exactly one role
-slot and no Workspace slots.
+the complete Workspace layout. The Role-backed subset may therefore be empty
+when the complete Workspace layout contains Web App content. A Role tab
+continues to own exactly its source Role slot and no Workspace slots; an empty
+Role subset is invalid for that tab type. Synthetic Web surface IDs remain
+native implementation identities and never enter Role status, macro targeting,
+runtime Role ownership, or persisted role-slot demand.
 
 At most one native role WebView may exist for a role. Core stores that global
 surface owner as `{ windowId, tabId, slotId, generation }`; all other slots for

@@ -397,14 +397,24 @@ fn normalize_game_window(mut window: StateGameWindowRecord) -> CoreResult<StateG
                 ));
             }
         }
-        if tab.role_slots.is_empty()
-            || (tab.tab_type == "role"
-                && (tab.role_slots.len() != 1
-                    || tab.role_slots[0].role_id != tab.source_id))
+        if tab.tab_type == "role"
+            && (tab.role_slots.len() != 1 || tab.role_slots[0].role_id != tab.source_id)
         {
             return Err(domain(
                 "GAME_WINDOW_TAB_INVALID",
                 "A role tab must contain exactly its source role.",
+            ));
+        }
+        if tab.tab_type == "workspace"
+            && tab.role_slots.is_empty()
+            && !tab
+                .workspace_slots
+                .iter()
+                .any(|slot| slot.role_id.is_some() || slot.web.is_some())
+        {
+            return Err(domain(
+                "GAME_WINDOW_TAB_INVALID",
+                "A workspace tab must contain at least one role or web app.",
             ));
         }
     }

@@ -280,6 +280,8 @@ unsafe extern "C" {
     #[cfg(test)]
     fn rion_runtime_tabs_fullscreen_toolbar_policy_self_test() -> bool;
     #[cfg(test)]
+    fn rion_runtime_tabs_macro_fallback_event_self_test() -> bool;
+    #[cfg(test)]
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_shortcut_self_test() -> bool;

@@ -314,14 +314,14 @@ describe("workspace editor role picker layout", () => {
     expect(workspaceHelps[0].getAttribute("data-workspace-help")).toBe("editing");
     expect(workspaceHelps[1].getAttribute("data-workspace-help")).toBe("launch");
     expect(workspaceHelps[2].getAttribute("data-workspace-help")).toBe("runtime");
-    expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
+    expect(workspaceHelps[0].textContent).toContain("Editing content and layout");
     expect(workspaceHelps[0].textContent).toContain("A role can appear only once");
-    expect(workspaceHelps[0].textContent).toContain("roles outside the new layout are not kept");
+    expect(workspaceHelps[0].textContent).toContain("content outside the new layout is not kept");
     expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
-    expect(workspaceHelps[1].textContent).toContain("Assign at least one role before opening");
+    expect(workspaceHelps[1].textContent).toContain("at least one role or Web App before opening");
     expect(workspaceHelps[1].textContent).toContain("most recently focused game window");
     expect(workspaceHelps[2].textContent).toContain("While running");
-    expect(workspaceHelps[2].textContent).toContain("Each role viewport adapts independently");
+    expect(workspaceHelps[2].textContent).toContain("Each viewport adapts independently");
     expect(workspaceHelps[2].textContent).toContain("Command +/−/0 on macOS");
     expect(workspaceHelps[2].textContent).toContain("Ctrl +/−/0 on Windows");
     expect(workspaceHelps[2].textContent).toContain("View menu zoom controls the whole game window");
@@ -522,7 +522,8 @@ describe("workspace editor role picker layout", () => {
     expect(frames.size).toBe(0);
   });
 
-  it("shows the complete workspace help when creating a workspace", () => {
+  it("shows content-aware help and keeps an empty workspace saveable", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
     const router = createMemoryRouter(
       [
         {
@@ -535,7 +536,7 @@ describe("workspace editor role picker layout", () => {
               statusByRole={new Map()}
               t={t}
               workspaces={[]}
-              onSave={vi.fn()}
+              onSave={onSave}
             />
           )
         }
@@ -551,11 +552,20 @@ describe("workspace editor role picker layout", () => {
 
     const workspaceHelps = container.querySelectorAll("[data-workspace-help]");
     expect(workspaceHelps).toHaveLength(3);
-    expect(workspaceHelps[0].textContent).toContain("Editing roles and layout");
+    expect(workspaceHelps[0].textContent).toContain("Editing content and layout");
     expect(workspaceHelps[1].textContent).toContain("Opening the workspace");
+    expect(workspaceHelps[1].textContent).toContain("at least one role or Web App");
     expect(workspaceHelps[2].textContent).toContain("While running");
     expect(screen.queryByText("Role zoom")).toBeNull();
     expect(screen.queryByText("Follow workspace")).toBeNull();
+
+    const saveButton = screen.getByRole("button", { name: "Create workspace" });
+    expect(saveButton.hasAttribute("disabled")).toBe(false);
+    await userEvent.setup().click(saveButton);
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0][0].slots.every(
+      (slot: LaunchWorkspace["slots"][number]) => !slot.roleId && !slot.web
+    )).toBe(true);
   });
 });
 

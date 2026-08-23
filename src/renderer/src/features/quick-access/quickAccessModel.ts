@@ -1,4 +1,8 @@
 import type { Translator } from "../../i18n";
+import {
+  formatWorkspaceContentSummary,
+  projectWorkspaceContent
+} from "../../app/workspaceContent";
 import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
 import type {
   EmbeddedRuntimeState,
@@ -161,13 +165,11 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
   const workspaces: QuickAccessItem[] = input.workspaces.map((workspace) => {
     const ref = { kind: "workspace", id: workspace.id } as const;
     const owner = findRuntimeOwner(input.runtime, ref);
-    const roleNames = workspace.slots
-      .map((slot) => slot.roleId ? roleById.get(slot.roleId)?.name : slot.web?.name)
-      .filter((name): name is string => Boolean(name));
+    const content = projectWorkspaceContent(workspace.slots, roleById);
     const ownerName = owner ? windowNameById.get(owner.windowId) ?? owner.tab.name : "";
     return {
       active: Boolean(owner),
-      disabled: input.busyWorkspaceIds.has(workspace.id),
+      disabled: input.busyWorkspaceIds.has(workspace.id) || !content.hasContent,
       group: "results",
       key: quickAccessItemKey(ref),
       kind: "workspace",
@@ -179,14 +181,14 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
       searchText: createSafeSearchText(
         workspace.name,
         input.t("quickAccess.type.workspace"),
-        ...roleNames,
+        ...content.names,
         ownerName
       ),
       subtitle: owner
         ? input.t("quickAccess.location")
           .replace("{window}", ownerName)
           .replace("{tab}", owner.tab.name)
-        : input.t("quickAccess.roleCount").replace("{count}", String(roleNames.length)),
+        : formatWorkspaceContentSummary(content, input.t),
       workspace
     };
   });

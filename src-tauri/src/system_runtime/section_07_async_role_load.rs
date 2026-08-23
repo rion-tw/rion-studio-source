@@ -1,4 +1,4 @@
-fn placeholder_attachment_is_role_load_boundary(requested_role_count: usize) -> bool {
+fn empty_role_load_has_native_readiness_boundary(requested_role_count: usize) -> bool {
     requested_role_count == 0
 }
 
@@ -12,15 +12,24 @@ impl SystemRuntimeExecutor {
     ) {
         let effect_id = effect.effect_id.clone();
         let operation_id = effect.operation_id.clone();
+        let target_tab_id = effect.target.handle_id.clone();
         let scope = native_effect_scope(&effect);
         let started = Instant::now();
         let roles = match effect.action {
             CoreEffectAction::EmbeddedLoadRoles { roles } => roles,
             _ => unreachable!("role-load async dispatch only accepts EmbeddedLoadRoles"),
         };
-        let placeholder_only_tab = placeholder_attachment_is_role_load_boundary(roles.len());
-        let pending = match self.start_role_loads(roles) {
-            Ok(pending) => pending,
+        let empty_role_load = empty_role_load_has_native_readiness_boundary(roles.len());
+        let setup = self.start_role_loads(roles).and_then(|pending| {
+            let boundary = empty_role_load
+                .then(|| {
+                    self.prepare_empty_role_load_boundary(&target_tab_id, &operation_id)
+                })
+                .transpose()?;
+            Ok((pending, boundary))
+        });
+        let (pending, empty_role_load_boundary) = match setup {
+            Ok(setup) => setup,
             Err(error) => {
                 let _ = self.apply_runtime_native_event_for_operation(&operation_id, "failed");
                 let error_payload = rion_core::CoreErrorPayload {
@@ -105,24 +114,42 @@ impl SystemRuntimeExecutor {
             );
         }
 
-        // Core deliberately emits an empty load step when every occurrence in a restored tab
-        // is owned by another live tab. Native placeholder attachment is the authoritative
-        // essential-ready boundary in that case; there is no page-load callback that could
-        // advance the tab out of Navigating. Leaving it there blocks optional hydration and
-        // makes mixed role/workspace recovery depend on window restore order.
-        if effect_accepted && placeholder_only_tab {
-            let tab_id = effect.target.handle_id;
-            let tab_is_current = self.state.lock().ok().is_some_and(|state| {
-                state
-                    .native_resources
-                    .tabs
-                    .get(&tab_id)
-                    .is_some_and(|tab| tab.roles.is_empty())
-            });
-            if tab_is_current && self.application_lifecycle_epoch_matches(lifecycle_epoch) {
-                self.set_launch_phase(&tab_id, LaunchPhase::EssentialReady);
-                self.schedule_optional_hydration(&tab_id);
-                let _ = self.apply_runtime_native_event_for_operation(&operation_id, "ready");
+        // An empty managed-Role load has two exact native boundaries. A placeholder-only tab
+        // is ready after attachment because it has no page callback. A Web App-only tab keeps
+        // Navigating until every initial System WebView reaches its authoritative page finish.
+        // Mixed tabs with an attached Role never enter this path.
+        if let Some(boundary) = empty_role_load_boundary {
+            if !effect_accepted {
+                if let EmptyRoleLoadBoundary::WorkspaceWeb(readiness) = boundary {
+                    self.abandon_workspace_web_readiness(readiness);
+                }
+                return;
+            }
+            match boundary {
+                EmptyRoleLoadBoundary::PlaceholderOnly(identity) => {
+                    if self.placeholder_readiness_is_current(&identity)
+                        && self
+                            .apply_runtime_native_event_for_operation(&operation_id, "ready")
+                            .ok()
+                            == Some(RuntimeCommitStatus::Applied)
+                        && self.placeholder_readiness_is_current(&identity)
+                    {
+                        self.set_launch_phase(&identity.tab_id, LaunchPhase::EssentialReady);
+                        self.schedule_optional_hydration(&identity.tab_id);
+                    }
+                }
+                EmptyRoleLoadBoundary::WorkspaceWeb(readiness) => {
+                    let runtime = Arc::clone(self);
+                    tauri::async_runtime::spawn(async move {
+                        runtime
+                            .complete_workspace_web_readiness(
+                                readiness,
+                                &operation_id,
+                                started,
+                            )
+                            .await;
+                    });
+                }
             }
             return;
         }

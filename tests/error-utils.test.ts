@@ -101,6 +101,23 @@ describe("renderer error localization", () => {
     );
   });
 
+  it("localizes a workspace with no launchable content by error code", async () => {
+    for (const language of languages) {
+      const translations = await loadTranslations(language);
+      const t = (key: TranslationKey) => translations[key];
+      const codedError = Object.assign(
+        new Error("Unrecognized fallback message."),
+        { code: "WORKSPACE_CONTENT_REQUIRED" }
+      );
+
+      expect(toMessage({
+        code: "WORKSPACE_CONTENT_REQUIRED",
+        message: "The launch workspace has no content."
+      }, language, t)).toBe(translations["error.workspaceEmpty"]);
+      expect(toMessage(codedError, language, t)).toBe(translations["error.workspaceEmpty"]);
+    }
+  });
+
   it("localizes game management failures", async () => {
     await loadTranslations("zh-TW");
 

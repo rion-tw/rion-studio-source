@@ -1,10 +1,11 @@
 fn validate_role_slot_inputs(
+    tab_type: &str,
     slots: &[crate::model::RuntimeRoleSlotInputRecord],
 ) -> CoreResult<()> {
-    if slots.is_empty() {
+    if tab_type == "role" && slots.is_empty() {
         return Err(domain(
             "RUNTIME_ROLE_SLOTS_REQUIRED",
-            "A runtime tab must contain at least one role slot.",
+            "A runtime role tab must contain at least one role slot.",
         ));
     }
     let mut slot_ids = HashSet::new();

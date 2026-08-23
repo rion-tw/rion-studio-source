@@ -42,7 +42,7 @@ impl RoleOwnershipRuntime {
                         "Runtime tab type is invalid.",
                     ));
                 }
-                validate_role_slot_inputs(&role_slots)?;
+                validate_role_slot_inputs(&tab_type, &role_slots)?;
                 if let Some(existing) = self.tabs.values().find(|tab| {
                     tab.source_id == source_id
                         && tab.tab_type == tab_type

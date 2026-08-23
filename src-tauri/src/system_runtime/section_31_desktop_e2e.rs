@@ -151,13 +151,13 @@ impl SystemRuntimeExecutor {
                 )
             })
             .ok_or_else(|| format!("Native Game Window {window_id} is not live."))?;
-        let projection = self
+        let kernel_snapshot = self
             .presentation
             .live
             .kernel
             .snapshot()
-            .map_err(|error| error.to_string())?
-            .native_projection(window_id);
+            .map_err(|error| error.to_string())?;
+        let projection = kernel_snapshot.native_projection(window_id);
         let mut native = desktop_e2e_native_window_snapshot(&window)?;
         let selected_tab_id = projection.as_ref().and_then(|projection| {
             projection
@@ -518,6 +518,7 @@ impl SystemRuntimeExecutor {
                 "selectedTabId": projection.tabs.iter().find(|tab| tab.selected).map(|tab| tab.tab_id.clone()),
                 "surfaceTabIds": projection.surfaces.iter().map(|surface| surface.tab_id.clone()).collect::<Vec<_>>(),
                 "tabs": projection.tabs.iter().map(|tab| json!({
+                    "activationPhase": kernel_snapshot.tab_activations.get(&tab.tab_id).map(|activation| activation.phase),
                     "audioMuted": tab.audio_muted,
                     "hidden": tab.hidden,
                     "launchPhase": self.presentation.statuses.launch_phase(&tab.tab_id).map(LaunchPhase::as_str),

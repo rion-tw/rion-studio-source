@@ -48,6 +48,22 @@ This document is part of [System WebView Runtime Contract version 17](../../syst
   WKWebView or WebView2 becomes `indeterminate`. Page-finish callbacks from the
   old epoch cannot reassert keys, mark a tab ready, persist success, or overwrite
   the lifecycle terminal receipt.
+- A Web App-only Workspace remains `loading` after native attachment until every
+  initial Web App main frame reaches the existing page-finished boundary. On
+  macOS this is the matching WKWebView HTTP(S) page-finished event. On Windows it
+  additionally requires successful completion of the exact native WebView2
+  navigation; a WebView2 error page cannot satisfy readiness by emitting only a
+  generic finished callback. The existing navigation deadline is the declared
+  external liveness boundary. Any initial failure, indeterminate result, or
+  elapsed deadline makes the exact tab `degraded` without closing or replacing
+  its Web surfaces. All success makes it ready and admits optional hydration.
+- Web App-only readiness carries the launch operation, launch-attempt identity,
+  lifecycle epoch, and each exact surface generation. Tab close, relaunch,
+  surface replacement, lifecycle supersede, and late callbacks from an older
+  attempt cannot advance the current tab. Closing and reopening starts a new
+  attempt. A Workspace whose attached content consists only of local Role
+  placeholders has no page event and becomes ready at attachment; a mixed
+  Workspace with an actual Role surface continues to use Role readiness.
 
 ## Process-death surface recovery
 

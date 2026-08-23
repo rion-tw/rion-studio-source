@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import RolesView from "../src/renderer/src/features/roles/RolesRoute";
 import LaunchWorkspacesView from "../src/renderer/src/features/workspaces/LaunchWorkspacesRoute";
 import type { Translator } from "../src/renderer/src/i18n";
+import en from "../src/renderer/src/i18n/en.json";
 import type { EmbeddedRuntimeState, LaunchWorkspace, Role } from "../src/shared/types";
 
 const emptyRuntime: EmbeddedRuntimeState = {
@@ -254,6 +255,37 @@ describe("list editor navigation", () => {
     expect(onEditWorkspace).toHaveBeenCalledWith(item);
   });
 
+  it("disables launch destinations for an empty workspace action menu", async () => {
+    render(
+      <LaunchWorkspacesView
+        busyWorkspaceIds={new Set()}
+        games={[]}
+        gameWindows={[]}
+        isReordering={false}
+        query=""
+        roles={[]}
+        runtime={emptyRuntime}
+        scrollPositionRef={{ current: 0 }}
+        t={t}
+        workspaces={[workspace()]}
+        onCopyWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
+        onEditWorkspace={vi.fn()}
+        onLaunchWorkspace={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorderWorkspaces={vi.fn()}
+      />
+    );
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "workspaces.actions" }));
+    expect(
+      screen.getByRole("menuitem", { name: "launchDestination.openIn" })
+        .hasAttribute("data-disabled")
+    ).toBe(true);
+  });
+
   it("uses open to focus an already running workspace instead of stopping it", () => {
     const assignedRole = role();
     const item = {
@@ -348,12 +380,16 @@ describe("list editor navigation", () => {
     if (!card) throw new Error("Expected workspace card.");
 
     expect(fireEvent.contextMenu(card, { clientX: 160, clientY: 120 })).toBe(false);
+    expect(
+      screen.getByRole("menuitem", { name: "launchDestination.openIn" })
+        .hasAttribute("data-disabled")
+    ).toBe(true);
     await userEvent.setup().click(screen.getByRole("menuitem", { name: "workspaces.edit" }));
 
     expect(onEditWorkspace).toHaveBeenCalledWith(item);
   });
 
-  it("shows known Web App brand images in workspace list previews", () => {
+  it("shows and opens Web-only workspaces from their list previews", async () => {
     const knownWorkspace = {
       ...workspace(1),
       slots: [{
@@ -370,6 +406,7 @@ describe("list editor navigation", () => {
         web: { name: "Custom", startUrl: "https://custom.example.test/" }
       }]
     };
+    const onLaunchWorkspace = vi.fn();
     const { container } = render(
       <LaunchWorkspacesView
         busyWorkspaceIds={new Set()}
@@ -387,7 +424,7 @@ describe("list editor navigation", () => {
         onDeleteWorkspace={vi.fn()}
         onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
         onEditWorkspace={vi.fn()}
-        onLaunchWorkspace={vi.fn()}
+        onLaunchWorkspace={onLaunchWorkspace}
         onQueryChange={vi.fn()}
         onReorderWorkspaces={vi.fn()}
       />
@@ -411,6 +448,66 @@ describe("list editor navigation", () => {
     expect(customPreview.getAttribute("data-workspace-preview-web-preset-id")).toBe("");
     expect(customPreview.querySelector("[data-workspace-web-brand-image]")).toBeNull();
     expect(customPreview.querySelector(".workspace-slot-caption svg")).not.toBeNull();
+
+    const openButtons = screen.getAllByRole("button", { name: "workspaces.launch" });
+    expect(screen.getAllByText("workspaces.contentSummary.webOne")).toHaveLength(2);
+    expect(openButtons).toHaveLength(2);
+    expect(openButtons.every((button) => !button.hasAttribute("disabled"))).toBe(true);
+    fireEvent.click(openButtons[0]);
+    expect(onLaunchWorkspace).toHaveBeenCalledWith(knownWorkspace);
+
+    await userEvent.setup().click(
+      screen.getAllByRole("button", { name: "workspaces.actionsAndReorder" })[0]
+    );
+    expect(
+      screen.getByRole("menuitem", { name: "launchDestination.openIn" })
+        .hasAttribute("data-disabled")
+    ).toBe(false);
+  });
+
+  it("shows the shared localized content summary on mixed and empty workspace cards", () => {
+    const assignedRole = role();
+    const mixedWorkspace = {
+      ...workspace(1),
+      slots: [
+        {
+          id: "slot-role",
+          roleId: assignedRole.id,
+          rect: { x: 0, y: 0, width: 0.5, height: 1 }
+        },
+        {
+          id: "slot-web",
+          web: { name: "Watch", startUrl: "https://example.test/watch" },
+          rect: { x: 0.5, y: 0, width: 0.5, height: 1 }
+        }
+      ]
+    };
+
+    render(
+      <LaunchWorkspacesView
+        busyWorkspaceIds={new Set()}
+        games={[]}
+        gameWindows={[]}
+        isReordering={false}
+        query=""
+        roles={[assignedRole]}
+        runtime={emptyRuntime}
+        scrollPositionRef={{ current: 0 }}
+        t={(key) => en[key]}
+        workspaces={[mixedWorkspace, workspace(2)]}
+        onCopyWorkspace={vi.fn()}
+        onCreateWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onDeleteWorkspaces={vi.fn().mockResolvedValue(false)}
+        onEditWorkspace={vi.fn()}
+        onLaunchWorkspace={vi.fn()}
+        onQueryChange={vi.fn()}
+        onReorderWorkspaces={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("1 role · 1 Web App")).toBeTruthy();
+    expect(screen.getByText("Not configured")).toBeTruthy();
   });
 
   it.each(["darwin", "win32"] as const)("reorders roles with pointer dragging on %s", (platform) => {

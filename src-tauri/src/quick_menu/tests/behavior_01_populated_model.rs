@@ -301,6 +301,40 @@ use super::*;
     }
 
     #[test]
+    fn web_only_workspace_is_enabled_but_a_blank_workspace_is_disabled() {
+        let mut model = populated_model("en", true);
+        model.open_workspace_ids = vec!["workspace-blank".to_owned()];
+        model.workspace_statuses = serde_json::json!([]);
+        model.workspaces = serde_json::json!([{
+            "id": "workspace-web-only",
+            "name": "Web-only Workspace",
+            "slots": [{
+                "web": {
+                    "name": "Docs",
+                    "startUrl": "https://example.test/docs"
+                }
+            }]
+        }, {
+            "id": "workspace-blank",
+            "name": "Blank Workspace",
+            "slots": []
+        }]);
+
+        let entries = menu_spec(&model, QuickMenuPlatform::Macos);
+        let workspaces = submenu(&entries, "Workspaces");
+        assert_item(
+            root_item(workspaces, "launch-workspace:workspace-web-only").unwrap(),
+            "Web-only Workspace",
+            true,
+        );
+        assert_check_item(
+            root_item(workspaces, "launch-workspace:workspace-blank").unwrap(),
+            "Blank Workspace",
+            false,
+        );
+    }
+
+    #[test]
     fn four_supported_languages_keep_open_and_submenu_labels() {
         let cases = [
             (

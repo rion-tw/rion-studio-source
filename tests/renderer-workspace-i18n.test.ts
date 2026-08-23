@@ -21,6 +21,11 @@ const workspaceHelpKeys = [
   "workspaces.webPresetsDescription",
   "workspaces.webPresetsPlaceholder",
   "workspaces.webPresetsHint",
+  "workspaces.contentSummary.empty",
+  "workspaces.contentSummary.roleOne",
+  "workspaces.contentSummary.roleMany",
+  "workspaces.contentSummary.webOne",
+  "workspaces.contentSummary.webMany",
   "runtimeRolePlaceholder.blocked",
   "runtimeRolePlaceholder.unknownTab",
   "runtimeRolePlaceholder.available",
@@ -46,6 +51,23 @@ describe("workspace help translations", () => {
     expect(zhTW["workspaces.help.runtimeResource"]).toContain("原生背景節流");
     expect(zhCN["workspaces.help.runtimeResource"]).toContain("原生后台节流");
     expect(ja["workspaces.help.runtimeResource"]).toContain("ネイティブのバックグラウンドスロットリング");
+  });
+
+  it("describes Web Apps as launchable workspace content in every language", () => {
+    for (const dictionary of Object.values(dictionaries)) {
+      expect(dictionary["workspaces.description"]).toContain("Web App");
+      expect(dictionary["workspaces.help.launchRequirements"]).toContain("Web App");
+      expect(dictionary["error.workspaceEmpty"]).toContain("Web App");
+    }
+  });
+
+  it.each([
+    [en, "Not configured"],
+    [zhTW, "未設定"],
+    [zhCN, "未设置"],
+    [ja, "未設定"]
+  ])("uses the localized empty workspace summary", (dictionary, summary) => {
+    expect(dictionary["workspaces.contentSummary.empty"]).toBe(summary);
   });
 
   it.each([

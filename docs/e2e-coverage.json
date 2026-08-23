@@ -180,11 +180,12 @@
       "platforms": ["macos", "windows"],
       "dimensions": {
         "roles": "four-isolated",
-        "workspaces": "two-overlapping",
+        "workspaces": "two-overlapping-plus-web-only",
         "destinations": "temporary-live-dormant",
-        "deduplication": "source-owner-tab-surface"
+        "webOnlyDestinations": "new-live-dormant",
+        "deduplication": "role-owner-plus-web-only-source-tab-surface"
       },
-      "description": "Launch Roles and overlapping Workspaces through the visible Quick Open destination menu into a temporary window, a live permanent window, and a dormant saved window without duplicating source ownership."
+      "description": "Launch Roles and overlapping Role Workspaces through the visible Quick Open destination menu, then launch one Web-only Workspace successively into a new window, a live permanent window, and a dormant saved window without duplicating source ownership or synthesizing Role ownership for Web content."
     },
     {
       "id": "MIXED-TAB-MUTATION-MACRO-004",
@@ -334,6 +335,19 @@
       "risk": "native",
       "outcomes": ["success", "restart"],
       "description": "Trigger Workspace Web contained fullscreen from visible fixture controls using real platform keyboard input, prove the element and content WebView expand to the slot envelope while the sibling chrome surface hides and native sibling/window geometry remains unchanged, restore through both the website exit control and Escape, and repeat the same bounded behavior in its controlled popup."
+    },
+    {
+      "id": "WORKSPACE-WEB-ONLY-006",
+      "feature": "workspaces",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "smoke",
+      "spec": "e2e/desktop/specs/app-journeys.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "ui",
+      "risk": "native",
+      "outcomes": ["success", "failure", "restart"],
+      "description": "Create a single Web App Workspace through visible controls, gate navigation to prove Loading then Ready with empty Role IDs and Role slots, complete persisted Web workspace slots, native content plus Rion-owned chrome, shared Web session continuity, no synthetic Role status, and repeated-launch deduplication; then inject a navigation failure, close and reopen the degraded tab through visible native controls, and restore the saved Web-only tab after process restart on macOS and Windows."
     },
     {
       "id": "GAME-WINDOWS-UI-001",
@@ -567,7 +581,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Open isolated Roles and overlapping Workspaces through Quick Open destination menus into new, live, and dormant Game Windows, then use its primary action to focus rather than duplicate repeated sources."
+      "description": "Open isolated Roles and overlapping Role Workspaces through Quick Open destination menus, then visibly route a Web-only Workspace through new, live, and dormant Game Windows, prove its runtime and persisted Role slots remain empty at every destination, and use primary actions to focus rather than duplicate repeated sources."
     },
     {
       "id": "RUNTIME-TAB-TOPOLOGY-009",

@@ -101,10 +101,9 @@ describe("runtime launch destination menu", () => {
     expect(screen.getByRole("menuitem", { name: "Open in…" }).hasAttribute("data-disabled")).toBe(true);
   });
 
-  it("offers the same explicit destination choices from a workspace context menu", async () => {
+  it("offers explicit destination choices from a Web-only workspace context menu", async () => {
     const user = userEvent.setup();
-    const role = runtimeRole();
-    const workspace = runtimeWorkspace(role.id);
+    const workspace = runtimeWebWorkspace();
     const onLaunchWorkspace = vi.fn();
     const runtime: EmbeddedRuntimeState = {
       revision: 3,
@@ -119,7 +118,7 @@ describe("runtime launch destination menu", () => {
         gameWindows={[]}
         isReordering={false}
         query=""
-        roles={[role]}
+        roles={[]}
         runtime={runtime}
         scrollPositionRef={{ current: 0 }}
         t={t}
@@ -216,14 +215,14 @@ function gameWindow(id: string, name: string): GameWindow {
   };
 }
 
-function runtimeWorkspace(roleId: string): LaunchWorkspace {
+function runtimeWebWorkspace(): LaunchWorkspace {
   return {
-    id: "workspace-main",
-    name: "Main Workspace",
+    id: "workspace-web",
+    name: "Web Workspace",
     template: "single",
     slots: [{
-      id: "slot-main",
-      roleId,
+      id: "slot-web",
+      web: { name: "Watch", startUrl: "https://example.test/watch" },
       rect: { x: 0, y: 0, width: 1, height: 1 }
     }],
     createdAt: "2026-01-01T00:00:00.000Z",

@@ -31,6 +31,7 @@ interface WorkspaceActionMenuProps {
   gameWindows: GameWindow[];
   isDragging: boolean;
   isBusy: boolean;
+  isLaunchDisabled: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -54,6 +55,7 @@ export function WorkspaceActionMenu({
   canReorder,
   gameWindows,
   isBusy,
+  isLaunchDisabled,
   isDragging,
   onCopy,
   onDelete,
@@ -105,7 +107,7 @@ export function WorkspaceActionMenu({
             </DropdownMenuItem>
           ))}
           <RuntimeLaunchDestinationDropdownSubmenu
-            disabled={isBusy}
+            disabled={isLaunchDisabled}
             gameWindows={gameWindows}
             runtime={runtime}
             source={{ id: sourceId, type: "workspace" }}
@@ -132,6 +134,7 @@ export function WorkspaceActionMenu({
 export function WorkspaceContextMenuContent({
   gameWindows,
   isBusy,
+  isLaunchDisabled,
   onCopy,
   onDelete,
   onEdit,
@@ -156,7 +159,7 @@ export function WorkspaceContextMenuContent({
         </ContextMenuItem>
       ))}
       <RuntimeLaunchDestinationContextSubmenu
-        disabled={isBusy}
+        disabled={isLaunchDisabled}
         gameWindows={gameWindows}
         runtime={runtime}
         source={{ id: sourceId, type: "workspace" }}

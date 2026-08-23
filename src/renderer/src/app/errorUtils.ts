@@ -1,10 +1,6 @@
 import { localizeErrorMessage, type Language, type Translator } from "../i18n";
 
 export function toMessage(error: unknown, language: Language, t: Translator): string {
-  if (error instanceof Error) {
-    return localizeErrorMessage(error.message, language);
-  }
-
   if (isErrorLike(error)) {
     const errorKey = localizedErrorKey(error.code);
     if (errorKey) return t(errorKey);
@@ -50,7 +46,8 @@ function localizedErrorKey(code: unknown) {
     MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced",
     MACRO_ROLE_INPUT_RECOVERING: "error.macroRoleInputRecovering",
     MACRO_ROLE_INPUT_RESTART_REQUIRED: "error.macroRoleInputRestartRequired",
-    SYSTEM_TRUSTED_INPUT_RECOVERING: "error.trustedInputRecovering"
+    SYSTEM_TRUSTED_INPUT_RECOVERING: "error.trustedInputRecovering",
+    WORKSPACE_CONTENT_REQUIRED: "error.workspaceEmpty"
   } as const;
   return typeof code === "string" ? keys[code as keyof typeof keys] : undefined;
 }

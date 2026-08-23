@@ -19,6 +19,7 @@ import { IconTile, PageFrame, PageHeader, StatusCallout, Surface } from "../../c
 import { CreateItemRow } from "../../components/CreateListItem";
 import { roleCoverPlaceholderUrl } from "../../app/roleCoverPlaceholder";
 import type { SidebarFilter } from "../../app/types";
+import { formatWorkspaceContentSummary } from "../../app/workspaceContent";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
@@ -533,7 +534,7 @@ function WorkspaceLaunchRow({
           {item.workspace.name}
         </p>
         <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground">
-          {t("dashboard.workspace.assignedRoles").replace("{count}", String(item.assignedCount))}
+          {formatWorkspaceContentSummary(item.content, t)}
         </span>
       </div>
       <Badge
@@ -625,7 +626,7 @@ function getWorkspaceStatusLabel(item: DashboardWorkspaceItem, t: Translator): s
     return t("dashboard.status.running");
   }
 
-  return item.assignedCount > 0
+  return item.content.hasContent
     ? t("dashboard.workspace.ready")
     : t("dashboard.status.notConfigured");
 }

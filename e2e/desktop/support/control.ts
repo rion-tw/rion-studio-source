@@ -33,6 +33,7 @@ export interface DesktopE2eWindowSnapshot {
     selectedTabId?: string | null;
     surfaceTabIds: string[];
     tabs: Array<{
+      activationPhase: "activating" | "attaching" | "degraded" | "dormant" | "failed" | "loading" | "ready" | null;
       audioMuted: boolean;
       hidden: boolean;
       launchPhase: "attaching" | "degraded" | "essentialReady" | "navigating" | "optionalHydrating" | "ready" | null;

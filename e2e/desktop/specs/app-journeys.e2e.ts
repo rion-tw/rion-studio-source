@@ -27,6 +27,14 @@ import {
   submitEditor,
   waitForRoute
 } from "../support/ui";
+import {
+  createWebOnlyWorkspace,
+  exerciseWebOnlyWorkspace,
+  expectWebOnlyWorkspaceDefinition,
+  verifyRestoredWebOnlyWorkspace,
+  WEB_ONLY_WORKSPACE_NAME,
+  WEB_SESSION_MARKER
+} from "./app-web-only.helpers";
 
 // [journey:APP-LEGAL-001]
 // [journey:DASHBOARD-NAV-001]
@@ -35,6 +43,7 @@ import {
 // [journey:WORKSPACES-UI-001]
 // [journey:WORKSPACE-WEB-SLOT-004]
 // [journey:WORKSPACE-WEB-FULLSCREEN-005]
+// [journey:WORKSPACE-WEB-ONLY-006]
 // [journey:GAME-WINDOWS-UI-001]
 // [journey:GAME-WINDOWS-FULLSCREEN-TOOLBAR-012]
 // [journey:MACROS-UI-001]
@@ -51,7 +60,6 @@ const GAME_WINDOW_NAME = "E2E Smoke Game Window";
 const ROLE_FIXTURE_ID = "e2e-smoke-role";
 const WEB_FIXTURE_ID = "e2e-workspace-web";
 const WEB_POPUP_FIXTURE_ID = "e2e-workspace-popup";
-const WEB_SESSION_MARKER = "e2e-global-web-session";
 const FULLSCREEN_WORKSPACE_NAME = "E2E Contained Fullscreen Workspace";
 const FULLSCREEN_GAME_NAME = "E2E Contained Fullscreen Game";
 const FULLSCREEN_ROLE_NAME = "E2E Contained Fullscreen Role";
@@ -515,9 +523,6 @@ async function updateSettings(): Promise<void> {
   if ((await hideCloseButtons.getAttribute("data-state")) !== "checked") await hideCloseButtons.click();
   const restore = await $("button[role='switch'][aria-label='Restore Game Windows on startup']");
   if (await restore.isExisting() && (await restore.getAttribute("data-state")) !== "checked") await restore.click();
-  await navigate("/settings?section=data");
-  await $("button=Clear Web session").click();
-  await $("div=The shared Web session was cleared.").waitForExist({ timeout: 10_000 });
   await navigate("/settings?section=interface");
   for (const label of [
     "Show macro tools button",
@@ -541,6 +546,12 @@ async function updateSettings(): Promise<void> {
     timeout: 10_000,
     timeoutMsg: "In-game macro interface preferences did not persist"
   });
+}
+
+async function clearSharedWebSession(): Promise<void> {
+  await navigate("/settings?section=data");
+  await $("button=Clear Web session").click();
+  await $("div=The shared Web session was cleared.").waitForExist({ timeout: 10_000 });
 }
 
 async function openQuickAccessWithKeyboard(): Promise<void> {
@@ -584,7 +595,20 @@ async function exerciseInGameQuickAccess(role: Role): Promise<void> {
   const sourceTab = runtime.tabs.find((tab) => tab.roleIds.includes(role.id));
   if (!sourceTab) throw new Error("The launched smoke role has no runtime tab");
   await waitForSelectedRuntimeTabReady(sourceTab.windowId);
-  const snapshot = await windowSnapshot(sourceTab.windowId);
+  let snapshot = await windowSnapshot(sourceTab.windowId);
+  if (!snapshot.native.focused) {
+    await runtimeUiAction(sourceTab.windowId, {
+      action: "focusRole",
+      roleId: role.id,
+      tabId: sourceTab.id,
+      windowGeneration: snapshot.windowGeneration
+    });
+    await browser.waitUntil(async () => (await windowSnapshot(sourceTab.windowId)).native.focused, {
+      timeout: 10_000,
+      timeoutMsg: "The visible Role surface focus did not focus its Game Window"
+    });
+    snapshot = await windowSnapshot(sourceTab.windowId);
+  }
   const roleWebview = snapshot.native.roleWebviews?.find((surface) => surface.roleId === role.id);
   if (!roleWebview) throw new Error("The launched smoke role has no native WebView label");
   expect(snapshot.native.focused).toBe(true);
@@ -1172,12 +1196,15 @@ async function seedPhase(): Promise<void> {
   const game = await createAndEditGames();
   const role = await createRole(game);
   const workspace = await createWorkspace(role);
+  const webOnlyWorkspace = await createWebOnlyWorkspace();
   const macro = await createMacro(role);
-  await createAndShowGameWindow();
+  const gameWindow = await createAndShowGameWindow();
+  await clearSharedWebSession();
+  await exerciseWebOnlyWorkspace(webOnlyWorkspace, gameWindow.id);
   await updateSettings();
   await launchAndPinRoleFromQuickAccess(role);
   await launchRoleAndRunMacro(role, macro);
-  await launchWorkspace(workspace, role, null, true);
+  await launchWorkspace(workspace, role, WEB_SESSION_MARKER, true);
   await shutdownAndWaitForFlush();
 }
 
@@ -1187,12 +1214,14 @@ async function restartPhase(): Promise<void> {
   const game = await findGame(GAME_NAME_EDITED);
   const role = await findRole(ROLE_NAME);
   const workspace = await findWorkspace(WORKSPACE_NAME);
+  const webOnlyWorkspace = await findWorkspace(WEB_ONLY_WORKSPACE_NAME);
   const macro = await findMacro(MACRO_NAME);
   expect(game.defaultLaunchUrl).toContain(ROLE_FIXTURE_ID);
   expect(workspace.slots.some((slot) => slot.roleId === role.id)).toBe(true);
   expect(workspace.slots.some((slot) =>
     slot.web?.name === "E2E Web App" && slot.web.startUrl.includes(WEB_FIXTURE_ID)
   )).toBe(true);
+  expectWebOnlyWorkspaceDefinition(webOnlyWorkspace);
   expect(macro.roleIds).toContain(role.id);
   expect(await browser.execute(() => document.documentElement.dataset.theme)).toBe("light");
   expect(await rendererCall("getRuntimeWindowPreferences")).toEqual(
@@ -1234,6 +1263,7 @@ async function restartPhase(): Promise<void> {
   await $(`[data-selection-id='${role.id}']`).waitForExist({ timeout: 10_000 });
   await navigate("/workspaces");
   await $(`[data-selection-id='${workspace.id}']`).waitForExist({ timeout: 10_000 });
+  await $(`[data-selection-id='${webOnlyWorkspace.id}']`).waitForExist({ timeout: 10_000 });
   await navigate("/macros");
   await $(`[data-selection-id='${macro.id}']`).waitForExist({ timeout: 10_000 });
 
@@ -1256,6 +1286,7 @@ async function restartPhase(): Promise<void> {
     });
   }
   await verifyRestoredWorkspaceDivider(smokeWindow.id, workspace, role.id);
+  await verifyRestoredWebOnlyWorkspace(smokeWindow.id, webOnlyWorkspace);
   const cursor = (await probe()).latestSequence;
   await clickEntityMenuAction(smokeWindow.id, "Game window actions", "Delete window");
   await clickConfirmation("Delete");

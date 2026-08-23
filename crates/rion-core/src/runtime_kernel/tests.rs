@@ -440,6 +440,71 @@ fn activation_completion_never_steals_selection_and_failed_retry_rotates_its_fen
 }
 
 #[test]
+fn degraded_activation_precedes_terminal_native_failure_and_remains_degraded() {
+    let kernel = RuntimeKernel::default();
+    kernel
+        .apply(topology(
+            "seed-degraded-failure",
+            "window-a",
+            vec![("window-a", 1, vec![tab("tab-a", "workspace-a")])],
+        ))
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::SeedDormantTabs {
+            operation_id: "seed-degraded-dormant".to_owned(),
+            tab_ids: vec!["tab-a".to_owned()],
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    let before = kernel.snapshot().unwrap();
+    let activation_attempt = id::<OperationId>("activate-degraded");
+    kernel
+        .apply(RuntimeIntent::ActivateTab {
+            expected_revision: Some(before.windows["window-a"].revision),
+            operation_id: activation_attempt.clone(),
+            tab_id: id::<RuntimeTabId>("tab-a"),
+            window_id: "window-a".to_owned(),
+        })
+        .unwrap();
+    kernel
+        .apply(RuntimeIntent::BeginOperation(operation(
+            "native-degraded",
+            "native-attempt-degraded",
+            "tab-a",
+        )))
+        .unwrap();
+
+    let degraded = kernel
+        .apply(RuntimeIntent::SetTabActivationPhase {
+            activation_attempt_id: activation_attempt,
+            operation_id: "degrade-before-native-failure".to_owned(),
+            phase: RuntimeTabActivationPhaseRecord::Degraded,
+            tab_id: id::<RuntimeTabId>("tab-a"),
+        })
+        .unwrap();
+    assert_eq!(degraded.status, RuntimeCommitStatus::Applied);
+    let failed = kernel
+        .apply(RuntimeIntent::NativeEvent(native_event(
+            "native-degraded",
+            "native-attempt-degraded",
+            "tab-a",
+            "failed",
+        )))
+        .unwrap();
+    assert_eq!(failed.status, RuntimeCommitStatus::Applied);
+
+    let snapshot = kernel.snapshot().unwrap();
+    assert_eq!(
+        snapshot.tab_activations["tab-a"].phase,
+        RuntimeTabActivationPhaseRecord::Degraded
+    );
+    assert_eq!(
+        snapshot.operations["native-degraded"].phase,
+        RuntimeOperationPhase::Failed
+    );
+}
+
+#[test]
 fn closing_a_dormant_tab_removes_topology_without_a_teardown_effect() {
     let kernel = RuntimeKernel::default();
     kernel

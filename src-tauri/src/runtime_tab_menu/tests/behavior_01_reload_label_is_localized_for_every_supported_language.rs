@@ -106,6 +106,24 @@ use super::*;
     }
 
     #[test]
+    fn launcher_enables_web_only_workspaces_and_rejects_blank_or_missing_role_content() {
+        let role_ids = HashSet::from(["role-a".to_owned()]);
+        let web_only = serde_json::json!({
+            "slots": [{"web": {"name": "Docs", "startUrl": "https://example.test"}}]
+        });
+        let blank = serde_json::json!({"slots": []});
+        let missing_role = serde_json::json!({"slots": [{"roleId": "role-missing"}]});
+        let mixed = serde_json::json!({
+            "slots": [{"roleId": "role-a"}, {"web": {"name": "Docs"}}]
+        });
+
+        assert!(launcher_workspace_is_launchable(&web_only, &role_ids));
+        assert!(launcher_workspace_is_launchable(&mixed, &role_ids));
+        assert!(!launcher_workspace_is_launchable(&blank, &role_ids));
+        assert!(!launcher_workspace_is_launchable(&missing_role, &role_ids));
+    }
+
+    #[test]
     fn launcher_catalog_and_presence_revisions_advance_independently() {
         let mut state = RefreshState {
             catalog: Some(LauncherCatalog {

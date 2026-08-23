@@ -62,6 +62,8 @@ const PREFIX = "E2E Cross Domain";
 const WINDOW_A = "c0d00000-0000-4000-8000-00000000000a";
 const WINDOW_B = "c0d00000-0000-4000-8000-00000000000b";
 const FIXTURE_IDS = ["cross-a", "cross-shared", "cross-c", "cross-d"] as const;
+const WEB_ONLY_FIXTURE_ID = "cross-web-only";
+const WEB_ONLY_WORKSPACE_NAME = `${PREFIX} Web Only Workspace`;
 
 interface Scenario {
   game: Game;
@@ -323,6 +325,166 @@ async function waitForActiveTabsReady(): Promise<void> {
   }
 }
 
+async function exerciseWebOnlyWorkspaceDestinations(
+  liveWindow: GameWindow,
+  dormantWindow: GameWindow
+): Promise<void> {
+  const origin = requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN");
+  const workspace = await rendererCall("createLaunchWorkspace", {
+    name: WEB_ONLY_WORKSPACE_NAME,
+    slots: [{
+      web: {
+        name: "Cross-domain Web App",
+        startUrl: `${origin}/role/${WEB_ONLY_FIXTURE_ID}?mode=seed&marker=${WEB_ONLY_FIXTURE_ID}`
+      }
+    }],
+    template: "single"
+  });
+  let currentTab: EmbeddedRuntimeState["tabs"][number] | undefined;
+
+  const launchAndAssert = async (
+    destinationTestId: string,
+    expectedWindowId?: string
+  ): Promise<EmbeddedRuntimeState["tabs"][number]> => {
+    const controlCursor = (await probe()).latestSequence;
+    const sessionCursor = await fixtureCursor();
+    const launched = await visibleDestinationLaunch({
+      destinationTestId,
+      id: workspace.id,
+      sourceLabel: workspace.name,
+      sourceType: "workspace"
+    });
+    const tab = launched.tabs.find((candidate) => candidate.sourceId === workspace.id);
+    if (!tab) throw new Error("The Web-only destination launch did not create a runtime tab");
+    if (expectedWindowId) expect(tab.windowId).toBe(expectedWindowId);
+    expect(tab.roleIds).toEqual([]);
+    expect(tab.slots).toEqual([]);
+    const firstSnapshot = await windowSnapshot(tab.windowId);
+    if (firstSnapshot.kernel?.tabs.find((candidate) => candidate.tabId === tab.id)
+      ?.launchPhase !== "ready") {
+      await waitEvent({
+        afterSequence: controlCursor,
+        kind: `tab-launch-phase:${tab.id}:ready`,
+        timeoutMs: 55_000,
+        windowId: tab.windowId
+      });
+    }
+    await waitFixtureEvent({
+      afterSequence: sessionCursor,
+      kind: "session",
+      roleId: WEB_ONLY_FIXTURE_ID
+    });
+    const ready = await windowSnapshot(tab.windowId);
+    const kernelTab = ready.kernel?.tabs.find((candidate) => candidate.tabId === tab.id);
+    expect(kernelTab?.workspaceSlots.filter((slot) => slot.roleId !== undefined)).toEqual([]);
+    expect(kernelTab?.workspaceSlots.filter((slot) => slot.web !== undefined)).toEqual([
+      expect.objectContaining({ web: workspace.slots[0]?.web })
+    ]);
+    if (expectedWindowId) {
+      const persistedTab = (await rendererCall("listGameWindows"))
+        .find((candidate) => candidate.id === expectedWindowId)
+        ?.tabs.find((candidate) => candidate.id === tab.id);
+      expect(persistedTab?.roleSlots).toEqual([]);
+      expect(persistedTab?.workspaceSlots).toEqual(workspace.slots);
+    }
+    const webview = ready.native.roleWebviews?.find(
+      (surface) => surface.url?.includes(`/role/${WEB_ONLY_FIXTURE_ID}`)
+    );
+    const content = ready.native.roleSurfaces?.find(
+      (surface) => surface.roleId === webview?.roleId
+    );
+    const chrome = ready.native.workspaceWebChromeSurfaces?.find(
+      (surface) => surface.roleId === webview?.roleId
+    );
+    if (!webview || !content || !chrome) {
+      throw new Error("The Web-only destination lost its content or chrome surface");
+    }
+    expect(chrome.visible).toBe(true);
+    expect(Math.abs(chrome.bounds.width - content.hostBounds.width)).toBeLessThanOrEqual(1);
+    expect((await rendererCall("listRoleStatuses"))
+      .some((status) => status.roleId === webview.roleId)).toBe(false);
+    return tab;
+  };
+
+  const closeCurrentTab = async (): Promise<void> => {
+    if (!currentTab) return;
+    const cursor = await rendererEventCursor();
+    await rendererCall("stopGameWindowTab", currentTab.id);
+    await waitForRuntimeProjection({
+      absent: true,
+      afterSequence: cursor,
+      sourceId: workspace.id
+    });
+    currentTab = undefined;
+  };
+
+  try {
+    currentTab = await launchAndAssert("quick-access-destination-option-new-window");
+    expect([liveWindow.id, dormantWindow.id]).not.toContain(currentTab.windowId);
+    await closeCurrentTab();
+
+    currentTab = await launchAndAssert(
+      `quick-access-destination-option-window-${liveWindow.id}`,
+      liveWindow.id
+    );
+    await closeCurrentTab();
+
+    const beforeDormantLaunch = await rendererCall("getEmbeddedRuntimeState");
+    expect(beforeDormantLaunch.windows.some(
+      (candidate) => candidate.windowId === dormantWindow.id
+    )).toBe(false);
+    expect((await rendererCall("listGameWindows")).find(
+      (candidate) => candidate.id === dormantWindow.id
+    )?.tabs).toEqual([]);
+    currentTab = await launchAndAssert(
+      `quick-access-destination-option-window-${dormantWindow.id}`,
+      dormantWindow.id
+    );
+
+    const beforeDuplicate = await rendererCall("getEmbeddedRuntimeState");
+    const duplicateControl = await probe();
+    await navigate("/dashboard");
+    await $("[data-testid='quick-access-trigger']").click();
+    const duplicatePalette = await $("[data-testid='quick-access-palette'][open]");
+    await duplicatePalette.$("input[role='combobox']").setValue(workspace.name);
+    await $(`#quick-access-option-workspace-${workspace.id}`).click();
+    await waitForRuntimeLaunchTerminal(duplicateControl, workspace.id, "workspace");
+    const duplicate = await rendererCall("getEmbeddedRuntimeState");
+    expect(duplicate.tabs.filter((candidate) => candidate.sourceId === workspace.id))
+      .toEqual([expect.objectContaining({
+        id: currentTab.id,
+        windowId: dormantWindow.id
+      })]);
+    expect(duplicate.tabs).toHaveLength(beforeDuplicate.tabs.length);
+    await closeCurrentTab();
+
+    const afterClose = await rendererCall("getEmbeddedRuntimeState");
+    if (afterClose.windows.some((candidate) => candidate.windowId === dormantWindow.id)) {
+      const stopCursor = (await probe()).latestSequence;
+      await rendererCall("stopGameWindow", dormantWindow.id);
+      await waitEvent({
+        afterSequence: stopCursor,
+        kind: "window-destroyed",
+        timeoutMs: 55_000,
+        windowId: dormantWindow.id
+      });
+    }
+  } finally {
+    const stillRunning = (await rendererCall("getEmbeddedRuntimeState")).tabs
+      .find((candidate) => candidate.sourceId === workspace.id);
+    if (stillRunning) {
+      const cursor = await rendererEventCursor();
+      await rendererCall("stopGameWindowTab", stillRunning.id);
+      await waitForRuntimeProjection({
+        absent: true,
+        afterSequence: cursor,
+        sourceId: workspace.id
+      });
+    }
+    await rendererCall("deleteLaunchWorkspace", workspace.id);
+  }
+}
+
 async function seedPhase(): Promise<void> {
   await bootstrap(true);
   const scenario = await createScenario();
@@ -339,6 +501,7 @@ async function seedPhase(): Promise<void> {
     sourceLabel: scenario.roles[1].name,
     sourceType: "role"
   });
+  await exerciseWebOnlyWorkspaceDestinations(scenario.windows[0], scenario.windows[1]);
   await visibleDestinationLaunch({
     destinationTestId: `quick-access-destination-option-window-${scenario.windows[1].id}`,
     id: scenario.workspaces[0].id,

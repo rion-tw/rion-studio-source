@@ -62,3 +62,8 @@ use std::{sync::mpsc, time::Duration};
     fn native_control_tab_shortcut_is_scoped_and_does_not_capture_command_tab() {
         assert!(unsafe { super::rion_runtime_tabs_shortcut_self_test() });
     }
+
+    #[test]
+    fn marked_macro_fallback_events_are_identified_before_native_chrome_dispatch() {
+        assert!(unsafe { super::rion_runtime_tabs_macro_fallback_event_self_test() });
+    }

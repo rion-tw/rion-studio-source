@@ -41,6 +41,7 @@ const EDITED_ROLE_NAME = "E2E P1 Role Edited";
 const COPIED_ROLE_NAME = `${EDITED_ROLE_NAME} Copy`;
 const RECOVERY_ROLE_NAME = "E2E P1 Recovery Role";
 const PRIMARY_WORKSPACE_NAME = "E2E Smoke Workspace";
+const WEB_ONLY_WORKSPACE_NAME = "E2E Web Only Workspace";
 const EDITED_WORKSPACE_NAME = "E2E P1 Workspace Edited";
 const COPIED_WORKSPACE_NAME = `${EDITED_WORKSPACE_NAME} Copy`;
 const RECOVERY_WORKSPACE_NAME = "E2E P1 Recovery Workspace";
@@ -364,11 +365,12 @@ async function cleanupPersistedEntities(): Promise<void> {
   await expect(partialNotice).toHaveText(expect.stringContaining("2 in use"));
 
   const workspaces = await rendererCall("listLaunchWorkspaces");
+  const cleanupWorkspaceNames = [...WORKSPACE_ORDER, WEB_ONLY_WORKSPACE_NAME];
   await confirmBulkDelete(
     "/workspaces",
-    WORKSPACE_ORDER.map((name) => requireNamed(workspaces, name).id),
+    cleanupWorkspaceNames.map((name) => requireNamed(workspaces, name).id),
     "launchWorkspaces",
-    WORKSPACE_ORDER
+    cleanupWorkspaceNames
   );
 
   const roles = await rendererCall("listRoles");

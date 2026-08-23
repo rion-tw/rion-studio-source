@@ -77,6 +77,16 @@ Runtime role ownership is never serialized. Core compares
 `(windowId, windowGeneration, revision)` and returns `superseded` for an older or
 duplicate write.
 
+A saved Web App-only Workspace tab persists its complete non-empty
+`workspaceSlots` layout with an empty `roleSlots` subset. Save-as-new, live
+snapshot persistence, dormant reopen, and restart restore retain that exact
+shape. Domain validation still requires a Role tab to contain its source Role
+and rejects a Workspace tab only when both its complete layout and legacy
+Role-backed subset contain no content. Legacy Role-backed Workspace tabs whose
+complete layout is absent remain valid and continue through the merge behavior
+below. These rules complete the existing version-17 slot semantics and do not
+introduce a new contract version or database representation.
+
 An applied live snapshot fences that saved tab order for the lifetime of the
 window. Later Core owner or launch-phase projections may refresh matching tab
 metadata, but they cannot replace the live order, selection, visibility, or

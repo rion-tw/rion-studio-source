@@ -35,3 +35,4 @@ include!("behavior_33_window_placement_observation.rs");
 include!("behavior_34_automatic_input_context_is_event_fenced.rs");
 include!("behavior_35_quick_access_request_is_latest_and_idempotent.rs");
 include!("behavior_36_workspace_web_chrome_and_fullscreen.rs");
+include!("behavior_37_workspace_web_only_readiness.rs");

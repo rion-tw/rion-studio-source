@@ -221,6 +221,76 @@ impl ApplicationLifecycleCoordinator {
     }
 }
 
+async fn wait_navigation_for_lifecycle_contract(
+    application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
+    operations: Arc<NativeOperationRegistry>,
+    navigation: Arc<NavigationTracker>,
+    lifecycle_epoch: u64,
+    operation: NativeOperationContext,
+) -> NativeOperationReceipt {
+    // Subscribe before the first state read so a lifecycle edge cannot land between
+    // admission and the async wait. Registry terminal state is also authoritative:
+    // suspension interrupts every in-flight operation before every waiter is polled.
+    let mut lifecycle_changed = application_lifecycle.subscribe();
+    let lifecycle_is_current = || {
+        application_lifecycle.accepts_native_work()
+            && application_lifecycle.epoch() == lifecycle_epoch
+    };
+    if !lifecycle_is_current() {
+        navigation.reset();
+        return operations
+            .terminal(&operation.operation_id)
+            .unwrap_or_else(|| {
+                NativeOperationReceipt::with_status(
+                    operation,
+                    "applicationLifecycleInterrupted",
+                    NativeOperationStatus::Indeterminate,
+                    Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
+                )
+            });
+    }
+    if let Some(receipt) = operations.terminal(&operation.operation_id) {
+        if receipt.status != NativeOperationStatus::Applied {
+            navigation.reset();
+        }
+        return receipt;
+    }
+
+    let navigation_wait = navigation.wait_operation_async(operation.clone());
+    tokio::pin!(navigation_wait);
+    loop {
+        tokio::select! {
+            receipt = &mut navigation_wait => {
+                if !lifecycle_is_current() {
+                    navigation.reset();
+                    return operations.terminal(&operation.operation_id).unwrap_or_else(|| {
+                        NativeOperationReceipt::with_status(
+                            operation,
+                            "applicationLifecycleInterrupted",
+                            NativeOperationStatus::Indeterminate,
+                            Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
+                        )
+                    });
+                }
+                return operations.terminal(&operation.operation_id).unwrap_or(receipt);
+            }
+            changed = lifecycle_changed.changed() => {
+                if changed.is_err() || !lifecycle_is_current() {
+                    navigation.reset();
+                    return operations.terminal(&operation.operation_id).unwrap_or_else(|| {
+                        NativeOperationReceipt::with_status(
+                            operation,
+                            "applicationLifecycleInterrupted",
+                            NativeOperationStatus::Indeterminate,
+                            Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
+                        )
+                    });
+                }
+            }
+        }
+    }
+}
+
 impl SystemRuntimeExecutor {
     fn application_lifecycle_epoch_matches(&self, expected_epoch: u64) -> bool {
         self.application_lifecycle.accepts_native_work()
@@ -243,44 +313,28 @@ impl SystemRuntimeExecutor {
         pending: &PendingRoleNavigation,
         operation: NativeOperationContext,
     ) -> NativeOperationReceipt {
-        let mut lifecycle_changed = self.application_lifecycle.subscribe();
-        let navigation_wait = pending
-            .navigation
-            .wait_operation_async(operation.clone());
-        tokio::pin!(navigation_wait);
-        loop {
-            tokio::select! {
-                receipt = &mut navigation_wait => {
-                    if !self.application_lifecycle_epoch_matches(pending.lifecycle_epoch) {
-                        pending.navigation.reset();
-                        return self.operations.terminal(&operation.operation_id).unwrap_or_else(|| {
-                            NativeOperationReceipt::with_status(
-                                operation,
-                                "applicationLifecycleInterrupted",
-                                NativeOperationStatus::Indeterminate,
-                                Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
-                            )
-                        });
-                    }
-                    return self.operations.terminal(&operation.operation_id).unwrap_or(receipt);
-                }
-                changed = lifecycle_changed.changed() => {
-                    if changed.is_err()
-                        || !self.application_lifecycle_epoch_matches(pending.lifecycle_epoch)
-                    {
-                        pending.navigation.reset();
-                        return self.operations.terminal(&operation.operation_id).unwrap_or_else(|| {
-                            NativeOperationReceipt::with_status(
-                                operation,
-                                "applicationLifecycleInterrupted",
-                                NativeOperationStatus::Indeterminate,
-                                Some("SYSTEM_LIFECYCLE_INDETERMINATE"),
-                            )
-                        });
-                    }
-                }
-            }
-        }
+        self.wait_navigation_for_lifecycle(
+            &pending.navigation,
+            pending.lifecycle_epoch,
+            operation,
+        )
+        .await
+    }
+
+    async fn wait_navigation_for_lifecycle(
+        &self,
+        navigation: &Arc<NavigationTracker>,
+        lifecycle_epoch: u64,
+        operation: NativeOperationContext,
+    ) -> NativeOperationReceipt {
+        wait_navigation_for_lifecycle_contract(
+            Arc::clone(&self.application_lifecycle),
+            Arc::clone(&self.operations),
+            Arc::clone(navigation),
+            lifecycle_epoch,
+            operation,
+        )
+        .await
     }
 
     fn start_application_lifecycle_actor(self: &Arc<Self>) -> Result<(), String> {

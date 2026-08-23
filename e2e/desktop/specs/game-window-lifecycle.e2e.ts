@@ -366,7 +366,8 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
   const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
   if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
-  const releasedFixtureId = recoveryFixtureId(RECOVERY_ROLE_NAMES[activeRoleIndex]);
+  const releasedRoleName = RECOVERY_ROLE_NAMES[activeRoleIndex];
+  const releasedFixtureId = recoveryFixtureId(releasedRoleName);
   if (process.platform === "win32") {
     live = await dragVisibleGameWindow(live);
     expect(live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.launchPhase)
@@ -377,7 +378,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   const readyCursor = (await probe()).latestSequence;
   const fixtureAfter = await fixtureCursor();
   await fixtureRequest("/api/release", { roleId: releasedFixtureId });
-  await Promise.all([
+  const [, , seededSession] = await Promise.all([
     waitEvent({
       afterSequence: readyCursor,
       kind: `tab-launch-phase:${activeTabId}:ready`,
@@ -389,8 +390,14 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
       afterSequence: fixtureAfter,
       kind: "visibility",
       roleId: releasedFixtureId
+    }),
+    waitFixtureEvent({
+      afterSequence: fixtureAfter,
+      kind: "session",
+      roleId: releasedFixtureId
     })
   ]);
+  expectRecoverySession(seededSession, releasedRoleName, false);
   live = await windowSnapshot(WINDOW_C);
   expect(live.native.tabStatusPresentation).toBe("hidden");
   if (process.platform === "win32") {
@@ -723,7 +730,7 @@ async function forceTerminatePhase(): Promise<void> {
     kind: "session",
     roleId: recoveryFixtureId("gamma")
   });
-  expectRecoverySession(restoredGammaSession, "gamma", false);
+  expectRecoverySession(restoredGammaSession, "gamma", true);
   await activateRecoveryTab("alpha", false);
   await activateRecoveryTab("beta", false);
   liveC = await activateRecoveryTab("gamma");

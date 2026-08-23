@@ -33,6 +33,10 @@ import {
 } from "../../components/ListSelection";
 import { SearchField } from "../../components/SearchField";
 import { moveItemById } from "../../app/reorderItems";
+import {
+  formatWorkspaceContentSummary,
+  projectWorkspaceContent
+} from "../../app/workspaceContent";
 import type { Translator } from "../../i18n";
 import { cn } from "../../lib/utils";
 import type {
@@ -116,11 +120,9 @@ function LaunchWorkspacesView({
     }
 
     return workspaces.filter((workspace) => {
-      const assignedRoleNames = workspace.slots
-        .map((slot) => (slot.roleId ? roleById.get(slot.roleId)?.name : slot.web?.name ?? ""))
-        .filter(Boolean);
+      const content = projectWorkspaceContent(workspace.slots, roleById);
 
-      return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), ...assignedRoleNames]
+      return [workspace.name, t(workspaceTemplateLabelKeys[workspace.template]), ...content.names]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery);
@@ -298,8 +300,9 @@ function WorkspaceCard({
   selectionRef,
   workspace
 }: WorkspaceCardProps): JSX.Element {
-  const assignedCount = workspace.slots.filter((slot) => slot.roleId || slot.web).length;
+  const content = projectWorkspaceContent(workspace.slots, roleById);
   const isBusy = busyWorkspaceIds.has(workspace.id);
+  const isLaunchDisabled = isBusy || !content.hasContent;
   const primaryActionLabel = automaticRuntimeLaunchTitle(
     gameWindows,
     runtime,
@@ -342,7 +345,7 @@ function WorkspaceCard({
                 ? "opacity-100"
                 : "opacity-0 group-hover:scale-105 group-hover:opacity-100 group-focus-within:scale-105 group-focus-within:opacity-100"
             )}
-            disabled={isBusy || assignedCount === 0}
+            disabled={isLaunchDisabled}
             title={primaryActionLabel}
             type="button"
             variant="media"
@@ -363,6 +366,7 @@ function WorkspaceCard({
           gameWindows={gameWindows}
           isDragging={isDragging}
           isBusy={isBusy}
+          isLaunchDisabled={isLaunchDisabled}
           runtime={runtime}
           sourceId={workspace.id}
           t={t}
@@ -376,12 +380,16 @@ function WorkspaceCard({
 
       <div className="glass-divider border-t p-3.5">
         <CardTitle className="min-w-0 truncate">{workspace.name}</CardTitle>
+        <span className="mt-0.5 block truncate text-caption font-medium text-muted-foreground">
+          {formatWorkspaceContentSummary(content, t)}
+        </span>
       </div>
         </Card>
       </ContextMenuTrigger>
       <WorkspaceContextMenuContent
         gameWindows={gameWindows}
         isBusy={isBusy}
+        isLaunchDisabled={isLaunchDisabled}
         runtime={runtime}
         sourceId={workspace.id}
         t={t}

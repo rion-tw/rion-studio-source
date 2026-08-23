@@ -62,6 +62,42 @@ describe("Dashboard workspace state", () => {
     expect(onLaunchWorkspace).toHaveBeenCalledWith(workspace);
   });
 
+  it("shows and opens a Web-only workspace without calling it a role", () => {
+    const role = createRole();
+    const workspace = createWebWorkspace();
+    const onLaunchWorkspace = vi.fn();
+
+    renderDashboard({
+      embeddedRuntime: createRuntime(),
+      onLaunchWorkspace,
+      role,
+      workspace
+    });
+
+    expect(screen.getByText("1 Web App")).toBeTruthy();
+    expect(screen.getAllByText("Ready to open")).toHaveLength(2);
+    const openButton = screen.getByRole("button", { name: "Open: Web Workspace" });
+    expect(openButton.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(openButton);
+    expect(onLaunchWorkspace).toHaveBeenCalledWith(workspace);
+  });
+
+  it("keeps a saved empty workspace visible but not launchable", () => {
+    const role = createRole();
+    const workspace = createEmptyWorkspace();
+
+    renderDashboard({
+      embeddedRuntime: createRuntime(),
+      role,
+      workspace
+    });
+
+    expect(screen.getAllByText("Not configured")).toHaveLength(2);
+    expect(
+      screen.getByRole("button", { name: "Open: Empty Workspace" }).hasAttribute("disabled")
+    ).toBe(true);
+  });
+
   it("opens the existing workspace tab instead of exposing a stop action", () => {
     const role = createRole();
     const workspace = createWorkspace(role.id);
@@ -170,6 +206,32 @@ function createWorkspace(roleId: string): LaunchWorkspace {
     name: "Workspace One",
     template: "single",
     slots: [{ id: "slot-1", roleId, rect: { x: 0, y: 0, width: 1, height: 1 } }],
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z"
+  };
+}
+
+function createWebWorkspace(): LaunchWorkspace {
+  return {
+    id: "workspace-web",
+    name: "Web Workspace",
+    template: "single",
+    slots: [{
+      id: "slot-web",
+      web: { name: "Watch", startUrl: "https://example.test/watch" },
+      rect: { x: 0, y: 0, width: 1, height: 1 }
+    }],
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z"
+  };
+}
+
+function createEmptyWorkspace(): LaunchWorkspace {
+  return {
+    id: "workspace-empty",
+    name: "Empty Workspace",
+    template: "single",
+    slots: [{ id: "slot-empty", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-01T00:00:00.000Z"
   };

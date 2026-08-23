@@ -101,6 +101,39 @@ fn tracks_role_ownership_without_accepting_live_topology_commands() {
 }
 
 #[test]
+fn workspace_tabs_allow_an_empty_role_subset_but_role_tabs_do_not() {
+    let mut runtime = RoleOwnershipRuntime::default();
+    let created = runtime
+        .invoke(command(json!({
+            "type":"createTab",
+            "sourceId":"web-workspace",
+            "name":"Web Workspace",
+            "tabType":"workspace",
+            "workspaceId":"web-workspace",
+            "roleSlots":[]
+        })))
+        .unwrap();
+
+    assert!(created.tab_created);
+    assert!(created.snapshot.tabs[0].slots.is_empty());
+    assert!(created.snapshot.roles.is_empty());
+    assert!(created.snapshot.workspaces[0].role_ids.is_empty());
+    assert_eq!(created.snapshot.workspaces[0].state, "running");
+
+    let invalid_role = runtime
+        .invoke(command(json!({
+            "type":"createTab",
+            "sourceId":"role-without-slot",
+            "name":"Invalid Role",
+            "tabType":"role",
+            "roleSlots":[]
+        })))
+        .unwrap_err();
+    assert_eq!(invalid_role.code(), "RUNTIME_ROLE_SLOTS_REQUIRED");
+    assert_eq!(runtime.snapshot().tabs.len(), 1);
+}
+
+#[test]
 fn duplicate_workspace_roles_project_blocked_slots_and_invalid_transitions_fail() {
     let mut runtime = RoleOwnershipRuntime::default();
     let first = runtime

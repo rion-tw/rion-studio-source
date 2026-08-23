@@ -6,6 +6,7 @@ import type {
   RoleStatus
 } from "../../../../shared/types";
 import { findUnassignedMacroDependency } from "../../../../shared/macroDependencies";
+import { projectWorkspaceContent, type WorkspaceContentProjection } from "../../app/workspaceContent";
 import { isMacroRunActive } from "../macros/macroUtils";
 
 interface DashboardSummary {
@@ -37,7 +38,7 @@ export interface DashboardRoleActionState {
 
 export interface DashboardWorkspaceItem {
   action: DashboardWorkspaceActionState;
-  assignedCount: number;
+  content: WorkspaceContentProjection;
   isRunning: boolean;
   workspace: LaunchWorkspace;
 }
@@ -120,20 +121,18 @@ export function getDashboardRoleItems({
 }
 
 function createWorkspaceActionState({
-  assignedCount,
+  hasContent,
   busyWorkspaceIds,
-  isRunning,
   workspaceId
 }: {
-  assignedCount: number;
+  hasContent: boolean;
   busyWorkspaceIds: ReadonlySet<string>;
-  isRunning: boolean;
   workspaceId: string;
 }): DashboardWorkspaceActionState {
   const isBusy = busyWorkspaceIds.has(workspaceId);
 
   return {
-    disabled: isBusy || (!isRunning && assignedCount === 0),
+    disabled: isBusy || !hasContent,
     isBusy
   };
 }
@@ -149,17 +148,16 @@ export function getDashboardWorkspaceItems({
 }): DashboardWorkspaceItem[] {
   return workspaces
     .map((workspace) => {
-      const assignedCount = workspace.slots.filter((slot) => slot.roleId || slot.web).length;
+      const content = projectWorkspaceContent(workspace.slots);
       const isRunning = openWorkspaceIds.has(workspace.id);
 
       return {
         action: createWorkspaceActionState({
-          assignedCount,
+          hasContent: content.hasContent,
           busyWorkspaceIds,
-          isRunning,
           workspaceId: workspace.id
         }),
-        assignedCount,
+        content,
         isRunning,
         workspace
       };

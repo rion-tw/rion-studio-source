@@ -160,6 +160,11 @@ static std::unordered_map<Class, IMP>
     RionRuntimeOriginalTitlebarWidgetInsetIMPs;
 static char RionRuntimeFullscreenPresentationPolicyAssociationKey;
 
+static BOOL RionRuntimeIsMacroKeyEvent(NSEvent *event) {
+  return event && objc_getAssociatedObject(
+      event, NSSelectorFromString(@"rionStudioMacroKeyEvent"));
+}
+
 // Tao implements TaoWindow's -sendEvent: in an extern "C" Rust callback. The
 // macOS 26 crash reports repeatedly show that callback panicking while invoking
 // `[NSEvent type]`. objc2 turns Objective-C exceptions into Rust panics, but
@@ -173,8 +178,7 @@ static void RionSafeTaoWindowSendEvent(id window, SEL selector,
     // WebKit re-sends page-unhandled keyDown events through NSApp. Synthetic
     // macro keys already reached their explicit WKWebView target, so consuming
     // the marked fallback here prevents it from leaking to the active role.
-    if (objc_getAssociatedObject(
-            event, NSSelectorFromString(@"rionStudioMacroKeyEvent"))) {
+    if (RionRuntimeIsMacroKeyEvent(event)) {
       return;
     }
     @try {

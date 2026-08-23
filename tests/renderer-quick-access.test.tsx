@@ -138,6 +138,20 @@ describe("quick access model", () => {
     expect(macro?.disabled).toBe(false);
     expect(macro?.subtitle).toContain("Open in macro list");
   });
+
+  it("enables Web-only workspaces and disables saved empty workspaces", () => {
+    const webWorkspace = webOnlyWorkspace();
+    const emptyWorkspace = emptyWorkspaceDefinition();
+    const catalog = catalogFor({ workspaces: [webWorkspace, emptyWorkspace] });
+    const webItem = catalog.find((item) => item.key === `workspace:${webWorkspace.id}`);
+    const emptyItem = catalog.find((item) => item.key === `workspace:${emptyWorkspace.id}`);
+
+    expect(webItem).toMatchObject({ disabled: false, subtitle: "1 Web App" });
+    expect(emptyItem).toMatchObject({ disabled: true, subtitle: "Not configured" });
+    expect(
+      filterQuickAccessItems(catalog, "Video room").some((item) => item.key === webItem?.key)
+    ).toBe(true);
+  });
 });
 
 describe("quick access palette", () => {
@@ -221,11 +235,13 @@ function PaletteHarness({
 function catalogFor({
   macroRunning = false,
   preferences = { pinnedItems: [], recentItems: [] },
-  runtime = emptyRuntime()
+  runtime = emptyRuntime(),
+  workspaces = [workspace()]
 }: {
   macroRunning?: boolean;
   preferences?: QuickAccessPreferences;
   runtime?: EmbeddedRuntimeState;
+  workspaces?: LaunchWorkspace[];
 }): QuickAccessItem[] {
   const roles = [role()];
   const status: RoleStatus = {
@@ -256,7 +272,7 @@ function catalogFor({
     runtime,
     statusByRole: new Map([["r1", status]]),
     t,
-    workspaces: [workspace()]
+    workspaces
   });
 }
 
@@ -323,6 +339,32 @@ function workspace(): LaunchWorkspace {
     name: "Workspace One",
     template: "single",
     slots: [{ id: "slot-1", roleId: "r1", rect: { x: 0, y: 0, width: 1, height: 1 } }],
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z"
+  };
+}
+
+function webOnlyWorkspace(): LaunchWorkspace {
+  return {
+    id: "w-web",
+    name: "Web Workspace",
+    template: "single",
+    slots: [{
+      id: "slot-web",
+      web: { name: "Video room", startUrl: "https://example.test/watch" },
+      rect: { x: 0, y: 0, width: 1, height: 1 }
+    }],
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z"
+  };
+}
+
+function emptyWorkspaceDefinition(): LaunchWorkspace {
+  return {
+    id: "w-empty",
+    name: "Empty Workspace",
+    template: "single",
+    slots: [{ id: "slot-empty", rect: { x: 0, y: 0, width: 1, height: 1 } }],
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z"
   };

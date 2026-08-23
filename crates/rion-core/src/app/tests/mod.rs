@@ -51,3 +51,4 @@ include!("behavior_13_tab_stop_uses_stable_identity.rs");
 include!("behavior_14_cancelled_workspace_launch_retires_native_tab.rs");
 include!("behavior_15_launch_admission_completion.rs");
 include!("behavior_16_runtime_restore_session_update.rs");
+include!("behavior_17_web_only_workspace_launch.rs");

@@ -248,8 +248,14 @@ fn shutdown_rejects_late_non_clean_restore_session_writes() {
 #[test]
 fn placeholder_only_restored_tabs_have_an_authoritative_ready_boundary() {
     for platform in ["windows", "macos"] {
-        assert!(placeholder_attachment_is_role_load_boundary(0), "{platform}");
-        assert!(!placeholder_attachment_is_role_load_boundary(1), "{platform}");
+        assert!(
+            empty_role_load_has_native_readiness_boundary(0),
+            "{platform}"
+        );
+        assert!(
+            !empty_role_load_has_native_readiness_boundary(1),
+            "{platform}"
+        );
     }
 }
 

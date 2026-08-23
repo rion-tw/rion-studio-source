@@ -55,6 +55,7 @@ include!("system_runtime/section_05_native_presentation_diagnostics.rs");
 include!("system_runtime/section_06_is_saved_game_window.rs");
 include!("system_runtime/section_07_hydrate_tab_dividers.rs");
 include!("system_runtime/section_07_effect_admission.rs");
+include!("system_runtime/section_07_workspace_web_readiness.rs");
 include!("system_runtime/section_07_async_role_load.rs");
 include!("system_runtime/section_07_capability_evidence.rs");
 include!("system_runtime/section_08_runtime_game_window_save_input.rs");

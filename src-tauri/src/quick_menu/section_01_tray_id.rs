@@ -396,12 +396,17 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
         for workspace in workspace_values {
             if let (Some(id), Some(name)) = (workspace["id"].as_str(), workspace["name"].as_str()) {
                 let state = workspace_state(id);
-                let assigned_role_ids = workspace["slots"]
-                    .as_array()
+                let slots = workspace["slots"].as_array();
+                let assigned_role_ids = slots
                     .into_iter()
                     .flatten()
                     .filter_map(|slot| slot["roleId"].as_str())
                     .collect::<Vec<_>>();
+                let has_content = slots.is_some_and(|slots| {
+                    slots.iter().any(|slot| {
+                        slot["roleId"].as_str().is_some() || slot["web"].is_object()
+                    })
+                });
                 let missing_role = assigned_role_ids
                     .iter()
                     .any(|role_id| !role_ids.contains(*role_id));
@@ -412,7 +417,9 @@ fn menu_spec(model: &MenuModel, platform: QuickMenuPlatform) -> Vec<MenuEntry> {
                 let running = open_workspace_ids.contains(id);
                 let id = format!("{WORKSPACE_PREFIX}{id}");
                 let enabled = legal_accepted
-                    && (running || (!busy && !assigned_role_ids.is_empty() && !missing_role));
+                    && has_content
+                    && !missing_role
+                    && (running || !busy);
                 if running {
                     workspace_items.push(check_item(id, name, enabled));
                 } else {

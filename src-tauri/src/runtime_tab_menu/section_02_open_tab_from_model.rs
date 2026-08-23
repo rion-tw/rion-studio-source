@@ -83,6 +83,10 @@ fn launcher_menu(
     let text = labels(&model.catalog.language);
     let mut roles_menu = SubmenuBuilder::new(app, text.roles);
     let role_values = model.catalog.roles.as_array().cloned().unwrap_or_default();
+    let role_ids = role_values
+        .iter()
+        .filter_map(|role| role["id"].as_str().map(str::to_owned))
+        .collect::<HashSet<_>>();
     if role_values.is_empty() {
         let item = MenuItemBuilder::new(text.no_roles)
             .enabled(false)
@@ -122,13 +126,17 @@ fn launcher_menu(
             else {
                 continue;
             };
-            workspaces_menu = workspaces_menu.text(
+            let item = MenuItemBuilder::with_id(
                 launcher_menu_item_id(LAUNCH_WORKSPACE_PREFIX, window_id, id),
                 launcher_item_label(
                     name,
                     launcher_presence_tab(&model.presence, id, true).is_some(),
                 ),
-            );
+            )
+            .enabled(launcher_workspace_is_launchable(&workspace, &role_ids))
+            .build(app)
+            .map_err(|error| error.to_string())?;
+            workspaces_menu = workspaces_menu.item(&item);
         }
     }
     let saved = model
@@ -146,6 +154,21 @@ fn launcher_menu(
         .item(&workspaces_menu.build().map_err(|error| error.to_string())?)
         .build()
         .map_err(|error| error.to_string())
+}
+
+fn launcher_workspace_is_launchable(
+    workspace: &serde_json::Value,
+    role_ids: &HashSet<String>,
+) -> bool {
+    workspace["slots"].as_array().is_some_and(|slots| {
+        slots.iter().any(|slot| {
+            slot["roleId"].as_str().is_some() || slot["web"].is_object()
+        }) && slots.iter().all(|slot| {
+            slot["roleId"]
+                .as_str()
+                .is_none_or(|role_id| role_ids.contains(role_id))
+        })
+    })
 }
 
 fn launcher_presence_tab<'a>(

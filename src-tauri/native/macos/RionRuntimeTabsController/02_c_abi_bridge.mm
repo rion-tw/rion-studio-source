@@ -914,6 +914,26 @@ bool rion_runtime_tabs_shortcut_self_test(void) {
   }
 }
 
+bool rion_runtime_tabs_macro_fallback_event_self_test(void) {
+  @autoreleasepool {
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+                                      location:NSZeroPoint
+                                 modifierFlags:0
+                                     timestamp:0
+                                  windowNumber:0
+                                       context:nil
+                                    characters:@"a"
+                   charactersIgnoringModifiers:@"a"
+                                     isARepeat:NO
+                                       keyCode:0];
+    if (!event || RionRuntimeIsMacroKeyEvent(event)) return false;
+    objc_setAssociatedObject(
+        event, NSSelectorFromString(@"rionStudioMacroKeyEvent"), @YES,
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return RionRuntimeIsMacroKeyEvent(event);
+  }
+}
+
 @interface RionRuntimeBackdropView : NSVisualEffectView
 @end
 

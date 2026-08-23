@@ -232,7 +232,7 @@ describe("runtime authority fixture launch gates", () => {
     });
     expect((await post(origin, "/api/gate", { roleId: "test-role" })).ok).toBe(true);
     let roleResolved = false;
-    const role = fetch(`${origin}/role/test-role`).then((response) => {
+    const role = fetch(`${origin}/role/test-role?mode=seed&marker=gated-marker`).then((response) => {
       roleResolved = true;
       return response;
     });
@@ -240,7 +240,11 @@ describe("runtime authority fixture launch gates", () => {
     expect(await waiting.json()).toEqual({ roleId: "test-role", waiterCount: 1 });
     expect(roleResolved).toBe(false);
     expect((await post(origin, "/api/release", { roleId: "test-role" })).ok).toBe(true);
-    expect((await role).status).toBe(200);
+    const released = await role;
+    expect(released.status).toBe(200);
+    const source = await released.text();
+    expect(source).toContain('const sessionMode = "seed"');
+    expect(source).toContain('const sessionMarker = "gated-marker"');
   });
 
   it("fails one navigation and holds recovery until failure injection is released", async () => {

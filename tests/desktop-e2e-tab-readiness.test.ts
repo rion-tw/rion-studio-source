@@ -2,6 +2,34 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("desktop E2E restored tab readiness", () => {
+  it("fences fullscreen role input on the exact tab ready event", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/support/fullscreen-toolbar.ts", import.meta.url),
+      "utf8"
+    );
+    const readiness = source.slice(
+      source.indexOf("async function waitForRuntimeTabReady("),
+      source.indexOf("async function toggleFullscreenWithVisibleShortcut(")
+    );
+    const exercise = source.slice(
+      source.indexOf("export async function exerciseFullscreenToolbarPreference(")
+    );
+
+    expect(readiness).toContain("const cursor = (await probe()).latestSequence");
+    expect(readiness).toContain("afterSequence: cursor");
+    expect(readiness).toContain("kind: `tab-launch-phase:${tabId}:ready`");
+    expect(readiness).not.toContain("essentialReady");
+    expect(readiness.indexOf("const cursor = (await probe()).latestSequence"))
+      .toBeLessThan(readiness.indexOf("let snapshot = await windowSnapshot(windowId)"));
+    expect(readiness.indexOf("let snapshot = await windowSnapshot(windowId)"))
+      .toBeLessThan(readiness.indexOf("await waitEvent({"));
+    expect(readiness.indexOf("await waitEvent({"))
+      .toBeLessThan(readiness.lastIndexOf("snapshot = await windowSnapshot(windowId)"));
+    expect(exercise).toContain("await waitForRuntimeTabReady(tab.windowId, tab.id)");
+    expect(exercise.indexOf("await waitForRuntimeTabReady(tab.windowId, tab.id)"))
+      .toBeLessThan(exercise.indexOf("await enterFullscreenWithVisibleControl"));
+  });
+
   it("waits for full page readiness before a later window close checkpoint", async () => {
     const source = await readFile(
       new URL("../e2e/desktop/specs/tab-cleanup.e2e.ts", import.meta.url),

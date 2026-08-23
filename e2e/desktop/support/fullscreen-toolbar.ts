@@ -114,6 +114,29 @@ async function clickRoleContent(
   });
 }
 
+async function waitForRuntimeTabReady(
+  windowId: string,
+  tabId: string
+): Promise<DesktopE2eWindowSnapshot> {
+  const cursor = (await probe()).latestSequence;
+  let snapshot = await windowSnapshot(windowId);
+  if (snapshot.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase === "ready") {
+    return snapshot;
+  }
+  await waitEvent({
+    afterSequence: cursor,
+    kind: `tab-launch-phase:${tabId}:ready`,
+    timeoutMs: 55_000,
+    windowId
+  });
+  snapshot = await windowSnapshot(windowId);
+  const launchPhase = snapshot.kernel?.tabs.find((tab) => tab.tabId === tabId)?.launchPhase;
+  if (launchPhase !== "ready") {
+    throw new Error(`Runtime tab ${tabId} did not remain ready: observed=${String(launchPhase)}`);
+  }
+  return snapshot;
+}
+
 async function toggleFullscreenWithVisibleShortcut(
   snapshot: DesktopE2eWindowSnapshot,
   roleId: string,
@@ -316,7 +339,7 @@ export async function exerciseFullscreenToolbarPreference(roleId: string): Promi
   if (!tab) throw new Error("The smoke role has no runtime tab for fullscreen toolbar testing");
 
   const originalPreferences = await rendererCall("getRuntimeWindowPreferences");
-  let current = await windowSnapshot(tab.windowId);
+  let current = await waitForRuntimeTabReady(tab.windowId, tab.id);
   const baselineHeight = current.native.tabStripBounds?.height
     ?? current.native.fullscreenToolbar?.accessoryVisibleHeight;
   if (baselineHeight === undefined || baselineHeight <= REVEAL_EDGE_HEIGHT) {

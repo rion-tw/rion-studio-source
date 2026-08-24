@@ -451,7 +451,7 @@ pub(crate) fn desktop_e2e_arm_automation_readiness_failure(
 }
 
 #[tauri::command]
-pub(crate) fn desktop_e2e_suspend_automation_surface(
+pub(crate) async fn desktop_e2e_suspend_automation_surface(
     control: State<'_, Arc<DesktopE2eControl>>,
     state: State<'_, crate::CoreState>,
     token: String,
@@ -462,7 +462,7 @@ pub(crate) fn desktop_e2e_suspend_automation_surface(
         .runtime
         .role_webview(&role_id)
         .map_err(|error| error.message)?;
-    desktop_e2e_try_suspend_automation_surface(&webview)?;
+    desktop_e2e_try_suspend_automation_surface(&webview).await?;
     Ok(json!({
         "roleId": role_id,
         "status": "suspended",
@@ -470,25 +470,30 @@ pub(crate) fn desktop_e2e_suspend_automation_surface(
 }
 
 #[cfg(windows)]
-fn desktop_e2e_try_suspend_automation_surface(webview: &tauri::Webview) -> Result<(), String> {
+async fn desktop_e2e_try_suspend_automation_surface(
+    webview: &tauri::Webview,
+) -> Result<(), String> {
+    use std::{cell::RefCell, rc::Rc};
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2_3},
         TrySuspendCompletedHandler,
     };
     use windows::core::Interface;
 
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let submission_sender = sender.clone();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
     webview
         .with_webview(move |platform_webview| unsafe {
-            let completion_sender = submission_sender.clone();
+            let sender = Rc::new(RefCell::new(Some(sender)));
+            let completion_sender = Rc::clone(&sender);
             let handler =
                 TrySuspendCompletedHandler::create(Box::new(move |status, successful| {
-                    let _ = completion_sender.send(
-                        status
-                            .map(|()| successful)
-                            .map_err(|error| error.to_string()),
-                    );
+                    if let Some(sender) = completion_sender.borrow_mut().take() {
+                        let _ = sender.send(
+                            status
+                                .map(|()| successful)
+                                .map_err(|error| error.to_string()),
+                        );
+                    }
                     Ok(())
                 }));
             let result = platform_webview
@@ -497,13 +502,15 @@ fn desktop_e2e_try_suspend_automation_surface(webview: &tauri::Webview) -> Resul
                 .and_then(|core: ICoreWebView2| core.cast::<ICoreWebView2_3>())
                 .and_then(|core| core.TrySuspend(&handler));
             if let Err(error) = result {
-                let _ = submission_sender.send(Err(error.to_string()));
+                if let Some(sender) = sender.borrow_mut().take() {
+                    let _ = sender.send(Err(error.to_string()));
+                }
             }
         })
         .map_err(|error| error.to_string())?;
     let successful = receiver
-        .recv_timeout(Duration::from_secs(30))
-        .map_err(|_| "WebView2 TrySuspend did not complete.".to_owned())??;
+        .await
+        .map_err(|_| "WebView2 TrySuspend acknowledgement was interrupted.".to_owned())??;
     if successful {
         Ok(())
     } else {
@@ -512,7 +519,9 @@ fn desktop_e2e_try_suspend_automation_surface(webview: &tauri::Webview) -> Resul
 }
 
 #[cfg(not(windows))]
-fn desktop_e2e_try_suspend_automation_surface(_webview: &tauri::Webview) -> Result<(), String> {
+async fn desktop_e2e_try_suspend_automation_surface(
+    _webview: &tauri::Webview,
+) -> Result<(), String> {
     Err("Automation-surface suspension is a Windows-only fixture.".to_owned())
 }
 

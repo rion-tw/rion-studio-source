@@ -107,6 +107,9 @@ impl SystemRuntimeExecutor {
                 receipt.status,
                 SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
             ) {
+                let Ok(_lane) = runtime.selected_surface_reprojection_lane.lock() else {
+                    return;
+                };
                 runtime.reproject_windows_selected_surfaces(phase);
             }
         });

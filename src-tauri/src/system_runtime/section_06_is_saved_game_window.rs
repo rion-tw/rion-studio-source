@@ -200,6 +200,8 @@ impl SystemRuntimeExecutor {
             restore_persist_signal: Mutex::new(()),
             runtime_projection: RevisionedJsonProjection::default(),
             runtime_surface_sequence: AtomicU64::new(0),
+            #[cfg(windows)]
+            selected_surface_reprojection_lane: Mutex::new(()),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
             self_weak: OnceLock::new(),
             shutdown_operation: OnceLock::new(),

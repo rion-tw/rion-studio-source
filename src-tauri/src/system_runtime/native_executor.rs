@@ -57,6 +57,8 @@ pub struct SystemRuntimeExecutor {
     pub(super) restore_persist_signal: Mutex<()>,
     pub(super) runtime_projection: RevisionedJsonProjection,
     pub(super) runtime_surface_sequence: AtomicU64,
+    #[cfg(windows)]
+    pub(super) selected_surface_reprojection_lane: Mutex<()>,
     pub(super) shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
     pub(super) self_weak: OnceLock<std::sync::Weak<SystemRuntimeExecutor>>,
     pub(super) shutdown_operation: OnceLock<NativeOperationContext>,

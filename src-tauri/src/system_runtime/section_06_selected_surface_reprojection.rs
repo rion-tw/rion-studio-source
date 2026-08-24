@@ -217,36 +217,46 @@ impl SystemRuntimeExecutor {
             .collect()
     }
 
-    fn windows_selected_surface_fence_is_current(
+    fn windows_selected_surface_fence_stale_reason(
         &self,
         target: &WindowsSelectedSurfaceReprojectionTarget,
-    ) -> bool {
-        self.application_lifecycle_epoch_matches(target.fence.lifecycle_epoch)
-            && self
-                .presentation
-                .existing(&target.fence.window_id)
-                .is_some_and(|current| {
-                    selected_surface_reprojection_fence_matches(
-                        &target.fence,
-                        &current,
-                        self.lifecycle_epoch(),
-                    )
-                })
-            && self
-                .presentation
-                .statuses
-                .permits_content_surface(&target.fence.tab_id)
-            && target.window.is_visible().unwrap_or(false)
-            && !target.window.is_minimized().unwrap_or(false)
+    ) -> Option<&'static str> {
+        if !self.application_lifecycle_epoch_matches(target.fence.lifecycle_epoch) {
+            return Some("lifecycle-epoch");
+        }
+        let Some(current) = self.presentation.existing(&target.fence.window_id) else {
+            return Some("window-topology-absent");
+        };
+        if !selected_surface_reprojection_fence_matches(
+            &target.fence,
+            &current,
+            self.lifecycle_epoch(),
+        ) {
+            return Some("window-topology");
+        }
+        if !self
+            .presentation
+            .statuses
+            .permits_content_surface(&target.fence.tab_id)
+        {
+            return Some("tab-presentation-phase");
+        }
+        if !target.window.is_visible().unwrap_or(false) {
+            return Some("window-visibility");
+        }
+        if target.window.is_minimized().unwrap_or(true) {
+            return Some("window-minimized");
+        }
+        None
     }
 
     fn windows_selected_surface_is_current(
         &self,
         target: &WindowsSelectedSurfaceReprojectionTarget,
         surface: &WindowsSelectedSurfaceReprojectionSurface,
-    ) -> bool {
-        if !self.windows_selected_surface_fence_is_current(target) {
-            return false;
+    ) -> Result<(), &'static str> {
+        if let Some(reason) = self.windows_selected_surface_fence_stale_reason(target) {
+            return Err(reason);
         }
         let labels = HashSet::from([surface.webview.label().to_owned()]);
         let Some(current_owner) = self
@@ -255,50 +265,69 @@ impl SystemRuntimeExecutor {
             .get(surface.webview.label())
             .cloned()
         else {
-            return false;
+            return Err("surface-owner-absent");
         };
-        self.state.lock().ok().is_some_and(|state| {
-            let Some(host) = state
-                .native_resources
-                .display_hosts
-                .get(&target.fence.window_id)
-            else {
-                return false;
-            };
-            let Some(tab) = state.native_resources.tabs.get(&target.fence.tab_id) else {
-                return false;
-            };
-            let desired_labels = windows_desired_selected_surface_labels(tab);
-            let Some(current) = state
-                .native_resources
-                .surface_registry
-                .get(surface.webview.label())
-            else {
-                return false;
-            };
-            host.generation == target.fence.window_generation
-                && !state
-                    .close_coordinator
-                    .closing_tabs
-                    .contains(&target.fence.tab_id)
-                && !state
-                    .close_coordinator
-                    .closing_webviews
-                    .contains(surface.webview.label())
-                && desired_labels.contains(surface.webview.label())
-                && current.phase == ManagedSurfacePhase::Live
-                && selected_surface_reprojection_identity_matches(
-                    &surface.instance_id,
-                    surface.generation,
-                    &surface.owner,
-                    &current.instance_id,
-                    current.generation,
-                    &current_owner,
-                )
-                && current.tab_id.as_deref() == Some(target.fence.tab_id.as_str())
-                && current.window_id == target.fence.window_id
-                && current.window_generation == target.fence.window_generation
-        })
+        let state = self.state.lock().map_err(|_| "runtime-state")?;
+        let Some(host) = state
+            .native_resources
+            .display_hosts
+            .get(&target.fence.window_id)
+        else {
+            return Err("native-host-absent");
+        };
+        if host.generation != target.fence.window_generation {
+            return Err("native-host-generation");
+        }
+        if state
+            .close_coordinator
+            .closing_tabs
+            .contains(&target.fence.tab_id)
+        {
+            return Err("tab-closing");
+        }
+        if state
+            .close_coordinator
+            .closing_webviews
+            .contains(surface.webview.label())
+        {
+            return Err("surface-closing");
+        }
+        let Some(tab) = state.native_resources.tabs.get(&target.fence.tab_id) else {
+            return Err("native-tab-absent");
+        };
+        if !windows_desired_selected_surface_labels(tab).contains(surface.webview.label()) {
+            return Err("surface-not-desired");
+        }
+        let Some(current) = state
+            .native_resources
+            .surface_registry
+            .get(surface.webview.label())
+        else {
+            return Err("surface-registry-absent");
+        };
+        if current.phase != ManagedSurfacePhase::Live {
+            return Err("surface-phase");
+        }
+        if !selected_surface_reprojection_identity_matches(
+            &surface.instance_id,
+            surface.generation,
+            &surface.owner,
+            &current.instance_id,
+            current.generation,
+            &current_owner,
+        ) {
+            return Err("surface-identity");
+        }
+        if current.tab_id.as_deref() != Some(target.fence.tab_id.as_str()) {
+            return Err("surface-tab");
+        }
+        if current.window_id != target.fence.window_id {
+            return Err("surface-window");
+        }
+        if current.window_generation != target.fence.window_generation {
+            return Err("surface-window-generation");
+        }
+        Ok(())
     }
 
     fn reproject_windows_selected_surfaces(&self, phase: LaunchPhase) {
@@ -317,8 +346,9 @@ impl SystemRuntimeExecutor {
         let mut actionable = Vec::with_capacity(target.surfaces.len());
         let mut reparented_surface_count = 0_usize;
         for surface in &target.surfaces {
-            if !self.windows_selected_surface_is_current(target, surface) {
+            if let Err(stale_reason) = self.windows_selected_surface_is_current(target, surface) {
                 results.push(json!({
+                    "staleReason": stale_reason,
                     "status": "stale",
                     "webviewLabel": surface.webview.label(),
                 }));
@@ -337,8 +367,10 @@ impl SystemRuntimeExecutor {
                 }
             };
             if !initial.parent_window_matches_host {
-                if !self.windows_selected_surface_is_current(target, surface) {
+                if let Err(stale_reason) = self.windows_selected_surface_is_current(target, surface)
+                {
                     results.push(json!({
+                        "staleReason": stale_reason,
                         "status": "stale",
                         "webviewLabel": surface.webview.label(),
                     }));
@@ -372,10 +404,16 @@ impl SystemRuntimeExecutor {
             actionable.push((surface, initial));
         }
 
-        if self.windows_selected_surface_fence_is_current(target) {
+        if self
+            .windows_selected_surface_fence_stale_reason(target)
+            .is_none()
+        {
             self.hide_runtime_tab_status(&target.fence.window_id);
         }
-        let bounds_projection_error = if self.windows_selected_surface_fence_is_current(target) {
+        let bounds_projection_error = if self
+            .windows_selected_surface_fence_stale_reason(target)
+            .is_none()
+        {
             windows_force_selected_surface_bounds_projection(
                 &target.window,
                 &actionable
@@ -388,8 +426,9 @@ impl SystemRuntimeExecutor {
             None
         };
         for (surface, initial) in actionable {
-            if !self.windows_selected_surface_is_current(target, surface) {
+            if let Err(stale_reason) = self.windows_selected_surface_is_current(target, surface) {
                 results.push(json!({
+                    "staleReason": stale_reason,
                     "status": "stale",
                     "webviewLabel": surface.webview.label(),
                 }));

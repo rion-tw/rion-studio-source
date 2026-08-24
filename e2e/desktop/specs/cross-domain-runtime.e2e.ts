@@ -695,13 +695,13 @@ async function tabMenuAction(input: {
   tabId: string;
   target?: DesktopE2eWindowSnapshot;
 }): Promise<DesktopE2eEvent> {
-  const source = await windowSnapshot(input.snapshot.windowId);
   const target = input.target
     ? await windowSnapshot(input.target.windowId)
     : undefined;
+  const openCursor = (await probe()).latestSequence;
+  const source = await windowSnapshot(input.snapshot.windowId);
   const fencedTab = source.kernel?.tabs.find((tab) => tab.tabId === input.tabId && !tab.hidden);
   if (!fencedTab) throw new Error("The native tab menu target is no longer visible");
-  const openCursor = (await probe()).latestSequence;
   const prearmSelection = requiresPrearmedNativeTabMenuSelection(process.platform);
   if (prearmSelection) {
     // Native popup menus own synchronous modal tracking loops. Arm the exact

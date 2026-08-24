@@ -740,14 +740,19 @@ async function tabMenuAction(input: {
     return waitForMutationReceipt(openCursor, input.tabId);
   }
   const receiptCursor = (await probe()).latestSequence;
-  await runtimeUiAction(source.windowId, {
+  const selectionSource = await windowSnapshot(source.windowId);
+  const selectionTab = selectionSource.kernel?.tabs.find(
+    (tab) => tab.tabId === input.tabId && !tab.hidden
+  );
+  if (!selectionTab) throw new Error("The native tab menu target is no longer visible");
+  await runtimeUiAction(selectionSource.windowId, {
     action: "selectTabMenuItem",
     menuAction: input.action,
     tabId: input.tabId,
     targetWindowGeneration: target?.windowGeneration,
     targetWindowId: target?.windowId,
-    topologyRevision: source.kernel?.revision ?? 0,
-    windowGeneration: source.windowGeneration
+    topologyRevision: selectionSource.kernel?.revision ?? 0,
+    windowGeneration: selectionSource.windowGeneration
   });
   return waitForMutationReceipt(receiptCursor, input.tabId);
 }

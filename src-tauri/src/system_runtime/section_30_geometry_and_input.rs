@@ -356,6 +356,7 @@ fn runtime_window_content_metrics(window: &Window) -> RuntimeResult<WindowConten
     logical_window_content_metrics(window)
 }
 
+#[cfg(not(windows))]
 fn logical_window_content_metrics(window: &Window) -> RuntimeResult<WindowContentMetrics> {
     #[cfg(target_os = "macos")]
     {

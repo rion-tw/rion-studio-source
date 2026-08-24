@@ -147,6 +147,7 @@ async function writeVisibleRoleLocalStorage(
   fixtureId: string,
   marker: string
 ): Promise<void> {
+  await waitForRuntimeTabReady(tab);
   const snapshot = await windowSnapshot(tab.windowId);
   expect(snapshot.kernel?.selectedTabId).toBe(tab.id);
   const controlCursor = (await probe()).latestSequence;

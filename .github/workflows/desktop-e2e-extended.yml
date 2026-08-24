@@ -66,7 +66,9 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 30
-          path: .desktop-e2e-artifacts
+          path: |
+            .desktop-e2e-artifacts
+            !.desktop-e2e-artifacts/**/roles/*/browser/**
 
   macos-spaces:
     name: macOS multi-display fullscreen Spaces
@@ -118,4 +120,6 @@ jobs:
           if-no-files-found: error
           include-hidden-files: true
           retention-days: 30
-          path: .desktop-e2e-artifacts
+          path: |
+            .desktop-e2e-artifacts
+            !.desktop-e2e-artifacts/**/roles/*/browser/**

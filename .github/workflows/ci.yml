@@ -291,4 +291,6 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
-          path: .desktop-e2e-artifacts
+          path: |
+            .desktop-e2e-artifacts
+            !.desktop-e2e-artifacts/**/roles/*/browser/**

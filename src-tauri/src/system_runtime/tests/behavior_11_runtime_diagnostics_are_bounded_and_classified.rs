@@ -153,3 +153,18 @@ fn input_fence_diagnostics_classify_core_and_native_orphans() {
         ("restart-required", false)
     );
 }
+
+#[test]
+fn selected_surface_reprojection_stale_reasons_are_sorted_and_deduplicated() {
+    let results = vec![
+        serde_json::json!({ "staleReason": "window-topology", "status": "stale" }),
+        serde_json::json!({ "staleReason": "surface-window", "status": "stale" }),
+        serde_json::json!({ "staleReason": "window-topology", "status": "stale" }),
+        serde_json::json!({ "status": "applied" }),
+    ];
+
+    assert_eq!(
+        selected_surface_reprojection_stale_reasons(&results),
+        vec!["surface-window".to_owned(), "window-topology".to_owned()]
+    );
+}

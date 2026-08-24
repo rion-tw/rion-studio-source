@@ -480,17 +480,30 @@ async function waitForAppliedSelectedSurfaceReprojection(
   tab: EmbeddedRuntimeTabSummary
 ): Promise<void> {
   let cursor = afterSequence;
+  let lastSupersededDetails: unknown;
   for (;;) {
-    const event = await waitEvent({
-      afterSequence: cursor,
-      kind: "native-selected-surfaces-reprojected",
-      timeoutMs: 55_000,
-      windowId: tab.windowId
-    });
+    let event;
+    try {
+      event = await waitEvent({
+        afterSequence: cursor,
+        kind: "native-selected-surfaces-reprojected",
+        timeoutMs: lastSupersededDetails === undefined ? 30_000 : 10_000,
+        windowId: tab.windowId
+      });
+    } catch (error) {
+      if (lastSupersededDetails !== undefined) {
+        throw new Error(
+          `Selected surface reprojection remained superseded: ${JSON.stringify(lastSupersededDetails)}`,
+          { cause: error }
+        );
+      }
+      throw error;
+    }
     expect(event.details).toMatchObject({ failed: false, tabId: tab.id });
     const status = (event.details as { status?: unknown }).status;
     if (status === "applied") return;
     expect(status).toBe("superseded");
+    lastSupersededDetails = event.details;
     cursor = event.sequence;
   }
 }

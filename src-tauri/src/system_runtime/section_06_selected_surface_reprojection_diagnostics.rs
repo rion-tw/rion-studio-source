@@ -1,3 +1,16 @@
+#[cfg(any(windows, test))]
+fn selected_surface_reprojection_stale_reasons(results: &[Value]) -> Vec<String> {
+    let mut reasons = results
+        .iter()
+        .filter(|result| result.get("status").and_then(Value::as_str) == Some("stale"))
+        .filter_map(|result| result.get("staleReason").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    reasons.sort_unstable();
+    reasons.dedup();
+    reasons
+}
+
 #[cfg(windows)]
 impl SystemRuntimeExecutor {
     fn record_windows_selected_surface_reprojection(
@@ -24,6 +37,7 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|result| result.get("status").and_then(Value::as_str) == Some("stale"))
             .count();
+        let stale_reasons = selected_surface_reprojection_stale_reasons(&results);
         let status = if failed {
             "failed"
         } else if applied_surface_count == 0 {
@@ -43,6 +57,7 @@ impl SystemRuntimeExecutor {
                 "launchPhase": phase.as_str(),
                 "reparentedSurfaceCount": reparented_surface_count,
                 "revision": target.fence.revision,
+                "staleReasons": stale_reasons,
                 "staleSurfaceCount": stale_surface_count,
                 "status": status,
                 "surfaceCount": target.surfaces.len(),

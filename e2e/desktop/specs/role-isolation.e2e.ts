@@ -474,6 +474,26 @@ async function waitForRuntimeTabReady(tab: EmbeddedRuntimeTabSummary): Promise<v
   }
 }
 
+async function waitForAppliedSelectedSurfaceReprojection(
+  afterSequence: number,
+  tab: EmbeddedRuntimeTabSummary
+): Promise<void> {
+  let cursor = afterSequence;
+  for (;;) {
+    const event = await waitEvent({
+      afterSequence: cursor,
+      kind: "native-selected-surfaces-reprojected",
+      timeoutMs: 55_000,
+      windowId: tab.windowId
+    });
+    expect(event.details).toMatchObject({ failed: false, tabId: tab.id });
+    const status = (event.details as { status?: unknown }).status;
+    if (status === "applied") return;
+    expect(status).toBe("superseded");
+    cursor = event.sequence;
+  }
+}
+
 function expectOwnedSlot(
   tab: EmbeddedRuntimeTabSummary,
   role: Role,
@@ -567,17 +587,7 @@ async function sharedOwnershipPhase(): Promise<void> {
   expectOwnedSlot(tabA, shared, tabA.id, "running");
   expectOwnedSlot(tabA, uniqueA, tabA.id, "running");
   if (process.platform === "win32") {
-    const initialRepair = await waitEvent({
-      afterSequence: 0,
-      kind: "native-selected-surfaces-reprojected",
-      timeoutMs: 55_000,
-      windowId: tabA.windowId
-    });
-    expect(initialRepair.details).toMatchObject({
-      failed: false,
-      status: "applied",
-      tabId: tabA.id
-    });
+    await waitForAppliedSelectedSurfaceReprojection(0, tabA);
   }
 
   const repairCursor = (await probe()).latestSequence;
@@ -598,17 +608,7 @@ async function sharedOwnershipPhase(): Promise<void> {
   expectOwnedSlot(requireRuntimeTab(runtime, workspaceA.id), uniqueA, tabA.id, "running");
 
   if (process.platform === "win32") {
-    const repair = await waitEvent({
-      afterSequence: repairCursor,
-      kind: "native-selected-surfaces-reprojected",
-      timeoutMs: 55_000,
-      windowId: tabA.windowId
-    });
-    expect(repair.details).toMatchObject({
-      failed: false,
-      status: "applied",
-      tabId: tabA.id
-    });
+    await waitForAppliedSelectedSurfaceReprojection(repairCursor, tabA);
     const source = await windowSnapshot(tabA.windowId);
     const sharedSurface = source.native.roleSurfaces?.find(
       (surface) => surface.roleId === shared.id

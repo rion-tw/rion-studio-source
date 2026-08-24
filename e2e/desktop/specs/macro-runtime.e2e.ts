@@ -537,10 +537,11 @@ async function standbyRecoveryPhase(): Promise<void> {
   });
 
   if (process.platform === "win32") {
-    for (const causeCode of [
+    const wakeFailureCodes = [
       "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
       "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
-    ] as const) {
+    ] as const;
+    for (const [causeIndex, causeCode] of wakeFailureCodes.entries()) {
       const noInputCursor = await fixtureCursor();
       await armAutomationReadinessFailure(scenario.roles[0].id, causeCode);
       await navigate("/macros");
@@ -586,6 +587,8 @@ async function standbyRecoveryPhase(): Promise<void> {
         roleId: "macro-standby-a"
       })).filter((event) => event.kind === "keydown")).toHaveLength(0);
 
+      if (causeIndex === wakeFailureCodes.length - 1) continue;
+      const placeholderCursor = (await probe()).latestSequence;
       await rendererCall("stopRole", scenario.roles[0].id);
       await browser.waitUntil(
         async () => !(await rendererCall("listRoleStatuses"))
@@ -596,7 +599,38 @@ async function standbyRecoveryPhase(): Promise<void> {
           timeoutMsg: "Failed automation role did not finish stopping before relaunch"
         }
       );
-      await launchRole(scenario.roles[0], { windowId: tabB.windowId });
+      live = await windowSnapshot(tabA.windowId);
+      await activateVisibleRuntimeTab({
+        tabId: tabA.id,
+        windowGeneration: live.windowGeneration,
+        windowId: tabA.windowId
+      });
+      await waitEvent({
+        afterSequence: placeholderCursor,
+        kind: `role-placeholder-ready:${tabA.id}:${scenario.roles[0].id}`,
+        windowId: tabA.windowId
+      });
+      const roleCursor = await rendererEventCursor();
+      const sessionCursor = await fixtureCursor();
+      live = await windowSnapshot(tabA.windowId);
+      await runtimeUiAction(tabA.windowId, {
+        action: "pressRoleSlot",
+        roleId: scenario.roles[0].id,
+        tabId: tabA.id,
+        windowGeneration: live.windowGeneration
+      });
+      await Promise.all([
+        waitForRoleProjection({
+          afterSequence: roleCursor,
+          roleId: scenario.roles[0].id,
+          state: "running"
+        }),
+        waitFixtureEvent({
+          afterSequence: sessionCursor,
+          kind: "session",
+          roleId: fixtureRoleId(scenario.roles[0])
+        })
+      ]);
       live = await windowSnapshot(tabB.windowId);
       await activateVisibleRuntimeTab({
         tabId: tabB.id,

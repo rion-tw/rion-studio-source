@@ -587,9 +587,6 @@ async function sharedOwnershipPhase(): Promise<void> {
   await waitForRuntimeTabReady(tabA);
   expectOwnedSlot(tabA, shared, tabA.id, "running");
   expectOwnedSlot(tabA, uniqueA, tabA.id, "running");
-  if (process.platform === "win32") {
-    await waitForAppliedSelectedSurfaceReprojection(0, tabA);
-  }
 
   const repairCursor = (await probe()).latestSequence;
   ({ runtime } = await launchVisibleWorkspace(

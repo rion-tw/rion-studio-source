@@ -1,4 +1,4 @@
-#[cfg(any(windows, test))]
+#[cfg(any(test, all(windows, feature = "desktop-e2e")))]
 fn selected_surface_reprojection_stale_reasons(results: &[Value]) -> Vec<String> {
     let mut reasons = results
         .iter()
@@ -37,6 +37,7 @@ impl SystemRuntimeExecutor {
             .iter()
             .filter(|result| result.get("status").and_then(Value::as_str) == Some("stale"))
             .count();
+        #[cfg(feature = "desktop-e2e")]
         let stale_reasons = selected_surface_reprojection_stale_reasons(&results);
         let status = if failed {
             "failed"

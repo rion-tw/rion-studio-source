@@ -355,7 +355,7 @@ impl SystemRuntimeExecutor {
             ));
         }
         let started = Instant::now();
-        let diagnostic = browser_action_diagnostic_context(&request.action);
+        let mut diagnostic = browser_action_diagnostic_context(&request.action);
         let native_stage = match &request.action {
             BrowserAction::Focus => "inputFocus",
             BrowserAction::Key { .. } => "inputKey",
@@ -387,6 +387,7 @@ impl SystemRuntimeExecutor {
             SystemRuntimeOperationCompletionScope::NativeSubmission
         })
         .with_role(&role_id);
+        let mut automation_readiness = None;
         let result = if let Some(cleanup_confirmed) = inject_indeterminate {
             let error = RuntimeError::new(
                 "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
@@ -408,6 +409,13 @@ impl SystemRuntimeExecutor {
                     // game canvas or replace the foreground role's AppKit first responder.
                     let webview = self.role_webview_for_input(&role_id, &context)?;
                     if !context.is_cleanup() {
+                        let readiness = self.ensure_automation_surface_ready(
+                            &role_id,
+                            &webview,
+                            &context,
+                        );
+                        automation_readiness = Some(readiness.observation);
+                        readiness.result?;
                         self.preflight_automatic_input_context(&role_id, &webview, &context)?;
                     }
                     self.wait_for_role_input_focus(&role_id, &context)
@@ -452,11 +460,18 @@ impl SystemRuntimeExecutor {
                 })
             })()
         };
+        if let Some(readiness) = automation_readiness
+            && let Some(context) = diagnostic.as_object_mut()
+        {
+            context.insert("automationReadiness".to_owned(), readiness.as_json());
+        }
         if let Err(error) = result.as_ref()
             && matches!(
                 error.code,
                 "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
                     | "SYSTEM_AUTOMATIC_INPUT_CONTEXT_BLOCKED"
+                    | "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED"
+                    | "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
             )
         {
             self.schedule_macro_input_recovery(&role_id, &request_id, error);
@@ -484,7 +499,13 @@ impl SystemRuntimeExecutor {
                     Some(error.code),
                 )
             }
-            Err(error) if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" => {
+            Err(error)
+                if matches!(
+                    error.code,
+                    "SYSTEM_TRUSTED_INPUT_INDETERMINATE"
+                        | "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
+                ) =>
+            {
                 NativeOperationReceipt::with_status(
                     native_operation,
                     native_stage,
@@ -657,10 +678,12 @@ impl SystemRuntimeExecutor {
             ));
         }
         let context = InputDispatchContext {
+            application_lifecycle: Arc::clone(&self.application_lifecycle),
             deadline: monotonic_deadline,
             input_epoch: request.input_epoch,
             intent: request.intent.clone(),
             lane,
+            lifecycle_epoch: self.application_lifecycle.epoch(),
             surface_generation,
         };
         context.ensure_current()?;
@@ -695,10 +718,12 @@ impl SystemRuntimeExecutor {
                 .store(surface_generation, Ordering::Release);
         }
         let context = InputDispatchContext {
+            application_lifecycle: Arc::clone(&self.application_lifecycle),
             deadline: Instant::now() + PLATFORM_CALLBACK_TIMEOUT,
             input_epoch: lane.epoch.load(Ordering::Acquire),
             intent: intent.to_owned(),
             lane,
+            lifecycle_epoch: self.application_lifecycle.epoch(),
             surface_generation,
         };
         context.ensure_current()?;
@@ -707,6 +732,7 @@ impl SystemRuntimeExecutor {
 
     fn cleanup_input_context(&self, context: &InputDispatchContext) -> InputDispatchContext {
         InputDispatchContext {
+            application_lifecycle: Arc::clone(&context.application_lifecycle),
             deadline: Instant::now() + PLATFORM_CALLBACK_TIMEOUT,
             // A navigation or close fence can advance while mouseDown/keyDown is being
             // confirmed. Cleanup is the only work allowed to adopt that newer epoch; the
@@ -714,6 +740,7 @@ impl SystemRuntimeExecutor {
             input_epoch: context.lane.epoch.load(Ordering::Acquire),
             intent: "cleanup".to_owned(),
             lane: Arc::clone(&context.lane),
+            lifecycle_epoch: context.lifecycle_epoch,
             surface_generation: context.surface_generation,
         }
     }
@@ -749,6 +776,35 @@ impl SystemRuntimeExecutor {
                     "The System WebView surface changed before input dispatch.",
                 )
             })
+    }
+
+    fn ensure_automation_surface_ready(
+        &self,
+        _role_id: &str,
+        webview: &Webview,
+        context: &InputDispatchContext,
+    ) -> AutomationSurfaceReadinessOutcome {
+        #[cfg(feature = "desktop-e2e")]
+        if let Some(cause_code) = self.desktop_e2e_take_automation_readiness_failure(_role_id) {
+            return AutomationSurfaceReadinessOutcome {
+                observation: AutomationSurfaceReadinessObservation {
+                    controller_visible: None,
+                    policy_mode: "desktop-e2e-injected",
+                    resume_attempted: cause_code == "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    suspended_after: None,
+                    suspended_before: None,
+                },
+                result: Err(RuntimeError::new(
+                    if cause_code == "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE" {
+                        "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
+                    } else {
+                        "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED"
+                    },
+                    "Desktop E2E injected an automation-surface readiness failure.",
+                )),
+            };
+        }
+        ensure_platform_automation_surface_ready(webview, context)
     }
 
     fn compensate_key_prefix(
@@ -965,6 +1021,26 @@ impl SystemRuntimeExecutor {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn release_and_clear_role_keys_for_application_suspend(
+        &self,
+        role_id: &str,
+    ) -> RuntimeResult<()> {
+        let context = self.current_input_context(role_id, "cleanup")?;
+        self.with_input_context_lane(&context, || {
+            let webview = self.role_webview_for_input(role_id, &context)?;
+            let held = self
+                .core
+                .reassert_embedded_keys(role_id)
+                .map_err(RuntimeError::core)?;
+            for effect in release_reasserted_key_effects(&held.effects) {
+                self.dispatch_guarded_macro_key_effect(role_id, &webview, &effect, &context)?;
+            }
+            self.core
+                .clear_embedded_keys(role_id)
+                .map_err(RuntimeError::core)
+        })
     }
 
     fn clear_role_keys(&self, role_id: &str) {

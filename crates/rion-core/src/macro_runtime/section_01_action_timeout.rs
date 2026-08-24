@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -12,10 +12,11 @@ use std::{
 use chrono::Utc;
 
 use crate::{
-    error::{CoreError, CoreResult},
+    error::{CoreError, CoreResult, MacroInputError},
     model::{
         BrowserAction, BrowserActionRequest, BrowserActionResult, CoreEvent, MacroDefinition,
         MacroInputDiagnosticsRecord, MacroInputRoleDiagnosticRecord, MacroLastClick,
+        MacroStartAttemptDiagnosticRecord,
         MacroPressRequest, MacroReleaseRequest, MacroRepeat, MacroRunStatus, MacroRuntimeSettings,
         MacroStartRequest, MacroStepDefinition,
     },
@@ -25,6 +26,7 @@ const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
 const INVOCATION_STOP_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_ACTIVE_INVOCATIONS: usize = 64;
 const MAX_PENDING_ACTIONS: usize = 512;
+const MAX_RECENT_START_ATTEMPTS: usize = 40;
 const PRESENTATION_STATUS_MIN_INTERVAL: Duration = Duration::from_millis(250);
 const SIBLING_FAILURE_MESSAGE: &str = "Cancelled because another assigned role failed.";
 const UNASSIGNED_WORKFLOW_MESSAGE: &str =
@@ -54,6 +56,7 @@ struct Shared {
     events: EventSink,
     inner: Mutex<Inner>,
     next_id: AtomicU64,
+    next_start_attempt_id: AtomicU64,
     pending: Mutex<HashMap<String, PendingMacroAction>>,
     last_presentation_status_emit: Mutex<Option<Instant>>,
     macro_run_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
@@ -61,6 +64,33 @@ struct Shared {
     input_sequence_role_locks: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     role_transfer_changed: Condvar,
     waiter: Waiter,
+}
+
+#[derive(Clone, Debug)]
+struct MacroActionFailure {
+    cause_code: String,
+    focus_request_ids: Vec<String>,
+    message: String,
+    request_id: Option<String>,
+    role_id: Option<String>,
+}
+
+impl MacroActionFailure {
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            cause_code: "MACRO_INPUT_FAILED".to_owned(),
+            focus_request_ids: Vec::new(),
+            message: message.into(),
+            request_id: None,
+            role_id: None,
+        }
+    }
+}
+
+impl From<String> for MacroActionFailure {
+    fn from(message: String) -> Self {
+        Self::internal(message)
+    }
 }
 
 struct PendingMacroAction {
@@ -80,6 +110,7 @@ struct Inner {
     input_epochs: HashMap<String, u64>,
     input_recoveries: HashMap<String, MacroInputRecovery>,
     input_recovery_by_role: HashMap<String, String>,
+    recent_start_attempts: VecDeque<MacroStartAttemptDiagnosticRecord>,
     quiesced_role_ids: HashSet<String>,
     recovering_role_ids: HashSet<String>,
     restart_required_role_ids: HashSet<String>,
@@ -103,6 +134,8 @@ struct InvocationControl {
     failed_role_id: Mutex<Option<String>>,
     first_iteration_completed: AtomicBool,
     first_iteration_roles: (Mutex<HashSet<String>>, Condvar),
+    focus_request_ids: Mutex<Vec<String>>,
+    start_attempt_id: Mutex<Option<String>>,
     finished: (Mutex<bool>, Condvar),
     finished_naturally: AtomicBool,
     id: String,

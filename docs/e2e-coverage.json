@@ -44,6 +44,7 @@
         "p0-tabs-visible-activation",
         "p1-macro-multirole",
         "p1-macro-input-recovery",
+        "p1-macro-standby-recovery",
         "p1-role-session-seed",
         "p1-role-session-isolation",
         "p1-workspace-shared-role",
@@ -415,7 +416,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep a looping macro bound to its background role after a visible native tab activation without leaking input to the selected tab."
+      "description": "Keep a looping macro bound to its background role after a visible native tab activation, stop it while another tab remains selected, then restart it from the visible macro list without selecting or revealing its target; prove input reaches only the hidden role and the foreground tab remains unchanged."
     },
     {
       "id": "MACRO-MULTIROLE-005",
@@ -444,6 +445,20 @@
       "risk": "native",
       "outcomes": ["success", "failure"],
       "description": "From visible role content, open and complete a local cross-origin verification iframe while a zero-interval looping macro runs; prove automatic input pauses before native submission, the live document/session and surface generation remain unchanged, and the eligible root restarts once from the beginning when Canvas focus returns. Then inject a page-finish failure to prove a genuinely unresumable role keeps its live surface and becomes restart-required."
+    },
+    {
+      "id": "MACRO-STANDBY-RECOVERY-012",
+      "feature": "macros",
+      "priority": "P1",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p1-macro-standby-recovery",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Use the native lifecycle test signal to suspend and resume while a hidden-role macro owns a key; prove the old run terminates, cleanup releases input, starts remain fenced until the exact lifecycle and input epochs recover, and the user can restart without selecting the hidden tab. On Windows, first place WebView2 in an exact TrySuspend state, prove Focus readiness resumes it, and inject failed and indeterminate Resume outcomes without native input."
     },
     {
       "id": "MACRO-SHORTCUT-REENTRY-007",

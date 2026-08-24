@@ -3,6 +3,23 @@
 use super::super::*;
 
 #[cfg(target_os = "macos")]
+pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
+    _webview: &Webview,
+    context: &InputDispatchContext,
+) -> AutomationSurfaceReadinessOutcome {
+    AutomationSurfaceReadinessOutcome {
+        observation: AutomationSurfaceReadinessObservation {
+            controller_visible: None,
+            policy_mode: "wkwebview-throttle",
+            resume_attempted: false,
+            suspended_after: None,
+            suspended_before: None,
+        },
+        result: context.ensure_current(),
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub(in crate::system_runtime) fn platform_webview_diagnostics(
     _webview: &Webview,
 ) -> PlatformWebViewDiagnostics {

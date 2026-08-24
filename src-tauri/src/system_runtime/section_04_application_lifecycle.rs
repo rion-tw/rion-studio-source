@@ -501,7 +501,7 @@ impl SystemRuntimeExecutor {
         {
             fence.drained = true;
         }
-        self.clear_role_keys(role_id);
+        self.release_and_clear_role_keys_for_application_suspend(role_id)?;
         Ok(fenced.input_epoch)
     }
 

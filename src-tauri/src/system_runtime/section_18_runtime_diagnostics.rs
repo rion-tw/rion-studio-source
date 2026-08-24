@@ -251,9 +251,10 @@ impl SystemRuntimeExecutor {
         if core_input.is_none() {
             collection_error_codes.push("CORE_INPUT_DIAGNOSTICS_UNAVAILABLE".to_owned());
         }
-        let core_input_roles = core_input
-            .unwrap_or(MacroInputDiagnosticsRecord { roles: Vec::new() })
-            .roles
+        let core_input = core_input.unwrap_or_default();
+        let active_macro_invocation_count = core_input.active_invocation_count;
+        let recent_macro_start_attempts = core_input.recent_start_attempts;
+        let core_input_roles = core_input.roles
             .into_iter()
             .map(|role| (role.role_id.clone(), role))
             .collect::<HashMap<_, _>>();
@@ -303,6 +304,8 @@ impl SystemRuntimeExecutor {
             active_input_fence_count: None,
             active_input_fences: Vec::new(),
             recent_input_fence_events: Vec::new(),
+            active_macro_invocation_count: Some(active_macro_invocation_count),
+            recent_macro_start_attempts,
             retryable_failed_launch_count: None,
             failed_launch_count: None,
             active_native_creation_count: None,

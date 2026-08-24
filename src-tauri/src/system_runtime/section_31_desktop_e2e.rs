@@ -65,6 +65,57 @@ impl DesktopE2eWindowControlRequest {
 }
 
 impl SystemRuntimeExecutor {
+    pub(crate) fn desktop_e2e_application_lifecycle_signal(
+        &self,
+        suspended: bool,
+    ) -> Result<Value, String> {
+        if !self.enqueue_application_lifecycle_signal(suspended, "desktop-e2e-native-signal") {
+            return Err("The application lifecycle actor is unavailable.".to_owned());
+        }
+        Ok(json!({
+            "status": "submitted",
+            "suspended": suspended,
+        }))
+    }
+
+    pub(crate) fn desktop_e2e_arm_automation_readiness_failure(
+        &self,
+        role_id: &str,
+        cause_code: &str,
+    ) -> Result<Value, String> {
+        if !matches!(
+            cause_code,
+            "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED"
+                | "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
+        ) {
+            return Err("The automation-readiness cause code is not allowlisted.".to_owned());
+        }
+        if self.surface_generation_for_role(role_id).is_none() {
+            return Err("The desktop E2E automation-readiness role has no live surface.".to_owned());
+        }
+        self.state
+            .lock()
+            .map_err(|_| "The desktop E2E runtime state is unavailable.".to_owned())?
+            .desktop_e2e_automation_readiness_failures
+            .insert(role_id.to_owned(), cause_code.to_owned());
+        Ok(json!({
+            "armed": true,
+            "causeCode": cause_code,
+            "roleId": role_id,
+        }))
+    }
+
+    fn desktop_e2e_take_automation_readiness_failure(
+        &self,
+        role_id: &str,
+    ) -> Option<String> {
+        self.state.lock().ok().and_then(|mut state| {
+            state
+                .desktop_e2e_automation_readiness_failures
+                .remove(role_id)
+        })
+    }
+
     #[cfg(windows)]
     pub(crate) fn desktop_e2e_inject_duplicate_role_cookie_checkpoint(
         &self,

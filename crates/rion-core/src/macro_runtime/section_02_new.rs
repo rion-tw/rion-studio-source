@@ -19,6 +19,7 @@ impl MacroRuntime {
                 events,
                 inner: Mutex::new(Inner::default()),
                 next_id: AtomicU64::new(1),
+                next_start_attempt_id: AtomicU64::new(1),
                 pending: Mutex::new(HashMap::new()),
                 last_presentation_status_emit: Mutex::new(None),
                 macro_run_locks: Mutex::new(HashMap::new()),
@@ -59,7 +60,7 @@ impl MacroRuntime {
         let _run = run_lock
             .lock()
             .map_err(|_| CoreError::Internal("macro run lock poisoned".to_owned()))?;
-        self.start_internal(request, false)
+        self.start_tracked(request, false)
             .map(|(statuses, _)| statuses)
     }
 
@@ -82,7 +83,7 @@ impl MacroRuntime {
             self.stop_macro_run_chain(&macro_id)?;
             return Ok(Vec::new());
         }
-        self.start_internal(request, false)
+        self.start_tracked(request, false)
             .map(|(statuses, _)| statuses)
     }
 
@@ -142,7 +143,7 @@ impl MacroRuntime {
             ));
         }
         let press_id = request.press_id;
-        let (statuses, control) = self.start_internal(request.start, true)?;
+        let (statuses, control) = self.start_tracked(request.start, true)?;
         {
             let mut inner = self
                 .shared
@@ -532,7 +533,11 @@ impl MacroRuntime {
             })
             .collect::<Vec<_>>();
         roles.sort_by(|left, right| left.role_id.cmp(&right.role_id));
-        Ok(MacroInputDiagnosticsRecord { roles })
+        Ok(MacroInputDiagnosticsRecord {
+            active_invocation_count: inner.invocations.len().min(u32::MAX as usize) as u32,
+            recent_start_attempts: inner.recent_start_attempts.iter().rev().cloned().collect(),
+            roles,
+        })
     }
 
     pub fn release_role(&self, role_id: &str) -> CoreResult<()> {
@@ -757,10 +762,62 @@ impl MacroRuntime {
         }
     }
 
+    fn start_tracked(
+        &self,
+        request: MacroStartRequest,
+        defer_execution: bool,
+    ) -> CoreResult<(Vec<MacroRunStatus>, Arc<InvocationControl>)> {
+        let attempt_id = begin_macro_start_attempt(&self.shared, &request);
+        let result = self.start_internal(request, defer_execution, Some(&attempt_id));
+        match &result {
+            Ok((_, control)) => {
+                let focus_request_ids = control
+                    .focus_request_ids
+                    .lock()
+                    .map(|request_ids| request_ids.clone())
+                    .unwrap_or_default();
+                finish_macro_start_attempt(
+                    &self.shared,
+                    &attempt_id,
+                    focus_request_ids,
+                    "running",
+                    None,
+                );
+            }
+            Err(error) => {
+                let outcome = if matches!(
+                    error.code(),
+                    "CORE_INPUT_INVALID"
+                        | "MACRO_MUTATION_BUSY"
+                        | "MACRO_ROLE_STOPPING"
+                        | "MACRO_ROLE_INPUT_RECOVERING"
+                        | "MACRO_ROLE_INPUT_FENCED"
+                        | "MACRO_ROLE_INPUT_RESTART_REQUIRED"
+                        | "MACRO_RUNTIME_NOT_ACTIVE"
+                ) {
+                    "rejected"
+                } else if error.code() == "CORE_WAIT_CANCELLED" {
+                    "cancelled"
+                } else {
+                    "failed"
+                };
+                finish_macro_start_attempt(
+                    &self.shared,
+                    &attempt_id,
+                    error.focus_request_ids().to_vec(),
+                    outcome,
+                    Some(error),
+                );
+            }
+        }
+        result
+    }
+
     fn start_internal(
         &self,
         request: MacroStartRequest,
         defer_execution: bool,
+        start_attempt_id: Option<&str>,
     ) -> CoreResult<(Vec<MacroRunStatus>, Arc<InvocationControl>)> {
         if self.shared.shutting_down.load(Ordering::Acquire) {
             return Err(CoreError::ShuttingDown);
@@ -816,6 +873,9 @@ impl MacroRuntime {
             request.macro_id.clone(),
             roles.iter().cloned().collect(),
         );
+        if let Ok(mut control_attempt_id) = control.start_attempt_id.lock() {
+            *control_attempt_id = start_attempt_id.map(str::to_owned);
+        }
         if let Some(mut restart_intent) = restart_intent {
             restart_intent.sequence = invocation_number;
             if let Ok(mut current) = control.restart_intent.lock() {
@@ -910,14 +970,11 @@ impl MacroRuntime {
             .iter()
             .map(|role_id| (role_id.as_str(), BrowserAction::Focus))
             .collect();
-        if let Err(error) =
+        if let Err(failure) =
             perform_actions_with_control(&self.shared, &control, focus_actions, false)
         {
             discard_unstarted_invocation(&self.shared, &control);
-            return Err(CoreError::Domain {
-                code: "MACRO_INPUT_FAILED",
-                message: error,
-            });
+            return Err(macro_input_core_error(failure));
         }
         {
             let mut inner = self

@@ -84,8 +84,13 @@ fn start_child_invocation(
             .insert(invocation_id.clone(), Arc::clone(&child));
     }
     register_owned_child(owner, &child);
+    let attempt_id = begin_macro_start_attempt_for_roles(shared, macro_id, None, roles.clone());
+    if let Ok(mut child_attempt_id) = child.start_attempt_id.lock() {
+        *child_attempt_id = Some(attempt_id.clone());
+    }
+    let mut focus_failure = None;
     let start_result = (|| {
-        perform_actions_with_control(
+        if let Err(failure) = perform_actions_with_control(
             shared,
             &child,
             roles
@@ -93,7 +98,11 @@ fn start_child_invocation(
                 .map(|role_id| (role_id.as_str(), BrowserAction::Focus))
                 .collect(),
             false,
-        )?;
+        ) {
+            let message = failure.message.clone();
+            focus_failure = Some(failure);
+            return Err(message);
+        }
         let started_at = Utc::now().to_rfc3339();
         {
             let mut inner = shared
@@ -150,10 +159,32 @@ fn start_child_invocation(
         Ok(())
     })();
     if let Err(error) = start_result {
+        let diagnostic_error = focus_failure
+            .map(macro_input_core_error)
+            .unwrap_or_else(|| CoreError::Internal(error.clone()));
+        finish_macro_start_attempt(
+            shared,
+            &attempt_id,
+            diagnostic_error.focus_request_ids().to_vec(),
+            "failed",
+            Some(&diagnostic_error),
+        );
         remove_owned_child(owner, &child.id);
         discard_unstarted_invocation(shared, &child);
         return Err(error);
     }
+    let focus_request_ids = child
+        .focus_request_ids
+        .lock()
+        .map(|request_ids| request_ids.clone())
+        .unwrap_or_default();
+    finish_macro_start_attempt(
+        shared,
+        &attempt_id,
+        focus_request_ids,
+        "running",
+        None,
+    );
     Ok(Some(child))
 }
 
@@ -246,6 +277,8 @@ fn perform_actions(
         actions.retain(|(role_id, _)| !is_role_cancelled(&context.control, role_id));
     }
     perform_actions_with_control(shared, &context.control, actions, allow_cancelled)
+        .map(|_| ())
+        .map_err(|failure| failure.message)
 }
 
 fn perform_actions_with_control(
@@ -253,12 +286,12 @@ fn perform_actions_with_control(
     control: &Arc<InvocationControl>,
     actions: Vec<(&str, BrowserAction)>,
     allow_cancelled: bool,
-) -> Result<(), String> {
+) -> Result<Vec<String>, MacroActionFailure> {
     if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
-        return Err("macro run cancelled".to_owned());
+        return Err(MacroActionFailure::internal("macro run cancelled"));
     }
     if actions.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let cancel_pending_wait = actions
         .iter()
@@ -295,7 +328,7 @@ fn perform_actions_with_control(
                 .map_err(|_| "macro role transfer lock poisoned".to_owned())?;
         }
         if !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
-            return Err("macro run cancelled".to_owned());
+            return Err(MacroActionFailure::internal("macro run cancelled"));
         }
         actions
             .iter()
@@ -319,7 +352,7 @@ fn perform_actions_with_control(
             .lock()
             .map_err(|_| "macro action result lock poisoned".to_owned())?;
         if pending.len().saturating_add(actions.len()) > MAX_PENDING_ACTIONS {
-            return Err("macro browser action queue is full".to_owned());
+            return Err("macro browser action queue is full".to_owned().into());
         }
         actions
             .into_iter()
@@ -351,10 +384,25 @@ fn perform_actions_with_control(
             })
             .collect::<Vec<_>>()
     };
+    let focus_request_ids = pending_actions
+        .iter()
+        .map(|(request_id, _, _)| request_id.clone())
+        .collect::<Vec<_>>();
+    if cancel_pending_wait
+        && let Ok(mut request_ids) = control.focus_request_ids.lock()
+    {
+        *request_ids = focus_request_ids.clone();
+    }
+    if cancel_pending_wait
+        && let Ok(attempt_id) = control.start_attempt_id.lock()
+        && let Some(attempt_id) = attempt_id.as_deref()
+    {
+        mark_macro_start_attempt_focus_admission(shared, attempt_id, &focus_request_ids);
+    }
     (shared.events)(vec![CoreEvent::BrowserActions { actions: requests }]);
     let deadline = std::time::Instant::now() + shared.action_timeout;
     let mut outcome = Ok(());
-    for (_, role_id, receiver) in &pending_actions {
+    for (request_id, role_id, receiver) in &pending_actions {
         let mut signal_guard = control
             .wake
             .0
@@ -363,7 +411,13 @@ fn perform_actions_with_control(
         loop {
             if cancel_pending_wait && !allow_cancelled && control.cancelled.load(Ordering::Acquire)
             {
-                outcome = Err("macro run cancelled".to_owned());
+                outcome = Err(MacroActionFailure {
+                    cause_code: "MACRO_RUN_CANCELLED".to_owned(),
+                    focus_request_ids: focus_request_ids.clone(),
+                    message: "macro run cancelled".to_owned(),
+                    request_id: Some(request_id.clone()),
+                    role_id: Some(role_id.clone()),
+                });
                 break;
             }
             match receiver.try_recv() {
@@ -372,9 +426,17 @@ fn perform_actions_with_control(
                     record_action_failure(
                         control,
                         role_id,
-                        result
+                        MacroActionFailure {
+                            cause_code: result
+                                .error_code
+                                .unwrap_or_else(|| "MACRO_INPUT_FAILED".to_owned()),
+                            focus_request_ids: focus_request_ids.clone(),
+                            message: result
                             .error_message
-                            .unwrap_or_else(|| "browser action failed".to_owned()),
+                                .unwrap_or_else(|| "browser action failed".to_owned()),
+                            request_id: Some(request_id.clone()),
+                            role_id: Some(role_id.clone()),
+                        },
                         &mut outcome,
                     );
                     break;
@@ -392,10 +454,16 @@ fn perform_actions_with_control(
                     record_action_failure(
                         control,
                         role_id,
-                        format!(
-                            "Macro input timed out after {} ms.",
-                            ACTION_TIMEOUT.as_millis()
-                        ),
+                        MacroActionFailure {
+                            cause_code: "MACRO_INPUT_TIMEOUT".to_owned(),
+                            focus_request_ids: focus_request_ids.clone(),
+                            message: format!(
+                                "Macro input timed out after {} ms.",
+                                ACTION_TIMEOUT.as_millis()
+                            ),
+                            request_id: Some(request_id.clone()),
+                            role_id: Some(role_id.clone()),
+                        },
                         &mut outcome,
                     );
                     break;
@@ -404,7 +472,13 @@ fn perform_actions_with_control(
                     record_action_failure(
                         control,
                         role_id,
-                        "macro browser action result channel closed".to_owned(),
+                        MacroActionFailure {
+                            cause_code: "MACRO_INPUT_RESULT_CHANNEL_CLOSED".to_owned(),
+                            focus_request_ids: focus_request_ids.clone(),
+                            message: "macro browser action result channel closed".to_owned(),
+                            request_id: Some(request_id.clone()),
+                            role_id: Some(role_id.clone()),
+                        },
                         &mut outcome,
                     );
                     break;
@@ -419,16 +493,22 @@ fn perform_actions_with_control(
         }
     }
     if outcome.is_ok() && !allow_cancelled && control.cancelled.load(Ordering::Acquire) {
-        return Err("macro run cancelled".to_owned());
+        return Err(MacroActionFailure {
+            cause_code: "MACRO_RUN_CANCELLED".to_owned(),
+            focus_request_ids,
+            message: "macro run cancelled".to_owned(),
+            request_id: None,
+            role_id: None,
+        });
     }
-    outcome
+    outcome.map(|()| focus_request_ids)
 }
 
 fn record_action_failure(
     control: &InvocationControl,
     role_id: &str,
-    message: String,
-    outcome: &mut Result<(), String>,
+    mut failure: MacroActionFailure,
+    outcome: &mut Result<(), MacroActionFailure>,
 ) {
     if outcome.is_ok() && !control.cancelled.load(Ordering::Acquire) {
         if let Ok(mut failed_role_id) = control.failed_role_id.lock()
@@ -436,7 +516,10 @@ fn record_action_failure(
         {
             *failed_role_id = Some(role_id.to_owned());
         }
-        *outcome = Err(message);
+        if failure.role_id.is_none() {
+            failure.role_id = Some(role_id.to_owned());
+        }
+        *outcome = Err(failure);
     }
 }
 
@@ -774,6 +857,8 @@ fn new_invocation_control(
         failed_role_id: Mutex::new(None),
         first_iteration_completed: AtomicBool::new(false),
         first_iteration_roles: (Mutex::new(HashSet::new()), Condvar::new()),
+        focus_request_ids: Mutex::new(Vec::new()),
+        start_attempt_id: Mutex::new(None),
         finished: (Mutex::new(false), Condvar::new()),
         finished_naturally: AtomicBool::new(false),
         id,

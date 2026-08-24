@@ -20,6 +20,132 @@ fn validate_shortcut_source(request: &MacroStartRequest) -> CoreResult<()> {
     }
 }
 
+fn begin_macro_start_attempt(shared: &Arc<Shared>, request: &MacroStartRequest) -> String {
+    let active_role_ids = request
+        .active_role_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
+    let role_ids = request
+        .macros
+        .iter()
+        .find(|definition| definition.id == request.macro_id)
+        .map(|definition| assigned_active_roles(definition, &active_role_ids))
+        .unwrap_or_default();
+    begin_macro_start_attempt_for_roles(
+        shared,
+        &request.macro_id,
+        request.source_role_id.clone(),
+        role_ids,
+    )
+}
+
+fn begin_macro_start_attempt_for_roles(
+    shared: &Arc<Shared>,
+    macro_id: &str,
+    source_role_id: Option<String>,
+    mut role_ids: Vec<String>,
+) -> String {
+    let attempt_number = shared
+        .next_start_attempt_id
+        .fetch_add(1, Ordering::Relaxed);
+    let attempt_id = format!("macro-start-attempt-{attempt_number}");
+    role_ids.sort();
+    let record = MacroStartAttemptDiagnosticRecord {
+        attempt_id: attempt_id.clone(),
+        macro_id: macro_id.to_owned(),
+        source_role_id,
+        role_ids,
+        focus_request_ids: Vec::new(),
+        requested_at: Utc::now().to_rfc3339(),
+        completed_at: None,
+        stage: "requested".to_owned(),
+        outcome: "pending".to_owned(),
+        error_code: None,
+        cause_code: None,
+        failed_role_id: None,
+        failed_request_id: None,
+    };
+    if let Ok(mut inner) = shared.inner.lock() {
+        inner.recent_start_attempts.push_back(record);
+        while inner.recent_start_attempts.len() > MAX_RECENT_START_ATTEMPTS {
+            inner.recent_start_attempts.pop_front();
+        }
+    }
+    attempt_id
+}
+
+fn finish_macro_start_attempt(
+    shared: &Arc<Shared>,
+    attempt_id: &str,
+    focus_request_ids: Vec<String>,
+    outcome: &str,
+    error: Option<&CoreError>,
+) {
+    let Ok(mut inner) = shared.inner.lock() else {
+        return;
+    };
+    let Some(record) = inner
+        .recent_start_attempts
+        .iter_mut()
+        .find(|record| record.attempt_id == attempt_id)
+    else {
+        return;
+    };
+    record.focus_request_ids = focus_request_ids;
+    record.completed_at = Some(Utc::now().to_rfc3339());
+    record.stage = if outcome == "running" {
+        "admitted".to_owned()
+    } else {
+        "terminal".to_owned()
+    };
+    record.outcome = outcome.to_owned();
+    if let Some(error) = error {
+        record.error_code = Some(error.code().to_owned());
+        record.cause_code = error.cause_code().map(str::to_owned);
+        record.failed_role_id = error.failed_role_id().map(str::to_owned);
+        record.failed_request_id = error.failed_request_id().map(str::to_owned);
+    }
+}
+
+fn mark_macro_start_attempt_focus_admission(
+    shared: &Arc<Shared>,
+    attempt_id: &str,
+    focus_request_ids: &[String],
+) {
+    let Ok(mut inner) = shared.inner.lock() else {
+        return;
+    };
+    let Some(record) = inner
+        .recent_start_attempts
+        .iter_mut()
+        .find(|record| record.attempt_id == attempt_id)
+    else {
+        return;
+    };
+    record.focus_request_ids = focus_request_ids.to_vec();
+    record.stage = "focusAdmission".to_owned();
+}
+
+fn macro_input_core_error(failure: MacroActionFailure) -> CoreError {
+    let code = match failure.cause_code.as_str() {
+        "SYSTEM_RUNTIME_NOT_ACTIVE" => "MACRO_RUNTIME_NOT_ACTIVE",
+        "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED" => "MACRO_INPUT_WAKE_FAILED",
+        "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE" => {
+            "MACRO_INPUT_WAKE_INDETERMINATE"
+        }
+        _ => "MACRO_INPUT_FAILED",
+    };
+    CoreError::MacroInput(Box::new(MacroInputError {
+        code,
+        cause_code: failure.cause_code,
+        failed_request_id: failure.request_id,
+        failed_role_id: failure.role_id,
+        focus_request_ids: failure.focus_request_ids,
+        message: failure.message,
+    }))
+}
+
 fn discard_unstarted_invocation(shared: &Arc<Shared>, control: &Arc<InvocationControl>) {
     if let Ok(mut inner) = shared.inner.lock() {
         inner.invocations.remove(&control.id);

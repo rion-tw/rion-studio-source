@@ -1027,6 +1027,132 @@ pub(in crate::system_runtime) fn call_system_input_devtools_bounded(
 }
 
 #[cfg(windows)]
+pub(in crate::system_runtime) fn ensure_platform_automation_surface_ready(
+    webview: &Webview,
+    context: &InputDispatchContext,
+) -> AutomationSurfaceReadinessOutcome {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2, ICoreWebView2_3,
+    };
+    use windows::core::Interface;
+
+    let observation = AutomationSurfaceReadinessObservation {
+        controller_visible: None,
+        policy_mode: "webview2-visibility",
+        resume_attempted: false,
+        suspended_after: None,
+        suspended_before: None,
+    };
+    if let Err(error) = context.ensure_current() {
+        return AutomationSurfaceReadinessOutcome {
+            observation,
+            result: Err(error),
+        };
+    }
+    let guard = NativeAutomationReadinessGuard::new(context);
+    let callback_guard = guard.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let request_sender = sender.clone();
+    if let Err(error) = webview.with_webview(move |platform_webview| unsafe {
+        if !callback_guard.claim() {
+            let _ = request_sender.send(None);
+            return;
+        }
+        let mut observation = AutomationSurfaceReadinessObservation {
+            controller_visible: None,
+            policy_mode: "webview2-visibility",
+            resume_attempted: false,
+            suspended_after: None,
+            suspended_before: None,
+        };
+        let result = (|| -> RuntimeResult<()> {
+            let controller = platform_webview.controller();
+            let mut visible = windows::core::BOOL::default();
+            controller.IsVisible(&mut visible).map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    format!("WebView2 did not report automation-surface visibility: {error}"),
+                )
+            })?;
+            observation.controller_visible = Some(visible.as_bool());
+            let core: ICoreWebView2 = controller.CoreWebView2().map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    format!("WebView2 automation surface is unavailable: {error}"),
+                )
+            })?;
+            let core3 = core.cast::<ICoreWebView2_3>().map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    format!("WebView2 automation wake capability is unavailable: {error}"),
+                )
+            })?;
+            let mut suspended = windows::core::BOOL::default();
+            core3.IsSuspended(&mut suspended).map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    format!("WebView2 did not report automation-surface suspension: {error}"),
+                )
+            })?;
+            observation.suspended_before = Some(suspended.as_bool());
+            if suspended.as_bool() {
+                observation.resume_attempted = true;
+                core3.Resume().map_err(|error| {
+                    RuntimeError::new(
+                        "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                        format!("WebView2 did not resume the automation surface: {error}"),
+                    )
+                })?;
+            }
+            callback_guard.context.ensure_current()?;
+            let mut suspended_after = windows::core::BOOL::default();
+            core3.IsSuspended(&mut suspended_after).map_err(|error| {
+                RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE",
+                    format!("WebView2 did not confirm automation-surface readiness: {error}"),
+                )
+            })?;
+            observation.suspended_after = Some(suspended_after.as_bool());
+            if suspended_after.as_bool() {
+                return Err(RuntimeError::new(
+                    "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                    "WebView2 remained suspended after the automation wake request.",
+                ));
+            }
+            Ok(())
+        })();
+        let _ = request_sender.send(Some((observation, result)));
+    }) {
+        return AutomationSurfaceReadinessOutcome {
+            observation,
+            result: Err(RuntimeError::new(
+                "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                format!("WebView2 automation readiness could not reach the live surface: {error}"),
+            )),
+        };
+    }
+    match receiver.recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT)) {
+        Ok(Some((observation, result))) => AutomationSurfaceReadinessOutcome {
+            observation,
+            result: result.and_then(|()| context.ensure_current()),
+        },
+        Ok(None) => AutomationSurfaceReadinessOutcome {
+            observation,
+            result: context.ensure_current().and_then(|()| {
+                Err(RuntimeError::new(
+                    "BROWSER_ACTION_STALE",
+                    "Automation-surface readiness was rejected before WebView2 submission.",
+                ))
+            }),
+        },
+        Err(_) => AutomationSurfaceReadinessOutcome {
+            observation,
+            result: Err(guard.timeout_error()),
+        },
+    }
+}
+
+#[cfg(windows)]
 pub(in crate::system_runtime) fn set_audio_muted(webview: &Webview, muted: bool) -> RuntimeResult<()> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
     use windows::core::Interface;

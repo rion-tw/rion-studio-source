@@ -16,6 +16,7 @@ fn export_bindings_index() {
                 "export type { MacroInputEpochRecord } from \"./MacroInputEpochRecord\";\n",
                 "export type { MacroInputDiagnosticsRecord } from \"./MacroInputDiagnosticsRecord\";\n",
                 "export type { MacroInputRoleDiagnosticRecord } from \"./MacroInputRoleDiagnosticRecord\";\n",
+                "export type { MacroStartAttemptDiagnosticRecord } from \"./MacroStartAttemptDiagnosticRecord\";\n",
                 "export type { BrowserOperationLease } from \"./BrowserOperationLease\";\n",
                 "export type { BrowserOperationRequest } from \"./BrowserOperationRequest\";\n",
                 "export type { BrowserEngineResolutionRecord } from \"./BrowserEngineResolutionRecord\";\n",

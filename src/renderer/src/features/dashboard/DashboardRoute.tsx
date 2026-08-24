@@ -54,6 +54,7 @@ interface DashboardRouteProps {
   macros: Macro[];
   roleStatuses: RoleStatus[];
   roles: Role[];
+  runtimeInputAvailable?: boolean;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: LaunchWorkspace[];
@@ -85,6 +86,7 @@ function DashboardRoute({
   macros,
   roleStatuses,
   roles,
+  runtimeInputAvailable = true,
   statusByRole,
   t,
   workspaces,
@@ -127,9 +129,10 @@ function DashboardRoute({
         macroStatusByRun,
         macros,
         roles,
+        runtimeInputAvailable,
         statusByRole
       }).slice(0, 5),
-    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, roles, statusByRole]
+    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, roles, runtimeInputAvailable, statusByRole]
   );
 
   return (
@@ -652,6 +655,10 @@ function getMacroStatusLabel(item: DashboardMacroItem, t: Translator): string {
     return t("macros.automationUnavailable");
   }
 
+  if (item.action.disabledReason === "runtimeNotActive") {
+    return t("macros.status.runtimeNotActive");
+  }
+
   if (item.action.disabledReason === "unassignedDependency") {
     return t("macros.status.unassignedDependency");
   }
@@ -716,6 +723,10 @@ function getMacroActionTitle(item: DashboardMacroItem, t: Translator): string | 
 
   if (item.action.disabledReason === "automationUnavailable") {
     return t("macros.automationUnavailable");
+  }
+
+  if (item.action.disabledReason === "runtimeNotActive") {
+    return t("macros.runtimeNotActive");
   }
 
   if (item.action.disabledReason === "unassignedDependency") {

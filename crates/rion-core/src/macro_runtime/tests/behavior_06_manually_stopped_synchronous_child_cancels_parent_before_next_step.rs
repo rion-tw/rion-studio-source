@@ -193,7 +193,78 @@
             .unwrap();
         let error = starting.join().unwrap().unwrap_err();
         assert_eq!(error.code(), "MACRO_INPUT_FAILED");
+        assert_eq!(error.cause_code(), Some("TARGET_DETACHED"));
+        assert_eq!(error.failed_role_id(), Some("r1"));
+        assert_eq!(error.focus_request_ids().len(), 2);
         assert!(runtime.statuses().unwrap().is_empty());
+        let diagnostics = runtime.input_diagnostics().unwrap();
+        assert_eq!(diagnostics.active_invocation_count, 0);
+        assert_eq!(diagnostics.recent_start_attempts.len(), 1);
+        assert_eq!(diagnostics.recent_start_attempts[0].outcome, "failed");
+        assert_eq!(
+            diagnostics.recent_start_attempts[0].cause_code.as_deref(),
+            Some("TARGET_DETACHED")
+        );
+        assert_eq!(diagnostics.recent_start_attempts[0].focus_request_ids.len(), 2);
+    }
+
+    #[test]
+    fn focus_wake_failures_keep_stable_macro_codes_and_native_causes() {
+        for (cause_code, expected_code) in [
+            (
+                "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+                "MACRO_INPUT_WAKE_FAILED",
+            ),
+            (
+                "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE",
+                "MACRO_INPUT_WAKE_INDETERMINATE",
+            ),
+            ("SYSTEM_RUNTIME_NOT_ACTIVE", "MACRO_RUNTIME_NOT_ACTIVE"),
+        ] {
+            let (events, receiver) = mpsc::channel::<Vec<CoreEvent>>();
+            let runtime = MacroRuntime::new(Arc::new(move |batch| {
+                let _ = events.send(batch);
+            }));
+            let starting_runtime = runtime.clone();
+            let starting = thread::spawn(move || starting_runtime.start(request(Vec::new())));
+            let focus = next_browser_actions(&receiver);
+            runtime
+                .dispatch_results(vec![BrowserActionResult {
+                    request_id: focus[0].request_id.clone(),
+                    ok: false,
+                    value_json: None,
+                    error_code: Some(cause_code.to_owned()),
+                    error_message: Some("readiness rejected".to_owned()),
+                }])
+                .unwrap();
+
+            let error = starting.join().unwrap().unwrap_err();
+            assert_eq!(error.code(), expected_code);
+            assert_eq!(error.cause_code(), Some(cause_code));
+            let diagnostics = runtime.input_diagnostics().unwrap();
+            assert_eq!(diagnostics.recent_start_attempts[0].error_code.as_deref(), Some(expected_code));
+            assert_eq!(diagnostics.recent_start_attempts[0].cause_code.as_deref(), Some(cause_code));
+        }
+    }
+
+    #[test]
+    fn macro_start_diagnostics_keep_only_the_newest_forty_attempts() {
+        let runtime = MacroRuntime::new(Arc::new(|_| {}));
+        for index in 0..45 {
+            let mut start = request(Vec::new());
+            start.macro_id = format!("missing-{index}");
+            assert!(runtime.start(start).is_err());
+        }
+
+        let diagnostics = runtime.input_diagnostics().unwrap();
+        assert_eq!(diagnostics.recent_start_attempts.len(), MAX_RECENT_START_ATTEMPTS);
+        assert_eq!(diagnostics.recent_start_attempts[0].attempt_id, "macro-start-attempt-45");
+        assert_eq!(diagnostics.recent_start_attempts[39].attempt_id, "macro-start-attempt-6");
+        assert!(diagnostics.recent_start_attempts.iter().all(|attempt| {
+            attempt.completed_at.is_some()
+                && attempt.outcome == "rejected"
+                && attempt.stage == "terminal"
+        }));
     }
 
     #[test]
@@ -206,6 +277,11 @@
         let start = thread::spawn(move || starting_runtime.start(request(Vec::new())).unwrap());
         let focus = next_browser_actions(&receiver);
         let status_was_hidden_during_preflight = runtime.statuses().unwrap().is_empty();
+        let admission_diagnostics = runtime.input_diagnostics().unwrap();
+        assert_eq!(admission_diagnostics.active_invocation_count, 1);
+        assert_eq!(admission_diagnostics.recent_start_attempts[0].stage, "focusAdmission");
+        assert_eq!(admission_diagnostics.recent_start_attempts[0].outcome, "pending");
+        assert_eq!(admission_diagnostics.recent_start_attempts[0].focus_request_ids.len(), 1);
         let focused_role_ids = focus
             .iter()
             .filter(|request| matches!(request.action, BrowserAction::Focus))
@@ -213,6 +289,9 @@
             .collect::<Vec<_>>();
         runtime.dispatch_results(success_results(focus)).unwrap();
         let statuses = start.join().unwrap();
+        let admitted_diagnostics = runtime.input_diagnostics().unwrap();
+        assert_eq!(admitted_diagnostics.recent_start_attempts[0].stage, "admitted");
+        assert_eq!(admitted_diagnostics.recent_start_attempts[0].outcome, "running");
         assert_eq!(statuses.len(), 1);
         {
             assert_eq!(focused_role_ids, ["r1".to_owned()]);

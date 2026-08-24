@@ -69,6 +69,7 @@ export interface QuickAccessCatalogInput {
   preferences: QuickAccessPreferences;
   roles: readonly Role[];
   runtime: EmbeddedRuntimeState;
+  runtimeInputAvailable?: boolean;
   statusByRole: Map<string, RoleStatus>;
   t: Translator;
   workspaces: readonly LaunchWorkspace[];
@@ -230,6 +231,7 @@ export function createQuickAccessCatalog(input: QuickAccessCatalogInput): QuickA
       hasUnassignedDependency: Boolean(findUnassignedMacroDependency([...input.macros], macro.id)),
       macro,
       macroStatusByRun: input.macroStatusByRun,
+      runtimeInputAvailable: input.runtimeInputAvailable ?? true,
       statusByRole: input.statusByRole
     });
     const roleNames = macro.roleIds

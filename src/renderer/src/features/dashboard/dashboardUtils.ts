@@ -63,6 +63,7 @@ export interface DashboardMacroActionState {
     | "automationUnavailable"
     | "macroDisabled"
     | "noRoles"
+    | "runtimeNotActive"
     | "rolesNotRunning"
     | "unassignedDependency";
   isBusy: boolean;
@@ -172,6 +173,7 @@ function createMacroActionState({
   macroStatusByRun,
   hasUnassignedDependency,
   roleIds,
+  runtimeInputAvailable,
   statusByRole
 }: {
   busyMacroIds: ReadonlySet<string>;
@@ -180,6 +182,7 @@ function createMacroActionState({
   macroStatusByRun: Map<string, MacroRunStatus>;
   hasUnassignedDependency: boolean;
   roleIds: Set<string>;
+  runtimeInputAvailable: boolean;
   statusByRole: Map<string, RoleStatus>;
 }): DashboardMacroActionState {
   const assignedRunStatuses = macro.roleIds
@@ -205,6 +208,8 @@ function createMacroActionState({
       ? "unassignedDependency"
     : !macro.enabled && !isRunning
       ? "macroDisabled"
+    : !runtimeInputAvailable && !isRunning
+      ? "runtimeNotActive"
     : !hasRunningBrowser && !isRunning
       ? "rolesNotRunning"
       : !hasRunnableRole && !isRunning
@@ -226,6 +231,7 @@ export function getDashboardMacroItems({
   macroStatusByRun,
   macros,
   roles,
+  runtimeInputAvailable = true,
   statusByRole
 }: {
   busyMacroIds: ReadonlySet<string>;
@@ -233,6 +239,7 @@ export function getDashboardMacroItems({
   macroStatusByRun: Map<string, MacroRunStatus>;
   macros: Macro[];
   roles: Role[];
+  runtimeInputAvailable?: boolean;
   statusByRole: Map<string, RoleStatus>;
 }): DashboardMacroItem[] {
   const roleIds = new Set(roles.map((role) => role.id));
@@ -251,6 +258,7 @@ export function getDashboardMacroItems({
           macroStatusByRun,
           hasUnassignedDependency: Boolean(findUnassignedMacroDependency(macros, macro.id)),
           roleIds,
+          runtimeInputAvailable,
           statusByRole
         }),
         assignedCount: macro.roleIds.length,

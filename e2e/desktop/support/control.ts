@@ -370,6 +370,52 @@ export async function injectPageFinishFailure(
   };
 }
 
+export async function applicationLifecycleSignal(
+  suspended: boolean
+): Promise<{ status: "submitted"; suspended: boolean }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, shouldSuspend) => core.invoke(
+      "desktop_e2e_application_lifecycle_signal",
+      { suspended: shouldSuspend, token }
+    ),
+    sessionToken(),
+    suspended
+  );
+  return result as unknown as { status: "submitted"; suspended: boolean };
+}
+
+export async function armAutomationReadinessFailure(
+  roleId: string,
+  causeCode:
+    | "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED"
+    | "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
+): Promise<{ armed: true; causeCode: string; roleId: string }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id, code) => core.invoke(
+      "desktop_e2e_arm_automation_readiness_failure",
+      { causeCode: code, roleId: id, token }
+    ),
+    sessionToken(),
+    roleId,
+    causeCode
+  );
+  return result as unknown as { armed: true; causeCode: string; roleId: string };
+}
+
+export async function suspendAutomationSurface(
+  roleId: string
+): Promise<{ roleId: string; status: "suspended" }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, id) => core.invoke(
+      "desktop_e2e_suspend_automation_surface",
+      { roleId: id, token }
+    ),
+    sessionToken(),
+    roleId
+  );
+  return result as unknown as { roleId: string; status: "suspended" };
+}
+
 export async function controlWindow(
   windowId: string,
   request: WindowControlRequest

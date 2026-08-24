@@ -1,6 +1,6 @@
 # Native Projections and Placement
 
-This document is part of [System WebView Runtime Contract version 17](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 18](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Native tab chrome projection
 
@@ -84,7 +84,7 @@ shape. Domain validation still requires a Role tab to contain its source Role
 and rejects a Workspace tab only when both its complete layout and legacy
 Role-backed subset contain no content. Legacy Role-backed Workspace tabs whose
 complete layout is absent remain valid and continue through the merge behavior
-below. These rules complete the existing version-17 slot semantics and do not
+below. These rules complete the existing version-18 slot semantics and do not
 introduce a new contract version or database representation.
 
 An applied live snapshot fences that saved tab order for the lifetime of the

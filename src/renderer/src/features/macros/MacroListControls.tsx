@@ -140,6 +140,7 @@ type MacroRunDisabledReason =
   | "noRoles"
   | "unassignedDependency"
   | "macroDisabled"
+  | "runtimeNotActive"
   | "rolesNotRunning"
   | "automationUnavailable";
 
@@ -160,6 +161,7 @@ export function createMacroListRunActionState({
   hasUnassignedDependency,
   macro,
   macroStatusByRun,
+  runtimeInputAvailable = true,
   statusByRole
 }: {
   busyMacroIds: ReadonlySet<string>;
@@ -167,6 +169,7 @@ export function createMacroListRunActionState({
   hasUnassignedDependency: boolean;
   macro: Macro;
   macroStatusByRun: Map<string, MacroRunStatus>;
+  runtimeInputAvailable?: boolean;
   statusByRole: Map<string, RoleStatus>;
 }): MacroListRunActionState {
   const assignedStatuses = macro.roleIds
@@ -190,6 +193,8 @@ export function createMacroListRunActionState({
       ? "unassignedDependency"
       : !isRunning && !macro.enabled
         ? "macroDisabled"
+        : !isRunning && !runtimeInputAvailable
+          ? "runtimeNotActive"
         : !isRunning && !hasRunningBrowser
           ? "rolesNotRunning"
           : !isRunning && !hasRunnableRole
@@ -230,6 +235,8 @@ export function MacroRunButton({
       ? t("macros.assignCalledMacroRoleFirst")
       : runState.disabledReason === "macroDisabled"
         ? t("macros.disabledHint")
+        : runState.disabledReason === "runtimeNotActive"
+          ? t("macros.runtimeNotActive")
         : runState.disabledReason === "rolesNotRunning"
           ? t("macros.launchRoleFirst")
           : runState.disabledReason === "automationUnavailable"

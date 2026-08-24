@@ -46,6 +46,9 @@ function localizedErrorKey(code: unknown) {
     MACRO_ROLE_INPUT_FENCED: "error.macroRoleInputFenced",
     MACRO_ROLE_INPUT_RECOVERING: "error.macroRoleInputRecovering",
     MACRO_ROLE_INPUT_RESTART_REQUIRED: "error.macroRoleInputRestartRequired",
+    MACRO_RUNTIME_NOT_ACTIVE: "error.macroRuntimeNotActive",
+    MACRO_INPUT_WAKE_FAILED: "error.macroInputWakeFailed",
+    MACRO_INPUT_WAKE_INDETERMINATE: "error.macroInputWakeIndeterminate",
     SYSTEM_TRUSTED_INPUT_RECOVERING: "error.trustedInputRecovering",
     WORKSPACE_CONTENT_REQUIRED: "error.workspaceEmpty"
   } as const;

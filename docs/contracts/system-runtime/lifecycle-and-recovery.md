@@ -1,11 +1,14 @@
 # Lifecycle and Recovery
 
-This document is part of [System WebView Runtime Contract version 17](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 18](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Lifecycle and readiness rules
 
 - A surface identity is `(instanceId, generation, windowId)`. Stale generations
   cannot receive navigation, input, presentation, or recovery work.
+- Every normal automatic-input dispatch carries the accepted application lifecycle epoch, role input epoch, and surface generation. All three are checked before native submission and again before accepting its callback. Cleanup may cross a lifecycle fence only to release already-owned keys or pointers; it cannot create new input.
+- Every root macro, called macro, and recovery restart begins with an event-fenced Focus readiness admission. On Windows the exact current WebView2 controller reports visibility and `IsSuspended`; a suspended surface must complete `Resume`, report `IsSuspended == false`, and then pass the existing page input-context readback before Core may publish `running`. On macOS the configured `BackgroundThrottlingPolicy::Throttle` remains authoritative and the same page readback is the executable proof. Neither path selects, shows, reloads, or focuses a background tab.
+- A failed WebView wake is `SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED`; an unknown post-Resume result is `SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE`. Core preserves the failing role, request, native cause, and every Focus request ID while projecting the stable macro errors `MACRO_INPUT_WAKE_FAILED` or `MACRO_INPUT_WAKE_INDETERMINATE`. Neither outcome publishes `running` or sends normal input. The existing neutral-input recovery contract decides whether the role can resume or must be relaunched.
 - Closing first fences input, then proves isolation. An unverified close becomes
   `indeterminate`, quarantines the role, and blocks relaunch until recovery.
 - `pageFinished` means the engine completed an HTTP(S) navigation callback.
@@ -185,6 +188,8 @@ recorded input epochs may resume. The actor republishes runtime/main-window
 projections and returns to `active` or `degraded`; it then cancels stale drag
 state, requests a fresh display-topology reconciliation, and schedules bounded
 deferred surface recovery under the active epoch.
+
+New macro starts are rejected during `suspending`, `suspended`, and `resuming`; the renderer disables its Start controls from the revision-fenced lifecycle projection, while Core remains authoritative for shortcuts, overlays, and stale renderer actions. Sleep terminalizes existing macro invocations and releases their input ownership. Wake never replays or automatically restarts those invocations; after the lifecycle is `active` or `degraded` and every recorded role input epoch resumes exactly, the user may start a new invocation from its beginning.
 
 macOS uses `NSWorkspaceWillSleepNotification` and
 `NSWorkspaceDidWakeNotification`. Windows owns a hidden message-only window and

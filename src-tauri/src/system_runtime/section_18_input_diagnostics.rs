@@ -18,11 +18,44 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|lanes| lanes.get(role_id).cloned());
+        let role_tab = self.state.lock().ok().and_then(|state| {
+            let tab_id = state.native_tab_id_for_role_surface(role_id)?.clone();
+            let window_id = state.native_host_for_tab_handle(&tab_id)?;
+            Some((tab_id, window_id))
+        });
+        let tab_selected = role_tab.as_ref().and_then(|(tab_id, window_id)| {
+            self.presentation
+                .live
+                .kernel
+                .snapshot()
+                .ok()?
+                .native_projection(window_id)
+                .and_then(|projection| {
+                    projection
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.tab_id == *tab_id)
+                        .map(|tab| tab.selected)
+                })
+        });
         let mut context = diagnostic.as_object().cloned().unwrap_or_default();
         context.insert("requestId".to_owned(), Value::String(request_id.to_owned()));
         context.insert("roleId".to_owned(), Value::String(role_id.to_owned()));
         context.insert("inputEpoch".to_owned(), Value::from(input_epoch));
+        let lifecycle = self.application_lifecycle_status();
+        context.insert(
+            "applicationLifecycleEpoch".to_owned(),
+            Value::from(lifecycle.lifecycle_epoch),
+        );
+        context.insert(
+            "applicationLifecycleState".to_owned(),
+            Value::String(lifecycle.state),
+        );
         context.insert("intent".to_owned(), Value::String(intent.to_owned()));
+        context.insert(
+            "tabSelected".to_owned(),
+            tab_selected.map(Value::from).unwrap_or(Value::Null),
+        );
         context.insert(
             "scheduledAgeMs".to_owned(),
             Value::from(now_ms.saturating_sub(scheduled_at_ms)),

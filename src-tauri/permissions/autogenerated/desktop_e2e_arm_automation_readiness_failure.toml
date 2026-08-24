@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-e2e-arm-automation-readiness-failure"
+description = "Enables the desktop_e2e_arm_automation_readiness_failure command without any pre-configured scope."
+commands.allow = ["desktop_e2e_arm_automation_readiness_failure"]
+
+[[permission]]
+identifier = "deny-desktop-e2e-arm-automation-readiness-failure"
+description = "Denies the desktop_e2e_arm_automation_readiness_failure command without any pre-configured scope."
+commands.deny = ["desktop_e2e_arm_automation_readiness_failure"]

@@ -5,6 +5,7 @@ export type { BrowserActionResult } from "./BrowserActionResult";
 export type { MacroInputEpochRecord } from "./MacroInputEpochRecord";
 export type { MacroInputDiagnosticsRecord } from "./MacroInputDiagnosticsRecord";
 export type { MacroInputRoleDiagnosticRecord } from "./MacroInputRoleDiagnosticRecord";
+export type { MacroStartAttemptDiagnosticRecord } from "./MacroStartAttemptDiagnosticRecord";
 export type { BrowserOperationLease } from "./BrowserOperationLease";
 export type { BrowserOperationRequest } from "./BrowserOperationRequest";
 export type { BrowserEngineResolutionRecord } from "./BrowserEngineResolutionRecord";

@@ -63,7 +63,7 @@ impl SystemRuntimeExecutor {
         Ok(())
     }
 
-    fn role_webview(&self, role_id: &str) -> RuntimeResult<Webview> {
+    pub(crate) fn role_webview(&self, role_id: &str) -> RuntimeResult<Webview> {
         let state = self.state()?;
         let tab_id = state.native_tab_id_for_role_surface(role_id).ok_or_else(|| {
             RuntimeError::new(

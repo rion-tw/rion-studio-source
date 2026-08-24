@@ -33,6 +33,7 @@ const specByPhase: Record<string, string> = {
   "p1-mutations": "e2e/desktop/specs/full-desktop.e2e.ts",
   "p1-macro-multirole": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p1-macro-input-recovery": "e2e/desktop/specs/macro-runtime.e2e.ts",
+  "p1-macro-standby-recovery": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p1-role-session-isolation": "e2e/desktop/specs/role-isolation.e2e.ts",
   "p1-role-session-seed": "e2e/desktop/specs/role-isolation.e2e.ts",
   "p1-workspace-shared-role": "e2e/desktop/specs/role-isolation.e2e.ts",

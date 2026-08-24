@@ -228,6 +228,8 @@ function MacroStatusBadge({
       return null;
     case "automationUnavailable":
       return <Badge variant="warning">{t("macros.status.automationUnavailable")}</Badge>;
+    case "runtimeNotActive":
+      return <Badge variant="warning">{t("macros.status.runtimeNotActive")}</Badge>;
     default:
       return <Badge variant="outline">{t("macros.status.ready")}</Badge>;
   }

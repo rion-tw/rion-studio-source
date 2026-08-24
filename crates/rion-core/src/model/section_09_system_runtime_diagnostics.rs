@@ -544,8 +544,46 @@ pub struct MacroInputRoleDiagnosticRecord {
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
+pub struct MacroStartAttemptDiagnosticRecord {
+    pub attempt_id: String,
+    pub macro_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub source_role_id: Option<String>,
+    pub role_ids: Vec<String>,
+    #[serde(default)]
+    pub focus_request_ids: Vec<String>,
+    pub requested_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub completed_at: Option<String>,
+    #[ts(type = "\"requested\" | \"focusAdmission\" | \"admitted\" | \"terminal\"")]
+    pub stage: String,
+    #[ts(type = "\"pending\" | \"running\" | \"rejected\" | \"failed\" | \"cancelled\"")]
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub error_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub cause_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failed_role_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub failed_request_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Eq, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct MacroInputDiagnosticsRecord {
     pub roles: Vec<MacroInputRoleDiagnosticRecord>,
+    #[serde(default)]
+    pub active_invocation_count: u32,
+    #[serde(default)]
+    pub recent_start_attempts: Vec<MacroStartAttemptDiagnosticRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize, TS)]
@@ -697,6 +735,11 @@ pub struct SystemRuntimeDiagnosticsRecord {
     pub active_input_fences: Vec<SystemRuntimeInputFenceRecord>,
     #[serde(default)]
     pub recent_input_fence_events: Vec<SystemRuntimeInputFenceEventRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub active_macro_invocation_count: Option<u32>,
+    #[serde(default)]
+    pub recent_macro_start_attempts: Vec<MacroStartAttemptDiagnosticRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub retryable_failed_launch_count: Option<u32>,

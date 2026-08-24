@@ -20,6 +20,10 @@ fn key_effect(
     }
 }
 
+fn active_input_lifecycle() -> Arc<ApplicationLifecycleCoordinator> {
+    Arc::new(ApplicationLifecycleCoordinator::new_for_platform("macos"))
+}
+
 #[test]
 fn completed_tap_has_no_compensation_and_cannot_be_replayed() {
     let effects = vec![
@@ -79,10 +83,12 @@ fn expired_or_replaced_ui_callback_is_rejected_before_submission() {
     lane.epoch.store(7, Ordering::Release);
     lane.surface_generation.store(3, Ordering::Release);
     let context = InputDispatchContext {
+        application_lifecycle: active_input_lifecycle(),
         deadline: Instant::now(),
         input_epoch: 7,
         intent: "normal".to_owned(),
         lane: Arc::clone(&lane),
+        lifecycle_epoch: 0,
         surface_generation: 3,
     };
     let expired = NativeInputSubmissionGuard::new(&context);
@@ -134,10 +140,12 @@ fn submitted_callback_without_completion_is_indeterminate() {
     lane.epoch.store(1, Ordering::Release);
     lane.surface_generation.store(1, Ordering::Release);
     let context = InputDispatchContext {
+        application_lifecycle: active_input_lifecycle(),
         deadline: Instant::now() + Duration::from_secs(60),
         input_epoch: 1,
         intent: "normal".to_owned(),
         lane,
+        lifecycle_epoch: 0,
         surface_generation: 1,
     };
     let submission = NativeInputSubmissionGuard::new(&context);
@@ -154,12 +162,43 @@ fn live_input_context() -> InputDispatchContext {
     lane.epoch.store(1, Ordering::Release);
     lane.surface_generation.store(1, Ordering::Release);
     InputDispatchContext {
+        application_lifecycle: active_input_lifecycle(),
         deadline: Instant::now() + Duration::from_secs(60),
         input_epoch: 1,
         intent: "normal".to_owned(),
         lane,
+        lifecycle_epoch: 0,
         surface_generation: 1,
     }
+}
+
+#[test]
+fn normal_input_is_fenced_by_application_lifecycle_but_cleanup_remains_admissible() {
+    let context = live_input_context();
+    context.application_lifecycle.transition(
+        ApplicationLifecyclePhase::Resuming,
+        context.lifecycle_epoch,
+        "test-resume",
+    );
+
+    assert_eq!(context.ensure_current().unwrap_err().code, "SYSTEM_RUNTIME_NOT_ACTIVE");
+    let cleanup = InputDispatchContext {
+        intent: "cleanup".to_owned(),
+        ..context
+    };
+    assert!(cleanup.ensure_current().is_ok());
+}
+
+#[test]
+fn normal_input_from_an_older_application_lifecycle_epoch_is_stale() {
+    let context = live_input_context();
+    context.application_lifecycle.transition(
+        ApplicationLifecyclePhase::Active,
+        context.lifecycle_epoch + 1,
+        "test-new-epoch",
+    );
+
+    assert_eq!(context.ensure_current().unwrap_err().code, "BROWSER_ACTION_STALE");
 }
 
 #[test]
@@ -267,10 +306,12 @@ fn mouse_up_adopts_a_fence_that_arrives_after_confirmed_mouse_down() {
     let result = dispatch_mouse_input_sequence(
         &context,
         || InputDispatchContext {
+            application_lifecycle: Arc::clone(&context.application_lifecycle),
             deadline: Instant::now() + Duration::from_secs(60),
             input_epoch: cleanup_lane.epoch.load(Ordering::Acquire),
             intent: "cleanup".to_owned(),
             lane: Arc::clone(&cleanup_lane),
+            lifecycle_epoch: context.lifecycle_epoch,
             surface_generation: 1,
         },
         MouseInputDispatchDiagnostics::default(),

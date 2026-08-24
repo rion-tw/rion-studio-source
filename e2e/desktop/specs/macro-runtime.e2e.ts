@@ -1,7 +1,10 @@
-import { $, $$, expect } from "@wdio/globals";
+import { $, $$, browser, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
+import type { ApplicationLifecycleStatusRecord, MacroStartAttemptDiagnosticRecord } from "../../../src/shared/generated";
 import {
+  applicationLifecycleSignal,
+  armAutomationReadinessFailure,
   detachTerminatedApplicationSession,
   focusMainApplicationWindow,
   inputDiagnostics,
@@ -14,6 +17,7 @@ import {
   requireEnvironment,
   runtimeUiAction,
   shutdown,
+  suspendAutomationSurface,
   waitEvent,
   windowSnapshot
 } from "../support/control";
@@ -40,6 +44,7 @@ import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../suppor
 // [journey:MACRO-SHORTCUT-REENTRY-007]
 // [journey:MACRO-MODIFIER-CONTINUITY-008]
 // [journey:MACRO-INPUT-RECOVERY-011]
+// [journey:MACRO-STANDBY-RECOVERY-012]
 // [journey:ROLE-KEY-BLUR-004]
 
 interface Scenario {
@@ -63,6 +68,38 @@ async function waitForInputFenceEvent(
     if ((observed.details as { event?: unknown }).event === expectedEvent) return observed;
     cursor = observed.sequence;
   }
+}
+
+async function waitForApplicationLifecycle(
+  states: ApplicationLifecycleStatusRecord["state"][]
+): Promise<ApplicationLifecycleStatusRecord> {
+  let observed: ApplicationLifecycleStatusRecord | undefined;
+  await browser.waitUntil(async () => {
+    observed = await rendererCall("getApplicationLifecycleStatus");
+    return states.includes(observed.state);
+  }, {
+    interval: 100,
+    timeout: 45_000,
+    timeoutMsg: `Application lifecycle did not reach ${states.join(" or ")}`
+  });
+  return observed!;
+}
+
+async function waitForMacroStartCause(
+  macroId: string,
+  causeCode: string
+): Promise<MacroStartAttemptDiagnosticRecord> {
+  let observed: MacroStartAttemptDiagnosticRecord | undefined;
+  await browser.waitUntil(async () => {
+    observed = (await inputDiagnostics()).recentStartAttempts
+      .find((attempt) => attempt.macroId === macroId && attempt.causeCode === causeCode);
+    return observed?.outcome === "failed" || observed?.outcome === "rejected";
+  }, {
+    interval: 100,
+    timeout: 45_000,
+    timeoutMsg: `Macro start did not preserve ${causeCode}`
+  });
+  return observed!;
 }
 
 async function bootstrap(): Promise<void> {
@@ -422,6 +459,147 @@ async function backgroundTabPhase(): Promise<void> {
       roleId: scenario.roles[0].id,
       stopping: false
     })]));
+  const restartFixtureCursor = await fixtureCursor();
+  const restartMacroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
+  const restartedKeydown = await waitFixtureEvent({
+    afterSequence: restartFixtureCursor,
+    kind: "keydown",
+    roleId: "macro-background-a"
+  });
+  await waitFixtureEvent({
+    afterSequence: restartedKeydown.sequence,
+    kind: "keyup",
+    roleId: "macro-background-a"
+  });
+  const restartedState = await fixtureState();
+  expect(restartedState["macro-background-a"].keydown).toBeGreaterThan(state["macro-background-a"].keydown);
+  expect(restartedState["macro-background-b"].keydown).toBe(0);
+  expect((await windowSnapshot(tabA.windowId)).kernel?.selectedTabId).toBe(tabB.id);
+  await stopMacro(scenario.macro, restartMacroCursor);
+  await cleanup(scenario);
+  await shutdownAndWaitForFlush();
+}
+
+async function standbyRecoveryPhase(): Promise<void> {
+  await bootstrap();
+  const scenario = await createScenario({
+    fixtureRoleIds: ["macro-standby-a", "macro-standby-b"],
+    macroRoleIndexes: [0],
+    name: "E2E Standby Recovery",
+    repeat: { type: "once" },
+    steps: [{ action: "hold_until_stop", code: "KeyS", id: "standby-key", type: "key" }]
+  });
+  const tabA = await launchRole(scenario.roles[0], "new-window");
+  const tabB = await launchRole(scenario.roles[1], { windowId: tabA.windowId });
+  let live = await windowSnapshot(tabA.windowId);
+  await activateVisibleRuntimeTab({
+    tabId: tabB.id,
+    windowGeneration: live.windowGeneration,
+    windowId: tabA.windowId
+  });
+
+  if (process.platform === "win32") {
+    expect(await suspendAutomationSurface(scenario.roles[0].id)).toMatchObject({
+      roleId: scenario.roles[0].id,
+      status: "suspended"
+    });
+  }
+
+  const initialFixtureCursor = await fixtureCursor();
+  const initialMacroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
+  const initialKeydown = await waitFixtureEvent({
+    afterSequence: initialFixtureCursor,
+    kind: "keydown",
+    roleId: "macro-standby-a"
+  });
+  expect((await windowSnapshot(tabA.windowId)).kernel?.selectedTabId).toBe(tabB.id);
+  const runningAttempt = (await inputDiagnostics()).recentStartAttempts
+    .find((attempt) => attempt.macroId === scenario.macro.id && attempt.outcome === "running");
+  expect(runningAttempt?.focusRequestIds.length).toBeGreaterThan(0);
+
+  await applicationLifecycleSignal(true);
+  const suspended = await waitForApplicationLifecycle(["suspended"]);
+  expect(suspended.lifecycleEpoch).toBeGreaterThan(0);
+  await waitForMacroProjection({
+    afterSequence: initialMacroCursor,
+    absent: true,
+    macroId: scenario.macro.id
+  });
+  await waitFixtureEvent({
+    afterSequence: initialKeydown.sequence,
+    kind: "keyup",
+    roleId: "macro-standby-a"
+  });
+  expect((await fixtureState())["macro-standby-a"].pressedCodes).toEqual([]);
+  const fencedStart = await $(`[data-selection-id='${scenario.macro.id}'] button[aria-label='Start']`);
+  await fencedStart.waitForEnabled({ reverse: true, timeout: 20_000 });
+
+  await applicationLifecycleSignal(false);
+  const resumed = await waitForApplicationLifecycle(["active", "degraded"]);
+  expect(resumed.lifecycleEpoch).toBe(suspended.lifecycleEpoch);
+  const resumedFixtureCursor = await fixtureCursor();
+  const resumedMacroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
+  const resumedKeydown = await waitFixtureEvent({
+    afterSequence: resumedFixtureCursor,
+    kind: "keydown",
+    roleId: "macro-standby-a"
+  });
+  expect((await windowSnapshot(tabA.windowId)).kernel?.selectedTabId).toBe(tabB.id);
+  expect((await fixtureState())["macro-standby-b"].keydown).toBe(0);
+  await stopMacro(scenario.macro, resumedMacroCursor);
+  await waitFixtureEvent({
+    afterSequence: resumedKeydown.sequence,
+    kind: "keyup",
+    roleId: "macro-standby-a"
+  });
+
+  if (process.platform === "win32") {
+    for (const [causeCode, macroCode] of [
+      ["SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED", "MACRO_INPUT_WAKE_FAILED"],
+      ["SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE", "MACRO_INPUT_WAKE_INDETERMINATE"]
+    ] as const) {
+      const noInputCursor = await fixtureCursor();
+      await armAutomationReadinessFailure(scenario.roles[0].id, causeCode);
+      await navigate("/macros");
+      const controlCursor = (await probe()).latestSequence;
+      const start = await $(`[data-selection-id='${scenario.macro.id}'] button[aria-label='Start']`);
+      await start.waitForEnabled({ timeout: 20_000 });
+      await start.click();
+      const attempt = await waitForMacroStartCause(scenario.macro.id, causeCode);
+      expect(attempt.errorCode).toBe(macroCode);
+      expect(attempt.failedRoleId).toBe(scenario.roles[0].id);
+      let recoveryCursor = controlCursor;
+      for (;;) {
+        const terminal = await waitEvent({
+          afterSequence: recoveryCursor,
+          kind: "macro-input-recovery-terminal",
+          timeoutMs: 45_000
+        });
+        if ((terminal.details as { roleId?: unknown }).roleId === scenario.roles[0].id) break;
+        recoveryCursor = terminal.sequence;
+      }
+      const diagnostics = await inputDiagnostics();
+      expect(diagnostics.roles).toEqual(expect.arrayContaining([expect.objectContaining({
+        restartRequired: true,
+        roleId: scenario.roles[0].id
+      })]));
+      expect((await fixtureEvents({
+        afterSequence: noInputCursor,
+        roleId: "macro-standby-a"
+      })).filter((event) => event.kind === "keydown")).toHaveLength(0);
+
+      await rendererCall("stopRole", scenario.roles[0].id);
+      await launchRole(scenario.roles[0], { windowId: tabB.windowId });
+      live = await windowSnapshot(tabB.windowId);
+      await activateVisibleRuntimeTab({
+        tabId: tabB.id,
+        windowGeneration: live.windowGeneration,
+        windowId: tabB.windowId
+      });
+      expect((await windowSnapshot(tabB.windowId)).kernel?.selectedTabId).toBe(tabB.id);
+    }
+  }
+
   await cleanup(scenario);
   await shutdownAndWaitForFlush();
 }
@@ -1324,6 +1502,7 @@ describe("native macro runtime journeys", () => {
     else if (phase === "p0-macro-background-tab") await backgroundTabPhase();
     else if (phase === "p1-macro-multirole") await multiRolePhase();
     else if (phase === "p1-macro-input-recovery") await inputRecoveryPhase();
+    else if (phase === "p1-macro-standby-recovery") await standbyRecoveryPhase();
     else throw new Error(`Unknown native macro phase: ${phase}`);
   });
 });

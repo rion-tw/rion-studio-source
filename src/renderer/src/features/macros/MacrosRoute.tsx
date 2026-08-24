@@ -70,6 +70,7 @@ interface MacrosRouteProps {
   macros: Macro[];
   query: string;
   roleFilterId: string;
+  runtimeInputAvailable?: boolean;
   scrollPositionRef: MutableRefObject<number>;
   sort: MacroListSortState;
   viewMode?: MacroListViewMode;
@@ -106,6 +107,7 @@ function MacrosRoute({
   macros,
   query,
   roleFilterId,
+  runtimeInputAvailable = true,
   scrollPositionRef,
   sort,
   viewMode = "grouped",
@@ -157,10 +159,11 @@ function MacrosRoute({
         hasUnassignedDependency: unassignedWorkflowMacroIds.has(macro.id),
         macro,
         macroStatusByRun,
+        runtimeInputAvailable,
         statusByRole
       })
     ])),
-    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, statusByRole, unassignedWorkflowMacroIds]
+    [busyMacroIds, busyRunKeys, macroStatusByRun, macros, runtimeInputAvailable, statusByRole, unassignedWorkflowMacroIds]
   );
   const listOptions = useMemo(
     () => ({ macros, query, roleFilterId, roles, sort, t }),

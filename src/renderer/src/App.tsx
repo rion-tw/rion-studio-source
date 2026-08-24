@@ -21,6 +21,7 @@ import { isPersistentRuntimeError, toMessage } from "./app/errorUtils";
 import { shouldShowUpdateBadge } from "./app/statusUtils";
 import { useAppData } from "./hooks/useAppData";
 import { useAppUpdates } from "./hooks/useAppUpdates";
+import { useApplicationLifecycle } from "./hooks/useApplicationLifecycle";
 import { useLegalAcceptance } from "./hooks/useLegalAcceptance";
 import { useFirstRunOnboarding } from "./hooks/useFirstRunOnboarding";
 import { useGameWorkflow } from "./hooks/useGameWorkflow";
@@ -48,6 +49,10 @@ export function App(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const data = useAppData();
+  const applicationLifecycle = useApplicationLifecycle({
+    enabled: Boolean(window.rionStudio),
+    onError: data.setError
+  });
   const preferences = usePreferences();
   const hasBridge = Boolean(window.rionStudio);
   useWindowsApplicationShortcuts(hasBridge);
@@ -274,6 +279,7 @@ export function App(): JSX.Element {
   const macroWorkflow = useMacroWorkflow({
     beginErrorOperation: data.beginErrorOperation,
     macros: data.macros,
+    runtimeInputAvailable: applicationLifecycle.inputAvailable,
     setNotice,
     t: preferences.t
   });
@@ -311,6 +317,7 @@ export function App(): JSX.Element {
     preferences: quickAccessPreferences,
     roles: data.roles,
     runtime: data.embeddedRuntime,
+    runtimeInputAvailable: applicationLifecycle.inputAvailable,
     statusByRole: data.statusByRole,
     t: preferences.t,
     workspaces: data.workspaces
@@ -324,6 +331,7 @@ export function App(): JSX.Element {
     data.roles,
     data.statusByRole,
     data.workspaces,
+    applicationLifecycle.inputAvailable,
     macroWorkflow.busyMacroIds,
     macroWorkflow.busyRunKeys,
     preferences.t,
@@ -688,6 +696,7 @@ export function App(): JSX.Element {
                     macros={data.macros}
                     roleStatuses={data.statuses}
                     roles={data.roles}
+                    runtimeInputAvailable={applicationLifecycle.inputAvailable}
                     statusByRole={data.statusByRole}
                     t={preferences.t}
                     workspaces={data.workspaces}
@@ -820,6 +829,7 @@ export function App(): JSX.Element {
                     query={macroWorkflow.query}
                     roleFilterId={macroWorkflow.roleFilterId}
                     roles={data.roles}
+                    runtimeInputAvailable={applicationLifecycle.inputAvailable}
                     scrollPositionRef={macroWorkflow.listScrollTopRef}
                     sort={macroWorkflow.sort}
                     viewMode={macroWorkflow.viewMode}

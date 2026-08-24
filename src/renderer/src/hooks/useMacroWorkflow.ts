@@ -17,6 +17,7 @@ import { useBusyIds } from "./useBusyIds";
 interface UseMacroWorkflowOptions {
   beginErrorOperation: () => (error: unknown) => void;
   macros: Macro[];
+  runtimeInputAvailable?: boolean;
   setNotice?: (message: string | null) => void;
   t: Translator;
 }
@@ -24,6 +25,7 @@ interface UseMacroWorkflowOptions {
 export function useMacroWorkflow({
   beginErrorOperation,
   macros,
+  runtimeInputAvailable = true,
   setNotice,
   t
 }: UseMacroWorkflowOptions) {
@@ -179,6 +181,14 @@ export function useMacroWorkflow({
   async function handleStartMacros(selectedMacros: Macro[]): Promise<boolean> {
     const targets = uniqueMacros(selectedMacros);
     if (targets.length === 0) {
+      return false;
+    }
+    if (!runtimeInputAvailable) {
+      const reportError = beginErrorOperation();
+      reportError({
+        code: "MACRO_RUNTIME_NOT_ACTIVE",
+        message: t("macros.runtimeNotActive")
+      });
       return false;
     }
 

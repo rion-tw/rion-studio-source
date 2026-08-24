@@ -3,6 +3,17 @@ use thiserror::Error;
 use ts_rs::TS;
 
 #[derive(Debug, Error)]
+#[error("{message}")]
+pub struct MacroInputError {
+    pub(crate) code: &'static str,
+    pub(crate) cause_code: String,
+    pub(crate) failed_request_id: Option<String>,
+    pub(crate) failed_role_id: Option<String>,
+    pub(crate) focus_request_ids: Vec<String>,
+    pub(crate) message: String,
+}
+
+#[derive(Debug, Error)]
 pub enum CoreError {
     #[error("{0}")]
     InvalidInput(String),
@@ -24,6 +35,8 @@ pub enum CoreError {
     Platform(String),
     #[error("{message}")]
     Effect { code: String, message: String },
+    #[error(transparent)]
+    MacroInput(Box<MacroInputError>),
     #[error("internal core failure: {0}")]
     Internal(String),
 }
@@ -41,7 +54,36 @@ impl CoreError {
             Self::WaitCancelled => "CORE_WAIT_CANCELLED",
             Self::Platform(_) => "CORE_PLATFORM_FAILED",
             Self::Effect { code, .. } => code,
+            Self::MacroInput(error) => error.code,
             Self::Internal(_) => "CORE_INTERNAL_FAILED",
+        }
+    }
+
+    pub(crate) fn cause_code(&self) -> Option<&str> {
+        match self {
+            Self::MacroInput(error) => Some(&error.cause_code),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn focus_request_ids(&self) -> &[String] {
+        match self {
+            Self::MacroInput(error) => &error.focus_request_ids,
+            _ => &[],
+        }
+    }
+
+    pub(crate) fn failed_request_id(&self) -> Option<&str> {
+        match self {
+            Self::MacroInput(error) => error.failed_request_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn failed_role_id(&self) -> Option<&str> {
+        match self {
+            Self::MacroInput(error) => error.failed_role_id.as_deref(),
+            _ => None,
         }
     }
 

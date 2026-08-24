@@ -668,6 +668,8 @@ struct RuntimeState {
     controlled_navigation_webviews: HashMap<String, u32>,
     #[cfg(feature = "desktop-e2e")]
     desktop_e2e_indeterminate_macro_input_roles: HashMap<String, bool>,
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e_automation_readiness_failures: HashMap<String, String>,
     dormant_windows: Vec<RuntimeRestoreWindowRecord>,
     dormant_window_states: HashMap<String, DormantWindowState>,
     launch_attempt_generations: HashMap<String, String>,
@@ -1111,10 +1113,12 @@ impl Default for RoleInputDispatchLane {
 
 #[derive(Clone)]
 struct InputDispatchContext {
+    application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
     deadline: Instant,
     input_epoch: u64,
     intent: String,
     lane: Arc<RoleInputDispatchLane>,
+    lifecycle_epoch: u64,
     surface_generation: u64,
 }
 
@@ -1124,6 +1128,20 @@ impl InputDispatchContext {
     }
 
     fn ensure_current(&self) -> RuntimeResult<()> {
+        if !self.is_cleanup()
+            && self.application_lifecycle.epoch() != self.lifecycle_epoch
+        {
+            return Err(RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Browser action belongs to an obsolete application lifecycle epoch.",
+            ));
+        }
+        if !self.is_cleanup() && !self.application_lifecycle.accepts_native_work() {
+            return Err(RuntimeError::new(
+                "SYSTEM_RUNTIME_NOT_ACTIVE",
+                "Automatic input is unavailable while the application runtime is suspending, suspended, or resuming.",
+            ));
+        }
         if self.lane.epoch.load(Ordering::Acquire) != self.input_epoch {
             return Err(RuntimeError::new(
                 "BROWSER_ACTION_STALE",
@@ -1158,6 +1176,77 @@ impl InputDispatchContext {
         self.deadline
             .saturating_duration_since(Instant::now())
             .min(maximum)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AutomationSurfaceReadinessObservation {
+    controller_visible: Option<bool>,
+    policy_mode: &'static str,
+    resume_attempted: bool,
+    suspended_after: Option<bool>,
+    suspended_before: Option<bool>,
+}
+
+impl AutomationSurfaceReadinessObservation {
+    fn as_json(&self) -> Value {
+        json!({
+            "controllerVisible": self.controller_visible,
+            "policyMode": self.policy_mode,
+            "resumeAttempted": self.resume_attempted,
+            "suspendedAfter": self.suspended_after,
+            "suspendedBefore": self.suspended_before,
+        })
+    }
+}
+
+struct AutomationSurfaceReadinessOutcome {
+    observation: AutomationSurfaceReadinessObservation,
+    result: RuntimeResult<()>,
+}
+
+#[cfg(windows)]
+#[derive(Clone)]
+struct NativeAutomationReadinessGuard {
+    context: InputDispatchContext,
+    state: Arc<AtomicU8>,
+}
+
+#[cfg(windows)]
+impl NativeAutomationReadinessGuard {
+    fn new(context: &InputDispatchContext) -> Self {
+        Self {
+            context: context.clone(),
+            state: Arc::new(AtomicU8::new(0)),
+        }
+    }
+
+    fn claim(&self) -> bool {
+        self.context.ensure_current().is_ok()
+            && self
+                .state
+                .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+    }
+
+    fn timeout_error(&self) -> RuntimeError {
+        match self
+            .state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => RuntimeError::new(
+                "BROWSER_ACTION_DEADLINE",
+                "Browser action expired before automation-surface readiness was queried.",
+            ),
+            Err(2) => RuntimeError::new(
+                "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE",
+                "The automation surface wake request did not confirm before its deadline.",
+            ),
+            Err(_) => RuntimeError::new(
+                "BROWSER_ACTION_STALE",
+                "Automation-surface readiness was cancelled before native submission.",
+            ),
+        }
     }
 }
 

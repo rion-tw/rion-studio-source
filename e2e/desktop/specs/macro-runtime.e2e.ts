@@ -587,6 +587,15 @@ async function standbyRecoveryPhase(): Promise<void> {
       })).filter((event) => event.kind === "keydown")).toHaveLength(0);
 
       await rendererCall("stopRole", scenario.roles[0].id);
+      await browser.waitUntil(
+        async () => !(await rendererCall("listRoleStatuses"))
+          .some((status) => status.roleId === scenario.roles[0].id),
+        {
+          interval: 100,
+          timeout: 45_000,
+          timeoutMsg: "Failed automation role did not finish stopping before relaunch"
+        }
+      );
       await launchRole(scenario.roles[0], { windowId: tabB.windowId });
       live = await windowSnapshot(tabB.windowId);
       await activateVisibleRuntimeTab({

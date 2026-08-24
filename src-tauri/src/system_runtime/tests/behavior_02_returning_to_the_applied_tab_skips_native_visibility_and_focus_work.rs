@@ -755,6 +755,20 @@
     }
 
     #[test]
+    fn selected_surface_reprojection_reads_the_registry_by_instance_id() {
+        let registry = HashMap::from([("surface-a:4".to_owned(), 7_u64)]);
+
+        assert_eq!(
+            selected_surface_reprojection_registry_entry(&registry, "surface-a:4"),
+            Some(&7)
+        );
+        assert_eq!(
+            selected_surface_reprojection_registry_entry(&registry, "surface-a"),
+            None
+        );
+    }
+
+    #[test]
     fn close_and_tab_launch_effects_leave_the_global_effect_fifo() {
         assert!(is_surface_close_effect(
             &CoreEffectAction::EmbeddedDestroyRole {

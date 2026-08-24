@@ -43,6 +43,14 @@ fn selected_surface_reprojection_identity_matches(
         && expected_owner == current_owner
 }
 
+#[cfg(any(windows, test))]
+fn selected_surface_reprojection_registry_entry<'a, T>(
+    registry: &'a HashMap<String, T>,
+    instance_id: &str,
+) -> Option<&'a T> {
+    registry.get(instance_id)
+}
+
 #[cfg(windows)]
 #[derive(Clone)]
 struct WindowsSelectedSurfaceReprojectionSurface {
@@ -298,10 +306,10 @@ impl SystemRuntimeExecutor {
         if !windows_desired_selected_surface_labels(tab).contains(surface.webview.label()) {
             return Err("surface-not-desired");
         }
-        let Some(current) = state
-            .native_resources
-            .surface_registry
-            .get(surface.webview.label())
+        let Some(current) = selected_surface_reprojection_registry_entry(
+            &state.native_resources.surface_registry,
+            &surface.instance_id,
+        )
         else {
             return Err("surface-registry-absent");
         };

@@ -486,7 +486,7 @@ fn desktop_e2e_try_suspend_automation_surface(webview: &tauri::Webview) -> Resul
                 TrySuspendCompletedHandler::create(Box::new(move |status, successful| {
                     let _ = completion_sender.send(
                         status
-                            .map(|()| successful.as_bool())
+                            .map(|()| successful)
                             .map_err(|error| error.to_string()),
                     );
                     Ok(())

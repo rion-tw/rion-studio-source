@@ -649,7 +649,7 @@ it("keeps production popup, download, recovery, lifecycle, and platform input na
     expect(liveResizeGeometry).not.toContain("windows_live_resize_host_bounds(bounds)");
     expect(runtime).not.toContain("windows_live_resize_surface_bounds_match");
     expect(runtime).not.toContain("MapWindowPoints");
-    expect(liveResizeGeometry).not.toContain("controller.Bounds(&mut");
+    expect(liveResizeGeometry).toContain(".Bounds(&mut controller)");
     expect(runtime).toContain("native_frame_unchanged");
     expect(runtime).toContain("WINDOWS_LIVE_RESIZE_REGISTRY");
     expect(runtime).toContain(

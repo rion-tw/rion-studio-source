@@ -21,6 +21,7 @@ import {
 import {
   expectBoundsNear,
   expectPlacement,
+  expectSingleRoleSurfaceFitsClient,
   expectTabStripFitsClient
 } from "../support/geometry";
 import { fixtureCursor, waitFixtureEvent, type FixtureEvent } from "../support/fixture";
@@ -334,6 +335,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     expect(loading.kernel?.tabs.find((candidate) => candidate.tabId === tab.tabId)
       ?.launchPhase).toBe("navigating");
     expect(loading.native.tabStatusPresentation).toBe("loading");
+    expectSingleRoleSurfaceFitsClient(loading, role.id);
   }
   let live = await windowSnapshot(WINDOW_C);
   expect(live.kernel?.tabs).toHaveLength(3);
@@ -362,10 +364,14 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     expect(live.native.tabStatusPresentation).toBe("loading");
     expect(live.kernel?.tabs.filter((tab) => tab.tabId !== activeTabId)
       .every((tab) => tab.launchPhase === null)).toBe(true);
+    const reopenedRoleId = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.sourceId;
+    if (!reopenedRoleId) throw new Error("Reopened active role is unavailable");
+    expectSingleRoleSurfaceFitsClient(live, reopenedRoleId);
   }
   const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
-  const activeRoleIndex = roles.findIndex((role) => role.id === activeTab?.sourceId);
-  if (activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
+  const activeRoleId = activeTab?.sourceId;
+  const activeRoleIndex = roles.findIndex((role) => role.id === activeRoleId);
+  if (!activeRoleId || activeRoleIndex < 0) throw new Error("Active gated role is unavailable");
   const releasedRoleName = RECOVERY_ROLE_NAMES[activeRoleIndex];
   const releasedFixtureId = recoveryFixtureId(releasedRoleName);
   if (process.platform === "win32") {
@@ -400,10 +406,12 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
   expectRecoverySession(seededSession, releasedRoleName, false);
   live = await windowSnapshot(WINDOW_C);
   expect(live.native.tabStatusPresentation).toBe("hidden");
+  expectSingleRoleSurfaceFitsClient(live, activeRoleId);
   if (process.platform === "win32") {
     expectTabStripFitsClient(live);
     live = await dragVisibleGameWindow(live);
     expectTabStripFitsClient(live);
+    expectSingleRoleSurfaceFitsClient(live, activeRoleId);
     await closeVisibleGameWindow(live);
   } else {
     await closeAndWait(live);

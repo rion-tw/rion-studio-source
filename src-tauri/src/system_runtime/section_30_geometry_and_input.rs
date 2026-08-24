@@ -333,7 +333,19 @@ fn runtime_window_content_metrics_with_tab_strip(
     window: &Window,
     tab_strip_height: f64,
 ) -> RuntimeResult<WindowContentMetrics> {
-    let mut metrics = logical_window_content_metrics(window)?;
+    let hwnd = window.hwnd().map_err(RuntimeError::tauri)?;
+    let frame = windows_live_resize_client_frame(hwnd).ok_or_else(|| {
+        RuntimeError::new(
+            "TAURI_WINDOW_CONTENT_SIZE_FAILED",
+            "The Windows client frame was unavailable.",
+        )
+    })?;
+    let (width, height) = windows_live_resize_logical_client_size(frame);
+    let mut metrics = WindowContentMetrics {
+        height,
+        top_inset: 0.0,
+        width,
+    };
     metrics.top_inset += tab_strip_height;
     metrics.height = (metrics.height - tab_strip_height).max(1.0);
     Ok(metrics)

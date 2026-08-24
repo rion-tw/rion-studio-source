@@ -400,6 +400,72 @@ fn windows_live_resize_resolves_complete_physical_edges_at_common_dpi() {
 
 #[cfg(windows)]
 #[test]
+fn windows_single_role_fills_the_root_client_frame_after_tab_strip() {
+    let plan = WindowsLiveResizePlan {
+        dividers: Vec::new(),
+        gap: 0,
+        generation: 7,
+        revision: 11,
+        roles: vec![WindowsLiveResizeRolePlan {
+            chrome_label: None,
+            fullscreen: false,
+            input: LayoutRoleInput {
+                role_id: "role".to_owned(),
+                rect: LayoutRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1.0,
+                    height: 1.0,
+                },
+            },
+            label: "role".to_owned(),
+        }],
+        tab_strip_height: 44.0,
+        tab_strip_label: "tabs".to_owned(),
+    };
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let physical_width = (1_601.0_f64 * scale).round() as u32;
+        let physical_height = (1_001.0_f64 * scale).round() as u32;
+        let bounds = windows_live_resize_resolve_bounds(
+            &plan,
+            physical_width,
+            physical_height,
+            scale,
+        )
+        .unwrap();
+        let [tab_strip, role] = bounds.as_slice() else {
+            panic!("expected tab strip and one role surface");
+        };
+        assert_eq!(tab_strip.x, 0);
+        assert_eq!(tab_strip.width, physical_width as i32);
+        assert_eq!(role.x, 0);
+        assert_eq!(role.y, tab_strip.height);
+        assert_eq!(role.x + role.width, physical_width as i32);
+        assert_eq!(role.y + role.height, physical_height as i32);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_client_frame_uses_its_own_dpi_for_logical_size() {
+    for (dpi, expected_width, expected_height) in [
+        (96, 1_200.0, 800.0),
+        (120, 960.0, 640.0),
+        (144, 800.0, 533.333_333_333_333_4),
+        (192, 600.0, 400.0),
+    ] {
+        let logical = windows_live_resize_logical_client_size(WindowsClientFrame {
+            dpi,
+            height: 800,
+            width: 1_200,
+        });
+        assert!((logical.0 - expected_width).abs() < f64::EPSILON);
+        assert!((logical.1 - expected_height).abs() < f64::EPSILON);
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn windows_live_resize_plan_fences_generation_and_revision() {
     assert!(windows_live_resize_plan_is_current(7, Some(10), 7, 11));
     assert!(windows_live_resize_plan_is_current(7, Some(11), 7, 11));
@@ -937,6 +1003,46 @@ fn live_resize_uses_per_parent_unions_for_mixed_host_topologies() {
             ("right", WindowsLiveResizeBounds { height: 856, width: 600, x: 600, y: 0 }),
         ]
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn live_resize_readback_requires_exact_host_and_controller_bounds() {
+    let surfaces = [("tabs", 1_usize), ("left", 2_usize), ("right", 2_usize)];
+    let bounds = [
+        WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 },
+        WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 44 },
+        WindowsLiveResizeBounds { height: 856, width: 600, x: 600, y: 44 },
+    ];
+    let host_bounds = HashMap::from([
+        (1_usize, WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 }),
+        (2_usize, WindowsLiveResizeBounds { height: 856, width: 1_200, x: 0, y: 44 }),
+    ]);
+    let controller_bounds = HashMap::from([
+        ("tabs", WindowsLiveResizeBounds { height: 44, width: 1_200, x: 0, y: 0 }),
+        ("left", WindowsLiveResizeBounds { height: 856, width: 600, x: 0, y: 0 }),
+        ("right", WindowsLiveResizeBounds { height: 856, width: 600, x: 600, y: 0 }),
+    ]);
+    let verify = |hosts: &HashMap<usize, WindowsLiveResizeBounds>,
+                  controllers: &HashMap<&str, WindowsLiveResizeBounds>| {
+        windows_live_resize_verify_ordered(
+            &surfaces,
+            &bounds,
+            |surface| surface.1,
+            |surface| hosts.get(&surface.1).copied().ok_or(()),
+            |surface| controllers.get(surface.0).copied().ok_or(()),
+        )
+    };
+
+    assert!(verify(&host_bounds, &controller_bounds).is_ok());
+
+    let mut stale_host = host_bounds.clone();
+    stale_host.get_mut(&2).unwrap().width -= 1;
+    assert!(verify(&stale_host, &controller_bounds).is_err());
+
+    let mut stale_controller = controller_bounds.clone();
+    stale_controller.get_mut("right").unwrap().width -= 1;
+    assert!(verify(&host_bounds, &stale_controller).is_err());
 }
 
 #[cfg(windows)]

@@ -845,11 +845,13 @@ impl SystemRuntimeExecutor {
             tab_strip_builder
         };
         #[cfg(windows)]
+        let initial_client_metrics = runtime_window_content_metrics_with_tab_strip(&window, 0.0)?;
+        #[cfg(windows)]
         let tab_strip = match self.add_child_bounded(
             &window,
             tab_strip_builder,
             LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(target.bounds.width.max(1) as f64, WINDOWS_TAB_STRIP_HEIGHT),
+            LogicalSize::new(initial_client_metrics.width, WINDOWS_TAB_STRIP_HEIGHT),
             &format!("{}:tab-strip", target.window_id),
         ) {
             Ok(tab_strip) => tab_strip,

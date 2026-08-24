@@ -80,6 +80,51 @@ export function expectTabStripFitsClient(snapshot: DesktopE2eWindowSnapshot): vo
   );
 }
 
+export function expectSingleRoleSurfaceFitsClient(
+  snapshot: DesktopE2eWindowSnapshot,
+  roleId: string
+): void {
+  if (process.platform !== "win32") return;
+  const surface = snapshot.native.roleSurfaces?.find((candidate) => candidate.roleId === roleId);
+  const tabStrip = snapshot.native.tabStripHostBounds ?? snapshot.native.tabStripBounds;
+  if (!surface) throw new Error(`Role surface ${roleId} is unavailable for ${snapshot.windowId}`);
+  if (!tabStrip || tabStrip.x === undefined || tabStrip.y === undefined) {
+    throw new Error(`Tab-strip geometry is incomplete for ${snapshot.windowId}`);
+  }
+  if (surface.hostBounds.x === undefined || surface.hostBounds.y === undefined) {
+    throw new Error(`Role host geometry is incomplete for ${roleId}`);
+  }
+  if (surface.controllerBounds.x === undefined || surface.controllerBounds.y === undefined) {
+    throw new Error(`Role controller geometry is incomplete for ${roleId}`);
+  }
+  const contentTop = tabStrip.y + tabStrip.height;
+  const expectedHost = {
+    height: snapshot.native.clientBounds.height - contentTop,
+    width: snapshot.native.clientBounds.width,
+    x: 0,
+    y: contentTop
+  };
+  expectBoundsNear({
+    ...surface.hostBounds,
+    x: surface.hostBounds.x,
+    y: surface.hostBounds.y
+  }, expectedHost);
+  expectBoundsNear({
+    ...surface.controllerBounds,
+    x: surface.controllerBounds.x,
+    y: surface.controllerBounds.y
+  }, {
+    height: surface.hostBounds.height,
+    width: surface.hostBounds.width,
+    x: 0,
+    y: 0
+  });
+  if (surface.documentViewport) {
+    expect(surface.documentViewport.width).toBeGreaterThan(0);
+    expect(surface.documentViewport.height).toBeGreaterThan(0);
+  }
+}
+
 export function expectAppKitTabsFitTitlebar(snapshot: DesktopE2eWindowSnapshot): void {
   if (process.platform !== "darwin") return;
   const geometry = snapshot.native.appKitTitlebar;

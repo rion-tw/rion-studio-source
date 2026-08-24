@@ -2,7 +2,8 @@ use std::cell::RefCell;
 
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Graphics::Gdi::{ClientToScreen, ScreenToClient},
     UI::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
@@ -93,6 +94,13 @@ pub(in crate::system_runtime) struct WindowsLiveResizeHost {
     pub(in crate::system_runtime) subclass_id: usize,
     #[cfg(feature = "desktop-e2e")]
     pub(in crate::system_runtime) window_id: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::system_runtime) struct WindowsClientFrame {
+    pub(in crate::system_runtime) dpi: u32,
+    pub(in crate::system_runtime) height: u32,
+    pub(in crate::system_runtime) width: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -529,15 +537,35 @@ pub(in crate::system_runtime) fn windows_live_resize_frame_match(
     (true, "matched")
 }
 
-pub(in crate::system_runtime) fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
+pub(in crate::system_runtime) fn windows_live_resize_client_frame(
+    hwnd: HWND,
+) -> Option<WindowsClientFrame> {
     let mut client = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client) }
         .ok()
         .and_then(|()| {
             let width = client.right - client.left;
             let height = client.bottom - client.top;
-            (width > 0 && height > 0).then_some((width as u32, height as u32))
+            (width > 0 && height > 0).then_some(WindowsClientFrame {
+                dpi: unsafe { GetDpiForWindow(hwnd) }.max(96),
+                height: height as u32,
+                width: width as u32,
+            })
         })
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_client_size(hwnd: HWND) -> Option<(u32, u32)> {
+    windows_live_resize_client_frame(hwnd).map(|frame| (frame.width, frame.height))
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_logical_client_size(
+    frame: WindowsClientFrame,
+) -> (f64, f64) {
+    let scale = f64::from(frame.dpi) / 96.0;
+    (
+        (f64::from(frame.width) / scale).max(1.0),
+        (f64::from(frame.height) / scale).max(1.0),
+    )
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_message_is_actionable(
@@ -636,7 +664,7 @@ pub(in crate::system_runtime) fn windows_live_resize_queue_current_frame(hwnd: H
     if !windows_live_resize_projection_is_actionable(hwnd) {
         return;
     }
-    let Some((width, height)) = windows_live_resize_client_size(hwnd) else {
+    let Some(frame) = windows_live_resize_client_frame(hwnd) else {
         return;
     };
     let presentation = if unsafe { IsZoomed(hwnd) }.as_bool() {
@@ -644,7 +672,14 @@ pub(in crate::system_runtime) fn windows_live_resize_queue_current_frame(hwnd: H
     } else {
         WindowsGeometryPresentation::Restored
     };
-    windows_live_resize_queue_frame(hwnd, width, height, presentation, terminal);
+    windows_live_resize_queue_frame_with_dpi(
+        hwnd,
+        frame.width,
+        frame.height,
+        frame.dpi,
+        presentation,
+        terminal,
+    );
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_queue_frame(
@@ -658,6 +693,24 @@ pub(in crate::system_runtime) fn windows_live_resize_queue_frame(
         return;
     }
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+    windows_live_resize_queue_frame_with_dpi(
+        hwnd,
+        width,
+        height,
+        dpi,
+        presentation,
+        terminal,
+    );
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_queue_frame_with_dpi(
+    hwnd: HWND,
+    width: u32,
+    height: u32,
+    dpi: u32,
+    presentation: WindowsGeometryPresentation,
+    terminal: bool,
+) {
     let should_post = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let mut registry = registry.borrow_mut();
         let Some(host) = registry.hosts.get_mut(&windows_hwnd_key(hwnd)) else {
@@ -1045,12 +1098,15 @@ pub(in crate::system_runtime) fn windows_live_resize_flush(hwnd: HWND) {
     let Some(submission) = windows_live_resize_prepare_submission(hwnd) else {
         return;
     };
-    if windows_live_resize_all_surface_bounds_match(
+    let cached_bounds_match = windows_live_resize_all_surface_bounds_match(
         &submission.surfaces,
         &submission.bounds,
         &submission.last_surface_bounds,
         submission.last_batch_failed,
-    ) {
+    );
+    if cached_bounds_match
+        && windows_live_resize_verify_batch(hwnd, &submission.surfaces, &submission.bounds).is_ok()
+    {
         windows_live_resize_complete_submission(
             hwnd,
             &submission,
@@ -1058,8 +1114,12 @@ pub(in crate::system_runtime) fn windows_live_resize_flush(hwnd: HWND) {
         );
         return;
     }
-    let status = if windows_live_resize_submit_batch(&submission.surfaces, &submission.bounds)
-        .is_ok()
+    let status = if windows_live_resize_submit_batch(
+        hwnd,
+        &submission.surfaces,
+        &submission.bounds,
+    )
+    .is_ok()
     {
         WindowsGeometryStatus::Applied
     } else {

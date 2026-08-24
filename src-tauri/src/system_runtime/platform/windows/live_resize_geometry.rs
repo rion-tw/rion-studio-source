@@ -168,6 +168,7 @@ pub(in crate::system_runtime) fn windows_live_resize_divider_hit_bounds(axis: &s
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
+    root: HWND,
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
@@ -199,7 +200,56 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
             }
             .map_err(|_| ()))
         },
+    )?;
+    windows_live_resize_verify_batch(root, surfaces, bounds)
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_verify_batch(
+    root: HWND,
+    surfaces: &[WindowsLiveResizeSurface],
+    bounds: &[WindowsLiveResizeBounds],
+) -> Result<(), ()> {
+    windows_live_resize_verify_ordered(
+        surfaces,
+        bounds,
+        |surface| windows_hwnd_key(surface.hwnd),
+        |surface| {
+            let mut host_client = RECT::default();
+            let mut host_origin = POINT::default();
+            unsafe {
+                GetClientRect(surface.hwnd, &mut host_client).map_err(|_| ())?;
+                ClientToScreen(surface.hwnd, &mut host_origin)
+                    .ok()
+                    .map_err(|_| ())?;
+                ScreenToClient(root, &mut host_origin)
+                    .ok()
+                    .map_err(|_| ())?;
+            }
+            windows_live_resize_bounds_from_rect(host_client, host_origin.x, host_origin.y)
+        },
+        |surface| {
+            let mut controller = RECT::default();
+            unsafe { surface.controller.Bounds(&mut controller) }.map_err(|_| ())?;
+            windows_live_resize_bounds_from_rect(controller, controller.left, controller.top)
+        },
     )
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_bounds_from_rect(
+    rect: RECT,
+    x: i32,
+    y: i32,
+) -> Result<WindowsLiveResizeBounds, ()> {
+    let width = rect.right.saturating_sub(rect.left);
+    let height = rect.bottom.saturating_sub(rect.top);
+    (width > 0 && height > 0)
+        .then_some(WindowsLiveResizeBounds {
+            height,
+            width,
+            x,
+            y,
+        })
+        .ok_or(())
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_controller_rect(
@@ -266,22 +316,7 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     mut submit_parent_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
     mut submit_controller_bounds: impl FnMut(&T, &WindowsLiveResizeBounds) -> Result<(), ()>,
 ) -> Result<(), ()> {
-    if surfaces.len() != bounds.len() || surfaces.is_empty() {
-        return Err(());
-    }
-    let mut parent_groups = Vec::new();
-    for (index, (surface, surface_bounds)) in surfaces.iter().zip(bounds).enumerate() {
-        let key = parent_key(surface);
-        if let Some((_, _, host_bounds)) = parent_groups
-            .iter_mut()
-            .find(|(candidate, _, _)| *candidate == key)
-        {
-            *host_bounds = windows_live_resize_union_bounds(&[*host_bounds, *surface_bounds])
-                .ok_or(())?;
-        } else {
-            parent_groups.push((key, index, *surface_bounds));
-        }
-    }
+    let parent_groups = windows_live_resize_parent_groups(surfaces, bounds, &parent_key)?;
 
     let mut failed = false;
     for (_, representative_index, host_bounds) in &parent_groups {
@@ -306,4 +341,56 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_ordered<T>(
     } else {
         Ok(())
     }
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_verify_ordered<T>(
+    surfaces: &[T],
+    bounds: &[WindowsLiveResizeBounds],
+    parent_key: impl Fn(&T) -> usize,
+    mut read_parent_bounds: impl FnMut(&T) -> Result<WindowsLiveResizeBounds, ()>,
+    mut read_controller_bounds: impl FnMut(&T) -> Result<WindowsLiveResizeBounds, ()>,
+) -> Result<(), ()> {
+    let parent_groups = windows_live_resize_parent_groups(surfaces, bounds, &parent_key)?;
+    for (_, representative_index, expected) in &parent_groups {
+        let actual = read_parent_bounds(&surfaces[*representative_index])?;
+        if actual != *expected {
+            return Err(());
+        }
+    }
+    for (surface, expected) in surfaces.iter().zip(bounds) {
+        let key = parent_key(surface);
+        let host_bounds = parent_groups
+            .iter()
+            .find_map(|(candidate, _, bounds)| (*candidate == key).then_some(bounds))
+            .ok_or(())?;
+        let expected = windows_live_resize_local_bounds(expected, host_bounds);
+        if read_controller_bounds(surface)? != expected {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_parent_groups<T>(
+    surfaces: &[T],
+    bounds: &[WindowsLiveResizeBounds],
+    parent_key: impl Fn(&T) -> usize,
+) -> Result<Vec<(usize, usize, WindowsLiveResizeBounds)>, ()> {
+    if surfaces.len() != bounds.len() || surfaces.is_empty() {
+        return Err(());
+    }
+    let mut parent_groups = Vec::new();
+    for (index, (surface, surface_bounds)) in surfaces.iter().zip(bounds).enumerate() {
+        let key = parent_key(surface);
+        if let Some((_, _, host_bounds)) = parent_groups
+            .iter_mut()
+            .find(|(candidate, _, _)| *candidate == key)
+        {
+            *host_bounds = windows_live_resize_union_bounds(&[*host_bounds, *surface_bounds])
+                .ok_or(())?;
+        } else {
+            parent_groups.push((key, index, *surface_bounds));
+        }
+    }
+    Ok(parent_groups)
 }

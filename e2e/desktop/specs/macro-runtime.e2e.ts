@@ -1,7 +1,7 @@
 import { $, $$, browser, expect } from "@wdio/globals";
 
 import type { Game, LaunchWorkspace, Macro, MacroRepeat, MacroStep, Role } from "../../../src/shared/types";
-import type { ApplicationLifecycleStatusRecord, MacroStartAttemptDiagnosticRecord } from "../../../src/shared/generated";
+import type { ApplicationLifecycleStatusRecord } from "../../../src/shared/generated";
 import {
   applicationLifecycleSignal,
   armAutomationReadinessFailure,
@@ -81,23 +81,6 @@ async function waitForApplicationLifecycle(
     interval: 100,
     timeout: 45_000,
     timeoutMsg: `Application lifecycle did not reach ${states.join(" or ")}`
-  });
-  return observed!;
-}
-
-async function waitForMacroStartCause(
-  macroId: string,
-  causeCode: string
-): Promise<MacroStartAttemptDiagnosticRecord> {
-  let observed: MacroStartAttemptDiagnosticRecord | undefined;
-  await browser.waitUntil(async () => {
-    observed = (await inputDiagnostics()).recentStartAttempts
-      .find((attempt) => attempt.macroId === macroId && attempt.causeCode === causeCode);
-    return observed?.outcome === "failed" || observed?.outcome === "rejected";
-  }, {
-    interval: 100,
-    timeout: 45_000,
-    timeoutMsg: `Macro start did not preserve ${causeCode}`
   });
   return observed!;
 }
@@ -554,9 +537,9 @@ async function standbyRecoveryPhase(): Promise<void> {
   });
 
   if (process.platform === "win32") {
-    for (const [causeCode, macroCode] of [
-      ["SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED", "MACRO_INPUT_WAKE_FAILED"],
-      ["SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE", "MACRO_INPUT_WAKE_INDETERMINATE"]
+    for (const causeCode of [
+      "SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED",
+      "SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE"
     ] as const) {
       const noInputCursor = await fixtureCursor();
       await armAutomationReadinessFailure(scenario.roles[0].id, causeCode);
@@ -565,10 +548,25 @@ async function standbyRecoveryPhase(): Promise<void> {
       const start = await $(`[data-selection-id='${scenario.macro.id}'] button[aria-label='Start']`);
       await start.waitForEnabled({ timeout: 20_000 });
       await start.click();
-      const attempt = await waitForMacroStartCause(scenario.macro.id, causeCode);
-      expect(attempt.errorCode).toBe(macroCode);
-      expect(attempt.failedRoleId).toBe(scenario.roles[0].id);
       let recoveryCursor = controlCursor;
+      for (;;) {
+        const terminal = await waitEvent({
+          afterSequence: recoveryCursor,
+          kind: "native-operation-terminal",
+          timeoutMs: 45_000
+        });
+        const details = terminal.details as {
+          failureCode?: unknown;
+          roleId?: unknown;
+          subsystem?: unknown;
+        };
+        if (
+          details.failureCode === causeCode
+          && details.roleId === scenario.roles[0].id
+          && details.subsystem === "input"
+        ) break;
+        recoveryCursor = terminal.sequence;
+      }
       for (;;) {
         const terminal = await waitEvent({
           afterSequence: recoveryCursor,

@@ -399,6 +399,10 @@ async function exerciseWebOnlyWorkspaceDestinations(
     if (!webview || !content || !chrome) {
       throw new Error("The Web-only destination lost its content or chrome surface");
     }
+    if (process.platform === "win32") {
+      expect(content.controllerVisible).toBe(true);
+      expect(content.parentWindowMatchesHost).toBe(true);
+    }
     expect(chrome.visible).toBe(true);
     expect(Math.abs(chrome.bounds.width - content.hostBounds.width)).toBeLessThanOrEqual(1);
     expect((await rendererCall("listRoleStatuses"))

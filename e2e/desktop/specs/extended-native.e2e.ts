@@ -20,6 +20,44 @@ import { waitForTranscriptEvent } from "../support/transcript";
 
 const WINDOW_A = "e2e00000-0000-4000-8000-00000000000a";
 
+function expectWindowsSelectedSurfacesProjected(
+  snapshot: DesktopE2eWindowSnapshot
+): void {
+  if (process.platform !== "win32" || !snapshot.kernel?.selectedTabId) return;
+  const surfaces = snapshot.native.roleSurfaces ?? [];
+  expect(surfaces.length).toBeGreaterThan(0);
+  for (const surface of surfaces) {
+    expect(surface.controllerVisible).toBe(true);
+    expect(surface.parentWindowMatchesHost).toBe(true);
+    expect(surface.controllerBounds.width).toBeGreaterThan(1);
+    expect(surface.controllerBounds.height).toBeGreaterThan(1);
+  }
+}
+
+async function waitForSelectedTabReady(
+  snapshot: DesktopE2eWindowSnapshot
+): Promise<DesktopE2eWindowSnapshot> {
+  const selectedTabId = snapshot.kernel?.selectedTabId;
+  if (!selectedTabId) return snapshot;
+  const launchPhase = snapshot.kernel?.tabs.find((tab) => tab.tabId === selectedTabId)
+    ?.launchPhase;
+  if (launchPhase === "ready" || launchPhase === "degraded") return snapshot;
+  const cursor = (await probe()).latestSequence;
+  snapshot = await windowSnapshot(WINDOW_A);
+  const currentPhase = snapshot.kernel?.tabs.find((tab) => tab.tabId === selectedTabId)
+    ?.launchPhase;
+  if (currentPhase !== "ready" && currentPhase !== "degraded") {
+    await waitEvent({
+      afterSequence: cursor,
+      kind: `tab-launch-phase:${selectedTabId}:ready`,
+      timeoutMs: 55_000,
+      windowId: WINDOW_A
+    });
+    snapshot = await windowSnapshot(WINDOW_A);
+  }
+  return snapshot;
+}
+
 async function transition(
   snapshot: DesktopE2eWindowSnapshot,
   presentation: "fullscreen" | "maximized" | "normal"
@@ -99,6 +137,7 @@ describe("extended native Game Window placement", () => {
       });
       snapshot = await windowSnapshot(WINDOW_A);
     }
+    snapshot = await waitForSelectedTabReady(snapshot);
     const submitted = await submitWindowControl(snapshot, {
       action: "moveResize",
       scaleFactor: target.scaleFactor,
@@ -125,12 +164,14 @@ describe("extended native Game Window placement", () => {
     expect(snapshot.kernel?.targetDisplay?.id).toBe(target.id);
     expectBoundsNear(snapshot.kernel?.placement?.normalBounds ?? bounds, bounds);
     expectBoundsNear(snapshot.target.bounds, bounds);
+    expectWindowsSelectedSurfacesProjected(snapshot);
 
     snapshot = await transition(snapshot, "maximized");
     expect(snapshot.native.presentation).toBe("maximized");
     expectBoundsNear(snapshot.kernel?.placement?.normalBounds ?? bounds, bounds);
     snapshot = await transition(snapshot, "normal");
     expectBoundsNear(snapshot.kernel?.placement?.normalBounds ?? bounds, bounds);
+    expectWindowsSelectedSurfacesProjected(snapshot);
     snapshot = await transition(snapshot, "fullscreen");
     expect(snapshot.native.presentation).toBe("fullscreen");
     expectBoundsNear(snapshot.kernel?.placement?.normalBounds ?? bounds, bounds);

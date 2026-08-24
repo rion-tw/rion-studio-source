@@ -632,11 +632,15 @@ impl SystemRuntimeExecutor {
                 RuntimeTabActivationPhaseRecord::Ready
                     | RuntimeTabActivationPhaseRecord::Degraded
             ) && let Ok(Some(window_id)) = self.presentation.tab_window(tab_id)
-            {
-                let _ = self.reconcile_window_presentation(
+                && let Ok((_, _operation_id)) = self.reconcile_window_presentation(
                     &window_id,
                     "tab-content-became-visible",
-                );
+                )
+            {
+                #[cfg(windows)]
+                if launch_phase_reprojects_selected_surfaces(phase) {
+                    self.schedule_windows_selected_surface_reprojection(_operation_id, phase);
+                }
             }
         }
     }

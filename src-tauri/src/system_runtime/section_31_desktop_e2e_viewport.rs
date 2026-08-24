@@ -101,15 +101,19 @@ fn desktop_e2e_windows_register_role_viewport_channel(
 fn desktop_e2e_windows_role_surface_snapshot(
     role_id: &str,
     webview: &Webview,
+    window: &Window,
     include_document_viewport: bool,
 ) -> Result<Value, String> {
     let (controller_bounds, host_bounds) = desktop_e2e_windows_webview_geometry(webview)?;
+    let native = windows_observe_selected_surface(webview, window)?;
     let document_viewport = include_document_viewport
         .then(|| desktop_e2e_windows_document_viewport(role_id))
         .flatten();
     let mut snapshot = json!({
         "controllerBounds": controller_bounds,
+        "controllerVisible": native.controller_visible,
         "hostBounds": host_bounds,
+        "parentWindowMatchesHost": native.parent_window_matches_host,
         "roleId": role_id,
         "webviewLabel": webview.label(),
     });

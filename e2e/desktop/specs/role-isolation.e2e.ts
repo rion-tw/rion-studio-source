@@ -415,12 +415,32 @@ async function launchVisibleWorkspace(
     ownerTabId?: string;
     roleId: string;
     state: "blocked" | "running";
-  }>
+  }>,
+  destinationTestId?: string
 ): Promise<{ runtime: EmbeddedRuntimeState; sessions: FixtureEvent[] }> {
-  await navigate("/workspaces");
   const runtimeCursor = await rendererEventCursor();
   const sessionCursor = await fixtureCursor();
-  await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
+  if (destinationTestId) {
+    await navigate("/dashboard");
+    await $("[data-testid='quick-access-trigger']").click();
+    const palette = await $("[data-testid='quick-access-palette'][open]");
+    await palette.waitForExist({ timeout: 10_000 });
+    await palette.$("input[role='combobox']").setValue(workspace.name);
+    await $(`#quick-access-option-workspace-${workspace.id}`).waitForDisplayed({
+      timeout: 10_000
+    });
+    const openIn = await $(
+      `[data-testid='quick-access-destination-workspace-${workspace.id}']`
+    );
+    await openIn.waitForClickable({ timeout: 10_000 });
+    await openIn.click();
+    const destination = await $(`[data-testid='${destinationTestId}']`);
+    await destination.waitForClickable({ timeout: 10_000 });
+    await destination.click();
+  } else {
+    await navigate("/workspaces");
+    await $(`[data-selection-id='${workspace.id}'] button[aria-label='Open workspace']`).click();
+  }
   const waits = fixtureIds.map((roleId) => waitFixtureEvent({
     afterSequence: sessionCursor,
     kind: "session",
@@ -435,6 +455,23 @@ async function launchVisibleWorkspace(
     Promise.all(waits)
   ]);
   return { runtime, sessions };
+}
+
+async function waitForRuntimeTabReady(tab: EmbeddedRuntimeTabSummary): Promise<void> {
+  let snapshot = await windowSnapshot(tab.windowId);
+  if (snapshot.kernel?.tabs.find((candidate) => candidate.tabId === tab.id)
+    ?.launchPhase === "ready") return;
+  const cursor = (await probe()).latestSequence;
+  snapshot = await windowSnapshot(tab.windowId);
+  if (snapshot.kernel?.tabs.find((candidate) => candidate.tabId === tab.id)
+    ?.launchPhase !== "ready") {
+    await waitEvent({
+      afterSequence: cursor,
+      kind: `tab-launch-phase:${tab.id}:ready`,
+      timeoutMs: 55_000,
+      windowId: tab.windowId
+    });
+  }
 }
 
 function expectOwnedSlot(
@@ -522,24 +559,90 @@ async function sharedOwnershipPhase(): Promise<void> {
     [
       { ownedByTargetTab: true, roleId: shared.id, state: "running" },
       { ownedByTargetTab: true, roleId: uniqueA.id, state: "running" }
-    ]
+    ],
+    "quick-access-destination-option-new-window"
   );
   const tabA = requireRuntimeTab(runtime, workspaceA.id);
+  await waitForRuntimeTabReady(tabA);
   expectOwnedSlot(tabA, shared, tabA.id, "running");
   expectOwnedSlot(tabA, uniqueA, tabA.id, "running");
+  if (process.platform === "win32") {
+    const initialRepair = await waitEvent({
+      afterSequence: 0,
+      kind: "native-selected-surfaces-reprojected",
+      timeoutMs: 55_000,
+      windowId: tabA.windowId
+    });
+    expect(initialRepair.details).toMatchObject({
+      failed: false,
+      status: "applied",
+      tabId: tabA.id
+    });
+  }
 
+  const repairCursor = (await probe()).latestSequence;
   ({ runtime } = await launchVisibleWorkspace(
     workspaceB,
     [UNIQUE_FIXTURE_B],
     [
       { ownerTabId: tabA.id, roleId: shared.id, state: "blocked" },
       { ownedByTargetTab: true, roleId: uniqueB.id, state: "running" }
-    ]
+    ],
+    "quick-access-destination-option-new-window"
   ));
   const tabB = requireRuntimeTab(runtime, workspaceB.id);
+  await waitForRuntimeTabReady(tabB);
+  expect(tabB.windowId).not.toBe(tabA.windowId);
   expectOwnedSlot(tabB, shared, tabA.id, "blocked");
   expectOwnedSlot(tabB, uniqueB, tabB.id, "running");
   expectOwnedSlot(requireRuntimeTab(runtime, workspaceA.id), uniqueA, tabA.id, "running");
+
+  if (process.platform === "win32") {
+    const repair = await waitEvent({
+      afterSequence: repairCursor,
+      kind: "native-selected-surfaces-reprojected",
+      timeoutMs: 55_000,
+      windowId: tabA.windowId
+    });
+    expect(repair.details).toMatchObject({
+      failed: false,
+      status: "applied",
+      tabId: tabA.id
+    });
+    const source = await windowSnapshot(tabA.windowId);
+    const sharedSurface = source.native.roleSurfaces?.find(
+      (surface) => surface.roleId === shared.id
+    );
+    if (!sharedSurface) throw new Error("The shared source role surface is unavailable");
+    expect(sharedSurface.controllerVisible).toBe(true);
+    expect(sharedSurface.parentWindowMatchesHost).toBe(true);
+    expect(sharedSurface.controllerBounds.width).toBeGreaterThan(1);
+    expect(sharedSurface.controllerBounds.height).toBeGreaterThan(1);
+    expect(source.native.tabStatusPresentation).toBe("hidden");
+  }
+
+  const sourceBeforeClick = await windowSnapshot(tabA.windowId);
+  const fixtureAfterSourceClick = await fixtureCursor();
+  const sourceClickCursor = (await probe()).latestSequence;
+  await runtimeUiAction(tabA.windowId, {
+    action: "clickRoleContent",
+    roleId: shared.id,
+    tabId: tabA.id,
+    windowGeneration: sourceBeforeClick.windowGeneration
+  });
+  const [, submittedSourceClick] = await Promise.all([
+    waitFixtureEvent({
+      afterSequence: fixtureAfterSourceClick,
+      kind: "click",
+      roleId: SHARED_FIXTURE
+    }),
+    waitEvent({
+      afterSequence: sourceClickCursor,
+      kind: "runtime-ui-action-submitted",
+      windowId: tabA.windowId
+    })
+  ]);
+  expect(submittedSourceClick.details).toMatchObject({ action: "clickRoleContent" });
 
   const targetBefore = await windowSnapshot(tabB.windowId);
   expect(targetBefore.kernel?.selectedTabId).toBe(tabB.id);

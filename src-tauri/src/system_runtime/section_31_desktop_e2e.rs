@@ -411,7 +411,13 @@ impl SystemRuntimeExecutor {
             let selected_tab_is_ready = selected_tab_id.as_ref().is_some_and(|tab_id| {
                 self.presentation.statuses.launch_phase(tab_id) == Some(LaunchPhase::Ready)
             });
-            let (tab_strip, tab_status_presentation, mut role_webviews, workspace_chrome) = {
+            let (
+                window,
+                tab_strip,
+                tab_status_presentation,
+                mut role_webviews,
+                workspace_chrome,
+            ) = {
                 let state = self
                     .state
                     .lock()
@@ -452,6 +458,7 @@ impl SystemRuntimeExecutor {
                     })
                     .unwrap_or_default();
                 (
+                    host.window.clone(),
                     host.tab_strip.clone(),
                     host.tab_status
                         .as_ref()
@@ -473,6 +480,7 @@ impl SystemRuntimeExecutor {
                     desktop_e2e_windows_role_surface_snapshot(
                         role_id,
                         webview,
+                        &window,
                         include_document_viewport,
                     )
                 })
@@ -489,6 +497,7 @@ impl SystemRuntimeExecutor {
                     desktop_e2e_windows_role_surface_snapshot(
                         role_id,
                         webview,
+                        &window,
                         include_document_viewport && !fullscreen,
                     )
                     .map(|snapshot| json!({

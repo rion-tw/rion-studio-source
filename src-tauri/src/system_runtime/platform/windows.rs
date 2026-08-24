@@ -134,6 +134,8 @@ include!("windows/lifecycle.rs");
 include!("windows/live_resize.rs");
 include!("windows/material.rs");
 include!("windows/reparent.rs");
+#[cfg(windows)]
+include!("windows/selected_surface_reprojection.rs");
 
 #[cfg(windows)]
 pub(in crate::system_runtime) fn platform_page_zoom(webview: &Webview) -> RuntimeResult<f64> {

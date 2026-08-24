@@ -541,7 +541,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Launch two workspaces with one shared role, press the blocked visible placeholder in the second workspace, and prove exact ownership transfer without disturbing either independent role."
+      "description": "Launch two workspaces into separate Game Windows with one shared role, wait for the second native WebView batch, prove the source role remains controller-visible, parented to its original host, and page-interactive, then press the blocked visible placeholder in the second workspace and prove exact ownership transfer without disturbing either independent role."
     },
     {
       "id": "SETTINGS-PERSIST-001",
@@ -581,7 +581,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Open isolated Roles and overlapping Role Workspaces through Quick Open destination menus, then visibly route a Web-only Workspace through new, live, and dormant Game Windows, prove its runtime and persisted Role slots remain empty at every destination, and use primary actions to focus rather than duplicate repeated sources."
+      "description": "Open isolated Roles and overlapping Role Workspaces through Quick Open destination menus, then visibly route a Web-only Workspace through new, live, and dormant Game Windows, prove its runtime and persisted Role slots remain empty and its selected Windows controller remains visible and parented to the destination host, and use primary actions to focus rather than duplicate repeated sources."
     },
     {
       "id": "RUNTIME-TAB-TOPOLOGY-009",
@@ -702,7 +702,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "restart"],
-      "description": "Cross real mixed-scale displays and preserve logical placement through fullscreen and maximized transitions."
+      "description": "Cross real mixed-scale displays and preserve logical placement plus selected WebView2 controller visibility, parent-host attachment, and non-zero bounds through fullscreen and maximized transitions."
     },
     {
       "id": "APP-CRUD-REORDER-002",

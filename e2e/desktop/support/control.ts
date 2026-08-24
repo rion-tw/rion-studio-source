@@ -103,12 +103,14 @@ export interface DesktopE2eWindowSnapshot {
     }>;
     roleSurfaces?: Array<{
       controllerBounds: WindowBounds;
+      controllerVisible: boolean;
       documentViewport?: {
         height: number;
         resizeEventCount: number;
         width: number;
       };
       hostBounds: WindowBounds;
+      parentWindowMatchesHost: boolean;
       roleId: string;
       webviewLabel?: string;
     }>;

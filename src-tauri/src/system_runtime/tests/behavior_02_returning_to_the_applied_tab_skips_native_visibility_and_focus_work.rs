@@ -655,6 +655,106 @@
     }
 
     #[test]
+    fn post_batch_selected_surface_reprojection_uses_only_terminal_ready_events() {
+        for phase in [
+            LaunchPhase::EssentialReady,
+            LaunchPhase::Ready,
+            LaunchPhase::Degraded,
+        ] {
+            assert!(launch_phase_reprojects_selected_surfaces(phase), "{phase:?}");
+        }
+        for phase in [
+            LaunchPhase::Attaching,
+            LaunchPhase::Navigating,
+            LaunchPhase::OptionalHydrating,
+        ] {
+            assert!(
+                !launch_phase_reprojects_selected_surfaces(phase),
+                "{phase:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn post_batch_selected_surface_reprojection_is_exactly_fenced() {
+        let expected = SelectedSurfaceReprojectionFence {
+            lifecycle_epoch: 7,
+            revision: 19,
+            tab_id: "tab-a".to_owned(),
+            window_generation: 3,
+            window_id: "window-a".to_owned(),
+        };
+        let current = LiveWindowRecord {
+            revision: 19,
+            selected_tab_id: Some("tab-a".to_owned()),
+            window_generation: 3,
+            window_id: "window-a".to_owned(),
+            ..LiveWindowRecord::default()
+        };
+        assert!(selected_surface_reprojection_fence_matches(
+            &expected, &current, 7
+        ));
+
+        let mut stale_revision = current.clone();
+        stale_revision.revision = 20;
+        assert!(!selected_surface_reprojection_fence_matches(
+            &expected,
+            &stale_revision,
+            7
+        ));
+        let mut replacement_host = current.clone();
+        replacement_host.window_generation = 4;
+        assert!(!selected_surface_reprojection_fence_matches(
+            &expected,
+            &replacement_host,
+            7
+        ));
+        let mut different_selection = current.clone();
+        different_selection.selected_tab_id = Some("tab-b".to_owned());
+        assert!(!selected_surface_reprojection_fence_matches(
+            &expected,
+            &different_selection,
+            7
+        ));
+        assert!(!selected_surface_reprojection_fence_matches(
+            &expected, &current, 8
+        ));
+
+        let owner = SurfacePresentationOwner {
+            instance_id: "surface-a:4".to_owned(),
+            owner_epoch: 11,
+            window_generation: 3,
+            window_id: "window-a".to_owned(),
+        };
+        assert!(selected_surface_reprojection_identity_matches(
+            "surface-a:4",
+            6,
+            &owner,
+            "surface-a:4",
+            6,
+            &owner,
+        ));
+        let mut reassigned_owner = owner.clone();
+        reassigned_owner.owner_epoch = 12;
+        assert!(!selected_surface_reprojection_identity_matches(
+            "surface-a:4",
+            6,
+            &owner,
+            "surface-a:4",
+            6,
+            &reassigned_owner,
+        ));
+        assert!(!selected_surface_reprojection_identity_matches(
+            "surface-a:4",
+            6,
+            &owner,
+            "surface-a:5",
+            7,
+            &owner,
+        ));
+    }
+
+    #[test]
     fn close_and_tab_launch_effects_leave_the_global_effect_fifo() {
         assert!(is_surface_close_effect(
             &CoreEffectAction::EmbeddedDestroyRole {

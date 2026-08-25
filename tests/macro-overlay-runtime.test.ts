@@ -152,6 +152,7 @@ describe("shell-neutral macro overlay runtime", () => {
         statuses: []
       };
     });
+    Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
     (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
 
     (0, eval)(await overlayRuntimeSource());

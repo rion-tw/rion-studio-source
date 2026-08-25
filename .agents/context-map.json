@@ -147,7 +147,7 @@
       "intentAliases": ["automation", "macro", "macro-runtime"],
       "pathGlobs": ["crates/rion-core/src/macro_runtime/**", "src/renderer/src/features/macros/**", "src-tauri/src/system_runtime/*macro*", "e2e/desktop/specs/macro-runtime.e2e.ts"],
       "contextFiles": [".agents/context/architecture.md", ".agents/context/system-runtime.md", ".agents/context/testing.md"],
-      "canonicalDocs": ["docs/contracts/system-runtime/lifecycle-and-recovery.md"],
+      "canonicalDocs": ["docs/contracts/system-runtime/lifecycle-and-recovery.md", "docs/contracts/system-runtime/managed-macro-shortcuts.md"],
       "risks": ["input-safety", "event-topology", "terminality"],
       "platforms": ["macos", "windows"],
       "validationProfiles": ["core", "native-runtime"],

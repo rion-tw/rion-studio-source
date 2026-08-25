@@ -472,7 +472,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Pass the original trusted Shift+2 keydown and keyup directly to the source role, dispatch its macro only after the chord is fully released, then immediately send Shift+1 and prove the game records only that new chord without replaying Shift+2 or restarting its macro; finally trigger Shift+3 and verify consecutive shortcuts and guarded same-key macro output remain non-recursive."
+      "description": "Capture the original Shift+2 main-key lifecycle, replay exactly one trusted balanced Shift+2 chord through the selected role's native input lane, and dispatch its macro only after the guarded DOM acknowledgement; then send Shift+1 and prove the page has no residual key ownership or recursive macro start, and trigger Shift+3 to verify consecutive managed shortcuts remain non-recursive."
     },
     {
       "id": "MACRO-MODIFIER-CONTINUITY-008",
@@ -486,7 +486,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep physical Shift held across guarded macro effects and prove an unbound Shift+4 reaches the foreground role with its modifier intact."
+      "description": "Keep an exact physical Shift side held across managed while-held keydown, press, keyup, and release acknowledgements; prove early physical release still completes exactly one iteration, leaves no Core lease or page key behind, and an unbound Shift+4 reaches the foreground role with its modifier intact."
     },
     {
       "id": "ROLE-KEY-BLUR-004",

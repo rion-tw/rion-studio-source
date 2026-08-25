@@ -376,7 +376,7 @@ it("preserves Flyff text input focus and ignores keyboard events forwarded to th
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
   });
 
-it("pairs while-held shortcuts with one press and release while passing through auto-repeat", async () => {
+it("pairs while-held shortcuts with one managed press and release while consuming auto-repeat", async () => {
     createGameSurface(document);
     const heldMacro: Macro = {
       ...assignedMacro,
@@ -403,8 +403,8 @@ it("pairs while-held shortcuts with one press and release while passing through 
       key: "F2",
       repeat: true
     });
-    expect(document.dispatchEvent(repeated)).toBe(true);
-    expect(repeated.defaultPrevented).toBe(false);
+    expect(document.dispatchEvent(repeated)).toBe(false);
+    expect(repeated.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "press",
       macroId: heldMacro.id,
@@ -425,8 +425,8 @@ it("pairs while-held shortcuts with one press and release while passing through 
       code: "F2",
       key: "F2"
     });
-    expect(document.dispatchEvent(keyUp)).toBe(true);
-    expect(keyUp.defaultPrevented).toBe(false);
+    expect(document.dispatchEvent(keyUp)).toBe(false);
+    expect(keyUp.defaultPrevented).toBe(true);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "release",
       macroId: heldMacro.id,
@@ -435,7 +435,7 @@ it("pairs while-held shortcuts with one press and release while passing through 
     }));
   });
 
-it("sends keyup release before a slow while-held press resolves", async () => {
+it("finishes an early keyup only after the while-held press acknowledgement", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
     const requests: string[] = [];
@@ -464,19 +464,21 @@ it("sends keyup release before a slow while-held press resolves", async () => {
       key: "F2"
     }));
 
+    await Promise.resolve();
+    expect(requests).toEqual(["press"]);
+    resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
     await vi.waitFor(() => expect(requests).toEqual(["press", "release"]));
     expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "release",
       releaseMode: "complete_first_iteration"
     }));
-    resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
     await vi.waitFor(() => expect(binding.mock.calls.filter(
       ([request]) => isRecord(request) && request.type === "list"
     ).length).toBeGreaterThan(1));
     expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull();
   });
 
-it("sends blur release before a slow while-held press resolves", async () => {
+it("sends immediate blur cleanup before a slow while-held press acknowledgement", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
     const requests: string[] = [];
@@ -558,6 +560,36 @@ it("releases a while-held shortcut when the source window loses focus", async ()
       macroId: heldMacro.id,
       releaseMode: "immediate"
     })));
+  });
+
+it("consumes a late physical keyup after blur cleans a while-held shortcut", async () => {
+    createGameSurface(document);
+    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
+    const binding = vi.fn(async () => ({ macros: [heldMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const pageKeyUp = vi.fn();
+    document.addEventListener("keyup", pageKeyUp);
+
+    dispatchShortcut(window, "F2", "F2");
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "press"
+    })));
+    window.dispatchEvent(new window.Event("blur"));
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith(expect.objectContaining({
+      type: "release",
+      releaseMode: "immediate"
+    })));
+
+    const lateKeyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "F2",
+      key: "F2"
+    });
+    expect(document.dispatchEvent(lateKeyUp)).toBe(false);
+    expect(lateKeyUp.defaultPrevented).toBe(true);
+    expect(pageKeyUp).not.toHaveBeenCalled();
   });
 
 it("matches release by physical code after modifiers are released", async () => {
@@ -662,6 +694,33 @@ it("lets game handlers observe macro shortcuts before toggling after keyup", asy
       statuses: isRecord(request) && request.type === "start" ? [runningStatus()] : []
     }));
     const controller = installOverlay(window, binding);
+    Object.assign(binding, {
+      managedShortcutKeyPhase: vi.fn(async (request: { code: string; phase: string }) => {
+        if (request.phase !== "replay") return;
+        expect(controller.suppressNextShortcut?.(
+          "managed-game-down",
+          request.code,
+          "keydown"
+        )).toBe(true);
+        document.dispatchEvent(new window.KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          code: request.code,
+          key: "F2"
+        }));
+        expect(controller.suppressNextShortcut?.(
+          "managed-game-up",
+          request.code,
+          "keyup"
+        )).toBe(true);
+        document.dispatchEvent(new window.KeyboardEvent("keyup", {
+          bubbles: true,
+          cancelable: true,
+          code: request.code,
+          key: "F2"
+        }));
+      })
+    });
     await controller.refresh();
 
     dispatchShortcut(window, "F2", "F2");
@@ -757,6 +816,7 @@ function installOverlay(
   binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
 ): OverlayController {
   const overlayWindow = targetWindow as OverlayTestWindow;
+  Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
     value: binding

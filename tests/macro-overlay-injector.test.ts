@@ -10,6 +10,13 @@ type OverlayController = {
   refresh(): Promise<void>;
 };
 type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
+  managedShortcutKeyPhase(request: {
+    code: string;
+    macroId: string;
+    modifierCodes: string[];
+    phase: "replay" | "keyDown" | "keyUp";
+    pressId: string;
+  }): Promise<unknown>;
   macroBadgeTiming(observation: {
     clientMonotonicMs: number;
     iteration: number;
@@ -26,7 +33,8 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
   shortcutLifecycle(event: {
     code: string;
     macroId: string;
-    phase: "physical-keydown-allowed" | "chord-released" | "macro-dispatched";
+    phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
+      | "managed-keydown-acknowledged" | "managed-keyup-acknowledged" | "macro-dispatched";
   }): Promise<unknown>;
 };
 
@@ -159,6 +167,27 @@ describe("Tauri macro overlay injector", () => {
     expect(invoke).toHaveBeenCalledWith("rion_macro_key_event_observed", {
       capability: "test-capability",
       observation
+    });
+  });
+
+  it("forwards managed shortcut phases through the authenticated internal command", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => undefined);
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const request = {
+      code: "Digit2",
+      macroId: "macro-1",
+      modifierCodes: ["ShiftRight", "ControlLeft"],
+      phase: "replay" as const,
+      pressId: "press-1"
+    };
+
+    await binding.managedShortcutKeyPhase(request);
+
+    expect(invoke).toHaveBeenCalledWith("rion_managed_shortcut_key_phase", {
+      capability: "test-capability",
+      request
     });
   });
 
@@ -388,6 +417,7 @@ async function installOverlay(
   trustSyntheticEvents = true
 ): Promise<OverlayController> {
   const sources = await overlaySources();
+  Object.assign(binding, { managedShortcutKeyPhase: async () => undefined });
   Object.defineProperty(window, "__rionTestOverlayBinding", {
     configurable: true,
     value: binding

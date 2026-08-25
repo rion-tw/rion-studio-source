@@ -341,6 +341,53 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    pub(crate) fn dispatch_managed_shortcut_key_phase(
+        &self,
+        role_id: &str,
+        code: &str,
+        phase: &str,
+        modifier_codes: Vec<String>,
+    ) -> RuntimeResult<()> {
+        let context = self.current_input_context(role_id, "normal")?;
+        self.with_input_context_lane(&context, || {
+            let webview = self.role_webview_for_input(role_id, &context)?;
+            let mut executed = Vec::new();
+            for effect in managed_shortcut_key_effects(code, phase, modifier_codes)? {
+                let dispatch_result = context.ensure_current().and_then(|()| {
+                    self.dispatch_guarded_macro_key_effect(
+                        role_id,
+                        &webview,
+                        &effect,
+                        &context,
+                    )
+                });
+                if let Err(mut error) = dispatch_result {
+                    if let Some(cleanup_error) =
+                        self.compensate_key_prefix(role_id, &webview, &executed, &context)
+                    {
+                        if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                            error = RuntimeError::new(
+                                "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                                format!(
+                                    "{}; managed shortcut cleanup also failed: {}",
+                                    error.message, cleanup_error.message
+                                ),
+                            );
+                        } else if cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                            error = cleanup_error;
+                        }
+                    }
+                    if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                        self.quarantine_role_input(role_id, &error);
+                    }
+                    return Err(error);
+                }
+                executed.push(effect);
+            }
+            Ok(())
+        })
+    }
+
     fn browser_action(&self, request: BrowserActionRequest) -> RuntimeResult<Option<String>> {
         if request.request_id.is_empty() || request.role_id.is_empty() {
             return Err(RuntimeError::new(
@@ -1052,6 +1099,94 @@ impl SystemRuntimeExecutor {
                 .await;
         });
     }
+}
+
+fn managed_shortcut_key_effects(
+    code: &str,
+    phase: &str,
+    mut modifier_codes: Vec<String>,
+) -> RuntimeResult<Vec<EmbeddedKeyEffectRecord>> {
+    modifier_codes.sort();
+    modifier_codes.dedup();
+    if phase == "replay" {
+        let mut active_codes = Vec::new();
+        let mut effects = Vec::with_capacity(modifier_codes.len() * 2 + 2);
+        for modifier_code in &modifier_codes {
+            let before = active_codes.clone();
+            active_codes.push(modifier_code.clone());
+            active_codes.sort();
+            effects.push(EmbeddedKeyEffectRecord {
+                phase: "rawKeyDown".to_owned(),
+                code: modifier_code.clone(),
+                active_codes_before: before,
+                active_codes: active_codes.clone(),
+                auto_repeat: false,
+                suppress_shortcut: false,
+            });
+        }
+        let before_main = active_codes.clone();
+        active_codes.push(code.to_owned());
+        active_codes.sort();
+        effects.push(EmbeddedKeyEffectRecord {
+            phase: "rawKeyDown".to_owned(),
+            code: code.to_owned(),
+            active_codes_before: before_main,
+            active_codes: active_codes.clone(),
+            auto_repeat: false,
+            suppress_shortcut: true,
+        });
+        let before_main_up = active_codes.clone();
+        active_codes.retain(|active| active != code);
+        effects.push(EmbeddedKeyEffectRecord {
+            phase: "keyUp".to_owned(),
+            code: code.to_owned(),
+            active_codes_before: before_main_up,
+            active_codes: active_codes.clone(),
+            auto_repeat: false,
+            suppress_shortcut: true,
+        });
+        for modifier_code in modifier_codes.iter().rev() {
+            let before = active_codes.clone();
+            active_codes.retain(|active| active != modifier_code);
+            effects.push(EmbeddedKeyEffectRecord {
+                phase: "keyUp".to_owned(),
+                code: modifier_code.clone(),
+                active_codes_before: before,
+                active_codes: active_codes.clone(),
+                auto_repeat: false,
+                suppress_shortcut: false,
+            });
+        }
+        return Ok(effects);
+    }
+    let mut active_codes_before = modifier_codes;
+    let mut active_codes = active_codes_before.clone();
+    let native_phase = match phase {
+        "keyDown" => {
+            active_codes.push(code.to_owned());
+            "rawKeyDown"
+        }
+        "keyUp" => {
+            active_codes_before.push(code.to_owned());
+            "keyUp"
+        }
+        _ => {
+            return Err(RuntimeError::new(
+                "SYSTEM_MANAGED_SHORTCUT_INVALID",
+                "Managed shortcut phase must be replay, keyDown, or keyUp.",
+            ));
+        }
+    };
+    active_codes_before.sort();
+    active_codes.sort();
+    Ok(vec![EmbeddedKeyEffectRecord {
+        phase: native_phase.to_owned(),
+        code: code.to_owned(),
+        active_codes_before,
+        active_codes,
+        auto_repeat: false,
+        suppress_shortcut: true,
+    }])
 }
 
 fn format_page_zoom_percent(zoom: f64) -> String {

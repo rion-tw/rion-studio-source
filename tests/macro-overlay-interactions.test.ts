@@ -740,11 +740,15 @@ function installOverlay(
   binding: (request: unknown) => Promise<unknown> = async () => ({ macros: [], statuses: [] })
 ): OverlayController {
   const overlayWindow = targetWindow as OverlayTestWindow;
+  const overlayBinding = Object.assign(
+    async (request: unknown) => isRecord(request) && request.type === "coordinate-context"
+      ? { appliedPageZoom: 1, surfaceGeneration: 3, topologyRevision: 5 }
+      : binding(request),
+    { managedShortcutKeyPhase: async () => undefined }
+  );
   Object.defineProperty(overlayWindow, "rionStudioMacroOverlay", {
     configurable: true,
-    value: async (request: unknown) => isRecord(request) && request.type === "coordinate-context"
-      ? { appliedPageZoom: 1, surfaceGeneration: 3, topologyRevision: 5 }
-      : binding(request)
+    value: overlayBinding
   });
   (targetWindow as unknown as { eval: (source: string) => unknown }).eval(MACRO_OVERLAY_SCRIPT);
   if (!overlayWindow.__rionStudioMacroOverlay) {

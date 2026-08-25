@@ -562,7 +562,7 @@
 
   function runAction(action, macroId, details, queueBehindPending, bypassPendingTail = false) {
     if (!queueBehindPending && pendingMacroActions.has(macroId)) {
-      return;
+      return Promise.resolve();
     }
 
     pendingMacroActions.set(macroId, (pendingMacroActions.get(macroId) ?? 0) + 1);
@@ -602,6 +602,7 @@
         void refresh();
       }
     });
+    return actionPromise;
   }
 
   function handleFocus() {

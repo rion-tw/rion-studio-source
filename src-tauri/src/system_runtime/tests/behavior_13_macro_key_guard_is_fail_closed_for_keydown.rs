@@ -325,3 +325,72 @@ fn macro_focus_waits_for_essential_page_readiness() {
         FocusLaunchReadiness::Unavailable
     );
 }
+
+#[test]
+fn managed_shortcut_replay_is_balanced_and_suppresses_only_the_main_key() {
+    let effects = managed_shortcut_key_effects(
+        "Digit2",
+        "replay",
+        vec!["ShiftRight".to_owned(), "ControlLeft".to_owned()],
+    )
+    .unwrap();
+
+    assert_eq!(effects.len(), 6);
+    assert_eq!(
+        effects
+            .iter()
+            .map(|effect| (effect.phase.as_str(), effect.code.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("rawKeyDown", "ControlLeft"),
+            ("rawKeyDown", "ShiftRight"),
+            ("rawKeyDown", "Digit2"),
+            ("keyUp", "Digit2"),
+            ("keyUp", "ShiftRight"),
+            ("keyUp", "ControlLeft"),
+        ]
+    );
+    assert!(effects[2].suppress_shortcut);
+    assert!(effects[3].suppress_shortcut);
+    assert!(effects
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !matches!(index, 2 | 3))
+        .all(|(_, effect)| !effect.suppress_shortcut));
+    assert!(effects.last().unwrap().active_codes.is_empty());
+}
+
+#[test]
+fn managed_while_held_phases_preserve_modifier_sides() {
+    let modifiers = vec!["ShiftRight".to_owned(), "ControlLeft".to_owned()];
+    let down = managed_shortcut_key_effects("Digit2", "keyDown", modifiers.clone()).unwrap();
+    let up = managed_shortcut_key_effects("Digit2", "keyUp", modifiers).unwrap();
+
+    assert_eq!(down.len(), 1);
+    assert_eq!(down[0].phase, "rawKeyDown");
+    assert_eq!(down[0].active_codes_before, ["ControlLeft", "ShiftRight"]);
+    assert_eq!(
+        down[0].active_codes,
+        ["ControlLeft", "Digit2", "ShiftRight"]
+    );
+    assert!(down[0].suppress_shortcut);
+
+    assert_eq!(up.len(), 1);
+    assert_eq!(up[0].phase, "keyUp");
+    assert_eq!(
+        up[0].active_codes_before,
+        ["ControlLeft", "Digit2", "ShiftRight"]
+    );
+    assert_eq!(up[0].active_codes, ["ControlLeft", "ShiftRight"]);
+    assert!(up[0].suppress_shortcut);
+}
+
+#[test]
+fn managed_shortcut_effects_reject_unknown_phases() {
+    assert_eq!(
+        managed_shortcut_key_effects("Digit2", "unknown", Vec::new())
+            .unwrap_err()
+            .code,
+        "SYSTEM_MANAGED_SHORTCUT_INVALID"
+    );
+}

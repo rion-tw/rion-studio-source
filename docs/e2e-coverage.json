@@ -486,7 +486,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep an exact physical Shift side held across managed while-held keydown, press, keyup, and release acknowledgements; prove early physical release still completes exactly one iteration, leaves no Core lease or page key behind, and an unbound Shift+4 reaches the foreground role with its modifier intact."
+      "description": "Keep exact left/right modifier ownership balanced across managed while-held keydown, press, keyup, and release acknowledgements; switch tabs while the managed main key is still held and prove its native press lease completes after deselection, the new tab remains selected, no Core or page key remains, unbound Shift+4 retains its modifier, and real Ctrl+Tab/Ctrl+Shift+Tab handoff emits one trusted source release per modifier."
     },
     {
       "id": "ROLE-KEY-BLUR-004",
@@ -500,7 +500,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Hold an unbound Digit1 while switching roles and focusing the main app, proving the original role receives one release and retains no pressed codes."
+      "description": "Hold Shift plus an unbound ordinary key while switching native tabs, focusing the main app, and transferring focus between sibling Role WebViews; prove the source receives exactly one trusted keyup per code and its generic, trusted, and game-consumer pressed-code sets are all empty."
     },
     {
       "id": "MACRO-TERMINAL-CLEANUP-006",

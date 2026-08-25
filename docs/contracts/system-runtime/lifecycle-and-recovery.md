@@ -1,12 +1,13 @@
 # Lifecycle and Recovery
 
-This document is part of [System WebView Runtime Contract version 19](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 20](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Lifecycle and readiness rules
 
 - A surface identity is `(instanceId, generation, windowId)`. Stale generations
   cannot receive navigation, input, presentation, or recovery work.
 - Every normal automatic-input dispatch carries the accepted application lifecycle epoch, role input epoch, and surface generation. All three are checked before native submission and again before accepting its callback. Cleanup may cross a lifecycle fence only to release already-owned keys or pointers; it cannot create new input.
+- Native window/tab/Role focus departure transfers physical keys to one identity-bound `releaseId`; trusted reverse-order `keyup` completion requires exact DOM acknowledgements, follows managed main-key release, and excludes Ctrl+Tab-owned modifiers.
 - Every root macro, called macro, and recovery restart begins with an event-fenced Focus readiness admission. On Windows the exact current WebView2 controller reports visibility and `IsSuspended`; a suspended surface must complete `Resume`, report `IsSuspended == false`, and then pass the existing page input-context readback before Core may publish `running`. On macOS the configured `BackgroundThrottlingPolicy::Throttle` remains authoritative and the same page readback is the executable proof. Neither path selects, shows, reloads, or focuses a background tab.
 - A failed WebView wake is `SYSTEM_AUTOMATION_SURFACE_WAKE_FAILED`; an unknown post-Resume result is `SYSTEM_AUTOMATION_SURFACE_WAKE_INDETERMINATE`. Core preserves the failing role, request, native cause, and every Focus request ID while projecting the stable macro errors `MACRO_INPUT_WAKE_FAILED` or `MACRO_INPUT_WAKE_INDETERMINATE`. Neither outcome publishes `running` or sends normal input. The existing neutral-input recovery contract decides whether the role can resume or must be relaunched.
 - Closing first fences input, then proves isolation. An unverified close becomes
@@ -119,11 +120,9 @@ context never resumes automatically. Eligible toggle and loop roots restart
 once from their beginning; while-held roots remain stopped. Multi-role restart
 intent remains deferred until every involved role is input-admissible.
 
-Role, tab, and window teardown advances the native input epoch and drains the
-exact per-role input lane before native surface isolation. An input callback
-that was already admitted must terminalize while its WebView is still attached;
-cleanup from an older Core epoch that has not started is superseded. Native
-surface release never overtakes either outcome.
+Role, tab, and window teardown advances the native input epoch and drains the exact per-role input lane before isolation. An admitted callback terminalizes while its
+WebView is attached; unstarted old-epoch cleanup is superseded. Surface release
+never overtakes either outcome, and the fence drains managed press leases first.
 
 This context recovery never reloads or replaces the live page, changes surface
 generation, or marks the role restart-required. Main-frame navigation
@@ -147,6 +146,9 @@ document instance before recovery may continue. Pending navigation waits for its
 existing page-finished event and document-instance readback; popup close keeps
 using the popup input fence. No URL, provider, or authentication-domain rule is
 part of this decision.
+
+Focus-departure cleanup uses guarded compensation; unproven neutrality preserves the
+page and marks the Role restart-required. Synthetic `keyup` is never evidence.
 
 Once every navigation ticket is complete, only the exact input epoch and surface
 generation may resume Core and the native input lane. The runtime then claims

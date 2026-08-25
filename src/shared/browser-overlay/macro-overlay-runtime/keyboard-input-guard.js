@@ -4,6 +4,7 @@
   const macroModifierOwnership = new Map();
   const pendingMacroObservationListeners = new Map();
   const pendingPhysicalToggleShortcuts = [];
+  const pendingPhysicalKeyCleanupCodes = new Set();
   const physicalGameKeys = new Map();
   const physicalModifierCodeSet = new Set([
     "AltLeft",
@@ -18,6 +19,8 @@
   let lastMacroGameCanvas = null;
   let macroGameKeyReassertQueued = false;
   let macroGameKeysNeedReassert = false;
+  let nextPhysicalKeyReleaseId = 1;
+  let physicalKeyCleanupTail = Promise.resolve();
   let physicalShortcutEpoch = 0;
 
   function consumeShortcutEvent(event) {
@@ -257,7 +260,7 @@
     if (active.delivered === false) return;
     if (typeof window.KeyboardEvent !== "function") return;
     try {
-      const snapshot = currentPhysicalModifierSnapshot(active.snapshot);
+      const snapshot = active.releaseSnapshot ?? currentPhysicalModifierSnapshot(active.snapshot);
       const event = new window.KeyboardEvent("keyup", {
         altKey: snapshot.altKey,
         bubbles: true,
@@ -288,7 +291,8 @@
     }
   }
 
-  function releasePhysicalGameKeys() {
+  function takePhysicalGameKeysForRelease() {
+    const pending = [];
     for (const code of [...physicalGameKeys.keys()].reverse()) {
       const active = physicalGameKeys.get(code);
       physicalGameKeys.delete(code);
@@ -297,8 +301,58 @@
         macroOwnership.delivered = true;
         continue;
       }
-      if (active) dispatchPhysicalGameKeyUp(active);
+      if (active?.delivered !== false) {
+        pending.push({
+          ...active,
+          releaseSnapshot: currentPhysicalModifierSnapshot(active.snapshot)
+        });
+      }
     }
+    return pending;
+  }
+
+  function releasePhysicalGameKeysFallback(pending) {
+    pending.forEach(dispatchPhysicalGameKeyUp);
+    pending
+      .map((active) => active.snapshot.code)
+      .filter((code) => !physicalModifierCodeSet.has(code))
+      .forEach((code) => consumedPhysicalShortcutCodes.add(code));
+  }
+
+  function releasePhysicalGameKeys(managedRelease = Promise.resolve()) {
+    const pending = takePhysicalGameKeysForRelease();
+    if (pending.length === 0) return Promise.resolve();
+    if (typeof binding.physicalKeyCleanup !== "function") {
+      releasePhysicalGameKeysFallback(pending);
+      return Promise.resolve();
+    }
+    const request = {
+      codes: pending.map((active) => active.snapshot.code),
+      releaseId: `${Date.now()}-${nextPhysicalKeyReleaseId++}`
+    };
+    request.codes.forEach((code) => pendingPhysicalKeyCleanupCodes.add(code));
+    const cleanup = physicalKeyCleanupTail
+      .catch(() => undefined)
+      .then(() => managedRelease)
+      .catch(() => undefined)
+      .then(() => binding.physicalKeyCleanup(request))
+      .then((acknowledgement) => {
+        const releasedCodes = Array.isArray(acknowledgement?.releasedCodes)
+          ? acknowledgement.releasedCodes
+          : request.codes;
+        releasedCodes.forEach((code) => {
+          const normalizedCode = String(code);
+          pendingPhysicalKeyCleanupCodes.delete(normalizedCode);
+          consumedPhysicalShortcutCodes.add(normalizedCode);
+        });
+      })
+      .catch((error) => {
+        console.warn("Unable to neutralize physical game keys after focus loss.", error);
+        request.codes.forEach((code) => pendingPhysicalKeyCleanupCodes.delete(code));
+        releasePhysicalGameKeysFallback(pending);
+      });
+    physicalKeyCleanupTail = cleanup;
+    return cleanup;
   }
 
   function discardForwardedMacroKey(code) {
@@ -674,10 +728,11 @@
     if (isReservedRuntimeTabSwitchShortcutEvent(event)) {
       consumeShortcutEvent(event);
       if (!event.repeat) {
+        const modifierCodes = currentRuntimeTabShortcutModifierCodes(event);
         void binding({
           type: "runtime-tab-shortcut",
           direction: event.shiftKey ? "previous" : "next",
-          modifierCodes: currentRuntimeTabShortcutModifierCodes(event)
+          modifierCodes
         }).catch(() => undefined);
       }
       return;
@@ -789,8 +844,12 @@
   function handleKeyUp(event) {
     if (forwardedMacroGameEvents.has(event)) return;
     if (!isTrustedUserEvent(event)) {
+      if (pendingPhysicalKeyCleanupCodes.has(event.code)) {
+        consumeShortcutEvent(event);
+      }
       return;
     }
+    pendingPhysicalKeyCleanupCodes.delete(event.code);
     const macroKeyGuard = consumeSuppressedShortcut(event, "macro-key");
     if (macroKeyGuard) {
       if (consumeOverlappingMacroModifierKeyUp(event)) {
@@ -838,8 +897,11 @@
   }
 
   function releaseActiveHeldShortcuts() {
+    const keyUps = [];
     [...activeHeldShortcuts.entries()].forEach(([macroId, active]) => {
       consumedPhysicalShortcutCodes.add(active.code);
+      keyUps.push(beginManagedShortcutKeyUp(active));
       void finishManagedHeldShortcut(macroId, active, "immediate");
     });
+    return Promise.all(keyUps.map((release) => release.catch(() => false)));
   }

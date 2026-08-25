@@ -775,6 +775,40 @@ use super::*;
     }
 
     #[test]
+    fn physical_key_cleanup_requests_require_unique_bounded_codes() {
+        PhysicalKeyCleanupRequest {
+            release_id: "release-1".to_owned(),
+            codes: vec!["KeyA".to_owned(), "ShiftLeft".to_owned()],
+        }
+        .validate()
+        .unwrap();
+
+        for request in [
+            PhysicalKeyCleanupRequest {
+                release_id: "release 1".to_owned(),
+                codes: vec!["KeyA".to_owned()],
+            },
+            PhysicalKeyCleanupRequest {
+                release_id: "release-1".to_owned(),
+                codes: Vec::new(),
+            },
+            PhysicalKeyCleanupRequest {
+                release_id: "release-1".to_owned(),
+                codes: vec!["ShiftLeft".to_owned(), "ShiftLeft".to_owned()],
+            },
+            PhysicalKeyCleanupRequest {
+                release_id: "release-1".to_owned(),
+                codes: vec!["Key A".to_owned()],
+            },
+        ] {
+            assert_eq!(
+                request.validate().unwrap_err().code,
+                "PHYSICAL_KEY_CLEANUP_INVALID"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_tab_activation_terminal_evidence_is_platform_neutral() {
         assert_eq!(
             runtime_tab_activation_terminal_details("tab-a", None),

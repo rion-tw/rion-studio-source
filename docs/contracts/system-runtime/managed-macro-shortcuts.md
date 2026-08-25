@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 19](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 20](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -12,6 +12,15 @@ For an owned chord, the physical main-key `keydown`, repeat, and `keyup` never
 reach the page directly; modifier events retain their physical DOM lifecycle and
 exact left/right codes. One `pressId` and modifier-side snapshot identify the
 owned cycle.
+
+An acknowledged while-held main-key down creates one native press lease keyed by
+`pressId`, Role ID, WebView label, surface generation, macro ID, main code, and
+the exact left/right modifier snapshot. `keyDown` and toggle `replay` remain
+restricted to the currently selected source. A lease-bound `keyUp` remains
+admissible after that source loses selected state, but only while every lease
+identity field and surface generation still match. Repeating the same keyup
+replays its bounded terminal receipt without emitting a second event; a missing
+or mismatched lease is rejected.
 
 Every replacement main-key event enters the selected role's existing native
 input lane and carries the accepted application lifecycle epoch, role input
@@ -36,8 +45,11 @@ dispatching `press`. Physical release first completes the replacement keyup
 acknowledgement and then dispatches `release`. If release was observed while
 `press` was still pending, the same ordered chain finishes and uses
 `complete_first_iteration`, producing exactly one admitted iteration. Blur,
-hidden-page, page teardown, and overlay disposal use `immediate` release after
-native key cleanup and clear the same Core lease.
+hidden-page, page teardown, and overlay disposal use `immediate` release: the
+managed main-key keyup is acknowledged first, physical pass-through keys are
+then neutralized in reverse press order, and the same Core lease is cleared.
+Input fencing drains any remaining native press lease before navigation, close,
+suspend, or surface isolation.
 
 This flow is event-bound. It adds no polling, retry timer, replay watchdog, or
 second pressed-key owner; cancellation and supersede cannot be converted into a

@@ -169,6 +169,8 @@ impl SystemRuntimeExecutor {
             input_dispatch_lanes: Mutex::new(HashMap::new()),
             macro_badge_timing: Mutex::new(MacroBadgeTimingTracker::default()),
             macro_key_observations: Mutex::new(HashMap::new()),
+            managed_shortcut_presses: Mutex::new(ManagedShortcutPressRegistry::default()),
+            physical_key_cleanups: Mutex::new(PhysicalKeyCleanupRegistry::default()),
             input_readiness: InputReadinessRegistry::new(),
             native_creation_lanes: Mutex::new(HashMap::new()),
             native_creation_slots: NativeCreationGate::new(native_creation_limit(
@@ -203,6 +205,7 @@ impl SystemRuntimeExecutor {
             #[cfg(windows)]
             selected_surface_reprojection_lane: Mutex::new(()),
             shortcut_modifier_handoffs: Mutex::new(HashMap::new()),
+            shortcut_modifier_cleanups: Mutex::new(ShortcutModifierCleanupRegistry::default()),
             self_weak: OnceLock::new(),
             shutdown_operation: OnceLock::new(),
             shutdown_state: Arc::new(AtomicU8::new(RuntimeShutdownState::Accepting as u8)),

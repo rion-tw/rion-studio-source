@@ -38,6 +38,11 @@ import {
 import { waitForTranscriptEvent } from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
 import {
+  activateVisibleRuntimeTab,
+  verifyManagedHeldTabDeparture,
+  verifyRuntimeTabModifierHandoff,
+  verifyTrustedNeutralState,
+  verifyWorkspaceRoleFocusDeparture,
   waitFixtureCode,
   waitMacroKeyReceipt,
   waitManagedShortcutReceipt,
@@ -262,28 +267,6 @@ async function shutdownAndWaitForFlush(): Promise<void> {
   );
   expect((event.details as { complete?: boolean }).complete).toBe(true);
   detachTerminatedApplicationSession();
-}
-
-async function activateVisibleRuntimeTab(input: {
-  tabId: string;
-  windowGeneration: number;
-  windowId: string;
-}): Promise<void> {
-  const controlCursor = (await probe()).latestSequence;
-  await runtimeUiAction(input.windowId, {
-    action: "activateTab",
-    tabId: input.tabId,
-    windowGeneration: input.windowGeneration
-  });
-  const terminal = await waitEvent({
-    afterSequence: controlCursor,
-    kind: "runtime-tab-activation-terminal",
-    windowId: input.windowId
-  });
-  const details = terminal.details as { error?: string; status?: string; tabId?: string };
-  expect(details).toMatchObject({ status: "completed", tabId: input.tabId });
-  expect(details.error ?? null).toBeNull();
-  expect((await windowSnapshot(input.windowId)).kernel?.selectedTabId).toBe(input.tabId);
 }
 
 async function nativeEffectPhase(): Promise<void> {
@@ -590,6 +573,14 @@ async function multiRolePhase(): Promise<void> {
   const tab = await launchWorkspace(scenario.workspace!, scenario.roles);
   const live = await windowSnapshot(tab.windowId);
   expect(live.native.workspaceWebChromeSurfaces?.length).toBeGreaterThan(0);
+  await verifyWorkspaceRoleFocusDeparture({
+    sourceFixtureRoleId: "macro-multirole-a",
+    sourceRoleId: scenario.roles[0].id,
+    tab,
+    targetFixtureRoleId: "macro-multirole-b",
+    targetRoleId: scenario.roles[1].id,
+    windowGeneration: live.windowGeneration
+  });
   await navigate("/macros");
   await $("[data-macro-list-view='grouped']").waitForExist({ timeout: 10_000 });
   const groupedRows = await $$(`[data-selection-id='${scenario.macro.id}']`);
@@ -883,6 +874,11 @@ async function keyboardLifecyclePhase(): Promise<void> {
       afterSequence: focusCursor,
       kind: "focus",
       roleId: "macro-keyboard-a"
+    });
+
+    await verifyRuntimeTabModifierHandoff({
+      press, release, tabA, tabB,
+      windowGeneration: live.windowGeneration
     });
 
     const shortcutFixtureCursor = await fixtureCursor();
@@ -1484,7 +1480,19 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(continuityState.trustedPressedCodes).toEqual([]);
     expect(continuityState.consumerPressedCodes).toEqual([]);
 
+    await verifyManagedHeldTabDeparture({
+      fixtureRoleId: "macro-keyboard-a",
+      macro: continuityMacro,
+      press,
+      release,
+      roleId: scenario.roles[0].id,
+      tabA,
+      tabB,
+      windowGeneration: live.windowGeneration
+    });
+
     const firstHoldCursor = await fixtureCursor();
+    await press("ShiftLeft");
     await press("Digit1");
     const firstDigitOneDown = await waitFixtureCode({
       afterSequence: firstHoldCursor,
@@ -1503,14 +1511,20 @@ async function keyboardLifecyclePhase(): Promise<void> {
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
-    expect((await fixtureState())["macro-keyboard-a"].pressedCodes).toEqual([]);
-    expect((await fixtureEvents({
+    await waitFixtureCode({
       afterSequence: firstDigitOneDown.sequence,
+      code: "ShiftLeft",
+      kind: "keyup",
       roleId: "macro-keyboard-a"
-    })).filter((event) => event.kind === "keyup" && event.code === "Digit1")).toHaveLength(1);
+    });
+    await verifyTrustedNeutralState({
+      afterSequence: firstDigitOneDown.sequence,
+      codes: ["Digit1", "ShiftLeft"],
+      fixtureRoleId: "macro-keyboard-a"
+    });
     await release("Digit1");
+    await release("ShiftLeft");
 
-    const refocusCursor = await fixtureCursor();
     await activateVisibleRuntimeTab({
       tabId: tabA.id,
       windowGeneration: live.windowGeneration,
@@ -1522,12 +1536,8 @@ async function keyboardLifecyclePhase(): Promise<void> {
       tabId: tabA.id,
       windowGeneration: live.windowGeneration
     });
-    await waitFixtureEvent({
-      afterSequence: refocusCursor,
-      kind: "focus",
-      roleId: "macro-keyboard-a"
-    });
     const secondHoldCursor = await fixtureCursor();
+    await press("ShiftRight");
     await press("Digit1");
     const secondDigitOneDown = await waitFixtureCode({
       afterSequence: secondHoldCursor,
@@ -1544,12 +1554,19 @@ async function keyboardLifecyclePhase(): Promise<void> {
       kind: "keyup",
       roleId: "macro-keyboard-a"
     });
-    expect((await fixtureState())["macro-keyboard-a"].pressedCodes).toEqual([]);
-    expect((await fixtureEvents({
+    await waitFixtureCode({
       afterSequence: secondDigitOneDown.sequence,
+      code: "ShiftRight",
+      kind: "keyup",
       roleId: "macro-keyboard-a"
-    })).filter((event) => event.kind === "keyup" && event.code === "Digit1")).toHaveLength(1);
+    });
+    await verifyTrustedNeutralState({
+      afterSequence: secondDigitOneDown.sequence,
+      codes: ["Digit1", "ShiftRight"],
+      fixtureRoleId: "macro-keyboard-a"
+    });
     await release("Digit1");
+    await release("ShiftRight");
   } finally {
     for (const code of [...heldCodes].reverse()) {
       await keyboardInput(code, "keyUp").catch(() => undefined);

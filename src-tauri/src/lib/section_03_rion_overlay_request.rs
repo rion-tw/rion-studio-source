@@ -258,6 +258,47 @@ struct ManagedShortcutKeyPhaseRequest {
     modifier_codes: Vec<String>,
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PhysicalKeyCleanupRequest {
+    release_id: String,
+    codes: Vec<String>,
+}
+
+impl PhysicalKeyCleanupRequest {
+    fn validate(&self) -> Result<(), CoreErrorPayload> {
+        if self.release_id.is_empty()
+            || self.release_id.len() > 128
+            || !self
+                .release_id
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            || self.codes.is_empty()
+            || self.codes.len() > 32
+        {
+            return Err(shell_error(
+                "PHYSICAL_KEY_CLEANUP_INVALID",
+                "The physical key cleanup request is invalid.",
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        if self.codes.iter().any(|code| {
+            code.is_empty()
+                || code.len() > 32
+                || !code
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric())
+                || !seen.insert(code)
+        }) {
+            return Err(shell_error(
+                "PHYSICAL_KEY_CLEANUP_INVALID",
+                "The physical key cleanup codes are invalid.",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl ManagedShortcutKeyPhaseRequest {
     fn validate(&self) -> Result<(), CoreErrorPayload> {
         let identifier = |value: &str, name: &str| {
@@ -330,10 +371,11 @@ async fn rion_managed_shortcut_key_phase(
         .authorize_overlay_request(webview.label(), &capability)
         .map_err(|message| shell_error("MANAGED_SHORTCUT_UNAUTHORIZED", message))?;
     request.validate()?;
-    if !state
-        .runtime
-        .overlay_webview_is_selected(webview.label(), &role_id)
-        .map_err(|message| shell_error("MANAGED_SHORTCUT_FOCUS_STATE_FAILED", message))?
+    if request.phase != "keyUp"
+        && !state
+            .runtime
+            .overlay_webview_is_selected(webview.label(), &role_id)
+            .map_err(|message| shell_error("MANAGED_SHORTCUT_FOCUS_STATE_FAILED", message))?
     {
         return Err(shell_error(
             "MANAGED_SHORTCUT_UNAUTHORIZED",
@@ -341,16 +383,24 @@ async fn rion_managed_shortcut_key_phase(
         ));
     }
     let runtime = Arc::clone(&state.runtime);
+    let webview_label = webview.label().to_owned();
+    let press_id = request.press_id.clone();
+    let macro_id = request.macro_id.clone();
     let code = request.code.clone();
     let phase = request.phase.clone();
     let modifier_codes = request.modifier_codes.clone();
     let dispatch_role_id = role_id.clone();
     tauri::async_runtime::spawn_blocking(move || {
         runtime.dispatch_managed_shortcut_key_phase(
-            &dispatch_role_id,
-            &code,
-            &phase,
-            modifier_codes,
+            system_runtime::ManagedShortcutKeyPhaseDispatch {
+                code,
+                macro_id,
+                modifier_codes,
+                phase,
+                press_id,
+                role_id: dispatch_role_id,
+                webview_label,
+            },
         )
     })
     .await
@@ -372,6 +422,81 @@ async fn rion_managed_shortcut_key_phase(
         }),
     );
     Ok(())
+}
+
+#[tauri::command]
+async fn rion_physical_key_cleanup(
+    webview: Webview,
+    state: State<'_, CoreState>,
+    capability: String,
+    request: PhysicalKeyCleanupRequest,
+) -> Result<system_runtime::PhysicalKeyCleanupAcknowledgement, CoreErrorPayload> {
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e::record_event(
+        "physical-key-cleanup-requested",
+        state.runtime.window_id_for_webview(webview.label()).as_deref(),
+        None,
+        None,
+        json!({
+            "codes": request.codes,
+            "releaseId": request.release_id,
+            "webviewLabel": webview.label(),
+        }),
+    );
+    let role_id = state
+        .runtime
+        .authorize_overlay_request(webview.label(), &capability)
+        .map_err(|message| shell_error("PHYSICAL_KEY_CLEANUP_UNAUTHORIZED", message))?;
+    request.validate()?;
+    let runtime = Arc::clone(&state.runtime);
+    let webview_label = webview.label().to_owned();
+    let release_id = request.release_id.clone();
+    let codes = request.codes.clone();
+    let dispatch_role_id = role_id.clone();
+    let cleanup = tauri::async_runtime::spawn_blocking(move || {
+        runtime.cleanup_physical_keys_after_focus_departure(
+            &webview_label,
+            &dispatch_role_id,
+            &release_id,
+            codes,
+        )
+    })
+    .await
+    .map_err(|error| shell_error("PHYSICAL_KEY_CLEANUP_FAILED", error.to_string()))?;
+    let acknowledgement = match cleanup {
+        Ok(acknowledgement) => acknowledgement,
+        Err(error) => {
+            #[cfg(feature = "desktop-e2e")]
+            desktop_e2e::record_event(
+                "physical-key-cleanup-failed",
+                state.runtime.window_id_for_webview(webview.label()).as_deref(),
+                None,
+                None,
+                json!({
+                    "code": error.code,
+                    "message": error.message,
+                    "releaseId": request.release_id,
+                    "roleId": role_id,
+                    "webviewLabel": webview.label(),
+                }),
+            );
+            return Err(shell_error(error.code, error.message));
+        }
+    };
+    #[cfg(feature = "desktop-e2e")]
+    desktop_e2e::record_event(
+        "physical-key-cleanup-acknowledged",
+        state.runtime.window_id_for_webview(webview.label()).as_deref(),
+        None,
+        None,
+        json!({
+            "codes": request.codes,
+            "releaseId": request.release_id,
+            "roleId": role_id,
+            "webviewLabel": webview.label(),
+        }),
+    );
+    Ok(acknowledgement)
 }
 
 #[tauri::command]

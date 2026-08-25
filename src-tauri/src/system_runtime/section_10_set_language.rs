@@ -260,6 +260,7 @@ impl SystemRuntimeExecutor {
         abandoned: bool,
     ) {
         let handoff = self.take_shortcut_modifier_handoff(window_id, fallback_tab_id);
+        self.remember_completed_shortcut_handoff(&handoff);
         let reassertion = self.reassert_shortcut_handoff_keys(&handoff);
         let (phase, level, error) = match reassertion {
             Ok(()) if abandoned => ("abandoned", LogLevel::Debug, None),
@@ -317,6 +318,7 @@ impl SystemRuntimeExecutor {
     #[cfg(windows)]
     fn finish_windows_shortcut_modifier_handoff(&self, window_id: &str) {
         let handoff = self.take_shortcut_modifier_handoff(window_id, None);
+        self.remember_completed_shortcut_handoff(&handoff);
         let release = self.release_windows_shortcut_modifiers(&handoff);
         let reassertion = self.reassert_shortcut_handoff_keys(&handoff);
         let result = match (release, reassertion) {

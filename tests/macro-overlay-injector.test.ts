@@ -30,6 +30,10 @@ type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
     dispatchId: string;
     phase: "keydown" | "keyup";
   }): Promise<unknown>;
+  physicalKeyCleanup(request: {
+    codes: string[];
+    releaseId: string;
+  }): Promise<unknown>;
   shortcutLifecycle(event: {
     code: string;
     macroId: string;
@@ -191,6 +195,24 @@ describe("Tauri macro overlay injector", () => {
     });
   });
 
+  it("forwards physical key cleanup through the authenticated internal command", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => undefined);
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const request = {
+      codes: ["KeyA", "ShiftLeft"],
+      releaseId: "release-1"
+    };
+
+    await binding.physicalKeyCleanup(request);
+
+    expect(invoke).toHaveBeenCalledWith("rion_physical_key_cleanup", {
+      capability: "test-capability",
+      request
+    });
+  });
+
   it("forwards macro badge timing through the authenticated internal command", async () => {
     const { bridge } = await overlaySources();
     const invoke = vi.fn(async () => undefined);
@@ -345,7 +367,7 @@ describe("Tauri macro overlay injector", () => {
     controller.dispose();
     await controller.refresh();
 
-    expect(document.querySelector("#rion-studio-macro-overlay-v60")).toBeNull();
+    expect(document.querySelector("#rion-studio-macro-overlay-v61")).toBeNull();
     expect(binding).toHaveBeenCalledTimes(requestCount);
   });
 
@@ -459,7 +481,7 @@ function overlayController(): OverlayController | undefined {
 }
 
 function overlayRoot(): ShadowRoot | undefined {
-  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60")
+  return document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v61")
     ?.shadowRoot ?? undefined;
 }
 

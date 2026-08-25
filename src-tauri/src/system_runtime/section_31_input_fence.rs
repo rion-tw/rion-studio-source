@@ -130,24 +130,43 @@ impl SystemRuntimeExecutor {
     }
 
     fn set_role_input_fence(&self, role_id: &str, input_epoch: u64) -> RuntimeResult<()> {
-        self.cancel_macro_key_observations_for_role(role_id);
         let lane = self.role_input_lane(role_id)?;
-        lane.epoch.fetch_max(input_epoch, Ordering::AcqRel);
         lane.normal_enabled.store(false, Ordering::Release);
+        let _guard = lane.sequence.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_FAILED",
+                "The role input lane is unavailable.",
+            )
+        })?;
+        self.cancel_macro_key_observations_for_role(role_id);
+        self.drain_managed_shortcut_presses_in_lane(role_id)?;
+        lane.epoch.fetch_max(input_epoch, Ordering::AcqRel);
         Ok(())
     }
 
     fn advance_role_input_fence_local(&self, role_id: &str) -> RuntimeResult<u64> {
         let lane = self.role_input_lane(role_id)?;
         lane.normal_enabled.store(false, Ordering::Release);
+        let _guard = lane.sequence.lock().map_err(|_| {
+            RuntimeError::new(
+                "SYSTEM_TRUSTED_INPUT_FAILED",
+                "The role input lane is unavailable.",
+            )
+        })?;
+        self.cancel_macro_key_observations_for_role(role_id);
+        self.drain_managed_shortcut_presses_in_lane(role_id)?;
         Ok(lane.epoch.fetch_add(1, Ordering::AcqRel).saturating_add(1))
     }
 
     fn fence_and_drain_role_input_lane(&self, role_id: &str) -> RuntimeResult<u64> {
         let lane = self.role_input_lane(role_id)?;
-        fence_and_drain_input_lane(&lane, || {
+        let input_epoch = fence_and_drain_input_lane(&lane, || {
             self.cancel_macro_key_observations_for_role(role_id);
-        })
+        })?;
+        self.with_role_input_lane(role_id, || {
+            self.drain_managed_shortcut_presses_in_lane(role_id)
+        })?;
+        Ok(input_epoch)
     }
 
     fn set_role_input_surface(

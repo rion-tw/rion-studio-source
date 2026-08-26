@@ -7,6 +7,11 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  macDevBundleLaunchArguments,
+  macDevBundleRoot
+} from "../scripts/runMacDevBundle.mjs";
+
 const execFileAsync = promisify(execFile);
 
 describe("Tauri development and release commands", () => {
@@ -64,7 +69,9 @@ describe("Tauri development and release commands", () => {
     expect(macRunner).toContain('"Rion Studio Dev.app"');
     expect(macPlistSource).toContain("com.rionstudio.launcher");
     expect(macPlistSource).toContain("NSAllowsLocalNetworking");
-    expect(macRunner).toContain("process.execve(");
+    expect(macRunner).not.toContain("process.execve(");
+    expect(macRunner).toContain('"/usr/bin/open"');
+    expect(macRunner).toContain('execute("/usr/bin/codesign"');
     expect(macRunner).toContain("macWebKitExperimentExecutableEnvironment()");
     expect(macRunner).toContain("macGameModeMetadataEnabled()");
     expect(productionMacPlist).toContain("<key>LSSupportsGameMode</key>");
@@ -74,6 +81,33 @@ describe("Tauri development and release commands", () => {
     expect(launcher).not.toContain("test:native:system-input");
     expect(launcher).not.toContain("rion-attestation");
     expect(launcher).not.toContain("INPUT_ATTESTED");
+  });
+
+  it("launches the macOS development bundle as a fresh LaunchServices application", () => {
+    expect(macDevBundleRoot("/Users/developer")).toBe(join(
+      "/Users/developer",
+      "Applications",
+      "Rion Studio Development",
+      "Rion Studio Dev.app"
+    ));
+    expect(macDevBundleLaunchArguments(
+      "/tmp/Rion Studio Dev.app",
+      ["--example", "argument with spaces"]
+    )).toEqual([
+      "-n",
+      "-W",
+      "-F",
+      "/tmp/Rion Studio Dev.app",
+      "--args",
+      "--example",
+      "argument with spaces"
+    ]);
+    expect(macDevBundleLaunchArguments("/tmp/Rion Studio Dev.app")).toEqual([
+      "-n",
+      "-W",
+      "-F",
+      "/tmp/Rion Studio Dev.app"
+    ]);
   });
 
   it("uses semantic release version synchronization for every public version source", async () => {

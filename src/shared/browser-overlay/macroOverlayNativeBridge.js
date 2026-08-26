@@ -27,12 +27,6 @@
     }
     return nativeInvoke("rion_managed_shortcut_key_phase", { capability, request });
   };
-  bridge.physicalKeyCleanup = (request) => {
-    if (!nativeInvoke) {
-      return Promise.reject(new Error("Rion Studio overlay IPC is unavailable."));
-    }
-    return nativeInvoke("rion_physical_key_cleanup", { capability, request });
-  };
   bridge.macroBadgeTiming = (observation) => {
     if (!nativeInvoke) return Promise.resolve();
     return nativeInvoke("rion_macro_badge_timing", { capability, observation });

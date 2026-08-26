@@ -31,8 +31,6 @@ pub struct SystemRuntimeExecutor {
     pub(super) input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
     pub(super) macro_badge_timing: Mutex<MacroBadgeTimingTracker>,
     pub(super) macro_key_observations: Mutex<HashMap<String, PendingMacroKeyObservation>>,
-    pub(super) managed_shortcut_presses: Mutex<ManagedShortcutPressRegistry>,
-    pub(super) physical_key_cleanups: Mutex<PhysicalKeyCleanupRegistry>,
     pub(super) input_readiness: InputReadinessRegistry,
     pub(super) native_creation_lanes: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     pub(super) native_creation_slots: NativeCreationGate,
@@ -62,7 +60,6 @@ pub struct SystemRuntimeExecutor {
     #[cfg(windows)]
     pub(super) selected_surface_reprojection_lane: Mutex<()>,
     pub(super) shortcut_modifier_handoffs: Mutex<HashMap<String, RuntimeShortcutModifierHandoff>>,
-    pub(super) shortcut_modifier_cleanups: Mutex<ShortcutModifierCleanupRegistry>,
     pub(super) self_weak: OnceLock<std::sync::Weak<SystemRuntimeExecutor>>,
     pub(super) shutdown_operation: OnceLock<NativeOperationContext>,
     pub(super) shutdown_state: Arc<AtomicU8>,

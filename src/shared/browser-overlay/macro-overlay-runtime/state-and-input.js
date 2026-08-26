@@ -1,7 +1,7 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v61";
+  const hostId = "rion-studio-macro-overlay-v60";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-26.1";
+  const scriptVersion = "2026-08-18.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -345,11 +345,8 @@
     if (!["ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight"].includes(event.code)) {
       return;
     }
-    if (pressed) {
-      runtimeTabShortcutModifierCodes.add(event.code);
-    } else {
-      runtimeTabShortcutModifierCodes.delete(event.code);
-    }
+    if (pressed) runtimeTabShortcutModifierCodes.add(event.code);
+    else runtimeTabShortcutModifierCodes.delete(event.code);
   }
 
   function currentRuntimeTabShortcutModifierCodes(event) {

@@ -57,10 +57,6 @@ interface OverlayBinding {
   (request: unknown): Promise<unknown>;
   managedShortcutKeyPhase?: (request: ManagedShortcutKeyPhase) => Promise<unknown>;
   macroKeyObserved?: (observation: MacroKeyObservation) => Promise<unknown>;
-  physicalKeyCleanup?: (request: {
-    codes: string[];
-    releaseId: string;
-  }) => Promise<unknown>;
   shortcutLifecycle?: (event: {
     code: string;
     macroId: string;
@@ -1047,102 +1043,6 @@ describe("macro overlay native key guard", () => {
     expect(controller.physicalModifierCodes()).toEqual([]);
     window.dispatchEvent(new Event("blur"));
     expect(releases).toHaveLength(2);
-  });
-
-  it("submits one native physical cleanup for blur and hidden without synthetic duplicates", async () => {
-    const binding = vi.fn(async () => ({ macros: [], statuses: [] })) as OverlayBinding;
-    binding.physicalKeyCleanup = vi.fn(async () => undefined);
-    const controller = installOverlay(binding);
-    const canvas = document.createElement("canvas");
-    document.body.append(canvas);
-    const releases: string[] = [];
-    canvas.addEventListener("keyup", (event) => releases.push(event.code));
-
-    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
-    canvas.dispatchEvent(keyEvent("keydown", "ShiftRight", "Shift", { shiftKey: true }));
-    canvas.dispatchEvent(keyEvent("keydown", "KeyA", "A", { shiftKey: true }));
-    window.dispatchEvent(new Event("blur"));
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      value: "hidden"
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-
-    await vi.waitFor(() => expect(binding.physicalKeyCleanup).toHaveBeenCalledOnce());
-    expect(binding.physicalKeyCleanup).toHaveBeenCalledWith({
-      codes: ["KeyA", "ShiftRight", "ShiftLeft"],
-      releaseId: expect.any(String)
-    });
-    expect(releases).toEqual([]);
-    expect(controller.physicalModifierCodes()).toEqual([]);
-    const lateKeyUp = keyEvent("keyup", "KeyA", "A");
-    expect(canvas.dispatchEvent(lateKeyUp)).toBe(false);
-    expect(lateKeyUp.defaultPrevented).toBe(true);
-    const lateShiftUp = keyEvent("keyup", "ShiftLeft", "Shift");
-    expect(canvas.dispatchEvent(lateShiftUp)).toBe(false);
-    expect(lateShiftUp.defaultPrevented).toBe(true);
-    expect(releases).toEqual([]);
-  });
-
-  it("leaves Ctrl+Shift+Tab modifiers to the native handoff exactly once", async () => {
-    const binding = vi.fn(async () => ({ macros: [], statuses: [] })) as OverlayBinding;
-    binding.physicalKeyCleanup = vi.fn(async (request) => ({
-      handoffOwnedCodes: request.codes,
-      releasedCodes: []
-    }));
-    installOverlay(binding);
-    const canvas = document.createElement("canvas");
-    document.body.append(canvas);
-    const releases: string[] = [];
-    canvas.addEventListener("keyup", (event) => releases.push(event.code));
-
-    canvas.dispatchEvent(keyEvent("keydown", "ControlRight", "Control", { ctrlKey: true }));
-    canvas.dispatchEvent(keyEvent("keydown", "ShiftRight", "Shift", {
-      ctrlKey: true,
-      shiftKey: true
-    }));
-    canvas.dispatchEvent(keyEvent("keydown", "Tab", "Tab", {
-      ctrlKey: true,
-      shiftKey: true
-    }));
-    window.dispatchEvent(new Event("blur"));
-
-    await vi.waitFor(() => expect(binding.physicalKeyCleanup).toHaveBeenCalledWith({
-      codes: ["ShiftRight", "ControlRight"],
-      releaseId: expect.any(String)
-    }));
-    expect(releases).toEqual([]);
-    canvas.dispatchEvent(keyEvent("keyup", "ShiftRight", "Shift", { ctrlKey: true }));
-    canvas.dispatchEvent(keyEvent("keyup", "ControlRight", "Control"));
-    expect(releases).toEqual(["ShiftRight", "ControlRight"]);
-  });
-
-  it("falls back to reverse-order synthetic keyup when native cleanup fails", async () => {
-    const binding = vi.fn(async () => ({ macros: [], statuses: [] })) as OverlayBinding;
-    binding.physicalKeyCleanup = vi.fn(async () => {
-      throw new Error("native cleanup failed");
-    });
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    installOverlay(binding);
-    const canvas = document.createElement("canvas");
-    document.body.append(canvas);
-    const releases: Array<{ code: string; shift: boolean }> = [];
-    canvas.addEventListener("keyup", (event) => {
-      releases.push({ code: event.code, shift: event.shiftKey });
-    });
-
-    canvas.dispatchEvent(keyEvent("keydown", "ShiftRight", "Shift", { shiftKey: true }));
-    canvas.dispatchEvent(keyEvent("keydown", "KeyA", "A", { shiftKey: true }));
-    window.dispatchEvent(new Event("blur"));
-
-    await vi.waitFor(() => expect(releases).toEqual([
-      { code: "KeyA", shift: true },
-      { code: "ShiftRight", shift: false }
-    ]));
-    expect(warning).toHaveBeenCalledWith(
-      "Unable to neutralize physical game keys after focus loss.",
-      expect.any(Error)
-    );
   });
 
   it("clears pass-through physical keys on hidden, pagehide, and dispose", () => {

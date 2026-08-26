@@ -562,38 +562,6 @@ it("releases a while-held shortcut when the source window loses focus", async ()
     })));
   });
 
-it("acknowledges the managed main keyup before native physical focus cleanup", async () => {
-    createGameSurface(document);
-    const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
-    const timeline: string[] = [];
-    const binding = vi.fn(async (_request: unknown) => ({ macros: [heldMacro], statuses: [] }));
-    const controller = installOverlay(window, binding);
-    Object.assign(binding, {
-      managedShortcutKeyPhase: async (request: { phase: string }) => {
-        timeline.push(`managed:${request.phase}`);
-      },
-      physicalKeyCleanup: async (request: { codes: string[] }) => {
-        timeline.push(`physical:${request.codes.join(",")}`);
-      }
-    });
-    await controller.refresh();
-
-    document.dispatchEvent(new window.KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      code: "KeyA",
-      key: "a"
-    }));
-    dispatchShortcut(window, "F2", "F2");
-    await vi.waitFor(() => expect(timeline).toContain("managed:keyDown"));
-    window.dispatchEvent(new window.Event("blur"));
-
-    await vi.waitFor(() => expect(timeline).toContain("physical:KeyA"));
-    expect(timeline.indexOf("managed:keyUp")).toBeLessThan(
-      timeline.indexOf("physical:KeyA")
-    );
-  });
-
 it("consumes a late physical keyup after blur cleans a while-held shortcut", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
@@ -831,7 +799,7 @@ it("disposes a detached overlay and stops its polling intervals", async () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v61")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v60")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -904,7 +872,7 @@ function runningStatus(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v61")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v60")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

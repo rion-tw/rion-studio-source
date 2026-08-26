@@ -341,6 +341,53 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    pub(crate) fn dispatch_managed_shortcut_key_phase(
+        &self,
+        role_id: &str,
+        code: &str,
+        phase: &str,
+        modifier_codes: Vec<String>,
+    ) -> RuntimeResult<()> {
+        let context = self.current_input_context(role_id, "normal")?;
+        self.with_input_context_lane(&context, || {
+            let webview = self.role_webview_for_input(role_id, &context)?;
+            let mut executed = Vec::new();
+            for effect in managed_shortcut_key_effects(code, phase, modifier_codes)? {
+                let dispatch_result = context.ensure_current().and_then(|()| {
+                    self.dispatch_guarded_macro_key_effect(
+                        role_id,
+                        &webview,
+                        &effect,
+                        &context,
+                    )
+                });
+                if let Err(mut error) = dispatch_result {
+                    if let Some(cleanup_error) =
+                        self.compensate_key_prefix(role_id, &webview, &executed, &context)
+                    {
+                        if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                            error = RuntimeError::new(
+                                "SYSTEM_TRUSTED_INPUT_INDETERMINATE",
+                                format!(
+                                    "{}; managed shortcut cleanup also failed: {}",
+                                    error.message, cleanup_error.message
+                                ),
+                            );
+                        } else if cleanup_error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                            error = cleanup_error;
+                        }
+                    }
+                    if error.code == "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
+                        self.quarantine_role_input(role_id, &error);
+                    }
+                    return Err(error);
+                }
+                executed.push(effect);
+            }
+            Ok(())
+        })
+    }
+
     fn browser_action(&self, request: BrowserActionRequest) -> RuntimeResult<Option<String>> {
         if request.request_id.is_empty() || request.role_id.is_empty() {
             return Err(RuntimeError::new(

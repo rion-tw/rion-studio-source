@@ -614,8 +614,8 @@
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
-    const managedRelease = releaseActiveHeldShortcuts();
-    void releasePhysicalGameKeys(managedRelease);
+    releasePhysicalGameKeys();
+    releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
   }
 
@@ -624,8 +624,8 @@
       runtimeTabShortcutModifierCodes.clear();
       reportGameInputContext("document");
       cancelPendingPhysicalToggleShortcuts();
-      const managedRelease = releaseActiveHeldShortcuts();
-      void releasePhysicalGameKeys(managedRelease);
+      releasePhysicalGameKeys();
+      releaseActiveHeldShortcuts();
       destroyCoordinateMeasurement();
       return;
     }
@@ -671,7 +671,6 @@
     activeHeldShortcuts.clear();
     consumedPhysicalShortcutCodes.clear();
     runtimeTabShortcutModifierCodes.clear();
-    pendingPhysicalKeyCleanupCodes.clear();
     clickMarkerEvents.clear();
     clickMarkerFlashStates.clear();
     macroIterationTimings.clear();

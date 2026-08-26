@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAC_WEBKIT_EXPERIMENT_MODES,
+  macGameModeMetadataEnabled,
   macWebKitExperimentExecutableEnvironment,
   macWebKitExperimentEnvironment,
   parseMacWebKitExperimentArguments
 } from "../scripts/runMacWebKitExperiment.mjs";
+import { macDevBundleInfoPlist } from "../scripts/macDevBundleInfoPlist.mjs";
 
 describe("macOS WKWebView experiment launcher", () => {
   it("keeps system experiments isolated without inheriting an STP framework", () => {
@@ -19,9 +21,49 @@ describe("macOS WKWebView experiment launcher", () => {
       DYLD_FRAMEWORK_PATH: "/unexpected"
     });
     expect(options.dataDir).toBe(path.resolve("/workspace/target/rion-webkit-experiment-data"));
+    expect(options.gameMode).toBe("off");
     expect(environment.DYLD_FRAMEWORK_PATH).toBeUndefined();
     expect(environment.RION_WEBKIT_EXPERIMENT_ISOLATED).toBe("1");
     expect(environment.RION_WEBKIT_EXPERIMENT_MODE).toBe("system-direct");
+  });
+
+  it("defaults Game Mode metadata on while preserving an isolated off control", () => {
+    const options = parseMacWebKitExperimentArguments(
+      ["--mode=system-gpu-process", "--game-mode=on"],
+      { platform: "darwin" }
+    );
+    const environment = macWebKitExperimentEnvironment(options, {});
+    expect(options.gameMode).toBe("on");
+    expect(environment.RION_WEBKIT_EXPERIMENT_GAME_MODE).toBe("on");
+    expect(macGameModeMetadataEnabled(environment)).toBe(true);
+    expect(macGameModeMetadataEnabled({})).toBe(true);
+    expect(macGameModeMetadataEnabled({
+      RION_WEBKIT_EXPERIMENT_GAME_MODE: "off"
+    })).toBe(true);
+
+    const experimentPlist = macDevBundleInfoPlist("rion-tauri", {
+      gameModeEnabled: macGameModeMetadataEnabled(environment)
+    });
+    expect(experimentPlist).toContain("<key>LSSupportsGameMode</key>");
+    expect(experimentPlist).toContain("<string>public.app-category.games</string>");
+
+    const defaultPlist = macDevBundleInfoPlist("rion-tauri");
+    expect(defaultPlist).toContain("LSSupportsGameMode");
+    expect(defaultPlist).toContain("LSApplicationCategoryType");
+    const controlEnvironment = macWebKitExperimentEnvironment({
+      ...options,
+      gameMode: "off"
+    }, {});
+    expect(macGameModeMetadataEnabled(controlEnvironment)).toBe(false);
+    const controlPlist = macDevBundleInfoPlist("rion-tauri", {
+      gameModeEnabled: macGameModeMetadataEnabled(controlEnvironment)
+    });
+    expect(controlPlist).not.toContain("LSSupportsGameMode");
+    expect(controlPlist).not.toContain("LSApplicationCategoryType");
+    expect(() => parseMacWebKitExperimentArguments(
+      ["--mode=system-gpu-process", "--game-mode=automatic"],
+      { platform: "darwin" }
+    )).toThrow("--game-mode must be one of: off, on");
   });
 
   it("derives the STP framework path and bounds diagnostic duration", () => {
@@ -52,7 +94,7 @@ describe("macOS WKWebView experiment launcher", () => {
     )).toThrow("requires macOS");
   });
 
-  it("orders the six-cell matrix and keeps system cells on system WebKit", () => {
+  it("orders the seven-cell matrix and keeps system cells on system WebKit", () => {
     const options = parseMacWebKitExperimentArguments([
       "--mode=matrix",
       "--stp-app=/Applications/Safari Technology Preview.app"
@@ -65,7 +107,7 @@ describe("macOS WKWebView experiment launcher", () => {
     expect(systemEnvironment.DYLD_FRAMEWORK_PATH).toBeUndefined();
     const stpEnvironment = macWebKitExperimentEnvironment({
       ...options,
-      mode: options.modes[2]
+      mode: options.modes[3]
     });
     expect(stpEnvironment.DYLD_FRAMEWORK_PATH).toBe(options.stpFrameworkPath);
   });

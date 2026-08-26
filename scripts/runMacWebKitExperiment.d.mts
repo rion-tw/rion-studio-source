@@ -1,4 +1,5 @@
 export type MacWebKitExperimentMode =
+  | "system-default"
   | "system-gpu-process"
   | "system-direct"
   | "stp-gpu-process"
@@ -14,6 +15,7 @@ export const MAC_WEBKIT_EXPERIMENT_MODES: readonly MacWebKitExperimentMode[];
 
 export interface MacWebKitExperimentOptions {
   dataDir: string;
+  gameMode: "off" | "on";
   mode: MacWebKitExperimentSelection;
   modes: MacWebKitExperimentMode[];
   sampleMs: number;
@@ -31,6 +33,10 @@ export function macWebKitExperimentEnvironment(
   options: MacWebKitExperimentOptions,
   inherited?: NodeJS.ProcessEnv
 ): NodeJS.ProcessEnv;
+
+export function macGameModeMetadataEnabled(
+  inherited?: NodeJS.ProcessEnv
+): boolean;
 
 export function macWebKitExperimentExecutableEnvironment(
   inherited?: NodeJS.ProcessEnv

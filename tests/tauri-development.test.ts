@@ -11,10 +11,20 @@ const execFileAsync = promisify(execFile);
 
 describe("Tauri development and release commands", () => {
   it("starts Tauri development directly without retired compatibility or attestation gates", async () => {
-    const [packageSource, launcher, macRunner, tauriSource, viteSource] = await Promise.all([
+    const [
+      packageSource,
+      launcher,
+      macRunner,
+      macPlistSource,
+      productionMacPlist,
+      tauriSource,
+      viteSource
+    ] = await Promise.all([
       readFile("package.json", "utf8"),
       readFile("scripts/devTauri.mjs", "utf8"),
       readFile("scripts/runMacDevBundle.mjs", "utf8"),
+      readFile("scripts/macDevBundleInfoPlist.mjs", "utf8"),
+      readFile("src-tauri/Info.plist", "utf8"),
       readFile("src-tauri/tauri.conf.json", "utf8"),
       readFile("vite.tauri.config.ts", "utf8")
     ]);
@@ -52,10 +62,14 @@ describe("Tauri development and release commands", () => {
     expect(launcher).toContain("configureMacOsDevBundleRunner(environment)");
     expect(launcher).toContain("CARGO_TARGET_${architecture}_APPLE_DARWIN_RUNNER");
     expect(macRunner).toContain('"Rion Studio Dev.app"');
-    expect(macRunner).toContain("com.rionstudio.launcher");
-    expect(macRunner).toContain("NSAllowsLocalNetworking");
+    expect(macPlistSource).toContain("com.rionstudio.launcher");
+    expect(macPlistSource).toContain("NSAllowsLocalNetworking");
     expect(macRunner).toContain("process.execve(");
     expect(macRunner).toContain("macWebKitExperimentExecutableEnvironment()");
+    expect(macRunner).toContain("macGameModeMetadataEnabled()");
+    expect(productionMacPlist).toContain("<key>LSSupportsGameMode</key>");
+    expect(productionMacPlist).toContain("<string>public.app-category.games</string>");
+    expect(productionMacPlist).toContain("<true/>");
     expect(launcher).toContain('["exec", "tauri", "dev"]');
     expect(launcher).not.toContain("test:native:system-input");
     expect(launcher).not.toContain("rion-attestation");

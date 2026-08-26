@@ -5,6 +5,8 @@ const WEBKIT_26_5_BUILD: &str = "21624.2.5.11.4";
 #[cfg(any(target_os = "macos", test))]
 const WEBKIT_26_6_BUILD: &str = "21624.4.5.14.1";
 #[cfg(any(target_os = "macos", test))]
+const WEBKIT_26_6_2_BUILD: &str = "21624.5.1.11.3";
+#[cfg(any(target_os = "macos", test))]
 const WEBKIT_STP_249_BUILD: &str = "21626.1.1";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RoleWebGlConfiguration {
@@ -55,6 +57,7 @@ pub(super) struct MacWebGlPolicy {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MacWebGlExperimentMode {
+    SystemDefault,
     SystemGpuProcess,
     SystemDirect,
     StpGpuProcess,
@@ -66,6 +69,7 @@ pub(super) enum MacWebGlExperimentMode {
 impl MacWebGlExperimentMode {
     pub(super) fn parse(value: &str) -> Option<Self> {
         match value {
+            "system-default" => Some(Self::SystemDefault),
             "system-gpu-process" => Some(Self::SystemGpuProcess),
             "system-direct" => Some(Self::SystemDirect),
             "stp-gpu-process" => Some(Self::StpGpuProcess),
@@ -126,6 +130,18 @@ pub(super) fn mac_web_gl_policy(
 ) -> MacWebGlPolicy {
     let command_batching_status = webkit_command_batching_status(webkit_runtime_version);
     if let Some(experiment) = experiment {
+        if experiment == MacWebGlExperimentMode::SystemDefault {
+            return MacWebGlPolicy {
+                canvas_rendering_preference: WebKitFeaturePreference::KeepDefault,
+                configuration: RoleWebGlConfiguration {
+                    command_batching_status,
+                    execution_path: WebGlExecutionPath::EngineManaged,
+                    performance_target_status: PerformanceTargetStatus::Indeterminate,
+                },
+                dom_rendering_preference: WebKitFeaturePreference::KeepDefault,
+                web_gl_preference: WebKitFeaturePreference::KeepDefault,
+            };
+        }
         let uses_gpu_process = experiment.uses_gpu_process();
         return MacWebGlPolicy {
             canvas_rendering_preference: if experiment.uses_canvas_rendering_override() {
@@ -173,6 +189,7 @@ pub(super) fn webkit_command_batching_status(
     match webkit_runtime_version.map(str::trim) {
         Some(WEBKIT_26_5_BUILD) => WebGlCommandBatchingStatus::VerifiedAbsent,
         Some(WEBKIT_26_6_BUILD) => WebGlCommandBatchingStatus::VerifiedAbsent,
+        Some(WEBKIT_26_6_2_BUILD) => WebGlCommandBatchingStatus::VerifiedAbsent,
         Some(WEBKIT_STP_249_BUILD) => WebGlCommandBatchingStatus::VerifiedAvailable,
         _ => WebGlCommandBatchingStatus::Unknown,
     }
@@ -194,6 +211,14 @@ mod tests {
         );
         assert_eq!(
             webkit_command_batching_status(Some("21624.4.5.14.2")),
+            WebGlCommandBatchingStatus::Unknown
+        );
+        assert_eq!(
+            webkit_command_batching_status(Some(WEBKIT_26_6_2_BUILD)),
+            WebGlCommandBatchingStatus::VerifiedAbsent
+        );
+        assert_eq!(
+            webkit_command_batching_status(Some("21624.5.1.11.4")),
             WebGlCommandBatchingStatus::Unknown
         );
         assert_eq!(
@@ -238,6 +263,27 @@ mod tests {
 
     #[test]
     fn debug_experiments_remain_explicit() {
+        assert_eq!(
+            MacWebGlExperimentMode::parse("system-default"),
+            Some(MacWebGlExperimentMode::SystemDefault)
+        );
+        let system_default = mac_web_gl_policy(
+            Some(WEBKIT_26_6_2_BUILD),
+            Some(MacWebGlExperimentMode::SystemDefault),
+        );
+        assert_eq!(
+            system_default.web_gl_preference,
+            WebKitFeaturePreference::KeepDefault
+        );
+        assert_eq!(
+            system_default.configuration.execution_path,
+            WebGlExecutionPath::EngineManaged
+        );
+        assert_eq!(
+            system_default.configuration.performance_target_status,
+            PerformanceTargetStatus::Indeterminate
+        );
+
         let experiment = mac_web_gl_policy(
             Some(WEBKIT_STP_249_BUILD),
             Some(MacWebGlExperimentMode::StpGpuProcessAllRendering),

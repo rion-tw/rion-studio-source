@@ -41,11 +41,21 @@ new context from a canvas.
 Debug-only WebKit experiments run from an isolated Rion user-data directory.
 They may load an explicitly supplied Safari Technology Preview framework and
 select an exact WebGL/DOM-rendering A/B cell. The `matrix` launcher orders all
-five cells while reusing only that isolated login store. Their overlay reads Emscripten's
+seven cells while reusing only that isolated login store. The `system-default`
+cell leaves every WebKit feature preference untouched. Their overlay reads Emscripten's
 public `MainLoop` counters every approximately 100 ms from the existing rAF
 observer, does not replace timers or WebGL methods, and is removed on read,
 cancel, supersede, or navigation. STP frameworks and experiment environment
 switches are absent from production behavior.
+
+Production macOS bundles and ordinary development bundles declare
+`LSSupportsGameMode=true` and the games application category. macOS activates
+Game Mode only after the user enters native fullscreen and deactivates it after
+fullscreen exits; the metadata does not force a window state. The isolated
+launcher may select `--game-mode=off|on`, defaulting to `off`, so an `off` control
+omits both keys. A valid `on` sample requires native fullscreen and visible
+confirmation that macOS activated Game Mode; metadata alone is not performance
+evidence.
 
 The loopback `/webgl-120` fixture supplies WebGL1 with `antialias:false`, native
 DPR/backing size, a drift-corrected 120 Hz timer loop, a separate rAF loop, five

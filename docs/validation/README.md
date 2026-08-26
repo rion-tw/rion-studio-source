@@ -8,6 +8,8 @@ be treated as current evidence.
 
 - [Windows Game Window Placement](runbooks/windows-game-window-placement.md):
   W1-W11 placement, persistence, display, DPI, and generation-fence acceptance.
+- [macOS WKWebView Game Mode A/B](runbooks/macos-wkwebview-game-mode.md):
+  isolated fullscreen Game Mode eligibility, workload controls, and FPS gates.
 
 Desktop smoke, full, and extended profile policy remains in
 [Desktop E2E Strategy](../e2e-strategy.md). Journey and phase membership remains

@@ -9,6 +9,7 @@ import { spawnPlatformCommand } from "./spawnPlatformCommand.mjs";
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const scriptPath = fileURLToPath(import.meta.url);
 export const MAC_WEBKIT_EXPERIMENT_MODES = Object.freeze([
+  "system-default",
   "system-gpu-process",
   "system-direct",
   "stp-gpu-process",
@@ -20,6 +21,7 @@ const MODES = new Set([
   ...MAC_WEBKIT_EXPERIMENT_MODES,
   "matrix"
 ]);
+const GAME_MODES = new Set(["off", "on"]);
 
 export function parseMacWebKitExperimentArguments(
   args,
@@ -40,9 +42,13 @@ export function parseMacWebKitExperimentArguments(
     throw new Error(`--mode must be one of: ${[...MODES].join(", ")}`);
   }
   for (const key of options.keys()) {
-    if (!["data-dir", "mode", "sample-ms", "stp-app"].includes(key)) {
+    if (!["data-dir", "game-mode", "mode", "sample-ms", "stp-app"].includes(key)) {
       throw new Error(`Unknown WKWebView experiment option: --${key}`);
     }
+  }
+  const gameMode = options.get("game-mode") ?? "off";
+  if (!GAME_MODES.has(gameMode)) {
+    throw new Error("--game-mode must be one of: off, on");
   }
   const sampleMs = Number(options.get("sample-ms") ?? 10_000);
   if (!Number.isSafeInteger(sampleMs) || sampleMs < 1_500 || sampleMs > 600_000) {
@@ -63,6 +69,7 @@ export function parseMacWebKitExperimentArguments(
   const resolvedStpApp = stpApp ? posix.resolve(stpApp) : undefined;
   return {
     dataDir,
+    gameMode,
     mode,
     modes,
     sampleMs,
@@ -79,6 +86,7 @@ export function macWebKitExperimentEnvironment(options, inherited = process.env)
     ...inherited,
     RION_STUDIO_USER_DATA_DIR: options.dataDir,
     RION_WEBKIT_EXPERIMENT_ISOLATED: "1",
+    RION_WEBKIT_EXPERIMENT_GAME_MODE: options.gameMode,
     RION_WEBKIT_EXPERIMENT_MODE: options.mode,
     RION_WEBKIT_EXPERIMENT_SAMPLE_MS: String(options.sampleMs)
   };
@@ -90,6 +98,11 @@ export function macWebKitExperimentEnvironment(options, inherited = process.env)
     delete environment.RION_WEBKIT_EXPERIMENT_STP_APP;
   }
   return environment;
+}
+
+export function macGameModeMetadataEnabled(inherited = process.env) {
+  if (inherited.RION_WEBKIT_EXPERIMENT_ISOLATED !== "1") return true;
+  return inherited.RION_WEBKIT_EXPERIMENT_GAME_MODE === "on";
 }
 
 // pnpm intentionally strips DYLD_* variables before running lifecycle commands.
@@ -123,7 +136,11 @@ async function runExperimentCell(options, mode, index, count) {
     `Isolated data: ${cell.dataDir}`,
     `Sample duration: ${cell.sampleMs} ms`,
     `WebKit: ${environment.DYLD_FRAMEWORK_PATH ?? "system framework"}`,
+    `Game Mode metadata: ${cell.gameMode}`,
     "Diagnostic overlay: original WebGL canvas presentation (baseline).",
+    cell.gameMode === "on"
+      ? "Enter native fullscreen and confirm the macOS Game Mode indicator is active; otherwise discard the sample."
+      : "Keep macOS Game Mode inactive for this control sample.",
     "Warm up the same Flyff scene for 30 seconds, run the in-app performance diagnostic, then export its result.",
     count > 1 ? "Close Rion Studio to continue to the next A/B cell." : ""
   ].filter(Boolean).join("\n") + "\n");

@@ -27,6 +27,7 @@ evidence. Load only the documents required by `.agents/context-map.json` or the
 | [Desktop E2E Strategy](e2e-strategy.md) | Active | User-visible behavior, journey coverage, or desktop validation |
 | [Validation](validation/README.md) | Active index | Native/hardware runbooks or historical evidence lookup |
 | [Windows Game Window Placement](validation/runbooks/windows-game-window-placement.md) | Active runbook | Physical Windows placement, DPI, and generation acceptance |
+| [macOS WKWebView Game Mode A/B](validation/runbooks/macos-wkwebview-game-mode.md) | Active runbook | Isolated fullscreen Game Mode eligibility and Flyff performance gates |
 
 ## Machine-owned registries
 

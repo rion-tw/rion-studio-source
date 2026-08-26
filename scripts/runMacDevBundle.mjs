@@ -5,7 +5,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { macWebKitExperimentExecutableEnvironment } from "./runMacWebKitExperiment.mjs";
+import { macDevBundleInfoPlist } from "./macDevBundleInfoPlist.mjs";
+import {
+  macGameModeMetadataEnabled,
+  macWebKitExperimentExecutableEnvironment
+} from "./runMacWebKitExperiment.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const [requestedExecutable, ...applicationArguments] = process.argv.slice(2);
@@ -31,7 +35,9 @@ async function runBundled(sourceExecutable, applicationArguments) {
     mkdir(resourcesDirectory, { recursive: true })
   ]);
   await Promise.all([
-    writeFile(join(contents, "Info.plist"), infoPlist(executableName)),
+    writeFile(join(contents, "Info.plist"), macDevBundleInfoPlist(executableName, {
+      gameModeEnabled: macGameModeMetadataEnabled()
+    })),
     copyFile(join(repositoryRoot, "build", "icon.icns"), join(resourcesDirectory, "icon.icns"))
   ]);
   await copyFile(sourceExecutable, temporaryExecutable);
@@ -47,43 +53,4 @@ async function runBundled(sourceExecutable, applicationArguments) {
     [bundledExecutable, ...applicationArguments],
     macWebKitExperimentExecutableEnvironment()
   );
-}
-
-function infoPlist(executableName) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleDisplayName</key>
-  <string>Rion Studio Dev</string>
-  <key>CFBundleExecutable</key>
-  <string>${executableName}</string>
-  <key>CFBundleIconFile</key>
-  <string>icon.icns</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.rionstudio.launcher</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>Rion Studio Dev</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-  <key>NSAppTransportSecurity</key>
-  <dict>
-    <key>NSAllowsLocalNetworking</key>
-    <true/>
-  </dict>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-</dict>
-</plist>
-`;
 }

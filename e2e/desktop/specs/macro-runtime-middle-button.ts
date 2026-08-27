@@ -50,9 +50,9 @@ export async function middleButtonPhase(
   });
   const tab = await dependencies.launchRole(scenario.roles[0], "new-window");
   await windowSnapshot(tab.windowId);
-  await controlWindow(tab.windowId, { action: "movePointerToRoleContent" });
   const fixtureAfter = await fixtureCursor();
   const controlAfter = (await probe()).latestSequence;
+  await controlWindow(tab.windowId, { action: "movePointerToRoleContent" });
   expect(await mouseInput("mouseDown")).toMatchObject({
     button: "middle",
     phase: "mouseDown",
@@ -113,9 +113,9 @@ export async function middleButtonPhase(
   });
   const heldTab = await dependencies.launchRole(scenario.roles[1], "new-window");
   await windowSnapshot(heldTab.windowId);
-  await controlWindow(heldTab.windowId, { action: "movePointerToRoleContent" });
   const heldFixtureAfter = await fixtureCursor();
   const heldControlAfter = (await probe()).latestSequence;
+  await controlWindow(heldTab.windowId, { action: "movePointerToRoleContent" });
   await mouseInput("mouseDown");
   await waitShortcutLifecycle({
     afterSequence: heldControlAfter,

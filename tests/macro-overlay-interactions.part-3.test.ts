@@ -731,9 +731,9 @@ it("lets game handlers observe macro shortcuts before toggling after keyup", asy
       key: "F2"
     }));
 
-    document.removeEventListener("keydown", gameKeyDown, true);
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id }));
     expect(gameKeyDown).toHaveBeenCalledOnce();
+    document.removeEventListener("keydown", gameKeyDown, true);
   });
 
 it("does not let a stale editable active element block a canvas shortcut", async () => {

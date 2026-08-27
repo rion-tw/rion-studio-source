@@ -507,11 +507,11 @@
   }
 
   function reportMacroShortcutLifecycle(macroId, code, phase) {
-    void binding.shortcutLifecycle?.({
+    return Promise.resolve(binding.shortcutLifecycle?.({
       code,
       macroId,
       phase
-    }).catch(() => undefined);
+    })).catch(() => undefined);
   }
 
   function pendingModifiersReleased(pending) {
@@ -556,8 +556,11 @@
       }
       if (chordReleased && !pending.replayPromise && !pending.failed) {
         if (!pending.releasePropagationCompleted) continue;
-        reportMacroShortcutLifecycle(pending.macroId, pending.code, "chord-released");
-        pending.replayPromise = dispatchManagedShortcutPhase(pending, "replay")
+        pending.replayPromise = reportMacroShortcutLifecycle(
+          pending.macroId,
+          pending.code,
+          "chord-released"
+        ).then(() => dispatchManagedShortcutPhase(pending, "replay"))
           .then(() => {
             pending.replayAcknowledged = true;
             finishReleasedPhysicalToggleShortcuts();

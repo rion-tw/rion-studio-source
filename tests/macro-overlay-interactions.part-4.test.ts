@@ -284,12 +284,20 @@ describe("macro overlay native key guard", () => {
       }
     ];
     const actionTimeline: string[] = [];
-    const shortcutLifecycle = vi.fn(async (_event: {
+    let acknowledgeFirstChordRelease: (() => void) | undefined;
+    const firstChordReleaseAcknowledged = new Promise<void>((resolve) => {
+      acknowledgeFirstChordRelease = resolve;
+    });
+    const shortcutLifecycle = vi.fn(async (event: {
       code: string;
       macroId: string;
       phase: "physical-keydown-managed" | "chord-released" | "managed-replay-acknowledged"
         | "macro-dispatched";
-    }) => undefined);
+    }) => {
+      if (event.macroId === "macro-two" && event.phase === "chord-released") {
+        await firstChordReleaseAcknowledged;
+      }
+    });
     const binding = vi.fn(async (request: unknown) => {
       if (
         typeof request === "object"
@@ -353,6 +361,8 @@ describe("macro overlay native key guard", () => {
     expect(physicalTwoUp.defaultPrevented).toBe(true);
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    expect((binding as OverlayBinding).managedShortcutKeyPhase).not.toHaveBeenCalled();
+    acknowledgeFirstChordRelease?.();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-two"

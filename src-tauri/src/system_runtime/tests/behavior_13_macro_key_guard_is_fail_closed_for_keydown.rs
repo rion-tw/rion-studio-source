@@ -231,6 +231,49 @@ fn modifier_projection_guard_has_its_own_disposition_and_dispatch_id() {
 }
 
 #[test]
+fn middle_button_guard_is_dispatch_identified_and_event_bound() {
+    let source = macro_middle_button_guard_arm_script("middle-dispatch-1").unwrap();
+    assert!(source.contains("suppressNextMiddleButtonShortcut"));
+    assert!(source.contains(r#""middle-dispatch-1""#));
+    assert!(source.contains("automaticInputContext"));
+    assert!(!source.contains("expires"));
+
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    let observations = Mutex::new(HashMap::from([(
+        "middle-dispatch-1".to_owned(),
+        PendingMacroKeyObservation {
+            code: "MouseMiddle".to_owned(),
+            input_epoch: 7,
+            phase: "auxclick".to_owned(),
+            role_id: "role-1".to_owned(),
+            sender,
+            surface_generation: 3,
+            webview_label: "role-webview-1".to_owned(),
+        },
+    )]));
+    let lane = RoleInputDispatchLane::default();
+    lane.epoch.store(7, Ordering::Release);
+    lane.surface_generation.store(3, Ordering::Release);
+    let observation = MacroKeyEventObservation {
+        dispatch_id: "middle-dispatch-1".to_owned(),
+        code: "MouseMiddle".to_owned(),
+        phase: "auxclick".to_owned(),
+    };
+    assert_eq!(
+        claim_macro_key_observation(
+            &observations,
+            &lane,
+            "role-webview-1",
+            "role-1",
+            &observation,
+        )
+        .unwrap()
+        .code,
+        "MouseMiddle"
+    );
+}
+
+#[test]
 fn unknown_keydown_compensation_is_an_exact_non_repeat_keyup() {
     let mut effect = guarded_key_effect("rawKeyDown", "Digit2", true);
     effect.active_codes = vec!["Digit2".to_owned(), "ShiftLeft".to_owned()];

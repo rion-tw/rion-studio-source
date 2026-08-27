@@ -119,6 +119,32 @@
     });
   }
 
+  function reportObservedMiddleButton(guard, event) {
+    const report = () => {
+      void binding.macroKeyObserved?.({
+        code: "MouseMiddle",
+        dispatchId: guard.dispatchId,
+        phase: "auxclick"
+      }).catch(() => undefined);
+    };
+    if (!event.bubbles) {
+      report();
+      return;
+    }
+    const observeBubbleCompletion = (candidate) => {
+      if (candidate !== event) return;
+      window.removeEventListener(event.type, observeBubbleCompletion);
+      pendingMacroObservationListeners.delete(guard.dispatchId);
+      report();
+    };
+    window.addEventListener(event.type, observeBubbleCompletion);
+    pendingMacroObservationListeners.set(guard.dispatchId, {
+      listener: observeBubbleCompletion,
+      target: window,
+      type: event.type
+    });
+  }
+
   function clearAllSuppressedShortcuts() {
     inFlightMacroKeyGuard = null;
     for (const observation of pendingMacroObservationListeners.values()) {
@@ -631,6 +657,167 @@
     pendingPhysicalToggleShortcuts.length = 0;
   }
 
+  function observeMiddleButtonModifierRelease(pending, event) {
+    if (pending.releaseObservation) return;
+    const observeBubbleCompletion = (candidate) => {
+      if (candidate !== event) return;
+      window.removeEventListener(event.type, observeBubbleCompletion);
+      pending.releaseObservation = null;
+      pending.releasePropagationCompleted = true;
+      finishReleasedMiddleButtonToggle();
+    };
+    pending.releaseObservation = { listener: observeBubbleCompletion, type: event.type };
+    window.addEventListener(event.type, observeBubbleCompletion);
+  }
+
+  function finishReleasedMiddleButtonToggle(event = null) {
+    const pending = pendingMiddleButtonToggle;
+    if (!pending || !pending.mainReleased || !pendingModifiersReleased(pending)) return;
+    if (!pending.releasePropagationCompleted) {
+      if (event?.bubbles) {
+        observeMiddleButtonModifierRelease(pending, event);
+        return;
+      }
+      pending.releasePropagationCompleted = true;
+    }
+    pendingMiddleButtonToggle = null;
+    if (isDisposed || pending.epoch !== physicalShortcutEpoch) return;
+    reportMacroShortcutLifecycle(pending.macroId, "MouseMiddle", "macro-dispatched");
+    void runAction("toggle", pending.macroId, undefined, true);
+  }
+
+  function cancelMiddleButtonShortcut() {
+    const pending = pendingMiddleButtonToggle;
+    if (pending?.releaseObservation) {
+      window.removeEventListener(
+        pending.releaseObservation.type,
+        pending.releaseObservation.listener
+      );
+    }
+    pendingMiddleButtonToggle = null;
+    consumeNextMiddleButtonAuxClick = false;
+    const active = activeMiddleButtonShortcut;
+    activeMiddleButtonShortcut = null;
+    if (!active) return;
+    void active.pressPromise.then(() => runAction("release", active.macroId, {
+      pressId: active.pressId,
+      releaseMode: "immediate"
+    }, true, true));
+  }
+
+  function middleButtonShortcutMatches(event, trigger) {
+    return Boolean(
+      trigger &&
+      trigger.button === "middle" &&
+      Boolean(event.ctrlKey) === Boolean(trigger.ctrl) &&
+      Boolean(event.altKey) === Boolean(trigger.alt) &&
+      Boolean(event.shiftKey) === Boolean(trigger.shift) &&
+      Boolean(event.metaKey) === Boolean(trigger.meta)
+    );
+  }
+
+  function mouseEventButton(event) {
+    if (typeof event.button === "number") return event.button;
+    if (event.which === 1) return 0;
+    if (event.which === 2) return 1;
+    if (event.which === 3) return 2;
+    if (event.type === "mousedown" && (Number(event.buttons) & 4) !== 0) return 1;
+    return -1;
+  }
+
+  function handleMiddleButtonDown(event) {
+    if (!isTrustedUserEvent(event)) return;
+    if (suppressedMiddleButtonShortcutPhase?.phase === "down") {
+      suppressedMiddleButtonShortcutPhase.phase = "up";
+      return;
+    }
+    if (suppressedMiddleButtonShortcutPhase?.phase === "aux") {
+      suppressedMiddleButtonShortcutPhase = null;
+    }
+    if (mouseEventButton(event) !== 1) return;
+    consumeNextMiddleButtonAuxClick = false;
+    const activeElement = gameInputContextActive ? undefined : document.activeElement;
+    if (
+      (!gameInputContextActive && !eventPathIncludesCanvas(event)) ||
+      shouldIgnoreShortcutEvent(event, activeElement, document.designMode)
+    ) {
+      return;
+    }
+    refreshIfStale();
+    const matchingMacros = state.macros.filter(
+      (macro) =>
+        isShortcutMacroId(macro.id) &&
+        macro.enabled !== false &&
+        middleButtonShortcutMatches(event, macro.trigger)
+    );
+    if (matchingMacros.length === 0) return;
+    if (matchingMacros.length !== 1) {
+      console.warn("Multiple Rion Studio macros use the same middle-button shortcut for this role.");
+      return;
+    }
+    consumeShortcutEvent(event);
+    consumeNextMiddleButtonAuxClick = true;
+    if (activeMiddleButtonShortcut || pendingMiddleButtonToggle) return;
+    const macro = matchingMacros[0];
+    const active = {
+      epoch: physicalShortcutEpoch,
+      macroId: macro.id,
+      mainReleased: false,
+      modifiers: physicalShortcutTriggerSnapshot(macro.trigger),
+      pressId: `${Date.now()}-${nextPressId++}`,
+      releaseObservation: null,
+      releasePropagationCompleted: false
+    };
+    reportMacroShortcutLifecycle(macro.id, "MouseMiddle", "physical-keydown-managed");
+    if ((macro.activationMode ?? "toggle") !== "while_held") {
+      active.pressPromise = Promise.resolve();
+      pendingMiddleButtonToggle = active;
+      return;
+    }
+    active.pressPromise = runAction("press", macro.id, { pressId: active.pressId }, true);
+    activeMiddleButtonShortcut = active;
+  }
+
+  function handleMiddleButtonUp(event) {
+    if (!isTrustedUserEvent(event)) return;
+    if (suppressedMiddleButtonShortcutPhase?.phase === "up") {
+      suppressedMiddleButtonShortcutPhase.phase = "aux";
+      return;
+    }
+    const pending = pendingMiddleButtonToggle;
+    const active = activeMiddleButtonShortcut;
+    if (mouseEventButton(event) !== 1 && (!pending && !active)) return;
+    if (!pending && !active) return;
+    consumeShortcutEvent(event);
+    consumeNextMiddleButtonAuxClick = true;
+    if (pending) {
+      pending.mainReleased = true;
+      pending.releasePropagationCompleted = pendingModifiersReleased(pending);
+      finishReleasedMiddleButtonToggle();
+    }
+    if (active) {
+      activeMiddleButtonShortcut = null;
+      void active.pressPromise.then(() => runAction("release", active.macroId, {
+        pressId: active.pressId,
+        releaseMode: "complete_first_iteration"
+      }, true, true));
+    }
+  }
+
+  function handleMiddleButtonAuxClick(event) {
+    if (suppressedMiddleButtonShortcutPhase?.phase === "aux" && isTrustedUserEvent(event)) {
+      const guard = suppressedMiddleButtonShortcutPhase;
+      suppressedMiddleButtonShortcutPhase = null;
+      reportObservedMiddleButton(guard, event);
+      return;
+    }
+    if (!consumeNextMiddleButtonAuxClick) return;
+    const button = mouseEventButton(event);
+    if (button !== 1 && button !== -1) return;
+    consumeNextMiddleButtonAuxClick = false;
+    consumeShortcutEvent(event);
+  }
+
   function handleKeyDown(event) {
     if (forwardedMacroGameEvents.has(event)) return;
     if (!isTrustedUserEvent(event)) {
@@ -830,6 +1017,7 @@
     if (consumedShortcutKeyUp && !consumedModifierKeyUp) consumeShortcutEvent(event);
     if (!consumedModifierKeyUp) forgetPhysicalGameKey(event.code);
     finishReleasedPhysicalToggleShortcuts(event);
+    finishReleasedMiddleButtonToggle(event);
     if (coordinateMeasurementController?.handleKeyUp(event)) {
       return;
     }
@@ -845,4 +1033,31 @@
       consumedPhysicalShortcutCodes.add(active.code);
       void finishManagedHeldShortcut(macroId, active, "immediate");
     });
+    cancelMiddleButtonShortcut();
+    suppressedMiddleButtonShortcutPhase = null;
+  }
+
+  function suppressNextMiddleButtonShortcut(dispatchId) {
+    const normalizedDispatchId = String(dispatchId);
+    if (isDisposed || suppressedMiddleButtonShortcutPhase !== null) return false;
+    if (!normalizedDispatchId) return false;
+    suppressedMiddleButtonShortcutPhase = {
+      dispatchId: normalizedDispatchId,
+      phase: "down"
+    };
+    return true;
+  }
+
+  function clearSuppressedMiddleButtonShortcut(dispatchId) {
+    const normalizedDispatchId = String(dispatchId);
+    const observation = pendingMacroObservationListeners.get(normalizedDispatchId);
+    if (observation) {
+      observation.target.removeEventListener(observation.type, observation.listener);
+      pendingMacroObservationListeners.delete(normalizedDispatchId);
+    }
+    if (suppressedMiddleButtonShortcutPhase?.dispatchId !== normalizedDispatchId) {
+      return Boolean(observation);
+    }
+    suppressedMiddleButtonShortcutPhase = null;
+    return true;
   }

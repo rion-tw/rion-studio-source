@@ -50,6 +50,42 @@
             let created = create_macro(
                 &mut macros,
                 macro_input(json!({
+                    "name":"Middle shortcut","roleIds":["r1"],
+                    "trigger":{"button":"middle","ctrl":true,"alt":false,"shift":false,"meta":false},
+                    "steps":[{"type":"click","button":"middle","xPercent":50,"yPercent":50}]
+                })),
+            )
+            .unwrap();
+            assert!(matches!(
+                created.trigger,
+                Some(MacroTrigger::MouseButton {
+                    button,
+                    ctrl: true,
+                    alt: false,
+                    shift: false,
+                    meta: false,
+                }) if button == "middle"
+            ));
+            assert!(matches!(
+                &created.steps[0],
+                MacroStepDefinition::Click { button: Some(button), .. } if button == "middle"
+            ));
+            assert!(create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Invalid mouse shortcut","roleIds":["r1"],
+                    "trigger":{"button":"right","ctrl":false,"alt":false,"shift":false,"meta":false},
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .is_err());
+        };
+
+        {
+            let mut macros = Vec::new();
+            let created = create_macro(
+                &mut macros,
+                macro_input(json!({
                     "name":"Reference pixels","roleIds":[],
                     "steps":[{
                         "type":"click","unit":"reference-px","anchor":"center",
@@ -61,6 +97,7 @@
             assert!(matches!(
                 &created.steps[0],
                 MacroStepDefinition::Click {
+                    button: None,
                     anchor: Some(anchor),
                     position: crate::model::MacroClickDefinition::ReferencePixels {
                         x_reference_px, y_reference_px, ..
@@ -326,6 +363,7 @@
             assert!(matches!(
                 &created.steps[0],
                 MacroStepDefinition::Click {
+                    button: None,
                     position: crate::model::MacroClickDefinition::Pixels {
                         x_px, y_px, ..
                     },
@@ -350,6 +388,7 @@
             assert!(matches!(
                 &created.steps[0],
                 MacroStepDefinition::Click {
+                    button: None,
                     anchor: Some(anchor),
                     position: crate::model::MacroClickDefinition::Pixels {
                         x_px, y_px, ..
@@ -457,6 +496,40 @@
                     macro_input(json!({
                         "name":"Separate","roleIds":["r1"],"trigger":trigger,
                         "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-2"]},
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_ok()
+            );
+            let middle_trigger = json!({
+                "button":"middle","ctrl":true,"alt":false,"shift":false,"meta":false
+            });
+            create_macro(
+                &mut macros,
+                macro_input(json!({
+                    "name":"Middle source","roleIds":["r1"],"trigger":middle_trigger,
+                    "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-3"]},
+                    "steps":[{"type":"delay","ms":1}]
+                })),
+            )
+            .unwrap();
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Middle overlap","roleIds":["r2"],"trigger":middle_trigger,
+                        "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-3"]},
+                        "steps":[{"type":"delay","ms":1}]
+                    }))
+                )
+                .is_err()
+            );
+            assert!(
+                create_macro(
+                    &mut macros,
+                    macro_input(json!({
+                        "name":"Middle separate","roleIds":["r2"],"trigger":middle_trigger,
+                        "shortcutSourceScope":{"type":"selected_roles","roleIds":["controller-4"]},
                         "steps":[{"type":"delay","ms":1}]
                     }))
                 )

@@ -34,6 +34,8 @@ pub(crate) enum DesktopE2eRuntimeUiActionRequest {
         window_generation: u64,
     },
     ClickRoleContent {
+        #[serde(default)]
+        button: Option<String>,
         role_id: String,
         tab_id: String,
         window_generation: u64,
@@ -135,7 +137,7 @@ impl SystemRuntimeExecutor {
 
         match &request {
             DesktopE2eRuntimeUiActionRequest::ClickRoleContent {
-                role_id, tab_id, ..
+                button, role_id, tab_id, ..
             } => {
                 desktop_e2e_require_selected_tab(&projection, tab_id, "role content")?;
                 let (window, webview) = {
@@ -166,7 +168,7 @@ impl SystemRuntimeExecutor {
                         x: (viewport.width / 2.0).round() as i64,
                         y: (viewport.height / 2.0).round() as i64,
                     };
-                    let button = validate_mouse_button("left")?;
+                    let button = validate_mouse_button(button.as_deref().unwrap_or("left"))?;
                     if let Err(error) = dispatch_mouse_click_sequence(
                         &webview,
                         viewport,
@@ -190,7 +192,7 @@ impl SystemRuntimeExecutor {
                     Some(window_id),
                     Some(context.surface_generation),
                     None,
-                    json!({ "roleId": role_id, "tabId": tab_id }),
+                    json!({ "button": button, "roleId": role_id, "tabId": tab_id }),
                 );
             }
             DesktopE2eRuntimeUiActionRequest::ActivateTab { tab_id, .. } => {

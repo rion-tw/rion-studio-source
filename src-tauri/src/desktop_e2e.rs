@@ -47,6 +47,13 @@ pub(crate) struct DesktopE2eKeyboardInputRequest {
     pub phase: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopE2eMouseInputRequest {
+    pub button: String,
+    pub phase: String,
+}
+
 #[derive(Clone, Debug)]
 struct DesktopE2eKeyboardTarget {
     role_id: String,
@@ -84,6 +91,18 @@ impl DesktopE2eKeyboardInputRequest {
         } else {
             Err("Desktop E2E keyboard code is not allowlisted.".to_owned())
         }
+    }
+}
+
+impl DesktopE2eMouseInputRequest {
+    fn validate(&self) -> Result<(), String> {
+        if self.button != "middle" {
+            return Err("Desktop E2E mouse input only allows the middle button.".to_owned());
+        }
+        if !matches!(self.phase.as_str(), "mouseDown" | "mouseUp") {
+            return Err("Desktop E2E mouse phase must be mouseDown or mouseUp.".to_owned());
+        }
+        Ok(())
     }
 }
 
@@ -711,6 +730,79 @@ pub(crate) async fn desktop_e2e_keyboard_input(
     }))
 }
 
+#[tauri::command]
+pub(crate) fn desktop_e2e_mouse_input(
+    control: State<'_, Arc<DesktopE2eControl>>,
+    token: String,
+    request: DesktopE2eMouseInputRequest,
+) -> Result<Value, String> {
+    control.authenticate(&token)?;
+    request.validate()?;
+    let mouse_down = request.phase == "mouseDown";
+    desktop_e2e_submit_mouse_input(mouse_down)?;
+    let event = control.record(
+        "native-mouse-input-submitted",
+        None,
+        None,
+        None,
+        json!({
+            "button": request.button,
+            "phase": request.phase,
+            "status": "submitted"
+        }),
+    );
+    Ok(json!({
+        "button": request.button,
+        "phase": request.phase,
+        "sequence": event.sequence,
+        "status": "submitted"
+    }))
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_e2e_submit_mouse_input(mouse_down: bool) -> Result<(), String> {
+    unsafe extern "C" {
+        fn rion_desktop_e2e_middle_mouse_input(mouse_down: bool) -> bool;
+    }
+    if unsafe { rion_desktop_e2e_middle_mouse_input(mouse_down) } {
+        Ok(())
+    } else {
+        Err("macOS rejected the desktop E2E middle-button input submission.".to_owned())
+    }
+}
+
+#[cfg(windows)]
+fn desktop_e2e_submit_mouse_input(mouse_down: bool) -> Result<(), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEINPUT,
+        SendInput,
+    };
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dwFlags: if mouse_down {
+                    MOUSEEVENTF_MIDDLEDOWN
+                } else {
+                    MOUSEEVENTF_MIDDLEUP
+                },
+                ..Default::default()
+            },
+        },
+    };
+    let submitted = unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) };
+    if submitted == 1 {
+        Ok(())
+    } else {
+        Err("Windows rejected the desktop E2E middle-button input submission.".to_owned())
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn desktop_e2e_submit_mouse_input(_mouse_down: bool) -> Result<(), String> {
+    Err("Desktop E2E mouse input requires macOS or Windows.".to_owned())
+}
+
 #[cfg(target_os = "macos")]
 fn desktop_e2e_submit_keyboard_input(code: &str, key_down: bool) -> Result<(), String> {
     use std::{ffi::CString, os::raw::c_char};
@@ -908,6 +1000,30 @@ mod tests {
                 DesktopE2eKeyboardInputRequest {
                     code: code.to_owned(),
                     focus: None,
+                    phase: phase.to_owned(),
+                }
+                .validate()
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn mouse_input_accepts_only_explicit_middle_button_phases() {
+        for phase in ["mouseDown", "mouseUp"] {
+            assert!(
+                DesktopE2eMouseInputRequest {
+                    button: "middle".to_owned(),
+                    phase: phase.to_owned(),
+                }
+                .validate()
+                .is_ok()
+            );
+        }
+        for (button, phase) in [("left", "mouseDown"), ("middle", "click")] {
+            assert!(
+                DesktopE2eMouseInputRequest {
+                    button: button.to_owned(),
                     phase: phase.to_owned(),
                 }
                 .validate()

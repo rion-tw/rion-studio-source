@@ -34,10 +34,15 @@ describe("desktop E2E build isolation", () => {
     );
 
     expect(productCommands).not.toContain("desktop_e2e_keyboard_input");
+    expect(productCommands).not.toContain("desktop_e2e_mouse_input");
     expect(productHandler).not.toContain("desktop_e2e_keyboard_input");
+    expect(productHandler).not.toContain("desktop_e2e_mouse_input");
     expect(productConfig).not.toContain("desktop-e2e-keyboard-input");
+    expect(productConfig).not.toContain("desktop-e2e-mouse-input");
     expect(build).toContain('"desktop_e2e_keyboard_input"');
+    expect(build).toContain('"desktop_e2e_mouse_input"');
     expect(run).toContain("desktop_e2e_keyboard_input");
+    expect(run).toContain("desktop_e2e_mouse_input");
   });
 
   it("reasserts only the explicitly focused role before debug keydown", async () => {
@@ -90,6 +95,7 @@ describe("desktop E2E build isolation", () => {
       "core:window:allow-set-focus",
       "allow-desktop-e2e-input-diagnostics",
       "allow-desktop-e2e-keyboard-input",
+      "allow-desktop-e2e-mouse-input",
       "allow-desktop-e2e-inject-duplicate-role-cookie-checkpoint",
       "allow-desktop-e2e-runtime-ui-action"
     ]));

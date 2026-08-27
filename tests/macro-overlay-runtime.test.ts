@@ -5,7 +5,12 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 type OverlayRequest = { type: string; macroId?: string; [key: string]: unknown };
-type OverlayController = { dispose(): void; refresh(): Promise<void> };
+type OverlayController = {
+  clearSuppressedMiddleButtonShortcut(dispatchId: string): boolean;
+  dispose(): void;
+  refresh(): Promise<void>;
+  suppressNextMiddleButtonShortcut(dispatchId: string): boolean;
+};
 type OverlayStatus = {
   iteration: number;
   lastClick?: { sequence: number; stepId: string };
@@ -87,7 +92,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v61");
     expect(host?.dataset.theme).toBe("dark");
     expect(host?.style.getPropertyValue("color-scheme")).toBe("dark");
     expect(host?.style.getPropertyPriority("color-scheme")).toBe("important");
@@ -101,6 +106,190 @@ describe("shell-neutral macro overlay runtime", () => {
     await overlayController().refresh();
     expect(host?.dataset.theme).toBe("light");
     expect(host?.style.getPropertyValue("color-scheme")).toBe("light");
+  });
+
+  it("owns middle-button toggle and while-held shortcuts without exposing them to the page", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.tabIndex = 0;
+    document.body.append(canvas);
+    canvas.focus();
+    let macros = [{
+      activationMode: "toggle",
+      enabled: true,
+      id: "middle-toggle",
+      name: "Middle toggle",
+      steps: [],
+      trigger: { alt: false, button: "middle", ctrl: true, meta: false, shift: false }
+    }];
+    const requests: OverlayRequest[] = [];
+    const macroKeyObserved = vi.fn(async () => undefined);
+    const binding = vi.fn(async (request: OverlayRequest) => {
+      requests.push(request);
+      return {
+        macros,
+        shortcutMacroIds: macros.map((macro) => macro.id),
+        statuses: []
+      };
+    });
+    Object.assign(binding, { macroKeyObserved });
+    (window as unknown as Record<string, unknown>).rionStudioMacroOverlay = binding;
+
+    (0, eval)(await overlayRuntimeSource());
+    await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
+    canvas.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true }));
+
+    const pageEvents: string[] = [];
+    for (const type of ["mousedown", "mouseup", "auxclick"]) {
+      canvas.addEventListener(type, () => pageEvents.push(type));
+    }
+    canvas.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      code: "ControlLeft",
+      ctrlKey: true
+    }));
+    expect(canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      cancelable: true,
+      ctrlKey: true
+    }))).toBe(false);
+    expect(canvas.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 1,
+      cancelable: true,
+      ctrlKey: true
+    }))).toBe(false);
+    expect(requests.some((request) => request.type === "toggle")).toBe(false);
+    canvas.dispatchEvent(new KeyboardEvent("keyup", {
+      bubbles: true,
+      code: "ControlLeft"
+    }));
+    await vi.waitFor(() => expect(requests).toContainEqual({
+      type: "toggle",
+      macroId: "middle-toggle"
+    }));
+    expect(canvas.dispatchEvent(new MouseEvent("auxclick", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }))).toBe(false);
+    expect(pageEvents).toEqual([]);
+
+    macros = [{
+      activationMode: "while_held",
+      enabled: true,
+      id: "middle-held",
+      name: "Middle held",
+      steps: [],
+      trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
+    }];
+    await overlayController().refresh();
+    canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    await vi.waitFor(() => expect(requests.some((request) =>
+      request.type === "press" && request.macroId === "middle-held"
+    )).toBe(true));
+    canvas.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    await vi.waitFor(() => expect(requests.some((request) =>
+      request.type === "release" &&
+      request.macroId === "middle-held" &&
+      request.releaseMode === "complete_first_iteration"
+    )).toBe(true));
+
+    const pressCount = requests.filter((request) =>
+      request.type === "press" && request.macroId === "middle-held"
+    ).length;
+    canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      buttons: 4,
+      cancelable: true
+    }));
+    await vi.waitFor(() => expect(requests.filter((request) =>
+      request.type === "press" && request.macroId === "middle-held"
+    )).toHaveLength(pressCount + 1));
+    window.dispatchEvent(new Event("blur"));
+    await vi.waitFor(() => expect(requests.some((request) =>
+      request.type === "release" &&
+      request.macroId === "middle-held" &&
+      request.releaseMode === "immediate"
+    )).toBe(true));
+
+    pageEvents.length = 0;
+    macros = [
+      { ...macros[0], id: "middle-conflict-a" },
+      { ...macros[0], id: "middle-conflict-b" }
+    ];
+    await overlayController().refresh();
+    canvas.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, composed: true }));
+    for (const type of ["mousedown", "mouseup", "auxclick"]) {
+      canvas.dispatchEvent(new MouseEvent(type, {
+        bubbles: true,
+        button: 1,
+        cancelable: true
+      }));
+    }
+    expect(pageEvents).toEqual(["mousedown", "mouseup", "auxclick"]);
+
+    pageEvents.length = 0;
+    macros = [{
+      ...macros[0],
+      id: "middle-held",
+      trigger: { alt: true, button: "middle", ctrl: false, meta: false, shift: false }
+    }];
+    await overlayController().refresh();
+    expect(canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }))).toBe(true);
+    expect(canvas.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }))).toBe(true);
+    expect(canvas.dispatchEvent(new MouseEvent("auxclick", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }))).toBe(true);
+    expect(pageEvents).toEqual(["mousedown", "mouseup", "auxclick"]);
+
+    pageEvents.length = 0;
+    expect(overlayController().suppressNextMiddleButtonShortcut("automatic-middle")).toBe(true);
+    canvas.dispatchEvent(new MouseEvent("mousedown", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    canvas.dispatchEvent(new MouseEvent("mouseup", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    canvas.dispatchEvent(new MouseEvent("auxclick", {
+      bubbles: true,
+      button: 1,
+      cancelable: true
+    }));
+    await vi.waitFor(() => expect(macroKeyObserved).toHaveBeenCalledWith({
+      code: "MouseMiddle",
+      dispatchId: "automatic-middle",
+      phase: "auxclick"
+    }));
+    expect(pageEvents).toEqual(["mousedown", "mouseup", "auxclick"]);
   });
 
   it("preserves coordinate, shortcut, held-release, canvas, editable, and dense queue behavior", async () => {
@@ -158,7 +347,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v60");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v61");
     const root = host?.shadowRoot;
     expect(root).toBeTruthy();
 
@@ -304,7 +493,7 @@ describe("shell-neutral macro overlay runtime", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
     const root = document
-      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v60")
+      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v61")
       ?.shadowRoot;
     expect(root).toBeTruthy();
     const activeBadges = root?.querySelector<HTMLElement>(".active-badges");

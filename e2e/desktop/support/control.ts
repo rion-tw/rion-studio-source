@@ -205,7 +205,7 @@ export type RuntimeUiActionRequest =
       windowGeneration: number;
     }
   | { action: "focusRole"; roleId: string; tabId: string; windowGeneration: number }
-  | { action: "clickRoleContent"; roleId: string; tabId: string; windowGeneration: number }
+  | { action: "clickRoleContent"; button?: "left" | "middle" | "right"; roleId: string; tabId: string; windowGeneration: number }
   | { action: "pressRoleSlot"; roleId: string; tabId: string; windowGeneration: number }
   | {
       action: "openTabMenu";
@@ -557,6 +557,25 @@ export async function keyboardInput(
   );
   return result as unknown as {
     code: string;
+    phase: string;
+    sequence: number;
+    status: "submitted";
+  };
+}
+
+export async function mouseInput(
+  phase: "mouseDown" | "mouseUp"
+): Promise<{ button: "middle"; phase: string; sequence: number; status: "submitted" }> {
+  const result = await browser.tauri.execute(
+    ({ core }, token, inputPhase) => core.invoke("desktop_e2e_mouse_input", {
+      request: { button: "middle", phase: inputPhase },
+      token
+    }),
+    sessionToken(),
+    phase
+  );
+  return result as unknown as {
+    button: "middle";
     phase: string;
     sequence: number;
     status: "submitted";

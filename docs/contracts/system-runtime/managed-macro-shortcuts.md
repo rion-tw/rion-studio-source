@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 19](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 20](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -42,3 +42,27 @@ native key cleanup and clear the same Core lease.
 This flow is event-bound. It adds no polling, retry timer, replay watchdog, or
 second pressed-key owner; cancellation and supersede cannot be converted into a
 macro start.
+
+## Managed middle-button shortcuts
+
+The same authenticated role overlay may uniquely own a physical middle-button
+shortcut, with or without Ctrl, Alt, Shift, or Meta. Admission uses the same
+enabled macro, source-role, selected surface, editable/IME, automatic-input
+context, lifecycle epoch, role input epoch, and surface-generation fences as a
+managed keyboard shortcut. Unbound or conflicting middle-button combinations
+remain pass-through.
+
+An owned middle-button `mousedown`, `mouseup`, and resulting `auxclick` are
+stopped at capture and never reach the page. One `pressId` and modifier snapshot
+own the cycle. Toggle dispatch waits for middle-button release and the final
+pass-through modifier release to finish propagation. While-held dispatches
+`press` from the accepted down event and pairs it with `release` from the exact
+up event; early release completes the first admitted iteration. Blur, hidden
+page, teardown, and overlay disposal use immediate release and clear the Core
+lease.
+
+Automatic middle-click macro steps arm the overlay suppression guard before
+native submission. Their trusted down/up/auxclick sequence remains page-visible
+but cannot recursively enter the managed shortcut owner. The guard is scoped to
+one exact sequence and a later physical middle click starts a new ownership
+cycle. These flows are event-bound and use no timer, polling, or watchdog.

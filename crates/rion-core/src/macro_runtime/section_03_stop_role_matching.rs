@@ -381,6 +381,7 @@ fn execute_step(
         }
         MacroStepDefinition::Click {
             id,
+            button,
             anchor,
             position,
         } => {
@@ -421,7 +422,7 @@ fn execute_step(
                                 unit: unit.to_owned(),
                                 x,
                                 y,
-                                button: "left".to_owned(),
+                                button: button.as_deref().unwrap_or("left").to_owned(),
                             },
                         )
                     })

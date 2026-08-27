@@ -189,7 +189,7 @@
     if (trigger.alt) parts.push("Alt");
     if (trigger.shift) parts.push("Shift");
     if (trigger.meta) parts.push("Meta");
-    parts.push(formatCode(trigger.code));
+    parts.push(trigger.button === "middle" ? "Middle Click" : formatCode(trigger.code));
     return parts.join("+");
   }
 
@@ -208,6 +208,7 @@
   function matchesShortcut(event, trigger) {
     return Boolean(
       trigger &&
+        typeof trigger.code === "string" &&
         event.code === trigger.code &&
         Boolean(event.ctrlKey) === Boolean(trigger.ctrl) &&
         Boolean(event.altKey) === Boolean(trigger.alt) &&
@@ -650,6 +651,9 @@
     window.removeEventListener("keydown", handleKeyDown, true);
     window.removeEventListener("keypress", handleCoordinateKeyPress, true);
     window.removeEventListener("keyup", handleKeyUp, true);
+    window.removeEventListener("mousedown", handleMiddleButtonDown, true);
+    window.removeEventListener("mouseup", handleMiddleButtonUp, true);
+    window.removeEventListener("auxclick", handleMiddleButtonAuxClick, true);
     window.removeEventListener("wheel", handleGameWheel, true);
     window.removeEventListener("focus", handleFocus, true);
     window.removeEventListener("blur", handleBlur, true);
@@ -700,6 +704,9 @@
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keypress", handleCoordinateKeyPress, true);
     window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("mousedown", handleMiddleButtonDown, true);
+    window.addEventListener("mouseup", handleMiddleButtonUp, true);
+    window.addEventListener("auxclick", handleMiddleButtonAuxClick, true);
     window.addEventListener("wheel", handleGameWheel, { capture: true, passive: false });
     window.addEventListener("focus", handleFocus, true);
     window.addEventListener("blur", handleBlur, true);
@@ -713,12 +720,14 @@
     document.addEventListener("visibilitychange", handleVisibilityChange, true);
     window[controllerKey] = {
       automaticInputContext,
+      clearSuppressedMiddleButtonShortcut,
       clearSuppressedShortcut,
       dispose,
       refresh,
       physicalModifierCodes,
       releaseForwardedMacroKey,
       suppressNextModifierProjection,
+      suppressNextMiddleButtonShortcut,
       suppressNextShortcut,
       version: scriptVersion
     };

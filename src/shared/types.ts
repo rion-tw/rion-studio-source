@@ -262,6 +262,7 @@ export type MacroRepeat = RustMacroRepeat;
 
 export type MacroCallMode = "wait" | "trigger";
 export type MacroClickUnit = "percent" | "px" | "reference-px";
+export type MacroMouseButton = "left" | "middle" | "right";
 export type MacroClickAnchor =
   | "top-left"
   | "top-center"

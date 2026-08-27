@@ -540,6 +540,60 @@ it("uses the same icon-only record control and switches its active state", () =>
     expect(screen.getAllByRole("button", { name: "Record" })).toHaveLength(2);
   });
 
+it("records a modified middle click as a macro shortcut", () => {
+    const selectedMacro = macro({
+      trigger: { code: "F6", ctrl: false, alt: false, shift: false, meta: false }
+    });
+    const router = createMemoryRouter([{
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    fireEvent.click(screen.getAllByRole("button", { name: "Record" })[0]);
+    fireEvent.mouseDown(window, { button: 1, ctrlKey: true });
+
+    const [modifierSelector, shortcutSelector] = screen.getAllByRole("combobox", {
+      name: /^(Modifiers|Key)$/
+    });
+    expect(modifierSelector.textContent).toContain("Ctrl");
+    expect(shortcutSelector.textContent).toContain("Middle click");
+    expect(screen.getAllByRole("button", { name: "Record" })[0].getAttribute("aria-pressed"))
+      .toBe("false");
+  });
+
+it("offers left, middle, and right mouse buttons for click steps", () => {
+    const selectedMacro = macro({
+      steps: [{ id: "click", type: "click", button: "middle", xPercent: 50, yPercent: 50 }]
+    });
+    const router = createMemoryRouter([{
+      path: "/macros/:id/edit",
+      element: <MacroEditorRoute
+        games={[game()]}
+        isSaving={false}
+        macros={[selectedMacro]}
+        roles={[role()]}
+        t={t}
+        onSave={vi.fn()}
+      />
+    }], { initialEntries: ["/macros/macro-1/edit"] });
+
+    render(<ConfirmationProvider><RouterProvider router={router} /></ConfirmationProvider>);
+    const buttonSelector = screen.getByRole("combobox", { name: "Mouse button" });
+    expect(buttonSelector.textContent).toContain("Middle click");
+    fireEvent.click(buttonSelector);
+    expect(screen.getByRole("option", { name: "Left click" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Middle click" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Right click" })).toBeTruthy();
+  });
+
 it("disables modifier chips when the main key is itself a modifier", () => {
     const selectedMacro = macro({
       steps: [{ id: "step-1", type: "key", code: "ControlLeft" }]

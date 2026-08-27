@@ -1,14 +1,23 @@
 pub(crate) fn is_reserved_macro_trigger(trigger: &MacroTrigger) -> bool {
-    let overlay =
-        trigger.code == "KeyM" && trigger.ctrl && trigger.shift && !trigger.alt && !trigger.meta;
-    let tab_switch = trigger.code == "Tab" && trigger.ctrl && !trigger.alt && !trigger.meta;
-    let primary_only = !trigger.alt && trigger.ctrl != trigger.meta;
-    let quick_access = primary_only && !trigger.shift && trigger.code == "KeyK";
+    let MacroTrigger::Keyboard {
+        code,
+        ctrl,
+        alt,
+        shift,
+        meta,
+    } = trigger
+    else {
+        return false;
+    };
+    let overlay = code == "KeyM" && *ctrl && *shift && !*alt && !*meta;
+    let tab_switch = code == "Tab" && *ctrl && !*alt && !*meta;
+    let primary_only = !*alt && ctrl != meta;
+    let quick_access = primary_only && !*shift && code == "KeyK";
     let zoom = primary_only
-        && (matches!(trigger.code.as_str(), "Equal" | "Plus" | "NumpadAdd")
-            || (!trigger.shift
+        && (matches!(code.as_str(), "Equal" | "Plus" | "NumpadAdd")
+            || (!*shift
                 && matches!(
-                    trigger.code.as_str(),
+                    code.as_str(),
                     "Minus" | "NumpadSubtract" | "Digit0" | "Numpad0"
                 )));
     overlay || tab_switch || zoom || quick_access

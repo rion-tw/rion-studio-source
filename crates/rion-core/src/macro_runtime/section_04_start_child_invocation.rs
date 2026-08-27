@@ -587,16 +587,22 @@ fn should_suppress_overlay_shortcut_for_macros(
         if !definition.enabled || !definition.role_ids.iter().any(|id| id == role_id) {
             return false;
         }
-        let Some(trigger) = &definition.trigger else {
+        let Some(crate::model::MacroTrigger::Keyboard {
+            code: trigger_code,
+            ctrl: trigger_ctrl,
+            alt: trigger_alt,
+            shift: trigger_shift,
+            meta: trigger_meta,
+        }) = &definition.trigger else {
             return false;
         };
-        if trigger.code != code || trigger.alt != alt || trigger.shift != shift {
+        if trigger_code != code || *trigger_alt != alt || *trigger_shift != shift {
             return false;
         }
         if primary {
-            (trigger.ctrl == ctrl && trigger.meta) || (trigger.ctrl && trigger.meta == meta)
+            (*trigger_ctrl == ctrl && *trigger_meta) || (*trigger_ctrl && *trigger_meta == meta)
         } else {
-            trigger.ctrl == ctrl && trigger.meta == meta
+            *trigger_ctrl == ctrl && *trigger_meta == meta
         }
     })
 }

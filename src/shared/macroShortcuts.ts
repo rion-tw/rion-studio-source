@@ -8,6 +8,18 @@ export const MACRO_OVERLAY_TRIGGER: MacroTrigger = {
   meta: false
 };
 
+function isKeyboardMacroTrigger(
+  trigger: MacroTrigger | null | undefined
+): trigger is Extract<MacroTrigger, { code: string }> {
+  return Boolean(trigger && "code" in trigger);
+}
+
+function isMiddleButtonMacroTrigger(
+  trigger: MacroTrigger | null | undefined
+): trigger is Extract<MacroTrigger, { button: "middle" }> {
+  return Boolean(trigger && "button" in trigger && trigger.button === "middle");
+}
+
 export function areMacroTriggersEqual(
   left: MacroTrigger | null | undefined,
   right: MacroTrigger | null | undefined
@@ -15,7 +27,10 @@ export function areMacroTriggersEqual(
   return Boolean(
     left &&
       right &&
-      left.code === right.code &&
+      ((isKeyboardMacroTrigger(left) &&
+        isKeyboardMacroTrigger(right) &&
+        left.code === right.code) ||
+        (isMiddleButtonMacroTrigger(left) && isMiddleButtonMacroTrigger(right))) &&
       left.ctrl === right.ctrl &&
       left.alt === right.alt &&
       left.shift === right.shift &&
@@ -50,7 +65,7 @@ export function isReservedBrowserZoomMacroTrigger(
   trigger: MacroTrigger | null | undefined
 ): boolean {
   if (
-    !trigger ||
+    !isKeyboardMacroTrigger(trigger) ||
     trigger.alt ||
     trigger.ctrl === trigger.meta ||
     (!trigger.ctrl && !trigger.meta)
@@ -76,7 +91,7 @@ export function isReservedRuntimeTabSwitchMacroTrigger(
   trigger: MacroTrigger | null | undefined
 ): boolean {
   return Boolean(
-    trigger &&
+    isKeyboardMacroTrigger(trigger) &&
       trigger.code === "Tab" &&
       trigger.ctrl &&
       !trigger.alt &&
@@ -88,7 +103,7 @@ export function isReservedQuickAccessMacroTrigger(
   trigger: MacroTrigger | null | undefined
 ): boolean {
   return Boolean(
-    trigger &&
+    isKeyboardMacroTrigger(trigger) &&
       trigger.code === "KeyK" &&
       !trigger.alt &&
       !trigger.shift &&

@@ -115,6 +115,16 @@ fn normalize_step(
                 })
                 .transpose()?;
             let unit = explicit_unit.as_deref().unwrap_or("percent");
+            let button = source
+                .get("button")
+                .map(|value| {
+                    value
+                        .as_str()
+                        .filter(|button| matches!(*button, "left" | "middle" | "right"))
+                        .map(str::to_owned)
+                        .ok_or_else(|| invalid("portable macro click mouse button is invalid"))
+                })
+                .transpose()?;
             let anchor = source
                 .get("anchor")
                 .map(|value| {
@@ -144,6 +154,9 @@ fn normalize_step(
             ]);
             if let Some(unit) = explicit_unit.as_ref() {
                 step.insert("unit".to_owned(), json!(unit));
+            }
+            if let Some(button) = button.filter(|button| button != "left") {
+                step.insert("button".to_owned(), json!(button));
             }
             if let Some(anchor) = anchor {
                 step.insert("anchor".to_owned(), json!(anchor));
@@ -210,13 +223,26 @@ fn normalize_step(
 
 fn normalize_trigger(value: &Value) -> CoreResult<Value> {
     let trigger = object(value, "macro trigger")?;
-    Ok(json!({
-        "code": required_string(trigger, "code", "macro trigger")?,
+    let mut normalized = json!({
         "ctrl": trigger.get("ctrl").and_then(Value::as_bool).unwrap_or(false),
         "alt": trigger.get("alt").and_then(Value::as_bool).unwrap_or(false),
         "shift": trigger.get("shift").and_then(Value::as_bool).unwrap_or(false),
         "meta": trigger.get("meta").and_then(Value::as_bool).unwrap_or(false)
-    }))
+    });
+    let normalized_object = normalized.as_object_mut().expect("trigger is an object");
+    if let Some(button) = trigger.get("button") {
+        let button = button
+            .as_str()
+            .filter(|button| *button == "middle")
+            .ok_or_else(|| invalid("portable macro shortcut mouse button is invalid"))?;
+        normalized_object.insert("button".to_owned(), json!(button));
+    } else {
+        normalized_object.insert(
+            "code".to_owned(),
+            json!(required_string(trigger, "code", "macro trigger")?),
+        );
+    }
+    Ok(normalized)
 }
 
 fn normalize_preferences(value: Option<&Value>) -> CoreResult<Option<Value>> {

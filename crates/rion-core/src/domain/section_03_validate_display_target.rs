@@ -401,9 +401,39 @@ pub(crate) fn macro_shortcut_source_contains(
         .any(|candidate| candidate == role_id)
 }
 
-fn normalize_macro_trigger(mut trigger: MacroTrigger) -> CoreResult<MacroTrigger> {
-    trigger.code = normalize_macro_code(&trigger.code, "Macro shortcut key is invalid.")?;
-    Ok(trigger)
+fn normalize_macro_trigger(trigger: MacroTrigger) -> CoreResult<MacroTrigger> {
+    match trigger {
+        MacroTrigger::Keyboard {
+            code,
+            ctrl,
+            alt,
+            shift,
+            meta,
+        } => Ok(MacroTrigger::Keyboard {
+            code: normalize_macro_code(&code, "Macro shortcut key is invalid.")?,
+            ctrl,
+            alt,
+            shift,
+            meta,
+        }),
+        MacroTrigger::MouseButton {
+            button,
+            ctrl,
+            alt,
+            shift,
+            meta,
+        } if button == "middle" => Ok(MacroTrigger::MouseButton {
+            button,
+            ctrl,
+            alt,
+            shift,
+            meta,
+        }),
+        MacroTrigger::MouseButton { .. } => Err(domain(
+            "MACRO_SHORTCUT_INVALID",
+            "Macro shortcut mouse button is invalid.",
+        )),
+    }
 }
 
 fn normalize_macro_repeat(repeat: Option<MacroRepeat>) -> CoreResult<MacroRepeat> {
@@ -504,6 +534,7 @@ fn normalize_macro_step(
         }
         MacroStepInputRecord::Click {
             id,
+            button,
             unit,
             anchor,
             x_percent,
@@ -514,11 +545,13 @@ fn normalize_macro_step(
             y_reference_px,
         } => {
             let unit = unit.unwrap_or_else(|| "percent".to_owned());
+            let button = normalize_macro_mouse_button(button)?;
             let anchor = normalize_macro_click_anchor(anchor)?;
             let id = normalize_id(id, ids);
             match unit.as_str() {
                 "percent" => Ok(MacroStepDefinition::Click {
                     id,
+                    button,
                     anchor,
                     position: crate::model::MacroClickDefinition::Percent {
                         unit: None,
@@ -528,6 +561,7 @@ fn normalize_macro_step(
                 }),
                 "px" => Ok(MacroStepDefinition::Click {
                     id,
+                    button,
                     anchor,
                     position: crate::model::MacroClickDefinition::Pixels {
                         unit: "px".to_owned(),
@@ -537,6 +571,7 @@ fn normalize_macro_step(
                 }),
                 "reference-px" => Ok(MacroStepDefinition::Click {
                     id,
+                    button,
                     anchor,
                     position: crate::model::MacroClickDefinition::ReferencePixels {
                         unit: "reference-px".to_owned(),
@@ -668,6 +703,17 @@ fn normalize_macro_click_anchor(anchor: Option<String>) -> CoreResult<Option<Str
             "MACRO_STEP_INVALID",
             "Macro click anchor is invalid.",
         ))
+    }
+}
+
+fn normalize_macro_mouse_button(button: Option<String>) -> CoreResult<Option<String>> {
+    match button.as_deref().unwrap_or("left") {
+        "left" => Ok(None),
+        "middle" | "right" => Ok(button),
+        _ => Err(domain(
+            "MACRO_STEP_INVALID",
+            "Macro click mouse button is invalid.",
+        )),
     }
 }
 

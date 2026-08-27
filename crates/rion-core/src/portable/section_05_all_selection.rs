@@ -480,11 +480,7 @@ fn macro_depends_on(macros: &[StateMacroRecord], source_id: &str, target_id: &st
 }
 
 fn triggers_equal(left: &MacroTrigger, right: &MacroTrigger) -> bool {
-    left.code == right.code
-        && left.ctrl == right.ctrl
-        && left.alt == right.alt
-        && left.shift == right.shift
-        && left.meta == right.meta
+    left == right
 }
 
 fn roles_overlap(left: &[String], right: &[String]) -> bool {

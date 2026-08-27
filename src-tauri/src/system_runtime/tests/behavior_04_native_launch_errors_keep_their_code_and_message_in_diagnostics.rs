@@ -183,7 +183,7 @@
         assert!(source.contains("binding.ready"));
         assert!(source.contains("test-capability"));
         assert!(source.contains("event.isTrusted === true"));
-        assert!(source.contains("rion-studio-macro-overlay-v60"));
+        assert!(source.contains("rion-studio-macro-overlay-v61"));
         assert!(source.contains("createMacroCoordinateMeasurement"));
         assert!(source.contains(MACRO_COORDINATE_MEASUREMENT_MODULE_IMPORTER_SOURCE));
         assert!(source.contains("const overlayCss = \"/*"));

@@ -1,6 +1,6 @@
 # System WebView Runtime Contract
 
-Contract version 19 defines the shared semantics for WKWebView on macOS and
+Contract version 20 defines the shared semantics for WKWebView on macOS and
 WebView2 on Windows. Rust orchestration owns the contract, while the
 AppKit/WKWebView and Win32/WebView2 adapters implement it. The native APIs may
 differ, but both platforms must expose the same observable contract.
@@ -25,11 +25,11 @@ Read only the parts required by the task:
 | Window/tab ownership, launch destinations, activation, topology mutation | [Ownership and Activation](contracts/system-runtime/ownership-and-activation.md) |
 | Native tab chrome, destructive stop, persistence, display topology, dragging | [Native Projections and Placement](contracts/system-runtime/native-projections-and-placement.md) |
 | Navigation, input fences, process-death recovery, power, shutdown | [Lifecycle and Recovery](contracts/system-runtime/lifecycle-and-recovery.md) |
-| Physical macro-shortcut ownership, trusted replay, toggle and while-held ordering | [Managed Macro Shortcuts](contracts/system-runtime/managed-macro-shortcuts.md) |
+| Physical keyboard/middle-button macro-shortcut ownership, trusted replay or interception, toggle and while-held ordering | [Managed Macro Shortcuts](contracts/system-runtime/managed-macro-shortcuts.md) |
 | WebGL performance, popup security, and capability policy | [WebView Policy and Performance](contracts/system-runtime/webview-policy-and-performance.md) |
 
 Changing a terminal status, completion scope, identity fence,
 popup/security policy, or ordering guarantee requires a contract-version bump
 and matching macOS and Windows behavior tests. Additive fields remain compatible
-within version 19 only when the generated Rust/TypeScript contracts and all
+within version 20 only when the generated Rust/TypeScript contracts and all
 consumers remain aligned.

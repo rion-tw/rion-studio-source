@@ -676,15 +676,16 @@ use crate::MacosHighRefreshMode;
                 "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"
             }, {
                 "id":"source","enabled":true,"activationMode":"toggle","name":"Source","roleIds":["r"],
+                "trigger":{"button":"middle","ctrl":true,"alt":false,"shift":false,"meta":false},
                 "repeat":{"type":"once"},
                 "steps":[
                     {"id":"key-label","type":"key","code":"Digit1","action":"tap","label":"1"},
                     {"id":"key-empty","type":"key","code":"Digit2","modifiers":[]},
                     {"id":"timed","type":"key","code":"KeyW","action":"hold_for_duration","durationMs":1250},
                     {"id":"percent-default","type":"click","xPercent":12.5,"yPercent":-4.0},
-                    {"id":"percent-explicit","type":"click","unit":"percent","anchor":"top-left","xPercent":1.0,"yPercent":2.0},
+                    {"id":"percent-explicit","type":"click","button":"middle","unit":"percent","anchor":"top-left","xPercent":1.0,"yPercent":2.0},
                     {"id":"pixels","type":"click","unit":"px","anchor":"center","xPx":3.0,"yPx":4.0},
-                    {"id":"reference-pixels","type":"click","unit":"reference-px","anchor":"bottom-right","xReferencePx":-24.0,"yReferencePx":-32.0},
+                    {"id":"reference-pixels","type":"click","button":"right","unit":"reference-px","anchor":"bottom-right","xReferencePx":-24.0,"yReferencePx":-32.0},
                     {"id":"call-default","type":"macro","macroId":"target"},
                     {"id":"call-explicit","type":"macro","macroId":"target","callMode":"wait"}
                 ],
@@ -727,6 +728,10 @@ use crate::MacosHighRefreshMode;
                 step,
                 MacroStepDefinition::Macro { macro_id, .. } if macro_id == "target"
             )));
+            assert!(matches!(
+                &source.trigger,
+                Some(MacroTrigger::MouseButton { button, ctrl: true, .. }) if button == "middle"
+            ));
             let target = prepared
                 .snapshot
                 .macros
@@ -745,6 +750,7 @@ use crate::MacosHighRefreshMode;
             assert!(source.steps.iter().any(|step| matches!(
                 step,
                 MacroStepDefinition::Click {
+                    button: Some(button),
                     anchor: Some(anchor),
                     position: crate::model::MacroClickDefinition::Percent {
                         unit: Some(unit),
@@ -752,11 +758,12 @@ use crate::MacosHighRefreshMode;
                         y_percent: y,
                     },
                     ..
-                } if unit == "percent" && anchor == "top-left" && *x == 1.0 && *y == 2.0
+                } if button == "middle" && unit == "percent" && anchor == "top-left" && *x == 1.0 && *y == 2.0
             )));
             assert!(source.steps.iter().any(|step| matches!(
                 step,
                 MacroStepDefinition::Click {
+                    button: None,
                     anchor: Some(anchor),
                     position: crate::model::MacroClickDefinition::Pixels {
                         unit,
@@ -769,6 +776,7 @@ use crate::MacosHighRefreshMode;
             assert!(source.steps.iter().any(|step| matches!(
                 step,
                 MacroStepDefinition::Click {
+                    button: Some(button),
                     anchor: Some(anchor),
                     position: crate::model::MacroClickDefinition::ReferencePixels {
                         unit,
@@ -776,7 +784,7 @@ use crate::MacosHighRefreshMode;
                         y_reference_px: y,
                     },
                     ..
-                } if unit == "reference-px" && anchor == "bottom-right" && *x == -24.0 && *y == -32.0
+                } if button == "right" && unit == "reference-px" && anchor == "bottom-right" && *x == -24.0 && *y == -32.0
             )));
         };
     }

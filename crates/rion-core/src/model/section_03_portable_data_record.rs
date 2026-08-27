@@ -522,6 +522,9 @@ pub enum MacroStepInputRecord {
         #[ts(optional)]
         id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "\"left\" | \"middle\" | \"right\"")]
+        button: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         unit: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

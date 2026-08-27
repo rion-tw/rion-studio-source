@@ -256,6 +256,29 @@ bool rion_desktop_e2e_keyboard_input(const char *rawCode, bool keyDown) {
   }
 }
 
+bool rion_desktop_e2e_middle_mouse_input(bool mouseDown) {
+  @autoreleasepool {
+    CGEventRef locationEvent = CGEventCreate(NULL);
+    if (!locationEvent) return false;
+    const CGPoint point = CGEventGetLocation(locationEvent);
+    CFRelease(locationEvent);
+    CGEventSourceRef source =
+        CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!source) return false;
+    CGEventRef event = CGEventCreateMouseEvent(
+        source,
+        mouseDown ? kCGEventOtherMouseDown : kCGEventOtherMouseUp,
+        point,
+        kCGMouseButtonCenter);
+    CFRelease(source);
+    if (!event) return false;
+    CGEventSetFlags(event, RionDesktopE2EUpdateModifierFlags(@"", false));
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+    return true;
+  }
+}
+
 bool rion_desktop_e2e_drag_webview(void *rawWebview, bool vertical,
                                    double deltaRatio) {
   @autoreleasepool {
@@ -380,9 +403,11 @@ bool rion_desktop_e2e_control_window(void *rawWindow, int32_t action,
     case 7: {
       [NSApp activateIgnoringOtherApps:YES];
       [window makeKeyAndOrderFront:nil];
-      const NSRect frame = window.frame;
+      const NSRect contentScreenRect =
+          [window convertRectToScreen:window.contentLayoutRect];
       const CGPoint point = CGPointMake(
-          NSMidX(frame), RionDesktopTop() - NSMidY(frame));
+          NSMinX(contentScreenRect) + 24.0,
+          RionDesktopTop() - (NSMinY(contentScreenRect) + 24.0));
       CGEventSourceRef source =
           CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
       if (!source) return false;

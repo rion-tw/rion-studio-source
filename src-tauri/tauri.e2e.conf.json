@@ -45,6 +45,7 @@
             "allow-desktop-e2e-runtime-ui-action",
             "allow-desktop-e2e-input-diagnostics",
             "allow-desktop-e2e-keyboard-input",
+            "allow-desktop-e2e-mouse-input",
             "allow-desktop-e2e-shutdown"
           ]
         }

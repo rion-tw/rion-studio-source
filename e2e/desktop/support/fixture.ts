@@ -1,6 +1,8 @@
 import { requireEnvironment } from "./control";
 
 export interface FixtureEvent {
+  button?: number;
+  buttons?: number;
   code?: string;
   coordinates?: { x: number; y: number };
   hidden?: boolean;

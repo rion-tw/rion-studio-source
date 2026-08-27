@@ -544,6 +544,34 @@ static void RionDispatchMouseEvent(
   }
 }
 
+static NSEvent * _Nullable RionCreateMouseEvent(
+    NSPoint windowPoint, NSInteger windowNumber, int button, bool mouseDown,
+    NSInteger eventNumber, NSTimeInterval timestamp) {
+  NSEventType type;
+  if (button == 0) type = mouseDown ? NSEventTypeLeftMouseDown : NSEventTypeLeftMouseUp;
+  else if (button == 1) type = mouseDown ? NSEventTypeOtherMouseDown : NSEventTypeOtherMouseUp;
+  else type = mouseDown ? NSEventTypeRightMouseDown : NSEventTypeRightMouseUp;
+  NSEvent *event = [NSEvent mouseEventWithType:type
+                                      location:windowPoint
+                                 modifierFlags:0
+                                     timestamp:timestamp
+                                  windowNumber:windowNumber
+                                       context:nil
+                                   eventNumber:eventNumber
+                                    clickCount:1
+                                      pressure:mouseDown ? 1.0 : 0.0];
+  if (!event) return nil;
+  CGEventRef cgEvent = event.CGEvent;
+  if (!cgEvent) return event;
+  const int nativeButtonNumber =
+      button == 1 ? (int)kCGMouseButtonCenter
+                  : button == 2 ? (int)kCGMouseButtonRight
+                                : (int)kCGMouseButtonLeft;
+  CGEventSetIntegerValueField(
+      cgEvent, kCGMouseEventButtonNumber, (int64_t)nativeButtonNumber);
+  return [NSEvent eventWithCGEvent:cgEvent] ?: event;
+}
+
 bool rion_wk_dispatch_mouse(void * _Nullable rawWebView,
                             double viewportWidth, double viewportHeight,
                             double x, double y, int button, bool mouseDown) {
@@ -568,19 +596,9 @@ bool rion_wk_dispatch_mouse(void * _Nullable rawWebView,
     NSPoint viewPoint = RionWKViewPointForDOMPoint(
         viewportBounds, webView.isFlipped, viewportWidth, viewportHeight, x, y);
     NSPoint windowPoint = [webView convertPoint:viewPoint toView:nil];
-    NSEventType type;
-    if (button == 0) type = mouseDown ? NSEventTypeLeftMouseDown : NSEventTypeLeftMouseUp;
-    else if (button == 1) type = mouseDown ? NSEventTypeOtherMouseDown : NSEventTypeOtherMouseUp;
-    else type = mouseDown ? NSEventTypeRightMouseDown : NSEventTypeRightMouseUp;
-    NSEvent *event = [NSEvent mouseEventWithType:type
-                                       location:windowPoint
-                                  modifierFlags:0
-                                      timestamp:NSProcessInfo.processInfo.systemUptime
-                                   windowNumber:window.windowNumber
-                                        context:nil
-                                    eventNumber:0
-                                     clickCount:1
-                                       pressure:mouseDown ? 1.0 : 0.0];
+    NSEvent *event = RionCreateMouseEvent(
+        windowPoint, window.windowNumber, button, mouseDown, 0,
+        NSProcessInfo.processInfo.systemUptime);
     if (!event) return false;
     NSResponder *preservedResponder = window.firstResponder;
     NSView *target = [webView hitTest:viewPoint] ?: webView;
@@ -604,21 +622,41 @@ bool rion_wk_mouse_coordinate_self_test(void) {
 
 @interface RionMouseResponderFixture : NSView
 @property(nonatomic, strong) NSMutableArray<NSNumber *> *phases;
+@property(nonatomic, strong) NSMutableArray<NSNumber *> *buttonNumbers;
 @end
 
 @implementation RionMouseResponderFixture
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
-  if (self) self.phases = [NSMutableArray array];
+  if (self) {
+    self.phases = [NSMutableArray array];
+    self.buttonNumbers = [NSMutableArray array];
+  }
   return self;
 }
 - (void)mouseDown:(NSEvent *)event {
-  (void)event;
   [self.phases addObject:@1];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
 }
 - (void)mouseUp:(NSEvent *)event {
-  (void)event;
   [self.phases addObject:@0];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
+}
+- (void)otherMouseDown:(NSEvent *)event {
+  [self.phases addObject:@1];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
+}
+- (void)otherMouseUp:(NSEvent *)event {
+  [self.phases addObject:@0];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
+}
+- (void)rightMouseDown:(NSEvent *)event {
+  [self.phases addObject:@1];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
+}
+- (void)rightMouseUp:(NSEvent *)event {
+  [self.phases addObject:@0];
+  [self.buttonNumbers addObject:@(event.buttonNumber)];
 }
 @end
 
@@ -658,33 +696,22 @@ bool rion_wk_mouse_dispatch_self_test(void) {
     [root addSubview:target];
     if ([root hitTest:NSMakePoint(5, 5)] != target) return false;
 
-    NSEvent *down = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
-                                       location:NSMakePoint(5, 5)
-                                  modifierFlags:0
-                                      timestamp:1
-                                   windowNumber:0
-                                        context:nil
-                                    eventNumber:1
-                                     clickCount:1
-                                       pressure:1];
-    NSEvent *up = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp
-                                     location:NSMakePoint(5, 5)
-                                modifierFlags:0
-                                    timestamp:2
-                                 windowNumber:0
-                                      context:nil
-                                  eventNumber:2
-                                   clickCount:1
-                                     pressure:0];
-    if (!down || !up) return false;
-    RionDispatchMouseEvent(target, down, 0, true);
-    RionDispatchMouseEvent(target, up, 0, false);
+    for (int button = 0; button <= 2; button += 1) {
+      NSEvent *down = RionCreateMouseEvent(
+          NSMakePoint(5, 5), 0, button, true, button * 2 + 1, 1);
+      NSEvent *up = RionCreateMouseEvent(
+          NSMakePoint(5, 5), 0, button, false, button * 2 + 2, 2);
+      if (!down || !up) return false;
+      RionDispatchMouseEvent(target, down, button, true);
+      RionDispatchMouseEvent(target, up, button, false);
+    }
 
     RionFirstResponderHostFixture *host =
         [[RionFirstResponderHostFixture alloc] init];
     host.responder = target;
     BOOL restored = RionRestoreFirstResponder(host, foreground, root);
-    return [target.phases isEqualToArray:@[@1, @0]] && restored &&
+    return [target.phases isEqualToArray:@[@1, @0, @1, @0, @1, @0]] &&
+        [target.buttonNumbers isEqualToArray:@[@0, @0, @2, @2, @1, @1]] && restored &&
         host.firstResponder == foreground && host.focusChangeCount == 1;
   }
 }

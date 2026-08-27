@@ -524,14 +524,24 @@ pub enum MacroShortcutSourceScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
 #[ts(export, export_to = "../../../src/shared/generated/")]
-pub struct MacroTrigger {
-    pub code: String,
-    pub ctrl: bool,
-    pub alt: bool,
-    pub shift: bool,
-    pub meta: bool,
+pub enum MacroTrigger {
+    Keyboard {
+        code: String,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+        meta: bool,
+    },
+    MouseButton {
+        #[ts(type = "\"middle\"")]
+        button: String,
+        ctrl: bool,
+        alt: bool,
+        shift: bool,
+        meta: bool,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, TS)]
@@ -575,6 +585,9 @@ pub enum MacroStepDefinition {
     },
     Click {
         id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "\"left\" | \"middle\" | \"right\"")]
+        button: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(
             optional,

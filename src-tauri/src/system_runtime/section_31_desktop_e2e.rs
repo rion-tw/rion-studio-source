@@ -863,7 +863,7 @@ fn desktop_e2e_apply_native_window_control(
             request_platform_window_minimize(window)
         }
         DesktopE2eWindowControlRequest::MovePointerToRoleContent => {
-            Err("Role-content pointer movement is currently macOS-only.".to_owned())
+            desktop_e2e_windows_move_pointer_to_role_content(window)
         }
         DesktopE2eWindowControlRequest::MovePointerToFullscreenToolbar => {
             Err("Fullscreen-toolbar pointer movement is currently macOS-only.".to_owned())
@@ -951,6 +951,41 @@ fn desktop_e2e_apply_native_window_control(
                 result.map_err(|error| error.to_string())
             }
         }
+    }
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_move_pointer_to_role_content(window: &Window) -> Result<(), String> {
+    use windows::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::Gdi::ClientToScreen,
+        UI::WindowsAndMessaging::{
+            BringWindowToTop, GetClientRect, GetForegroundWindow, SetCursorPos,
+            SetForegroundWindow,
+        },
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    unsafe { BringWindowToTop(hwnd) }
+        .map_err(|error| format!("Windows could not raise the role pointer target: {error}"))?;
+    if !unsafe { SetForegroundWindow(hwnd) }.as_bool()
+        || unsafe { GetForegroundWindow() } != hwnd
+    {
+        return Err("Windows did not foreground the role pointer target.".to_owned());
+    }
+    let mut client = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut client) }.map_err(|error| error.to_string())?;
+    let mut point = POINT {
+        x: client.left + 24,
+        y: client.bottom.saturating_sub(24),
+    };
+    unsafe { ClientToScreen(hwnd, &mut point) }
+        .ok()
+        .map_err(|error| error.to_string())?;
+    if unsafe { SetCursorPos(point.x, point.y) }.is_ok() {
+        Ok(())
+    } else {
+        Err("Windows rejected the role-content pointer move.".to_owned())
     }
 }
 

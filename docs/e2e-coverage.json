@@ -39,6 +39,7 @@
         "smoke-restart",
         "p0-macro-native-effect",
         "p0-macro-keyboard-lifecycle",
+        "p0-macro-middle-button",
         "p0-macro-background-tab",
         "p0-macro-terminal-cleanup",
         "p0-tabs-visible-activation",
@@ -86,6 +87,7 @@
         "smoke-restart",
         "p0-macro-native-effect",
         "p0-macro-keyboard-lifecycle",
+        "p0-macro-middle-button",
         "p0-macro-background-tab",
         "p0-macro-terminal-cleanup",
         "p0-tabs-visible-activation",
@@ -402,7 +404,7 @@
       "kind": "ui",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Start a visible macro action and prove its exact native key and click effects in the assigned System WebView role."
+      "description": "Start a visible macro action and prove its exact native key plus left, middle, and right click effects in the assigned System WebView role."
     },
     {
       "id": "MACRO-BACKGROUND-TAB-004",
@@ -487,6 +489,20 @@
       "risk": "native",
       "outcomes": ["success", "failure"],
       "description": "Keep an exact physical Shift side held across managed while-held keydown, press, keyup, and release acknowledgements; prove early physical release still completes exactly one iteration, leaves no Core lease or page key behind, and an unbound Shift+4 reaches the foreground role with its modifier intact."
+    },
+    {
+      "id": "MACRO-MIDDLE-BUTTON-013",
+      "feature": "macros",
+      "priority": "P0",
+      "status": "automated",
+      "profile": "full",
+      "phase": "p0-macro-middle-button",
+      "spec": "e2e/desktop/specs/macro-runtime.e2e.ts",
+      "platforms": ["macos", "windows"],
+      "kind": "native",
+      "risk": "native",
+      "outcomes": ["success", "failure"],
+      "description": "Use visible native middle-button presses in selected roles to exercise toggle and while-held macros while proving mousedown, mouseup, and auxclick remain intercepted from the page; then execute left, middle, and right macro click steps and observe all three trusted native button effects without recursively re-entering the shortcut."
     },
     {
       "id": "ROLE-KEY-BLUR-004",

@@ -452,6 +452,7 @@
                 duration_ms: None,
             },
             MacroStepDefinition::Click {
+                button: None,
                 id: "s2".to_owned(),
                 anchor: Some("center".to_owned()),
                 position: crate::model::MacroClickDefinition::Percent {

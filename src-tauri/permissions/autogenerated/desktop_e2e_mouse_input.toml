@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-desktop-e2e-mouse-input"
+description = "Enables the desktop_e2e_mouse_input command without any pre-configured scope."
+commands.allow = ["desktop_e2e_mouse_input"]
+
+[[permission]]
+identifier = "deny-desktop-e2e-mouse-input"
+description = "Denies the desktop_e2e_mouse_input command without any pre-configured scope."
+commands.deny = ["desktop_e2e_mouse_input"]

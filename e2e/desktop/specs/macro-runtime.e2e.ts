@@ -43,12 +43,13 @@ import {
   waitManagedShortcutReceipt,
   waitShortcutLifecycle
 } from "./macro-runtime-keyboard-helpers";
+import { middleButtonPhase } from "./macro-runtime-middle-button";
 
 // [journey:MACRO-NATIVE-EFFECT-003]
 // [journey:MACRO-BACKGROUND-TAB-004]
 // [journey:MACRO-MULTIROLE-005]
 // [journey:MACRO-SHORTCUT-REENTRY-007]
-// [journey:MACRO-MODIFIER-CONTINUITY-008]
+// [journey:MACRO-MODIFIER-CONTINUITY-008] [journey:MACRO-MIDDLE-BUTTON-013]
 // [journey:MACRO-INPUT-RECOVERY-011]
 // [journey:MACRO-STANDBY-RECOVERY-012]
 // [journey:ROLE-KEY-BLUR-004]
@@ -294,16 +295,20 @@ async function nativeEffectPhase(): Promise<void> {
     repeat: { type: "once" },
     steps: [
       { action: "tap", code: "KeyA", id: "native-key", type: "key" },
-      { id: "native-click", type: "click", xPercent: 50, yPercent: 50 }
+      { button: "left", id: "native-click-left", type: "click", xPercent: 50, yPercent: 50 },
+      { button: "middle", id: "native-click-middle", type: "click", xPercent: 50, yPercent: 50 },
+      { button: "right", id: "native-click-right", type: "click", xPercent: 50, yPercent: 50 }
     ]
   });
   await launchRole(scenario.roles[0], "new-window");
   const fixtureAfter = await fixtureCursor();
   const macroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
-  const [keydown, keyup, click, statuses] = await Promise.all([
+  const [keydown, keyup, click, middleAuxClick, rightContextMenu, statuses] = await Promise.all([
     waitFixtureEvent({ afterSequence: fixtureAfter, kind: "keydown", roleId: "macro-native-effect" }),
     waitFixtureEvent({ afterSequence: fixtureAfter, kind: "keyup", roleId: "macro-native-effect" }),
     waitFixtureEvent({ afterSequence: fixtureAfter, kind: "click", roleId: "macro-native-effect" }),
+    waitFixtureEvent({ afterSequence: fixtureAfter, kind: "auxclick", roleId: "macro-native-effect" }),
+    waitFixtureEvent({ afterSequence: fixtureAfter, kind: "contextmenu", roleId: "macro-native-effect" }),
     waitForMacroProjection({
       afterSequence: macroCursor,
       macroId: scenario.macro.id,
@@ -313,10 +318,12 @@ async function nativeEffectPhase(): Promise<void> {
   ]);
   expect(keydown.code).toBe("KeyA");
   expect(keyup.code).toBe("KeyA");
-  expect(click.targetId).toBe("qa-target");
+  expect(click).toMatchObject({ isTrusted: true, targetId: "qa-target" });
+  expect(middleAuxClick).toMatchObject({ isTrusted: true, targetId: "qa-target" });
+  expect(rightContextMenu).toMatchObject({ isTrusted: true, targetId: "qa-target" });
   const status = statuses.find((candidate) => candidate.macroId === scenario.macro.id);
   expect(status?.iteration).toBe(1);
-  expect(status?.lastClick?.stepId).toBe("native-click");
+  expect(status?.lastClick?.stepId).toBe("native-click-right");
   await waitForMacroProjection({ afterSequence: macroCursor, absent: true, macroId: scenario.macro.id });
   await cleanup(scenario);
   await shutdownAndWaitForFlush();
@@ -1568,6 +1575,14 @@ describe("native macro runtime journeys", () => {
     const phase = requireEnvironment("RION_STUDIO_E2E_PHASE");
     if (phase === "p0-macro-native-effect") await nativeEffectPhase();
     else if (phase === "p0-macro-keyboard-lifecycle") await keyboardLifecyclePhase();
+    else if (phase === "p0-macro-middle-button") await middleButtonPhase({
+      bootstrap,
+      cleanup,
+      createScenario,
+      launchRole,
+      shutdownAndWaitForFlush,
+      startMacro
+    });
     else if (phase === "p0-macro-background-tab") await backgroundTabPhase();
     else if (phase === "p1-macro-multirole") await multiRolePhase();
     else if (phase === "p1-macro-input-recovery") await inputRecoveryPhase();

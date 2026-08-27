@@ -344,7 +344,7 @@ export function formatMacroShortcut(trigger: MacroTrigger | undefined, t: Transl
     trigger.alt ? "Alt" : undefined,
     trigger.shift ? "Shift" : undefined,
     trigger.meta ? "Meta" : undefined,
-    formatMacroCode(trigger.code)
+    "button" in trigger ? t("macroForm.mouseButton.middle") : formatMacroCode(trigger.code)
   ].filter((part): part is string => Boolean(part));
 
   return parts.join("+");

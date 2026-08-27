@@ -165,6 +165,7 @@
             let _ = events.send(batch);
         }));
         let start = request(vec![MacroStepDefinition::Click {
+            button: None,
             id: "final-click".to_owned(),
             anchor: Some("center".to_owned()),
             position: crate::model::MacroClickDefinition::Percent {

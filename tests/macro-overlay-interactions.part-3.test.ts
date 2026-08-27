@@ -799,7 +799,7 @@ it("disposes a detached overlay and stops its polling intervals", async () => {
       installOverlay(window, binding);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(document.getElementById("rion-studio-macro-overlay-v60")).toBeNull();
+      expect(document.getElementById("rion-studio-macro-overlay-v61")).toBeNull();
       expect((window as OverlayTestWindow).__rionStudioMacroOverlay).toBeUndefined();
       const requestCountAfterDispose = binding.mock.calls.length;
 
@@ -872,7 +872,7 @@ function runningStatus(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v60")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v61")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

@@ -239,6 +239,7 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     qaTarget.addEventListener("click", async (event) => {
       record("click", {
         coordinates: { x: event.clientX, y: event.clientY },
+        isTrusted: event.isTrusted,
         targetId: event.currentTarget.id
       });
       if (sessionMode === "late-write") {
@@ -363,6 +364,20 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     };
     addEventListener("keydown", (event) => record("keydown", keyboardDetails(event)), true);
     addEventListener("keyup", (event) => record("keyup", keyboardDetails(event)), true);
+    for (const kind of ["mousedown", "mouseup", "auxclick", "contextmenu"]) {
+      addEventListener(kind, (event) => {
+        record(kind, {
+          button: typeof event.button === "number"
+            ? event.button
+            : event.which === 1 ? 0 : event.which === 2 ? 1 : event.which === 3 ? 2 : undefined,
+          buttons: typeof event.buttons === "number" ? event.buttons : undefined,
+          isTrusted: event.isTrusted,
+          modifiers: { alt: event.altKey, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey },
+          targetId: event.target instanceof Element ? event.target.id : undefined
+        });
+        if (kind === "contextmenu") event.preventDefault();
+      });
+    }
     addEventListener("keydown", (event) => recordConsumerKeyboard("consumer-keydown", event));
     addEventListener("keyup", (event) => recordConsumerKeyboard("consumer-keyup", event));
     document.querySelector("#game-input-canvas").addEventListener("click", (event) => {

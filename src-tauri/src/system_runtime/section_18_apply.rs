@@ -910,6 +910,11 @@ impl SystemRuntimeExecutor {
             applied_page_zoom,
         )?;
         let button = validate_mouse_button(click.button)?;
+        let middle_guard = if button == "middle" {
+            Some(self.arm_macro_middle_button_guard(role_id, &webview, context)?)
+        } else {
+            None
+        };
         self.record_macro_click_resolution(
             role_id,
             webview.label(),
@@ -936,8 +941,29 @@ impl SystemRuntimeExecutor {
                     None,
                     None,
                 );
+                if let Some(waiter) = middle_guard
+                    && let Err(observation_error) =
+                        self.wait_for_macro_key_observation(waiter, context)
+                {
+                    let cleanup = self.cleanup_input_context(context);
+                    let _ = cancel_macro_middle_button_guard(
+                        &webview,
+                        &observation_error.dispatch_id,
+                        &cleanup,
+                    );
+                    return Err(observation_error.error.with_confirmed_input_neutrality());
+                }
             }
             Err(error) => {
+                if let Some(waiter) = middle_guard.as_ref() {
+                    self.cancel_macro_key_observation(&waiter.dispatch_id);
+                    let cleanup = self.cleanup_input_context(context);
+                    let _ = cancel_macro_middle_button_guard(
+                        &webview,
+                        &waiter.dispatch_id,
+                        &cleanup,
+                    );
+                }
                 self.record_macro_click_submission(
                     role_id,
                     webview.label(),

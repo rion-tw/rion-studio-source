@@ -236,6 +236,78 @@ impl SystemRuntimeExecutor {
         })
     }
 
+    fn arm_macro_middle_button_guard(
+        &self,
+        role_id: &str,
+        webview: &Webview,
+        context: &InputDispatchContext,
+    ) -> RuntimeResult<MacroKeyObservationWaiter> {
+        context.ensure_current()?;
+        let dispatch_id = uuid::Uuid::new_v4().to_string();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let pending = PendingMacroKeyObservation {
+            code: "MouseMiddle".to_owned(),
+            input_epoch: context.input_epoch,
+            phase: "auxclick".to_owned(),
+            role_id: role_id.to_owned(),
+            sender,
+            surface_generation: context.surface_generation,
+            webview_label: webview.label().to_owned(),
+        };
+        {
+            let mut observations = self.macro_key_observations.lock().map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_OBSERVATION_UNAVAILABLE",
+                    "The macro input observation registry is unavailable.",
+                )
+            })?;
+            if observations
+                .values()
+                .any(|observation| observation.webview_label == webview.label())
+            {
+                return Err(RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_GUARD_BUSY",
+                    "The role WebView already has a guarded input event in flight.",
+                ));
+            }
+            observations.insert(dispatch_id.clone(), pending);
+        }
+        let waiter = MacroKeyObservationWaiter {
+            dispatch_id,
+            receiver,
+        };
+        let source = macro_middle_button_guard_arm_script(&waiter.dispatch_id)?;
+        let acknowledgement = match arm_webview_macro_key_event_guard(webview, &source, context) {
+            Ok(acknowledgement) => acknowledgement,
+            Err(error) => {
+                self.cancel_macro_key_observation(&waiter.dispatch_id);
+                let cleanup = self.cleanup_input_context(context);
+                let _ = cancel_macro_middle_button_guard(webview, &waiter.dispatch_id, &cleanup);
+                return Err(error);
+            }
+        };
+        let input_target = match self.observe_automatic_input_context(
+            role_id,
+            webview.label(),
+            acknowledgement.input_context,
+        ) {
+            Ok(target) => target,
+            Err(error) => {
+                self.cancel_macro_key_observation(&waiter.dispatch_id);
+                let cleanup = self.cleanup_input_context(context);
+                let _ = cancel_macro_middle_button_guard(webview, &waiter.dispatch_id, &cleanup);
+                return Err(error);
+            }
+        };
+        if input_target == AutomaticInputContextTarget::EmbeddedFrame {
+            self.cancel_macro_key_observation(&waiter.dispatch_id);
+            let cleanup = self.cleanup_input_context(context);
+            let _ = cancel_macro_middle_button_guard(webview, &waiter.dispatch_id, &cleanup);
+            return Err(automatic_input_context_blocked_error());
+        }
+        Ok(waiter)
+    }
+
     fn wait_for_macro_key_observation(
         &self,
         waiter: MacroKeyObservationWaiter,
@@ -606,6 +678,55 @@ fn macro_modifier_projection_guard_arm_script(
     Ok(format!(
         "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const inputContext = controller?.automaticInputContext?.(); const armed = controller?.suppressNextModifierProjection?.({dispatch_id},{code}) === true; return {{ armed, inputContext, physicalModifierCodes: [] }}; }})()"
     ))
+}
+
+fn macro_middle_button_guard_arm_script(dispatch_id: &str) -> RuntimeResult<String> {
+    let dispatch_id = serde_json::to_string(dispatch_id)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    Ok(format!(
+        "(() => {{ const controller = globalThis.__rionStudioMacroOverlay; const inputContext = controller?.automaticInputContext?.(); const armed = controller?.suppressNextMiddleButtonShortcut?.({dispatch_id}) === true; return {{ armed, inputContext, physicalModifierCodes: [] }}; }})()"
+    ))
+}
+
+fn cancel_macro_middle_button_guard(
+    webview: &Webview,
+    dispatch_id: &str,
+    context: &InputDispatchContext,
+) -> RuntimeResult<()> {
+    let dispatch_id = serde_json::to_string(dispatch_id)
+        .map_err(|error| RuntimeError::new("SYSTEM_MACRO_KEY_GUARD_INVALID", error.to_string()))?;
+    let source = format!(
+        "globalThis.__rionStudioMacroOverlay?.clearSuppressedMiddleButtonShortcut?.({dispatch_id}) === true"
+    );
+    #[cfg(windows)]
+    {
+        call_system_input_devtools_bounded(
+            webview,
+            "Runtime.evaluate",
+            &json!({ "expression": source, "returnByValue": true }),
+            context,
+            context.remaining(PLATFORM_CALLBACK_TIMEOUT),
+        )?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        webview
+            .eval_with_callback(source, move |value| {
+                let _ = sender.send(value);
+            })
+            .map_err(RuntimeError::tauri)?;
+        receiver
+            .recv_timeout(context.remaining(PLATFORM_CALLBACK_TIMEOUT))
+            .map(|_| ())
+            .map_err(|_| {
+                RuntimeError::new(
+                    "SYSTEM_MACRO_KEY_GUARD_TIMEOUT",
+                    "The page did not acknowledge guarded middle-button cancellation.",
+                )
+            })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]

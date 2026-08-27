@@ -602,7 +602,7 @@ mod tests {
         controlled.shortcut_source_scope = MacroShortcutSourceScope::SelectedRoles {
             role_ids: vec!["controller".to_owned()],
         };
-        controlled.trigger = Some(MacroTrigger {
+        controlled.trigger = Some(MacroTrigger::Keyboard {
             code: "F2".to_owned(),
             ctrl: false,
             alt: false,

@@ -416,7 +416,7 @@
             duration_ms: None,
         }]);
         start.macros[0].activation_mode = Some("while_held".to_owned());
-        start.macros[0].trigger = Some(crate::model::MacroTrigger {
+        start.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
             alt: false,
@@ -530,7 +530,7 @@
                 duration_ms: None,
             }]);
             start.macros[0].activation_mode = Some("while_held".to_owned());
-            start.macros[0].trigger = Some(crate::model::MacroTrigger {
+            start.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
                 code: "KeyQ".to_owned(),
                 ctrl: false,
                 alt: false,

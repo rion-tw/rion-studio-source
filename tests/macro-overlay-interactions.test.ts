@@ -801,7 +801,7 @@ function _runningStatus(overrides: Record<string, unknown> = {}): Record<string,
 }
 
 function getOverlayRoot(ownerDocument: Document): ShadowRoot {
-  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v60")?.shadowRoot;
+  const root = ownerDocument.getElementById("rion-studio-macro-overlay-v61")?.shadowRoot;
   if (!root) throw new Error("Expected the macro overlay shadow root.");
   return root;
 }

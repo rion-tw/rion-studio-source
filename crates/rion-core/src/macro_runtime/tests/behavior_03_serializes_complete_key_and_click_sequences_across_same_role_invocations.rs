@@ -12,7 +12,7 @@
             label: None,
             duration_ms: None,
         }]);
-        first.macros[0].trigger = Some(crate::model::MacroTrigger {
+        first.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
             alt: false,
@@ -42,6 +42,7 @@
         assert_eq!(post_input.duration_ms, 100);
 
         let mut second = request(vec![MacroStepDefinition::Click {
+            button: Some("middle".to_owned()),
             id: "second-click".to_owned(),
             anchor: None,
             position: crate::model::MacroClickDefinition::Percent {
@@ -71,7 +72,10 @@
 
         post_input.release.send(()).unwrap();
         let click = next_browser_actions(&receiver);
-        assert!(matches!(click[0].action, BrowserAction::Click { .. }));
+        assert!(matches!(
+            &click[0].action,
+            BrowserAction::Click { button, .. } if button == "middle"
+        ));
         runtime.dispatch_results(success_results(click)).unwrap();
         let click_post_input = next_wait(&waits);
         assert_eq!(click_post_input.duration_ms, 0);
@@ -97,7 +101,7 @@
             label: None,
             duration_ms: None,
         }]);
-        first.macros[0].trigger = Some(crate::model::MacroTrigger {
+        first.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
             alt: false,
@@ -217,7 +221,7 @@
         }]);
         second.macro_id = "m2".to_owned();
         second.macros[0].id = "m2".to_owned();
-        second.macros[0].trigger = Some(crate::model::MacroTrigger {
+        second.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
             alt: false,

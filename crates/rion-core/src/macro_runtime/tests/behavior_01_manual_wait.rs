@@ -147,7 +147,7 @@ use std::sync::mpsc;
         shortcut.macros[0].shortcut_source_scope = MacroShortcutSourceScope::SelectedRoles {
             role_ids: vec!["d".to_owned()],
         };
-        shortcut.macros[0].trigger = Some(MacroTrigger {
+        shortcut.macros[0].trigger = Some(MacroTrigger::Keyboard {
             code: "F2".to_owned(),
             ctrl: false,
             alt: false,
@@ -198,7 +198,7 @@ use std::sync::mpsc;
                 name: "Matching".to_owned(),
                 role_ids: vec!["r1".to_owned()],
                 shortcut_source_scope: Default::default(),
-                trigger: Some(crate::model::MacroTrigger {
+                trigger: Some(crate::model::MacroTrigger::Keyboard {
                     code: "KeyE".to_owned(),
                     ctrl: false,
                     alt: false,
@@ -215,7 +215,7 @@ use std::sync::mpsc;
                 name: "Other".to_owned(),
                 role_ids: vec!["r2".to_owned()],
                 shortcut_source_scope: Default::default(),
-                trigger: Some(crate::model::MacroTrigger {
+                trigger: Some(crate::model::MacroTrigger::Keyboard {
                     code: "KeyY".to_owned(),
                     ctrl: false,
                     alt: false,
@@ -335,6 +335,7 @@ use std::sync::mpsc;
         }));
         let mut start = request(vec![
             MacroStepDefinition::Click {
+                button: None,
                 id: "percent-click".to_owned(),
                 anchor: Some("bottom-right".to_owned()),
                 position: crate::model::MacroClickDefinition::Percent {
@@ -344,6 +345,7 @@ use std::sync::mpsc;
                 },
             },
             MacroStepDefinition::Click {
+                button: None,
                 id: "pixel-click".to_owned(),
                 anchor: Some("center".to_owned()),
                 position: crate::model::MacroClickDefinition::Pixels {
@@ -353,6 +355,7 @@ use std::sync::mpsc;
                 },
             },
             MacroStepDefinition::Click {
+                button: None,
                 id: "reference-pixel-click".to_owned(),
                 anchor: Some("top-left".to_owned()),
                 position: crate::model::MacroClickDefinition::ReferencePixels {
@@ -454,7 +457,7 @@ use std::sync::mpsc;
             label: Some("1".to_owned()),
             duration_ms: None,
         }]);
-        start.macros[0].trigger = Some(crate::model::MacroTrigger {
+        start.macros[0].trigger = Some(crate::model::MacroTrigger::Keyboard {
             code: "KeyQ".to_owned(),
             ctrl: false,
             alt: false,

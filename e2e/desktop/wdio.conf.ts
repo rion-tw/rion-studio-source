@@ -25,6 +25,7 @@ const specByPhase: Record<string, string> = {
   "fullscreen-toolbar-restart": "e2e/desktop/specs/app-journeys.e2e.ts",
   "p0-macro-background-tab": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p0-macro-keyboard-lifecycle": "e2e/desktop/specs/macro-runtime.e2e.ts",
+  "p0-macro-middle-button": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p0-macro-native-effect": "e2e/desktop/specs/macro-runtime.e2e.ts",
   "p0-macro-terminal-cleanup": "e2e/desktop/specs/tab-cleanup.e2e.ts",
   "p0-tabs-visible-activation": "e2e/desktop/specs/tab-cleanup.e2e.ts",

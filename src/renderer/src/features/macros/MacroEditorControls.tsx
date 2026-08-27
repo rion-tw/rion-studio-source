@@ -415,13 +415,14 @@ interface ShortcutRecorderProps {
 
 export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps): JSX.Element {
   const [isRecording, setIsRecording] = useState(false);
-  const selectedCode = trigger?.code ?? "";
+  const selectedCode = trigger && "code" in trigger ? trigger.code : "";
+  const selectedInput = trigger && "button" in trigger ? "MouseMiddle" : selectedCode;
   const selectedModifiers = getMacroTriggerModifiers(trigger);
   const modifierOptions = getModifierComboOptions(t).filter((option) => !isReservedRuntimeTabSwitchMacroTrigger({
     code: selectedCode,
     ...getMacroTriggerModifierFlags(parseModifierComboValue(option.value))
   }));
-  const keyCodes = commonMacroKeyCodes.filter((code) => !isReservedRuntimeTabSwitchMacroTrigger({
+  const keyCodes = [...commonMacroKeyCodes, "MouseMiddle"].filter((code) => code === "MouseMiddle" || !isReservedRuntimeTabSwitchMacroTrigger({
     code,
     ...getMacroTriggerModifierFlags(selectedModifiers)
   }));
@@ -430,15 +431,14 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
     : MODIFIERS_NONE_VALUE;
   const mainKeyIsModifier = isPureModifierCode(selectedCode);
 
-  function updateShortcut(code: string, modifiers: MacroKeyModifier[]): void {
-    if (!code) {
+  function updateShortcut(input: string, modifiers: MacroKeyModifier[]): void {
+    if (!input) {
       return;
     }
 
-    const nextTrigger = {
-      code,
-      ...getMacroTriggerModifierFlags(modifiers)
-    };
+    const nextTrigger: MacroTrigger = input === "MouseMiddle"
+      ? { button: "middle", ...getMacroTriggerModifierFlags(modifiers) }
+      : { code: input, ...getMacroTriggerModifierFlags(modifiers) };
     if (isReservedRuntimeTabSwitchMacroTrigger(nextTrigger)) {
       return;
     }
@@ -473,10 +473,29 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
       setIsRecording(false);
     }
 
+    function handleMouseDown(event: MouseEvent): void {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      onChange({
+        button: "middle",
+        ...getMacroTriggerModifierFlags([
+          ...(event.ctrlKey ? ["ctrl" as const] : []),
+          ...(event.altKey ? ["alt" as const] : []),
+          ...(event.shiftKey ? ["shift" as const] : []),
+          ...(event.metaKey ? ["meta" as const] : [])
+        ])
+      });
+      setIsRecording(false);
+    }
+
     window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("mousedown", handleMouseDown, true);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("mousedown", handleMouseDown, true);
     };
   }, [isRecording, onChange]);
 
@@ -484,8 +503,8 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
       <Select
         value={selectedModifierValue}
-        onValueChange={(value) => updateShortcut(selectedCode, parseModifierComboValue(value))}
-        disabled={isRecording || !selectedCode || mainKeyIsModifier}
+        onValueChange={(value) => updateShortcut(selectedInput, parseModifierComboValue(value))}
+        disabled={isRecording || !selectedInput || mainKeyIsModifier}
       >
         <SelectTrigger className="w-full min-w-0" aria-label={t("macroForm.modifiers")}>
           <SelectValue />
@@ -499,7 +518,7 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
         </SelectContent>
       </Select>
       <Select
-        value={selectedCode}
+        value={selectedInput}
         onValueChange={(code) => updateShortcut(code, selectedModifiers)}
         disabled={isRecording}
       >
@@ -507,13 +526,13 @@ export function ShortcutRecorder({ onChange, t, trigger }: ShortcutRecorderProps
           <SelectValue
             placeholder={isRecording ? t("macroForm.shortcutRecording") : t("macroForm.shortcut")}
           >
-            {isRecording || selectedCode ? (isRecording ? t("macroForm.shortcutRecording") : formatMacroCode(selectedCode)) : undefined}
+            {isRecording || selectedInput ? (isRecording ? t("macroForm.shortcutRecording") : selectedInput === "MouseMiddle" ? t("macroForm.mouseButton.middle") : formatMacroCode(selectedInput)) : undefined}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {keyCodes.map((code) => (
             <SelectItem key={code} value={code}>
-              {formatMacroCode(code)}
+              {code === "MouseMiddle" ? t("macroForm.mouseButton.middle") : formatMacroCode(code)}
             </SelectItem>
           ))}
         </SelectContent>

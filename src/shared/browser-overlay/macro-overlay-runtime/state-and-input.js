@@ -1,7 +1,7 @@
 (() => {
-  const hostId = "rion-studio-macro-overlay-v60";
+  const hostId = "rion-studio-macro-overlay-v61";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-18.1";
+  const scriptVersion = "2026-08-27.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -130,6 +130,10 @@
   let appliedPageZoomKnown = false;
   let appliedPageZoomRequestRevision = 0;
   const activeHeldShortcuts = new Map();
+  let activeMiddleButtonShortcut = null;
+  let pendingMiddleButtonToggle = null;
+  let consumeNextMiddleButtonAuxClick = false;
+  let suppressedMiddleButtonShortcutPhase = null;
   const clickMarkerEvents = new Map();
   const clickMarkerFlashStates = new Map();
   const clickMarkerFlashDurationMs = 120;

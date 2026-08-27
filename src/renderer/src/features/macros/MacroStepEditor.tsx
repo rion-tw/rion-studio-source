@@ -17,7 +17,7 @@ import { convertMacroCoordinateToOffset, DEFAULT_MACRO_CLICK_ANCHOR, findNearest
 
 import { DEFAULT_MACRO_KEY_HOLD_DURATION_MS, MACRO_KEY_HOLD_DURATION_MIN_MS } from "../../../../shared/macroSettings";
 
-import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroStep } from "../../../../shared/types";
+import type { MacroActivationMode, MacroCallMode, MacroClickAnchor, MacroClickUnit, MacroKeyAction, MacroKeyModifier, MacroMouseButton, MacroStep } from "../../../../shared/types";
 
 import { commonMacroKeyCodes, createClientId, formatMacroCode, formatMacroKeyCombination, formatMacroModifierLabel, type MacroTargetOption, isPureModifierCode } from "./macroUtils";
 
@@ -458,6 +458,7 @@ function MacroStepFields({
   }
 
   if (step.type === "click") {
+    const button: MacroMouseButton = step.button ?? "left";
     const unit: MacroClickUnit = step.unit ?? "percent";
     const isLegacyPixel = unit === "px";
     const isPixel = unit !== "percent";
@@ -483,6 +484,7 @@ function MacroStepFields({
         return {
           id: step.id,
           type: "click",
+          ...(button === "left" ? {} : { button }),
           unit: "px",
           ...nextStoredAnchor,
           xPx: nextX,
@@ -493,6 +495,7 @@ function MacroStepFields({
         return {
           id: step.id,
           type: "click",
+          ...(button === "left" ? {} : { button }),
           unit: "reference-px",
           ...nextStoredAnchor,
           xReferencePx: nextX,
@@ -502,6 +505,7 @@ function MacroStepFields({
       return {
         id: step.id,
         type: "click",
+        ...(button === "left" ? {} : { button }),
         ...nextStoredAnchor,
         xPercent: nextX,
         yPercent: nextY
@@ -530,6 +534,23 @@ function MacroStepFields({
     };
     return (
       <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+        <Select
+          disabled={isSaving}
+          value={button}
+          onValueChange={(nextButton) => onUpdate({
+            ...step,
+            button: nextButton === "left" ? undefined : nextButton as MacroMouseButton
+          })}
+        >
+          <SelectTrigger aria-label={t("macroForm.mouseButton")} className="w-fit shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="left">{t("macroForm.mouseButton.left")}</SelectItem>
+            <SelectItem value="middle">{t("macroForm.mouseButton.middle")}</SelectItem>
+            <SelectItem value="right">{t("macroForm.mouseButton.right")}</SelectItem>
+          </SelectContent>
+        </Select>
         <Select
           disabled={isSaving}
           value={unit}

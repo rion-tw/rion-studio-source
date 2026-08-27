@@ -202,7 +202,7 @@ export const DEFAULT_BROWSER_FONT_SETTINGS: BrowserFontSettings = {
 };
 
 const DEFAULT_BROWSER_PERFORMANCE_SETTINGS: BrowserPerformanceSettings = {
-  macosHighRefreshMode: "auto"
+  macosHighRefreshMode: "disabled"
 };
 
 export const workspaceGapSizes = [1, 2, 4, 6, 8, 12, 16] as const satisfies readonly WorkspaceGapSize[];

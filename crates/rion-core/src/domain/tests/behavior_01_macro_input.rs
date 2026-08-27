@@ -361,7 +361,7 @@ use serde_json::json;
             assert_eq!(defaults.workspace.gap, 4);
             assert_eq!(
                 defaults.performance.macos_high_refresh_mode,
-                MacosHighRefreshMode::Auto
+                MacosHighRefreshMode::Disabled
             );
             assert!(defaults.macro_overlay.show_tool_button);
             assert!(defaults.macro_overlay.show_running_badges);

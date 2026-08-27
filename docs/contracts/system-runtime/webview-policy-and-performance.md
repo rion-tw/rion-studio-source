@@ -15,6 +15,8 @@ version strings numerically. Explicit process-path and rendering-feature writes
 exist only behind the isolated debug experiment gate.
 
 The separate macOS high-refresh preference is `auto`, `enabled`, or `disabled`.
+New or missing settings default to `disabled`; explicitly stored modes are not
+migrated. `disabled` leaves WebKit's standard presentation preference untouched.
 `auto` requests WebKit's high-refresh presentation feature when the selected
 display is above 60 Hz. The preference is resolved before creating each role
 WKWebView and takes effect after Rion Studio restarts.

@@ -29,28 +29,20 @@ pub struct GameBrowserSettingsPatchRecord {
     pub workspace: Option<WorkspaceAppearanceSettingsRecord>,
 }
 
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub struct BrowserPerformanceSettingsRecord {
     pub macos_high_refresh_mode: MacosHighRefreshMode,
 }
 
-impl Default for BrowserPerformanceSettingsRecord {
-    fn default() -> Self {
-        Self {
-            macos_high_refresh_mode: MacosHighRefreshMode::Auto,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../../src/shared/generated/")]
 pub enum MacosHighRefreshMode {
-    #[default]
     Auto,
     Enabled,
+    #[default]
     Disabled,
 }
 

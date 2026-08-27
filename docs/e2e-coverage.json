@@ -720,7 +720,7 @@
       "kind": "ui",
       "risk": "external",
       "outcomes": ["success", "cancel"],
-      "description": "Verify the macOS-only high-refresh selector in Preferences (and its Windows absence), Interface font previews and override-warning placement, Data transfer, event-bound performance diagnostics and cancellation, update, and legal entry points plus their non-destructive cancel boundaries."
+      "description": "Verify the macOS-only high-refresh selector defaults to Disabled and remains visibly selectable in Preferences (and verify its Windows absence), Interface font previews and override-warning placement, Data transfer, event-bound performance diagnostics and cancellation, update, and legal entry points plus their non-destructive cancel boundaries."
     },
     {
       "id": "NATIVE-DISPLAY-001",

@@ -269,7 +269,9 @@ describe("browser font settings normalization", () => {
   });
 
   it("defaults and validates the macOS high refresh preference", () => {
-    expect(normalizeGameBrowserSettings({}).performance).toEqual({ macosHighRefreshMode: "auto" });
+    expect(normalizeGameBrowserSettings({}).performance).toEqual({
+      macosHighRefreshMode: "disabled"
+    });
     expect(
       normalizeGameBrowserSettings({ performance: { macosHighRefreshRate: true } }).performance
     ).toEqual({ macosHighRefreshMode: "enabled" });
@@ -280,11 +282,18 @@ describe("browser font settings normalization", () => {
       normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "enabled" } }).performance
     ).toEqual({ macosHighRefreshMode: "enabled" });
     expect(
-      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "invalid" } }).performance
+      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "auto" } }).performance
     ).toEqual({ macosHighRefreshMode: "auto" });
     expect(
+      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "disabled" } })
+        .performance
+    ).toEqual({ macosHighRefreshMode: "disabled" });
+    expect(
+      normalizeGameBrowserSettings({ performance: { macosHighRefreshMode: "invalid" } }).performance
+    ).toEqual({ macosHighRefreshMode: "disabled" });
+    expect(
       normalizeGameBrowserSettings({ performance: { maximumWebGlPerformance: false } }).performance
-    ).toEqual({ macosHighRefreshMode: "auto" });
+    ).toEqual({ macosHighRefreshMode: "disabled" });
   });
 
   it("normalizes macro badge position options and falls back for invalid values", () => {

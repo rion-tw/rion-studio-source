@@ -57,6 +57,20 @@ use std::fs;
         assert!(stored["performance"].get("maximumWebGlPerformance").is_none());
         assert!(stored["performance"].get("macosHighRefreshRate").is_none());
         assert_eq!(stored["performance"]["macosHighRefreshMode"], "enabled");
+
+        let mut explicit_auto = stored;
+        explicit_auto["performance"]["macosHighRefreshMode"] = json!("auto");
+        replace_scalar(&mut connection, "gameBrowserSettings", explicit_auto).unwrap();
+        repair_required_settings(&connection).unwrap();
+
+        let stored = read_scalar(&connection, "gameBrowserSettings")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored["performance"]["macosHighRefreshMode"], "auto");
+
+        let mut invalid_mode = stored;
+        invalid_mode["performance"]["macosHighRefreshMode"] = json!("invalid");
+        assert!(serde_json::from_value::<GameBrowserSettingsRecord>(invalid_mode).is_err());
     }
 
     #[test]
@@ -321,7 +335,7 @@ use std::fs;
             let settings = normalize_game_browser_settings(settings);
             assert_eq!(
                 settings.performance.macos_high_refresh_mode,
-                MacosHighRefreshMode::Auto
+                MacosHighRefreshMode::Disabled
             );
             assert!(settings.macro_overlay.show_tool_button);
             assert!(settings.macro_overlay.show_running_badges);

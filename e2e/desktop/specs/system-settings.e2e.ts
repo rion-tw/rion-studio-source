@@ -30,14 +30,35 @@ describe("system settings boundaries", () => {
     const highRefresh = await $("button[role='combobox'][aria-label='Experimental high refresh rate']");
     if (isMacOS) {
       await highRefresh.waitForExist({ timeout: 10_000 });
+      await browser.waitUntil(
+        async () => (await highRefresh.getText()).includes("Disabled") && await highRefresh.isEnabled(),
+        {
+          timeout: 10_000,
+          timeoutMsg: "macOS high refresh preference did not default to Disabled"
+        }
+      );
+      await highRefresh.click();
+      const automatic = await $("[role='option']=Auto");
+      await automatic.waitForExist({ timeout: 10_000 });
+      await automatic.click();
+      await browser.waitUntil(
+        async () => (await highRefresh.getText()).includes("Auto") && await highRefresh.isEnabled(),
+        {
+          timeout: 10_000,
+          timeoutMsg: "macOS high refresh preference did not update to Auto"
+        }
+      );
       await highRefresh.click();
       const disabled = await $("[role='option']=Disabled");
       await disabled.waitForExist({ timeout: 10_000 });
       await disabled.click();
-      await browser.waitUntil(async () => (await highRefresh.getText()).includes("Disabled"), {
-        timeout: 10_000,
-        timeoutMsg: "macOS high refresh preference did not update"
-      });
+      await browser.waitUntil(
+        async () => (await highRefresh.getText()).includes("Disabled") && await highRefresh.isEnabled(),
+        {
+          timeout: 10_000,
+          timeoutMsg: "macOS high refresh preference did not update"
+        }
+      );
     } else {
       expect(await highRefresh.isExisting()).toBe(false);
     }

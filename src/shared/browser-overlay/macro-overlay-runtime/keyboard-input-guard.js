@@ -255,7 +255,7 @@
       phase,
       pressId: active.pressId
     })).then(() => {
-      reportMacroShortcutLifecycle(
+      return reportMacroShortcutLifecycle(
         active.macroId,
         active.code,
         phase === "replay"

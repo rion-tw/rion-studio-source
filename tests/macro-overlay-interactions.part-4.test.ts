@@ -288,6 +288,10 @@ describe("macro overlay native key guard", () => {
     const firstChordReleaseAcknowledged = new Promise<void>((resolve) => {
       acknowledgeFirstChordRelease = resolve;
     });
+    let acknowledgeFirstReplay: (() => void) | undefined;
+    const firstReplayAcknowledged = new Promise<void>((resolve) => {
+      acknowledgeFirstReplay = resolve;
+    });
     const shortcutLifecycle = vi.fn(async (event: {
       code: string;
       macroId: string;
@@ -296,6 +300,9 @@ describe("macro overlay native key guard", () => {
     }) => {
       if (event.macroId === "macro-two" && event.phase === "chord-released") {
         await firstChordReleaseAcknowledged;
+      }
+      if (event.macroId === "macro-two" && event.phase === "managed-replay-acknowledged") {
+        await firstReplayAcknowledged;
       }
     });
     const binding = vi.fn(async (request: unknown) => {
@@ -363,6 +370,13 @@ describe("macro overlay native key guard", () => {
     document.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
     expect((binding as OverlayBinding).managedShortcutKeyPhase).not.toHaveBeenCalled();
     acknowledgeFirstChordRelease?.();
+    await vi.waitFor(() => expect(shortcutLifecycle).toHaveBeenCalledWith({
+      code: "Digit2",
+      macroId: "macro-two",
+      phase: "managed-replay-acknowledged"
+    }));
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: "macro-two" });
+    acknowledgeFirstReplay?.();
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({
       type: "toggle",
       macroId: "macro-two"

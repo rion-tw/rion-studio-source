@@ -622,7 +622,7 @@ it("finishes an early keyup only after the while-held press acknowledgement", as
     expect(getOverlayRoot(document).querySelector(".active-badge")).toBeNull();
   });
 
-it("sends immediate blur cleanup before a slow while-held press acknowledgement", async () => {
+it("submits blur continuity and cleanup before a slow while-held press acknowledgement", async () => {
     createGameSurface(document);
     const heldMacro: Macro = { ...assignedMacro, activationMode: "while_held" };
     const requests: string[] = [];
@@ -651,13 +651,39 @@ it("sends immediate blur cleanup before a slow while-held press acknowledgement"
     await vi.waitFor(() => expect(requests).toEqual(["press"]));
     window.dispatchEvent(new window.Event("blur"));
 
-    await vi.waitFor(() => expect(requests).toEqual(["press", "release", "context-lost"]));
+    await vi.waitFor(() => expect(requests).toEqual(["press", "context-lost", "release"]));
     expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "release",
       releaseMode: "immediate"
     }));
     expect(inputContextLost).toHaveBeenCalledWith({ reason: "blur", revision: 1 });
     resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
+  });
+
+it("still requests blur continuity when game-context IPC throws during focus transfer", async () => {
+    createGameSurface(document);
+    let rejectGameContext = false;
+    const binding = vi.fn((request: unknown) => {
+      if (isRecord(request) && request.type === "game-input-context" && rejectGameContext) {
+        throw new Error("WebView focus transfer interrupted IPC");
+      }
+      return Promise.resolve({ macros: [assignedMacro], statuses: [] });
+    });
+    const inputContextLost = vi.fn(async () => ({ status: "noHeldKeys" }));
+    Object.assign(binding, { inputContextLost });
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+
+    const canvas = document.querySelector("canvas");
+    canvas?.focus();
+    await Promise.resolve();
+    rejectGameContext = true;
+    window.dispatchEvent(new window.Event("blur"));
+
+    await vi.waitFor(() => expect(inputContextLost).toHaveBeenCalledWith({
+      reason: "blur",
+      revision: 1
+    }));
   });
 
 it("does not release a physical held shortcut for a suppressed synthetic keyup", async () => {

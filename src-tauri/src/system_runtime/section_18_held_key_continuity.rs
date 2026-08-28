@@ -63,9 +63,21 @@ impl SystemRuntimeExecutor {
             return Ok(receipt);
         }
         let result = self.with_input_context_lane(&context, || {
+            if !held_key_continuity_should_reassert(
+                loss_reason,
+                self.held_key_continuity_tab_selected(role_id),
+            ) {
+                return Ok(None);
+            }
             self.reassert_role_keys_matching_in_lane(role_id, &context, |_| true)
+                .map(Some)
         });
-        let reasserted_key_count = result.as_ref().copied().unwrap_or_default();
+        let presentation_owned = result.as_ref().is_ok_and(|count| count.is_none());
+        let reasserted_key_count = result
+            .as_ref()
+            .ok()
+            .and_then(|count| *count)
+            .unwrap_or_default();
         let receipt = held_key_continuity_receipt(
             role_id,
             loss_reason,
@@ -75,6 +87,8 @@ impl SystemRuntimeExecutor {
             reasserted_key_count,
             if result.is_err() {
                 "failed"
+            } else if presentation_owned {
+                "superseded"
             } else if reasserted_key_count == 0 {
                 "noHeldKeys"
             } else {
@@ -98,6 +112,25 @@ impl SystemRuntimeExecutor {
         }
         self.record_held_key_continuity_result(started, &receipt, result.as_ref().err());
         result.map(|_| receipt)
+    }
+
+    fn held_key_continuity_tab_selected(&self, role_id: &str) -> Option<bool> {
+        let (tab_id, window_id) = {
+            let state = self.state.lock().ok()?;
+            let tab_id = state.native_tab_id_for_role_surface(role_id)?.clone();
+            let window_id = state.native_host_for_tab_handle(&tab_id)?;
+            (tab_id, window_id)
+        };
+        self.presentation
+            .live
+            .kernel
+            .snapshot()
+            .ok()?
+            .native_projection(&window_id)?
+            .tabs
+            .iter()
+            .find(|tab| tab.tab_id == tab_id)
+            .map(|tab| tab.selected)
     }
 
     fn record_held_key_continuity_result(
@@ -182,6 +215,10 @@ fn held_key_continuity_is_superseded(error: &RuntimeError) -> bool {
             | "SYSTEM_TRUSTED_INPUT_QUARANTINED"
             | "TAURI_RUNTIME_ROLE_NOT_FOUND"
     )
+}
+
+fn held_key_continuity_should_reassert(loss_reason: &str, tab_selected: Option<bool>) -> bool {
+    loss_reason != "blur" || tab_selected != Some(false)
 }
 
 #[cfg(feature = "desktop-e2e")]

@@ -266,10 +266,15 @@
     gameInputContextTarget = nextTarget;
     gameInputContextActive = nextTarget === "game";
     gameInputContextRevision += 1;
-    void Promise.resolve(binding({
-      type: "game-input-context",
-      ...automaticInputContext()
-    })).catch(() => undefined);
+    try {
+      void Promise.resolve(binding({
+        type: "game-input-context",
+        ...automaticInputContext()
+      })).catch(() => undefined);
+    } catch {
+      // A WebView bridge can throw synchronously while native focus is moving.
+      // Context reporting is advisory and must not abort authoritative cleanup.
+    }
   }
 
   function refreshGameInputContext() {

@@ -127,3 +127,11 @@ fn held_key_continuity_receipt_keeps_loss_and_presentation_revisions() {
     assert_eq!(serialized["reassertedKeyCount"], 2);
     assert_eq!(serialized["status"], "reasserted");
 }
+
+#[test]
+fn blur_continuity_defers_to_a_native_tab_hide_but_not_workspace_focus_loss() {
+    assert!(!held_key_continuity_should_reassert("blur", Some(false)));
+    assert!(held_key_continuity_should_reassert("blur", Some(true)));
+    assert!(held_key_continuity_should_reassert("blur", None));
+    assert!(held_key_continuity_should_reassert("hidden", Some(false)));
+}

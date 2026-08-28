@@ -1073,7 +1073,7 @@ describe("macro overlay native key guard", () => {
     expect(releases).toHaveLength(2);
   });
 
-  it("leaves hidden-tab continuity to native presentation after page cleanup", async () => {
+  it("submits blur continuity before a hidden WebView can suspend microtasks", async () => {
     const order: string[] = [];
     const inputContextLost = vi.fn(async (request: { reason: string; revision: number }) => {
       order.push(`native:${request.reason}:${request.revision}`);
@@ -1095,8 +1095,9 @@ describe("macro overlay native key guard", () => {
 
     await Promise.resolve();
     await Promise.resolve();
-    expect(inputContextLost).not.toHaveBeenCalled();
+    expect(inputContextLost).toHaveBeenCalledWith({ reason: "blur", revision: 1 });
     expect(order).toEqual([
+      "native:blur:1",
       "page:blur",
       "after:blur",
       "page:hidden",

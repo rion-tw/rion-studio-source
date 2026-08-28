@@ -613,18 +613,22 @@
 
   function requestHeldKeyContinuity(reason, shortcutRelease) {
     const revision = ++inputContextLossRevision;
-    // EventBound: the promise continuation runs after the current blur event finishes
-    // propagation, then terminalizes from the authenticated native receipt.
+    let nativeReceipt = Promise.resolve();
+    if (!isDisposed && typeof binding.inputContextLost === "function") {
+      try {
+        // Submit before returning from blur. WebView2 may suspend this page before
+        // a queued microtask runs; the native input lane owns ordered execution.
+        nativeReceipt = Promise.resolve(binding.inputContextLost({ reason, revision }));
+      } catch (error) {
+        nativeReceipt = Promise.reject(error);
+      }
+    }
+    // EventBound: local shortcut cleanup and the authenticated native receipt both
+    // terminalize this page-owned observation directly.
     inputContextLossTail = inputContextLossTail
       .catch(() => undefined)
       .then(() => shortcutRelease)
-      .then(() => {
-        if (isDisposed || typeof binding.inputContextLost !== "function") return;
-        // A tab hide commonly delivers blur first. Once visibility is already hidden,
-        // the native presentation receipt owns restoration without background page work.
-        if (reason === "blur" && document.visibilityState === "hidden") return;
-        return binding.inputContextLost({ reason, revision });
-      })
+      .then(() => nativeReceipt)
       .catch((error) => {
         console.warn("Unable to restore held macro keys after input context loss.", error);
       });
@@ -636,8 +640,8 @@
     cancelPendingPhysicalToggleShortcuts();
     releasePhysicalGameKeys();
     const shortcutRelease = releaseActiveHeldShortcuts();
-    destroyCoordinateMeasurement();
     if (event?.type === "blur") requestHeldKeyContinuity("blur", shortcutRelease);
+    destroyCoordinateMeasurement();
   }
 
   function handleVisibilityChange() {

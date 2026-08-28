@@ -746,6 +746,9 @@
       clearSuppressedMiddleButtonShortcut,
       clearSuppressedShortcut,
       dispose,
+      inputContextLossVersion: typeof binding.inputContextLost === "function"
+        ? inputContextLossVersion
+        : 0,
       refresh,
       physicalModifierCodes,
       releaseForwardedMacroKey,

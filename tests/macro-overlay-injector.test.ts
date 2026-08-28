@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 type OverlayRequest = { macroId?: string; pressId?: string; type: string };
 type OverlayController = {
   dispose(): void;
+  inputContextLossVersion?: number;
   refresh(): Promise<void>;
 };
 type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
@@ -139,6 +140,35 @@ describe("Tauri macro overlay injector", () => {
     expect((window as unknown as Record<string, unknown>).rionStudioMacroOverlay).toBeUndefined();
     expect((window as unknown as Record<string, unknown>).__rionStudioNativeOverlayBridge)
       .toBeUndefined();
+  });
+
+  it("replaces a same-version controller that lacks input-context-loss support", async () => {
+    const sources = await overlaySources();
+    const legacyBinding = vi.fn(async () => ({ macros: [], statuses: [] }));
+    (window as unknown as Record<string, unknown>).__rionTestOverlayBinding = legacyBinding;
+
+    (0, eval)(assembleRuntime(sources, {
+      bindingSource: "globalThis.__rionTestOverlayBinding"
+    }));
+    const legacyController = overlayController();
+    expect(legacyController?.inputContextLossVersion).toBe(0);
+
+    const invoke = vi.fn(async (command: string) => command === "rion_overlay_request"
+      ? { macros: [], statuses: [] }
+      : { status: "noHeldKeys" });
+    installTauriInternals(invoke);
+    (0, eval)(assembleRuntime(sources));
+
+    expect(overlayController()).not.toBe(legacyController);
+    expect(overlayController()?.inputContextLossVersion).toBe(1);
+    window.dispatchEvent(new Event("blur"));
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "rion_macro_input_context_lost",
+      {
+        capability: "test-capability",
+        request: { reason: "blur", revision: 1 }
+      }
+    ));
   });
 
   it("forwards a raw embedded request to the typed Tauri overlay command", async () => {

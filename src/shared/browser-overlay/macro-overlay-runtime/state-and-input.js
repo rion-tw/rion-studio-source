@@ -1,7 +1,8 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v61";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-28.1";
+  const scriptVersion = "2026-08-29.1";
+  const inputContextLossVersion = 1;
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -172,7 +173,10 @@
   }
 
 
-  if (window[controllerKey]?.version === scriptVersion) {
+  if (
+    window[controllerKey]?.version === scriptVersion &&
+    window[controllerKey]?.inputContextLossVersion === inputContextLossVersion
+  ) {
     void window[controllerKey].refresh();
     return;
   }

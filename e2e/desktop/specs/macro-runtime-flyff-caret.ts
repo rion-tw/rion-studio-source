@@ -5,8 +5,7 @@ import {
   keyboardInput,
   probe,
   runtimeUiAction,
-  type DesktopE2eWindowSnapshot,
-  waitEvent
+  type DesktopE2eWindowSnapshot
 } from "../support/control";
 import {
   fixtureCursor,
@@ -39,23 +38,6 @@ export async function verifyFlyffCaretDiagnostics(input: {
     });
     if (observed.isTrusted === true) break;
     keyUpCursor = observed.sequence;
-  }
-  if (process.platform === "win32") {
-    const accelerator = await waitEvent({
-      afterSequence: nativeProbe.latestSequence,
-      kind: "windows-webview-accelerator-observed"
-    });
-    const roleWebviewLabel = input.live.native.roleWebviews?.find(
-      (entry) => entry.roleId === input.role.id
-    )?.webviewLabel;
-    expect(roleWebviewLabel).toEqual(expect.any(String));
-    expect(accelerator.details).toMatchObject({
-      handled: false,
-      modifiers: { alt: false, control: false, meta: false, shift: false },
-      virtualKey: 0x0D,
-      wasKeyDown: false,
-      webviewLabel: roleWebviewLabel
-    });
   }
   const events = await fixtureEvents({
     afterSequence: fixtureEventCursor,
@@ -150,13 +132,10 @@ export async function verifyFlyffCaretDiagnostics(input: {
     nativeProbe.transcriptPath,
     nativeProbe.latestSequence
   );
-  if (process.platform === "win32") {
-    expect(nativeEvents.filter((event) => {
-      const details = event.details as { virtualKey?: number } | null;
-      return event.kind === "windows-webview-accelerator-observed"
-        && details?.virtualKey === 0x0D;
-    })).toHaveLength(1);
-  }
+  // The desktop E2E key helper uses CDP Input.dispatchKeyEvent. WebView2 delivers
+  // that input to the DOM as trusted events but does not raise its physical-only
+  // AcceleratorKeyPressed callback. Keep that callback as a manual diagnostic,
+  // not as the completion authority for this injected caret journey.
   const guardedKinds = new Set([
     "macro-key-dom-observed",
     "macro-key-native-acknowledged",

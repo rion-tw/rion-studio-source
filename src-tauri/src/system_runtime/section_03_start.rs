@@ -175,7 +175,7 @@ impl NativeWindowActor {
                             .and_then(std::sync::Weak::upgrade)
                     {
                         for role_id in &hidden_role_ids {
-                            let result = runtime.restore_held_keys_after_input_context_loss(
+                            let _result = runtime.restore_held_keys_after_input_context_loss(
                                 role_id,
                                 "hidden",
                                 batch.request.revision,
@@ -186,7 +186,7 @@ impl NativeWindowActor {
                                 role_id,
                                 "hidden",
                                 batch.request.revision,
-                                &result,
+                                &_result,
                             );
                         }
                     }

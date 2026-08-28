@@ -372,7 +372,7 @@ impl SystemRuntimeExecutor {
             })
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(target_os = "macos")]
     fn reassert_shortcut_handoff_keys(
         &self,
         handoff: &RuntimeShortcutModifierHandoff,

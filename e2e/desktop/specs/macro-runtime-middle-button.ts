@@ -6,6 +6,7 @@ import {
   mouseInput,
   probe,
   rendererCall,
+  waitEvent,
   windowSnapshot
 } from "../support/control";
 import { fixtureCursor, fixtureEvents, waitFixtureEvent } from "../support/fixture";
@@ -36,6 +37,18 @@ interface MiddleButtonPhaseDependencies {
   startMacro(macro: Macro, roleIds: string[]): Promise<number>;
 }
 
+async function focusWindowForPhysicalInput(windowId: string): Promise<void> {
+  const snapshot = await windowSnapshot(windowId);
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(windowId, { action: "focus" });
+  await waitEvent({
+    afterSequence: cursor,
+    kind: "window-focus-acknowledged",
+    minimumGeneration: snapshot.windowGeneration,
+    windowId
+  });
+}
+
 export async function middleButtonPhase(
   dependencies: MiddleButtonPhaseDependencies
 ): Promise<void> {
@@ -49,7 +62,7 @@ export async function middleButtonPhase(
     trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
   });
   const tab = await dependencies.launchRole(scenario.roles[0], "new-window");
-  await windowSnapshot(tab.windowId);
+  await focusWindowForPhysicalInput(tab.windowId);
   const fixtureAfter = await fixtureCursor();
   const controlAfter = (await probe()).latestSequence;
   await controlWindow(tab.windowId, { action: "movePointerToRoleContent" });
@@ -112,7 +125,7 @@ export async function middleButtonPhase(
     trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
   });
   const heldTab = await dependencies.launchRole(scenario.roles[1], "new-window");
-  await windowSnapshot(heldTab.windowId);
+  await focusWindowForPhysicalInput(heldTab.windowId);
   const heldFixtureAfter = await fixtureCursor();
   const heldControlAfter = (await probe()).latestSequence;
   await controlWindow(heldTab.windowId, { action: "movePointerToRoleContent" });

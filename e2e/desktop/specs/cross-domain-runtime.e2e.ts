@@ -715,6 +715,37 @@ async function activateRuntimeTab(
   return selected;
 }
 
+async function waitForAppliedSelectedSurfaceReprojection(
+  afterSequence: number,
+  windowId: string,
+  tabId: string
+): Promise<void> {
+  let cursor = afterSequence;
+  let superseded: unknown;
+  for (;;) {
+    const event = await waitEvent({
+      afterSequence: cursor,
+      kind: "native-selected-surfaces-reprojected",
+      timeoutMs: superseded === undefined ? 30_000 : 10_000,
+      windowId
+    }).catch((error: unknown) => {
+      if (superseded !== undefined) {
+        throw new Error(
+          `Selected surface reprojection remained superseded: ${JSON.stringify(superseded)}`,
+          { cause: error }
+        );
+      }
+      throw error;
+    });
+    expect(event.details).toMatchObject({ failed: false, tabId });
+    const status = (event.details as { status?: unknown }).status;
+    if (status === "applied") return;
+    expect(status).toBe("superseded");
+    superseded = event.details;
+    cursor = event.sequence;
+  }
+}
+
 async function focusVisibleGameWindow(
   snapshot: DesktopE2eWindowSnapshot
 ): Promise<DesktopE2eWindowSnapshot> {
@@ -885,6 +916,59 @@ async function topologyForcePhase(): Promise<void> {
     .toBe("ready");
   liveA = await activateRuntimeTab(liveA, detachedRoleTab.tabId);
   expect(liveA.kernel?.selectedTabId).toBe(detachedRoleTab.tabId);
+  const detachedRoleId = detachedRoleTab.sourceId;
+  const detachedRoleFixtureId = FIXTURE_IDS[scenario.roles.findIndex(
+    (role) => role.id === detachedRoleId
+  )];
+  if (!detachedRoleFixtureId) {
+    throw new Error("The selected role fixture identity is unavailable for ownership claim");
+  }
+  const detachedRuntimeTab = (await rendererCall("getEmbeddedRuntimeState")).tabs.find(
+    (tab) => tab.id === detachedRoleTab.tabId
+  );
+  const detachedRoleSlot = detachedRuntimeTab?.slots.find((slot) => slot.roleId === detachedRoleId);
+  if (!detachedRoleSlot) throw new Error("The selected role slot is unavailable for ownership claim");
+  if (detachedRoleSlot.state !== "running") {
+    await waitEvent({
+      afterSequence: 0,
+      kind: `role-placeholder-ready:${detachedRoleTab.tabId}:${detachedRoleId}`,
+      windowId: WINDOW_A
+    });
+    const claimControlCursor = (await probe()).latestSequence;
+    const claimProjectionCursor = await rendererEventCursor();
+    const claimFixtureCursor = await fixtureCursor();
+    await runtimeUiAction(WINDOW_A, {
+      action: "pressRoleSlot",
+      roleId: detachedRoleId,
+      tabId: detachedRoleTab.tabId,
+      windowGeneration: liveA.windowGeneration
+    });
+    await Promise.all([
+      waitForRuntimeProjection({
+        afterSequence: claimProjectionCursor,
+        roleSlots: [{
+          ownedByTargetTab: true,
+          roleId: detachedRoleId,
+          state: "running",
+          tabId: detachedRoleTab.tabId
+        }]
+      }),
+      waitFixtureEvent({
+        afterSequence: claimFixtureCursor,
+        kind: "session",
+        roleId: detachedRoleFixtureId
+      }),
+      process.platform === "win32"
+        ? waitForAppliedSelectedSurfaceReprojection(
+            claimControlCursor,
+            WINDOW_A,
+            detachedRoleTab.tabId
+          )
+        : Promise.resolve()
+    ]);
+    liveA = await windowSnapshot(WINDOW_A);
+    expectSingleRoleSurfaceFitsClient(liveA, detachedRoleId);
+  }
   const sourcePersistenceCursor = (await probe()).latestSequence;
   await tabMenuAction({
     action: "moveToNewWindow",
@@ -902,6 +986,13 @@ async function topologyForcePhase(): Promise<void> {
     activeTabId: successorTabId,
     status: "applied"
   });
+  if (process.platform === "win32") {
+    await waitForAppliedSelectedSurfaceReprojection(
+      sourcePersistenceCursor,
+      WINDOW_A,
+      successorTabId
+    );
+  }
   await waitForActiveTabsReady();
   const detached = (await rendererCall("getEmbeddedRuntimeState")).tabs.find((tab) =>
     tab.id === detachedRoleTab.tabId && tab.windowId !== WINDOW_A

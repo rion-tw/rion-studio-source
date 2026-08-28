@@ -144,16 +144,19 @@ function expectRoleSurfaceViewportFitsController(
   }
   expect(surface.controllerVisible).toBe(true);
   expect(surface.parentWindowMatchesHost).toBe(true);
-  expect(surface.documentViewport.width).toBeGreaterThanOrEqual(
+  expect(surface.pageZoomFactor).toBeGreaterThan(0);
+  const visualViewportWidth = surface.documentViewport.width * surface.pageZoomFactor;
+  const visualViewportHeight = surface.documentViewport.height * surface.pageZoomFactor;
+  expect(visualViewportWidth).toBeGreaterThanOrEqual(
     surface.controllerBounds.width - LOGICAL_PIXEL_TOLERANCE
   );
-  expect(surface.documentViewport.width).toBeLessThanOrEqual(
+  expect(visualViewportWidth).toBeLessThanOrEqual(
     surface.controllerBounds.width + LOGICAL_PIXEL_TOLERANCE
   );
-  expect(surface.documentViewport.height).toBeGreaterThanOrEqual(
+  expect(visualViewportHeight).toBeGreaterThanOrEqual(
     surface.controllerBounds.height - LOGICAL_PIXEL_TOLERANCE
   );
-  expect(surface.documentViewport.height).toBeLessThanOrEqual(
+  expect(visualViewportHeight).toBeLessThanOrEqual(
     surface.controllerBounds.height + LOGICAL_PIXEL_TOLERANCE
   );
 }

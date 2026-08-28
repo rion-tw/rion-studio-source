@@ -176,14 +176,23 @@ impl SystemRuntimeExecutor {
         };
         self.presentation.follow_live_projection_membership()?;
         #[cfg(windows)]
-        if follower_plan.reparent_surfaces
-            && let Err(error) = self.refresh_windows_active_window_layout(&source_window_id)
-        {
-            self.record_windows_geometry_projection_failure(
+        if follower_plan.reparent_surfaces {
+            if let Err(error) = self.refresh_windows_active_window_layout(&source_window_id) {
+                self.record_windows_geometry_projection_failure(
+                    &source_window_id,
+                    tab_id,
+                    "provisional-move-source",
+                    &error,
+                );
+            }
+            // The pre-reparent presentation request can be superseded by the membership
+            // projection that commits the successor selection. Reproject from the exact live
+            // ownership revision after that commit so the source successor is both visible and
+            // bounded before the target receives the moved tab's final projection. An empty
+            // source has no selected-surface target and remains a safe no-op.
+            self.reproject_windows_selected_surfaces_for_window(
                 &source_window_id,
-                tab_id,
-                "provisional-move-source",
-                &error,
+                LaunchPhase::Ready,
             );
         }
         for surface in &moved_surfaces {

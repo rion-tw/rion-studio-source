@@ -93,6 +93,25 @@ describe("desktop E2E restored tab readiness", () => {
       .toBeLessThan(detachSource.indexOf('action: "moveToNewWindow"'));
   });
 
+  it("moves an owned role surface and awaits the source successor reprojection", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),
+      "utf8"
+    );
+    const topology = source.slice(
+      source.indexOf("async function topologyForcePhase("),
+      source.indexOf("async function recoveryPhase(")
+    );
+
+    expect(topology).toContain('action: "pressRoleSlot"');
+    expect(topology).toContain("ownedByTargetTab: true");
+    expect(topology).toContain("waitForAppliedSelectedSurfaceReprojection(");
+    expect(topology.indexOf('action: "pressRoleSlot"'))
+      .toBeLessThan(topology.indexOf('action: "moveToNewWindow"'));
+    expect(topology.indexOf('action: "moveToNewWindow"'))
+      .toBeLessThan(topology.lastIndexOf("waitForAppliedSelectedSurfaceReprojection("));
+  });
+
   it("accepts either authoritative deadline that can claim navigation restart", async () => {
     const source = await readFile(
       new URL("../e2e/desktop/specs/cross-domain-runtime.e2e.ts", import.meta.url),

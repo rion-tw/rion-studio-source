@@ -106,6 +106,7 @@ fn desktop_e2e_windows_role_surface_snapshot(
 ) -> Result<Value, String> {
     let (controller_bounds, host_bounds) = desktop_e2e_windows_webview_geometry(webview)?;
     let native = windows_observe_selected_surface(webview, window)?;
+    let page_zoom_factor = platform_page_zoom(webview).map_err(|error| error.message)?;
     let document_viewport = include_document_viewport
         .then(|| desktop_e2e_windows_document_viewport(role_id))
         .flatten();
@@ -113,6 +114,7 @@ fn desktop_e2e_windows_role_surface_snapshot(
         "controllerBounds": controller_bounds,
         "controllerVisible": native.controller_visible,
         "hostBounds": host_bounds,
+        "pageZoomFactor": page_zoom_factor,
         "parentWindowMatchesHost": native.parent_window_matches_host,
         "roleId": role_id,
         "webviewLabel": webview.label(),

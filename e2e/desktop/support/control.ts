@@ -110,6 +110,7 @@ export interface DesktopE2eWindowSnapshot {
         width: number;
       };
       hostBounds: WindowBounds;
+      pageZoomFactor: number;
       parentWindowMatchesHost: boolean;
       roleId: string;
       webviewLabel?: string;

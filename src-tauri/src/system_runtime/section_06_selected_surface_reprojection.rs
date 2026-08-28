@@ -344,6 +344,20 @@ impl SystemRuntimeExecutor {
         }
     }
 
+    fn reproject_windows_selected_surfaces_for_window(
+        &self,
+        window_id: &str,
+        phase: LaunchPhase,
+    ) {
+        for target in self
+            .windows_selected_surface_reprojection_targets()
+            .into_iter()
+            .filter(|target| target.fence.window_id == window_id)
+        {
+            self.reproject_windows_selected_window_surfaces(&target, phase);
+        }
+    }
+
     fn reproject_windows_selected_window_surfaces(
         &self,
         target: &WindowsSelectedSurfaceReprojectionTarget,

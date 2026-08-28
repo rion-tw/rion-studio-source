@@ -934,7 +934,6 @@ async function topologyForcePhase(): Promise<void> {
       kind: `role-placeholder-ready:${detachedRoleTab.tabId}:${detachedRoleId}`,
       windowId: WINDOW_A
     });
-    const claimControlCursor = (await probe()).latestSequence;
     const claimProjectionCursor = await rendererEventCursor();
     const claimFixtureCursor = await fixtureCursor();
     await runtimeUiAction(WINDOW_A, {
@@ -957,14 +956,7 @@ async function topologyForcePhase(): Promise<void> {
         afterSequence: claimFixtureCursor,
         kind: "session",
         roleId: detachedRoleFixtureId
-      }),
-      process.platform === "win32"
-        ? waitForAppliedSelectedSurfaceReprojection(
-            claimControlCursor,
-            WINDOW_A,
-            detachedRoleTab.tabId
-          )
-        : Promise.resolve()
+      })
     ]);
     liveA = await windowSnapshot(WINDOW_A);
     expectSingleRoleSurfaceFitsClient(liveA, detachedRoleId);

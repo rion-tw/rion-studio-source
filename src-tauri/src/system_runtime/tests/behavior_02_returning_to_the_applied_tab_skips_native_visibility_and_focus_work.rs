@@ -883,7 +883,6 @@
                 VK_DOWN.0,
                 VK_RIGHT.0,
                 VK_DOWN.0,
-                VK_DOWN.0,
                 VK_RETURN.0,
             ]
         );

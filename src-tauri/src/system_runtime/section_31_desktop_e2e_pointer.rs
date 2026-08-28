@@ -978,10 +978,9 @@ fn desktop_e2e_windows_tab_menu_key_codes(
         "move" => {
             presses.push(VK_DOWN.0);
             presses.push(VK_RIGHT.0);
-            // The newly opened move submenu also begins without a selection. DOWN chooses the
-            // first enabled destination (the current window entry is disabled), after which the
-            // rank is relative to the remaining visible destinations.
-            presses.push(VK_DOWN.0);
+            // Win32 selects the first enabled destination when RIGHT opens the move submenu.
+            // Advance only by the target's zero-based rank; an extra DOWN here wraps the final
+            // destination back to the first one when exactly two saved windows are visible.
             presses.extend(std::iter::repeat_n(
                 VK_DOWN.0,
                 target_rank.unwrap_or(0),

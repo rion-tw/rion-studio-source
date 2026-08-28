@@ -715,6 +715,20 @@ async function activateRuntimeTab(
   return selected;
 }
 
+async function focusVisibleGameWindow(
+  snapshot: DesktopE2eWindowSnapshot
+): Promise<DesktopE2eWindowSnapshot> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, { action: "focus" });
+  await waitEvent({
+    afterSequence: cursor,
+    kind: "window-focus-acknowledged",
+    minimumGeneration: snapshot.windowGeneration,
+    windowId: snapshot.windowId
+  });
+  return windowSnapshot(snapshot.windowId);
+}
+
 async function dragVisibleGameWindow(
   snapshot: DesktopE2eWindowSnapshot,
   deltaX: number,
@@ -856,20 +870,21 @@ async function topologyForcePhase(): Promise<void> {
   if (visibleA.length < 2 || visibleB.length < 1) {
     throw new Error("Cross-domain native mutation requires two source tabs and one target tab");
   }
-  await dragTab(liveA, visibleA.at(-1)!.tabId, liveA, visibleA[0].tabId);
-  await waitForActiveTabsReady();
-  liveA = await windowSnapshot(WINDOW_A);
-  liveB = await windowSnapshot(WINDOW_B);
-  const target = liveB.kernel?.tabs.find((tab) => !tab.hidden)?.tabId;
-  const detachedRoleTab = liveA.kernel?.tabs.find((tab) => !tab.hidden && tab.tabType === "role");
+  const target = visibleB[0].tabId;
+  const detachedRoleTab = visibleA.find((tab) => tab.tabType === "role");
   if (!detachedRoleTab || !target) {
     throw new Error("Cross-window role detach identities are unavailable");
   }
-  liveA = await activateRuntimeTab(liveA, detachedRoleTab.tabId);
-  const successorTabId = liveA.kernel?.tabs.find(
-    (tab) => !tab.hidden && tab.tabId !== detachedRoleTab.tabId
-  )?.tabId;
+  const successorTabId = visibleA.find((tab) => tab.tabId !== detachedRoleTab.tabId)?.tabId;
   if (!successorTabId) throw new Error("The detach source must retain a successor tab");
+  liveA = await focusVisibleGameWindow(liveA);
+  await activateRuntimeTab(liveA, successorTabId);
+  await waitForActiveTabsReady();
+  liveA = await windowSnapshot(WINDOW_A);
+  expect(liveA.kernel?.tabs.find((tab) => tab.tabId === successorTabId)?.launchPhase)
+    .toBe("ready");
+  liveA = await activateRuntimeTab(liveA, detachedRoleTab.tabId);
+  expect(liveA.kernel?.selectedTabId).toBe(detachedRoleTab.tabId);
   const sourcePersistenceCursor = (await probe()).latestSequence;
   await tabMenuAction({
     action: "moveToNewWindow",
@@ -964,6 +979,18 @@ async function topologyForcePhase(): Promise<void> {
     target: liveB
   });
   await waitForActiveTabsReady();
+  liveB = await focusVisibleGameWindow(await windowSnapshot(WINDOW_B));
+  const reorderTabs = liveB.kernel?.tabs.filter((tab) => !tab.hidden) ?? [];
+  if (reorderTabs.length < 2) {
+    throw new Error("Cross-domain native reorder requires two target tabs");
+  }
+  const reorderedTabId = reorderTabs.at(-1)!.tabId;
+  const reorderBeforeTabId = reorderTabs[0].tabId;
+  await dragTab(liveB, reorderedTabId, liveB, reorderBeforeTabId);
+  await waitForActiveTabsReady();
+  liveB = await windowSnapshot(WINDOW_B);
+  const reorderedIds = liveB.kernel?.tabs.filter((tab) => !tab.hidden).map((tab) => tab.tabId) ?? [];
+  expect(reorderedIds).toEqual(expect.arrayContaining([reorderedTabId, reorderBeforeTabId]));
   const macroCursor = await startSharedMacro(scenario.macros[1]);
   await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor);
   const liveBBeforeMinimize = await windowSnapshot(WINDOW_B);

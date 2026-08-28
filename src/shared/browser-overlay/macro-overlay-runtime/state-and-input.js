@@ -203,6 +203,8 @@
   };
   const pendingMacroActions = new Map();
   const macroActionTails = new Map();
+  let inputContextLossRevision = 0;
+  let inputContextLossTail = Promise.resolve();
   let nextPressId = 1;
 
   function isCanvas(candidate) {

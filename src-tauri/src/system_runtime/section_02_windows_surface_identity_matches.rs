@@ -930,6 +930,8 @@ struct NativePresentationRequest {
     operations: Arc<NativeOperationRegistry>,
     requested_at: Instant,
     revision: u64,
+    #[cfg(windows)]
+    runtime: Option<std::sync::Weak<SystemRuntimeExecutor>>,
     expected_lifecycle_epoch: u64,
     surface_owner_tokens: HashMap<String, SurfacePresentationOwner>,
     surface_owners: Arc<Mutex<HashMap<String, SurfacePresentationOwner>>>,

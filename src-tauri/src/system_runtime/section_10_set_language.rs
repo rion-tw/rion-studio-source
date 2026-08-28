@@ -317,12 +317,9 @@ impl SystemRuntimeExecutor {
     #[cfg(windows)]
     fn finish_windows_shortcut_modifier_handoff(&self, window_id: &str) {
         let handoff = self.take_shortcut_modifier_handoff(window_id, None);
-        let release = self.release_windows_shortcut_modifiers(&handoff);
-        let reassertion = self.reassert_shortcut_handoff_keys(&handoff);
-        let result = match (release, reassertion) {
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            (Ok(released), Ok(())) => Ok(released),
-        };
+        // Held macro keys are restored from authenticated blur or native tab-hide continuity.
+        // This handoff remains the single owner of physical shortcut modifiers only.
+        let result = self.release_windows_shortcut_modifiers(&handoff);
         let (phase, level, error) = match result {
             Ok(true) => ("completed", LogLevel::Debug, None),
             Ok(false) => ("abandoned", LogLevel::Debug, None),

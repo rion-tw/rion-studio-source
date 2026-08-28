@@ -1050,6 +1050,7 @@ impl SystemRuntimeExecutor {
         context: &InputDispatchContext,
     ) -> RuntimeResult<()> {
         self.reassert_role_keys_matching_in_lane(role_id, context, |_| true)
+            .map(|_| ())
     }
 
     fn reassert_role_keys_matching_in_lane(
@@ -1057,7 +1058,7 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         context: &InputDispatchContext,
         should_dispatch: impl Fn(&str) -> bool,
-    ) -> RuntimeResult<()> {
+    ) -> RuntimeResult<usize> {
         let webview = self.role_webview_for_input(role_id, context)?;
         let transition = self
             .core
@@ -1093,7 +1094,7 @@ impl SystemRuntimeExecutor {
             }
             return Err(error);
         }
-        Ok(())
+        Ok(executed.len())
     }
 
     fn release_and_clear_role_keys_for_application_suspend(

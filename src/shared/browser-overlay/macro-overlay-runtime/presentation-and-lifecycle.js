@@ -611,13 +611,33 @@
     void refresh();
   }
 
-  function handleBlur() {
+  function requestHeldKeyContinuity(reason, shortcutRelease) {
+    const revision = ++inputContextLossRevision;
+    // EventBound: the promise continuation runs after the current blur event finishes
+    // propagation, then terminalizes from the authenticated native receipt.
+    inputContextLossTail = inputContextLossTail
+      .catch(() => undefined)
+      .then(() => shortcutRelease)
+      .then(() => {
+        if (isDisposed || typeof binding.inputContextLost !== "function") return;
+        // A tab hide commonly delivers blur first. Once visibility is already hidden,
+        // the native presentation receipt owns restoration without background page work.
+        if (reason === "blur" && document.visibilityState === "hidden") return;
+        return binding.inputContextLost({ reason, revision });
+      })
+      .catch((error) => {
+        console.warn("Unable to restore held macro keys after input context loss.", error);
+      });
+  }
+
+  function handleBlur(event) {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
     releasePhysicalGameKeys();
-    releaseActiveHeldShortcuts();
+    const shortcutRelease = releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
+    if (event?.type === "blur") requestHeldKeyContinuity("blur", shortcutRelease);
   }
 
   function handleVisibilityChange() {

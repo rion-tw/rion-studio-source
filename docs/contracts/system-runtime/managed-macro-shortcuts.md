@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 20](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 21](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -42,6 +42,30 @@ native key cleanup and clear the same Core lease.
 This flow is event-bound. It adds no polling, retry timer, replay watchdog, or
 second pressed-key owner; cancellation and supersede cannot be converted into a
 macro start.
+
+## Toggle-held continuity across role and tab changes
+
+A toggle macro may retain a Core-owned `hold_until_stop` key after its initiating
+shortcut and first iteration have completed. A visible role `blur` and native
+tab-hide presentation are authoritative input-context-loss events, but they do
+not release that Core key. On blur, the authenticated overlay first releases
+pass-through physical keys and any active while-held shortcut lease, waits for
+those ordered actions and page event propagation to finish, and then reports a
+monotonic loss revision. Hidden-page overlay work performs cleanup only; the
+native presentation receipt owns tab-hide continuity so background throttling
+cannot prevent its terminal event.
+
+The System Runtime serializes an admitted event through the role's native input
+lane and reasserts every still-Core-owned key with the existing guarded trusted
+DOM acknowledgement. Windows uses this event to restore WebView2 consumer state
+cleared by focus or visibility loss. WKWebView preserves that state, so macOS
+schedules no tab-hide restoration and any delivered blur request terminalizes
+`notRequired`. The operation does not advance the input epoch, change the macro
+status or iteration, synthesize a new invocation, select the role, or focus or
+reveal a hidden surface. A role with no remaining Core-owned key terminalizes
+`noHeldKeys`; stale role, generation, or input context terminalizes
+`superseded`. This ordering is event-bound and adds no polling, timeout
+reconciliation, generic debugger retry, or second pressed-key owner.
 
 ## Managed middle-button shortcuts
 

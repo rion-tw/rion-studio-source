@@ -415,6 +415,8 @@ function rolePage(roleId, sessionMode, sessionMarker) {
     const consumerPressedCodes = new Set();
     const consumerChordActivations = [];
     let consumerRevision = 0;
+    const resetConsumerInputOnContextLoss = new URL(location.href)
+      .searchParams.get("resetConsumerInputOnContextLoss") === "1";
     const recordConsumerKeyboard = (kind, event) => {
       if (event.isTrusted) {
         if (kind === "consumer-keydown") {
@@ -436,6 +438,16 @@ function rolePage(roleId, sessionMode, sessionMarker) {
         consumerChordActivations: [...consumerChordActivations],
         consumerPressedCodes: [...consumerPressedCodes],
         consumerRevision: ++consumerRevision
+      });
+    };
+    const resetConsumerKeyboard = (reason) => {
+      if (!resetConsumerInputOnContextLoss) return;
+      consumerPressedCodes.clear();
+      record("consumer-input-reset", {
+        consumerChordActivations: [...consumerChordActivations],
+        consumerPressedCodes: [],
+        consumerRevision: ++consumerRevision,
+        targetId: reason
       });
     };
     addEventListener("keydown", (event) => record("keydown", keyboardDetails(event)), true);
@@ -464,8 +476,14 @@ function rolePage(roleId, sessionMode, sessionMarker) {
       event.currentTarget.focus();
     });
     addEventListener("focus", () => record("focus"));
-    addEventListener("blur", () => record("blur"));
-    document.addEventListener("visibilitychange", () => record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden }));
+    addEventListener("blur", () => {
+      resetConsumerKeyboard("blur");
+      record("blur");
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) resetConsumerKeyboard("hidden");
+      record(document.hidden ? "hidden" : "visibility", { hidden: document.hidden });
+    });
     const readSessionCookie = async () => {
       const response = await fetch("/api/session-cookie", { credentials: "same-origin" });
       if (!response.ok) throw new Error("Session cookie read failed with " + response.status);

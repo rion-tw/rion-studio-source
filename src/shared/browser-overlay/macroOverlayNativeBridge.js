@@ -27,6 +27,10 @@
     }
     return nativeInvoke("rion_managed_shortcut_key_phase", { capability, request });
   };
+  bridge.inputContextLost = (request) => {
+    if (!nativeInvoke) return Promise.resolve({ status: "unavailable" });
+    return nativeInvoke("rion_macro_input_context_lost", { capability, request });
+  };
   bridge.macroBadgeTiming = (observation) => {
     if (!nativeInvoke) return Promise.resolve();
     return nativeInvoke("rion_macro_badge_timing", { capability, observation });

@@ -639,6 +639,11 @@ it("sends immediate blur cleanup before a slow while-held press acknowledgement"
       }
       return Promise.resolve({ macros: [heldMacro], statuses: [] });
     });
+    const inputContextLost = vi.fn(async () => {
+      requests.push("context-lost");
+      return { status: "noHeldKeys" };
+    });
+    Object.assign(binding, { inputContextLost });
     const controller = installOverlay(window, binding);
     await controller.refresh();
 
@@ -646,11 +651,12 @@ it("sends immediate blur cleanup before a slow while-held press acknowledgement"
     await vi.waitFor(() => expect(requests).toEqual(["press"]));
     window.dispatchEvent(new window.Event("blur"));
 
-    await vi.waitFor(() => expect(requests).toEqual(["press", "release"]));
+    await vi.waitFor(() => expect(requests).toEqual(["press", "release", "context-lost"]));
     expect(binding).toHaveBeenCalledWith(expect.objectContaining({
       type: "release",
       releaseMode: "immediate"
     }));
+    expect(inputContextLost).toHaveBeenCalledWith({ reason: "blur", revision: 1 });
     resolvePress?.({ macros: [heldMacro], statuses: [runningStatus()] });
   });
 

@@ -55,6 +55,10 @@ interface OverlayTestWindow extends Window {
 
 interface OverlayBinding {
   (request: unknown): Promise<unknown>;
+  inputContextLost?: (request: {
+    reason: "blur" | "hidden";
+    revision: number;
+  }) => Promise<unknown>;
   managedShortcutKeyPhase?: (request: ManagedShortcutKeyPhase) => Promise<unknown>;
   macroKeyObserved?: (observation: MacroKeyObservation) => Promise<unknown>;
   shortcutLifecycle?: (event: {
@@ -1067,6 +1071,39 @@ describe("macro overlay native key guard", () => {
     expect(controller.physicalModifierCodes()).toEqual([]);
     window.dispatchEvent(new Event("blur"));
     expect(releases).toHaveLength(2);
+  });
+
+  it("leaves hidden-tab continuity to native presentation after page cleanup", async () => {
+    const order: string[] = [];
+    const inputContextLost = vi.fn(async (request: { reason: string; revision: number }) => {
+      order.push(`native:${request.reason}:${request.revision}`);
+      return { status: "reasserted" };
+    });
+    const binding = Object.assign(
+      vi.fn(async () => ({ macros: [], statuses: [] })),
+      { inputContextLost }
+    );
+    const controller = installOverlay(binding);
+    window.addEventListener("blur", () => order.push("page:blur"), { once: true });
+
+    window.dispatchEvent(new Event("blur"));
+    order.push("after:blur");
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.addEventListener("visibilitychange", () => order.push("page:hidden"), { once: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    order.push("after:hidden");
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(inputContextLost).not.toHaveBeenCalled();
+    expect(order).toEqual([
+      "page:blur",
+      "after:blur",
+      "page:hidden",
+      "after:hidden"
+    ]);
+    visibility.mockRestore();
+    controller.dispose();
   });
 
   it("clears pass-through physical keys on hidden, pagehide, and dispose", () => {

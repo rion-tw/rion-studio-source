@@ -418,7 +418,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Start a looping keyboard macro from its in-game toggle, wait for at least two iterations, then switch visibly A to B and back to A across an admitted native key transaction; prove iterations continue, input reaches only A, and no failed, recovering, or restart-required state appears."
+      "description": "Start a one-shot toggle macro whose first iteration keeps Digit2 held until stop, first from target Role A and then from shortcut-source Role B while A is hidden; switch visibly A to B and back to A, operate B, and prove A's trusted consumer hold is restored after Windows focus or visibility loss, B receives no Digit2, and no failed, recovering, or restart-required state appears."
     },
     {
       "id": "MACRO-MULTIROLE-005",
@@ -432,7 +432,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Launch a mixed three-slot Workspace containing two Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles, and preserve balanced iterations through a visible role focus change."
+      "description": "Launch a mixed three-slot Workspace containing two Roles and one Web App, wait for both real Roles to reach authoritative macro readiness, show one looping macro exactly once in its combined two-role group, run it across both Roles with balanced iterations through a visible focus change, then keep a toggle macro's Digit2 held on Role A while focusing and operating Role B and stop it from B without deadlock or lost consumer state."
     },
     {
       "id": "MACRO-INPUT-RECOVERY-011",

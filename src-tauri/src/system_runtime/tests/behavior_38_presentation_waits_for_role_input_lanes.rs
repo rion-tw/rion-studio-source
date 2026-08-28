@@ -84,3 +84,46 @@ fn input_failure_stage_keeps_the_first_exact_transaction_boundary() {
         Some(InputTransactionStage::Dispatch)
     );
 }
+
+#[test]
+fn held_key_continuity_classifies_only_obsolete_contexts_as_superseded() {
+    for code in [
+        "BROWSER_ACTION_STALE",
+        "SYSTEM_RUNTIME_NOT_ACTIVE",
+        "SYSTEM_RUNTIME_SHUTTING_DOWN",
+        "SYSTEM_TRUSTED_INPUT_QUARANTINED",
+        "TAURI_RUNTIME_ROLE_NOT_FOUND",
+    ] {
+        assert!(held_key_continuity_is_superseded(&RuntimeError::new(
+            code,
+            "obsolete"
+        )));
+    }
+    assert!(!held_key_continuity_is_superseded(&RuntimeError::new(
+        "BROWSER_DEBUGGER_FAILED",
+        "dispatch failed"
+    )));
+}
+
+#[test]
+fn held_key_continuity_receipt_keeps_loss_and_presentation_revisions() {
+    let receipt = held_key_continuity_receipt(
+        "role-a",
+        "hidden",
+        7,
+        19,
+        Some((3, 5)),
+        2,
+        "reasserted",
+    );
+    let serialized = serde_json::to_value(receipt).unwrap();
+
+    assert_eq!(serialized["roleId"], "role-a");
+    assert_eq!(serialized["lossReason"], "hidden");
+    assert_eq!(serialized["lossRevision"], 7);
+    assert_eq!(serialized["presentationRevision"], 19);
+    assert_eq!(serialized["inputEpoch"], 3);
+    assert_eq!(serialized["surfaceGeneration"], 5);
+    assert_eq!(serialized["reassertedKeyCount"], 2);
+    assert_eq!(serialized["status"], "reasserted");
+}

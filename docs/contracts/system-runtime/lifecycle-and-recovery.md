@@ -1,6 +1,6 @@
 # Lifecycle and Recovery
 
-This document is part of [System WebView Runtime Contract version 20](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 21](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Lifecycle and readiness rules
 
@@ -124,6 +124,8 @@ exact per-role input lane before native surface isolation. An input callback
 that was already admitted must terminalize while its WebView is still attached;
 cleanup from an older Core epoch that has not started is superseded. Native
 surface release never overtakes either outcome.
+
+Live blur/tab-hide held-key continuity follows the managed macro-shortcut contract.
 
 This context recovery never reloads or replaces the live page, changes surface
 generation, or marks the role restart-required. Main-frame navigation

@@ -37,7 +37,10 @@ import {
 } from "../support/renderer-events";
 import { waitForTranscriptEvent } from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
-import { verifyBackgroundTabContinuity } from "./macro-runtime-background-tab";
+import {
+  verifyBackgroundTabContinuity,
+  verifyWorkspaceHeldKeyContinuity
+} from "./macro-runtime-background-tab";
 import {
   waitFixtureCode,
   waitMacroKeyReceipt,
@@ -106,6 +109,8 @@ async function createScenario(input: {
   macroRoleIndexes?: number[];
   name: string;
   repeat: MacroRepeat;
+  resetConsumerInputOnContextLoss?: boolean;
+  shortcutSourceRoleIndexes?: number[];
   shortcutSourceScope?: Macro["shortcutSourceScope"];
   steps: MacroStep[];
   trigger?: Macro["trigger"];
@@ -113,14 +118,21 @@ async function createScenario(input: {
   workspaceWebFixtureId?: string;
 }): Promise<Scenario> {
   const origin = requireEnvironment("RION_STUDIO_E2E_FIXTURE_ORIGIN");
+  const fixtureUrl = (fixtureRoleId: string) => {
+    const url = new URL(`/role/${fixtureRoleId}`, origin);
+    if (input.resetConsumerInputOnContextLoss) {
+      url.searchParams.set("resetConsumerInputOnContextLoss", "1");
+    }
+    return url.toString();
+  };
   const game = await rendererCall("createGame", {
-    defaultLaunchUrl: `${origin}/role/${input.fixtureRoleIds[0]}`,
+    defaultLaunchUrl: fixtureUrl(input.fixtureRoleIds[0]),
     name: `${input.name} Game`
   });
   const roles = await Promise.all(input.fixtureRoleIds.map((fixtureRoleId, index) =>
     rendererCall("createRole", {
       gameId: game.id,
-      launchUrl: `${origin}/role/${fixtureRoleId}`,
+      launchUrl: fixtureUrl(fixtureRoleId),
       name: `${input.name} Role ${index + 1}`
     })
   ));
@@ -131,7 +143,12 @@ async function createScenario(input: {
     repeat: input.repeat,
     roleIds: (input.macroRoleIndexes ?? roles.map((_role, index) => index))
       .map((index) => roles[index].id),
-    shortcutSourceScope: input.shortcutSourceScope,
+    shortcutSourceScope: input.shortcutSourceRoleIndexes
+      ? {
+          roleIds: input.shortcutSourceRoleIndexes.map((index) => roles[index].id),
+          type: "selected_roles"
+        }
+      : input.shortcutSourceScope,
     trigger: input.trigger,
     steps: input.steps
   });
@@ -156,7 +173,9 @@ async function createScenario(input: {
 }
 
 function fixtureRoleId(role: Role): string {
-  const roleId = role.launchUrl?.split("/").at(-1);
+  const roleId = role.launchUrl
+    ? new URL(role.launchUrl).pathname.split("/").filter(Boolean).at(-1)
+    : undefined;
   if (!roleId) throw new Error(`Role ${role.name} has no fixture URL`);
   return roleId;
 }
@@ -337,8 +356,10 @@ async function backgroundTabPhase(): Promise<void> {
     fixtureRoleIds: ["macro-background-a", "macro-background-b"],
     macroRoleIndexes: [0],
     name: "E2E Background Tab",
-    repeat: { intervalMs: 120, type: "loop" },
-    steps: [{ action: "tap", code: "KeyB", id: "background-key", type: "key" }],
+    repeat: { type: "once" },
+    resetConsumerInputOnContextLoss: process.platform === "win32",
+    shortcutSourceRoleIndexes: [0, 1],
+    steps: [{ action: "hold_until_stop", code: "Digit2", id: "background-key", type: "key" }],
     trigger: { alt: false, code: "Digit4", ctrl: false, meta: false, shift: true }
   });
   const tabA = await launchRole(scenario.roles[0], "new-window");
@@ -348,6 +369,7 @@ async function backgroundTabPhase(): Promise<void> {
     activateVisibleRuntimeTab,
     macro: scenario.macro,
     roleId: scenario.roles[0].id,
+    roleBId: scenario.roles[1].id,
     tabA,
     tabB,
     windowGeneration: live.windowGeneration
@@ -544,6 +566,7 @@ async function multiRolePhase(): Promise<void> {
     fixtureRoleIds: ["macro-multirole-a", "macro-multirole-b"],
     name: "E2E Multi Role",
     repeat: { intervalMs: 120, type: "loop" },
+    resetConsumerInputOnContextLoss: process.platform === "win32",
     steps: [{ action: "tap", code: "KeyM", id: "multirole-key", type: "key" }],
     workspace: true,
     workspaceWebFixtureId: "macro-multirole-web"
@@ -588,7 +611,16 @@ async function multiRolePhase(): Promise<void> {
     .map((status) => status.iteration ?? 0);
   expect(Math.max(...iterations) - Math.min(...iterations)).toBeLessThanOrEqual(1);
   await stopMacro(scenario.macro, macroCursor);
-  await cleanup(scenario);
+  try {
+    await verifyWorkspaceHeldKeyContinuity({
+      roleAId: scenario.roles[0].id,
+      roleBId: scenario.roles[1].id,
+      tab,
+      windowGeneration: live.windowGeneration
+    });
+  } finally {
+    await cleanup(scenario).catch(() => undefined);
+  }
   await shutdownAndWaitForFlush();
 }
 

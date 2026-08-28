@@ -729,6 +729,33 @@ use super::*;
     }
 
     #[test]
+    fn macro_input_context_loss_accepts_only_ordered_blur_or_hidden_events() {
+        for reason in ["blur", "hidden"] {
+            MacroInputContextLossRequest {
+                reason: reason.to_owned(),
+                revision: 1,
+            }
+            .validate()
+            .unwrap();
+        }
+        for request in [
+            MacroInputContextLossRequest {
+                reason: "blur".to_owned(),
+                revision: 0,
+            },
+            MacroInputContextLossRequest {
+                reason: "pagehide".to_owned(),
+                revision: 1,
+            },
+        ] {
+            assert_eq!(
+                request.validate().unwrap_err().code,
+                "MACRO_INPUT_CONTEXT_LOSS_INVALID"
+            );
+        }
+    }
+
+    #[test]
     fn flyff_caret_diagnostics_accept_only_bounded_content_free_metadata() {
         let valid = json!({
             "activeElement": "text_input",

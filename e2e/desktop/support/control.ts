@@ -583,13 +583,15 @@ export async function mouseInput(
 }
 
 export async function keyboardInputSequence(
-  requests: Array<{ code: string; phase: "keyDown" | "keyUp" }>
+  requests: Array<{ code: string; phase: "keyDown" | "keyUp" }>,
+  focusFirstKeyDown = true
 ): Promise<Array<{ code: string; phase: string; sequence: number; status: "submitted" }>> {
   if (requests.length === 0) throw new Error("Desktop E2E keyboard input sequence is empty");
   const result = await browser.executeAsync(
     (
       token: string,
       inputRequests: Array<{ code: string; phase: "keyDown" | "keyUp" }>,
+      shouldFocusFirstKeyDown: boolean,
       done: (result: RendererCallResult) => void
     ) => {
       const core = (window as typeof window & {
@@ -601,7 +603,7 @@ export async function keyboardInputSequence(
       }
       void (async () => {
         const receipts: unknown[] = [];
-        let focusNextKeyDown = true;
+        let focusNextKeyDown = shouldFocusFirstKeyDown;
         for (const request of inputRequests) {
           const focus = focusNextKeyDown && request.phase === "keyDown";
           receipts.push(await core.invoke("desktop_e2e_keyboard_input", {
@@ -620,7 +622,8 @@ export async function keyboardInputSequence(
       );
     },
     sessionToken(),
-    requests
+    requests,
+    focusFirstKeyDown
   ) as RendererCallResult;
   if (!result.ok) throw new Error(result.error ?? "Desktop E2E keyboard input sequence failed");
   return result.value as Array<{

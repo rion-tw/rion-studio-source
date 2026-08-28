@@ -10,6 +10,10 @@ type OverlayController = {
   refresh(): Promise<void>;
 };
 type NativeOverlayBinding = ((request: OverlayRequest) => Promise<unknown>) & {
+  inputContextLost(request: {
+    reason: "blur" | "hidden";
+    revision: number;
+  }): Promise<unknown>;
   managedShortcutKeyPhase(request: {
     code: string;
     macroId: string;
@@ -186,6 +190,21 @@ describe("Tauri macro overlay injector", () => {
     await binding.managedShortcutKeyPhase(request);
 
     expect(invoke).toHaveBeenCalledWith("rion_managed_shortcut_key_phase", {
+      capability: "test-capability",
+      request
+    });
+  });
+
+  it("forwards input-context loss through the authenticated internal command", async () => {
+    const { bridge } = await overlaySources();
+    const invoke = vi.fn(async () => ({ status: "reasserted" }));
+    installTauriInternals(invoke);
+    const binding = nativeBinding(bridge, "test-capability");
+    const request = { reason: "hidden" as const, revision: 3 };
+
+    await binding.inputContextLost(request);
+
+    expect(invoke).toHaveBeenCalledWith("rion_macro_input_context_lost", {
       capability: "test-capability",
       request
     });

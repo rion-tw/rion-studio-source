@@ -101,6 +101,25 @@ impl NativeWindowActor {
                             )
                         })
                         .unwrap_or_default();
+                    #[cfg(windows)]
+                    let hidden_role_ids = batch
+                        .request
+                        .runtime
+                        .as_ref()
+                        .and_then(std::sync::Weak::upgrade)
+                        .and_then(|runtime| {
+                            let next_labels = presentation_surface_labels(
+                                &batch.request.next_surfaces,
+                            );
+                            let hidden_labels = previous
+                                .2
+                                .iter()
+                                .map(|surface| surface.label().to_owned())
+                                .filter(|label| !next_labels.contains(label))
+                                .collect::<HashSet<_>>();
+                            runtime.native_presentation_role_ids(&hidden_labels).ok()
+                        })
+                        .unwrap_or_default();
                     let plan = batch.request.plan();
                     let (outcome, receipt) = TauriNativePresentationAdapter.apply(
                         &plan,
@@ -146,6 +165,31 @@ impl NativeWindowActor {
                     changed.notify_one();
                     drop(state);
                     capture_presentation_batch_events(&batch, &outcome, &receipt);
+                    #[cfg(windows)]
+                    if outcome.presentation_applied
+                        && outcome.hidden_surface_count > 0
+                        && let Some(runtime) = batch
+                            .request
+                            .runtime
+                            .as_ref()
+                            .and_then(std::sync::Weak::upgrade)
+                    {
+                        for role_id in &hidden_role_ids {
+                            let result = runtime.restore_held_keys_after_input_context_loss(
+                                role_id,
+                                "hidden",
+                                batch.request.revision,
+                            );
+                            #[cfg(feature = "desktop-e2e")]
+                            record_desktop_e2e_held_key_continuity(
+                                Some(&batch.request.window_id),
+                                role_id,
+                                "hidden",
+                                batch.request.revision,
+                                &result,
+                            );
+                        }
+                    }
                 }
             })
             .map_err(|error| error.to_string())?;

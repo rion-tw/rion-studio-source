@@ -698,8 +698,8 @@
     consumeNextMiddleButtonAuxClick = false;
     const active = activeMiddleButtonShortcut;
     activeMiddleButtonShortcut = null;
-    if (!active) return;
-    void active.pressPromise.then(() => runAction("release", active.macroId, {
+    if (!active) return Promise.resolve();
+    return active.pressPromise.then(() => runAction("release", active.macroId, {
       pressId: active.pressId,
       releaseMode: "immediate"
     }, true, true));
@@ -1029,12 +1029,13 @@
   }
 
   function releaseActiveHeldShortcuts() {
-    [...activeHeldShortcuts.entries()].forEach(([macroId, active]) => {
+    const releases = [...activeHeldShortcuts.entries()].map(([macroId, active]) => {
       consumedPhysicalShortcutCodes.add(active.code);
-      void finishManagedHeldShortcut(macroId, active, "immediate");
+      return finishManagedHeldShortcut(macroId, active, "immediate");
     });
-    cancelMiddleButtonShortcut();
+    releases.push(cancelMiddleButtonShortcut());
     suppressedMiddleButtonShortcutPhase = null;
+    return Promise.all(releases);
   }
 
   function suppressNextMiddleButtonShortcut(dispatchId) {

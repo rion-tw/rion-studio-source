@@ -601,6 +601,20 @@ impl SystemRuntimeExecutor {
             .chain(next_surfaces.iter())
             .map(|surface| surface.label().to_owned())
             .collect::<HashSet<_>>();
+        let input_lane_leases = match self
+            .native_presentation_input_lane_leases(&surface_labels)
+        {
+            Ok(leases) => leases,
+            Err(error) => {
+                self.operations.complete(NativeOperationReceipt::with_status(
+                    operation,
+                    "nativePresentationInputLanes",
+                    NativeOperationStatus::Failed,
+                    Some(error.code),
+                ));
+                return operation_id;
+            }
+        };
         let surface_owner_tokens = self.presentation.surface_owner_tokens(&surface_labels);
         let actor = match self.presentation.actor(&window_id, window_generation) {
             Ok(actor) => actor,
@@ -635,6 +649,7 @@ impl SystemRuntimeExecutor {
             focus,
             focus_broker: Arc::clone(&self.focus_broker),
             focus_lease,
+            input_lane_leases,
             next_surface_identities,
             next_surfaces,
             native_window_mutations: Arc::clone(&self.native_window_mutations),
@@ -662,6 +677,33 @@ impl SystemRuntimeExecutor {
             eprintln!("Native window actor enqueue failed: {message}");
         }
         operation_id
+    }
+
+    fn native_presentation_input_lane_leases(
+        &self,
+        surface_labels: &HashSet<String>,
+    ) -> RuntimeResult<Vec<NativePresentationInputLaneLease>> {
+        let mut role_ids = {
+            let state = self.state()?;
+            state
+                .native_resources
+                .tabs
+                .values()
+                .flat_map(|tab| tab.roles.iter())
+                .filter(|(_, surface)| surface_labels.contains(surface.webview.label()))
+                .map(|(role_id, _)| role_id.clone())
+                .collect::<Vec<_>>()
+        };
+        role_ids.sort();
+        role_ids.dedup();
+        let leases = role_ids
+            .into_iter()
+            .map(|role_id| {
+                self.role_input_lane(&role_id)
+                    .map(|lane| NativePresentationInputLaneLease { lane, role_id })
+            })
+            .collect::<RuntimeResult<Vec<_>>>()?;
+        Ok(ordered_native_presentation_input_lane_leases(leases))
     }
 
     fn wait_for_presentation_paint_barrier(&self, window_id: &str, revision: u64) {

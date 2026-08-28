@@ -356,6 +356,21 @@ fn presentation_owner_identities(
         .collect()
 }
 
+fn lock_native_presentation_input_lanes(
+    leases: &[NativePresentationInputLaneLease],
+) -> Result<Vec<std::sync::MutexGuard<'_, ()>>, String> {
+    let mut guards = Vec::with_capacity(leases.len());
+    for lease in leases {
+        guards.push(lease.lane.sequence.lock().map_err(|_| {
+            format!(
+                "The native presentation input lane for role {} is unavailable.",
+                lease.role_id
+            )
+        })?);
+    }
+    Ok(guards)
+}
+
 fn apply_native_presentation_batch(
     request: &NativePresentationRequest,
     previous_tab_id: &Option<String>,
@@ -487,6 +502,14 @@ fn apply_native_presentation_batch(
             window_was_minimized: None,
         };
     }
+    // EventBound: visibility changes wait for every admitted role input transaction to
+    // terminalize. The guards remain on this actor thread while the UI thread performs
+    // hide/show/focus, then drop immediately so hidden roles can accept background input.
+    let _input_lane_guards =
+        match lock_native_presentation_input_lanes(&request.input_lane_leases) {
+            Ok(guards) => guards,
+            Err(message) => return failed_native_presentation_outcome(message),
+        };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let coordinator = Arc::clone(&request.coordinator);
     let desired_projection = Arc::clone(&request.desired_projection);

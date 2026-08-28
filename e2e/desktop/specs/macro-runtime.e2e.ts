@@ -37,6 +37,7 @@ import {
 } from "../support/renderer-events";
 import { waitForTranscriptEvent } from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
+import { verifyBackgroundTabContinuity } from "./macro-runtime-background-tab";
 import {
   waitFixtureCode,
   waitMacroKeyReceipt,
@@ -337,68 +338,20 @@ async function backgroundTabPhase(): Promise<void> {
     macroRoleIndexes: [0],
     name: "E2E Background Tab",
     repeat: { intervalMs: 120, type: "loop" },
-    steps: [{ action: "tap", code: "KeyB", id: "background-key", type: "key" }]
+    steps: [{ action: "tap", code: "KeyB", id: "background-key", type: "key" }],
+    trigger: { alt: false, code: "Digit4", ctrl: false, meta: false, shift: true }
   });
   const tabA = await launchRole(scenario.roles[0], "new-window");
   const tabB = await launchRole(scenario.roles[1], { windowId: tabA.windowId });
   const live = await windowSnapshot(tabA.windowId);
-  await activateVisibleRuntimeTab({
-    tabId: tabA.id,
-    windowGeneration: live.windowGeneration,
-    windowId: tabA.windowId
+  await verifyBackgroundTabContinuity({
+    activateVisibleRuntimeTab,
+    macro: scenario.macro,
+    roleId: scenario.roles[0].id,
+    tabA,
+    tabB,
+    windowGeneration: live.windowGeneration
   });
-  const macroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
-  await waitForMacroProjection({
-    afterSequence: macroCursor,
-    macroId: scenario.macro.id,
-    minimumIteration: 2,
-    roleIds: [scenario.roles[0].id]
-  });
-  await activateVisibleRuntimeTab({
-    tabId: tabB.id,
-    windowGeneration: live.windowGeneration,
-    windowId: tabA.windowId
-  });
-  const backgroundCursor = await fixtureCursor();
-  const backgroundKeydown = await waitFixtureEvent({
-    afterSequence: backgroundCursor,
-    kind: "keydown",
-    roleId: "macro-background-a"
-  });
-  await waitFixtureEvent({
-    afterSequence: backgroundKeydown.sequence,
-    kind: "keyup",
-    roleId: "macro-background-a"
-  });
-  const state = await fixtureState();
-  expect(state["macro-background-a"].keydown).toBeGreaterThan(0);
-  expect(state["macro-background-b"].keydown).toBe(0);
-  expect((await windowSnapshot(tabA.windowId)).kernel?.selectedTabId).toBe(tabB.id);
-  await stopMacro(scenario.macro, macroCursor);
-  const diagnostics = await inputDiagnostics();
-  expect(diagnostics.roles.filter((role) => role.roleId === scenario.roles[0].id))
-    .toEqual(expect.arrayContaining([expect.objectContaining({
-      quiesced: false,
-      roleId: scenario.roles[0].id,
-      stopping: false
-    })]));
-  const restartFixtureCursor = await fixtureCursor();
-  const restartMacroCursor = await startMacro(scenario.macro, [scenario.roles[0].id]);
-  const restartedKeydown = await waitFixtureEvent({
-    afterSequence: restartFixtureCursor,
-    kind: "keydown",
-    roleId: "macro-background-a"
-  });
-  await waitFixtureEvent({
-    afterSequence: restartedKeydown.sequence,
-    kind: "keyup",
-    roleId: "macro-background-a"
-  });
-  const restartedState = await fixtureState();
-  expect(restartedState["macro-background-a"].keydown).toBeGreaterThan(state["macro-background-a"].keydown);
-  expect(restartedState["macro-background-b"].keydown).toBe(0);
-  expect((await windowSnapshot(tabA.windowId)).kernel?.selectedTabId).toBe(tabB.id);
-  await stopMacro(scenario.macro, restartMacroCursor);
   await cleanup(scenario);
   await shutdownAndWaitForFlush();
 }

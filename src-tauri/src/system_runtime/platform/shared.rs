@@ -606,11 +606,29 @@ fn call_system_devtools(
 
 type RuntimeResult<T> = Result<T, RuntimeError>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InputTransactionStage {
+    Dispatch,
+    DomAcknowledgement,
+    Guard,
+}
+
+impl InputTransactionStage {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dispatch => "dispatch",
+            Self::DomAcknowledgement => "domAcknowledgement",
+            Self::Guard => "guard",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct RuntimeError {
     pub(crate) code: &'static str,
     diagnostic: Option<RuntimeErrorDiagnostic>,
     input_neutrality_confirmed: bool,
+    input_transaction_stage: Option<InputTransactionStage>,
     pub(crate) message: String,
     rollback_error_count: Option<u32>,
 }
@@ -621,6 +639,7 @@ impl RuntimeError {
             code,
             diagnostic: None,
             input_neutrality_confirmed: false,
+            input_transaction_stage: None,
             message: message.into(),
             rollback_error_count: None,
         }
@@ -633,6 +652,13 @@ impl RuntimeError {
 
     const fn input_neutrality_confirmed(&self) -> bool {
         self.input_neutrality_confirmed
+    }
+
+    fn with_input_transaction_stage(mut self, stage: InputTransactionStage) -> Self {
+        if self.input_transaction_stage.is_none() {
+            self.input_transaction_stage = Some(stage);
+        }
+        self
     }
 
     fn with_rollback_error_count(mut self, count: usize) -> Self {

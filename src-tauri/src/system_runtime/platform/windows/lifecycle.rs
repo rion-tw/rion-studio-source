@@ -20,6 +20,7 @@ pub(in crate::system_runtime) fn windows_role_lifecycle_setup_error(error: Runti
             setup_stage: "lifecycle",
         })),
         input_neutrality_confirmed: error.input_neutrality_confirmed,
+        input_transaction_stage: error.input_transaction_stage,
         message: error.message,
         rollback_error_count: error.rollback_error_count,
     }

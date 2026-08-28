@@ -40,15 +40,17 @@ impl SystemRuntimeExecutor {
         compensate_unknown: bool,
         modifier_projection: bool,
     ) -> RuntimeResult<()> {
-        let (acknowledgement, waiter) =
-            self.arm_macro_key_event_guard(
+        let (acknowledgement, waiter) = self
+            .arm_macro_key_event_guard(
                 role_id,
                 webview,
                 effect,
                 context,
                 modifier_projection,
-            )?;
-        let native_result = dispatch_key_effect(webview, effect, context);
+            )
+            .map_err(|error| error.with_input_transaction_stage(InputTransactionStage::Guard))?;
+        let native_result = dispatch_key_effect(webview, effect, context)
+            .map_err(|error| error.with_input_transaction_stage(InputTransactionStage::Dispatch));
         if native_result
             .as_ref()
             .is_err_and(|error| error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE")
@@ -70,7 +72,9 @@ impl SystemRuntimeExecutor {
         let observed = self.wait_for_macro_key_observation(waiter, context);
         if let Err(observation_error) = observed {
             if observation_error.error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE" {
-                return Err(observation_error.error);
+                return Err(observation_error
+                    .error
+                    .with_input_transaction_stage(InputTransactionStage::DomAcknowledgement));
             }
             let cleanup = self.cleanup_input_context(context);
             let _ = cancel_macro_key_event_guard(
@@ -99,7 +103,8 @@ impl SystemRuntimeExecutor {
             }
             return Err(observation_error
                 .error
-                .with_confirmed_input_neutrality());
+                .with_confirmed_input_neutrality()
+                .with_input_transaction_stage(InputTransactionStage::DomAcknowledgement));
         }
         if let Err(error) = native_result
             && error.code != "SYSTEM_TRUSTED_INPUT_INDETERMINATE"

@@ -418,7 +418,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep a looping macro bound to its background role after a visible native tab activation, stop it while another tab remains selected, then restart it from the visible macro list without selecting or revealing its target; prove input reaches only the hidden role and the foreground tab remains unchanged."
+      "description": "Start a looping keyboard macro from its in-game toggle, wait for at least two iterations, then switch visibly A to B and back to A across an admitted native key transaction; prove iterations continue, input reaches only A, and no failed, recovering, or restart-required state appears."
     },
     {
       "id": "MACRO-MULTIROLE-005",

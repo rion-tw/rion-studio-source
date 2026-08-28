@@ -895,6 +895,20 @@ impl NativePresentationAdapter for TauriNativePresentationAdapter {
     }
 }
 
+#[derive(Clone)]
+struct NativePresentationInputLaneLease {
+    lane: Arc<RoleInputDispatchLane>,
+    role_id: String,
+}
+
+fn ordered_native_presentation_input_lane_leases(
+    mut leases: Vec<NativePresentationInputLaneLease>,
+) -> Vec<NativePresentationInputLaneLease> {
+    leases.sort_by(|left, right| left.role_id.cmp(&right.role_id));
+    leases.dedup_by(|left, right| left.role_id == right.role_id);
+    leases
+}
+
 struct NativePresentationRequest {
     active_webview: Option<Webview>,
     actor_liveness: Arc<AtomicBool>,
@@ -905,6 +919,7 @@ struct NativePresentationRequest {
     focus: NativePresentationFocus,
     focus_broker: Arc<NativeFocusBroker>,
     focus_lease: Option<NativeFocusLease>,
+    input_lane_leases: Vec<NativePresentationInputLaneLease>,
     next_surface_identities: HashSet<(String, u64)>,
     next_surfaces: Vec<Webview>,
     native_window_mutations: Arc<NativeWindowMutationRegistry>,

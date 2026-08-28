@@ -175,6 +175,17 @@ impl SystemRuntimeExecutor {
             (source_is_empty, moved_surfaces)
         };
         self.presentation.follow_live_projection_membership()?;
+        #[cfg(windows)]
+        if follower_plan.reparent_surfaces
+            && let Err(error) = self.refresh_windows_active_window_layout(&source_window_id)
+        {
+            self.record_windows_geometry_projection_failure(
+                &source_window_id,
+                tab_id,
+                "provisional-move-source",
+                &error,
+            );
+        }
         for surface in &moved_surfaces {
             self.record_surface_event(
                 LogLevel::Debug,

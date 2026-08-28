@@ -8,10 +8,10 @@ use windows::Win32::{
         HiDpi::GetDpiForWindow,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, IsIconic, IsZoomed, PostMessageW, SetWindowPos, SIZE_MAXIMIZED,
-            SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER, SWP_NOZORDER,
-            WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE, WM_MOVING,
-            WM_NCDESTROY, WM_SIZE, WM_WINDOWPOSCHANGED,
+            GA_ROOT, GetAncestor, GetClientRect, IsIconic, IsZoomed, PostMessageW, SetWindowPos,
+            SIZE_MAXIMIZED, SIZE_MINIMIZED, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_NOOWNERZORDER,
+            SWP_NOZORDER, WM_APP, WM_DPICHANGED, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_MOVE,
+            WM_MOVING, WM_NCDESTROY, WM_SIZE, WM_WINDOWPOSCHANGED,
         },
     },
 };
@@ -461,7 +461,9 @@ pub(in crate::system_runtime) fn windows_live_resize_observe(
             .get(&key)
             .filter(|host| !host.last_batch_failed)
             .and_then(|host| host.plan.as_ref())
-            .is_some_and(|plan| windows_live_resize_plan_surfaces_available(&registry, plan));
+            .is_some_and(|plan| {
+                windows_live_resize_plan_surfaces_available(&registry, plan, hwnd)
+            });
         let Some(host) = registry.hosts.get_mut(&key) else {
             return WindowsLiveResizeObservation {
                 client_height: client_size.map_or(0, |size| size.1),
@@ -865,7 +867,7 @@ pub(in crate::system_runtime) fn windows_live_resize_notify_parent_position_chan
     let surfaces = WINDOWS_LIVE_RESIZE_REGISTRY.with(|registry| {
         let registry = registry.borrow();
         let plan = registry.hosts.get(&key)?.plan.as_ref()?;
-        windows_live_resize_collect_surfaces(&registry, plan)
+        windows_live_resize_collect_surfaces(&registry, plan, hwnd)
     });
     let Some(surfaces) = surfaces else {
         return;
@@ -961,7 +963,7 @@ pub(in crate::system_runtime) fn windows_live_resize_prepare_submission(hwnd: HW
         let last_batch_failed = host.last_batch_failed;
         let last_surface_bounds = host.last_surface_bounds.clone();
         let plan_epoch = host.plan_epoch;
-        let Some(surfaces) = windows_live_resize_collect_surfaces(&registry, &plan) else {
+        let Some(surfaces) = windows_live_resize_collect_surfaces(&registry, &plan, hwnd) else {
             if let Some(host) = registry.hosts.get_mut(&key) {
                 host.pending_frame = Some(frame);
                 host.counters.fallback = host.counters.fallback.saturating_add(1);
@@ -1131,18 +1133,63 @@ pub(in crate::system_runtime) fn windows_live_resize_flush(hwnd: HWND) {
 pub(in crate::system_runtime) fn windows_live_resize_collect_surfaces(
     registry: &WindowsLiveResizeRegistry,
     plan: &WindowsLiveResizePlan,
+    root: HWND,
 ) -> Option<Vec<WindowsLiveResizeSurface>> {
     // Controllers detach and reattach independently during navigation recovery.
     // A missing role must not prevent the still-authoritative tab strip (or any
-    // other attached controller) from accepting the current native frame.
-    let labels = std::iter::once(plan.tab_strip_label.as_str())
+    // other attached controller) from accepting the current native frame. A
+    // reparented controller is foreign to the stale source plan even while its
+    // globally unique label is still present in that plan.
+    let labels = windows_live_resize_plan_labels(plan);
+    let surfaces = windows_live_resize_collect_matching_surfaces(
+        &registry.surfaces,
+        &labels,
+        |surface| windows_live_resize_surface_belongs_to_root(surface, root),
+    );
+    (!surfaces.is_empty()).then_some(surfaces)
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_plan_labels(
+    plan: &WindowsLiveResizePlan,
+) -> Vec<&str> {
+    std::iter::once(plan.tab_strip_label.as_str())
         .chain(plan.roles.iter().map(|role| role.label.as_str()))
         .chain(plan.roles.iter().filter_map(|role| role.chrome_label.as_deref()))
-        .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
-    let surfaces = labels
-        .filter_map(|label| registry.surfaces.get(label).cloned())
-        .collect::<Vec<_>>();
-    (!surfaces.is_empty()).then_some(surfaces)
+        .chain(plan.dividers.iter().map(|divider| divider.label.as_str()))
+        .collect()
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_collect_matching_surfaces<T: Clone>(
+    surfaces: &HashMap<String, T>,
+    labels: &[&str],
+    mut belongs_to_root: impl FnMut(&T) -> bool,
+) -> Vec<T> {
+    labels
+        .iter()
+        .filter_map(|label| surfaces.get(*label))
+        .filter(|surface| belongs_to_root(surface))
+        .cloned()
+        .collect()
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_all_surfaces_match_root<T>(
+    surfaces: &HashMap<String, T>,
+    labels: &[&str],
+    mut belongs_to_root: impl FnMut(&T) -> bool,
+) -> bool {
+    labels.iter().all(|label| match surfaces.get(*label) {
+        Some(surface) => belongs_to_root(surface),
+        None => false,
+    })
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_surface_belongs_to_root(
+    surface: &WindowsLiveResizeSurface,
+    root: HWND,
+) -> bool {
+    !root.is_invalid()
+        && !surface.hwnd.is_invalid()
+        && unsafe { GetAncestor(surface.hwnd, GA_ROOT) } == root
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_project_available_bounds(
@@ -1172,12 +1219,12 @@ pub(in crate::system_runtime) fn windows_live_resize_project_available_bounds(
 pub(in crate::system_runtime) fn windows_live_resize_plan_surfaces_available(
     registry: &WindowsLiveResizeRegistry,
     plan: &WindowsLiveResizePlan,
+    root: HWND,
 ) -> bool {
-    let labels = std::iter::once(plan.tab_strip_label.as_str())
-        .chain(plan.roles.iter().map(|role| role.label.as_str()))
-        .chain(plan.roles.iter().filter_map(|role| role.chrome_label.as_deref()))
-        .chain(plan.dividers.iter().map(|divider| divider.label.as_str()));
-    labels.into_iter().all(|label| registry.surfaces.contains_key(label))
+    let labels = windows_live_resize_plan_labels(plan);
+    windows_live_resize_all_surfaces_match_root(&registry.surfaces, &labels, |surface| {
+        windows_live_resize_surface_belongs_to_root(surface, root)
+    })
 }
 
 include!("live_resize_geometry.rs");

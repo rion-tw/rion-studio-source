@@ -114,10 +114,12 @@ it("selects visible native tab menus from authoritative popup-start events", asy
     journey.indexOf("async function tabMenuAction("),
     journey.indexOf("async function showSourceFromVisibleUi(")
   );
-  const detachedMenuStart = journey.indexOf("await browser.setWindowRect(Math.round(dashboardX)");
+  const detachedMenuStart = journey.indexOf(
+    "detachedWindow = await dragVisibleGameWindow(targetSized"
+  );
   const detachedMenu = journey.slice(
     detachedMenuStart,
-    journey.indexOf("\n  await waitForActiveTabsReady();", detachedMenuStart)
+    journey.indexOf("\n  const macroCursor =", detachedMenuStart)
   );
 
   expect(arm).toContain("SetWinEventHook(");
@@ -130,11 +132,11 @@ it("selects visible native tab menus from authoritative popup-start events", asy
   expect(nativeMenu.indexOf('action: "selectTabMenuItem"'))
     .toBeLessThan(nativeMenu.indexOf('action: "openTabMenu"'));
   expect(nativeMenu).toContain('kind: "runtime-tab-menu-input-terminal"');
-  expect(detachedMenu.indexOf("browser.setWindowRect(Math.round(dashboardX)"))
+  expect(detachedMenu.indexOf("dragVisibleGameWindow(targetSized"))
     .toBeLessThan(detachedMenu.indexOf("await tabMenuAction({"));
-  expect(detachedMenu).toContain("} finally {");
-  expect(detachedMenu.lastIndexOf("await browser.maximizeWindow();"))
-    .toBeGreaterThan(detachedMenu.indexOf("await tabMenuAction({"));
+  expect(detachedMenu).toContain("snapshot: detachedWindow");
+  expect(detachedMenu).toContain("target: liveB");
+  expect(detachedMenu).not.toContain('rendererCall("moveGameWindowTab"');
 });
 
 it("funnels terminal AppKit and Win32 placement events through one fenced reducer", async () => {

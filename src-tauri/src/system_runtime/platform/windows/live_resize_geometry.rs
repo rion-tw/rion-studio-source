@@ -172,6 +172,11 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
     surfaces: &[WindowsLiveResizeSurface],
     bounds: &[WindowsLiveResizeBounds],
 ) -> Result<(), ()> {
+    if !windows_live_resize_batch_surfaces_match_root(surfaces, |surface| {
+        windows_live_resize_surface_belongs_to_root(surface, root)
+    }) {
+        return Err(());
+    }
     // WebView2 controllers live under Wry child-host HWNDs. Wry normally gives
     // every child WebView its own host, but keep shared hosts supported by
     // grouping surfaces by their actual parent HWND. Each host occupies only
@@ -202,6 +207,13 @@ pub(in crate::system_runtime) fn windows_live_resize_submit_batch(
         },
     )?;
     windows_live_resize_verify_batch(root, surfaces, bounds)
+}
+
+pub(in crate::system_runtime) fn windows_live_resize_batch_surfaces_match_root<T>(
+    surfaces: &[T],
+    mut belongs_to_root: impl FnMut(&T) -> bool,
+) -> bool {
+    !surfaces.is_empty() && surfaces.iter().all(&mut belongs_to_root)
 }
 
 pub(in crate::system_runtime) fn windows_live_resize_verify_batch(

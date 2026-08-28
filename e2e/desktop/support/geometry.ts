@@ -97,6 +97,7 @@ export function expectSingleRoleSurfaceFitsClient(
   if (surface.controllerBounds.x === undefined || surface.controllerBounds.y === undefined) {
     throw new Error(`Role controller geometry is incomplete for ${roleId}`);
   }
+  expectRoleSurfaceViewportFitsController(snapshot, roleId);
   const contentTop = tabStrip.y + tabStrip.height;
   const expectedHost = {
     height: snapshot.native.clientBounds.height - contentTop,
@@ -119,10 +120,42 @@ export function expectSingleRoleSurfaceFitsClient(
     x: 0,
     y: 0
   });
-  if (surface.documentViewport) {
-    expect(surface.documentViewport.width).toBeGreaterThan(0);
-    expect(surface.documentViewport.height).toBeGreaterThan(0);
+}
+
+export function expectRoleSurfaceViewportsFitControllers(
+  snapshot: DesktopE2eWindowSnapshot
+): void {
+  if (process.platform !== "win32") return;
+  const surfaces = snapshot.native.roleSurfaces ?? [];
+  expect(surfaces.length).toBeGreaterThan(0);
+  for (const surface of surfaces) {
+    expectRoleSurfaceViewportFitsController(snapshot, surface.roleId);
   }
+}
+
+function expectRoleSurfaceViewportFitsController(
+  snapshot: DesktopE2eWindowSnapshot,
+  roleId: string
+): void {
+  const surface = snapshot.native.roleSurfaces?.find((candidate) => candidate.roleId === roleId);
+  if (!surface) throw new Error(`Role surface ${roleId} is unavailable for ${snapshot.windowId}`);
+  if (!surface.documentViewport) {
+    throw new Error(`Role document viewport ${roleId} is unavailable for ${snapshot.windowId}`);
+  }
+  expect(surface.controllerVisible).toBe(true);
+  expect(surface.parentWindowMatchesHost).toBe(true);
+  expect(surface.documentViewport.width).toBeGreaterThanOrEqual(
+    surface.controllerBounds.width - LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(surface.documentViewport.width).toBeLessThanOrEqual(
+    surface.controllerBounds.width + LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(surface.documentViewport.height).toBeGreaterThanOrEqual(
+    surface.controllerBounds.height - LOGICAL_PIXEL_TOLERANCE
+  );
+  expect(surface.documentViewport.height).toBeLessThanOrEqual(
+    surface.controllerBounds.height + LOGICAL_PIXEL_TOLERANCE
+  );
 }
 
 export function expectAppKitTabsFitTitlebar(snapshot: DesktopE2eWindowSnapshot): void {

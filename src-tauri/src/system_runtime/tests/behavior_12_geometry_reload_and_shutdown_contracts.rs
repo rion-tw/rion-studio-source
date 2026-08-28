@@ -1,6 +1,8 @@
 #[cfg(windows)]
 use std::cell::RefCell;
 #[cfg(windows)]
+use windows::Win32::Foundation::HWND;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::SIZE_MINIMIZED;
 
 #[cfg(feature = "desktop-e2e")]
@@ -471,6 +473,52 @@ fn windows_live_resize_plan_fences_generation_and_revision() {
     assert!(windows_live_resize_plan_is_current(7, Some(11), 7, 11));
     assert!(!windows_live_resize_plan_is_current(7, Some(12), 7, 11));
     assert!(!windows_live_resize_plan_is_current(8, None, 7, 99));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_live_resize_filters_reparented_surfaces_by_current_root() {
+    let surfaces = HashMap::from([
+        ("source-tabs".to_owned(), 11_usize),
+        ("moved-role".to_owned(), 22_usize),
+    ]);
+    let stale_source_labels = ["source-tabs", "moved-role"];
+    let source_surfaces = windows_live_resize_collect_matching_surfaces(
+        &surfaces,
+        &stale_source_labels,
+        |root| *root == 11,
+    );
+
+    assert_eq!(source_surfaces, [11]);
+    assert!(!windows_live_resize_all_surfaces_match_root(
+        &surfaces,
+        &stale_source_labels,
+        |root| *root == 11,
+    ));
+    assert!(windows_live_resize_all_surfaces_match_root(
+        &surfaces,
+        &["moved-role"],
+        |root| *root == 22,
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_live_resize_rejects_foreign_root_bounds_batches() {
+    let surfaces = [11_usize, 22_usize];
+
+    assert!(!windows_live_resize_batch_surfaces_match_root(
+        &surfaces,
+        |root| *root == 11,
+    ));
+    assert!(windows_live_resize_batch_surfaces_match_root(
+        &[22_usize],
+        |root| *root == 22,
+    ));
+    assert!(!windows_live_resize_batch_surfaces_match_root::<usize>(
+        &[],
+        |_| true,
+    ));
 }
 
 #[cfg(windows)]
@@ -1138,7 +1186,8 @@ fn incomplete_live_resize_plan_uses_fallback_without_native_submission() {
     let registry = WindowsLiveResizeRegistry::default();
     assert!(windows_live_resize_collect_surfaces(
         &registry,
-        &two_column_live_resize_plan()
+        &two_column_live_resize_plan(),
+        HWND::default(),
     )
     .is_none());
 }

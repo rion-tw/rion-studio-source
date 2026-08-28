@@ -626,7 +626,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure", "restart"],
-      "description": "Use real native tab drag and visible context-menu actions to reorder, move, detach, hide, and reveal Role and Workspace tabs before crash recovery, and verify Windows minimize/restore preserves every role WebView controller, parent-host, and DOM viewport bound without a resize event."
+      "description": "Use real native tab drag and visible context-menu actions to reorder, move, detach, hide, and reveal Role and Workspace tabs before crash recovery; detach a selected Role while its source retains a successor, then drag differently sized source and target windows and verify Windows keeps every WebView2 controller in its current root with an exact DOM viewport bound and no failed geometry receipt; also verify minimize/restore preserves those bounds without a resize event."
     },
     {
       "id": "MACRO-OWNERSHIP-TRANSFER-010",

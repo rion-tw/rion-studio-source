@@ -1,5 +1,41 @@
 impl SystemRuntimeExecutor {
     #[cfg(windows)]
+    fn record_windows_geometry_projection_failure(
+        &self,
+        window_id: &str,
+        tab_id: &str,
+        trigger: &'static str,
+        message: &str,
+    ) {
+        let core = Arc::clone(&self.core);
+        let error_message = message.to_owned();
+        let context = json!({
+            "platform": "windows",
+            "tabId": tab_id,
+            "trigger": trigger,
+            "windowId": window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Warn,
+                        source: LogSource::Browser,
+                        event: "native.windows-geometry-projection-failed".to_owned(),
+                        message: "The Windows geometry follower could not publish its current native projection."
+                            .to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: Some(log_error_details(
+                            "SYSTEM_WINDOWS_GEOMETRY_PROJECTION_FAILED",
+                            &error_message,
+                        )),
+                    }],
+                })
+                .await;
+        });
+    }
+
+    #[cfg(windows)]
     fn record_windows_geometry_receipt(
         &self,
         window_id: &str,

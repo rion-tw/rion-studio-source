@@ -1,4 +1,4 @@
-import { $, browser, expect } from "@wdio/globals";
+import { $, expect } from "@wdio/globals";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -34,6 +34,10 @@ import {
   type FixtureEvent
 } from "../support/fixture";
 import {
+  expectRoleSurfaceViewportsFitControllers,
+  expectSingleRoleSurfaceFitsClient
+} from "../support/geometry";
+import {
   requiresNativeDeminimizeFocusFence,
   requiresPrearmedNativeTabMenuSelection,
   requiresRendererTabChromeProjection
@@ -46,7 +50,7 @@ import {
   waitForRoleProjection,
   waitForRuntimeProjection
 } from "../support/renderer-events";
-import { waitForTranscriptEvent } from "../support/transcript";
+import { readTranscriptEvents, waitForTranscriptEvent } from "../support/transcript";
 import { acceptLegalAndSkipFirstRun, ensureEnglishUi, navigate } from "../support/ui";
 
 // [journey:RUNTIME-LAUNCH-DESTINATIONS-008]
@@ -689,6 +693,52 @@ async function dragTab(
   expect(terminal.details).toMatchObject({ status: "applied", tabId });
 }
 
+async function activateRuntimeTab(
+  snapshot: DesktopE2eWindowSnapshot,
+  tabId: string
+): Promise<DesktopE2eWindowSnapshot> {
+  if (snapshot.kernel?.selectedTabId === tabId) return snapshot;
+  const cursor = (await probe()).latestSequence;
+  await runtimeUiAction(snapshot.windowId, {
+    action: "activateTab",
+    tabId,
+    windowGeneration: snapshot.windowGeneration
+  });
+  const terminal = await waitEvent({
+    afterSequence: cursor,
+    kind: "runtime-tab-activation-terminal",
+    windowId: snapshot.windowId
+  });
+  expect(terminal.details).toMatchObject({ status: "completed", tabId });
+  const selected = await windowSnapshot(snapshot.windowId);
+  expect(selected.kernel?.selectedTabId).toBe(tabId);
+  return selected;
+}
+
+async function dragVisibleGameWindow(
+  snapshot: DesktopE2eWindowSnapshot,
+  deltaX: number,
+  deltaY: number
+): Promise<DesktopE2eWindowSnapshot> {
+  const cursor = (await probe()).latestSequence;
+  await controlWindow(snapshot.windowId, { action: "dragVisibleChrome", deltaX, deltaY });
+  await waitEvent({
+    afterSequence: cursor,
+    kind: "placement-accepted",
+    minimumGeneration: snapshot.windowGeneration,
+    timeoutMs: 45_000,
+    windowId: snapshot.windowId
+  });
+  const moved = await windowSnapshot(snapshot.windowId);
+  const distance = Math.abs(
+    (moved.native.outerBounds.x ?? 0) - (snapshot.native.outerBounds.x ?? 0)
+  ) + Math.abs(
+    (moved.native.outerBounds.y ?? 0) - (snapshot.native.outerBounds.y ?? 0)
+  );
+  expect(distance).toBeGreaterThan(10);
+  return moved;
+}
+
 async function tabMenuAction(input: {
   action: "hide" | "move" | "moveToNewWindow";
   snapshot: DesktopE2eWindowSnapshot;
@@ -798,8 +848,6 @@ async function topologyForcePhase(): Promise<void> {
   await showSavedWindow(WINDOW_A);
   await showSavedWindow(WINDOW_B);
   await waitForActiveTabsReady();
-  const macroCursor = await startSharedMacro(scenario.macros[1]);
-  await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor);
 
   let liveA = await windowSnapshot(WINDOW_A);
   let liveB = await windowSnapshot(WINDOW_B);
@@ -812,92 +860,118 @@ async function topologyForcePhase(): Promise<void> {
   await waitForActiveTabsReady();
   liveA = await windowSnapshot(WINDOW_A);
   liveB = await windowSnapshot(WINDOW_B);
-  const moving = liveA.kernel?.tabs.find((tab) => !tab.hidden)?.tabId;
   const target = liveB.kernel?.tabs.find((tab) => !tab.hidden)?.tabId;
-  if (!moving || !target) throw new Error("Cross-window move identities are unavailable");
-  await tabMenuAction({ action: "move", snapshot: liveA, tabId: moving, target: liveB });
-
-  await waitForActiveTabsReady();
-  liveA = await windowSnapshot(WINDOW_A);
-  const lastSourceTab = liveA.kernel?.tabs.find((tab) => !tab.hidden)?.tabId;
-  if (!lastSourceTab) throw new Error("A final source tab is required for detach");
+  const detachedRoleTab = liveA.kernel?.tabs.find((tab) => !tab.hidden && tab.tabType === "role");
+  if (!detachedRoleTab || !target) {
+    throw new Error("Cross-window role detach identities are unavailable");
+  }
+  liveA = await activateRuntimeTab(liveA, detachedRoleTab.tabId);
+  const successorTabId = liveA.kernel?.tabs.find(
+    (tab) => !tab.hidden && tab.tabId !== detachedRoleTab.tabId
+  )?.tabId;
+  if (!successorTabId) throw new Error("The detach source must retain a successor tab");
   const sourcePersistenceCursor = (await probe()).latestSequence;
   await tabMenuAction({
     action: "moveToNewWindow",
     snapshot: liveA,
-    tabId: lastSourceTab
+    tabId: detachedRoleTab.tabId
   });
-  let sourcePersisted = await waitEvent({
+  const sourcePersisted = await waitEvent({
+    activeTabId: successorTabId,
     afterSequence: sourcePersistenceCursor,
     kind: "window-state-persisted",
     timeoutMs: 55_000,
     windowId: WINDOW_A
   });
-  while ((sourcePersisted.details as { activeTabId?: string | null }).activeTabId !== null) {
-    sourcePersisted = await waitEvent({
-      afterSequence: sourcePersisted.sequence,
-      kind: "window-state-persisted",
-      timeoutMs: 55_000,
-      windowId: WINDOW_A
-    });
-  }
-  expect(sourcePersisted.details).toMatchObject({ activeTabId: null, status: "applied" });
+  expect(sourcePersisted.details).toMatchObject({
+    activeTabId: successorTabId,
+    status: "applied"
+  });
   await waitForActiveTabsReady();
   const detached = (await rendererCall("getEmbeddedRuntimeState")).tabs.find((tab) =>
-    tab.id === lastSourceTab && tab.windowId !== WINDOW_A
+    tab.id === detachedRoleTab.tabId && tab.windowId !== WINDOW_A
   );
-  if (!detached) throw new Error("The last-tab detach destination is unavailable");
+  if (!detached) throw new Error("The selected-role detach destination is unavailable");
+  liveA = await windowSnapshot(WINDOW_A);
+  expect(liveA.kernel?.selectedTabId).toBe(successorTabId);
+  let detachedWindow = await windowSnapshot(detached.windowId);
+
+  if (process.platform === "win32") {
+    const geometryControl = await probe();
+    const workArea = detachedWindow.native.workArea;
+    const narrowWidth = Math.max(500, Math.min(560, workArea.width - 80));
+    const narrowHeight = Math.max(460, Math.min(520, workArea.height - 80));
+    const wideWidth = Math.max(
+      narrowWidth,
+      Math.min(840, workArea.width - 80, narrowWidth + 260)
+    );
+    const wideHeight = Math.max(
+      narrowHeight,
+      Math.min(740, workArea.height - 80, narrowHeight + 220)
+    );
+    const sourceSized = await controlWindow(WINDOW_A, {
+      action: "moveResize",
+      height: wideHeight,
+      scaleFactor: liveA.native.scaleFactor,
+      width: wideWidth,
+      x: (workArea.x ?? 0) + 24,
+      y: (workArea.y ?? 0) + 24
+    });
+    if ("submitted" in sourceSized) {
+      throw new Error("The source Game Window resize did not return native state");
+    }
+    const targetSized = await controlWindow(detached.windowId, {
+      action: "moveResize",
+      height: narrowHeight,
+      scaleFactor: detachedWindow.native.scaleFactor,
+      width: narrowWidth,
+      x: (workArea.x ?? 0) + Math.max(24, workArea.width - narrowWidth - 24),
+      y: (workArea.y ?? 0) + Math.max(24, workArea.height - narrowHeight - 24)
+    });
+    if ("submitted" in targetSized) {
+      throw new Error("The detached Game Window resize did not return native state");
+    }
+
+    liveA = await dragVisibleGameWindow(sourceSized, 36, 24);
+    detachedWindow = await windowSnapshot(detached.windowId);
+    expectRoleSurfaceViewportsFitControllers(liveA);
+    expectSingleRoleSurfaceFitsClient(detachedWindow, detachedRoleTab.sourceId);
+
+    detachedWindow = await dragVisibleGameWindow(targetSized, -36, -24);
+    liveA = await windowSnapshot(WINDOW_A);
+    expectRoleSurfaceViewportsFitControllers(liveA);
+    expectSingleRoleSurfaceFitsClient(detachedWindow, detachedRoleTab.sourceId);
+
+    const geometryEvents = await readTranscriptEvents(
+      geometryControl.transcriptPath,
+      geometryControl.latestSequence
+    );
+    const windowsUnderTest = new Set([WINDOW_A, detached.windowId]);
+    const failedReceipts = geometryEvents.filter((event) =>
+      event.kind === "windows-geometry-receipt"
+        && event.windowId !== undefined
+        && windowsUnderTest.has(event.windowId)
+        && (event.details as { status?: unknown }).status === "failed"
+    );
+    expect(failedReceipts).toEqual([]);
+  }
+
+  liveB = await windowSnapshot(WINDOW_B);
+  await tabMenuAction({
+    action: "move",
+    snapshot: detachedWindow,
+    tabId: detachedRoleTab.tabId,
+    target: liveB
+  });
+  await waitForActiveTabsReady();
+  const macroCursor = await startSharedMacro(scenario.macros[1]);
+  await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor);
   const liveBBeforeMinimize = await windowSnapshot(WINDOW_B);
   const roleSurfacesBeforeMinimize = liveBBeforeMinimize.native.roleSurfaces;
   if (process.platform === "win32") {
     expect(roleSurfacesBeforeMinimize?.length ?? 0).toBeGreaterThan(0);
     expect(roleSurfacesBeforeMinimize?.every((surface) => surface.documentViewport)).toBe(true);
-  }
-  const detachedBeforeMove = await windowSnapshot(detached.windowId);
-  const workArea = detachedBeforeMove.native.workArea;
-  const detachedBounds = detachedBeforeMove.target.bounds;
-  const movedDetached = await controlWindow(detached.windowId, {
-    action: "moveResize",
-    height: detachedBounds.height,
-    scaleFactor: detachedBeforeMove.native.scaleFactor,
-    width: detachedBounds.width,
-    x: (workArea.x ?? 0) + 64,
-    y: workArea.y ?? 0
-  });
-  if ("submitted" in movedDetached) {
-    throw new Error("Detached window placement did not return native state");
-  }
-  const restoredAAtSavedPlacement = await showSavedWindow(WINDOW_A);
-  const restoredA = await controlWindow(WINDOW_A, {
-    action: "moveResize",
-    height: restoredAAtSavedPlacement.target.bounds.height,
-    scaleFactor: restoredAAtSavedPlacement.native.scaleFactor,
-    width: restoredAAtSavedPlacement.target.bounds.width,
-    x: (workArea.x ?? 0) + Math.max(0, workArea.width - restoredAAtSavedPlacement.target.bounds.width - 64),
-    y: (workArea.y ?? 0) + Math.max(0, workArea.height - restoredAAtSavedPlacement.target.bounds.height - 64)
-  });
-  if ("submitted" in restoredA) throw new Error("Window A placement did not return native state");
-  const sourceOuter = movedDetached.native.outerBounds;
-  const destinationOuter = restoredA.native.outerBounds;
-  const sourceLeft = sourceOuter.x ?? 0;
-  const sourceTop = sourceOuter.y ?? 0;
-  const destinationLeft = destinationOuter.x ?? 0;
-  const destinationTop = destinationOuter.y ?? 0;
-  const windowsAreDisjoint =
-    sourceLeft >= destinationLeft + destinationOuter.width
-      || destinationLeft >= sourceLeft + sourceOuter.width
-      || sourceTop >= destinationTop + destinationOuter.height
-      || destinationTop >= sourceTop + sourceOuter.height;
-  const canSeparateAtRequestedAnchors =
-    workArea.width >= sourceOuter.width + destinationOuter.width + 128
-      || workArea.height >= sourceOuter.height + destinationOuter.height + 64;
-  if (canSeparateAtRequestedAnchors) {
-    expect(windowsAreDisjoint).toBe(true);
-  } else {
-    // Hosted macOS uses a 1024x677 work area, which cannot contain two runtime windows at their
-    // native minimum size without overlap. Keep them on opposite horizontal anchors; the exact
-    // foreground event fence below makes the source authoritative before the visible menu gesture.
-    expect(destinationLeft).toBeGreaterThan(sourceLeft);
+    expectRoleSurfaceViewportsFitControllers(liveBBeforeMinimize);
   }
   if (process.platform === "win32") {
     const focusCursor = (await probe()).latestSequence;
@@ -984,64 +1058,6 @@ async function topologyForcePhase(): Promise<void> {
   expect(restoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
   if (process.platform === "win32") {
     expect(restoredB.native.roleSurfaces).toEqual(roleSurfacesBeforeMinimize);
-  }
-  const topologyMinimizeSubmitted = await submitWindowControl(restoredB, {
-    action: "minimize"
-  });
-  await waitEvent({
-    afterSequence: topologyMinimizeSubmitted.sequence,
-    kind: "window-minimized-observed",
-    minimumGeneration: restoredB.windowGeneration,
-    windowId: WINDOW_B
-  });
-  const topologyMinimizedB = await windowSnapshot(WINDOW_B);
-  expect(topologyMinimizedB.native.presentation).toBe("minimized");
-  const dashboardX = (workArea.x ?? 0) + Math.max(0, workArea.width - 960);
-  await browser.setWindowRect(Math.round(dashboardX), Math.round(workArea.y ?? 0), 960, 640);
-  try {
-    const focusCursor = (await probe()).latestSequence;
-    await controlWindow(detached.windowId, { action: "focus" });
-    await waitEvent({
-      afterSequence: focusCursor,
-      kind: "window-focus-acknowledged",
-      minimumGeneration: movedDetached.windowGeneration,
-      windowId: detached.windowId
-    });
-    // The WebDriver main-window rectangle and debug-only game-window geometry isolate the source
-    // from the Dashboard and other game windows. The tab move remains a real native menu gesture
-    // and still rejects obscured or stale tab identity at the point of input.
-    const detachedWindow = await windowSnapshot(detached.windowId);
-    await tabMenuAction({
-      action: "move",
-      snapshot: detachedWindow,
-      tabId: lastSourceTab,
-      target: restoredA
-    });
-    const topologyRestoreSubmitted = await submitWindowControl(topologyMinimizedB, {
-      action: "setPresentation",
-      presentation: liveBBeforeMinimize.target.presentation
-    });
-    if (requiresNativeDeminimizeFocusFence(process.platform)) {
-      await waitEvent({
-        afterSequence: topologyRestoreSubmitted.sequence,
-        kind: "window-focus-persisted",
-        minimumGeneration: topologyMinimizedB.windowGeneration,
-        windowId: WINDOW_B
-      });
-    }
-    const topologyRestoredB = await windowSnapshot(WINDOW_B);
-    expect(topologyRestoredB.native.presentation).toBe(liveBBeforeMinimize.native.presentation);
-    const positionedB = await controlWindow(WINDOW_B, {
-      action: "moveResize",
-      height: topologyRestoredB.target.bounds.height,
-      scaleFactor: topologyRestoredB.native.scaleFactor,
-      width: topologyRestoredB.target.bounds.width,
-      x: (workArea.x ?? 0) + 64,
-      y: workArea.y ?? 0
-    });
-    if ("submitted" in positionedB) throw new Error("Window B placement did not return native state");
-  } finally {
-    await browser.maximizeWindow();
   }
   await waitForActiveTabsReady();
 

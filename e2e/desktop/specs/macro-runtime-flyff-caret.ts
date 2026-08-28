@@ -39,6 +39,16 @@ export async function verifyFlyffCaretDiagnostics(input: {
     if (observed.isTrusted === true) break;
     keyUpCursor = observed.sequence;
   }
+  let genericKeyUpCursor = fixtureEventCursor;
+  for (;;) {
+    const observed = await waitFixtureEvent({
+      afterSequence: genericKeyUpCursor,
+      kind: "keyup",
+      roleId: fixtureRoleId
+    });
+    if (observed.code === "Enter" && observed.isTrusted === true) break;
+    genericKeyUpCursor = observed.sequence;
+  }
   const events = await fixtureEvents({
     afterSequence: fixtureEventCursor,
     roleId: fixtureRoleId

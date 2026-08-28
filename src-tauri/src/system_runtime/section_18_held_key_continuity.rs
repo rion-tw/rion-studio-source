@@ -11,12 +11,51 @@ pub(crate) struct HeldKeyContinuityReceipt {
     surface_generation: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeldKeyContinuitySource {
+    NativeFocus,
+    PageObservation,
+}
+
 impl SystemRuntimeExecutor {
     pub(crate) fn restore_held_keys_after_input_context_loss(
         &self,
         role_id: &str,
         loss_reason: &str,
         loss_revision: u64,
+    ) -> RuntimeResult<HeldKeyContinuityReceipt> {
+        self.restore_held_keys_after_input_context_loss_inner(
+            role_id,
+            loss_reason,
+            loss_revision,
+            None,
+            HeldKeyContinuitySource::PageObservation,
+        )
+    }
+
+    #[cfg(windows)]
+    fn restore_held_keys_after_native_focus_loss(
+        &self,
+        role_id: &str,
+        loss_revision: u64,
+        surface_generation: u64,
+    ) -> RuntimeResult<HeldKeyContinuityReceipt> {
+        self.restore_held_keys_after_input_context_loss_inner(
+            role_id,
+            "blur",
+            loss_revision,
+            Some(surface_generation),
+            HeldKeyContinuitySource::NativeFocus,
+        )
+    }
+
+    fn restore_held_keys_after_input_context_loss_inner(
+        &self,
+        role_id: &str,
+        loss_reason: &str,
+        loss_revision: u64,
+        expected_surface_generation: Option<u64>,
+        source: HeldKeyContinuitySource,
     ) -> RuntimeResult<HeldKeyContinuityReceipt> {
         let started = Instant::now();
         let presentation_revision = self.presentation.current_revision();
@@ -62,10 +101,26 @@ impl SystemRuntimeExecutor {
             self.record_held_key_continuity_result(started, &receipt, None);
             return Ok(receipt);
         }
+        if expected_surface_generation
+            .is_some_and(|generation| generation != context.surface_generation)
+        {
+            let receipt = held_key_continuity_receipt(
+                role_id,
+                loss_reason,
+                loss_revision,
+                presentation_revision,
+                Some((context.input_epoch, context.surface_generation)),
+                0,
+                "superseded",
+            );
+            self.record_held_key_continuity_result(started, &receipt, None);
+            return Ok(receipt);
+        }
         let result = self.with_input_context_lane(&context, || {
             if !held_key_continuity_should_reassert(
                 loss_reason,
                 self.held_key_continuity_tab_selected(role_id),
+                source,
             ) {
                 return Ok(None);
             }
@@ -112,6 +167,84 @@ impl SystemRuntimeExecutor {
         }
         self.record_held_key_continuity_result(started, &receipt, result.as_ref().err());
         result.map(|_| receipt)
+    }
+
+    fn install_role_held_key_continuity_tracker(
+        &self,
+        webview: &Webview,
+        role_id: &str,
+        surface_generation: u64,
+    ) -> RuntimeResult<()> {
+        #[cfg(windows)]
+        {
+            use webview2_com::FocusChangedEventHandler;
+
+            let runtime = self.self_weak.get().cloned().ok_or_else(|| {
+                RuntimeError::new(
+                    "SYSTEM_ROLE_FOCUS_CONTINUITY_UNAVAILABLE",
+                    "The runtime focus-continuity owner was unavailable.",
+                )
+            })?;
+            let role_id = role_id.to_owned();
+            let webview_label = webview.label().to_owned();
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            webview
+                .with_webview(move |platform_webview| unsafe {
+                    let handler = FocusChangedEventHandler::create(Box::new(move |_controller, _| {
+                        let Some(runtime) = runtime.upgrade() else {
+                            return Ok(());
+                        };
+                        let loss_revision = runtime
+                            .held_key_continuity_revision
+                            .fetch_add(1, Ordering::AcqRel)
+                            .saturating_add(1);
+                        let role_id = role_id.clone();
+                        let webview_label = webview_label.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let window_id = runtime.window_id_for_webview(&webview_label);
+                            let result = runtime.restore_held_keys_after_native_focus_loss(
+                                &role_id,
+                                loss_revision,
+                                surface_generation,
+                            );
+                            #[cfg(feature = "desktop-e2e")]
+                            record_desktop_e2e_held_key_continuity(
+                                window_id.as_deref(),
+                                &role_id,
+                                "blur",
+                                loss_revision,
+                                &result,
+                            );
+                            #[cfg(not(feature = "desktop-e2e"))]
+                            let _ = (&window_id, &result);
+                        });
+                        Ok(())
+                    }));
+                    let mut token = 0;
+                    let result = platform_webview
+                        .controller()
+                        .add_LostFocus(&handler, &mut token)
+                        .map_err(|error| error.to_string());
+                    let _ = sender.send(result);
+                })
+                .map_err(RuntimeError::tauri)?;
+            receiver
+                .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
+                .map_err(|_| {
+                    RuntimeError::new(
+                        "SYSTEM_ROLE_FOCUS_CONTINUITY_TIMEOUT",
+                        "WebView2 focus-continuity setup timed out.",
+                    )
+                })?
+                .map_err(|message| {
+                    RuntimeError::new("SYSTEM_ROLE_FOCUS_CONTINUITY_SETUP_FAILED", message)
+                })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (webview, role_id, surface_generation);
+            Ok(())
+        }
     }
 
     fn held_key_continuity_tab_selected(&self, role_id: &str) -> Option<bool> {
@@ -217,8 +350,15 @@ fn held_key_continuity_is_superseded(error: &RuntimeError) -> bool {
     )
 }
 
-fn held_key_continuity_should_reassert(loss_reason: &str, tab_selected: Option<bool>) -> bool {
-    loss_reason != "blur" || tab_selected != Some(false)
+fn held_key_continuity_should_reassert(
+    loss_reason: &str,
+    tab_selected: Option<bool>,
+    source: HeldKeyContinuitySource,
+) -> bool {
+    if loss_reason != "blur" {
+        return true;
+    }
+    source == HeldKeyContinuitySource::NativeFocus && tab_selected != Some(false)
 }
 
 #[cfg(feature = "desktop-e2e")]

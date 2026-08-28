@@ -29,6 +29,8 @@ pub struct SystemRuntimeExecutor {
     pub(super) main_window_actor: Arc<MainWindowActor>,
     pub(super) application_lifecycle: Arc<ApplicationLifecycleCoordinator>,
     pub(super) input_dispatch_lanes: Mutex<HashMap<String, Arc<RoleInputDispatchLane>>>,
+    #[cfg(windows)]
+    pub(super) held_key_continuity_revision: AtomicU64,
     pub(super) macro_badge_timing: Mutex<MacroBadgeTimingTracker>,
     pub(super) macro_key_observations: Mutex<HashMap<String, PendingMacroKeyObservation>>,
     pub(super) input_readiness: InputReadinessRegistry,

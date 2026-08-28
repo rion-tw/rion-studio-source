@@ -270,6 +270,11 @@ impl SystemRuntimeExecutor {
             navigation,
         )
         .and_then(|lifecycle| {
+            self.install_role_held_key_continuity_tracker(webview, role_id, generation)
+                .map_err(|error| RoleSurfaceSetupFailure {
+                    error,
+                    lifecycle: Some(Arc::clone(&lifecycle)),
+                })?;
             self.restore_role_cookie_checkpoint(webview, role_id)
                 .map_err(|error| RoleSurfaceSetupFailure {
                     error,

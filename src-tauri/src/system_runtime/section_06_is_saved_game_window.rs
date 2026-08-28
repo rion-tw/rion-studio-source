@@ -167,6 +167,8 @@ impl SystemRuntimeExecutor {
             main_window_actor,
             application_lifecycle,
             input_dispatch_lanes: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            held_key_continuity_revision: AtomicU64::new(0),
             macro_badge_timing: Mutex::new(MacroBadgeTimingTracker::default()),
             macro_key_observations: Mutex::new(HashMap::new()),
             input_readiness: InputReadinessRegistry::new(),

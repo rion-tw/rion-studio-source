@@ -611,7 +611,7 @@
     void refresh();
   }
 
-  function requestHeldKeyContinuity(reason, shortcutRelease) {
+  function requestHeldKeyContinuity(reason, cleanupInputContext) {
     const revision = ++inputContextLossRevision;
     let nativeReceipt = Promise.resolve();
     if (!isDisposed && typeof binding.inputContextLost === "function") {
@@ -622,6 +622,12 @@
       } catch (error) {
         nativeReceipt = Promise.reject(error);
       }
+    }
+    let shortcutRelease = Promise.resolve();
+    try {
+      shortcutRelease = Promise.resolve(cleanupInputContext());
+    } catch (error) {
+      shortcutRelease = Promise.reject(error);
     }
     // EventBound: local shortcut cleanup and the authenticated native receipt both
     // terminalize this page-owned observation directly.
@@ -634,14 +640,29 @@
       });
   }
 
-  function handleBlur(event) {
+  function cleanupInputContext() {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
     releasePhysicalGameKeys();
     const shortcutRelease = releaseActiveHeldShortcuts();
-    if (event?.type === "blur") requestHeldKeyContinuity("blur", shortcutRelease);
     destroyCoordinateMeasurement();
+    return shortcutRelease;
+  }
+
+  function handleCapturedBlur(event) {
+    // Capture is needed for focus transfers from a game canvas into an in-page
+    // text editor. Top-level WebView focus loss is owned by handleWindowBlur.
+    if (event.target === window) return;
+    void cleanupInputContext();
+  }
+
+  function handleWindowBlur() {
+    requestHeldKeyContinuity("blur", cleanupInputContext);
+  }
+
+  function handlePageHide() {
+    void cleanupInputContext();
   }
 
   function handleVisibilityChange() {
@@ -682,8 +703,9 @@
     window.removeEventListener("auxclick", handleMiddleButtonAuxClick, true);
     window.removeEventListener("wheel", handleGameWheel, true);
     window.removeEventListener("focus", handleFocus, true);
-    window.removeEventListener("blur", handleBlur, true);
-    window.removeEventListener("pagehide", handleBlur, true);
+    window.removeEventListener("blur", handleCapturedBlur, true);
+    window.removeEventListener("blur", handleWindowBlur);
+    window.removeEventListener("pagehide", handlePageHide, true);
     window.removeEventListener("resize", handleOverlayViewportResize, true);
     window.visualViewport?.removeEventListener("resize", handleOverlayViewportResize);
     window.removeEventListener("pointerdown", handleGameSurfacePointerDown, true);
@@ -736,8 +758,12 @@
     window.addEventListener("auxclick", handleMiddleButtonAuxClick, true);
     window.addEventListener("wheel", handleGameWheel, { capture: true, passive: false });
     window.addEventListener("focus", handleFocus, true);
-    window.addEventListener("blur", handleBlur, true);
-    window.addEventListener("pagehide", handleBlur, true);
+    window.addEventListener("blur", handleCapturedBlur, true);
+    // WebView2 delivers top-level controller focus loss only to the at-target
+    // listener path. Keep it separate from descendant blur capture so a held-key
+    // continuity request is submitted once and before local cleanup.
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("pagehide", handlePageHide, true);
     window.addEventListener("resize", handleOverlayViewportResize, true);
     window.visualViewport?.addEventListener("resize", handleOverlayViewportResize);
     window.addEventListener("pointerdown", handleGameSurfacePointerDown, true);

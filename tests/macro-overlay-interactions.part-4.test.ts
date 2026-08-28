@@ -1075,6 +1075,7 @@ describe("macro overlay native key guard", () => {
 
   it("submits blur continuity before a hidden WebView can suspend microtasks", async () => {
     const order: string[] = [];
+    const listenerRegistrations = vi.spyOn(window, "addEventListener");
     const inputContextLost = vi.fn(async (request: { reason: string; revision: number }) => {
       order.push(`native:${request.reason}:${request.revision}`);
       return { status: "reasserted" };
@@ -1084,6 +1085,8 @@ describe("macro overlay native key guard", () => {
       { inputContextLost }
     );
     const controller = installOverlay(binding);
+    expect(listenerRegistrations).toHaveBeenCalledWith("blur", expect.any(Function));
+    listenerRegistrations.mockRestore();
     window.addEventListener("blur", () => order.push("page:blur"), { once: true });
 
     window.dispatchEvent(new Event("blur"));

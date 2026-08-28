@@ -3,8 +3,18 @@ import { requireEnvironment } from "./control";
 export interface FixtureEvent {
   button?: number;
   buttons?: number;
+  caret?: {
+    activeElementId: string | null;
+    requestedEnd: number | null;
+    requestedStart: number | null;
+    selectionEnd: number | null;
+    selectionStart: number | null;
+    textEditInvocation: number;
+    valueLength: number;
+  };
   code?: string;
   coordinates?: { x: number; y: number };
+  defaultPrevented?: boolean;
   hidden?: boolean;
   isTrusted?: boolean;
   key?: string;
@@ -18,6 +28,7 @@ export interface FixtureEvent {
     viewport: { height: number; width: number };
   };
   modifiers?: { alt: boolean; control: boolean; meta: boolean; shift: boolean };
+  repeat?: boolean;
   roleId: string;
   sequence: number;
   session?: {

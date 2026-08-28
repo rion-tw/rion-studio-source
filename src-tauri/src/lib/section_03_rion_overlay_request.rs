@@ -20,6 +20,42 @@ async fn rion_overlay_request(
             "The overlay request exceeds the allowed size.",
         ));
     }
+    if payload.get("type").and_then(Value::as_str) == Some("flyff-caret-diagnostic") {
+        let diagnostic = parse_flyff_caret_diagnostic(&payload)?;
+        let url = webview
+            .url()
+            .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()))?;
+        if url.host_str() != Some("universe.flyff.com") || !url.path().starts_with("/play") {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_UNAUTHORIZED",
+                "Flyff caret diagnostics are restricted to the Flyff Universe play page.",
+            ));
+        }
+        let context = diagnostic.context(&role_id, webview.label());
+        #[cfg(feature = "desktop-e2e")]
+        desktop_e2e::record_event(
+            "flyff-caret-diagnostic",
+            state.runtime.window_id_for_webview(webview.label()).as_deref(),
+            None,
+            None,
+            context.clone(),
+        );
+        Arc::clone(&state.core)
+            .invoke_async(CoreCommand::LogsCapture {
+                entries: vec![LogCaptureRecord {
+                    level: LogLevel::Debug,
+                    source: LogSource::Browser,
+                    event: "input.flyff-caret-diagnostic".to_owned(),
+                    message: "Flyff chat caret state changed during an Enter text-edit sequence."
+                        .to_owned(),
+                    context_raw_json: serde_json::to_string(&context).ok(),
+                    error: None,
+                }],
+            })
+            .await
+            .map_err(error_payload)?;
+        return Ok(Value::Null);
+    }
     if payload.get("type").and_then(Value::as_str) == Some("macro-shortcut-lifecycle") {
         let lifecycle = parse_macro_shortcut_lifecycle(&payload)?;
         #[cfg(feature = "desktop-e2e")]
@@ -183,6 +219,113 @@ async fn rion_overlay_request(
         })
         .await
         .map_err(error_payload)
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FlyffCaretDiagnosticRequest {
+    active_element: Option<String>,
+    code: Option<String>,
+    default_prevented: Option<bool>,
+    event: String,
+    is_trusted: Option<bool>,
+    repeat: Option<bool>,
+    requested_end: Option<u32>,
+    requested_start: Option<u32>,
+    selection_end: Option<u32>,
+    selection_start: Option<u32>,
+    sequence: u32,
+    text_edit_invocation: u32,
+    #[serde(rename = "type")]
+    request_type: String,
+    value_length: u32,
+}
+
+impl FlyffCaretDiagnosticRequest {
+    fn validate(&self) -> Result<(), CoreErrorPayload> {
+        if self.request_type != "flyff-caret-diagnostic"
+            || !matches!(
+                self.event.as_str(),
+                "keydown"
+                    | "keyup"
+                    | "focusin"
+                    | "set-selection-before"
+                    | "set-selection-after"
+                    | "focus-before"
+                    | "focus-after"
+            )
+            || self.sequence == 0
+            || self.sequence > 256
+            || self.text_edit_invocation > 256
+            || self.value_length > 4_096
+            || self
+                .active_element
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "text_input" | "canvas" | "other"))
+            || self
+                .code
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "Enter" | "NumpadEnter"))
+        {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_INVALID",
+                "The Flyff caret diagnostic payload is invalid.",
+            ));
+        }
+        let indices = [
+            self.requested_end,
+            self.requested_start,
+            self.selection_end,
+            self.selection_start,
+        ];
+        if indices.into_iter().flatten().any(|value| value > 4_096)
+            || [self.selection_end, self.selection_start]
+                .into_iter()
+                .flatten()
+                .any(|value| value > self.value_length)
+        {
+            return Err(shell_error(
+                "OVERLAY_REQUEST_INVALID",
+                "The Flyff caret diagnostic selection is invalid.",
+            ));
+        }
+        Ok(())
+    }
+
+    fn context(&self, role_id: &str, webview_label: &str) -> Value {
+        json!({
+            "activeElement": self.active_element,
+            "code": self.code,
+            "defaultPrevented": self.default_prevented,
+            "event": self.event,
+            "isTrusted": self.is_trusted,
+            "repeat": self.repeat,
+            "requestedEnd": self.requested_end,
+            "requestedStart": self.requested_start,
+            "roleId": role_id,
+            "selectionEnd": self.selection_end,
+            "selectionStart": self.selection_start,
+            "sequence": self.sequence,
+            "textEditInvocation": self.text_edit_invocation,
+            "valueLength": self.value_length,
+            "webviewLabel": webview_label,
+        })
+    }
+}
+
+fn parse_flyff_caret_diagnostic(
+    payload: &Value,
+) -> Result<FlyffCaretDiagnosticRequest, CoreErrorPayload> {
+    if payload.as_object().map(|object| object.len()) != Some(14) {
+        return Err(shell_error(
+            "OVERLAY_REQUEST_INVALID",
+            "The Flyff caret diagnostic payload contains unsupported fields.",
+        ));
+    }
+    let request = serde_json::from_value::<FlyffCaretDiagnosticRequest>(payload.clone())
+        .map_err(|error| shell_error("OVERLAY_REQUEST_INVALID", error.to_string()))?;
+    request.validate()?;
+    Ok(request)
 }
 
 fn parse_macro_shortcut_lifecycle(

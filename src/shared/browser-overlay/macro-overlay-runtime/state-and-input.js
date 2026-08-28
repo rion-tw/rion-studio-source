@@ -1,7 +1,7 @@
 (() => {
   const hostId = "rion-studio-macro-overlay-v61";
   const controllerKey = "__rionStudioMacroOverlay";
-  const scriptVersion = "2026-08-27.1";
+  const scriptVersion = "2026-08-28.1";
   const shouldIgnoreShortcutEvent = "__RION_STUDIO_MACRO_OVERLAY_SHORTCUT_GUARD__";
   const isTrustedUserEvent = "__RION_STUDIO_MACRO_OVERLAY_TRUSTED_EVENT_GUARD__";
   const overlayCss = "__RION_STUDIO_MACRO_OVERLAY_CSS__";
@@ -156,6 +156,7 @@
   let gameInputContextActive = false;
   let gameInputContextRevision = 0;
   let gameInputContextTarget = null;
+  let flyffCaretDiagnosticCleanup = null;
   let host = null;
   let isDisposed = false;
   let isInstalled = false;
@@ -275,6 +276,144 @@
     Promise.resolve().then(() => {
       if (!isDisposed) refreshGameInputContext();
     });
+  }
+
+  function installFlyffCaretDiagnostics() {
+    if (
+      location.hostname !== "universe.flyff.com"
+      || !location.pathname.startsWith("/play")
+    ) {
+      return null;
+    }
+    const maxEvents = 256;
+    const instrumentedInputs = new WeakSet();
+    const wrappedMethods = [];
+    let currentEnterEvent = null;
+    let eventCount = 0;
+    let sequence = 0;
+    let textEditInvocation = 0;
+    const textInput = () => {
+      const candidate = document.querySelector("#text_input");
+      return candidate instanceof HTMLInputElement ? candidate : null;
+    };
+    const activeElementKind = () => {
+      if (document.activeElement?.id === "text_input") return "text_input";
+      if (isCanvas(document.activeElement)) return "canvas";
+      return document.activeElement ? "other" : null;
+    };
+    const diagnosticIndex = (value) => Number.isSafeInteger(value) && value >= 0
+      ? value
+      : null;
+    const report = (eventName, event = null, requestedStart = null, requestedEnd = null) => {
+      if (eventCount >= maxEvents) return;
+      const input = textInput();
+      eventCount += 1;
+      sequence += 1;
+      void Promise.resolve(binding({
+        type: "flyff-caret-diagnostic",
+        activeElement: activeElementKind(),
+        code: typeof event?.code === "string" ? event.code : null,
+        defaultPrevented: typeof event?.defaultPrevented === "boolean"
+          ? event.defaultPrevented
+          : null,
+        event: eventName,
+        isTrusted: typeof event?.isTrusted === "boolean" ? event.isTrusted : null,
+        repeat: typeof event?.repeat === "boolean" ? event.repeat : null,
+        requestedEnd: diagnosticIndex(requestedEnd),
+        requestedStart: diagnosticIndex(requestedStart),
+        selectionEnd: diagnosticIndex(input?.selectionEnd),
+        selectionStart: diagnosticIndex(input?.selectionStart),
+        sequence,
+        textEditInvocation,
+        valueLength: input?.value.length ?? 0
+      })).catch(() => undefined);
+    };
+    const wrapMethod = (input, name, createWrapper) => {
+      const original = input[name];
+      if (typeof original !== "function") return;
+      const ownDescriptor = Object.getOwnPropertyDescriptor(input, name);
+      const wrapper = createWrapper(original);
+      try {
+        Object.defineProperty(input, name, {
+          configurable: true,
+          value: wrapper,
+          writable: true
+        });
+        wrappedMethods.push({ input, name, ownDescriptor, wrapper });
+      } catch {
+        // A page-owned non-extensible input still receives event-only diagnostics.
+      }
+    };
+    const instrumentInput = (input) => {
+      if (!(input instanceof HTMLInputElement) || input.id !== "text_input") return;
+      if (instrumentedInputs.has(input)) return;
+      instrumentedInputs.add(input);
+      wrapMethod(input, "setSelectionRange", (original) => function(...args) {
+        const [start, end] = args;
+        textEditInvocation += 1;
+        report("set-selection-before", currentEnterEvent, start, end);
+        try {
+          return Reflect.apply(original, this, args);
+        } finally {
+          report("set-selection-after", currentEnterEvent, start, end);
+        }
+      });
+      wrapMethod(input, "focus", (original) => function(...args) {
+        report("focus-before", currentEnterEvent);
+        try {
+          return Reflect.apply(original, this, args);
+        } finally {
+          report("focus-after", currentEnterEvent);
+        }
+      });
+    };
+    const instrumentTree = (rootNode) => {
+      if (rootNode instanceof HTMLInputElement) instrumentInput(rootNode);
+      if (!(rootNode instanceof Element || rootNode instanceof Document)) return;
+      rootNode.querySelectorAll("#text_input").forEach(instrumentInput);
+    };
+    const handleMutations = (mutations) => {
+      for (const mutation of mutations) {
+        mutation.addedNodes.forEach(instrumentTree);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
+      currentEnterEvent = event;
+      report("keydown", event);
+      Promise.resolve().then(() => {
+        if (currentEnterEvent === event) currentEnterEvent = null;
+      });
+    };
+    const handleKeyUp = (event) => {
+      if (event.code === "Enter" || event.code === "NumpadEnter") {
+        report("keyup", event);
+      }
+    };
+    const handleFocusIn = (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.id === "text_input") {
+        report("focusin", event);
+      }
+    };
+    const observer = new MutationObserver(handleMutations);
+    instrumentTree(document);
+    if (document.documentElement) {
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    document.addEventListener("focusin", handleFocusIn, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      document.removeEventListener("focusin", handleFocusIn, true);
+      for (const { input, name, ownDescriptor, wrapper } of wrappedMethods) {
+        if (input[name] !== wrapper) continue;
+        if (ownDescriptor) Object.defineProperty(input, name, ownDescriptor);
+        else delete input[name];
+      }
+    };
   }
 
   function handleGameSurfacePointerDown(event) {

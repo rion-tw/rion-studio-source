@@ -515,6 +515,10 @@
             windows_application_shortcut_command(0x7A, false, true, false, false, false),
             None
         );
+        assert_eq!(
+            windows_application_shortcut_command(0x0D, false, false, false, false, false),
+            None
+        );
         assert!(windows_quick_access_shortcut(
             0x4B, true, false, false, false, false
         ));

@@ -729,6 +729,47 @@ use super::*;
     }
 
     #[test]
+    fn flyff_caret_diagnostics_accept_only_bounded_content_free_metadata() {
+        let valid = json!({
+            "activeElement": "text_input",
+            "code": "Enter",
+            "defaultPrevented": false,
+            "event": "focus-after",
+            "isTrusted": true,
+            "repeat": false,
+            "requestedEnd": null,
+            "requestedStart": null,
+            "selectionEnd": 4,
+            "selectionStart": 4,
+            "sequence": 7,
+            "textEditInvocation": 1,
+            "type": "flyff-caret-diagnostic",
+            "valueLength": 4
+        });
+        let diagnostic = parse_flyff_caret_diagnostic(&valid).unwrap();
+        assert_eq!(diagnostic.event, "focus-after");
+        assert_eq!(diagnostic.selection_start, Some(4));
+        let context = diagnostic.context("role-a", "role-webview-a");
+        assert_eq!(context.get("valueLength"), Some(&json!(4)));
+        assert!(context.get("value").is_none());
+
+        let mut extra = valid.clone();
+        extra["chatText"] = json!("must-not-be-accepted");
+        let mut too_many = valid.clone();
+        too_many["sequence"] = json!(257);
+        let mut invalid_selection = valid.clone();
+        invalid_selection["selectionStart"] = json!(5);
+        let mut invalid_code = valid;
+        invalid_code["code"] = json!("KeyA");
+        for payload in [extra, too_many, invalid_selection, invalid_code] {
+            assert_eq!(
+                parse_flyff_caret_diagnostic(&payload).unwrap_err().code,
+                "OVERLAY_REQUEST_INVALID"
+            );
+        }
+    }
+
+    #[test]
     fn managed_shortcut_requests_validate_identity_phase_and_modifier_sides() {
         ManagedShortcutKeyPhaseRequest {
             press_id: "press-1".to_owned(),

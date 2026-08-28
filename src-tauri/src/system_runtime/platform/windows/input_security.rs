@@ -578,6 +578,34 @@ fn install_windows_application_shortcut_handler(
                         physical_status.WasKeyDown.as_bool(),
                     );
                     let Some(command) = command else {
+                        #[cfg(feature = "desktop-e2e")]
+                        if virtual_key == 0x0D
+                            && let WindowsApplicationShortcutTarget::RoleWebview(
+                                webview_label,
+                            ) = &shortcut_target
+                        {
+                            crate::desktop_e2e::record_event(
+                                "windows-webview-accelerator-observed",
+                                None,
+                                None,
+                                None,
+                                json!({
+                                    "handled": false,
+                                    "isExtendedKey": physical_status.IsExtendedKey.as_bool(),
+                                    "modifiers": {
+                                        "alt": alt,
+                                        "control": control,
+                                        "meta": meta,
+                                        "shift": shift,
+                                    },
+                                    "repeatCount": physical_status.RepeatCount,
+                                    "scanCode": physical_status.ScanCode,
+                                    "virtualKey": virtual_key,
+                                    "wasKeyDown": physical_status.WasKeyDown.as_bool(),
+                                    "webviewLabel": webview_label,
+                                }),
+                            );
+                        }
                         return Ok(());
                     };
                     args.SetHandled(true)?;

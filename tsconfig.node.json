@@ -6,6 +6,7 @@
   },
   "include": [
     "e2e/desktop/support/platform.ts",
+    "e2e/desktop/support/flyff-caret.ts",
     "e2e/desktop/support/transcript.ts",
     "e2e/desktop/support/window-target.ts",
     "vitest.config.ts",

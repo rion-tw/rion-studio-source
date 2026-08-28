@@ -30,6 +30,14 @@ async function latestMatchingEvent(
   return undefined;
 }
 
+export async function readTranscriptEvents(
+  path: string,
+  afterSequence = 0
+): Promise<DesktopE2eEvent[]> {
+  const source = await readFile(path, "utf8").catch(() => "");
+  return parseEvents(source).filter((event) => event.sequence > afterSequence);
+}
+
 export async function waitForTranscriptEvent(
   path: string,
   predicate: (event: DesktopE2eEvent) => boolean,

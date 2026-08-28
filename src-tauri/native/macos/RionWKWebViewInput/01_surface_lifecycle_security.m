@@ -1110,7 +1110,9 @@ bool rion_wk_role_zoom_shortcut_self_test(void) {
       !RionRoleZoomActionForKeyCode(29, command | NSEventModifierFlagShift, NO) &&
       !RionRoleZoomActionForKeyCode(69, command | NSEventModifierFlagShift, NO) &&
       !RionRoleZoomActionForKeyCode(27, command | NSEventModifierFlagControl, NO) &&
-      !RionRoleZoomActionForKeyCode(24, NSEventModifierFlagControl, NO);
+      !RionRoleZoomActionForKeyCode(24, NSEventModifierFlagControl, NO) &&
+      !RionRoleZoomActionForKeyCode(36, 0, NO) &&
+      !RionRoleZoomActionForKeyCode(76, NSEventModifierFlagNumericPad, NO);
 }
 
 bool rion_wk_window_content_layout_metrics(void *rawWindow, double *width,

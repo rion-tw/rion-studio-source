@@ -43,6 +43,7 @@ import {
   waitManagedShortcutReceipt,
   waitShortcutLifecycle
 } from "./macro-runtime-keyboard-helpers";
+import { verifyFlyffCaretDiagnostics } from "./macro-runtime-flyff-caret";
 import { middleButtonPhase } from "./macro-runtime-middle-button";
 
 // [journey:MACRO-NATIVE-EFFECT-003]
@@ -890,6 +891,12 @@ async function keyboardLifecyclePhase(): Promise<void> {
       afterSequence: focusCursor,
       kind: "focus",
       roleId: "macro-keyboard-a"
+    });
+
+    await verifyFlyffCaretDiagnostics({
+      live,
+      role: scenario.roles[0],
+      tab: tabA
     });
 
     const shortcutFixtureCursor = await fixtureCursor();

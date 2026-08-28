@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { JSDOM } from "jsdom";
 import { readSourceTreeSync as readFileSync } from "./helpers/readSourceTree";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -374,6 +375,149 @@ it("preserves Flyff text input focus and ignores keyboard events forwarded to th
     expect(forwardedEvents.every((event) => !event.defaultPrevented)).toBe(true);
     expect(canvasKeyDown).toHaveBeenCalledTimes(inputs.length);
     expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
+  });
+
+it("preserves the Flyff caret when unbound Enter starts text editing from the canvas", async () => {
+    const { canvas } = createGameSurface(document);
+    canvas.tabIndex = 0;
+    const input = document.createElement("input");
+    input.id = "text_input";
+    input.type = "text";
+    input.value = "seed";
+    input.hidden = true;
+    document.body.append(input);
+    const binding = vi.fn(async () => ({ macros: [assignedMacro], statuses: [] }));
+    const controller = installOverlay(window, binding);
+    await controller.refresh();
+    const eventOrder: string[] = [];
+    const setSelectionRange = vi.spyOn(input, "setSelectionRange");
+    input.addEventListener("focusin", () => eventOrder.push("focusin"));
+    const canvasKeyDown = vi.fn((event: KeyboardEvent) => {
+      eventOrder.push("keydown");
+      if (event.code !== "Enter") return;
+      input.hidden = false;
+      input.value = "seed";
+      input.setSelectionRange(input.value.length, input.value.length);
+      eventOrder.push("selection");
+      input.focus();
+      eventOrder.push("focus-returned");
+    });
+    canvas.addEventListener("keydown", canvasKeyDown);
+    const canvasKeyUp = vi.fn();
+    canvas.addEventListener("keyup", canvasKeyUp);
+    input.addEventListener("keyup", () => eventOrder.push("keyup"));
+    canvas.focus();
+
+    const keyDown = new window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Enter",
+      key: "Enter"
+    });
+    expect(canvas.dispatchEvent(keyDown)).toBe(true);
+    const keyUp = new window.KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "Enter",
+      key: "Enter"
+    });
+    expect(input.dispatchEvent(keyUp)).toBe(true);
+    await Promise.resolve();
+
+    expect(keyDown.defaultPrevented).toBe(false);
+    expect(keyUp.defaultPrevented).toBe(false);
+    expect(canvasKeyDown).toHaveBeenCalledOnce();
+    expect(canvasKeyUp).toHaveBeenCalledOnce();
+    expect((canvasKeyUp.mock.calls[0]?.[0] as KeyboardEvent).isTrusted).toBe(false);
+    expect(setSelectionRange).toHaveBeenCalledOnce();
+    expect(setSelectionRange).toHaveBeenCalledWith(4, 4);
+    expect(eventOrder).toEqual([
+      "keydown",
+      "selection",
+      "focusin",
+      "focus-returned",
+      "keyup"
+    ]);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe("seed");
+    expect([input.selectionStart, input.selectionEnd]).toEqual([4, 4]);
+    expect(binding).not.toHaveBeenCalledWith({ type: "toggle", macroId: assignedMacro.id });
+  });
+
+it("records bounded content-free Flyff caret diagnostics in event order", async () => {
+    const dom = new JSDOM(
+      "<!doctype html><html><body><canvas id='game'></canvas><input id='text_input' value='seed'></body></html>",
+      { runScripts: "outside-only", url: "https://universe.flyff.com/play" }
+    );
+    const targetWindow = dom.window as unknown as Window;
+    const targetDocument = targetWindow.document;
+    const canvas = targetDocument.querySelector("canvas")!;
+    const input = targetDocument.querySelector<HTMLInputElement>("#text_input")!;
+    const binding = vi.fn(async (_request: unknown) => ({ macros: [], statuses: [] }));
+    const controller = installOverlay(targetWindow, binding);
+    const KeyboardEventConstructor = (targetWindow as unknown as {
+      KeyboardEvent: typeof KeyboardEvent;
+    }).KeyboardEvent;
+    canvas.addEventListener("keydown", (event) => {
+      if (event.code !== "Enter") return;
+      input.value = "seed";
+      input.setSelectionRange(4, 4);
+      input.focus();
+    });
+    canvas.tabIndex = 0;
+    canvas.focus();
+
+    canvas.dispatchEvent(new KeyboardEventConstructor("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Enter",
+      key: "Enter"
+    }));
+    input.dispatchEvent(new KeyboardEventConstructor("keyup", {
+      bubbles: true,
+      cancelable: true,
+      code: "Enter",
+      key: "Enter"
+    }));
+    await vi.waitFor(() => expect(binding.mock.calls.filter(
+      ([request]) => isRecord(request) && request.type === "flyff-caret-diagnostic"
+    )).toHaveLength(8));
+
+    const diagnostics = binding.mock.calls
+      .map(([request]) => request)
+      .filter((request): request is Record<string, unknown> =>
+        isRecord(request) && request.type === "flyff-caret-diagnostic"
+      );
+    expect(diagnostics.map((request) => request.event)).toEqual([
+      "keydown",
+      "set-selection-before",
+      "set-selection-after",
+      "focus-before",
+      "keyup",
+      "focusin",
+      "focus-after",
+      "keyup"
+    ]);
+    expect(diagnostics.map((request) => request.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(diagnostics.find((request) => request.event === "set-selection-after"))
+      .toMatchObject({
+        requestedEnd: 4,
+        requestedStart: 4,
+        selectionEnd: 4,
+        selectionStart: 4,
+        textEditInvocation: 1,
+        valueLength: 4
+      });
+    expect(diagnostics.filter((request) => request.event === "keyup")).toEqual([
+      expect.objectContaining({ isTrusted: false }),
+      expect.objectContaining({ isTrusted: false })
+    ]);
+    expect(diagnostics.every((request) =>
+      !("value" in request) && !("chatText" in request)
+    )).toBe(true);
+
+    controller.dispose();
+    dom.window.close();
   });
 
 it("pairs while-held shortcuts with one managed press and release while consuming auto-repeat", async () => {

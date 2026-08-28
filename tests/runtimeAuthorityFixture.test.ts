@@ -55,8 +55,11 @@ describe("runtime authority fixture launch gates", () => {
     expect(source).toContain('fetch("/api/session-cookie"');
     expect(source).toContain('addEventListener("load", () => void recordSession(), { once: true })');
     expect(source).toContain('<canvas id="game-input-canvas" tabindex="0"></canvas>');
+    expect(source).toContain('<input id="text_input" type="text"');
     expect(source).toContain('qaTarget.addEventListener("mousedown", (event) => event.preventDefault())');
     expect(source).toContain('document.querySelector("#game-input-canvas").focus()');
+    expect(source).toContain('recordCaret("flyff-caret-selection-before"');
+    expect(source).toContain('recordCaret("flyff-caret-focus-after"');
     expect(source).toContain("isTrusted: event.isTrusted");
   });
 
@@ -129,6 +132,43 @@ describe("runtime authority fixture launch gates", () => {
       events: [{ code: "KeyB", kind: "keyup", sequence: 2 }],
       latestSequence: 2
     });
+  });
+
+  it("records bounded Flyff caret diagnostics without chat text", async () => {
+    const { origin } = await startFixture();
+    const response = await post(origin, "/api/event", {
+      caret: {
+        activeElementId: "text_input",
+        requestedEnd: 4,
+        requestedStart: 4,
+        selectionEnd: 4,
+        selectionStart: 4,
+        textEditInvocation: 1,
+        valueLength: 4
+      },
+      chatText: "must-not-be-recorded",
+      defaultPrevented: false,
+      isTrusted: true,
+      kind: "flyff-caret-focus-after",
+      roleId: "macro-keyboard-a"
+    });
+    const { event } = await response.json();
+
+    expect(event).toMatchObject({
+      caret: {
+        activeElementId: "text_input",
+        requestedEnd: 4,
+        requestedStart: 4,
+        selectionEnd: 4,
+        selectionStart: 4,
+        textEditInvocation: 1,
+        valueLength: 4
+      },
+      defaultPrevented: false,
+      isTrusted: true,
+      kind: "flyff-caret-focus-after"
+    });
+    expect(event).not.toHaveProperty("chatText");
   });
 
   it("tracks pressed codes without duplicate repeat ownership and clears exact keyup", async () => {

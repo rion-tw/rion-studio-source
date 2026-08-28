@@ -550,21 +550,17 @@ impl SystemRuntimeExecutor {
         window_generation: u64,
         tab_id: &str,
     ) -> Result<(), String> {
-        let tab_strip = self
-            .state()
-            .map_err(|error| error.message)?
-            .native_resources
-            .display_hosts
-            .get(window_id)
-            .filter(|host| host.generation == window_generation)
-            .map(|host| host.tab_strip.clone())
-            .ok_or_else(|| "The WebView2 tab strip is stale or unavailable.".to_owned())?;
-        let tab_id = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
-        tab_strip
-            .eval(format!(
-                "(() => {{ const id = {tab_id}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length === 0) throw new Error('runtime tab is not visible'); button.click(); }})();"
-            ))
-            .map_err(|error| error.to_string())
+        let (window, tab_strip) = {
+            let state = self.state().map_err(|error| error.message)?;
+            let host = state
+                .native_resources
+                .display_hosts
+                .get(window_id)
+                .filter(|host| host.generation == window_generation)
+                .ok_or_else(|| "The WebView2 tab strip is stale or unavailable.".to_owned())?;
+            (host.window.clone(), host.tab_strip.clone())
+        };
+        desktop_e2e_windows_click_runtime_tab(&window, &tab_strip, tab_id, false)
     }
 
     #[cfg(windows)]

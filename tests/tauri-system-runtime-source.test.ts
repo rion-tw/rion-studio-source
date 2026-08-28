@@ -666,7 +666,7 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("release_windows_shortcut_modifiers");
     expect(runtime).toContain("windows_shortcut_modifier_codes");
     expect(runtime).toContain(
-      '#[cfg(any(windows, target_os = "macos"))]\n    fn reassert_shortcut_handoff_keys'
+      '#[cfg(target_os = "macos")]\n    fn reassert_shortcut_handoff_keys'
     );
     expect(runtime).toContain("self.reassert_role_keys_in_lane(role_id, &context)");
     expect(runtime).not.toContain("reassert_tab_shortcut_modifiers");

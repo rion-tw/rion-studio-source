@@ -104,6 +104,12 @@ async function showWindowFromUi(windowId: string, minimumGeneration = 1): Promis
       minimumGeneration,
       windowId
     });
+    await waitEvent({
+      afterSequence: cursor,
+      kind: "windows-runtime-window-reveal-applied",
+      minimumGeneration,
+      windowId
+    });
   } else if (process.platform === "darwin") {
     const restoring = await windowSnapshot(windowId);
     const selectedTabId = restoring.kernel?.selectedTabId;

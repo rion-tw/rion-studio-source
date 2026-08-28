@@ -807,6 +807,16 @@ impl SystemRuntimeExecutor {
         }
 
         set_windows_runtime_window_cloaked(window, false)?;
+        #[cfg(feature = "desktop-e2e")]
+        crate::desktop_e2e::record_event(
+            "windows-runtime-window-reveal-applied",
+            Some(window_id),
+            Some(window_generation),
+            None,
+            serde_json::json!({
+                "focusSequence": focus_sequence,
+            }),
+        );
 
         let submit_focus = lease.as_ref().is_some_and(|lease| {
             focus_guard.is_some()

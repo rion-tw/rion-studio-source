@@ -238,6 +238,15 @@ async function showSavedWindow(windowId: string): Promise<DesktopE2eWindowSnapsh
       timeoutMs: 45_000,
       windowId
     });
+    if (process.platform === "win32") {
+      await waitEvent({
+        afterSequence: cursor,
+        kind: "windows-runtime-window-reveal-applied",
+        minimumGeneration: context.generation,
+        timeoutMs: 45_000,
+        windowId
+      });
+    }
   }
   return windowSnapshot(windowId);
 }

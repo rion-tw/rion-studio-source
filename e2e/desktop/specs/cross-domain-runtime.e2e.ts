@@ -594,7 +594,8 @@ async function selectRuntimeTabForRoleSlot(
 
 async function claimSharedRoleAndAssertMacroContinuity(
   scenario: Scenario,
-  macroCursor: number
+  macroCursor: number,
+  preferredWindowId?: string
 ): Promise<void> {
   const sharedRole = scenario.roles[1];
   const runtime = await rendererCall("getEmbeddedRuntimeState");
@@ -604,7 +605,11 @@ async function claimSharedRoleAndAssertMacroContinuity(
   const blockedOccurrences = runtime.tabs.filter((tab) =>
     tab.slots.some((slot) => slot.roleId === sharedRole.id && slot.state === "blocked")
   );
-  const target = blockedOccurrences.find((tab) => selectedTabIds.has(tab.id))
+  const target = blockedOccurrences.find((tab) =>
+    tab.windowId === preferredWindowId && selectedTabIds.has(tab.id)
+  )
+    ?? blockedOccurrences.find((tab) => tab.windowId === preferredWindowId)
+    ?? blockedOccurrences.find((tab) => selectedTabIds.has(tab.id))
     ?? blockedOccurrences[0];
   if (!target) throw new Error("A blocked shared-role occurrence is required for takeover");
   const targetWindow = await selectRuntimeTabForRoleSlot(target, sharedRole.id);
@@ -1075,7 +1080,7 @@ async function topologyForcePhase(): Promise<void> {
   const reorderedIds = liveB.kernel?.tabs.filter((tab) => !tab.hidden).map((tab) => tab.tabId) ?? [];
   expect(reorderedIds).toEqual(expect.arrayContaining([reorderedTabId, reorderBeforeTabId]));
   const macroCursor = await startSharedMacro(scenario.macros[1]);
-  await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor);
+  await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor, WINDOW_B);
   const liveBBeforeMinimize = await windowSnapshot(WINDOW_B);
   const roleSurfacesBeforeMinimize = liveBBeforeMinimize.native.roleSurfaces;
   if (process.platform === "win32") {

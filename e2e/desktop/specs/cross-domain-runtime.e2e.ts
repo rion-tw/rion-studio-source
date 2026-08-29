@@ -1261,6 +1261,25 @@ async function topologyForcePhase(): Promise<void> {
   expect(diagnostics.roles.filter((role) => scenario.macros[1].roleIds.includes(role.roleId)))
     .toEqual(expect.arrayContaining(scenario.macros[1].roleIds.map((roleId) =>
       expect.objectContaining({ quiesced: false, roleId, stopping: false }))));
+  if (process.platform === "win32") {
+    const sourceCheckpointSnapshot = await windowSnapshot(WINDOW_A);
+    const sourceCheckpointCursor = (await probe()).latestSequence;
+    const sourceHideReceipt = await tabMenuAction({
+      action: "hide",
+      snapshot: sourceCheckpointSnapshot,
+      tabId: successorTabId
+    });
+    if (sourceHideReceipt.revision === undefined) {
+      throw new Error("The source cookie-checkpoint mutation did not report its committed revision");
+    }
+    await waitEvent({
+      afterSequence: sourceCheckpointCursor,
+      kind: "window-state-persisted",
+      minimumRevision: sourceHideReceipt.revision,
+      timeoutMs: 55_000,
+      windowId: WINDOW_A
+    });
+  }
   await forceTerminateCurrentProcess();
 }
 

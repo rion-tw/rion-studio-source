@@ -835,40 +835,57 @@ fn desktop_e2e_windows_click_runtime_tab(
     right_click: bool,
 ) -> Result<(), String> {
     use windows::Win32::Foundation::POINT;
-    let rect = desktop_e2e_windows_tab_screen_rect(tab_strip, tab_id)?;
     static NEXT_CLICK_TERMINAL: std::sync::atomic::AtomicU64 =
         std::sync::atomic::AtomicU64::new(1);
     let terminal_event = if right_click { "contextmenu" } else { "click" };
-    let terminal_nonce = format!(
-        "rion-desktop-e2e-{terminal_event}-{}",
-        NEXT_CLICK_TERMINAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let terminal_receiver = desktop_e2e_windows_pointer_terminal(&terminal_nonce)?;
-    if let Err(error) =
-        desktop_e2e_windows_install_pointer_trace(tab_strip, &terminal_nonce, terminal_event)
-    {
-        let _ = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
-        return Err(error);
-    }
-    let pointer_result = desktop_e2e_windows_submit_mouse(
-        window,
-        POINT { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
-        rect.parent,
-        None,
-        right_click,
-        Some((tab_strip, tab_id)),
-        Some(&terminal_receiver),
-    );
-    let removal_result = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
-    let trace_result = desktop_e2e_windows_take_pointer_trace(tab_strip);
-    pointer_result?;
-    removal_result?;
-    let trace = trace_result?;
-    if trace.events.iter().any(|event| {
-        event.event_type == terminal_event && event.target_tab_id.as_deref() == Some(tab_id)
-    }) {
-        Ok(())
-    } else {
+    for attempt in 1..=2 {
+        let rect = desktop_e2e_windows_tab_screen_rect(tab_strip, tab_id)?;
+        let terminal_nonce = format!(
+            "rion-desktop-e2e-{terminal_event}-{}",
+            NEXT_CLICK_TERMINAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let terminal_receiver = desktop_e2e_windows_pointer_terminal(&terminal_nonce)?;
+        if let Err(error) =
+            desktop_e2e_windows_install_pointer_trace(tab_strip, &terminal_nonce, terminal_event)
+        {
+            let _ = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
+            return Err(error);
+        }
+        let pointer_result = desktop_e2e_windows_submit_mouse(
+            window,
+            POINT { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
+            rect.parent,
+            None,
+            right_click,
+            Some((tab_strip, tab_id)),
+            Some(&terminal_receiver),
+        );
+        let removal_result = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
+        let trace_result = desktop_e2e_windows_take_pointer_trace(tab_strip);
+        pointer_result?;
+        removal_result?;
+        let trace = trace_result?;
+        if trace.events.iter().any(|event| {
+            event.event_type == terminal_event && event.target_tab_id.as_deref() == Some(tab_id)
+        }) {
+            return Ok(());
+        }
+        let target_released = trace.events.iter().any(|event| {
+            event.event_type == "mouseup" && event.target_tab_id.as_deref() == Some(tab_id)
+        });
+        if !right_click && attempt == 1 && target_released {
+            crate::desktop_e2e::record_event(
+                "runtime-tab-click-retried-after-sortable-suppression",
+                None,
+                None,
+                None,
+                json!({
+                    "tabId": tab_id,
+                    "tabStripLabel": tab_strip.label(),
+                }),
+            );
+            continue;
+        }
         let event_summary = trace
             .events
             .iter()
@@ -879,11 +896,12 @@ fn desktop_e2e_windows_click_runtime_tab(
                 )
             })
             .collect::<Vec<_>>();
-        Err(format!(
-            "The native runtime-tab {terminal_event} terminal did not target the fenced tab (active={:?}, order={:?}, sortActive={}, events={:?}).",
+        return Err(format!(
+            "The native runtime-tab {terminal_event} terminal did not target the fenced tab (attempt={attempt}, active={:?}, order={:?}, sortActive={}, events={:?}).",
             trace.active_tab_id, trace.order, trace.sort_active, event_summary
-        ))
+        ));
     }
+    unreachable!("the bounded Windows runtime-tab click attempts always terminalize")
 }
 
 #[cfg(windows)]

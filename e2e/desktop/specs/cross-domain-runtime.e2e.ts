@@ -1097,6 +1097,7 @@ async function topologyForcePhase(): Promise<void> {
   expect(reorderedIds).toEqual(expect.arrayContaining([reorderedTabId, reorderBeforeTabId]));
   const macroCursor = await startSharedMacro(scenario.macros[1]);
   await claimSharedRoleAndAssertMacroContinuity(scenario, macroCursor, WINDOW_B);
+  await waitForActiveTabsReady();
   const liveBBeforeMinimize = await windowSnapshot(WINDOW_B);
   const roleSurfacesBeforeMinimize = liveBBeforeMinimize.native.roleSurfaces;
   if (process.platform === "win32") {

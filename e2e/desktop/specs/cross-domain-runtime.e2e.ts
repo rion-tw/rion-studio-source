@@ -1035,7 +1035,7 @@ async function topologyForcePhase(): Promise<void> {
       narrowHeight,
       Math.min(740, workArea.height - 80, narrowHeight + 220)
     );
-    const sourceSized = await controlWindow(WINDOW_A, {
+    const sourceResizeSubmitted = await submitWindowControl(liveA, {
       action: "moveResize",
       height: wideHeight,
       scaleFactor: liveA.native.scaleFactor,
@@ -1043,10 +1043,15 @@ async function topologyForcePhase(): Promise<void> {
       x: (workArea.x ?? 0) + 24,
       y: (workArea.y ?? 0) + 24
     });
-    if ("submitted" in sourceSized) {
-      throw new Error("The source Game Window resize did not return native state");
-    }
-    const targetSized = await controlWindow(detached.windowId, {
+    await waitEvent({
+      afterSequence: sourceResizeSubmitted.sequence,
+      kind: "placement-accepted",
+      minimumGeneration: liveA.windowGeneration,
+      timeoutMs: 45_000,
+      windowId: WINDOW_A
+    });
+    const sourceSized = await windowSnapshot(WINDOW_A);
+    const targetResizeSubmitted = await submitWindowControl(detachedWindow, {
       action: "moveResize",
       height: narrowHeight,
       scaleFactor: detachedWindow.native.scaleFactor,
@@ -1054,9 +1059,14 @@ async function topologyForcePhase(): Promise<void> {
       x: (workArea.x ?? 0) + Math.max(24, workArea.width - narrowWidth - 24),
       y: (workArea.y ?? 0) + Math.max(24, workArea.height - narrowHeight - 24)
     });
-    if ("submitted" in targetSized) {
-      throw new Error("The detached Game Window resize did not return native state");
-    }
+    await waitEvent({
+      afterSequence: targetResizeSubmitted.sequence,
+      kind: "placement-accepted",
+      minimumGeneration: detachedWindow.windowGeneration,
+      timeoutMs: 45_000,
+      windowId: detached.windowId
+    });
+    const targetSized = await windowSnapshot(detached.windowId);
 
     liveA = await dragVisibleGameWindow(sourceSized, 36, 24);
     detachedWindow = await windowSnapshot(detached.windowId);

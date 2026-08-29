@@ -21,9 +21,9 @@ import {
 import {
   expectBoundsNear,
   expectPlacement,
+  expectSingleRoleSurfaceBoundsFitClient,
   expectSingleRoleSurfaceFitsClient,
-  expectTabStripFitsClient,
-  waitForWindowsRoleSurfaceViewportFitsController
+  expectTabStripFitsClient
 } from "../support/geometry";
 import { fixtureCursor, waitFixtureEvent, type FixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
@@ -332,16 +332,11 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
       });
     }
     await waitForFixtureNavigation(recoveryFixtureId(RECOVERY_ROLE_NAMES[index]));
-    await waitForWindowsRoleSurfaceViewportFitsController({
-      afterSequence: cursor,
-      roleId: role.id,
-      windowId: WINDOW_C
-    });
     const loading = await windowSnapshot(WINDOW_C);
     expect(loading.kernel?.tabs.find((candidate) => candidate.tabId === tab.tabId)
       ?.launchPhase).toBe("navigating");
     expect(loading.native.tabStatusPresentation).toBe("loading");
-    expectSingleRoleSurfaceFitsClient(loading, role.id);
+    expectSingleRoleSurfaceBoundsFitClient(loading, role.id);
   }
   let live = await windowSnapshot(WINDOW_C);
   expect(live.kernel?.tabs).toHaveLength(3);

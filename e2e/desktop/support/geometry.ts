@@ -89,6 +89,15 @@ export function expectSingleRoleSurfaceFitsClient(
   snapshot: DesktopE2eWindowSnapshot,
   roleId: string
 ): void {
+  expectSingleRoleSurfaceBoundsFitClient(snapshot, roleId);
+  if (process.platform !== "win32") return;
+  expectRoleSurfaceViewportFitsController(snapshot, roleId);
+}
+
+export function expectSingleRoleSurfaceBoundsFitClient(
+  snapshot: DesktopE2eWindowSnapshot,
+  roleId: string
+): void {
   if (process.platform !== "win32") return;
   const surface = snapshot.native.roleSurfaces?.find((candidate) => candidate.roleId === roleId);
   const tabStrip = snapshot.native.tabStripHostBounds ?? snapshot.native.tabStripBounds;
@@ -102,7 +111,6 @@ export function expectSingleRoleSurfaceFitsClient(
   if (surface.controllerBounds.x === undefined || surface.controllerBounds.y === undefined) {
     throw new Error(`Role controller geometry is incomplete for ${roleId}`);
   }
-  expectRoleSurfaceViewportFitsController(snapshot, roleId);
   const contentTop = tabStrip.y + tabStrip.height;
   const expectedHost = {
     height: snapshot.native.clientBounds.height - contentTop,

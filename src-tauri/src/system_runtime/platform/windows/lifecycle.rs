@@ -507,6 +507,8 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
         .with_webview(move |platform_webview| unsafe {
             let result = (|| -> RuntimeResult<(u32, u64)> {
                 let controller = platform_webview.controller();
+                let navigation_zoom_controller = controller.clone();
+                let navigation_zoom_label = live_resize_label.clone();
                 windows_live_resize_register_controller(
                     live_resize_label,
                     controller.clone(),
@@ -579,6 +581,30 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
                         args.NavigationId(&mut navigation_id)?;
                         let mut succeeded = windows::core::BOOL::default();
                         args.IsSuccess(&mut succeeded)?;
+                        if succeeded.as_bool() {
+                            let zoom_reprojection =
+                                windows_reapply_navigation_bounds_and_zoom(
+                                    &navigation_zoom_controller,
+                                );
+                            if let Err(error) = &zoom_reprojection {
+                                eprintln!(
+                                    "WebView2 navigation zoom reprojection failed: surface={navigation_zoom_label} error={}",
+                                    error.message
+                                );
+                            }
+                            #[cfg(feature = "desktop-e2e")]
+                            crate::desktop_e2e::record_event(
+                                "windows-navigation-zoom-reprojection",
+                                None,
+                                None,
+                                None,
+                                json!({
+                                    "error": zoom_reprojection.as_ref().err().map(|error| error.message.as_str()),
+                                    "status": if zoom_reprojection.is_ok() { "applied" } else { "failed" },
+                                    "surfaceLabel": navigation_zoom_label.as_str(),
+                                }),
+                            );
+                        }
                         match windows_surface_navigation_completion(
                             completed_tracker.navigation_id.load(Ordering::Acquire),
                             navigation_id,
@@ -641,6 +667,43 @@ pub(in crate::system_runtime) fn platform_surface_lifecycle_tracker(
         .controller_identity
         .store(controller_identity, Ordering::Release);
     Ok(tracker)
+}
+
+#[cfg(windows)]
+fn windows_reapply_navigation_bounds_and_zoom(
+    controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
+) -> RuntimeResult<()> {
+    let mut bounds = windows::Win32::Foundation::RECT::default();
+    let mut zoom_factor = 0.0;
+    unsafe {
+        controller.Bounds(&mut bounds).map_err(|error| {
+            windows_surface_lifecycle_error("navigation-zoom-bounds", error)
+        })?;
+        controller.ZoomFactor(&mut zoom_factor).map_err(|error| {
+            windows_surface_lifecycle_error("navigation-zoom-factor", error)
+        })?;
+    }
+    let refresh_factor = windows_navigation_zoom_refresh_factor(zoom_factor).ok_or_else(|| {
+        RuntimeError::new(
+            "BROWSER_PAGE_ZOOM_UNAVAILABLE",
+            "WebView2 reported an invalid page zoom after navigation.",
+        )
+    })?;
+    // WebView2 can retain the host ZoomFactor value while a newly navigated document renders at
+    // 1.0. A distinct value followed immediately by the desired value, both submitted with the
+    // current bounds, refreshes that document from the authoritative NavigationCompleted event.
+    unsafe {
+        controller
+            .SetBoundsAndZoomFactor(bounds, refresh_factor)
+            .map_err(|error| {
+                windows_surface_lifecycle_error("navigation-zoom-refresh", error)
+            })?;
+        controller
+            .SetBoundsAndZoomFactor(bounds, zoom_factor)
+            .map_err(|error| {
+                windows_surface_lifecycle_error("navigation-zoom-reapply", error)
+            })
+    }
 }
 
 #[cfg(windows)]

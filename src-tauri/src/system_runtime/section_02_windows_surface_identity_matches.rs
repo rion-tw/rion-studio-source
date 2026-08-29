@@ -42,6 +42,19 @@ fn windows_surface_navigation_completion(
     }
 }
 
+#[cfg(any(windows, test))]
+fn windows_navigation_zoom_refresh_factor(current: f64) -> Option<f64> {
+    const REFRESH_DELTA: f64 = 0.001;
+    if !current.is_finite() || current <= 0.0 {
+        return None;
+    }
+    Some(if current >= 5.0 {
+        current - REFRESH_DELTA
+    } else {
+        current + REFRESH_DELTA
+    })
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ManagedSurfaceKind {
     Divider,

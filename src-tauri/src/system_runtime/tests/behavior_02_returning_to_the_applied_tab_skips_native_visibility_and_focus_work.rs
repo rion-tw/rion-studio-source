@@ -942,6 +942,10 @@
             windows_surface_navigation_completion(0, 0, true),
             WindowsSurfaceNavigationCompletion::Stale
         );
+        assert_eq!(windows_navigation_zoom_refresh_factor(0.25), Some(0.251));
+        assert_eq!(windows_navigation_zoom_refresh_factor(5.0), Some(4.999));
+        assert_eq!(windows_navigation_zoom_refresh_factor(0.0), None);
+        assert_eq!(windows_navigation_zoom_refresh_factor(f64::NAN), None);
     }
 
     #[test]

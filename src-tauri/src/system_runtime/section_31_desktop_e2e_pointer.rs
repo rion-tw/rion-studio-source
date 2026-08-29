@@ -856,7 +856,7 @@ fn desktop_e2e_windows_click_runtime_tab(
         rect.parent,
         None,
         right_click,
-        None,
+        Some((tab_strip, tab_id)),
         Some(&terminal_receiver),
     );
     let removal_result = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);

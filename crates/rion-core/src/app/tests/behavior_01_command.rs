@@ -48,7 +48,10 @@ use std::{
         let core = Arc::new(
             AppCore::create(AppCoreOptions {
                 app_version: "2.1.0-test".to_owned(),
+                build_commit: None,
+                packaged: false,
                 platform: platform.to_owned(),
+                runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
                 performance_telemetry_path: None,
             })
@@ -64,7 +67,10 @@ use std::{
             let directory = tempfile::tempdir().unwrap();
             let options = || AppCoreOptions {
                 app_version: "2.1.0-test".to_owned(),
+                build_commit: None,
+                packaged: false,
                 platform: platform.to_owned(),
+                runtime_contract_version: Some(22),
                 user_data_dir: directory.path().to_string_lossy().into_owned(),
                 performance_telemetry_path: None,
             };
@@ -98,7 +104,10 @@ use std::{
         fs::write(webview2.join("Local Storage"), b"keep").unwrap();
         let options = || AppCoreOptions {
             app_version: "2.1.0-test".to_owned(),
+            build_commit: None,
+            packaged: false,
             platform: "darwin".to_owned(),
+            runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
             performance_telemetry_path: None,
         };
@@ -152,7 +161,10 @@ use std::{
         let directory = tempfile::tempdir().unwrap();
         let options = || AppCoreOptions {
             app_version: "2.1.0".to_owned(),
+            build_commit: None,
+            packaged: false,
             platform: "darwin".to_owned(),
+            runtime_contract_version: Some(22),
             user_data_dir: directory.path().to_string_lossy().into_owned(),
             performance_telemetry_path: None,
         };

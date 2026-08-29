@@ -1,8 +1,17 @@
-use std::{sync::mpsc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
+    thread,
+    time::Duration,
+};
 
     use super::{
-        ControllerCreationWaitError, LayoutUpdateState, continue_layout_updates,
-        request_layout_update, wait_for_controller,
+        AppKitTrackingDispatchError, AppKitTrackingTaskState, ControllerCreationWaitError,
+        LayoutUpdateState, continue_layout_updates, execute_appkit_tracking_task,
+        request_layout_update, wait_for_appkit_tracking_task, wait_for_controller,
     };
 
     #[test]
@@ -19,6 +28,71 @@ use std::{sync::mpsc, time::Duration};
             wait_for_controller(&receiver, Duration::ZERO),
             Err(ControllerCreationWaitError::CallbackLost)
         );
+    }
+
+    #[test]
+    fn queued_appkit_tracking_task_is_cancelled_before_a_late_main_queue_callback() {
+        let state = Arc::new(AppKitTrackingTaskState::default());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        assert_eq!(
+            wait_for_appkit_tracking_task(&receiver, &state, Duration::ZERO),
+            Err(AppKitTrackingDispatchError::TimedOutBeforeStart)
+        );
+
+        let mutation_count = AtomicUsize::new(0);
+        execute_appkit_tracking_task(&state, sender, || {
+            mutation_count.fetch_add(1, Ordering::AcqRel);
+        });
+        assert_eq!(mutation_count.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn started_appkit_tracking_task_reports_an_unknown_mutation_result() {
+        let state = Arc::new(AppKitTrackingTaskState::default());
+        let worker_state = Arc::clone(&state);
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (started_sender, started_receiver) = mpsc::sync_channel(1);
+        let (finish_sender, finish_receiver) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            execute_appkit_tracking_task(&worker_state, sender, || {
+                started_sender.send(()).unwrap();
+                finish_receiver.recv().unwrap();
+            });
+        });
+        started_receiver.recv().unwrap();
+
+        let error = wait_for_appkit_tracking_task(&receiver, &state, Duration::ZERO).unwrap_err();
+        assert_eq!(error, AppKitTrackingDispatchError::TimedOutAfterStart);
+        assert!(error.mutation_may_have_started());
+
+        finish_sender.send(()).unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn retry_after_a_cancelled_queued_toggle_mutates_only_once() {
+        let mutation_count = AtomicUsize::new(0);
+        let cancelled_state = AppKitTrackingTaskState::default();
+        let (cancelled_sender, cancelled_receiver) = mpsc::sync_channel(1);
+        assert_eq!(
+            wait_for_appkit_tracking_task(
+                &cancelled_receiver,
+                &cancelled_state,
+                Duration::ZERO,
+            ),
+            Err(AppKitTrackingDispatchError::TimedOutBeforeStart)
+        );
+        execute_appkit_tracking_task(&cancelled_state, cancelled_sender, || {
+            mutation_count.fetch_add(1, Ordering::AcqRel);
+        });
+
+        let retry_state = AppKitTrackingTaskState::default();
+        let (retry_sender, retry_receiver) = mpsc::sync_channel(1);
+        execute_appkit_tracking_task(&retry_state, retry_sender, || {
+            mutation_count.fetch_add(1, Ordering::AcqRel);
+        });
+        wait_for_appkit_tracking_task(&retry_receiver, &retry_state, Duration::ZERO).unwrap();
+        assert_eq!(mutation_count.load(Ordering::Acquire), 1);
     }
 
     #[test]

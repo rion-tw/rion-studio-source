@@ -67,9 +67,14 @@ pub fn run() {
             let core = match AppCore::create_with_startup_backup(
                 AppCoreOptions {
                     app_version: app_version.clone(),
+                    build_commit: option_env!("RION_STUDIO_BUILD_COMMIT").map(str::to_owned),
+                    packaged: !cfg!(debug_assertions),
                     platform: platform_name()
                         .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?
                         .to_owned(),
+                    runtime_contract_version: Some(
+                        system_runtime::SYSTEM_RUNTIME_CONTRACT_VERSION,
+                    ),
                     user_data_dir: user_data_dir.to_string_lossy().into_owned(),
                     performance_telemetry_path: None,
                 },

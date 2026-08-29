@@ -366,9 +366,9 @@ impl SystemRuntimeExecutor {
         }
     }
 
-    pub fn toggle_focused_runtime_fullscreen(
+    pub fn request_focused_runtime_fullscreen(
         &self,
-    ) -> Result<Option<SystemRuntimeOperationSummaryRecord>, String> {
+    ) -> Result<Option<String>, String> {
         let window_id = {
             let state = self.state().map_err(|error| error.message)?;
             state
@@ -380,13 +380,37 @@ impl SystemRuntimeExecutor {
         let Some(window_id) = window_id else {
             return Ok(None);
         };
-        self.toggle_runtime_window_fullscreen(&window_id).map(Some)
+        self.request_runtime_window_toggle_fullscreen(&window_id)
+            .map(|(_, operation_id)| Some(operation_id))
     }
 
     pub fn toggle_runtime_window_fullscreen(
         &self,
         window_id: &str,
     ) -> Result<SystemRuntimeOperationSummaryRecord, String> {
+        let (revision, operation_id) =
+            self.request_runtime_window_toggle_fullscreen(window_id)?;
+        self.wait_for_presentation_paint_barrier(window_id, revision);
+        let summary = self.wait_native_operation_summary(&operation_id)?;
+        #[cfg(windows)]
+        if matches!(
+            summary.status,
+            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
+        ) {
+            if let Err(error) = self.refresh_windows_active_window_layout(window_id) {
+                eprintln!(
+                    "Windows fullscreen toolbar layout refresh failed for {window_id}: {error}"
+                );
+            }
+            self.publish_projection();
+        }
+        Ok(summary)
+    }
+
+    fn request_runtime_window_toggle_fullscreen(
+        &self,
+        window_id: &str,
+    ) -> Result<(u64, String), String> {
         self.require_runtime_accepting()
             .map_err(|error| error.message)?;
         #[cfg(target_os = "macos")]
@@ -406,21 +430,7 @@ impl SystemRuntimeExecutor {
                 "toggle-fullscreen",
             )
             .map_err(|error| error.message)?;
-        self.wait_for_presentation_paint_barrier(window_id, revision);
-        let summary = self.wait_native_operation_summary(&operation_id)?;
-        #[cfg(windows)]
-        if matches!(
-            summary.status,
-            SystemRuntimeOperationStatus::Applied | SystemRuntimeOperationStatus::Degraded
-        ) {
-            if let Err(error) = self.refresh_windows_active_window_layout(window_id) {
-                eprintln!(
-                    "Windows fullscreen toolbar layout refresh failed for {window_id}: {error}"
-                );
-            }
-            self.publish_projection();
-        }
-        Ok(summary)
+        Ok((revision, operation_id))
     }
 
     fn collect_browser_performance_diagnostics(

@@ -32,6 +32,7 @@ impl NavigationInputFenceSource {
 #[derive(Clone)]
 struct RoleInputFence {
     input_epoch: u64,
+    navigation_deadline_cancellation: Option<watch::Sender<bool>>,
     navigation_operation: Option<NativeOperationContext>,
     reason: String,
     started_at: Instant,

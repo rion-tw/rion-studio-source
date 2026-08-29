@@ -96,6 +96,7 @@ fn automatic_input_context_wire_values_are_provider_neutral_three_state_values()
 fn embedded_frame_fence_diagnostics_wait_for_game_context_without_restart_required() {
     let fence = RoleInputFence {
         input_epoch: 5,
+        navigation_deadline_cancellation: None,
         navigation_operation: None,
         reason: "embedded-frame-input-context".to_owned(),
         started_at: Instant::now(),

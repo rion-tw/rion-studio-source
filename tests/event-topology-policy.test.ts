@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -131,5 +131,35 @@ describe("event topology architecture contract", () => {
     expect(policy).toContain("A deadline never means success");
     expect(runtimeContract).toContain("Contract version 22");
     expect(runtimeOperations).toContain("Event-bound work never terminalizes because time elapsed");
+  });
+
+  it("keeps the Rust runtime contract constant and every normative document in sync", async () => {
+    const contractDirectory = new URL("../docs/contracts/system-runtime/", import.meta.url);
+    const partNames = (await readdir(contractDirectory))
+      .filter((name) => name.endsWith(".md"))
+      .sort();
+    const [rustContract, entryContract, ...parts] = await Promise.all([
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_02_native_operation_contract.rs",
+          import.meta.url
+        ),
+        "utf8"
+      ),
+      readFile(new URL("../docs/system-webview-runtime-contract.md", import.meta.url), "utf8"),
+      ...partNames.map((name) => readFile(new URL(name, contractDirectory), "utf8"))
+    ]);
+    const rustVersion = rustContract.match(/SYSTEM_RUNTIME_CONTRACT_VERSION: u32 = (\d+);/u)?.[1];
+    const entryVersion = entryContract.match(/^Contract version (\d+)\b/mu)?.[1];
+
+    expect(rustVersion).toBeDefined();
+    expect(entryVersion).toBe(rustVersion);
+    expect(partNames.length).toBeGreaterThan(0);
+    for (const [index, part] of parts.entries()) {
+      expect(
+        part.match(/System WebView Runtime Contract version (\d+)/u)?.[1],
+        partNames[index]
+      ).toBe(rustVersion);
+    }
   });
 });

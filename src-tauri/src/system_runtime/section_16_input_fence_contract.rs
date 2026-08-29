@@ -136,10 +136,15 @@ fn main_frame_navigation_deadline_is_current(
     role_id: &str,
     input_epoch: u64,
     surface_generation: u64,
+    operation_id: &str,
 ) -> bool {
     let current_fence = fences.get(role_id).is_some_and(|fence| {
         fence.input_epoch == input_epoch
             && fence.surface_generation == surface_generation
+            && fence
+                .navigation_operation
+                .as_ref()
+                .is_some_and(|operation| operation.operation_id == operation_id)
             && !fence.recovery_scheduled
             && !fence.restart_required
     });
@@ -150,6 +155,25 @@ fn main_frame_navigation_deadline_is_current(
                 && ticket.surface_generation == surface_generation
                 && !ticket.page_finished
         })
+}
+
+async fn wait_for_navigation_input_deadline(
+    mut cancellation: watch::Receiver<bool>,
+    timeout: Duration,
+) -> bool {
+    if *cancellation.borrow() {
+        return false;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(timeout) => !*cancellation.borrow(),
+        _ = cancellation.changed() => false,
+    }
+}
+
+fn cancel_navigation_input_deadline(fence: &mut RoleInputFence) {
+    if let Some(cancellation) = fence.navigation_deadline_cancellation.take() {
+        cancellation.send_replace(true);
+    }
 }
 
 fn read_document_instance(webview: &Webview) -> RuntimeResult<DocumentInstanceReadback> {

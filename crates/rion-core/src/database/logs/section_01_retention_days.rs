@@ -363,6 +363,10 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
               event TEXT NOT NULL,
               message TEXT NOT NULL,
               session_id TEXT NOT NULL,
+              build_commit TEXT,
+              application_version TEXT,
+              runtime_contract_version INTEGER,
+              packaged INTEGER,
               context_json TEXT,
               error_json TEXT,
               search_text TEXT NOT NULL
@@ -385,7 +389,42 @@ pub(super) fn create_schema(connection: &Connection, runtime: bool) -> CoreResul
             ",
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    migrate_log_entry_attribution_columns(connection)?;
     Ok(())
+}
+
+fn migrate_log_entry_attribution_columns(connection: &Connection) -> CoreResult<()> {
+    for (column, definition) in [
+        ("build_commit", "build_commit TEXT"),
+        ("application_version", "application_version TEXT"),
+        (
+            "runtime_contract_version",
+            "runtime_contract_version INTEGER",
+        ),
+        ("packaged", "packaged INTEGER"),
+    ] {
+        if !log_entry_column_exists(connection, column)? {
+            connection
+                .execute_batch(&format!("ALTER TABLE log_entries ADD COLUMN {definition};"))
+                .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
+fn log_entry_column_exists(connection: &Connection, column: &str) -> CoreResult<bool> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(log_entries)")
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    let names = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+    for name in names {
+        if name.map_err(|error| CoreError::LogDatabase(error.to_string()))? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn append_entries(connection: &mut Connection, entries: &[LogEntry]) -> CoreResult<usize> {
@@ -434,8 +473,9 @@ fn insert_entry(connection: &Connection, entry: &LogEntry) -> CoreResult<usize> 
         .execute(
             "INSERT OR IGNORE INTO log_entries(
               id, timestamp, level, source, event, message, session_id,
+              build_commit, application_version, runtime_contract_version, packaged,
               context_json, error_json, search_text
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 entry.id,
                 entry.timestamp,
@@ -444,6 +484,10 @@ fn insert_entry(connection: &Connection, entry: &LogEntry) -> CoreResult<usize> 
                 entry.event,
                 entry.message,
                 entry.session_id,
+                entry.build_commit,
+                entry.application_version,
+                entry.runtime_contract_version,
+                entry.packaged.map(i64::from),
                 context_json,
                 error_json,
                 search_text,
@@ -524,7 +568,9 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
         format!("WHERE {}", conditions.join(" AND "))
     };
     let sql = format!(
-        "SELECT id, timestamp, level, source, event, message, session_id, context_json, error_json
+        "SELECT id, timestamp, level, source, event, message, session_id,
+                build_commit, application_version, runtime_contract_version, packaged,
+                context_json, error_json
          FROM log_entries {where_clause}
          ORDER BY timestamp DESC, id DESC LIMIT ?{limit_index} OFFSET ?{offset_index}"
     );
@@ -533,8 +579,8 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
     let rows = statement
         .query_map(params_from_iter(values), |row| {
-            let context: Option<String> = row.get(7)?;
-            let error: Option<String> = row.get(8)?;
+            let context: Option<String> = row.get(11)?;
+            let error: Option<String> = row.get(12)?;
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -543,6 +589,10 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<u32>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
                 context,
                 error,
             ))
@@ -550,8 +600,21 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
     let mut entries = Vec::new();
     for row in rows {
-        let (id, timestamp, level, source, event, message, session_id, context, error) =
-            row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+        let (
+            id,
+            timestamp,
+            level,
+            source,
+            event,
+            message,
+            session_id,
+            build_commit,
+            application_version,
+            runtime_contract_version,
+            packaged,
+            context,
+            error,
+        ) = row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
         entries.push(LogEntry {
             id,
             timestamp,
@@ -561,6 +624,10 @@ fn query_entries(connection: &Connection, query: &LogQuery) -> CoreResult<LogPag
             event,
             message,
             session_id,
+            build_commit,
+            application_version,
+            runtime_contract_version,
+            packaged: packaged.map(|packaged| packaged != 0),
             context: context.as_deref().map(parse_context_json).transpose()?,
             error: error
                 .as_deref()
@@ -628,7 +695,9 @@ fn export_jsonl_to(connection: &Connection, path: &Path) -> CoreResult<()> {
 fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<()> {
     let mut statement = connection
         .prepare(
-            "SELECT id, timestamp, level, source, event, message, session_id, context_json, error_json
+            "SELECT id, timestamp, level, source, event, message, session_id,
+                    build_commit, application_version, runtime_contract_version, packaged,
+                    context_json, error_json
              FROM log_entries ORDER BY timestamp, id",
         )
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
@@ -644,12 +713,29 @@ fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<(
                 row.get::<_, String>(6)?,
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<u32>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
             ))
         })
         .map_err(|error| CoreError::LogDatabase(error.to_string()))?;
     for row in rows {
-        let (id, timestamp, level, source, event, message, session_id, context, error) =
-            row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
+        let (
+            id,
+            timestamp,
+            level,
+            source,
+            event,
+            message,
+            session_id,
+            build_commit,
+            application_version,
+            runtime_contract_version,
+            packaged,
+            context,
+            error,
+        ) = row.map_err(|error| CoreError::LogDatabase(error.to_string()))?;
         let entry = LogEntry {
             id,
             timestamp,
@@ -659,6 +745,10 @@ fn write_jsonl(connection: &Connection, output: &mut impl Write) -> CoreResult<(
             event,
             message,
             session_id,
+            build_commit,
+            application_version,
+            runtime_contract_version,
+            packaged: packaged.map(|packaged| packaged != 0),
             context: context.as_deref().map(parse_context_json).transpose()?,
             error: error
                 .as_deref()

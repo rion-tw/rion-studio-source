@@ -42,6 +42,15 @@ describe("generated Rust core contracts", () => {
     expect(contract).toContain("actions: Array<BrowserActionRequest>");
   });
 
+  it("exports optional per-entry build attribution for retained logs", async () => {
+    const contract = await readFile("src/shared/generated/LogEntry.ts", "utf8");
+
+    expect(contract).toContain("buildCommit?: string");
+    expect(contract).toContain("applicationVersion?: string");
+    expect(contract).toContain("runtimeContractVersion?: number");
+    expect(contract).toContain("packaged?: boolean");
+  });
+
   it("projects independently patchable macro overlay visibility through generated settings", async () => {
     const [settings, patch, overlay, index] = await Promise.all([
       readFile("src/shared/generated/GameBrowserSettingsRecord.ts", "utf8"),

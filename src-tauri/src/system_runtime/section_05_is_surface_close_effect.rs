@@ -398,6 +398,7 @@ fn apply_native_presentation_batch(
     ) {
         return NativePresentationOutcome {
             applied: false,
+            indeterminate: false,
             presentation_applied: false,
             focus_applied: false,
             focus_superseded: false,
@@ -475,6 +476,7 @@ fn apply_native_presentation_batch(
         let applied = still_desired || ordered_window_control;
         return NativePresentationOutcome {
             applied,
+            indeterminate: false,
             presentation_applied: still_desired,
             focus_applied: false,
             focus_superseded: false,
@@ -551,6 +553,7 @@ fn apply_native_presentation_batch(
         ) {
             let _ = sender.send(NativePresentationOutcome {
                 applied: false,
+                indeterminate: false,
                 presentation_applied: false,
                 focus_applied: false,
                 focus_superseded: false,
@@ -610,6 +613,7 @@ fn apply_native_presentation_batch(
         if !presentation_current && !ordered_window_control {
             let _ = sender.send(NativePresentationOutcome {
                 applied: false,
+                indeterminate: false,
                 presentation_applied: false,
                 focus_applied: false,
                 focus_superseded: false,
@@ -813,6 +817,7 @@ fn apply_native_presentation_batch(
             let applied = (presentation_current || ordered_window_control) && mutations_complete;
             let _ = sender.send(NativePresentationOutcome {
                 applied,
+                indeterminate: false,
                 presentation_applied,
                 focus_applied: false,
                 focus_superseded: false,
@@ -921,6 +926,7 @@ fn apply_native_presentation_batch(
             && !focus_superseded;
         let _ = sender.send(NativePresentationOutcome {
             applied,
+            indeterminate: false,
             presentation_applied,
             focus_applied,
             focus_superseded,
@@ -945,7 +951,7 @@ fn apply_native_presentation_batch(
         });
     };
     #[cfg(target_os = "macos")]
-    let scheduling = crate::runtime_tabs_macos::run_on_appkit_tracking_main(task);
+    let scheduling = crate::runtime_tabs_macos::run_on_appkit_tracking_main_classified(task);
     #[cfg(not(target_os = "macos"))]
     let scheduling = request
         .window
@@ -954,6 +960,10 @@ fn apply_native_presentation_batch(
     if let Err(error) = scheduling {
         return NativePresentationOutcome {
             applied: false,
+            #[cfg(target_os = "macos")]
+            indeterminate: error.mutation_may_have_started(),
+            #[cfg(not(target_os = "macos"))]
+            indeterminate: false,
             presentation_applied: false,
             focus_applied: false,
             focus_superseded: false,
@@ -985,6 +995,7 @@ fn apply_native_presentation_batch(
         .recv()
         .unwrap_or_else(|_| NativePresentationOutcome {
             applied: false,
+            indeterminate: true,
             presentation_applied: false,
             focus_applied: false,
             focus_superseded: false,

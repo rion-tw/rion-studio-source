@@ -3,4 +3,4 @@ import type { LogErrorDetails } from "./LogErrorDetails";
 import type { LogLevel } from "./LogLevel";
 import type { LogSource } from "./LogSource";
 
-export type LogEntry = { id: string, timestamp: string, level: LogLevel, source: LogSource, event: string, message: string, sessionId: string, context?: Record<string, unknown>, error?: LogErrorDetails, };
+export type LogEntry = { id: string, timestamp: string, level: LogLevel, source: LogSource, event: string, message: string, sessionId: string, buildCommit?: string, applicationVersion?: string, runtimeContractVersion?: number, packaged?: boolean, context?: Record<string, unknown>, error?: LogErrorDetails, };

@@ -1,7 +1,14 @@
 fn test_role_input_fence(input_epoch: u64, surface_generation: u64) -> RoleInputFence {
+    let mut operation = NativeOperationContext::new(
+        NativeOperationSubsystem::Navigation,
+        "test-navigation",
+        Duration::from_secs(1),
+    );
+    operation.operation_id = format!("navigation-{input_epoch}");
     RoleInputFence {
         input_epoch,
-        navigation_operation: None,
+        navigation_deadline_cancellation: None,
+        navigation_operation: Some(operation),
         reason: "navigation".to_owned(),
         started_at: Instant::now(),
         drained: false,
@@ -228,7 +235,8 @@ fn completed_main_frame_cannot_be_failed_by_a_late_deadline() {
         "role-main",
         "role-1",
         4,
-        8
+        8,
+        "navigation-4"
     ));
     mark_main_frame_navigation_page_finished(&mut tickets, "role-main", "https");
 
@@ -238,7 +246,8 @@ fn completed_main_frame_cannot_be_failed_by_a_late_deadline() {
         "role-main",
         "role-1",
         4,
-        8
+        8,
+        "navigation-4"
     ));
     assert!(!main_frame_navigation_deadline_is_current(
         &fences,
@@ -246,7 +255,8 @@ fn completed_main_frame_cannot_be_failed_by_a_late_deadline() {
         "role-main",
         "role-1",
         3,
-        8
+        8,
+        "navigation-3"
     ));
     assert!(!main_frame_navigation_deadline_is_current(
         &fences,
@@ -254,8 +264,44 @@ fn completed_main_frame_cannot_be_failed_by_a_late_deadline() {
         "role-main",
         "role-1",
         4,
-        7
+        7,
+        "navigation-4"
     ));
+}
+
+#[test]
+fn superseded_navigation_deadline_cannot_borrow_the_current_operation() {
+    let fences = HashMap::from([("role-1".to_owned(), test_role_input_fence(4, 8))]);
+    let mut tickets = HashMap::new();
+    update_main_frame_navigation_input_fences(
+        &mut tickets,
+        "role-main",
+        "role-1",
+        4,
+        8,
+        Some("old-document".to_owned()),
+    );
+
+    assert!(!main_frame_navigation_deadline_is_current(
+        &fences,
+        &tickets,
+        "role-main",
+        "role-1",
+        4,
+        8,
+        "navigation-obsolete"
+    ));
+}
+
+#[tokio::test]
+async fn completed_navigation_cancels_its_deadline_wait() {
+    let (cancellation, cancelled) = watch::channel(false);
+    let mut fence = test_role_input_fence(9, 13);
+    fence.navigation_deadline_cancellation = Some(cancellation);
+    cancel_navigation_input_deadline(&mut fence);
+
+    assert!(!wait_for_navigation_input_deadline(cancelled, Duration::ZERO).await);
+    assert!(fence.navigation_deadline_cancellation.is_none());
 }
 
 #[test]

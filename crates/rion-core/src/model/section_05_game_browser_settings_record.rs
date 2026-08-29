@@ -486,6 +486,18 @@ pub struct LogEntry {
     pub event: String,
     pub message: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub build_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub application_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub runtime_contract_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub packaged: Option<bool>,
     #[serde(default)]
     #[ts(optional)]
     #[ts(type = "Record<string, unknown>")]

@@ -28,6 +28,10 @@ use serde_json::json;
             event: "test".to_owned(),
             message: message.to_owned(),
             session_id: "session".to_owned(),
+            build_commit: None,
+            application_version: None,
+            runtime_contract_version: None,
+            packaged: None,
             context: None,
             error: None,
         }
@@ -149,6 +153,81 @@ use serde_json::json;
         assert_eq!(exported["error"]["message"], "WebView2 setup failed");
         assert_eq!(exported["context"]["setupStage"], "permission-handler");
         assert_eq!(exported["context"]["nativeCode"], "0x8007139F");
+    }
+
+    #[test]
+    fn additive_attribution_migration_keeps_legacy_rows_and_exports_each_build() {
+        let directory = tempdir().unwrap();
+        let mut connection = Connection::open(directory.path().join("logs.sqlite3")).unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE log_entries (
+                  row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  id TEXT NOT NULL UNIQUE,
+                  timestamp TEXT NOT NULL,
+                  level TEXT NOT NULL,
+                  source TEXT NOT NULL,
+                  event TEXT NOT NULL,
+                  message TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  context_json TEXT,
+                  error_json TEXT,
+                  search_text TEXT NOT NULL
+                );
+                INSERT INTO log_entries(
+                  id, timestamp, level, source, event, message, session_id, search_text
+                ) VALUES (
+                  'legacy', '2026-08-26T00:00:00Z', 'info', 'main', 'legacy',
+                  'legacy event', 'legacy-session', 'legacy event'
+                );
+                ",
+            )
+            .unwrap();
+
+        create_schema(&connection, false).unwrap();
+        let legacy = query_entries(&connection, &LogQuery::default())
+            .unwrap()
+            .entries
+            .into_iter()
+            .find(|entry| entry.id == "legacy")
+            .unwrap();
+        assert_eq!(legacy.build_commit, None);
+        assert_eq!(legacy.application_version, None);
+        assert_eq!(legacy.runtime_contract_version, None);
+        assert_eq!(legacy.packaged, None);
+
+        let mut older_build = entry("older-build", "older build event");
+        older_build.session_id = "session-a".to_owned();
+        older_build.build_commit = Some("commit-a".to_owned());
+        older_build.application_version = Some("8.4.1".to_owned());
+        older_build.runtime_contract_version = Some(21);
+        older_build.packaged = Some(true);
+        let mut newer_build = entry("newer-build", "newer build event");
+        newer_build.session_id = "session-b".to_owned();
+        newer_build.build_commit = Some("commit-b".to_owned());
+        newer_build.application_version = Some("8.4.2".to_owned());
+        newer_build.runtime_contract_version = Some(22);
+        newer_build.packaged = Some(false);
+        append_entries(&mut connection, &[older_build, newer_build]).unwrap();
+
+        let mut exported = Vec::new();
+        write_jsonl(&connection, &mut exported).unwrap();
+        let exported = String::from_utf8(exported).unwrap();
+        let records = exported
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let by_id = records
+            .iter()
+            .map(|record| (record["id"].as_str().unwrap(), record))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(by_id["older-build"]["buildCommit"], "commit-a");
+        assert_eq!(by_id["older-build"]["runtimeContractVersion"], 21);
+        assert_eq!(by_id["newer-build"]["buildCommit"], "commit-b");
+        assert_eq!(by_id["newer-build"]["applicationVersion"], "8.4.2");
+        assert_eq!(by_id["newer-build"]["packaged"], false);
+        assert!(by_id["legacy"].get("buildCommit").is_none());
     }
 
     #[test]

@@ -384,7 +384,9 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(runtime).toContain("NATIVE_PRESENTATION_COALESCE_INTERVAL");
     expect(runtime).toContain("tab.selection-coalesced");
     expect(runtime).toContain("apply_native_presentation_batch(");
-    expect(runtime).toContain("run_on_appkit_tracking_main(task)");
+    expect(runtime).toContain("run_on_appkit_tracking_main_classified(task)");
+    expect(macBridge).toContain("APPKIT_TRACKING_TASK_CANCELLED");
+    expect(macBridge).toContain("TimedOutAfterStart");
     expect(runtime).toContain(".run_on_main_thread(task)");
     expect(runtime).toContain("mainQueueWaitMs");
     expect(runtime).toContain("mainThreadMs");

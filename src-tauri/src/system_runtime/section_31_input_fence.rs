@@ -24,11 +24,25 @@ impl SystemRuntimeExecutor {
                 NavigationInputFenceSource::MainFrame,
             )
             .map_err(|error| error.message)?;
+        let operation_id = self
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| {
+                state
+                    .role_input_fences
+                    .get(role_id)
+                    .filter(|fence| fence.input_epoch == input_epoch)
+                    .and_then(|fence| fence.navigation_operation.as_ref())
+                    .map(|operation| operation.operation_id.clone())
+            })
+            .ok_or_else(|| "The desktop E2E navigation operation was superseded.".to_owned())?;
         self.expire_navigation_input_fence(
             &webview_label,
             role_id,
             input_epoch,
             generation,
+            &operation_id,
         );
         Ok(json!({
             "generation": generation,

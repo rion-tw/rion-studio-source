@@ -28,16 +28,35 @@ static SENSITIVE_QUERY: LazyLock<Regex> = LazyLock::new(|| {
 
 pub struct LogCaptureRuntime {
     current_level: LogLevel,
+    metadata: LogSessionMetadata,
     pending: VecDeque<LogCaptureRecord>,
     sequence: u64,
     session_id: String,
     user_data_dir: PathBuf,
 }
 
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LogSessionMetadata {
+    pub(crate) application_version: Option<String>,
+    pub(crate) build_commit: Option<String>,
+    pub(crate) packaged: Option<bool>,
+    pub(crate) runtime_contract_version: Option<u32>,
+}
+
 impl LogCaptureRuntime {
+    #[cfg(test)]
     pub fn new(user_data_dir: PathBuf, current_level: LogLevel) -> Self {
+        Self::new_with_metadata(user_data_dir, current_level, LogSessionMetadata::default())
+    }
+
+    pub(crate) fn new_with_metadata(
+        user_data_dir: PathBuf,
+        current_level: LogLevel,
+        metadata: LogSessionMetadata,
+    ) -> Self {
         Self {
             current_level,
+            metadata,
             pending: VecDeque::with_capacity(CAPTURE_QUEUE_CAPACITY),
             sequence: 0,
             session_id: Uuid::new_v4().to_string(),
@@ -97,6 +116,10 @@ impl LogCaptureRuntime {
                     .collect(),
                 message: sanitize_text(&capture.message, &self.user_data_dir),
                 session_id: self.session_id.clone(),
+                build_commit: self.metadata.build_commit.clone(),
+                application_version: self.metadata.application_version.clone(),
+                runtime_contract_version: self.metadata.runtime_contract_version,
+                packaged: self.metadata.packaged,
                 context,
                 error: capture
                     .error
@@ -274,6 +297,31 @@ mod tests {
                 "<USER_DATA>/logs"
             );
         };
+    }
+
+    #[test]
+    fn stamps_every_entry_with_immutable_session_build_attribution() {
+        let mut runtime = LogCaptureRuntime::new_with_metadata(
+            PathBuf::from("/users/test/Rion"),
+            LogLevel::Info,
+            LogSessionMetadata {
+                application_version: Some("8.4.2".to_owned()),
+                build_commit: Some("0b6e42f0".to_owned()),
+                packaged: Some(true),
+                runtime_contract_version: Some(22),
+            },
+        );
+        let entries = runtime.capture(vec![
+            capture(LogLevel::Info, None),
+            capture(LogLevel::Warn, None),
+        ]);
+
+        assert!(entries.iter().all(|entry| {
+            entry.application_version.as_deref() == Some("8.4.2")
+                && entry.build_commit.as_deref() == Some("0b6e42f0")
+                && entry.packaged == Some(true)
+                && entry.runtime_contract_version == Some(22)
+        }));
     }
 
     #[test]

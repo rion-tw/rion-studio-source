@@ -111,6 +111,7 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| state.last_completed_document_ids.get(webview_label).cloned());
+        let (deadline_cancellation, deadline_cancelled) = watch::channel(false);
         let installed = self.state.lock().is_ok_and(|mut state| {
             if !state
                 .role_input_fences
@@ -128,6 +129,7 @@ impl SystemRuntimeExecutor {
                 baseline_document_id,
             );
             if let Some(fence) = state.role_input_fences.get_mut(role_id) {
+                fence.navigation_deadline_cancellation = Some(deadline_cancellation);
                 fence.navigation_operation = Some(operation.clone());
             }
             if let Some(recovery) = state.macro_input_recoveries.get_mut(role_id)
@@ -154,17 +156,21 @@ impl SystemRuntimeExecutor {
         let deadline_app = app.clone();
         let deadline_role_id = role_id.clone();
         let deadline_webview_label = webview_label.clone();
+        let deadline_operation_id = operation.operation_id.clone();
         tauri::async_runtime::spawn(async move {
             // DeadlineBound: the exact page-finished event is the only success
             // path. Elapsed time terminalizes automatic input as restart-required;
             // it never reads back page state or infers navigation success.
-            tokio::time::sleep(NAVIGATION_TIMEOUT).await;
+            if !wait_for_navigation_input_deadline(deadline_cancelled, NAVIGATION_TIMEOUT).await {
+                return;
+            }
             if let Some(state) = deadline_app.try_state::<crate::CoreState>() {
                 state.runtime.expire_navigation_input_fence(
                     &deadline_webview_label,
                     &deadline_role_id,
                     epoch,
                     generation,
+                    &deadline_operation_id,
                 );
             }
         });
@@ -327,6 +333,7 @@ impl SystemRuntimeExecutor {
                 role_id,
                 input_epoch,
                 "core-input-resume-rejected",
+                None,
             );
             return;
         }
@@ -350,10 +357,10 @@ impl SystemRuntimeExecutor {
                 {
                     return None;
                 }
-                let operation = state
-                    .role_input_fences
-                    .remove(role_id)
-                    .and_then(|fence| fence.navigation_operation);
+                let operation = state.role_input_fences.remove(role_id).and_then(|mut fence| {
+                    cancel_navigation_input_deadline(&mut fence);
+                    fence.navigation_operation
+                });
                 state
                     .last_input_ready_epochs
                     .insert(role_id.to_owned(), input_epoch);
@@ -377,6 +384,7 @@ impl SystemRuntimeExecutor {
                 role_id,
                 input_epoch,
                 "native-input-resume-rejected",
+                None,
             );
         }
     }
@@ -436,6 +444,7 @@ impl SystemRuntimeExecutor {
                 role_id.to_owned(),
                 RoleInputFence {
                     input_epoch,
+                    navigation_deadline_cancellation: None,
                     navigation_operation: None,
                     reason: reason.to_owned(),
                     started_at: Instant::now(),
@@ -448,7 +457,10 @@ impl SystemRuntimeExecutor {
                     resuming: false,
                 },
             )
-            .and_then(|fence| fence.navigation_operation);
+            .and_then(|mut fence| {
+                cancel_navigation_input_deadline(&mut fence);
+                fence.navigation_operation
+            });
         drop(state);
         self.input_readiness.notify();
         if let Some(operation) = superseded_operation {
@@ -468,6 +480,7 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         input_epoch: u64,
         surface_generation: u64,
+        operation_id: &str,
     ) {
         let current = self.state.lock().ok().is_some_and(|state| {
             main_frame_navigation_deadline_is_current(
@@ -477,16 +490,17 @@ impl SystemRuntimeExecutor {
                 role_id,
                 input_epoch,
                 surface_generation,
+                operation_id,
             )
         });
         if !current {
-            self.record_stale_input_fence_event(role_id, input_epoch);
             return;
         }
         self.require_role_restart_after_input_fence_failure(
             role_id,
             input_epoch,
             "page-finish-deadline",
+            Some(operation_id),
         );
     }
 
@@ -495,13 +509,26 @@ impl SystemRuntimeExecutor {
         role_id: &str,
         input_epoch: u64,
         reason: &str,
+        expected_operation_id: Option<&str>,
     ) {
         let restart = self.state.lock().ok().and_then(|mut state| {
+            if expected_operation_id.is_some_and(|operation_id| {
+                !state.role_input_fences.get(role_id).is_some_and(|fence| {
+                    fence.input_epoch == input_epoch
+                        && fence
+                            .navigation_operation
+                            .as_ref()
+                            .is_some_and(|operation| operation.operation_id == operation_id)
+                })
+            }) {
+                return None;
+            }
             let generation =
                 claim_input_fence_restart_required(&mut state.role_input_fences, role_id, input_epoch)?;
             let fence = state
                 .role_input_fences
                 .get_mut(role_id)?;
+            cancel_navigation_input_deadline(fence);
             fence.reason = reason.to_owned();
             Some((
                 generation,
@@ -615,49 +642,58 @@ impl SystemRuntimeExecutor {
             .lock()
             .ok()
             .and_then(|state| {
-                state.role_input_fences.get(role_id).map(|fence| {
-                    (
-                        fence.reason.clone(),
-                        fence
-                            .started_at
-                            .elapsed()
-                            .as_millis()
-                            .min(u64::MAX as u128) as u64,
-                        Some(fence.surface_generation),
-                        fence
-                            .navigation_operation
-                            .as_ref()
-                            .map(|operation| operation.operation_id.clone()),
-                        fence.drained,
-                        state
-                            .main_frame_navigation_input_fences
-                            .values()
-                            .filter(|ticket| {
-                                ticket.role_id == role_id
-                                    && ticket.input_epoch == fence.input_epoch
-                                    && !ticket.page_finished
-                            })
-                            .count()
-                            .min(u32::MAX as usize) as u32,
-                        fence.recovery_scheduled,
-                        fence.macro_recovery_id.clone(),
-                        fence.pending_macro_restart_count,
-                    )
-                }).or_else(|| {
-                    state.macro_input_recoveries.get(role_id).map(|recovery| {
+                state
+                    .role_input_fences
+                    .get(role_id)
+                    .filter(|fence| fence.input_epoch == input_epoch)
+                    .map(|fence| {
                         (
-                            fallback_reason.to_owned(),
-                            0,
-                            None,
-                            None,
-                            false,
-                            0,
-                            false,
-                            Some(recovery.recovery_id.clone()),
-                            recovery.pending_macro_restart_count,
+                            fence.reason.clone(),
+                            fence
+                                .started_at
+                                .elapsed()
+                                .as_millis()
+                                .min(u64::MAX as u128) as u64,
+                            Some(fence.surface_generation),
+                            fence
+                                .navigation_operation
+                                .as_ref()
+                                .map(|operation| operation.operation_id.clone()),
+                            fence.drained,
+                            state
+                                .main_frame_navigation_input_fences
+                                .values()
+                                .filter(|ticket| {
+                                    ticket.role_id == role_id
+                                        && ticket.input_epoch == fence.input_epoch
+                                        && !ticket.page_finished
+                                })
+                                .count()
+                                .min(u32::MAX as usize) as u32,
+                            fence.recovery_scheduled,
+                            fence.macro_recovery_id.clone(),
+                            fence.pending_macro_restart_count,
                         )
                     })
-                })
+                    .or_else(|| {
+                        state
+                            .macro_input_recoveries
+                            .get(role_id)
+                            .filter(|recovery| recovery.input_epoch == input_epoch)
+                            .map(|recovery| {
+                                (
+                                    fallback_reason.to_owned(),
+                                    0,
+                                    None,
+                                    None,
+                                    false,
+                                    0,
+                                    false,
+                                    Some(recovery.recovery_id.clone()),
+                                    recovery.pending_macro_restart_count,
+                                )
+                            })
+                    })
             })
             .unwrap_or_else(|| {
                 (
@@ -766,7 +802,8 @@ impl SystemRuntimeExecutor {
                     .and_then(|tab| tab.roles.get(role_id))
                     .map(|surface| Arc::clone(&surface.navigation));
                 state.last_input_ready_epochs.remove(role_id);
-                let discarded_epoch = state.role_input_fences.remove(role_id).map(|fence| {
+                let discarded_epoch = state.role_input_fences.remove(role_id).map(|mut fence| {
+                    cancel_navigation_input_deadline(&mut fence);
                     state
                         .main_frame_navigation_input_fences
                         .retain(|_, ticket| ticket.role_id != role_id);

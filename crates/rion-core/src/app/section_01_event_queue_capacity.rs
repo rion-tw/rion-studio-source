@@ -450,6 +450,12 @@ impl AppCore {
             overlay_event_receiver,
             Arc::new(move |events| publish_events(&overlay_event_dispatcher, events)),
         )?;
+        let log_session_metadata = crate::log_capture::LogSessionMetadata {
+            application_version: Some(options.app_version.clone()),
+            build_commit: options.build_commit.clone(),
+            packaged: Some(options.packaged),
+            runtime_contract_version: options.runtime_contract_version,
+        };
         let core = Self {
             app_version: options.app_version,
             app_snapshot_sequence: AtomicU64::new(0),
@@ -470,9 +476,10 @@ impl AppCore {
             embedded_operations: Mutex::new(std::collections::HashMap::new()),
             runtime_window_persistence_revisions: Mutex::new(std::collections::HashMap::new()),
             instance_lock: Mutex::new(Some(instance_lock)),
-            log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new(
+            log_capture: Mutex::new(crate::log_capture::LogCaptureRuntime::new_with_metadata(
                 user_data_dir.clone(),
                 log_level,
+                log_session_metadata,
             )),
             launch_completion,
             macro_runtime,

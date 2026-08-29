@@ -307,8 +307,12 @@ fn toggle_fullscreen(
 ) -> Result<(), String> {
     match target {
         ApplicationShortcutTarget::Focused => {
-            if let Some(receipt) = state.runtime.toggle_focused_runtime_fullscreen()? {
-                return crate::runtime_operation_receipt_result(receipt);
+            if state
+                .runtime
+                .request_focused_runtime_fullscreen()?
+                .is_some()
+            {
+                return Ok(());
             }
             state
                 .runtime

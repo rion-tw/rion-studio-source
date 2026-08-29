@@ -809,7 +809,9 @@ impl NativePresentationReceipt {
                 && plan.focus.focuses_window()
                 && outcome.window_focused_after == Some(false));
         let deadline_exceeded = plan.operation.remaining().is_zero();
-        let status = if !outcome.visibility_errors.is_empty() {
+        let status = if outcome.indeterminate {
+            NativePresentationStatus::Indeterminate
+        } else if !outcome.visibility_errors.is_empty() {
             NativePresentationStatus::Failed
         } else if !outcome.applied
             || outcome.focus_superseded
@@ -847,7 +849,9 @@ impl NativePresentationReceipt {
                 plan.operation.clone(),
                 operation_stage,
                 status,
-                if !outcome.visibility_errors.is_empty() {
+                if outcome.indeterminate {
+                    Some("NATIVE_PRESENTATION_ACKNOWLEDGEMENT_UNKNOWN")
+                } else if !outcome.visibility_errors.is_empty() {
                     Some("NATIVE_PRESENTATION_FAILED")
                 } else if outcome.skipped_surface_count > 0 {
                     Some("NATIVE_SURFACE_OWNER_SUPERSEDED")
@@ -983,6 +987,7 @@ struct NativePresentationBatch {
 
 struct NativePresentationOutcome {
     applied: bool,
+    indeterminate: bool,
     presentation_applied: bool,
     focus_applied: bool,
     focus_superseded: bool,

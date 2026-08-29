@@ -6,6 +6,7 @@ fn presentation_outcome(
 ) -> NativePresentationOutcome {
     NativePresentationOutcome {
         applied,
+        indeterminate: false,
         presentation_applied: applied,
         focus_applied: focused == Some(true),
         focus_superseded: false,
@@ -74,23 +75,28 @@ fn desktop_e2e_fullscreen_edges_use_the_macos_transition_owner_only() {
 fn macos_and_windows_share_exact_launch_visibility_terminal_semantics() {
     for platform in ["macos", "windows"] {
         assert_eq!(
-            launch_visibility_terminal_status(true, Some(true), false),
+            launch_visibility_terminal_status(true, Some(true), false, false),
             "completed",
             "{platform}"
         );
         assert_eq!(
-            launch_visibility_terminal_status(true, Some(false), false),
+            launch_visibility_terminal_status(true, Some(false), false, false),
             "degraded",
             "{platform}"
         );
         assert_eq!(
-            launch_visibility_terminal_status(false, None, false),
+            launch_visibility_terminal_status(false, None, false, false),
             "superseded",
             "{platform}"
         );
         assert_eq!(
-            launch_visibility_terminal_status(false, None, true),
+            launch_visibility_terminal_status(false, None, false, true),
             "failed",
+            "{platform}"
+        );
+        assert_eq!(
+            launch_visibility_terminal_status(false, None, true, true),
+            "indeterminate",
             "{platform}"
         );
     }
@@ -197,6 +203,20 @@ fn macos_and_windows_share_presentation_receipt_semantics() {
         );
         assert_eq!(failed.status, NativePresentationStatus::Failed, "{platform}");
         assert_eq!(failed.applied_revision, None, "{platform}");
+
+        let mut indeterminate = presentation_outcome(false, None, None, Vec::new());
+        indeterminate.indeterminate = true;
+        let indeterminate = NativePresentationReceipt::from_outcome(&plan, &indeterminate);
+        assert_eq!(
+            indeterminate.status,
+            NativePresentationStatus::Indeterminate,
+            "{platform}"
+        );
+        assert_eq!(
+            indeterminate.operation.failure_code.as_deref(),
+            Some("NATIVE_PRESENTATION_ACKNOWLEDGEMENT_UNKNOWN"),
+            "{platform}"
+        );
     }
 }
 

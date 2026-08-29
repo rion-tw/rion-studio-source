@@ -3,6 +3,32 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
+  it("returns from the macOS native shortcut before waiting for AppKit presentation", async () => {
+    const [menu, windowControl] = await Promise.all([
+      readFile(new URL("../src-tauri/src/application_menu.rs", import.meta.url), "utf8"),
+      readFile(
+        new URL(
+          "../src-tauri/src/system_runtime/section_12_handle_divider_pointer.rs",
+          import.meta.url
+        ),
+        "utf8"
+      )
+    ]);
+    const focusedShortcut = menu.slice(
+      menu.indexOf("ApplicationShortcutTarget::Focused =>"),
+      menu.indexOf("ApplicationShortcutTarget::MainWindow")
+    );
+    const requestOnly = windowControl.slice(
+      windowControl.indexOf("pub fn request_focused_runtime_fullscreen("),
+      windowControl.indexOf("pub fn toggle_runtime_window_fullscreen(")
+    );
+
+    expect(focusedShortcut).toContain("request_focused_runtime_fullscreen()");
+    expect(focusedShortcut).not.toContain("runtime_operation_receipt_result");
+    expect(requestOnly).toContain("request_runtime_window_toggle_fullscreen");
+    expect(requestOnly).not.toContain("wait_native_operation_summary");
+  });
+
   it("refreshes Windows toolbar geometry after exact fullscreen and preference terminals", async () => {
     const [windowControl, metadata, layout] = await Promise.all([
       readFile(

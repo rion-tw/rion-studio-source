@@ -1,6 +1,7 @@
 fn failed_native_presentation_outcome(message: String) -> NativePresentationOutcome {
     NativePresentationOutcome {
         applied: false,
+        indeterminate: false,
         presentation_applied: false,
         focus_applied: false,
         focus_superseded: false,
@@ -28,9 +29,12 @@ fn failed_native_presentation_outcome(message: String) -> NativePresentationOutc
 fn launch_visibility_terminal_status(
     applied: bool,
     window_visible_after: Option<bool>,
+    indeterminate: bool,
     has_visibility_errors: bool,
 ) -> &'static str {
-    if has_visibility_errors {
+    if indeterminate {
+        "indeterminate"
+    } else if has_visibility_errors {
         "failed"
     } else if applied && window_visible_after != Some(false) {
         "completed"
@@ -106,14 +110,18 @@ fn capture_presentation_batch_events(
             Value::String(request.operation.operation_id.clone()),
         );
     }
-    let completion_event = if !outcome.visibility_errors.is_empty() {
+    let completion_event = if outcome.indeterminate {
+        "native.presentation-indeterminate"
+    } else if !outcome.visibility_errors.is_empty() {
         "native.presentation-failed"
     } else if outcome.applied {
         "native.presentation-completed"
     } else {
         "tab.selection-superseded"
     };
-    let completion_message = if !outcome.visibility_errors.is_empty() {
+    let completion_message = if outcome.indeterminate {
+        "Native tab presentation started, but platform acknowledgement is unknown."
+    } else if !outcome.visibility_errors.is_empty() {
         "Native tab presentation encountered a platform visibility error."
     } else if outcome.applied {
         "Native tab presentation completed on the platform UI thread."
@@ -141,7 +149,11 @@ fn capture_presentation_batch_events(
             message: completion_message.to_owned(),
             context_raw_json: serde_json::to_string(&context).ok(),
             error: (!outcome.visibility_errors.is_empty()).then(|| LogErrorDetails {
-                name: "NATIVE_PRESENTATION_FAILED".to_owned(),
+                name: if outcome.indeterminate {
+                    "NATIVE_PRESENTATION_ACKNOWLEDGEMENT_UNKNOWN".to_owned()
+                } else {
+                    "NATIVE_PRESENTATION_FAILED".to_owned()
+                },
                 message: outcome.visibility_errors.join("; "),
                 stack: None,
                 cause: None,
@@ -151,6 +163,7 @@ fn capture_presentation_batch_events(
     let launch_status = launch_visibility_terminal_status(
         outcome.applied,
         outcome.window_visible_after,
+        outcome.indeterminate,
         !outcome.visibility_errors.is_empty(),
     );
     if let Some(trace) = request.launch_latency_trace.as_ref() {
@@ -171,7 +184,7 @@ fn capture_presentation_batch_events(
             "windowVisibleAfter": outcome.window_visible_after,
         });
         entries.push(LogCaptureRecord {
-            level: if launch_status == "failed" {
+            level: if matches!(launch_status, "failed" | "indeterminate") {
                 LogLevel::Warn
             } else {
                 LogLevel::Info

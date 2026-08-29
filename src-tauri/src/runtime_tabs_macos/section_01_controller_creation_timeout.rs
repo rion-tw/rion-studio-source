@@ -4,7 +4,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_void},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc,
     },
     time::Duration,
@@ -15,6 +15,117 @@ use tauri::{AppHandle, Emitter, Manager, Window};
 
 const CONTROLLER_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
 const APPKIT_TRACKING_DISPATCH_TIMEOUT: Duration = Duration::from_secs(2);
+const APPKIT_TRACKING_TASK_QUEUED: u8 = 0;
+const APPKIT_TRACKING_TASK_RUNNING: u8 = 1;
+const APPKIT_TRACKING_TASK_CANCELLED: u8 = 2;
+const APPKIT_TRACKING_TASK_FINISHED: u8 = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AppKitTrackingDispatchError {
+    TimedOutBeforeStart,
+    TimedOutAfterStart,
+    CallbackLost,
+}
+
+impl AppKitTrackingDispatchError {
+    pub(crate) const fn mutation_may_have_started(self) -> bool {
+        matches!(self, Self::TimedOutAfterStart)
+    }
+}
+
+impl std::fmt::Display for AppKitTrackingDispatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::TimedOutBeforeStart => {
+                "The AppKit tracking-loop mutation was cancelled before it started."
+            }
+            Self::TimedOutAfterStart => {
+                "The AppKit tracking-loop mutation started, but its result is unknown."
+            }
+            Self::CallbackLost => "The AppKit tracking-loop mutation callback was disconnected.",
+        })
+    }
+}
+
+struct AppKitTrackingTaskState(AtomicU8);
+
+impl Default for AppKitTrackingTaskState {
+    fn default() -> Self {
+        Self(AtomicU8::new(APPKIT_TRACKING_TASK_QUEUED))
+    }
+}
+
+fn execute_appkit_tracking_task<T>(
+    state: &AppKitTrackingTaskState,
+    sender: mpsc::SyncSender<T>,
+    task: impl FnOnce() -> T,
+) {
+    if state
+        .0
+        .compare_exchange(
+            APPKIT_TRACKING_TASK_QUEUED,
+            APPKIT_TRACKING_TASK_RUNNING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return;
+    }
+    let result = task();
+    let _ = sender.send(result);
+    state
+        .0
+        .store(APPKIT_TRACKING_TASK_FINISHED, Ordering::Release);
+}
+
+fn wait_for_appkit_tracking_task<T>(
+    receiver: &mpsc::Receiver<T>,
+    state: &AppKitTrackingTaskState,
+    timeout: Duration,
+) -> Result<T, AppKitTrackingDispatchError> {
+    match receiver.recv_timeout(timeout) {
+        Ok(result) => Ok(result),
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Err(AppKitTrackingDispatchError::CallbackLost)
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            if state
+                .0
+                .compare_exchange(
+                    APPKIT_TRACKING_TASK_QUEUED,
+                    APPKIT_TRACKING_TASK_CANCELLED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                return Err(AppKitTrackingDispatchError::TimedOutBeforeStart);
+            }
+            receiver
+                .try_recv()
+                .map_err(|_| AppKitTrackingDispatchError::TimedOutAfterStart)
+        }
+    }
+}
+
+pub(crate) fn run_on_appkit_tracking_main_classified<T>(
+    task: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, AppKitTrackingDispatchError>
+where
+    T: Send + 'static,
+{
+    if unsafe { rion_runtime_tabs_is_main_thread() } {
+        return Ok(task());
+    }
+    let state = Arc::new(AppKitTrackingTaskState::default());
+    let worker_state = Arc::clone(&state);
+    let (sender, receiver) = mpsc::sync_channel(1);
+    DispatchQueue::main().exec_async(move || {
+        execute_appkit_tracking_task(&worker_state, sender, task);
+    });
+    wait_for_appkit_tracking_task(&receiver, &state, APPKIT_TRACKING_DISPATCH_TIMEOUT)
+}
 
 pub(crate) fn run_on_appkit_tracking_main<T>(
     task: impl FnOnce() -> T + Send + 'static,
@@ -22,16 +133,7 @@ pub(crate) fn run_on_appkit_tracking_main<T>(
 where
     T: Send + 'static,
 {
-    if unsafe { rion_runtime_tabs_is_main_thread() } {
-        return Ok(task());
-    }
-    let (sender, receiver) = mpsc::sync_channel(1);
-    DispatchQueue::main().exec_async(move || {
-        let _ = sender.send(task());
-    });
-    receiver
-        .recv_timeout(APPKIT_TRACKING_DISPATCH_TIMEOUT)
-        .map_err(|_| "The AppKit tracking-loop mutation did not complete in time.".to_owned())
+    run_on_appkit_tracking_main_classified(task).map_err(|error| error.to_string())
 }
 
 fn submit_on_appkit_tracking_main(task: impl FnOnce() + Send + 'static) {

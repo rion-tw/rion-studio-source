@@ -11,6 +11,12 @@ pub struct AppCoreOptions {
     pub platform: String,
     pub app_version: String,
     #[serde(default)]
+    pub build_commit: Option<String>,
+    #[serde(default)]
+    pub packaged: bool,
+    #[serde(default)]
+    pub runtime_contract_version: Option<u32>,
+    #[serde(default)]
     pub performance_telemetry_path: Option<String>,
 }
 

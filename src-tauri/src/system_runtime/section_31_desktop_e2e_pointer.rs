@@ -307,14 +307,31 @@ fn desktop_e2e_windows_tab_screen_rect(
 
     let encoded = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
     let script = HSTRING::from(format!(
-        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const rect = button.getBoundingClientRect(); const scroller = button.closest('#tabs')?.getBoundingClientRect(); if (style.visibility === 'hidden' || style.display === 'none' || !scroller) return null; const left = Math.max(rect.left, scroller.left, 0); const top = Math.max(rect.top, scroller.top, 0); const right = Math.min(rect.right, scroller.right, innerWidth); const bottom = Math.min(rect.bottom, scroller.bottom, innerHeight); if (right - left <= 2 || bottom - top <= 2) return null; return {{ left, top, right, bottom }}; }})()"
+        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const scroller = button.closest('#tabs'); if (style.visibility === 'hidden' || style.display === 'none' || style.pointerEvents === 'none' || !scroller) return null; const hitPoint = () => {{ const rect = button.getBoundingClientRect(); const viewport = scroller.getBoundingClientRect(); const left = Math.max(rect.left, viewport.left, 0); const top = Math.max(rect.top, viewport.top, 0); const right = Math.min(rect.right, viewport.right, innerWidth); const bottom = Math.min(rect.bottom, viewport.bottom, innerHeight); if (right - left <= 2 || bottom - top <= 2) return null; const y = (top + bottom) / 2; const xs = [(left + right) / 2, left + 4, right - 4, left + (right - left) / 4, right - (right - left) / 4]; const x = xs.find((candidate) => candidate > left && candidate < right && document.elementFromPoint(candidate, y)?.closest('button.tab') === button); return x === undefined ? null : {{ left: x - 2, top: y - 2, right: x + 2, bottom: y + 2 }}; }}; const current = hitPoint(); if (current) return current; button.scrollIntoView({{ block: 'nearest', inline: 'center' }}); return hitPoint(); }})()"
     ));
-    desktop_e2e_windows_element_screen_rect(
+    let resolved = desktop_e2e_windows_element_screen_rect(
         tab_strip,
         script,
         "The requested WebView2 runtime tab is not visible.",
         "The WebView2 runtime-tab rectangle readback did not complete.",
-    )
+    )?;
+    crate::desktop_e2e::record_event(
+        "runtime-tab-pointer-target-resolved",
+        None,
+        None,
+        None,
+        json!({
+            "screenRect": {
+                "bottom": resolved.bottom,
+                "left": resolved.left,
+                "right": resolved.right,
+                "top": resolved.top,
+            },
+            "tabId": tab_id,
+            "tabStripLabel": tab_strip.label(),
+        }),
+    );
+    Ok(resolved)
 }
 
 #[cfg(windows)]
@@ -846,8 +863,19 @@ fn desktop_e2e_windows_click_runtime_tab(
     }) {
         Ok(())
     } else {
+        let event_summary = trace
+            .events
+            .iter()
+            .map(|event| {
+                format!(
+                    "{}@{},{}:{:?}",
+                    event.event_type, event.client_x, event.client_y, event.target_tab_id
+                )
+            })
+            .collect::<Vec<_>>();
         Err(format!(
-            "The native runtime-tab {terminal_event} terminal did not target the fenced tab."
+            "The native runtime-tab {terminal_event} terminal did not target the fenced tab (active={:?}, order={:?}, sortActive={}, events={:?}).",
+            trace.active_tab_id, trace.order, trace.sort_active, event_summary
         ))
     }
 }

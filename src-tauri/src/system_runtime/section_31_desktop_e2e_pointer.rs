@@ -307,7 +307,7 @@ fn desktop_e2e_windows_tab_screen_rect(
 
     let encoded = serde_json::to_string(tab_id).map_err(|error| error.to_string())?;
     let script = HSTRING::from(format!(
-        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const rect = button.getBoundingClientRect(); if (style.visibility === 'hidden' || style.display === 'none' || rect.width <= 0 || rect.height <= 0) return null; return {{ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }}; }})()"
+        "(() => {{ const id = {encoded}; const button = [...document.querySelectorAll('button.tab')].find((candidate) => candidate.dataset.tabId === id); if (!button || button.hidden || button.getClientRects().length !== 1) return null; const style = getComputedStyle(button); const rect = button.getBoundingClientRect(); const scroller = button.closest('#tabs')?.getBoundingClientRect(); if (style.visibility === 'hidden' || style.display === 'none' || !scroller) return null; const left = Math.max(rect.left, scroller.left, 0); const top = Math.max(rect.top, scroller.top, 0); const right = Math.min(rect.right, scroller.right, innerWidth); const bottom = Math.min(rect.bottom, scroller.bottom, innerHeight); if (right - left <= 2 || bottom - top <= 2) return null; return {{ left, top, right, bottom }}; }})()"
     ));
     desktop_e2e_windows_element_screen_rect(
         tab_strip,

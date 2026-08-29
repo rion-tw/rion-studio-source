@@ -579,7 +579,10 @@ async function selectRuntimeTabForRoleSlot(
   tab: EmbeddedRuntimeState["tabs"][number],
   roleId: string
 ): Promise<DesktopE2eWindowSnapshot> {
-  let targetWindow = await windowSnapshot(tab.windowId);
+  // Starting the shared macro leaves the main application in the foreground.
+  // Fence the target Game Window's native focus before the visible tab click so
+  // Windows delivers the pointer lifecycle to its WebView2 tab strip.
+  let targetWindow = await focusVisibleGameWindow(await windowSnapshot(tab.windowId));
   if (targetWindow.kernel?.selectedTabId !== tab.id) {
     const activationCursor = (await probe()).latestSequence;
     await runtimeUiAction(tab.windowId, {

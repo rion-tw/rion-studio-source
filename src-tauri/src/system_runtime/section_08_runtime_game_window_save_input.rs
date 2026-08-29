@@ -728,6 +728,48 @@ impl SystemRuntimeExecutor {
         });
     }
 
+    #[cfg(target_os = "macos")]
+    pub(crate) fn record_macos_modifier_focus_transition(
+        &self,
+        window_id: &str,
+        tab_id: Option<&str>,
+        modifier_count: u32,
+        reasserted: bool,
+    ) {
+        let core = Arc::clone(&self.core);
+        let (event, message) = if reasserted {
+            (
+                "input.modifier-focus-reasserted",
+                "Physically held Game Window modifiers were reasserted after focus returned.",
+            )
+        } else {
+            (
+                "input.modifier-focus-neutralized",
+                "Game Window modifiers were neutralized before focus left.",
+            )
+        };
+        let context = json!({
+            "modifierCount": modifier_count,
+            "platform": current_runtime_platform(),
+            "tabId": tab_id,
+            "windowId": window_id,
+        });
+        tauri::async_runtime::spawn(async move {
+            let _ = core
+                .invoke_async(CoreCommand::LogsCapture {
+                    entries: vec![LogCaptureRecord {
+                        level: LogLevel::Debug,
+                        source: LogSource::Browser,
+                        event: event.to_owned(),
+                        message: message.to_owned(),
+                        context_raw_json: serde_json::to_string(&context).ok(),
+                        error: None,
+                    }],
+                })
+                .await;
+        });
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn record_presentation_event(
         &self,

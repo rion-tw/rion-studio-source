@@ -163,6 +163,7 @@ type ActionCallback = unsafe extern "C" fn(
     f64,
     f64,
     f64,
+    u32,
     bool,
 );
 type LayoutCallback = unsafe extern "C" fn(*mut c_void, f64, f64, bool);
@@ -285,6 +286,8 @@ unsafe extern "C" {
     fn rion_runtime_tabs_overflow_layout_self_test() -> bool;
     #[cfg(test)]
     fn rion_runtime_tabs_shortcut_self_test() -> bool;
+    #[cfg(test)]
+    fn rion_runtime_tabs_modifier_focus_self_test() -> bool;
 }
 
 pub(crate) fn set_appkit_window_interaction(

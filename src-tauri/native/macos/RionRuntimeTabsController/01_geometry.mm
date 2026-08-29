@@ -1,4 +1,5 @@
 #import "../RionRuntimeTabsController.h"
+#import <ApplicationServices/ApplicationServices.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <QuartzCore/QuartzCore.h>

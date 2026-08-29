@@ -1,6 +1,6 @@
 # WebView Policy and Performance
 
-This document is part of [System WebView Runtime Contract version 21](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## WebGL performance policy
 

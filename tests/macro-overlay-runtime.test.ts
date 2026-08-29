@@ -92,7 +92,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v61");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v62");
     expect(host?.dataset.theme).toBe("dark");
     expect(host?.style.getPropertyValue("color-scheme")).toBe("dark");
     expect(host?.style.getPropertyPriority("color-scheme")).toBe("important");
@@ -347,7 +347,7 @@ describe("shell-neutral macro overlay runtime", () => {
     (0, eval)(await overlayRuntimeSource());
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
-    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v61");
+    const host = document.querySelector<HTMLElement>("#rion-studio-macro-overlay-v62");
     const root = host?.shadowRoot;
     expect(root).toBeTruthy();
 
@@ -493,7 +493,7 @@ describe("shell-neutral macro overlay runtime", () => {
     await vi.waitFor(() => expect(binding).toHaveBeenCalledWith({ type: "list" }));
 
     const root = document
-      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v61")
+      .querySelector<HTMLElement>("#rion-studio-macro-overlay-v62")
       ?.shadowRoot;
     expect(root).toBeTruthy();
     const activeBadges = root?.querySelector<HTMLElement>(".active-badges");

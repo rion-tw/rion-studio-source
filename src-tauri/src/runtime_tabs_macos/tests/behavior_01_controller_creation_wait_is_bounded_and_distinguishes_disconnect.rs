@@ -64,6 +64,11 @@ use std::{sync::mpsc, time::Duration};
     }
 
     #[test]
+    fn native_modifier_focus_handoff_preserves_sides_order_and_physical_truth() {
+        assert!(unsafe { super::rion_runtime_tabs_modifier_focus_self_test() });
+    }
+
+    #[test]
     fn marked_macro_fallback_events_are_identified_before_native_chrome_dispatch() {
         assert!(unsafe { super::rion_runtime_tabs_macro_fallback_event_self_test() });
     }

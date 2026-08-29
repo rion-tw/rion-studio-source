@@ -456,44 +456,10 @@ static BOOL RionRuntimeTabPhaseIsLoading(NSString *phase) {
 
 - (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType {
   if (_tabShortcutPendingModifiers == 0) return;
-  NSResponder *origin = _tabShortcutOriginResponder;
-  if (origin) {
-    NSEventModifierFlags preserved = NSEvent.modifierFlags &
-        NSEventModifierFlagDeviceIndependentFlagsMask &
-        ~(NSEventModifierFlagControl | NSEventModifierFlagShift);
-    if ((_tabShortcutPendingModifiers & NSEventModifierFlagShift) != 0) {
-      NSEventModifierFlags flags = preserved |
-          (_tabShortcutPendingModifiers & NSEventModifierFlagControl);
-      for (NSNumber *keyCode in @[ @56, @60 ]) {
-        NSEvent *release = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
-                                           location:NSZeroPoint
-                                      modifierFlags:flags
-                                          timestamp:NSProcessInfo.processInfo.systemUptime
-                                       windowNumber:_window.windowNumber
-                                            context:nil
-                                         characters:@""
-                        charactersIgnoringModifiers:@""
-                                          isARepeat:NO
-                                            keyCode:keyCode.unsignedShortValue];
-        [origin flagsChanged:release];
-      }
-    }
-    if ((_tabShortcutPendingModifiers & NSEventModifierFlagControl) != 0) {
-      for (NSNumber *keyCode in @[ @59, @62 ]) {
-        NSEvent *release = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
-                                           location:NSZeroPoint
-                                      modifierFlags:preserved
-                                          timestamp:NSProcessInfo.processInfo.systemUptime
-                                       windowNumber:_window.windowNumber
-                                            context:nil
-                                         characters:@""
-                        charactersIgnoringModifiers:@""
-                                          isARepeat:NO
-                                            keyCode:keyCode.unsignedShortValue];
-        [origin flagsChanged:release];
-      }
-    }
-  }
+  // The exact-side window mirror owns native releases. Reusing it here keeps
+  // Ctrl+Tab and focus loss from synthesizing a second aggregate left/right
+  // pair to the same origin responder.
+  [self neutralizePhysicalModifiersSavingFocusHandoff:NO];
   [self finishTabShortcutModifierHandoffWithAction:actionType];
 }
 

@@ -105,6 +105,7 @@ static void RionForwardRuntimeTabsAction(
   NSNumber *grabRatioY = action[@"grabRatioY"];
   NSNumber *tabWidth = action[@"tabWidth"];
   NSNumber *tabHeight = action[@"tabHeight"];
+  NSNumber *modifierCount = action[@"modifierCount"];
   NSNumber *cancelled = action[@"cancelled"];
   actionHandler(context, type.UTF8String, sessionID.UTF8String, tabID.UTF8String,
                 sourceWindowID.UTF8String, targetWindowID.UTF8String,
@@ -116,6 +117,7 @@ static void RionForwardRuntimeTabsAction(
                 grabRatioY ? grabRatioY.doubleValue : NAN,
                 tabWidth ? tabWidth.doubleValue : NAN,
                 tabHeight ? tabHeight.doubleValue : NAN,
+                modifierCount ? modifierCount.unsignedIntValue : 0,
                 cancelled ? cancelled.boolValue : false);
 }
 
@@ -545,6 +547,7 @@ bool rion_runtime_tabs_drag_anchor(void * _Nullable rawController,
 struct RionRuntimeTabsActionScopeProbe {
   std::string sourceWindowID;
   std::string targetWindowID;
+  uint32_t modifierCount;
   bool called;
 };
 
@@ -556,7 +559,7 @@ static void RionRuntimeTabsActionScopeProbeCallback(
     const char *statusIdentityJSON,
     double screenX, double screenY,
     double grabRatioX, double grabRatioY, double tabWidth, double tabHeight,
-    bool cancelled) {
+    uint32_t modifierCount, bool cancelled) {
   (void)sessionIdentifier;
   (void)tabIdentifier;
   (void)beforeTabIdentifier;
@@ -572,27 +575,36 @@ static void RionRuntimeTabsActionScopeProbeCallback(
   RionRuntimeTabsActionScopeProbe *probe =
       static_cast<RionRuntimeTabsActionScopeProbe *>(context);
   probe->called = type && (strcmp(type, "openLauncher") == 0 ||
-                           strcmp(type, "move") == 0);
+                           strcmp(type, "move") == 0 ||
+                           strcmp(type, "modifierFocusNeutralized") == 0);
   probe->sourceWindowID = sourceWindowID ?: "";
   probe->targetWindowID = targetWindowID ?: "";
+  probe->modifierCount = modifierCount;
 }
 
 bool rion_runtime_tabs_action_scope_self_test(void) {
   @autoreleasepool {
-    RionRuntimeTabsActionScopeProbe launcherProbe = {"", "", false};
+    RionRuntimeTabsActionScopeProbe launcherProbe = {"", "", 0, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"openLauncher", @"sourceWindowId" : @"window-a" },
         &launcherProbe, RionRuntimeTabsActionScopeProbeCallback);
-    RionRuntimeTabsActionScopeProbe moveProbe = {"", "", false};
+    RionRuntimeTabsActionScopeProbe moveProbe = {"", "", 0, false};
     RionForwardRuntimeTabsAction(
         @{ @"type" : @"move",
            @"sourceWindowId" : @"window-a",
            @"windowId" : @"window-b" },
         &moveProbe, RionRuntimeTabsActionScopeProbeCallback);
+    RionRuntimeTabsActionScopeProbe modifierProbe = {"", "", 0, false};
+    RionForwardRuntimeTabsAction(
+        @{ @"type" : @"modifierFocusNeutralized",
+           @"sourceWindowId" : @"window-a",
+           @"modifierCount" : @3 },
+        &modifierProbe, RionRuntimeTabsActionScopeProbeCallback);
     return launcherProbe.called && launcherProbe.sourceWindowID == "window-a" &&
            launcherProbe.targetWindowID.empty() && moveProbe.called &&
            moveProbe.sourceWindowID == "window-a" &&
-           moveProbe.targetWindowID == "window-b";
+           moveProbe.targetWindowID == "window-b" && modifierProbe.called &&
+           modifierProbe.modifierCount == 3;
   }
 }
 
@@ -841,15 +853,28 @@ static BOOL RionRuntimeRelayShortcutModifierEvent(
 
 @property(nonatomic) NSUInteger flagsChangedCount;
 @property(nonatomic) unsigned short lastKeyCode;
+@property(nonatomic) NSMutableArray<NSNumber *> *keyCodes;
+@property(nonatomic) NSMutableArray<NSNumber *> *modifierFlags;
 
 @end
 
 
 @implementation RionRuntimeShortcutResponderProbe
 
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _keyCodes = [NSMutableArray array];
+    _modifierFlags = [NSMutableArray array];
+  }
+  return self;
+}
+
 - (void)flagsChanged:(NSEvent *)event {
   self.flagsChangedCount += 1;
   self.lastKeyCode = event.keyCode;
+  [self.keyCodes addObject:@(event.keyCode)];
+  [self.modifierFlags addObject:@(event.modifierFlags)];
 }
 
 @end

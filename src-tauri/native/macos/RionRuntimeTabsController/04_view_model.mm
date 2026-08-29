@@ -255,6 +255,11 @@ NS_ASSUME_NONNULL_BEGIN
   __weak NSResponder *_tabShortcutOriginResponder;
   NSString *_tabShortcutOriginTabIdentifier;
   NSEventModifierFlags _tabShortcutPendingModifiers;
+  NSMutableArray<NSNumber *> *_physicalModifierOrder;
+  NSMapTable<NSNumber *, NSResponder *> *_physicalModifierResponders;
+  NSArray<NSNumber *> *_neutralizedModifierOrder;
+  NSUInteger _modifierFocusGeneration;
+  NSUInteger _neutralizedModifierGeneration;
   NSMutableArray<id> *_windowObservers;
   id _tabShortcutMonitor;
   BOOL _destroyed;
@@ -305,6 +310,8 @@ NS_ASSUME_NONNULL_BEGIN
   _tabSurfaces = [NSMutableArray array];
   _titlebarWidgetInsetFrameViews = [NSHashTable weakObjectsHashTable];
   _windowObservers = [NSMutableArray array];
+  _physicalModifierOrder = [NSMutableArray array];
+  _physicalModifierResponders = [NSMapTable strongToWeakObjectsMapTable];
   _previousTitleVisibility = window.titleVisibility;
   _previousTitlebarAppearsTransparent = window.titlebarAppearsTransparent;
   if (@available(macOS 11.0, *)) {
@@ -503,6 +510,7 @@ NS_ASSUME_NONNULL_BEGIN
       return event;
     }
     if (event.type == NSEventTypeFlagsChanged) {
+      [strongSelf trackPhysicalModifierEvent:event];
       [strongSelf handleTabShortcutModifierEvent:event];
       return event;
     }

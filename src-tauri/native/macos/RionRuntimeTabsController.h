@@ -151,7 +151,8 @@ typedef void (*RionRuntimeTabsCActionHandler)(
     const char * _Nullable orderedTabIdentifiersJSON,
     const char * _Nullable statusIdentityJSON, double screenX,
     double screenY, double grabRatioX, double grabRatioY,
-    double tabWidth, double tabHeight, bool cancelled);
+    double tabWidth, double tabHeight, uint32_t modifierCount,
+    bool cancelled);
 typedef void (*RionRuntimeTabsCLayoutHandler)(
     void *context, double heightInset, double yOffset, bool valid);
 
@@ -233,6 +234,7 @@ bool rion_runtime_tabs_fullscreen_toolbar_policy_self_test(void);
 bool rion_runtime_tabs_macro_fallback_event_self_test(void);
 bool rion_runtime_tabs_overflow_layout_self_test(void);
 bool rion_runtime_tabs_shortcut_self_test(void);
+bool rion_runtime_tabs_modifier_focus_self_test(void);
 
 #ifdef __cplusplus
 }

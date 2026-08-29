@@ -640,25 +640,30 @@
       });
   }
 
-  function cleanupInputContext() {
+  function cleanupInputContext({ deferModifierRelease = false } = {}) {
     runtimeTabShortcutModifierCodes.clear();
     reportGameInputContext("document");
     cancelPendingPhysicalToggleShortcuts();
-    releasePhysicalGameKeys();
+    const physicalRelease = releasePhysicalGameKeys({
+      deferModifiers: deferModifierRelease
+    });
     const shortcutRelease = releaseActiveHeldShortcuts();
     destroyCoordinateMeasurement();
-    return shortcutRelease;
+    return Promise.all([physicalRelease, shortcutRelease]);
   }
 
   function handleCapturedBlur(event) {
     // Capture is needed for focus transfers from a game canvas into an in-page
     // text editor. Top-level WebView focus loss is owned by handleWindowBlur.
-    if (event.target === window) return;
+    if (event.target === window || event.eventPhase === window.Event.AT_TARGET) return;
     void cleanupInputContext();
   }
 
   function handleWindowBlur() {
-    requestHeldKeyContinuity("blur", cleanupInputContext);
+    requestHeldKeyContinuity(
+      "blur",
+      () => cleanupInputContext({ deferModifierRelease: true })
+    );
   }
 
   function handlePageHide() {

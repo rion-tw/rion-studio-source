@@ -314,17 +314,35 @@
     }
   }
 
-  function releasePhysicalGameKeys() {
+  function releasePhysicalGameKey(code) {
+    const active = physicalGameKeys.get(code);
+    if (!active) return;
+    physicalGameKeys.delete(code);
+    const macroOwnership = macroModifierOwnership.get(code);
+    if (macroOwnership) {
+      macroOwnership.delivered = true;
+      return;
+    }
+    dispatchPhysicalGameKeyUp(active);
+  }
+
+  function releasePhysicalGameKeys({ deferModifiers = false } = {}) {
+    const deferredModifierCodes = [];
     for (const code of [...physicalGameKeys.keys()].reverse()) {
-      const active = physicalGameKeys.get(code);
-      physicalGameKeys.delete(code);
-      const macroOwnership = macroModifierOwnership.get(code);
-      if (macroOwnership) {
-        macroOwnership.delivered = true;
+      if (deferModifiers && physicalModifierCodeSet.has(code)) {
+        deferredModifierCodes.push(code);
         continue;
       }
-      if (active) dispatchPhysicalGameKeyUp(active);
+      releasePhysicalGameKey(code);
     }
+    if (deferredModifierCodes.length === 0) return Promise.resolve();
+    // Presentation-only microtask: AppKit gets the rest of this focus-loss
+    // event turn to deliver trusted flagsChanged releases. Any modifier still
+    // present afterward did not receive the native handoff and needs the page
+    // fallback exactly once.
+    return Promise.resolve().then(() => {
+      for (const code of deferredModifierCodes) releasePhysicalGameKey(code);
+    });
   }
 
   function discardForwardedMacroKey(code) {

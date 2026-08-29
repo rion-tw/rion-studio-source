@@ -1,6 +1,6 @@
 # Operations and Receipts
 
-This document is part of [System WebView Runtime Contract version 21](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Operation envelope and receipt
 
@@ -109,8 +109,10 @@ never include URL, DOM, origin, or user input content.
 Input-fence log contexts include the owning operation ID together with the input
 epoch and surface generation, so every recovery event can be traced to its
 main-frame or controlled-reload transaction without exposing page data.
+Modifier focus handoff logs record only the window, tab, and modifier count for
+neutralize and reassert phases; they never record key codes or input content.
 
-Additive fields remain compatible within version 19. The completion policy,
+Additive fields remain compatible within version 22. The completion policy,
 subsystem, status, and
 completion-scope values are generated Rust/TypeScript enums shared by Core,
 Tauri, renderer, and tests. `projection` and `tabMutation` remain diagnostic

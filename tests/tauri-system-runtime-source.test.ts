@@ -660,6 +660,10 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(macController).toContain("_tabShortcutOriginResponder");
     expect(macController).toContain("RionRuntimeRelayShortcutModifierEvent");
     expect(macController).toContain('modifierHandoffCompleted');
+    expect(macController).toContain("RionRuntimeDispatchModifierReleases");
+    expect(macController).toContain("CGEventSourceKeyState");
+    expect(macController).toContain('modifierFocusNeutralized');
+    expect(macController).toContain('modifierFocusReasserted');
     expect(macBridge).toContain("begin_macos_shortcut_modifier_handoff");
     expect(macBridge).toContain("finish_macos_shortcut_modifier_handoff");
     expect(runtime).toContain("begin_windows_shortcut_modifier_handoff");
@@ -674,6 +678,8 @@ it("keeps tab interaction responsive while native launch verification is pending
     expect(quickMenu).toContain('#[cfg(any(target_os = "windows", test))]\n    Windows,');
     expect(quickMenu.match(/platform\.is_windows\(\)/g)).toHaveLength(2);
     expect(runtime).toContain('input.modifier-handoff-{phase}');
+    expect(runtime).toContain('input.modifier-focus-neutralized');
+    expect(runtime).toContain('input.modifier-focus-reasserted');
     expect(macController).not.toContain("- (void)updateState:");
     expect(windowsStrip).toContain("optimisticallyActivateAdjacentTab");
     expect(windowsStrip).toContain("optimisticallyCloseTab");

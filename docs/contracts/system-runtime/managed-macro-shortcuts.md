@@ -1,6 +1,6 @@
 # Managed Macro Shortcuts
 
-This document is part of [System WebView Runtime Contract version 21](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
+This document is part of [System WebView Runtime Contract version 22](../../system-webview-runtime-contract.md). The entry document owns the contract version and routes readers to the minimum normative section required for a task.
 
 ## Physical ownership and admission
 
@@ -42,6 +42,28 @@ native key cleanup and clear the same Core lease.
 This flow is event-bound. It adds no polling, retry timer, replay watchdog, or
 second pressed-key owner; cancellation and supersede cannot be converted into a
 macro start.
+
+## Modifier continuity across native focus loss
+
+The overlay remains the single physical shortcut owner. The macOS Game Window
+adapter keeps only a window-lifetime mirror of the eight momentary left/right
+Shift, Control, Option, and Command codes delivered by physical AppKit events;
+Rion-injected macro events never enter that mirror. On `resignKey`, AppKit sends
+trusted `flagsChanged` releases in reverse press order to each original
+responder and folds any active Ctrl+Tab handoff into those exact releases. On
+`becomeKey`, it checks each neutralized side against combined-session physical
+key state and reasserts only still-held sides, in original order, to the current
+responder before later keyboard input. A missing window, responder, or replaced
+controller discards the handoff rather than replaying it across generations.
+
+Top-level overlay blur clears ordinary keys and while-held leases immediately,
+then defers only pass-through modifier fallback releases to a microtask in the
+same event turn. A trusted native keyup removes its exact side before that
+microtask; otherwise the overlay synthesizes one page keyup as a fallback.
+In-page focus transfer, hidden, pagehide, and disposal keep immediate cleanup.
+Windows retains WebView2 focus-loss cleanup plus the same overlay fallback
+semantics. This ordering is event-bound and adds no polling, timeout, or second
+macro-shortcut owner.
 
 ## Toggle-held continuity across role and tab changes
 

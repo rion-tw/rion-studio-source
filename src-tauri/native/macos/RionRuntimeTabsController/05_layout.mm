@@ -167,8 +167,9 @@ NS_ASSUME_NONNULL_BEGIN
       } else if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] ||
                  [notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
         if ([notification.name isEqualToString:NSWindowDidResignKeyNotification]) {
-          [strongSelf flushTabShortcutModifierHandoffWithAction:
-                          @"modifierHandoffAbandoned"];
+          [strongSelf neutralizePhysicalModifiersForFocusLoss];
+        } else {
+          [strongSelf reassertPhysicalModifiersAfterFocusGain];
         }
         if ([notification.name isEqualToString:NSWindowDidBecomeKeyNotification] &&
             !strongSelf->_fullscreenTransitionActive &&

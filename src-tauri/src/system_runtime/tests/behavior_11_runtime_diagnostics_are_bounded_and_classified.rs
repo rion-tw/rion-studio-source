@@ -36,7 +36,7 @@ fn contained_fullscreen_capability_is_supported_and_webview_bounded() {
     assert_eq!(status, EngineCapabilityStatus::Supported);
     assert_eq!(stage, "documentStartPreflightHostGeometryAndNativeGuard");
     assert_eq!(mode, "webview-bounded");
-    assert_eq!(SYSTEM_RUNTIME_CONTRACT_VERSION, 19);
+    assert_eq!(SYSTEM_RUNTIME_CONTRACT_VERSION, 22);
 }
 
 #[test]

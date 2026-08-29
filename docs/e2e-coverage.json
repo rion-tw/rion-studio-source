@@ -488,7 +488,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Keep an exact physical Shift side held across managed while-held keydown, press, keyup, and release acknowledgements; prove early physical release still completes exactly one iteration, leaves no Core lease or page key behind, and an unbound Shift+4 reaches the foreground role with its modifier intact."
+      "description": "Keep an exact physical Shift side held across managed while-held acknowledgements and Game Window focus loss; prove focus return reasserts that same still-held side so an unbound Shift+4 remains shifted until physical release, with no Core lease or page key left behind."
     },
     {
       "id": "MACRO-MIDDLE-BUTTON-013",
@@ -516,7 +516,7 @@
       "kind": "native",
       "risk": "native",
       "outcomes": ["success", "failure"],
-      "description": "Hold an unbound Digit1 while switching roles and focusing the main app, proving the original role receives one release and retains no pressed codes."
+      "description": "Hold unbound keys while switching roles and focusing the main app; prove the original role receives one release, a Shift released outside the Game Window does not affect the next Digit4 after refocus, and no pressed or consumer codes remain."
     },
     {
       "id": "MACRO-TERMINAL-CLEANUP-006",

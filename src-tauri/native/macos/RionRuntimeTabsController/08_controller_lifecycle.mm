@@ -176,6 +176,7 @@
   RionSetFullscreenPresentationPolicyMarker(_window, NO, NO);
   [self flushTabShortcutModifierHandoffWithAction:
             @"modifierHandoffAbandoned"];
+  [self discardPhysicalModifierFocusHandoff];
   _destroyed = YES;
   [self stopTabDragEdgeScroll];
   if (_tabShortcutMonitor) {

@@ -49,6 +49,7 @@ import {
 } from "./macro-runtime-keyboard-helpers";
 import { verifyFlyffCaretDiagnostics } from "./macro-runtime-flyff-caret";
 import { middleButtonPhase } from "./macro-runtime-middle-button";
+import { verifyModifierFocusReconciliation } from "./macro-runtime-modifier-focus";
 
 // [journey:MACRO-NATIVE-EFFECT-003]
 // [journey:MACRO-BACKGROUND-TAB-004]
@@ -850,8 +851,8 @@ async function keyboardLifecyclePhase(): Promise<void> {
     heldCodes.push(code);
     expect(receipt).toMatchObject({ code, phase: "keyDown", status: "submitted" });
   };
-  const release = async (code: string): Promise<void> => {
-    const receipt = await keyboardInput(code, "keyUp");
+  const release = async (code: string, focus = true): Promise<void> => {
+    const receipt = await keyboardInput(code, "keyUp", focus);
     const index = heldCodes.lastIndexOf(code);
     if (index !== -1) heldCodes.splice(index, 1);
     expect(receipt).toMatchObject({ code, phase: "keyUp", status: "submitted" });
@@ -882,6 +883,17 @@ async function keyboardLifecyclePhase(): Promise<void> {
       live,
       role: scenario.roles[0],
       tab: tabA
+    });
+
+    await verifyModifierFocusReconciliation({
+      activateVisibleRuntimeTab,
+      fixtureRoleId: "macro-keyboard-a",
+      press,
+      release,
+      roleId: scenario.roles[0].id,
+      tabId: tabA.id,
+      windowGeneration: live.windowGeneration,
+      windowId: tabA.windowId
     });
 
     const shortcutFixtureCursor = await fixtureCursor();
@@ -1056,7 +1068,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(firstState.pressedCodes).toEqual([]);
     expect(firstState.trustedPressedCodes).toEqual([]);
     expect(firstState.consumerPressedCodes).toEqual([]);
-    expect(firstState.consumerChordActivations).toEqual(["Shift+Digit2"]);
+    expect(firstState.consumerChordActivations).toEqual(["Shift+Digit4", "Shift+Digit2"]);
 
     // Reproduce the reported second chord exactly. The game-like consumer
     // re-evaluates held digits on Shift keydown, so a stale Digit2 would add a
@@ -1103,7 +1115,9 @@ async function keyboardLifecyclePhase(): Promise<void> {
     )).toEqual([]);
     const canaryState = (await fixtureState())["macro-keyboard-a"];
     expect(canaryState.consumerPressedCodes).toEqual([]);
-    expect(canaryState.consumerChordActivations).toEqual(["Shift+Digit2", "Shift+Digit1"]);
+    expect(canaryState.consumerChordActivations).toEqual([
+      "Shift+Digit4", "Shift+Digit2", "Shift+Digit1"
+    ]);
 
     const secondShortcutCursor = await fixtureCursor();
     const secondDiagnosticCursor = (await probe()).latestSequence;
@@ -1234,6 +1248,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
     expect(secondState.trustedPressedCodes).toEqual([]);
     expect(secondState.consumerPressedCodes).toEqual([]);
     expect(secondState.consumerChordActivations).toEqual([
+      "Shift+Digit4",
       "Shift+Digit2",
       "Shift+Digit1",
       "Shift+Digit3",
@@ -1549,6 +1564,7 @@ async function keyboardLifecyclePhase(): Promise<void> {
       roleId: "macro-keyboard-a"
     })).filter((event) => event.kind === "keyup" && event.code === "Digit1")).toHaveLength(1);
     await release("Digit1");
+
   } finally {
     for (const code of [...heldCodes].reverse()) {
       await keyboardInput(code, "keyUp").catch(() => undefined);

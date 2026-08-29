@@ -57,6 +57,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)finishTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)flushTabShortcutModifierHandoffWithAction:(NSString *)actionType;
 - (void)handleTabShortcutModifierEvent:(NSEvent *)event;
+- (void)trackPhysicalModifierEvent:(NSEvent *)event;
+- (NSUInteger)neutralizePhysicalModifiersSavingFocusHandoff:(BOOL)saveHandoff;
+- (void)neutralizePhysicalModifiersForFocusLoss;
+- (void)reassertPhysicalModifiersAfterFocusGain;
+- (void)discardPhysicalModifierFocusHandoff;
 - (void)notifyTabShortcutModifierHandoff:(NSString *)actionType;
 - (CGFloat)dragPreviewScreenOriginY;
 - (void)updateTabScrollButtonState;

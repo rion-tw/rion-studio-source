@@ -1050,7 +1050,7 @@ describe("macro overlay native key guard", () => {
     expect(events).toEqual(["down:ShiftLeft", "up:ShiftLeft"]);
   });
 
-  it("releases pass-through physical keys to their original target in reverse press order", () => {
+  it("defers only modifier fallback releases on top-level blur", async () => {
     const controller = installOverlay();
     const canvas = document.createElement("canvas");
     document.body.append(canvas);
@@ -1064,6 +1064,9 @@ describe("macro overlay native key guard", () => {
     canvas.dispatchEvent(keyEvent("keydown", "Digit1", "!", { repeat: true, shiftKey: true }));
     window.dispatchEvent(new Event("blur"));
 
+    expect(releases).toEqual([{ code: "Digit1", shift: true }]);
+    expect(controller.physicalModifierCodes()).toEqual(["ShiftLeft"]);
+    await Promise.resolve();
     expect(releases).toEqual([
       { code: "Digit1", shift: true },
       { code: "ShiftLeft", shift: false }
@@ -1071,6 +1074,27 @@ describe("macro overlay native key guard", () => {
     expect(controller.physicalModifierCodes()).toEqual([]);
     window.dispatchEvent(new Event("blur"));
     expect(releases).toHaveLength(2);
+  });
+
+  it("prefers a native modifier keyup in the blur event turn without a duplicate fallback", async () => {
+    const controller = installOverlay();
+    const canvas = document.createElement("canvas");
+    document.body.append(canvas);
+    const releases: Array<{ code: string; trusted: boolean }> = [];
+    canvas.addEventListener("keyup", (event) => {
+      releases.push({ code: event.code, trusted: event.isTrusted });
+    });
+
+    canvas.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
+    window.addEventListener("blur", () => {
+      canvas.dispatchEvent(keyEvent("keyup", "ShiftLeft", "Shift"));
+    }, { once: true });
+    window.dispatchEvent(new Event("blur"));
+
+    expect(releases).toEqual([{ code: "ShiftLeft", trusted: false }]);
+    expect(controller.physicalModifierCodes()).toEqual([]);
+    await Promise.resolve();
+    expect(releases).toHaveLength(1);
   });
 
   it("submits blur continuity before a hidden WebView can suspend microtasks", async () => {
@@ -1110,7 +1134,7 @@ describe("macro overlay native key guard", () => {
     controller.dispose();
   });
 
-  it("clears pass-through physical keys on hidden, pagehide, and dispose", () => {
+  it("clears pass-through physical keys immediately on hidden, pagehide, and dispose", () => {
     const target = document.createElement("canvas");
     document.body.append(target);
     const releasedCodes: string[] = [];
@@ -1118,22 +1142,32 @@ describe("macro overlay native key guard", () => {
 
     let controller = installOverlay();
     target.dispatchEvent(keyEvent("keydown", "KeyH", "h"));
+    target.dispatchEvent(keyEvent("keydown", "ShiftLeft", "Shift", { shiftKey: true }));
     const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     document.dispatchEvent(new Event("visibilitychange"));
-    expect(releasedCodes).toEqual(["KeyH"]);
+    expect(releasedCodes).toEqual(["ShiftLeft", "KeyH"]);
     visibility.mockRestore();
     controller.dispose();
 
     controller = installOverlay();
     target.dispatchEvent(keyEvent("keydown", "KeyP", "p"));
+    target.dispatchEvent(keyEvent("keydown", "ControlLeft", "Control", { ctrlKey: true }));
     window.dispatchEvent(new Event("pagehide"));
-    expect(releasedCodes).toEqual(["KeyH", "KeyP"]);
+    expect(releasedCodes).toEqual(["ShiftLeft", "KeyH", "ControlLeft", "KeyP"]);
     controller.dispose();
 
     controller = installOverlay();
     target.dispatchEvent(keyEvent("keydown", "KeyD", "d"));
+    target.dispatchEvent(keyEvent("keydown", "AltLeft", "Alt", { altKey: true }));
     controller.dispose();
-    expect(releasedCodes).toEqual(["KeyH", "KeyP", "KeyD"]);
+    expect(releasedCodes).toEqual([
+      "ShiftLeft",
+      "KeyH",
+      "ControlLeft",
+      "KeyP",
+      "AltLeft",
+      "KeyD"
+    ]);
   });
 });
 

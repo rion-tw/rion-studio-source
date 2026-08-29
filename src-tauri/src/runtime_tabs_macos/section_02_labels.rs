@@ -90,6 +90,7 @@ unsafe extern "C" fn action_callback(
     grab_ratio_y: f64,
     tab_width: f64,
     tab_height: f64,
+    modifier_count: u32,
     cancelled: bool,
 ) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -110,6 +111,24 @@ unsafe extern "C" fn action_callback(
         });
         let source_window_id = c_string_from_pointer(source_window_id);
         let target_window_id = c_string_from_pointer(target_window_id);
+        if matches!(
+            action_type.as_str(),
+            "modifierFocusNeutralized" | "modifierFocusReasserted"
+        ) {
+            let (Some(window_id), Some(state)) = (
+                source_window_id.as_deref(),
+                context.app.try_state::<crate::CoreState>(),
+            ) else {
+                return;
+            };
+            state.runtime.record_macos_modifier_focus_transition(
+                window_id,
+                tab_id.as_deref(),
+                modifier_count,
+                action_type == "modifierFocusReasserted",
+            );
+            return;
+        }
         if action_type == "windowPlacementChanged" {
             if let (Some(window_id), Some(state)) = (
                 source_window_id.as_deref(),

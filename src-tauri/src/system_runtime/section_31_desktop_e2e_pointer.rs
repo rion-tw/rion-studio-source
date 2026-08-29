@@ -75,14 +75,20 @@ fn desktop_e2e_windows_tab_chrome_probe_script() -> &'static str {
   for (const eventName of ["pointerdown", "pointerup", "mouseup", "click", "contextmenu"]) {
     addEventListener(eventName, (event) => {
       const trace = globalThis.__rionDesktopE2ePointerTrace;
+      const terminalNonce = trace?.terminalEvent === eventName ? trace.terminalNonce ?? null : null;
       globalThis.chrome?.webview?.postMessage(JSON.stringify({
         clientX: event.clientX,
         clientY: event.clientY,
         event: eventName,
         kind: "rion-desktop-e2e-window-chrome-v1",
-        targetId: event.target instanceof Element ? event.target.closest("[id]")?.id ?? null : null,
-        terminalNonce: trace?.terminalEvent === eventName ? trace.terminalNonce ?? null : null
+        targetId: event.target instanceof Element ? event.target.closest("[id]")?.id ?? null : null
       }));
+      if (terminalNonce) queueMicrotask(() => {
+        globalThis.chrome?.webview?.postMessage(JSON.stringify({
+          kind: "rion-desktop-e2e-window-chrome-v1",
+          terminalNonce
+        }));
+      });
     }, true);
   }
 })();"##

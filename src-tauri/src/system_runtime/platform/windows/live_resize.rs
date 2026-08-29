@@ -292,7 +292,7 @@ pub(in crate::system_runtime) fn windows_live_resize_register_controller(
     controller: ICoreWebView2Controller,
 ) {
     #[cfg(feature = "desktop-e2e")]
-    desktop_e2e_windows_register_role_viewport_channel(&controller);
+    desktop_e2e_windows_register_role_viewport_channel(&label, &controller);
     let mut hwnd = HWND::default();
     if unsafe { controller.ParentWindow(&mut hwnd) }.is_err() || hwnd.is_invalid() {
         return;

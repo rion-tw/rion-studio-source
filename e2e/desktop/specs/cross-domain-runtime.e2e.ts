@@ -35,7 +35,8 @@ import {
 } from "../support/fixture";
 import {
   expectRoleSurfaceViewportsFitControllers,
-  expectSingleRoleSurfaceFitsClient
+  expectSingleRoleSurfaceFitsClient,
+  waitForWindowsRoleSurfaceViewportFitsController
 } from "../support/geometry";
 import {
   requiresNativeDeminimizeFocusFence,
@@ -631,6 +632,7 @@ async function claimSharedRoleAndAssertMacroContinuity(
   const targetWindow = await selectRuntimeTabForRoleSlot(target, sharedRole.id);
   const projectionCursor = await rendererEventCursor();
   const sessionCursor = await fixtureCursor();
+  const viewportCursor = process.platform === "win32" ? (await probe()).latestSequence : 0;
   await runtimeUiAction(target.windowId, {
     action: "pressRoleSlot",
     roleId: sharedRole.id,
@@ -671,6 +673,11 @@ async function claimSharedRoleAndAssertMacroContinuity(
     minimumIteration: 2,
     roleIds: scenario.macros[1].roleIds,
     state: "running"
+  });
+  await waitForWindowsRoleSurfaceViewportFitsController({
+    afterSequence: viewportCursor,
+    roleId: sharedRole.id,
+    windowId: target.windowId
   });
 }
 

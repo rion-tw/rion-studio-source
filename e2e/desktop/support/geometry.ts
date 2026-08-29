@@ -1,6 +1,11 @@
 import { expect } from "@wdio/globals";
 
-import type { DesktopE2eWindowSnapshot, WindowBounds } from "./control";
+import {
+  waitEvent,
+  windowSnapshot,
+  type DesktopE2eWindowSnapshot,
+  type WindowBounds
+} from "./control";
 
 const LOGICAL_PIXEL_TOLERANCE = 1;
 
@@ -131,6 +136,76 @@ export function expectRoleSurfaceViewportsFitControllers(
   for (const surface of surfaces) {
     expectRoleSurfaceViewportFitsController(snapshot, surface.roleId);
   }
+}
+
+export async function waitForWindowsRoleSurfaceViewportFitsController(input: {
+  afterSequence: number;
+  roleId: string;
+  windowId: string;
+}): Promise<void> {
+  if (process.platform !== "win32") return;
+  const snapshot = await windowSnapshot(input.windowId);
+  const surface = snapshot.native.roleSurfaces?.find(
+    (candidate) => candidate.roleId === input.roleId
+  );
+  if (!surface) {
+    throw new Error(`Role surface ${input.roleId} is unavailable for ${input.windowId}`);
+  }
+  if (!surface.webviewLabel) {
+    throw new Error(`Role surface label ${input.roleId} is unavailable for ${input.windowId}`);
+  }
+  if (roleSurfaceViewportFitsController(surface)) return;
+
+  let afterSequence = input.afterSequence;
+  for (;;) {
+    const observed = await waitEvent({
+      afterSequence,
+      kind: `windows-role-viewport-observed:${input.roleId}`
+    });
+    afterSequence = observed.sequence;
+    const details = observed.details as {
+      height?: unknown;
+      surfaceLabel?: unknown;
+      width?: unknown;
+    };
+    if (details.surfaceLabel !== surface.webviewLabel
+      || typeof details.width !== "number"
+      || typeof details.height !== "number") {
+      continue;
+    }
+    if (viewportFitsController(
+      details.width,
+      details.height,
+      surface.pageZoomFactor,
+      surface.controllerBounds
+    )) {
+      return;
+    }
+  }
+}
+
+function roleSurfaceViewportFitsController(
+  surface: NonNullable<DesktopE2eWindowSnapshot["native"]["roleSurfaces"]>[number]
+): boolean {
+  const viewport = surface.documentViewport;
+  return viewport !== undefined && viewportFitsController(
+    viewport.width,
+    viewport.height,
+    surface.pageZoomFactor,
+    surface.controllerBounds
+  );
+}
+
+function viewportFitsController(
+  viewportWidth: number,
+  viewportHeight: number,
+  pageZoomFactor: number,
+  controllerBounds: WindowBounds
+): boolean {
+  const width = viewportWidth * pageZoomFactor;
+  const height = viewportHeight * pageZoomFactor;
+  return Math.abs(width - controllerBounds.width) <= LOGICAL_PIXEL_TOLERANCE
+    && Math.abs(height - controllerBounds.height) <= LOGICAL_PIXEL_TOLERANCE;
 }
 
 function expectRoleSurfaceViewportFitsController(

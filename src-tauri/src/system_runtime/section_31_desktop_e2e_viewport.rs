@@ -7,6 +7,13 @@ struct DesktopE2eDocumentViewport {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Debug)]
+struct DesktopE2eDocumentViewportChannel {
+    generation: u64,
+    viewport: Option<DesktopE2eDocumentViewport>,
+}
+
+#[cfg(windows)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DesktopE2eDocumentViewportMessage {
@@ -19,12 +26,17 @@ struct DesktopE2eDocumentViewportMessage {
 
 #[cfg(windows)]
 static DESKTOP_E2E_WINDOWS_ROLE_VIEWPORTS:
-    std::sync::OnceLock<std::sync::Mutex<HashMap<String, DesktopE2eDocumentViewport>>> =
+    std::sync::OnceLock<
+        std::sync::Mutex<HashMap<String, DesktopE2eDocumentViewportChannel>>,
+    > =
     std::sync::OnceLock::new();
 
 #[cfg(windows)]
+static DESKTOP_E2E_WINDOWS_ROLE_VIEWPORT_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
 fn desktop_e2e_windows_role_viewports(
-) -> &'static std::sync::Mutex<HashMap<String, DesktopE2eDocumentViewport>> {
+) -> &'static std::sync::Mutex<HashMap<String, DesktopE2eDocumentViewportChannel>> {
     DESKTOP_E2E_WINDOWS_ROLE_VIEWPORTS.get_or_init(Default::default)
 }
 
@@ -50,6 +62,7 @@ fn desktop_e2e_windows_role_viewport_probe_script(role_id: &str) -> String {
 
 #[cfg(windows)]
 fn desktop_e2e_windows_register_role_viewport_channel(
+    surface_label: &str,
     controller: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
 ) {
     use webview2_com::{
@@ -61,6 +74,21 @@ fn desktop_e2e_windows_register_role_viewport_channel(
     let Ok(core): Result<ICoreWebView2, _> = (unsafe { controller.CoreWebView2() }) else {
         return;
     };
+    let channel_generation = DESKTOP_E2E_WINDOWS_ROLE_VIEWPORT_GENERATION
+        .fetch_add(1, Ordering::AcqRel)
+        .saturating_add(1);
+    let surface_label = surface_label.to_owned();
+    // Role labels can be reused after ownership transfer. Replace their evidence channel so a
+    // late message from the retired controller cannot satisfy the new surface's viewport fence.
+    if let Ok(mut viewports) = desktop_e2e_windows_role_viewports().lock() {
+        viewports.insert(
+            surface_label.clone(),
+            DesktopE2eDocumentViewportChannel {
+                generation: channel_generation,
+                viewport: None,
+            },
+        );
+    }
     let handler = WebMessageReceivedEventHandler::create(Box::new(move |_webview, args| {
         let Some(args) = args else {
             return Ok(());
@@ -83,13 +111,34 @@ fn desktop_e2e_windows_register_role_viewport_channel(
         {
             return Ok(());
         }
-        if let Ok(mut viewports) = desktop_e2e_windows_role_viewports().lock() {
-            let viewport = viewports.entry(message.role_id).or_default();
+        let mut recorded = false;
+        if let Ok(mut viewports) = desktop_e2e_windows_role_viewports().lock()
+            && let Some(channel) = viewports.get_mut(&surface_label)
+            && channel.generation == channel_generation
+        {
+            let viewport = channel.viewport.get_or_insert_default();
             viewport.height = message.height;
             viewport.width = message.width;
             if message.event == "resize" {
                 viewport.resize_event_count = viewport.resize_event_count.saturating_add(1);
             }
+            recorded = true;
+        }
+        if recorded {
+            crate::desktop_e2e::record_event(
+                &format!("windows-role-viewport-observed:{}", message.role_id),
+                None,
+                None,
+                None,
+                json!({
+                    "channelGeneration": channel_generation,
+                    "event": message.event,
+                    "height": message.height,
+                    "roleId": message.role_id,
+                    "surfaceLabel": surface_label,
+                    "width": message.width,
+                }),
+            );
         }
         Ok(())
     }));
@@ -108,7 +157,7 @@ fn desktop_e2e_windows_role_surface_snapshot(
     let native = windows_observe_selected_surface(webview, window)?;
     let page_zoom_factor = platform_page_zoom(webview).map_err(|error| error.message)?;
     let document_viewport = include_document_viewport
-        .then(|| desktop_e2e_windows_document_viewport(role_id))
+        .then(|| desktop_e2e_windows_document_viewport(webview.label()))
         .flatten();
     let mut snapshot = json!({
         "controllerBounds": controller_bounds,
@@ -131,13 +180,14 @@ fn desktop_e2e_windows_role_surface_snapshot(
 
 #[cfg(windows)]
 fn desktop_e2e_windows_document_viewport(
-    role_id: &str,
+    surface_label: &str,
 ) -> Option<DesktopE2eDocumentViewport> {
     desktop_e2e_windows_role_viewports()
         .lock()
         .ok()?
-        .get(role_id)
-        .cloned()
+        .get(surface_label)?
+        .viewport
+        .clone()
 }
 
 #[cfg(windows)]

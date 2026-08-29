@@ -23,7 +23,8 @@ import {
   expectPlacement,
   expectSingleRoleSurfaceBoundsFitClient,
   expectSingleRoleSurfaceFitsClient,
-  expectTabStripFitsClient
+  expectTabStripFitsClient,
+  waitForWindowsRoleSurfaceViewportFitsController
 } from "../support/geometry";
 import { fixtureCursor, waitFixtureEvent, type FixtureEvent } from "../support/fixture";
 import { forceTerminateProcessTree } from "../support/process";
@@ -367,7 +368,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
       .every((tab) => tab.launchPhase === null)).toBe(true);
     const reopenedRoleId = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId)?.sourceId;
     if (!reopenedRoleId) throw new Error("Reopened active role is unavailable");
-    expectSingleRoleSurfaceFitsClient(live, reopenedRoleId);
+    expectSingleRoleSurfaceBoundsFitClient(live, reopenedRoleId);
   }
   const activeTab = live.kernel?.tabs.find((tab) => tab.tabId === activeTabId);
   const activeRoleId = activeTab?.sourceId;
@@ -405,6 +406,11 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
     })
   ]);
   expectRecoverySession(seededSession, releasedRoleName, false);
+  await waitForWindowsRoleSurfaceViewportFitsController({
+    afterSequence: readyCursor,
+    roleId: activeRoleId,
+    windowId: WINDOW_C
+  });
   live = await windowSnapshot(WINDOW_C);
   expect(live.native.tabStatusPresentation).toBe("hidden");
   expectSingleRoleSurfaceFitsClient(live, activeRoleId);

@@ -28,6 +28,7 @@ struct DesktopE2eWindowChromeRectMessage {
     kind: String,
     minimize: Option<DesktopE2eTabClientRect>,
     target_id: Option<String>,
+    terminal_nonce: Option<String>,
 }
 
 #[cfg(windows)]
@@ -36,9 +37,23 @@ static DESKTOP_E2E_WINDOWS_CHROME_RECTS:
     std::sync::OnceLock::new();
 
 #[cfg(windows)]
+static DESKTOP_E2E_WINDOWS_POINTER_TERMINALS: std::sync::OnceLock<
+    std::sync::Mutex<
+        HashMap<String, std::sync::mpsc::SyncSender<Result<(), String>>>,
+    >,
+> = std::sync::OnceLock::new();
+
+#[cfg(windows)]
 fn desktop_e2e_windows_chrome_rects(
 ) -> &'static std::sync::Mutex<HashMap<String, DesktopE2eTabClientRect>> {
     DESKTOP_E2E_WINDOWS_CHROME_RECTS.get_or_init(Default::default)
+}
+
+#[cfg(windows)]
+fn desktop_e2e_windows_pointer_terminals() -> &'static std::sync::Mutex<
+    HashMap<String, std::sync::mpsc::SyncSender<Result<(), String>>>,
+> {
+    DESKTOP_E2E_WINDOWS_POINTER_TERMINALS.get_or_init(Default::default)
 }
 
 #[cfg(windows)]
@@ -57,14 +72,16 @@ fn desktop_e2e_windows_tab_chrome_probe_script() -> &'static str {
   };
   addEventListener("DOMContentLoaded", publish, { once: true });
   addEventListener("resize", publish);
-  for (const eventName of ["pointerdown", "pointerup", "click"]) {
+  for (const eventName of ["pointerdown", "pointerup", "mouseup", "click", "contextmenu"]) {
     addEventListener(eventName, (event) => {
+      const trace = globalThis.__rionDesktopE2ePointerTrace;
       globalThis.chrome?.webview?.postMessage(JSON.stringify({
         clientX: event.clientX,
         clientY: event.clientY,
         event: eventName,
         kind: "rion-desktop-e2e-window-chrome-v1",
-        targetId: event.target instanceof Element ? event.target.closest("[id]")?.id ?? null : null
+        targetId: event.target instanceof Element ? event.target.closest("[id]")?.id ?? null : null,
+        terminalNonce: trace?.terminalEvent === eventName ? trace.terminalNonce ?? null : null
       }));
     }, true);
   }
@@ -104,8 +121,21 @@ fn desktop_e2e_windows_register_tab_chrome_channel(tab_strip: &Webview) -> Resul
                         if message.kind != "rion-desktop-e2e-window-chrome-v1" {
                             return Ok(());
                         }
+                        if let Some(terminal_nonce) = message.terminal_nonce.as_deref() {
+                            let terminal = desktop_e2e_windows_pointer_terminals()
+                                .lock()
+                                .ok()
+                                .and_then(|mut terminals| terminals.remove(terminal_nonce));
+                            if let Some(terminal) = terminal {
+                                let _ = terminal.send(Ok(()));
+                            }
+                        }
                         if message.event.as_deref().is_some_and(|event| {
-                            matches!(event, "click" | "pointerdown" | "pointerup")
+                            matches!(
+                                event,
+                                "click" | "contextmenu" | "mousedown" | "mouseup" | "pointerdown"
+                                    | "pointerup"
+                            )
                         }) {
                             crate::desktop_e2e::record_event(
                                 "visible-chrome-pointer-observed",
@@ -226,7 +256,7 @@ fn desktop_e2e_windows_install_pointer_trace(
     desktop_e2e_windows_execute_json::<bool>(
         tab_strip,
         format!(
-            "(() => {{ globalThis.__rionDesktopE2ePointerTrace?.controller.abort(); const controller = new AbortController(); const events = []; const terminalEvent = {terminal_event}; for (const eventType of ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mousemove', 'mouseup', 'click', 'contextmenu']) document.addEventListener(eventType, (event) => {{ events.push({{ clientX: Math.round(event.clientX), clientY: Math.round(event.clientY), eventType, targetTabId: event.target instanceof Element ? event.target.closest('button.tab')?.dataset.tabId ?? null : null }}); if (eventType === terminalEvent) window.chrome.webview.postMessage({terminal_nonce}); }}, {{ capture: true, signal: controller.signal }}); globalThis.__rionDesktopE2ePointerTrace = {{ controller, events }}; return true; }})()"
+            "(() => {{ globalThis.__rionDesktopE2ePointerTrace?.controller.abort(); const controller = new AbortController(); const events = []; const terminalEvent = {terminal_event}; const terminalNonce = {terminal_nonce}; for (const eventType of ['pointerdown', 'pointermove', 'pointerup', 'mousedown', 'mousemove', 'mouseup', 'click', 'contextmenu']) document.addEventListener(eventType, (event) => {{ events.push({{ clientX: Math.round(event.clientX), clientY: Math.round(event.clientY), eventType, targetTabId: event.target instanceof Element ? event.target.closest('button.tab')?.dataset.tabId ?? null : null }}); }}, {{ capture: true, signal: controller.signal }}); globalThis.__rionDesktopE2ePointerTrace = {{ controller, events, terminalEvent, terminalNonce }}; return true; }})()"
         ),
     )
     .map(|_| ())
@@ -234,84 +264,28 @@ fn desktop_e2e_windows_install_pointer_trace(
 
 #[cfg(windows)]
 fn desktop_e2e_windows_pointer_terminal(
-    tab_strip: &Webview,
     terminal_nonce: &str,
-) -> Result<(std::sync::mpsc::Receiver<Result<(), String>>, i64), String> {
-    use webview2_com::{
-        CoTaskMemPWSTR, WebMessageReceivedEventHandler,
-        Microsoft::Web::WebView2::Win32::ICoreWebView2,
-    };
-    use windows::core::PWSTR;
-
-    let expected = terminal_nonce.to_owned();
+) -> Result<std::sync::mpsc::Receiver<Result<(), String>>, String> {
     let (terminal_sender, terminal_receiver) = std::sync::mpsc::sync_channel(1);
-    let (setup_sender, setup_receiver) = std::sync::mpsc::sync_channel(1);
-    tab_strip
-        .with_webview(move |platform_webview| unsafe {
-            let result = (|| -> Result<i64, String> {
-                let core: ICoreWebView2 = platform_webview
-                    .controller()
-                    .CoreWebView2()
-                    .map_err(|error| error.to_string())?;
-                let handler = WebMessageReceivedEventHandler::create(Box::new(
-                    move |_webview, args| {
-                        let result = (|| -> Result<(), String> {
-                            let args = args.ok_or_else(|| {
-                                "The WebView2 pointer terminal omitted its arguments.".to_owned()
-                            })?;
-                            let mut raw = PWSTR::null();
-                            args.TryGetWebMessageAsString(&mut raw)
-                                .map_err(|error| error.to_string())?;
-                            let message = CoTaskMemPWSTR::from(raw).to_string();
-                            if message == expected {
-                                let _ = terminal_sender.send(Ok(()));
-                            }
-                            Ok(())
-                        })();
-                        if let Err(error) = result {
-                            let _ = terminal_sender.send(Err(error));
-                        }
-                        Ok(())
-                    },
-                ));
-                let mut token = 0;
-                core.add_WebMessageReceived(&handler, &mut token)
-                    .map_err(|error| error.to_string())?;
-                Ok(token)
-            })();
-            let _ = setup_sender.send(result);
-        })
-        .map_err(|error| error.to_string())?;
-    let token = setup_receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| "The WebView2 pointer-terminal registration did not complete.".to_owned())??;
-    Ok((terminal_receiver, token))
+    let mut terminals = desktop_e2e_windows_pointer_terminals()
+        .lock()
+        .map_err(|_| "The WebView2 pointer-terminal registry is unavailable.".to_owned())?;
+    if terminals
+        .insert(terminal_nonce.to_owned(), terminal_sender)
+        .is_some()
+    {
+        return Err("The WebView2 pointer terminal nonce is already armed.".to_owned());
+    }
+    Ok(terminal_receiver)
 }
 
 #[cfg(windows)]
-fn desktop_e2e_windows_remove_pointer_terminal(
-    tab_strip: &Webview,
-    token: i64,
-) -> Result<(), String> {
-    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2;
-
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    tab_strip
-        .with_webview(move |platform_webview| unsafe {
-            let result = platform_webview
-                .controller()
-                .CoreWebView2()
-                .map_err(|error| error.to_string())
-                .and_then(|core: ICoreWebView2| {
-                    core.remove_WebMessageReceived(token)
-                        .map_err(|error| error.to_string())
-                });
-            let _ = sender.send(result);
-        })
-        .map_err(|error| error.to_string())?;
-    receiver
-        .recv_timeout(PLATFORM_CALLBACK_TIMEOUT)
-        .map_err(|_| "The WebView2 pointer-terminal removal did not complete.".to_owned())?
+fn desktop_e2e_windows_remove_pointer_terminal(terminal_nonce: &str) -> Result<(), String> {
+    desktop_e2e_windows_pointer_terminals()
+        .lock()
+        .map_err(|_| "The WebView2 pointer-terminal registry is unavailable.".to_owned())?
+        .remove(terminal_nonce);
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -846,12 +820,11 @@ fn desktop_e2e_windows_click_runtime_tab(
         "rion-desktop-e2e-{terminal_event}-{}",
         NEXT_CLICK_TERMINAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
-    let (terminal_receiver, terminal_token) =
-        desktop_e2e_windows_pointer_terminal(tab_strip, &terminal_nonce)?;
+    let terminal_receiver = desktop_e2e_windows_pointer_terminal(&terminal_nonce)?;
     if let Err(error) =
         desktop_e2e_windows_install_pointer_trace(tab_strip, &terminal_nonce, terminal_event)
     {
-        let _ = desktop_e2e_windows_remove_pointer_terminal(tab_strip, terminal_token);
+        let _ = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
         return Err(error);
     }
     let pointer_result = desktop_e2e_windows_submit_mouse(
@@ -863,7 +836,7 @@ fn desktop_e2e_windows_click_runtime_tab(
         None,
         Some(&terminal_receiver),
     );
-    let removal_result = desktop_e2e_windows_remove_pointer_terminal(tab_strip, terminal_token);
+    let removal_result = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
     let trace_result = desktop_e2e_windows_take_pointer_trace(tab_strip);
     pointer_result?;
     removal_result?;
@@ -899,12 +872,11 @@ fn desktop_e2e_windows_drag_runtime_tab(
         "rion-desktop-e2e-pointer-up-{}",
         NEXT_POINTER_TERMINAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     );
-    let (terminal_receiver, terminal_token) =
-        desktop_e2e_windows_pointer_terminal(source_strip, &terminal_nonce)?;
+    let terminal_receiver = desktop_e2e_windows_pointer_terminal(&terminal_nonce)?;
     if let Err(error) =
         desktop_e2e_windows_install_pointer_trace(source_strip, &terminal_nonce, "mouseup")
     {
-        let _ = desktop_e2e_windows_remove_pointer_terminal(source_strip, terminal_token);
+        let _ = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
         return Err(error);
     }
     let pointer_result = desktop_e2e_windows_submit_mouse(
@@ -916,10 +888,7 @@ fn desktop_e2e_windows_drag_runtime_tab(
         Some((target_strip, target_id)),
         Some(&terminal_receiver),
     );
-    let removal_result = desktop_e2e_windows_remove_pointer_terminal(
-        source_strip,
-        terminal_token,
-    );
+    let removal_result = desktop_e2e_windows_remove_pointer_terminal(&terminal_nonce);
     pointer_result?;
     removal_result?;
     let trace = desktop_e2e_windows_take_pointer_trace(source_strip)?;

@@ -386,7 +386,10 @@ function validWeb(web, webSlot) {
   }
   if (web.containedFullscreen) {
     return web.containedFullscreenRevision > 0 && web.chromeVisible === false &&
-      sameValue(web.contentBounds, web.slotBounds);
+      web.contentBounds.x === web.slotBounds.x &&
+      web.contentBounds.y === web.slotBounds.y &&
+      web.contentBounds.width === web.slotBounds.width &&
+      web.contentBounds.height === web.slotBounds.height;
   }
   return web.chromeVisible === true &&
     web.contentBounds.x === web.slotBounds.x &&

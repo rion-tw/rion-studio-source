@@ -259,6 +259,12 @@ describe("Chromium Workspace Web contained-fullscreen exact replacement", () => 
     );
     expect(evidence).toContain("topologyRevisionsAreMonotonic");
     expect(evidence).toContain(
+      "web.contentBounds.height === web.slotBounds.height"
+    );
+    expect(evidence).not.toContain(
+      "sameValue(web.contentBounds, web.slotBounds)"
+    );
+    expect(evidence).toContain(
       "observation.topologyRevision === mainTopologyRevision"
     );
     expect(evidence).toContain(

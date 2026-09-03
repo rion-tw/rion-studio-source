@@ -1268,7 +1268,9 @@ describe("Electron production candidate workflow", () => {
     expect(buildJob).not.toContain("secrets.");
     expect(signerStep).toContain("TAURI_SIGNING_PRIVATE_KEY:");
     expect(signerStep).toContain("TAURI_SIGNING_PRIVATE_KEY_PASSWORD:");
-    expect(buildJob).toContain("RION_STUDIO_E2E_ARTIFACT_ROOT:");
+    expect(buildJob).toContain(
+      'echo "RION_STUDIO_E2E_ARTIFACT_ROOT=${signing_root}/black-box"'
+    );
     expect(signJob).toContain("gh attestation verify");
     expect(signJob).toContain("verify-signing-input");
     expect(signerStep).toContain(

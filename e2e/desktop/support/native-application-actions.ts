@@ -336,9 +336,9 @@ if ($targetMode -eq 'launcher') {
   $matches = New-Object System.Collections.Generic.List[System.IntPtr]
   [RionNativeShortcutInput]::EnumWindows({
     param($hwnd, $value)
-    $pid = [uint32]0
-    [RionNativeShortcutInput]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
-    if ($pid -eq $targetPid -and [RionNativeShortcutInput]::IsWindowVisible($hwnd)) {
+    $candidateProcessId = [uint32]0
+    [RionNativeShortcutInput]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null
+    if ($candidateProcessId -eq $targetPid -and [RionNativeShortcutInput]::IsWindowVisible($hwnd)) {
       $matches.Add($hwnd)
     }
     return $true
@@ -436,9 +436,9 @@ $targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
 [RionNativeQuitInput]::EnumWindows({
   param($hwnd, $value)
-  $pid = [uint32]0
-  [RionNativeQuitInput]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
-  if ($pid -eq $targetPid -and [RionNativeQuitInput]::IsWindowVisible($hwnd)) { $matches.Add($hwnd) }
+  $candidateProcessId = [uint32]0
+  [RionNativeQuitInput]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null
+  if ($candidateProcessId -eq $targetPid -and [RionNativeQuitInput]::IsWindowVisible($hwnd)) { $matches.Add($hwnd) }
   return $true
 }, [IntPtr]::Zero) | Out-Null
 if ($matches.Count -ne 1) { throw "exact visible Rion main window unavailable" }

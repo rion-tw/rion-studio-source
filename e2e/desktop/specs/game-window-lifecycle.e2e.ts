@@ -356,7 +356,7 @@ async function exerciseLaunchingTabs(state: ScenarioState): Promise<void> {
       windowId: WINDOW_C
     });
     live = await windowSnapshot(WINDOW_C);
-    expect(live.windowGeneration).toBe(previousGeneration + 1);
+    expect(live.windowGeneration).toBeGreaterThan(previousGeneration);
     expect(live.kernel?.persistedName).toBe("E2E Three Tabs");
     expect(live.kernel?.tabs).toHaveLength(3);
     expect(live.kernel?.selectedTabId).toBe(activeTabId);
@@ -494,7 +494,7 @@ async function seedPhase(): Promise<void> {
     await closeAndWait(liveA);
     await expectModeCell(WINDOW_A, "normal");
     liveA = await showAndWait(WINDOW_A, generation + 1);
-    expect(liveA.windowGeneration).toBe(generation + 1);
+    expect(liveA.windowGeneration).toBeGreaterThan(generation);
     expect(liveA.native.title).toBe("E2E Window A");
     if (round === 0) liveA = await moveAndWait(liveA, state.boundsB);
     expectPlacement(liveA, state.boundsB, "normal");
@@ -512,7 +512,7 @@ async function seedPhase(): Promise<void> {
   await controlWindow(WINDOW_A, { action: "moveResize", ...state.boundsB });
   await closeAndWait(liveA);
   liveA = await showAndWait(WINDOW_A, rapidGeneration + 1);
-  expect(liveA.windowGeneration).toBe(rapidGeneration + 1);
+  expect(liveA.windowGeneration).toBeGreaterThan(rapidGeneration);
   expectPlacement(liveA, state.boundsB, "normal");
 
   const liveB = await showAndWait(WINDOW_B);

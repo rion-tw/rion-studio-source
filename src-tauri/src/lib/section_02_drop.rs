@@ -553,16 +553,21 @@ async fn process_game_window_close_requested(
             return;
         }
     };
-    if let Err(error) = runtime.checkpoint_window_close_role_cookies(&request.tab_ids) {
+    if let Err((failure_code, message)) = checkpoint_window_close_role_cookies(
+        Arc::clone(&runtime),
+        request.tab_ids.clone(),
+    )
+    .await
+    {
         let receipt = runtime.fail_window_close_operation(
             &operation_id,
             "windowCookieCheckpointFailed",
-            error.code,
+            failure_code,
         );
         let _ = app.emit("rion://window-lifecycle", receipt);
         eprintln!(
             "Game Window role cookie checkpoint failed: window={window_id} error={}",
-            error.message
+            message
         );
         return;
     }
@@ -638,6 +643,24 @@ async fn process_game_window_close_requested(
             );
         }
     });
+}
+
+async fn checkpoint_window_close_role_cookies(
+    runtime: Arc<SystemRuntimeExecutor>,
+    tab_ids: Vec<String>,
+) -> Result<(), (&'static str, String)> {
+    match tauri::async_runtime::spawn_blocking(move || {
+        runtime.checkpoint_window_close_role_cookies(&tab_ids)
+    })
+    .await
+    {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err((error.code, error.message)),
+        Err(error) => Err((
+            "SYSTEM_WINDOW_CLOSE_COOKIE_CHECKPOINT_INTERRUPTED",
+            format!("The window-close role cookie checkpoint task was interrupted: {error}"),
+        )),
+    }
 }
 
 #[cfg(windows)]
@@ -768,17 +791,19 @@ async fn execute_game_window_close_transaction(
                 return Err(shell_error("SYSTEM_WINDOW_CLOSE_SCOPE_FAILED", message));
             }
         };
-        if let Err(error) = state
-            .runtime
-            .checkpoint_window_close_role_cookies(&request.tab_ids)
+        if let Err((failure_code, message)) = checkpoint_window_close_role_cookies(
+            Arc::clone(&state.runtime),
+            request.tab_ids.clone(),
+        )
+        .await
         {
             let receipt = state.runtime.fail_window_close_operation(
                 &operation.operation_id,
                 "windowCookieCheckpointFailed",
-                error.code,
+                failure_code,
             );
             let _ = app.emit("rion://window-lifecycle", receipt);
-            return Err(shell_error(error.code, error.message));
+            return Err(shell_error(failure_code, message));
         }
         let request: RuntimeWindowStopRequestRecord = match state
             .core

@@ -697,7 +697,7 @@ public static class RionWindowReadback {
 '@
 $targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
-[RionWindowReadback]::EnumWindows({ param($hwnd, $value) $pid = 0; [RionWindowReadback]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null; if ($pid -eq $targetPid -and [RionWindowReadback]::IsIconic($hwnd)) { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
+[RionWindowReadback]::EnumWindows({ param($hwnd, $value) $candidateProcessId = 0; [RionWindowReadback]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null; if ($candidateProcessId -eq $targetPid -and [RionWindowReadback]::IsIconic($hwnd)) { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
 if ($matches.Count -ne 1) { throw "exact minimized runtime window unavailable" }
 Write-Output "true"
 `;
@@ -824,7 +824,7 @@ public static class RionVisibleResize {
 '@
 $targetPid = [uint32]$payload.processId
 $matches = New-Object System.Collections.Generic.List[System.IntPtr]
-[RionVisibleResize]::EnumWindows({ param($hwnd, $value) $pid = 0; [RionVisibleResize]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null; $title = New-Object System.Text.StringBuilder 256; [RionVisibleResize]::GetWindowText($hwnd, $title, 256) | Out-Null; if ($pid -eq $targetPid -and $title.ToString() -eq "Rion Studio Game Window") { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
+[RionVisibleResize]::EnumWindows({ param($hwnd, $value) $candidateProcessId = 0; [RionVisibleResize]::GetWindowThreadProcessId($hwnd, [ref]$candidateProcessId) | Out-Null; $title = New-Object System.Text.StringBuilder 256; [RionVisibleResize]::GetWindowText($hwnd, $title, 256) | Out-Null; if ($candidateProcessId -eq $targetPid -and $title.ToString() -eq "Rion Studio Game Window") { $matches.Add($hwnd) }; return $true }, [IntPtr]::Zero) | Out-Null
 if ($matches.Count -ne 1) { throw "exact visible runtime window unavailable" }
 $rect = New-Object RionVisibleResize+RECT
 [RionVisibleResize]::GetWindowRect($matches[0], [ref]$rect) | Out-Null

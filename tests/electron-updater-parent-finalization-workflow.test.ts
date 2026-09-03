@@ -141,10 +141,10 @@ describe("Electron updater parent-only compatibility finalization", () => {
     expect(jobEnvironment).not.toContain("TERMINAL_RECEIPT");
     expect(jobEnvironment).not.toContain("PARENT_ISOLATION_ROOT");
     expect(workflow).toContain(
-      "RION_UPDATER_CI_FIXTURE_ROOT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime"
+      'echo "RION_UPDATER_CI_FIXTURE_ROOT=${child_root}"'
     );
     expect(workflow).toContain(
-      "RION_UPDATER_PROVISIONAL_RECEIPT: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/child-runtime/provisional-layout-probe-receipt.json"
+      'echo "RION_UPDATER_PROVISIONAL_RECEIPT=${child_root}/provisional-layout-probe-receipt.json"'
     );
     expect(workflow).toContain(
       "path: ${{ runner.temp }}/rion-electron-updater-compatibility-boundary/terminal-receipt/terminal-layout-probe-receipt.json"

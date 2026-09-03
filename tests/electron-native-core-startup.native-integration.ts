@@ -382,7 +382,7 @@ function windowsBootstrapPorts() {
     },
     lifecycleEpoch: () => 1,
     runtimeDocumentPath: "C:\\Rion\\out\\runtime-windows-host.html",
-    runtimeHostPreloadPath: "C:\\Rion\\out\\runtime-window-preload.cjs",
+    runtimeHostPreloadPath: "C:\\Rion\\out\\preload\\runtimeWindowsHost.cjs",
     onWindowControl: async () => {
       throw new Error("The fixture has no visible Windows runtime host.");
     },

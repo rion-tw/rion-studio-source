@@ -90,6 +90,7 @@ describe("encoded PowerShell JSON transport", () => {
       expect(source).toContain("runEncodedPowerShellJson");
       expect(source).not.toContain('executeFile("powershell.exe"');
       expect(source).not.toMatch(/\$args\[\d+\]/u);
+      expect(source).not.toMatch(/\$pid\b/iu);
     }
   });
 });

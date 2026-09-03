@@ -3,6 +3,21 @@ import { readSourceTree as readFile } from "./helpers/readSourceTree";
 import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
+  it("reads close-time WebView cookies outside the async IPC worker", async () => {
+    const source = await readFile(
+      new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url),
+      "utf8"
+    );
+    const checkpoint = source.slice(
+      source.indexOf("async fn checkpoint_window_close_role_cookies("),
+      source.indexOf("async fn process_deferred_windows_close_requested(")
+    );
+
+    expect(checkpoint).toContain("spawn_blocking(move ||");
+    expect(checkpoint).toContain("runtime.checkpoint_window_close_role_cookies(&tab_ids)");
+    expect(checkpoint).toContain("SYSTEM_WINDOW_CLOSE_COOKIE_CHECKPOINT_INTERRUPTED");
+  });
+
   it("returns from the macOS native shortcut before waiting for AppKit presentation", async () => {
     const [menu, windowControl] = await Promise.all([
       readFile(new URL("../src-tauri/src/application_menu.rs", import.meta.url), "utf8"),

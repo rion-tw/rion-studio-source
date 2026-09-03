@@ -63,6 +63,8 @@ describe("Chromium application-shortcut E2E journey", () => {
 
   it("selects the launcher without entering hidden Chromium targets and closes event-bound", () => {
     expect(wdioConfig).toContain("await runnerBrowser.getPuppeteer()");
+    expect(wdioConfig).toContain('pageLoadStrategy: "none"');
+    expect(wdioConfig).toContain("webDriverHandles.has(handle)");
     expect(wdioConfig).toContain("target.url()");
     expect(wdioConfig).not.toContain("url: await browser.getUrl()");
     expect(wdioConfig).toContain("await requestElectronDesktopE2eClose()");

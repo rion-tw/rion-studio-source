@@ -43,6 +43,11 @@ export const config = {
   maxInstances: 1,
   capabilities: [{
     browserName: "electron",
+    // Every product-ready boundary below is fenced by an exact renderer/Core
+    // event. Do not let ChromeDriver block a window switch on the document's
+    // unrelated page-load strategy, especially while Windows is restoring a
+    // hidden runtime host beside the launcher.
+    pageLoadStrategy: "none",
     "wdio:electronServiceOptions": {
       ...electronApplication,
       captureMainProcessLogs: true,
@@ -83,12 +88,14 @@ export const config = {
   ): Promise<void> => {
     await runnerBrowser.setTimeout({ script: 55_000 });
     const puppeteer = await runnerBrowser.getPuppeteer();
+    const webDriverHandles = new Set(await runnerBrowser.getWindowHandles());
     const windows = puppeteer.targets()
       .filter((target) => target.type() === "page")
       .map((target) => ({
         handle: (target as typeof target & { _targetId: string })._targetId,
         url: target.url()
-    }));
+      }))
+      .filter(({ handle }) => webDriverHandles.has(handle));
     const launcherHandle = electronLauncherWindowHandle(windows);
     await runnerBrowser.switchToWindow(launcherHandle);
     runnerBrowser.electron.windowHandle = launcherHandle;

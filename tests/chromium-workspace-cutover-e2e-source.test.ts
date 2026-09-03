@@ -68,6 +68,7 @@ describe("Chromium Workspace cutover paired replacements", () => {
       "button[aria-label='Open workspace']",
       "navigateVisibleElectronWorkspaceWebChrome",
       "closeVisibleRuntimeTab",
+      "const restored = await waitInspectionPhase(saved.id, \"ready\")",
       "listRoleStatuses",
       "chromeShellStoragePath: null",
       "contentSession: \"global-web-persistent\""

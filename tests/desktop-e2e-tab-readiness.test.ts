@@ -2,6 +2,20 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("desktop E2E restored tab readiness", () => {
+  it("fences physical middle-button input on each exact tab ready event", async () => {
+    const source = await readFile(
+      new URL("../e2e/desktop/specs/macro-runtime-middle-button.ts", import.meta.url),
+      "utf8"
+    );
+
+    expect(source).toContain("async function waitForRuntimeTabReady(");
+    expect(source).toContain("kind: `tab-launch-phase:${input.tabId}:ready`");
+    expect(source).toContain("afterSequence: firstLaunchCursor");
+    expect(source).toContain("afterSequence: heldLaunchCursor");
+    expect(source.indexOf("await waitForRuntimeTabReady({"))
+      .toBeLessThan(source.indexOf("await focusWindowForPhysicalInput(tab.windowId)"));
+  });
+
   it("fences fullscreen role input on the exact tab ready event", async () => {
     const source = await readFile(
       new URL("../e2e/desktop/support/fullscreen-toolbar.ts", import.meta.url),

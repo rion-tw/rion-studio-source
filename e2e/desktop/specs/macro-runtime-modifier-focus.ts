@@ -57,10 +57,16 @@ export async function verifyModifierFocusReconciliation(
   });
   await sidebar.$("button*=Macros").click();
   await focusMainApplicationWindow();
-  await waitFixtureCode({
+  const releasedAwayShiftUp = await waitFixtureCode({
     afterSequence: releasedAwayShiftDown.sequence,
     code: "ShiftLeft",
     kind: "keyup",
+    roleId: input.fixtureRoleId
+  });
+  await waitFixtureCode({
+    afterSequence: releasedAwayShiftUp.sequence,
+    code: "ShiftLeft",
+    kind: "consumer-keyup",
     roleId: input.fixtureRoleId
   });
   await input.release("ShiftLeft", false);
@@ -76,10 +82,16 @@ export async function verifyModifierFocusReconciliation(
   });
   expect(unshiftedDigitFourDown.modifiers?.shift).toBe(false);
   await input.release("Digit4");
-  await waitFixtureCode({
+  const unshiftedDigitFourUp = await waitFixtureCode({
     afterSequence: unshiftedDigitFourDown.sequence,
     code: "Digit4",
     kind: "keyup",
+    roleId: input.fixtureRoleId
+  });
+  await waitFixtureCode({
+    afterSequence: unshiftedDigitFourUp.sequence,
+    code: "Digit4",
+    kind: "consumer-keyup",
     roleId: input.fixtureRoleId
   });
   const releasedAwayState = (await fixtureState())[input.fixtureRoleId];

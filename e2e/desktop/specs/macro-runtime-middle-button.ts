@@ -49,6 +49,22 @@ async function focusWindowForPhysicalInput(windowId: string): Promise<void> {
   });
 }
 
+async function waitForRuntimeTabReady(input: {
+  afterSequence: number;
+  tabId: string;
+  windowId: string;
+}): Promise<void> {
+  const snapshot = await windowSnapshot(input.windowId);
+  if (snapshot.kernel?.tabs.find((tab) => tab.tabId === input.tabId)?.launchPhase ===
+      "ready") return;
+  await waitEvent({
+    afterSequence: input.afterSequence,
+    kind: `tab-launch-phase:${input.tabId}:ready`,
+    timeoutMs: 55_000,
+    windowId: input.windowId
+  });
+}
+
 export async function middleButtonPhase(
   dependencies: MiddleButtonPhaseDependencies
 ): Promise<void> {
@@ -61,7 +77,13 @@ export async function middleButtonPhase(
     steps: [{ id: "middle-delay", ms: 250, type: "delay" }],
     trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
   });
+  const firstLaunchCursor = (await probe()).latestSequence;
   const tab = await dependencies.launchRole(scenario.roles[0], "new-window");
+  await waitForRuntimeTabReady({
+    afterSequence: firstLaunchCursor,
+    tabId: tab.id,
+    windowId: tab.windowId
+  });
   await focusWindowForPhysicalInput(tab.windowId);
   const fixtureAfter = await fixtureCursor();
   const controlAfter = (await probe()).latestSequence;
@@ -124,7 +146,13 @@ export async function middleButtonPhase(
     steps: [{ id: "held-delay", ms: 250, type: "delay" }],
     trigger: { alt: false, button: "middle", ctrl: false, meta: false, shift: false }
   });
+  const heldLaunchCursor = (await probe()).latestSequence;
   const heldTab = await dependencies.launchRole(scenario.roles[1], "new-window");
+  await waitForRuntimeTabReady({
+    afterSequence: heldLaunchCursor,
+    tabId: heldTab.id,
+    windowId: heldTab.windowId
+  });
   await focusWindowForPhysicalInput(heldTab.windowId);
   const heldFixtureAfter = await fixtureCursor();
   const heldControlAfter = (await probe()).latestSequence;

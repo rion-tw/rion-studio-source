@@ -41,6 +41,11 @@ describe("Chromium native tab exact replacements", () => {
     expect(spec).not.toContain("controlWindow(");
     expect(spec).not.toContain("browser.execute(");
     expect(helper).toContain('perform action "AXRaise" of targetWindow');
+    expect(helper).toContain('if targetCount is 0 then return "pending:" & observedTabs');
+    expect(helper).toContain(
+      "did not become Accessibility-ready"
+    );
+    expect(helper).toContain('if targetCount is 0 then return "pending"');
     expect(helper).toContain("await clickMacosScreenPoint(point[0]!, point[1]!)");
     expect(helper).toContain(".leftMouseDown");
     expect(helper).toContain(".leftMouseUp");

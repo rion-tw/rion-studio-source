@@ -375,15 +375,15 @@ async function restart(input: Awaited<ReturnType<typeof prepare>>): Promise<void
   if (!alreadyVisible) await showSavedWindow(saved);
   const restoredTab = await runtimeTab(workspace, saved.id);
   expect(restoredTab.id).toBe(savedTab.id);
+  const restored = await waitInspectionPhase(saved.id, "ready");
+  expect(restored.tabId).toBe(savedTab.id);
+  expectExactWebOnly(restored, input.platform);
   await clickVisibleRuntimeTab({
     mainWindowHandle: input.mainWindowHandle,
     platform: input.platform,
     tabId: savedTab.id,
     tabName: savedTab.name
   });
-  const restored = await waitInspectionPhase(saved.id, "ready");
-  expect(restored.tabId).toBe(savedTab.id);
-  expectExactWebOnly(restored, input.platform);
   const session = await waitFixtureEvent({
     afterSequence: sessionCursor,
     kind: "session",

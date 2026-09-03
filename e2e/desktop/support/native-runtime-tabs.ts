@@ -150,7 +150,9 @@ usleep(100_000)
 
 async function clickMacosAppKitTab(tabName: string): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
-  const rawPoint = await readAppKitAction(`
+  let rawPoint = "";
+  await browser.waitUntil(async () => {
+    rawPoint = await readAppKitAction(`
 on run argv
   set targetName to item 1 of argv
   set targetPid to (item 2 of argv) as integer
@@ -177,7 +179,8 @@ on run argv
         end try
       end repeat
     end repeat
-    if targetCount is not 1 then error "exact AppKit tab unavailable; observed" & observedTabs
+    if targetCount is 0 then return "pending:" & observedTabs
+    if targetCount is not 1 then error "ambiguous AppKit tab; observed" & observedTabs
     if targetWindow is missing value then error "exact AppKit tab has no AXWindow owner"
     set targetPosition to position of targetTab
     set targetSize to size of targetTab
@@ -191,6 +194,12 @@ on run argv
     return (clickX as text) & "," & (clickY as text) & "," & targetIdentifier
   end tell
 end run`, tabName, processId);
+    return notPendingAppKitValue(rawPoint);
+  }, {
+    interval: 100,
+    timeout: 10_000,
+    timeoutMsg: `The exact AppKit tab ${tabName} did not become Accessibility-ready`
+  });
   const fields = rawPoint.split(",");
   const point = fields.slice(0, 2).map(Number);
   const windowIdentifier = fields[2];
@@ -224,6 +233,10 @@ on run argv
     return "focused"
   end tell
 end run`, windowIdentifier, processId);
+}
+
+function notPendingAppKitValue(value: string): boolean {
+  return value !== "pending" && !value.startsWith("pending:");
 }
 
 export interface VisibleMacosRuntimeTabCloseEvidence {
@@ -294,7 +307,7 @@ async function closeMacosAppKitTab(
   }
   const expectedWindowIdentifier =
     `com.rionstudio.runtime.appkit-window.v1:${windowId}`;
-  await readAppKitAction(`
+  await browser.waitUntil(async () => notPendingAppKitValue(await readAppKitAction(`
 on run argv
   set expectedWindowIdentifier to item 1 of argv
   set targetPid to (item 2 of argv) as integer
@@ -312,12 +325,17 @@ on run argv
         end if
       end try
     end repeat
-    if targetCount is not 1 then error "exact AppKit close window unavailable"
+    if targetCount is 0 then return "pending"
+    if targetCount is not 1 then error "ambiguous AppKit close window"
     set frontmost of targetProcess to true
     perform action "AXRaise" of targetWindow
     return "raised"
   end tell
-end run`, expectedWindowIdentifier, processId);
+end run`, expectedWindowIdentifier, processId)), {
+    interval: 100,
+    timeout: 10_000,
+    timeoutMsg: `The exact AppKit close window ${windowId} did not become Accessibility-ready`
+  });
   await clickMacosScreenPoint(evidence.x, evidence.y);
   if (deferRendererVerification) return;
   await switchTrackedWindow(mainWindowHandle);

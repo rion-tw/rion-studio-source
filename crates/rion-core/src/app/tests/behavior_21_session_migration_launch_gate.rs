@@ -65,6 +65,7 @@ fn assert_session_migration_blocks_launch(core: &Arc<AppCore>, role_id: &str) {
     );
 }
 
+#[cfg(any(target_os = "macos", windows))]
 fn verified_migration_transition(
     role_id: &str,
     transfer_id: &str,

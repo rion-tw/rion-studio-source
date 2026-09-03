@@ -5,18 +5,20 @@ import { beforeAll, describe, expect, it } from "vitest";
 let bridge = "";
 let e2eMain = "";
 let manifest = "";
+let macroSupport = "";
 let productionMain = "";
 let productionPreload = "";
 let shellSpec = "";
 let wdioConfig = "";
 
 beforeAll(async () => {
-  [bridge, e2eMain, manifest, productionMain, productionPreload, shellSpec,
-    wdioConfig] =
+  [bridge, e2eMain, manifest, macroSupport, productionMain, productionPreload,
+    shellSpec, wdioConfig] =
     await Promise.all([
       readFile("src/electron/e2e/desktopE2eBridge.ts", "utf8"),
       readFile("src/electron/e2e/index.ts", "utf8"),
       readFile("docs/e2e-coverage.json", "utf8"),
+      readFile("e2e/desktop/specs/chromium-macro-cutover-support.ts", "utf8"),
       readFile("src/electron/main/index.ts", "utf8"),
       readFile("src/electron/preload/index.ts", "utf8"),
       readFile("e2e/desktop/specs/chromium-shell.e2e.ts", "utf8"),
@@ -36,6 +38,9 @@ describe("Chromium application-shortcut E2E journey", () => {
     expect(shellSpec).toContain("electronDesktopE2eApplicationShortcutRuntime");
     expect(shellSpec).not.toContain('rendererCall("getCurrentWindowState")');
     expect(shellSpec).not.toContain("devicePixelRatio");
+    expect(macroSupport).toContain("chromiumRoleLaunchDiagnostic");
+    expect(macroSupport).toContain("electronDesktopE2eRolePlaceholderRuntime");
+    expect(macroSupport).toContain("projectionOutcome");
   });
 
   it("asserts exact receipts, stable native ownership, and an unchanged main window", () => {

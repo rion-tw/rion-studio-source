@@ -14,6 +14,7 @@ import {
   electronDesktopE2eFocusMainWindow,
   electronDesktopE2eGameWindowRuntime,
   electronDesktopE2eProbe,
+  electronDesktopE2eRolePlaceholderRuntime,
   electronDesktopE2eRoleSessionRuntime
 } from "../support/electron-driver";
 import { fixtureCursor, fixtureRequest, waitFixtureEvent } from "../support/fixture";
@@ -45,6 +46,43 @@ export interface ChromiumRoleTab {
   readonly role: Role;
   readonly tabId: string;
   readonly windowId: string;
+}
+
+type DiagnosticResult = Readonly<
+  { status: "fulfilled"; value: unknown } |
+  { reason: string; status: "rejected" }
+>;
+
+function diagnosticResult(result: PromiseSettledResult<unknown>): DiagnosticResult {
+  return result.status === "fulfilled"
+    ? Object.freeze({ status: "fulfilled", value: result.value })
+    : Object.freeze({
+        reason: result.reason instanceof Error
+          ? `${result.reason.name}: ${result.reason.message}`
+          : String(result.reason),
+        status: "rejected"
+      });
+}
+
+async function chromiumRoleLaunchDiagnostic(
+  roleId: string,
+  windowId: string,
+  projectionOutcome: string
+): Promise<Readonly<Record<string, unknown>>> {
+  const [embeddedRuntime, gameWindowRuntime, placeholderRuntime, roleSessionRuntime] =
+    await Promise.allSettled([
+      rendererCall("getEmbeddedRuntimeState"),
+      electronDesktopE2eGameWindowRuntime(windowId),
+      electronDesktopE2eRolePlaceholderRuntime(roleId),
+      electronDesktopE2eRoleSessionRuntime(roleId)
+    ]);
+  return Object.freeze({
+    embeddedRuntime: diagnosticResult(embeddedRuntime),
+    gameWindowRuntime: diagnosticResult(gameWindowRuntime),
+    placeholderRuntime: diagnosticResult(placeholderRuntime),
+    projectionOutcome,
+    roleSessionRuntime: diagnosticResult(roleSessionRuntime)
+  });
 }
 
 export function requiredMacroEnvironment(name: string): string {
@@ -423,14 +461,38 @@ export async function launchChromiumRoleVisible(
     window.name,
     "physical"
   );
-  await Promise.all([
-    waitFixtureEvent({ afterSequence: fixtureAfter, kind: "session", roleId: fixtureId }),
-    waitForRoleProjection({
-      afterSequence: projectionAfter,
-      roleId: role.id,
-      state: "running"
-    })
-  ]);
+  let projectionOutcome = "pending";
+  const projection = waitForRoleProjection({
+    afterSequence: projectionAfter,
+    roleId: role.id,
+    state: "running"
+  }).then(
+    () => {
+      projectionOutcome = "fulfilled";
+    },
+    (error: unknown) => {
+      projectionOutcome = error instanceof Error
+        ? `rejected:${error.name}:${error.message}`
+        : `rejected:${String(error)}`;
+      throw error;
+    }
+  );
+  try {
+    await Promise.all([
+      waitFixtureEvent({ afterSequence: fixtureAfter, kind: "session", roleId: fixtureId }),
+      projection
+    ]);
+  } catch (error) {
+    const diagnostic = await chromiumRoleLaunchDiagnostic(
+      role.id,
+      window.id,
+      projectionOutcome
+    );
+    throw new Error(
+      `Visible Chromium Role launch failed: diagnostic=${JSON.stringify(diagnostic)}`,
+      { cause: error }
+    );
+  }
   const runtime = await waitForRuntimeProjection({
     afterSequence: projectionAfter,
     sourceId: role.id

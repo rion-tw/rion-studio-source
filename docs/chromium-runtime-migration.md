@@ -591,6 +591,10 @@ foreground owner. Focus success is event/readback-bound, and key/click success
 also requires that native foreground fence before submission plus a preserved
 owner and exact `isTrusted` DOM acknowledgement afterward. Elapsed time is only
 a failed deadline, never focus or input success.
+Electron's `BaseWindow` parent option is only a construction hint on Windows;
+the ABI does not infer native ownership from it. It proves both public HWNDs
+belong to the same Electron process and UI thread, establishes the final
+`WS_CHILD` relationship itself, and then validates the complete native result.
 
 Fullscreen Game Window presentation uses the same Rust/Core-owned placement and
 window-preference records on both targets. On macOS, the View-menu checkbox and

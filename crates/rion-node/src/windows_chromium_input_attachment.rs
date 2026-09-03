@@ -17,7 +17,7 @@ fn attached_extended_style(style: u32) -> u32 {
     style | 0x0800_0000
 }
 
-/// Converts Electron's Windows owned child into the exact no-activate
+/// Converts Electron's Windows surface into the exact no-activate
 /// `WS_CHILD` required by the managed Chromium input lane.
 ///
 /// Electron supplies both public BaseWindow HWNDs. This function never
@@ -35,10 +35,10 @@ pub fn attach_windows_chromium_input_hwnd(
         UI::{
             Input::KeyboardAndMouse::{GetActiveWindow, GetFocus},
             WindowsAndMessaging::{
-                GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetForegroundWindow, GetParent,
-                GetWindowLongPtrW, GetWindowThreadProcessId, IsWindow, SWP_FRAMECHANGED,
-                SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOZORDER, SetParent,
-                SetWindowLongPtrW, SetWindowPos,
+                GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
+                GetWindowThreadProcessId, IsWindow, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+                SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOZORDER, SetWindowLongPtrW,
+                SetWindowPos,
             },
         },
     };
@@ -63,6 +63,28 @@ pub fn attach_windows_chromium_input_hwnd(
             }
         }
         Ok(())
+    }
+
+    fn set_parent(window: HWND, parent: Option<HWND>) -> Result<Option<HWND>> {
+        // The high-level `windows` binding treats a null previous parent as an
+        // error. User32 documents that null is also the successful result when
+        // a top-level Electron surface had no prior native owner, so call the
+        // raw ABI and disambiguate with last-error.
+        unsafe {
+            SetLastError(WIN32_ERROR(0));
+            let previous = windows_sys::Win32::UI::WindowsAndMessaging::SetParent(
+                window.0,
+                parent.map_or(core::ptr::null_mut(), |value| value.0),
+            );
+            let error = GetLastError();
+            if previous.is_null() && error != WIN32_ERROR(0) {
+                return Err(probe_error(
+                    Status::GenericFailure,
+                    "Win32 rejected the exact Chromium input-surface parent attachment.",
+                ));
+            }
+            Ok((!previous.is_null()).then_some(HWND(previous)))
+        }
     }
 
     let surface_address = parse_electron_native_handle(&surface_handle, "surface")?;
@@ -105,18 +127,10 @@ pub fn attach_windows_chromium_input_hwnd(
                 "The Windows Chromium input child and parent must share the calling Electron UI owner.",
             ));
         }
-        let original_parent = GetParent(surface).map_err(|_| {
-            probe_error(
-                Status::InvalidArg,
-                "Electron did not retain the exact requested runtime parent owner.",
-            )
-        })?;
-        if original_parent != parent {
-            return Err(probe_error(
-                Status::InvalidArg,
-                "Electron created the Chromium input surface under a different native owner.",
-            ));
-        }
+        let original_parent = {
+            let raw = windows_sys::Win32::UI::WindowsAndMessaging::GetParent(surface.0);
+            (!raw.is_null()).then_some(HWND(raw))
+        };
         let foreground_before = GetForegroundWindow();
         let active_before = GetActiveWindow();
         let focus_before = GetFocus();
@@ -156,13 +170,8 @@ pub fn attach_windows_chromium_input_hwnd(
         let attach_result = (|| -> Result<()> {
             set_window_long(surface, GWL_STYLE, desired_style)?;
             set_window_long(surface, GWL_EXSTYLE, desired_extended_style)?;
-            let prior_parent = SetParent(surface, Some(parent)).map_err(|_| {
-                probe_error(
-                    Status::GenericFailure,
-                    "Win32 rejected the exact Chromium input-surface parent attachment.",
-                )
-            })?;
-            if prior_parent != parent {
+            let prior_parent = set_parent(surface, Some(parent))?;
+            if prior_parent != original_parent {
                 return Err(probe_error(
                     Status::GenericFailure,
                     "Win32 changed an unexpected Chromium input-surface parent.",
@@ -199,7 +208,7 @@ pub fn attach_windows_chromium_input_hwnd(
             Ok(())
         })();
         if let Err(error) = attach_result {
-            let _ = SetParent(surface, Some(original_parent));
+            let _ = set_parent(surface, original_parent);
             let _ = set_window_long(surface, GWL_STYLE, original_style);
             let _ = set_window_long(surface, GWL_EXSTYLE, original_extended_style);
             return Err(error);

@@ -48,6 +48,9 @@ describe("Chromium mixed Workspace Web exact replacement", () => {
     expect(appKitPointer).toContain(
       'candidateDescription is "Resize workspace columns"'
     );
+    expect(appKitPointer).toContain('return "PENDING|windows="');
+    expect(appKitPointer).toContain('candidate.startsWith("PENDING|")');
+    expect(appKitPointer).toContain("await browser.waitUntil(async () =>");
     expect(appKitPointer).toContain('perform action "AXRaise" of appWindow');
     expect(appKitPointer).toContain("AXUIElementCopyElementAtPosition(");
     expect(appKitPointer).toContain('hitProcessId !== processId');

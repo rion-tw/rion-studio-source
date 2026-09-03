@@ -360,7 +360,7 @@ export async function dragMacosVisibleWorkspaceDivider(
   deltaScreenPixels = 72
 ): Promise<void> {
   const processId = String((await electronDesktopE2eProbe()).processId);
-  const geometry = await readSystemEvents(`
+  const dividerGeometryScript = `
 on run argv
   set targetPid to (item 1 of argv) as integer
   tell application "System Events"
@@ -408,10 +408,33 @@ on run argv
         end try
       end repeat
     end repeat
-    error "visible workspace divider unavailable; windows=" & windowDiagnostics & ¬
+    return "PENDING|windows=" & windowDiagnostics & ¬
       " splitters=" & splitterDiagnostics
   end tell
-end run`, processId);
+end run`;
+  let geometry = "";
+  let pendingDiagnostic = "";
+  try {
+    await browser.waitUntil(async () => {
+      const candidate = await readSystemEvents(dividerGeometryScript, processId);
+      if (candidate.startsWith("PENDING|")) {
+        pendingDiagnostic = candidate;
+        return false;
+      }
+      geometry = candidate;
+      return true;
+    }, {
+      interval: 100,
+      timeout: 10_000,
+      timeoutMsg: "The exact AppKit workspace divider did not become accessible"
+    });
+  } catch (error) {
+    throw new Error(
+      `The exact AppKit workspace divider did not become accessible: ` +
+        `${pendingDiagnostic || "no accessibility diagnostic"}`,
+      { cause: error }
+    );
+  }
   const values = geometry.split(",").map((value) => Number(value.trim()));
   if (values.length !== 4 || values.some((value) => !Number.isFinite(value)) ||
       values[2]! <= 0 || values[3]! <= 0) {

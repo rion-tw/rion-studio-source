@@ -281,12 +281,22 @@ on run argv
       repeat
         set currentFullscreen to false
         set currentFullscreenRead to false
+        set currentFocusedWindow to missing value
+        set currentMainWindow to missing value
         try
-          set currentFullscreen to (value of attribute "AXFullScreen" of focusedWindow is true)
-          set currentFullscreenRead to true
+          -- AppKit republishes AXWindow proxy objects across Space changes, so
+          -- reacquire the exact current main/focused owner instead of comparing
+          -- the new accessibility proxy with the pre-transition object.
+          set currentFocusedWindow to value of attribute "AXFocusedWindow" of targetProcess
+          set currentMainWindow to value of attribute "AXMainWindow" of targetProcess
+          if currentFocusedWindow is not missing value and currentMainWindow is currentFocusedWindow then
+            if value of attribute "AXRole" of currentFocusedWindow is "AXWindow" and value of attribute "AXMain" of currentFocusedWindow is true then
+              set currentFullscreen to (value of attribute "AXFullScreen" of currentFocusedWindow is true)
+              set currentFullscreenRead to true
+            end if
+          end if
         end try
-        set currentFocusedWindow to value of attribute "AXFocusedWindow" of targetProcess
-        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen and currentFocusedWindow is focusedWindow and frontmost of targetProcess is true then exit repeat
+        if currentFullscreenRead is true and currentFullscreen is expectedFullscreen and frontmost of targetProcess is true then exit repeat
         if (current date) is greater than transitionExpiry then error "exact AppKit fullscreen transition did not reach its native terminal state"
         delay 0.05
       end repeat

@@ -100,7 +100,13 @@ describe("native application shortcut target modes", () => {
       "currentFullscreenRead is true and currentFullscreen is expectedFullscreen"
     );
     expect(source).toContain(
-      "currentFocusedWindow is focusedWindow and frontmost of targetProcess is true"
+      "currentMainWindow is currentFocusedWindow"
+    );
+    expect(source).toContain(
+      'attribute "AXFullScreen" of currentFocusedWindow is true'
+    );
+    expect(source).toContain(
+      "currentFullscreen is expectedFullscreen and frontmost of targetProcess is true"
     );
     expect(source).toContain(
       "exact AppKit fullscreen transition did not reach its native terminal state"

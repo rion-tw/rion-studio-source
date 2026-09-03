@@ -1011,7 +1011,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
 
     expect(browserWindows.options[0]).toEqual(buildWindowsRuntimeHostWindowOptions(
       launchTarget,
-      "/Rion/out/preload/runtimeWindowsHost.cjs"
+      resolve("/Rion/out/preload/runtimeWindowsHost.cjs")
     ));
     expect(browserWindows.options[0]).toMatchObject({
       title: "Game Window 1",
@@ -1035,7 +1035,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
         devTools: false,
         javascript: true,
         partition: "rion-runtime-shell",
-        preload: "/Rion/out/preload/runtimeWindowsHost.cjs"
+        preload: resolve("/Rion/out/preload/runtimeWindowsHost.cjs")
       }
     });
     expect(window.loadedFiles).toEqual([runtimeDocumentPath]);

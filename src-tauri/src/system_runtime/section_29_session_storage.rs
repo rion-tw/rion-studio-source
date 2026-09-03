@@ -578,6 +578,12 @@ impl SystemRuntimeExecutor {
         webview: &Webview,
         role_id: &str,
     ) -> RuntimeResult<()> {
+        let _checkpoint_guard = self.role_cookie_checkpoint_lane.lock().map_err(|_| {
+            RuntimeError::new(
+                "ROLE_COOKIE_CHECKPOINT_WRITE_FAILED",
+                "The role cookie checkpoint writer is unavailable.",
+            )
+        })?;
         let now_unix_ms = OffsetDateTime::now_utc().unix_timestamp() * 1_000;
         let cookies = webview.cookies().map_err(|error| {
             RuntimeError::new(

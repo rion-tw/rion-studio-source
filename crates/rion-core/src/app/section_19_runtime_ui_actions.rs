@@ -521,11 +521,20 @@ impl AppCore {
         if !inputs.is_empty() {
             self.commit_runtime_window_snapshot_batch_inner(inputs)?;
         }
-        let mut live_window_ids = app
-            .logical_windows
-            .iter()
-            .map(|window| window.window_id.clone())
-            .collect::<Vec<_>>();
+        // Persisted dormant window definitions are seeded into RuntimeKernel so that an
+        // explicit restore can reconstruct them. They are not members of the current crash
+        // recovery cohort. Retain the shell-authored live set and add only the windows that
+        // this visible UI action actually touched.
+        let mut live_window_ids = self
+            .runtime_restore_session()?
+            .live_window_ids
+            .unwrap_or_default();
+        live_window_ids.extend(
+            window_ids
+                .iter()
+                .filter(|window_id| logical_by_id.contains_key(window_id.as_str()))
+                .cloned(),
+        );
         live_window_ids.sort();
         live_window_ids.dedup();
         let focused_window_id = window_ids
@@ -537,6 +546,7 @@ impl AppCore {
             session.schema_version = 2;
             session.session_generation = session.session_generation.saturating_add(1);
             session.clean_exit = false;
+            session.updated_at = chrono::Utc::now().to_rfc3339();
             session.live_window_ids = Some(live_window_ids);
             session.windows.clear();
             if focused_window_id.is_some() {

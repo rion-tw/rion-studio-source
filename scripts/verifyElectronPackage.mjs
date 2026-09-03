@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { lstat, readdir } from "node:fs/promises";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -386,7 +386,8 @@ function extractBoundedArchiveFile(
   maximumBytes,
   allowEmpty = false
 ) {
-  const metadata = statFile(archivePath, entryPath, false);
+  const asarEntryPath = entryPath.replaceAll("/", sep);
+  const metadata = statFile(archivePath, asarEntryPath, false);
   if (!("size" in metadata) || metadata.unpacked === true) {
     throw new Error(`Packaged Electron ASAR entry is not an in-archive file: ${entryPath}`);
   }
@@ -399,7 +400,7 @@ function extractBoundedArchiveFile(
       `Packaged Electron ASAR file size is outside the verified bounds: ${entryPath} (${String(metadata.size)} bytes)`
     );
   }
-  const source = extractFile(archivePath, entryPath, false);
+  const source = extractFile(archivePath, asarEntryPath, false);
   if (source.length !== metadata.size) {
     throw new Error(
       `Packaged Electron ASAR file size changed while verifying: ${entryPath}`

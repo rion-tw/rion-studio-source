@@ -111,6 +111,9 @@ fn runtime_ui_actions_are_fenced_replayable_and_move_the_last_tab_exactly_once()
             ("runtime-ui-target", &target_tab, "target-role"),
         ],
     );
+    let mut restore_session = core.runtime_restore_session().unwrap();
+    restore_session.live_window_ids = Some(vec!["runtime-ui-source".to_owned()]);
+    core.replace_runtime_restore_session(restore_session).unwrap();
 
     let before_hide = core.browser_runtime.snapshot().unwrap();
     let source = before_hide.windows.get("runtime-ui-source").unwrap();
@@ -142,6 +145,11 @@ fn runtime_ui_actions_are_fenced_replayable_and_move_the_last_tab_exactly_once()
     let source_after_hide = source_after_hide.windows.get("runtime-ui-source").unwrap();
     assert!(source_after_hide.selected_tab_id.is_none());
     assert!(source_after_hide.hidden_tab_ids.contains(&source_tab));
+    assert_eq!(
+        core.runtime_restore_session().unwrap().live_window_ids,
+        Some(vec!["runtime-ui-source".to_owned()]),
+        "a dormant logical window must not enter the crash-recovery cohort"
+    );
 
     let (hide_replay, hide_replay_actions) = drive_command(Arc::clone(&core), hide, None);
     let hide_replay: crate::model::SystemRuntimeOperationSummaryRecord =
@@ -224,6 +232,13 @@ fn runtime_ui_actions_are_fenced_replayable_and_move_the_last_tab_exactly_once()
         Some(source_tab.as_str())
     );
     assert!(!target_after_move.hidden_tab_ids.contains(&source_tab));
+    assert_eq!(
+        core.runtime_restore_session().unwrap().live_window_ids,
+        Some(vec![
+            "runtime-ui-source".to_owned(),
+            "runtime-ui-target".to_owned()
+        ])
+    );
 
     let (move_replay, move_replay_actions) =
         drive_command(Arc::clone(&core), move_command, None);

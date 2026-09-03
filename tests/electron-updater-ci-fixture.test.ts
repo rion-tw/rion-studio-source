@@ -267,19 +267,19 @@ describe("Electron updater CI fixtures", () => {
       tauri_signing_private_key_path: "C:\\fixture\\updater.key",
       WINDIR: "C:\\Windows"
     }, signerHome)).toEqual({
-      APPDATA: `${signerHome}/appdata`,
+      APPDATA: join(signerHome, "appdata"),
       ComSpec: "C:\\Windows\\System32\\cmd.exe",
       HOME: signerHome,
-      LOCALAPPDATA: `${signerHome}/local-appdata`,
+      LOCALAPPDATA: join(signerHome, "local-appdata"),
       Path: "C:\\Windows\\System32",
       PATHEXT: ".COM;.EXE;.CMD",
       SystemDrive: "C:",
       SystemRoot: "C:\\Windows",
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "windows-password",
       TAURI_SIGNING_PRIVATE_KEY_PATH: "C:\\fixture\\updater.key",
-      TEMP: `${signerHome}/tmp`,
-      TMP: `${signerHome}/tmp`,
-      TMPDIR: `${signerHome}/tmp`,
+      TEMP: join(signerHome, "tmp"),
+      TMP: join(signerHome, "tmp"),
+      TMPDIR: join(signerHome, "tmp"),
       USERPROFILE: signerHome,
       WINDIR: "C:\\Windows"
     });

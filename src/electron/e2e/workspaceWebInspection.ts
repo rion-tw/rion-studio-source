@@ -269,7 +269,7 @@ function workspaceWeb(
       content.x === slot.x && content.width === slot.width &&
       content.y === chrome.y + chrome.height &&
       content.height + chrome.height === slot.height;
-  return configured?.web?.startUrl === value.contentUrl && exactProjection &&
+  return configured?.web !== null && configured?.web !== undefined && exactProjection &&
     chrome.x === slot.x && chrome.y === slot.y && chrome.width === slot.width &&
       (!value.containedFullscreen || Number(value.containedFullscreenRevision) > 0);
 }

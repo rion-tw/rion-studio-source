@@ -5,6 +5,7 @@ import { browser } from "@wdio/globals";
 
 import { desktopE2eSpecForPhase } from "./phaseSpecs";
 import { requestElectronDesktopE2eClose } from "./support/electron-driver";
+import { electronLauncherWindowHandle } from "./support/window-target";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -67,6 +68,17 @@ export const config = {
   },
   before: async (): Promise<void> => {
     await browser.setTimeout({ script: 55_000 });
+    const windows = [];
+    for (const handle of await browser.getWindowHandles()) {
+      await browser.switchToWindow(handle);
+      // @wdio/electron-service otherwise restores the first Chromium page target
+      // before getUrl. Windows can create the hidden runtime host before the launcher.
+      browser.electron.windowHandle = handle;
+      windows.push({ handle, url: await browser.getUrl() });
+    }
+    const launcherHandle = electronLauncherWindowHandle(windows);
+    await browser.switchToWindow(launcherHandle);
+    browser.electron.windowHandle = launcherHandle;
     if (!packaged) {
       const overwriteProtocolCommand = browser.overwriteCommand as unknown as (
         name: string,

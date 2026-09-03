@@ -158,6 +158,8 @@ impl SystemRuntimeExecutor {
             focus_broker,
             language: Mutex::new("en".to_owned()),
             resolved_theme: Mutex::new("light".to_owned()),
+            #[cfg(windows)]
+            role_cookie_checkpoint_lane: Mutex::new(()),
             last_performance_diagnostics: Mutex::new(None),
             performance_diagnostic_operation: Mutex::new(None),
             performance_diagnostic_sequence: AtomicU64::new(0),

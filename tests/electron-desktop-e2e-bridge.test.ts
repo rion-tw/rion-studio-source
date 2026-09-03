@@ -1046,7 +1046,7 @@ describe("Electron desktop E2E-only bridge", () => {
       {
         ...workspaceWebInspection,
         coreSlots: workspaceWebInspection.coreSlots.map((slot) =>
-          slot.web ? { ...slot, web: { ...slot.web, startUrl: "https://forged.test/" } } : slot
+          slot.web ? { ...slot, web: { ...slot.web, startUrl: "file:///forged" } } : slot
         )
       },
       {
@@ -1064,6 +1064,22 @@ describe("Electron desktop E2E-only bridge", () => {
       await expect(api.workspaceWebRuntime(TOKEN, WINDOW_ID))
         .rejects.toThrow("Workspace Web inspection is invalid");
     }
+  });
+
+  it("accepts Workspace Web evidence after visible navigation changes the content URL", async () => {
+    const navigated = {
+      ...workspaceWebInspection,
+      phase: "degraded",
+      web: {
+        ...workspaceWebInspection.web,
+        contentUrl: "http://127.0.0.1:1/rion-navigation-failure"
+      }
+    };
+    const api = createElectronDesktopE2ePreloadApi({
+      invoke: vi.fn(async () => navigated)
+    });
+
+    await expect(api.workspaceWebRuntime(TOKEN, WINDOW_ID)).resolves.toEqual(navigated);
   });
 
   it("accepts an exact one-slot Web-only runtime without inventing a Role", async () => {

@@ -20,6 +20,8 @@ pub struct SystemRuntimeExecutor {
     pub(super) focus_broker: Arc<NativeFocusBroker>,
     pub(super) language: Mutex<String>,
     pub(super) resolved_theme: Mutex<String>,
+    #[cfg(windows)]
+    pub(super) role_cookie_checkpoint_lane: Mutex<()>,
     pub(super) last_performance_diagnostics: Mutex<Option<BrowserPerformanceDiagnosticsRecord>>,
     pub(super) performance_diagnostic_operation: Mutex<Option<PerformanceDiagnosticOperationState>>,
     pub(super) performance_diagnostic_sequence: AtomicU64,

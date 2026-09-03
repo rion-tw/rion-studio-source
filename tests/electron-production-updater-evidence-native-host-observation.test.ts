@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import process from "node:process";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -44,6 +45,20 @@ const WINDOWS_CREATION_MILLISECONDS = Date.parse("2026-09-02T00:01:00.250Z");
 const EXECUTABLE_BYTES = Buffer.from("exact target executable\n", "utf8");
 const INVENTORY_BYTES = Buffer.from("trusted Darwin process inventory\n", "utf8");
 const temporaryDirectories: string[] = [];
+const nativeHostPlatforms: readonly ElectronProductionUpdaterEvidenceNativeHostPlatform[] =
+  process.platform === "win32"
+    ? ["windows-x86_64"]
+    : ["darwin-aarch64", "windows-x86_64"];
+const nativeHostCases: ReadonlyArray<readonly [
+  ElectronProductionUpdaterEvidenceNativeHostPlatform,
+  "appkit-chromium" | "bundled-chromium",
+  boolean
+]> = process.platform === "win32"
+  ? [["windows-x86_64", "bundled-chromium", false]]
+  : [
+      ["darwin-aarch64", "appkit-chromium", true],
+      ["windows-x86_64", "bundled-chromium", false]
+    ];
 
 afterEach(async () => {
   await Promise.all(
@@ -54,10 +69,7 @@ afterEach(async () => {
 });
 
 describe("Electron production updater native-host observation", () => {
-  it.each([
-    ["darwin-aarch64", "appkit-chromium", true],
-    ["windows-x86_64", "bundled-chromium", false]
-  ] as const)(
+  it.each(nativeHostCases)(
     "creates and verifies bundle-exact %s native-host evidence",
     async (platform, nativeHostKind, retainedAppKitHost) => {
       const fixture = await createFixture(platform);
@@ -162,7 +174,7 @@ describe("Electron production updater native-host observation", () => {
     }
   );
 
-  it.each(["darwin-aarch64", "windows-x86_64"] as const)(
+  it.each(nativeHostPlatforms)(
     "rejects %s PID reuse between the two native observations",
     async (platform) => {
       const fixture = await createFixture(platform);
@@ -200,7 +212,7 @@ describe("Electron production updater native-host observation", () => {
     }
   );
 
-  it.each(["darwin-aarch64", "windows-x86_64"] as const)(
+  it.each(nativeHostPlatforms)(
     "rejects an observed %s executable path mismatch",
     async (platform) => {
       const fixture = await createFixture(platform);
@@ -228,7 +240,9 @@ describe("Electron production updater native-host observation", () => {
     }
   );
 
-  it("rejects executable and Darwin inventory hash mismatch or mutation", async () => {
+  it.skipIf(process.platform === "win32")(
+    "rejects executable and Darwin inventory hash mismatch or mutation",
+    async () => {
     const hashMismatch = await createFixture("darwin-aarch64");
     const mismatchedBindings: ElectronProductionUpdaterEvidenceNativeHostObservationBindings = {
       ...hashMismatch.bindings,
@@ -279,7 +293,8 @@ describe("Electron production updater native-host observation", () => {
         return { ...inventoryMutation.darwinIdentity! };
       }
     })).rejects.toThrow("inventory executable changed");
-  });
+    }
+  );
 
   it.each([
     "--remote-debugging-port=9222",
@@ -297,7 +312,9 @@ describe("Electron production updater native-host observation", () => {
     await expect(readFile(fixture.outputPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("requires the explicit retained-AppKit no-substitute claim", async () => {
+  it.skipIf(process.platform === "win32")(
+    "requires the explicit retained-AppKit no-substitute claim",
+    async () => {
     const fixture = await createFixture("darwin-aarch64");
     await rewriteLaunchSeal(fixture, (seal) => {
       const claim = seal.hostClaim as Record<string, unknown>;
@@ -307,7 +324,8 @@ describe("Electron production updater native-host observation", () => {
       fixture,
       darwinDependencies(fixture)
     )).rejects.toThrow("BrowserWindow-only substitute verdict does not match");
-  });
+    }
+  );
 
   it("rejects a changed launch seal, wrong seal digest, and unknown seal fields", async () => {
     const changed = await createFixture("windows-x86_64");

@@ -409,10 +409,11 @@ function extractBoundedArchiveFile(
 }
 
 function normalizeArchiveEntryPath(rawPath) {
-  if (typeof rawPath !== "string" || rawPath.length === 0 || rawPath.includes("\0") || rawPath.includes("\\")) {
+  if (typeof rawPath !== "string" || rawPath.length === 0 || rawPath.includes("\0")) {
     throw new Error(`Packaged Electron ASAR contains an invalid path: ${JSON.stringify(rawPath)}`);
   }
-  const normalizedPath = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+  const archivePath = rawPath.replaceAll("\\", "/");
+  const normalizedPath = archivePath.startsWith("/") ? archivePath.slice(1) : archivePath;
   const pathSegments = normalizedPath.split("/");
   if (
     normalizedPath.length === 0 ||

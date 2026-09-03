@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -98,6 +101,7 @@ class FakeView implements ChromiumRoleWebContentsViewPort {
 }
 
 function harness(storagePath: string | null = null) {
+  const documentPath = resolve("/bundle/runtime-role-placeholder-electron.html");
   const session = { storagePath } as unknown as ChromiumRoleSessionPort;
   const views: FakeView[] = [];
   let handler: ((event: ChromiumRuntimeRolePlaceholderIpcEvent, value: unknown) => unknown) |
@@ -138,7 +142,7 @@ function harness(storagePath: string | null = null) {
       }
     },
     shell: {
-      documentPath: "/bundle/runtime-role-placeholder-electron.html",
+      documentPath,
       ipcMain: {
         handle: (channel, listener) => {
           expect(channel).toBe(RUNTIME_ROLE_PLACEHOLDER_CHANNEL);
@@ -146,7 +150,7 @@ function harness(storagePath: string | null = null) {
         },
         removeHandler: () => { handler = undefined; }
       },
-      preloadPath: "/bundle/workspaceWebChrome.cjs",
+      preloadPath: resolve("/bundle/workspaceWebChrome.cjs"),
       session,
       sessionIdentity: RUNTIME_ROLE_PLACEHOLDER_SHELL_SESSION
     },
@@ -214,9 +218,9 @@ describe("ChromiumRuntimeRolePlaceholderRegistry", () => {
       topologyRevision: 7,
       visible: true
     }));
-    expect(evidence.shellUrl).toBe(
-      "file:///bundle/runtime-role-placeholder-electron.html"
-    );
+    expect(evidence.shellUrl).toBe(pathToFileURL(
+      resolve("/bundle/runtime-role-placeholder-electron.html")
+    ).href);
     expect(subject.attached).toEqual([subject.descriptor().placeholderId]);
     expect(subject.views[0]?.webContents.sent).toHaveLength(1);
     await subject.registry.dispose();

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
@@ -306,7 +307,7 @@ class FakeRuntimeForegroundProbe implements WindowsRuntimeForegroundProbePort {
   });
 }
 
-const runtimeDocumentPath = "/Rion/out/renderer/runtime-windows-host.html";
+const runtimeDocumentPath = resolve("/Rion/out/renderer/runtime-windows-host.html");
 const displays = {
   displayMatching: () => ({
     id: 7,
@@ -450,7 +451,7 @@ describe("Windows Electron Chromium runtime-host factory", () => {
 
     expect(() => new WindowsElectronChromiumRuntimeHostFactory(
       browserWindows.port,
-      "/Rion/out/renderer/runtime-window.html",
+      resolve("/Rion/out/renderer/runtime-window.html"),
       displays
     )).toThrowError(expect.objectContaining({
       code: "ELECTRON_RUNTIME_HOST_DOCUMENT_INVALID"

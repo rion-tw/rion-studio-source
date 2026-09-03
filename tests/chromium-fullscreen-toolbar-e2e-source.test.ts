@@ -102,6 +102,10 @@ describe("Chromium fullscreen-toolbar exact replacement", () => {
     expect(core).toContain("SystemRuntimeOperationStatus::Indeterminate");
     expect(snapshotModel).toContain("pub presentation: Option<String>");
     expect(e2eEntry).toContain("logical.presentation !== inspection.presentation");
+    expect(e2eEntry).toContain("inspection.surfaces.length === 0");
+    expect(e2eEntry).not.toContain(
+      '!inspection.surfaces.some((surface) => surface.kind === "role")'
+    );
     expect(effect).toContain("setRuntimeWindowPresentation");
     expect(shortcut).toContain('input.code === "F11"');
     expect(shortcut).toContain("input.event.preventDefault()");

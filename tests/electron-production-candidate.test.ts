@@ -1586,6 +1586,7 @@ function runTauriSigner(argumentsList: string[], environment: NodeJS.ProcessEnv 
     cwd: process.cwd(),
     encoding: "utf8",
     env: { ...process.env, ...environment },
+    shell: process.platform === "win32",
     windowsHide: true
   });
   expect(result.status, result.stderr).toBe(0);

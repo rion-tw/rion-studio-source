@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -26,6 +27,9 @@ const LAUNCH_FENCE = Date.parse("2026-09-02T00:01:00.000Z");
 const PROCESS_STARTED_AT = Date.parse("2026-09-02T00:02:00.250Z");
 const PROCESS_ID = 42_420;
 const temporaryDirectories: string[] = [];
+const targetProcessPlatforms = process.platform === "win32"
+  ? ["windows-x86_64"] as const
+  : ["darwin-aarch64", "windows-x86_64"] as const;
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) =>
@@ -34,7 +38,7 @@ afterEach(async () => {
 });
 
 describe("Electron production updater target-process observation", () => {
-  it.each(["darwin-aarch64", "windows-x86_64"] as const)(
+  it.each(targetProcessPlatforms)(
     "discovers one post-fence %s process, seals its command line, and invokes native verification",
     async (platform) => {
       const fixture = await createFixture(platform);

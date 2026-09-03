@@ -1,4 +1,5 @@
 import { lstat, readFile, readdir } from "node:fs/promises";
+import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +16,9 @@ import {
   sha256
 } from "./support/electronUpdaterMacosCompatibilityFinalizerFixture";
 
-describe("macOS Electron updater compatibility receipt finalizer", () => {
+describe.skipIf(process.platform === "win32")(
+  "macOS Electron updater compatibility receipt finalizer",
+  () => {
   it("rebuilds a canonical terminal receipt after parent-observed active-zero", async () => {
     const fixture = await createMacosCompatibilityFinalizerFixture();
     try {
@@ -130,4 +133,5 @@ describe("macOS Electron updater compatibility receipt finalizer", () => {
       await fixture.cleanup();
     }
   });
-});
+  }
+);

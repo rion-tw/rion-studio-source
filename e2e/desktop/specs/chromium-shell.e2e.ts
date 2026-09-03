@@ -368,16 +368,15 @@ describe("Chromium desktop shell", () => {
       timeoutMsg: "Electron Chromium renderer did not expose the Rion Studio preload bridge"
     });
 
-    const probe = await browser.executeAsync((done: (result: ChromiumShellProbe) => void) => {
-      void window.rionStudio.getAppSnapshot().then((snapshot) => done({
+    const snapshot = await rendererCall("getAppSnapshot");
+    const probe = await browser.execute((authoritativeSnapshot) => ({
         gestureMode: document.documentElement.dataset.windowGestureMode,
         hasBridge: typeof window.rionStudio.getAppSnapshot === "function",
         nodeProcessType: typeof Reflect.get(globalThis, "process"),
         nodeRequireType: typeof Reflect.get(globalThis, "require"),
-        snapshot,
+        snapshot: authoritativeSnapshot,
         userAgent: navigator.userAgent
-      }));
-    }) as ChromiumShellProbe;
+      }), snapshot) as ChromiumShellProbe;
 
     expect(probe.hasBridge).toBe(true);
     expect(probe.userAgent).toMatch(/Electron\/\d+/u);

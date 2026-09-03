@@ -8,7 +8,7 @@ import {
   writeFile
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -214,30 +214,30 @@ describe("Electron updater CI fixtures", () => {
       TEMP: "/tmp/runner-temp"
     };
     const snapshot = { ...source };
-    const signerHome = "/tmp/rion-isolated-signer-home";
+    const signerHome = resolve("/tmp/rion-isolated-signer-home");
 
     expect(createUpdaterSignerEnvironment(source, signerHome)).toEqual({
-      APPDATA: `${signerHome}/appdata`,
+      APPDATA: join(signerHome, "appdata"),
       HOME: signerHome,
       LANG: "en_US.UTF-8",
-      LOCALAPPDATA: `${signerHome}/local-appdata`,
+      LOCALAPPDATA: join(signerHome, "local-appdata"),
       PATH: "/usr/bin",
       TAURI_SIGNING_PRIVATE_KEY: "production-private-key",
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: "production-password",
-      TEMP: `${signerHome}/tmp`,
-      TMP: `${signerHome}/tmp`,
-      TMPDIR: `${signerHome}/tmp`,
+      TEMP: join(signerHome, "tmp"),
+      TMP: join(signerHome, "tmp"),
+      TMPDIR: join(signerHome, "tmp"),
       USERPROFILE: signerHome
     });
     expect(createUpdaterSignerGenerationEnvironment(source, signerHome)).toEqual({
-      APPDATA: `${signerHome}/appdata`,
+      APPDATA: join(signerHome, "appdata"),
       HOME: signerHome,
       LANG: "en_US.UTF-8",
-      LOCALAPPDATA: `${signerHome}/local-appdata`,
+      LOCALAPPDATA: join(signerHome, "local-appdata"),
       PATH: "/usr/bin",
-      TEMP: `${signerHome}/tmp`,
-      TMP: `${signerHome}/tmp`,
-      TMPDIR: `${signerHome}/tmp`,
+      TEMP: join(signerHome, "tmp"),
+      TMP: join(signerHome, "tmp"),
+      TMPDIR: join(signerHome, "tmp"),
       USERPROFILE: signerHome
     });
     expect(source).toEqual(snapshot);

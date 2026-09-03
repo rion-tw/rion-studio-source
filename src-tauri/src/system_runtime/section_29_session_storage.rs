@@ -441,6 +441,13 @@ impl SystemRuntimeExecutor {
                     ));
                 };
                 for (role_id, role_surface) in &tab.roles {
+                    // Workspace Web surfaces use the global WebView2 profile and are not role
+                    // sessions. Reading that shared CookieManager through a synthetic web role
+                    // identity can block close admission and would write an unusable role
+                    // checkpoint. Its persistent global profile remains the sole owner.
+                    if role_surface.workspace_web.is_some() {
+                        continue;
+                    }
                     let managed = state
                         .native_resources
                         .surface_registry
@@ -474,7 +481,19 @@ impl SystemRuntimeExecutor {
                     "A role cookie checkpoint surface did not retain its role identity.",
                 )
             })?;
+            #[cfg(feature = "desktop-e2e")]
+            eprintln!(
+                "Desktop E2E role cookie checkpoint started: role={role_id} tab={} surface={}",
+                surface.tab_id.as_deref().unwrap_or("none"),
+                surface.webview.label(),
+            );
             self.persist_role_cookie_checkpoint(&surface.webview, role_id)?;
+            #[cfg(feature = "desktop-e2e")]
+            eprintln!(
+                "Desktop E2E role cookie checkpoint completed: role={role_id} tab={} surface={}",
+                surface.tab_id.as_deref().unwrap_or("none"),
+                surface.webview.label(),
+            );
         }
 
         let mut state = self.state()?;
@@ -530,6 +549,7 @@ impl SystemRuntimeExecutor {
                 .map(|tab| {
                     tab.roles
                         .iter()
+                        .filter(|(_, surface)| surface.workspace_web.is_none())
                         .map(|(role_id, surface)| (role_id.clone(), surface.webview.clone()))
                         .collect::<Vec<_>>()
                 })

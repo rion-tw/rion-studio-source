@@ -15,7 +15,8 @@ import {
   isAbsolute,
   join,
   relative as relativePath,
-  resolve
+  resolve,
+  sep
 } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -661,8 +662,11 @@ async function readCompatibilityEvidence(options, publicKeySha256, platform, fix
   if (inputReceiptPath === outputPath) {
     throw new Error("The compatibility input and provisional receipt paths must differ.");
   }
-  const outputBoundary = `${fixtureRoot}${platform === "win32" ? "\\" : "/"}`;
-  if (!outputPath.startsWith(outputBoundary)) {
+  const outputRelative = relativePath(fixtureRoot, outputPath);
+  if (
+    !outputRelative || outputRelative === ".." ||
+    outputRelative.startsWith(`..${sep}`) || isAbsolute(outputRelative)
+  ) {
     throw new Error("The provisional compatibility receipt must stay inside the probe root.");
   }
   await assertBoundedRegularFile(inputReceiptPath, 1024 * 1024);

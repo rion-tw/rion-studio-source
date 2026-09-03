@@ -1497,7 +1497,6 @@ async function readFullscreenToolbarRuntime(
   const platform = e2ePlatform();
   if (
     coreTabIds.length === 0 || inspection.surfaces.length === 0 ||
-    !inspection.surfaces.some((surface) => surface.kind === "role") ||
     logical.windowGeneration !== inspection.windowGeneration ||
     logical.revision !== inspection.topologyRevision ||
     nativeWindow.windowGeneration !== inspection.windowGeneration ||

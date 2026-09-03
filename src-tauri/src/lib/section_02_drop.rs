@@ -803,6 +803,9 @@ async fn execute_game_window_close_transaction(
                 failure_code,
             );
             let _ = app.emit("rion://window-lifecycle", receipt);
+            eprintln!(
+                "Game Window role cookie checkpoint failed: window={window_id} error={message}"
+            );
             return Err(shell_error(failure_code, message));
         }
         let request: RuntimeWindowStopRequestRecord = match state

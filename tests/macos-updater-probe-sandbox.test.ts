@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
@@ -18,7 +19,7 @@ import { createMacosUpdaterProbeSandboxProfile } from
 
 const execFileAsync = promisify(execFile);
 
-describe("macOS updater probe Seatbelt", () => {
+describe.skipIf(process.platform === "win32")("macOS updater probe Seatbelt", () => {
   it("runs the production-trust probe with Seatbelt and a closed parent env", async () => {
     const [workflow, probe] = await Promise.all([
       readFile(

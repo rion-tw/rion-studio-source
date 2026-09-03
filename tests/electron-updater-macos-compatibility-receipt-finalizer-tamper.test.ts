@@ -1,5 +1,6 @@
 import { lstat, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +11,9 @@ import {
   sha256
 } from "./support/electronUpdaterMacosCompatibilityFinalizerFixture";
 
-describe("macOS compatibility terminal receipt tamper rejection", () => {
+describe.skipIf(process.platform === "win32")(
+  "macOS compatibility terminal receipt tamper rejection",
+  () => {
   it("requires the exact parent-observed isolation result digest", async () => {
     const fixture = await createMacosCompatibilityFinalizerFixture();
     try {
@@ -183,7 +186,8 @@ describe("macOS compatibility terminal receipt tamper rejection", () => {
       await targetFixture.cleanup();
     }
   });
-});
+  }
+);
 
 async function mutateProvisionalReceipt(
   receiptPath: string,

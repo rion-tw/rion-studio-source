@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import process from "node:process";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
@@ -12,7 +13,9 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-describe("macOS Electron updater compatibility receipt CLI", () => {
+describe.skipIf(process.platform === "win32")(
+  "macOS Electron updater compatibility receipt CLI",
+  () => {
   it("maps every explicit path and binding into the parent-only finalizer", async () => {
     const fixture = await createMacosCompatibilityFinalizerFixture();
     try {
@@ -98,7 +101,8 @@ describe("macOS Electron updater compatibility receipt CLI", () => {
     );
     expect(stderr).not.toContain(sentinel);
   });
-});
+  }
+);
 
 function fixtureArguments(
   fixture: Awaited<ReturnType<typeof createMacosCompatibilityFinalizerFixture>>

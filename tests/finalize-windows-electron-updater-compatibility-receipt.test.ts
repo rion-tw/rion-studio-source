@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
@@ -34,9 +35,10 @@ describe("Windows Electron updater compatibility receipt CLI", () => {
           }
         }
       });
-      expect(result.receiptPath).toBe(
-        `${fixture.sealedOutputRoot}/terminal-layout-probe-receipt.json`
-      );
+      expect(result.receiptPath).toBe(join(
+        fixture.sealedOutputRoot,
+        "terminal-layout-probe-receipt.json"
+      ));
     } finally {
       await fixture.cleanup();
     }

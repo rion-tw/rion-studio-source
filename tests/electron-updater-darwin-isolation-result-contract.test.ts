@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +19,9 @@ import {
   createMacosCompatibilityFinalizerFixture
 } from "./support/electronUpdaterMacosCompatibilityFinalizerFixture";
 
-describe("Electron updater Darwin isolation result contract", () => {
+describe.skipIf(process.platform === "win32")(
+  "Electron updater Darwin isolation result contract",
+  () => {
   it("writes factory-backed active-zero evidence as canonical create-new JSON", async () => {
     const fixture = await createMacosCompatibilityFinalizerFixture();
     try {
@@ -99,4 +102,5 @@ describe("Electron updater Darwin isolation result contract", () => {
       ]);
     }
   });
-});
+  }
+);

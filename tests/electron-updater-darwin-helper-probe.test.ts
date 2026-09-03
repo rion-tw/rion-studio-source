@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import process from "node:process";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,7 +23,7 @@ import type {
 
 const ATTEMPT_ID = "update-install-12345678-1234-4123-8123-123456789abc";
 
-describe("Electron updater Darwin helper probe", () => {
+describe.skipIf(process.platform === "win32")("Electron updater Darwin helper probe", () => {
   it("admits the exact helper before ACK and closes both ownership fences", async () => {
     const fixture = await createHelperFixture();
     const events: string[] = [];

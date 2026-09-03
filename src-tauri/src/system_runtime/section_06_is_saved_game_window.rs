@@ -750,6 +750,18 @@ impl SystemRuntimeExecutor {
                 Instant::now(),
             );
             self.publish_projection();
+            // Selection may commit while an on-demand tab still has no materialized surface, so
+            // its first persistence request has no complete native snapshot to write. Essential
+            // readiness is the exact event that makes the selected tab durable.
+            if phase == LaunchPhase::EssentialReady
+                && let Ok(Some(window_id)) = self.presentation.tab_window(tab_id)
+                && self
+                    .presentation
+                    .existing(&window_id)
+                    .is_some_and(|window| window.selected_tab_id.as_deref() == Some(tab_id))
+            {
+                self.schedule_live_window_state_persistence(&window_id);
+            }
             if let Some(role_id) = ready_role_id {
                 self.report_system_surface_state_async(role_id, None, true);
             }

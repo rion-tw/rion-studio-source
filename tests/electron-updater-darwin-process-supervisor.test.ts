@@ -29,7 +29,9 @@ import type {
 const LAUNCHED_AFTER_MILLISECONDS = 1_800_000_000_000;
 const CURRENT_USER_ID = process.getuid?.() ?? 501;
 
-describe("Electron updater Darwin process supervisor", () => {
+describe.skipIf(process.platform === "win32")(
+  "Electron updater Darwin process supervisor",
+  () => {
   it("admits the exact helper and reaches audit-token active-zero for its descendants", async () => {
     const fixture = await createSupervisorFixture();
     const helper = processRecord({
@@ -242,7 +244,8 @@ describe("Electron updater Darwin process supervisor", () => {
     expect(source).not.toMatch(/\b(?:pkill|pgrep)\b/u);
     expect(source).not.toContain("-f");
   });
-});
+  }
+);
 
 async function createSupervisorFixture() {
   const temporaryLink = await mkdtemp(join(tmpdir(), "rion-updater-supervisor-"));

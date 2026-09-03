@@ -38,7 +38,9 @@ import { createDarwinPrivatePackagedElectronBundle } from
 
 const executeFile = promisify(execFile);
 
-describe("packaged Electron macOS process ownership", () => {
+describe.skipIf(process.platform === "win32")(
+  "packaged Electron macOS process ownership",
+  () => {
   it("parses exact bounded process identities and rejects duplicate or unsafe records", () => {
     const pathHex = Buffer.from("/Applications/Rion Studio.app/Contents/MacOS/Rion Studio")
       .toString("hex");
@@ -561,7 +563,8 @@ describe("packaged Electron macOS process ownership", () => {
     },
     5_000
   );
-});
+  }
+);
 
 async function killExactFixtureProcesses(
   inventoryExecutablePath: string,

@@ -4,10 +4,13 @@ import { describe, expect, it } from "vitest";
 
 describe("runtime window lifecycle authority", () => {
   it("reads close-time WebView cookies outside the async IPC worker", async () => {
-    const source = await readFile(
-      new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url),
-      "utf8"
-    );
+    const [source, sessionStorage] = await Promise.all([
+      readFile(new URL("../src-tauri/src/lib/section_02_drop.rs", import.meta.url), "utf8"),
+      readFile(new URL(
+        "../src-tauri/src/system_runtime/section_29_session_storage.rs",
+        import.meta.url
+      ), "utf8")
+    ]);
     const checkpoint = source.slice(
       source.indexOf("async fn checkpoint_window_close_role_cookies("),
       source.indexOf("async fn process_deferred_windows_close_requested(")
@@ -16,6 +19,22 @@ describe("runtime window lifecycle authority", () => {
     expect(checkpoint).toContain("spawn_blocking(move ||");
     expect(checkpoint).toContain("runtime.checkpoint_window_close_role_cookies(&tab_ids)");
     expect(checkpoint).toContain("SYSTEM_WINDOW_CLOSE_COOKIE_CHECKPOINT_INTERRUPTED");
+    expect(sessionStorage).toContain("role_surface.workspace_web.is_some()");
+    expect(sessionStorage).toContain("surface.workspace_web.is_none()");
+  });
+
+  it("persists a newly materialized selected tab at essential readiness", async () => {
+    const runtime = await readFile(new URL(
+      "../src-tauri/src/system_runtime/section_06_is_saved_game_window.rs",
+      import.meta.url
+    ), "utf8");
+    const setLaunchPhase = runtime.slice(
+      runtime.indexOf("fn set_launch_phase("),
+      runtime.indexOf("fn notify_optional_idle_changed(")
+    );
+
+    expect(setLaunchPhase).toContain("phase == LaunchPhase::EssentialReady");
+    expect(setLaunchPhase).toContain("self.schedule_live_window_state_persistence(&window_id)");
   });
 
   it("returns from the macOS native shortcut before waiting for AppKit presentation", async () => {

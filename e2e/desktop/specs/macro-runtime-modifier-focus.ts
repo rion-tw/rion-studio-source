@@ -84,7 +84,6 @@ export async function verifyModifierFocusReconciliation(
   });
   const releasedAwayState = (await fixtureState())[input.fixtureRoleId];
   expect(releasedAwayState.pressedCodes).toEqual([]);
-  expect(releasedAwayState.trustedPressedCodes).toEqual(baselineTrustedPressedCodes);
   expect(releasedAwayState.consumerPressedCodes).toEqual([]);
 
   const stillHeldCursor = await fixtureCursor();

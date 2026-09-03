@@ -58,10 +58,10 @@ describe("native application shortcut target modes", () => {
     expect(focusedBranch).toContain("mainWindow is not focusedWindow");
     expect(focusedBranch).toContain('attribute "AXFullScreen" of focusedWindow');
     expect(focusedBranch).toContain("fullscreenRestoreOwner is false");
-    expect(focusedBranch).toContain("entire contents of targetProcess");
     expect(focusedBranch).toContain(
-      "set runtimeElements to get entire contents of targetProcess"
+      "set runtimeElements to get entire contents of focusedWindow"
     );
+    expect(focusedBranch).not.toContain("entire contents of targetProcess");
     expect(focusedBranch).toContain(
       "set candidate to contents of candidateReference"
     );

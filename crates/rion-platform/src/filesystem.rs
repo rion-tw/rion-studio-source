@@ -2,6 +2,34 @@ use std::{fs::File, path::Path};
 
 use crate::PlatformError;
 
+#[cfg(windows)]
+fn windows_api_path(path: &Path, operation: &str) -> Result<Vec<u16>, PlatformError> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const SEPARATOR: u16 = b'\\' as u16;
+    const QUESTION_MARK: u16 = b'?' as u16;
+    const DOT: u16 = b'.' as u16;
+
+    let absolute = std::path::absolute(path).map_err(|error| {
+        PlatformError::Operation(format!("resolve absolute path for {operation}: {error}"))
+    })?;
+    let encoded = absolute.as_os_str().encode_wide().collect::<Vec<_>>();
+    let already_namespaced = encoded.starts_with(&[SEPARATOR, SEPARATOR, QUESTION_MARK, SEPARATOR])
+        || encoded.starts_with(&[SEPARATOR, SEPARATOR, DOT, SEPARATOR]);
+    let mut api_path = if already_namespaced {
+        encoded
+    } else if encoded.starts_with(&[SEPARATOR, SEPARATOR]) {
+        "\\\\?\\UNC\\"
+            .encode_utf16()
+            .chain(encoded.into_iter().skip(2))
+            .collect()
+    } else {
+        "\\\\?\\".encode_utf16().chain(encoded).collect()
+    };
+    api_path.push(0);
+    Ok(api_path)
+}
+
 #[cfg(not(windows))]
 pub fn verify_open_file_identity(path: &Path, opened: &File) -> Result<(), PlatformError> {
     use std::os::unix::fs::MetadataExt;
@@ -69,7 +97,6 @@ pub fn restrict_directory_to_current_user(_root: &Path) -> Result<(), PlatformEr
 
 #[cfg(windows)]
 pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformError> {
-    use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::MetadataExt;
 
     use windows::{
@@ -93,11 +120,7 @@ pub fn restrict_directory_to_current_user(root: &Path) -> Result<(), PlatformErr
         path: &Path,
         acl: *const windows::Win32::Security::ACL,
     ) -> Result<(), PlatformError> {
-        let path = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>();
+        let path = windows_api_path(path, "current-user ACL")?;
         let information = DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
         let status = unsafe {
             SetNamedSecurityInfoW(
@@ -237,49 +260,48 @@ pub fn atomic_replace_file(source: &Path, destination: &Path) -> Result<(), Plat
 
 #[cfg(windows)]
 pub fn atomic_replace_file(source: &Path, destination: &Path) -> Result<(), PlatformError> {
-    use std::os::windows::ffi::OsStrExt;
-
     use windows::{
         Win32::Storage::FileSystem::{
             MOVE_FILE_FLAGS, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+            REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
         },
         core::PCWSTR,
     };
 
-    fn api_path(path: &Path) -> Result<Vec<u16>, PlatformError> {
-        const SEPARATOR: u16 = b'\\' as u16;
-        const QUESTION_MARK: u16 = b'?' as u16;
-        const DOT: u16 = b'.' as u16;
-
-        let absolute = std::path::absolute(path).map_err(|error| {
-            PlatformError::Operation(format!(
-                "resolve absolute path for atomic file replacement: {error}"
-            ))
-        })?;
-        let encoded = absolute.as_os_str().encode_wide().collect::<Vec<_>>();
-        let already_namespaced =
-            encoded.starts_with(&[SEPARATOR, SEPARATOR, QUESTION_MARK, SEPARATOR])
-                || encoded.starts_with(&[SEPARATOR, SEPARATOR, DOT, SEPARATOR]);
-        let mut api_path = if already_namespaced {
-            encoded
-        } else if encoded.starts_with(&[SEPARATOR, SEPARATOR]) {
-            "\\\\?\\UNC\\"
-                .encode_utf16()
-                .chain(encoded.into_iter().skip(2))
-                .collect()
-        } else {
-            "\\\\?\\".encode_utf16().chain(encoded).collect()
-        };
-        api_path.push(0);
-        Ok(api_path)
+    let destination_exists = destination.try_exists().map_err(|error| {
+        PlatformError::Operation(format!("inspect atomic replacement destination: {error}"))
+    })?;
+    let source_api = windows_api_path(source, "atomic file replacement")?;
+    let destination_api = windows_api_path(destination, "atomic file replacement")?;
+    if destination_exists {
+        match unsafe {
+            ReplaceFileW(
+                PCWSTR(destination_api.as_ptr()),
+                PCWSTR(source_api.as_ptr()),
+                PCWSTR::null(),
+                REPLACEFILE_WRITE_THROUGH,
+                None,
+                None,
+            )
+        } {
+            Ok(()) => return Ok(()),
+            Err(_) if !destination.try_exists().unwrap_or(true) => {}
+            Err(error) => {
+                return Err(PlatformError::Operation(format!(
+                    "atomic file replacement failed: {error}"
+                )));
+            }
+        }
     }
-
-    let source = api_path(source)?;
-    let destination = api_path(destination)?;
     let flags = MOVE_FILE_FLAGS(MOVEFILE_REPLACE_EXISTING.0 | MOVEFILE_WRITE_THROUGH.0);
-    unsafe { MoveFileExW(PCWSTR(source.as_ptr()), PCWSTR(destination.as_ptr()), flags) }.map_err(
-        |error| PlatformError::Operation(format!("atomic file replacement failed: {error}")),
-    )
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source_api.as_ptr()),
+            PCWSTR(destination_api.as_ptr()),
+            flags,
+        )
+    }
+    .map_err(|error| PlatformError::Operation(format!("atomic file replacement failed: {error}")))
 }
 
 #[cfg(test)]
@@ -337,5 +359,60 @@ mod tests {
 
         assert_eq!(std::fs::read(&destination).unwrap(), b"new");
         assert!(!source.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replaces_a_destination_while_an_existing_reader_shares_delete_access() {
+        use std::{io::Read, os::windows::fs::OpenOptionsExt};
+
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+        const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.tmp");
+        let destination = directory.path().join("result.json");
+        std::fs::write(&source, b"new").unwrap();
+        std::fs::write(&destination, b"old").unwrap();
+        let mut prior_reader = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .open(&destination)
+            .unwrap();
+
+        atomic_replace_file(&source, &destination).unwrap();
+
+        let mut prior_bytes = Vec::new();
+        prior_reader.read_to_end(&mut prior_bytes).unwrap();
+        assert_eq!(prior_bytes, b"old");
+        assert_eq!(std::fs::read(&destination).unwrap(), b"new");
+        assert!(!source.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn protects_a_directory_tree_beyond_the_legacy_windows_path_limit() {
+        use std::os::windows::ffi::OsStrExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let long_directory = directory.path().join("a".repeat(120)).join("b".repeat(120));
+        let nested = long_directory.join("browser").join("chromium");
+        std::fs::create_dir_all(&nested).unwrap();
+        let marker = long_directory.join("role-initialization.json");
+        std::fs::write(&marker, b"evidence").unwrap();
+        assert!(
+            std::path::absolute(&marker)
+                .unwrap()
+                .as_os_str()
+                .encode_wide()
+                .count()
+                > 260
+        );
+
+        restrict_directory_to_current_user(&long_directory).unwrap();
+
+        assert_eq!(std::fs::read(marker).unwrap(), b"evidence");
+        assert!(nested.is_dir());
     }
 }

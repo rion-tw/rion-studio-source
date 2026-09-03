@@ -946,6 +946,7 @@ pub(crate) fn write_private_bytes_atomic(
         let mut output = options.open(&temporary).map_err(PersistenceError::Io)?;
         output.write_all(content).map_err(PersistenceError::Io)?;
         output.sync_all().map_err(PersistenceError::Io)?;
+        drop(output);
         rion_platform::atomic_replace_file(&temporary, path)
             .map_err(|_| PersistenceError::AtomicReplace)?;
         sync_directory(parent)?;

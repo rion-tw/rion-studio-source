@@ -309,10 +309,11 @@ unsafe extern "C" {
         controller: *mut c_void,
         tab_id: *const c_char,
         name: *const c_char,
+        phase: *const c_char,
         tab_type: *const c_char,
         workspace_template: *const c_char,
         window_id: *const c_char,
-    );
+    ) -> bool;
     fn rion_runtime_tabs_reserve(
         controller: *mut c_void,
         tab_id: *const c_char,
@@ -906,6 +907,7 @@ impl MacRuntimeTabsController {
         let inner = Arc::clone(&self.inner);
         let tab_id = c_string(tab_id);
         let name = c_string(name);
+        let phase = c_string("ready");
         let tab_type = c_string(tab_type);
         let workspace_template = workspace_template.map(c_string);
         let window_id = c_string(window_id);
@@ -914,6 +916,7 @@ impl MacRuntimeTabsController {
                 inner.raw,
                 tab_id.as_ptr(),
                 name.as_ptr(),
+                phase.as_ptr(),
                 tab_type.as_ptr(),
                 workspace_template
                     .as_ref()

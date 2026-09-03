@@ -216,7 +216,10 @@ on run argv
         -- The entire-contents expression is an AppleScript object specifier. Materialize it
         -- before iteration or per-element AX attribute reads fail lazily and an
         -- empty try block can make a populated process look like it has no tabs.
-        set runtimeElements to get entire contents of targetProcess
+        -- Scope the accessibility walk to the already-fenced focused window.
+        -- Enumerating the whole Electron process also walks every Chromium
+        -- document and can exceed the bounded native-action transaction.
+        set runtimeElements to get entire contents of focusedWindow
         repeat with candidateReference in runtimeElements
           set candidate to contents of candidateReference
           try

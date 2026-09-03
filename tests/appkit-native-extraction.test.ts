@@ -54,6 +54,30 @@ describe("shared AppKit runtime controller", () => {
     expect(tauriBridge).toContain("rion_tauri_install_safe_tao_webkit_event_dispatch");
   });
 
+  it("keeps the stable shell's native-tab ensure call aligned with ABI v6", async () => {
+    const tauriBridge = await readFile(
+      "src-tauri/src/runtime_tabs_macos/section_01_controller_creation_timeout.rs",
+      "utf8"
+    );
+    const declaration = tauriBridge.slice(
+      tauriBridge.indexOf("fn rion_runtime_tabs_ensure("),
+      tauriBridge.indexOf("fn rion_runtime_tabs_reserve(")
+    );
+    const ensure = tauriBridge.slice(
+      tauriBridge.indexOf("    pub fn ensure("),
+      tauriBridge.indexOf("    pub fn reserve(")
+    );
+
+    expect(declaration).toMatch(
+      /name: \*const c_char,\s+phase: \*const c_char,\s+tab_type: \*const c_char/u
+    );
+    expect(declaration).toContain(") -> bool;");
+    expect(ensure).toContain('let phase = c_string("ready");');
+    expect(ensure).toMatch(
+      /name\.as_ptr\(\),\s+phase\.as_ptr\(\),\s+tab_type\.as_ptr\(\)/u
+    );
+  });
+
   it("keeps the stable v22 WebKit probe out of the Chromium addon", async () => {
     const [nodeManifest, tauriManifest, platformProbe] = await Promise.all([
       readFile("crates/rion-node/Cargo.toml", "utf8"),

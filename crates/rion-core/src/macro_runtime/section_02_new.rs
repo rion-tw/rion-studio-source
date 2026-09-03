@@ -1,3 +1,10 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RoleOwnershipTransferAdmission {
+    pub(crate) input_epoch: u64,
+    pub(crate) preserves_active_macro: bool,
+    pub(crate) transfer_started: bool,
+}
+
 impl MacroRuntime {
     pub fn new(events: EventSink) -> Self {
         Self::new_with_waiter(events, Arc::new(default_wait))
@@ -405,7 +412,10 @@ impl MacroRuntime {
         Ok(())
     }
 
-    pub fn begin_role_ownership_transfer(&self, role_id: &str) -> CoreResult<bool> {
+    pub(crate) fn begin_role_ownership_transfer(
+        &self,
+        role_id: &str,
+    ) -> CoreResult<RoleOwnershipTransferAdmission> {
         let input_sequence_locks = input_sequence_role_locks(
             &self.shared,
             &[role_id.to_owned()],
@@ -442,17 +452,74 @@ impl MacroRuntime {
             drop(role_guards);
             drop(input_sequence_guards);
             self.request_stop_role(role_id)?;
-            return Ok(false);
+            let input_epoch = self
+                .shared
+                .inner
+                .lock()
+                .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?
+                .input_epochs
+                .get(role_id)
+                .copied()
+                .unwrap_or_default();
+            return Ok(RoleOwnershipTransferAdmission {
+                input_epoch,
+                preserves_active_macro: false,
+                transfer_started: false,
+            });
         }
         inner.transferring_role_ids.insert(role_id.to_owned());
         inner.quiesced_role_ids.insert(role_id.to_owned());
         let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
         *epoch = epoch.saturating_add(1);
+        let input_epoch = *epoch;
         drop(inner);
         drop(role_guards);
         drop(input_sequence_guards);
         self.shared.role_transfer_changed.notify_all();
-        Ok(preserves_active_macro)
+        Ok(RoleOwnershipTransferAdmission {
+            input_epoch,
+            preserves_active_macro,
+            transfer_started: true,
+        })
+    }
+
+    pub(crate) fn complete_role_ownership_transfer_after_launch(
+        &self,
+        role_id: &str,
+        transfer_input_epoch: u64,
+    ) -> CoreResult<bool> {
+        let mut inner = self
+            .shared
+            .inner
+            .lock()
+            .map_err(|_| CoreError::Internal("macro runtime lock poisoned".to_owned()))?;
+        let current_input_epoch = inner
+            .input_epochs
+            .get(role_id)
+            .copied()
+            .unwrap_or_default();
+        if current_input_epoch < transfer_input_epoch {
+            return Ok(false);
+        }
+        if current_input_epoch == transfer_input_epoch {
+            if !inner.transferring_role_ids.contains(role_id) {
+                return Ok(false);
+            }
+            cancel_recovery_for_role(&mut inner, role_id);
+            inner.stopping_role_ids.remove(role_id);
+            inner.quiesced_role_ids.remove(role_id);
+            inner.recovering_role_ids.remove(role_id);
+            inner.restart_required_role_ids.remove(role_id);
+            let epoch = inner.input_epochs.entry(role_id.to_owned()).or_default();
+            *epoch = epoch.saturating_add(1);
+        }
+        // A newer epoch belongs to the main-frame navigation fence that began
+        // while the native transfer was completing. Retire only the transfer;
+        // that exact fence remains quiesced and owns the eventual resume.
+        inner.transferring_role_ids.remove(role_id);
+        drop(inner);
+        self.shared.role_transfer_changed.notify_all();
+        Ok(true)
     }
 
     pub fn role_ownership_transfer_active(&self, role_id: &str) -> CoreResult<bool> {

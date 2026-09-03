@@ -726,6 +726,7 @@ impl AppCore {
             kind: "normal".to_owned(),
         })?;
         let mut preserves_active_macro = false;
+        let mut ownership_transfer = None;
         let result = (|| -> CoreResult<crate::model::BrowserRuntimeSnapshot> {
             let role = self
                 .read_typed_state_collection::<StateRoleRecord>("roles")?
@@ -779,8 +780,10 @@ impl AppCore {
                     .find(|runtime_role| runtime_role.role_id == role_id)
                     .map(|runtime_role| runtime_role.owner.clone());
                 if let Some(owner) = source_owner.as_ref() {
-                    preserves_active_macro =
+                    let admission =
                         self.macro_runtime.begin_role_ownership_transfer(&role_id)?;
+                    preserves_active_macro = admission.preserves_active_macro;
+                    ownership_transfer = Some(admission);
                     self.invoke_browser_runtime(BrowserRuntimeCommand::RoleTransition {
                         role_id: role_id.clone(),
                         runtime: "embedded".to_owned(),
@@ -974,7 +977,26 @@ impl AppCore {
         match (result, completion) {
             (Ok(snapshot), Ok(())) => {
                 if !preserves_active_macro {
-                    self.macro_runtime.allow_role_after_launch(&role_id);
+                    if let Some(admission) = ownership_transfer {
+                        if admission.transfer_started {
+                            let completed = self
+                                .macro_runtime
+                                .complete_role_ownership_transfer_after_launch(
+                                    &role_id,
+                                    admission.input_epoch,
+                                )?;
+                            if !completed {
+                                return Err(CoreError::Internal(
+                                    "role ownership transfer completion changed input epoch"
+                                        .to_owned(),
+                                ));
+                            }
+                        } else {
+                            self.macro_runtime.allow_role_after_launch(&role_id);
+                        }
+                    } else {
+                        self.macro_runtime.allow_role_after_launch(&role_id);
+                    }
                 }
                 // An ownership transfer remains quiesced until the native
                 // navigation fence observes both input drain and page-ready.

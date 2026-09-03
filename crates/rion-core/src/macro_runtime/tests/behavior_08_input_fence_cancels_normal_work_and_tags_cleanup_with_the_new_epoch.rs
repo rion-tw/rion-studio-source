@@ -101,7 +101,10 @@ fn navigation_failure_terminalizes_a_transferred_multi_role_run_after_a_recovery
         .insert(control.id.clone(), Arc::clone(&control));
     runtime.seed_running_status("m1", "r1").unwrap();
     runtime.seed_running_status("m1", "r2").unwrap();
-    assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
+    assert!(runtime
+        .begin_role_ownership_transfer("r1")
+        .unwrap()
+        .preserves_active_macro);
     let recovery_epoch = runtime.fence_role_input("r1").unwrap();
 
     assert!(runtime
@@ -280,7 +283,10 @@ fn ownership_transfer_preserves_and_resumes_the_active_macro_role_identity() {
     let release = next_browser_actions(&receiver);
     runtime.dispatch_results(success_results(release)).unwrap();
 
-    assert!(runtime.begin_role_ownership_transfer("r1").unwrap());
+    assert!(runtime
+        .begin_role_ownership_transfer("r1")
+        .unwrap()
+        .preserves_active_macro);
     assert!(runtime.role_ownership_transfer_active("r1").unwrap());
     let input_epoch = runtime.fence_role_input("r1").unwrap();
     assert!(runtime.drain_role_input("r1", input_epoch).unwrap());
@@ -307,9 +313,40 @@ fn ownership_transfer_preserves_and_resumes_the_active_macro_role_identity() {
 fn ownership_transfer_without_active_macro_needs_no_preserved_invocation() {
     let runtime = MacroRuntime::new(Arc::new(|_| {}));
 
-    assert!(!runtime.begin_role_ownership_transfer("r1").unwrap());
+    let admission = runtime.begin_role_ownership_transfer("r1").unwrap();
+    assert!(!admission.preserves_active_macro);
+    assert!(admission.transfer_started);
     assert!(runtime.role_ownership_transfer_active("r1").unwrap());
-    runtime.allow_role_after_launch("r1");
+    assert!(runtime
+        .complete_role_ownership_transfer_after_launch("r1", admission.input_epoch)
+        .unwrap());
+    assert!(!runtime.role_ownership_transfer_active("r1").unwrap());
+}
+
+#[test]
+fn inactive_transfer_completion_preserves_a_newer_navigation_input_fence() {
+    let runtime = MacroRuntime::new(Arc::new(|_| {}));
+    let admission = runtime.begin_role_ownership_transfer("r1").unwrap();
+    assert!(!admission.preserves_active_macro);
+    assert!(admission.transfer_started);
+
+    let navigation_epoch = runtime.fence_role_input("r1").unwrap();
+    assert!(navigation_epoch > admission.input_epoch);
+    assert!(runtime.drain_role_input("r1", navigation_epoch).unwrap());
+    assert!(runtime
+        .complete_role_ownership_transfer_after_launch("r1", admission.input_epoch)
+        .unwrap());
+    let diagnostic = runtime
+        .input_diagnostics()
+        .unwrap()
+        .roles
+        .into_iter()
+        .find(|role| role.role_id == "r1")
+        .unwrap();
+    assert_eq!(diagnostic.input_epoch, navigation_epoch);
+    assert!(diagnostic.quiesced);
+    assert!(!diagnostic.stopping);
+    assert!(runtime.resume_role_input("r1", navigation_epoch).unwrap());
     assert!(!runtime.role_ownership_transfer_active("r1").unwrap());
 }
 
